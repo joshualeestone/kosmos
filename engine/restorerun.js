@@ -174,14 +174,23 @@ async function runRestore(opts) {
   }
   if (!opened) return { ok: false, because: 'the backup\'s manifest does not open under this member\'s device key for that time' };
   const objects = opened.objects && typeof opened.objects === 'object' ? opened.objects : {};
-  // slice 2: a read-grant fetcher (engine/restorefetch.js) is told every object the manifest names before the first
-  // chunk, so it grants them in batches rather than one call per chunk; a grant it cannot get stops the restore here.
+  // slice 2: a read-grant fetcher (engine/restorefetch.js) is told every chunk key before the first chunk, in the order
+  // backuprestore will ask for them (file by file, review 1: the opened objects map is ordered by chunk name), so it
+  // grants them in batches rather than one call per chunk. Its plan grants the first batch, so a refusal (no release,
+  // the hourly cap) stops the restore here with its reason, before any file is begun.
   const planOf = (p) => (p && typeof p === 'object' ? p : {});
   if (typeof opts.plan === 'function') {
-    const keys = [...new Set(Object.values(objects).filter((k) => keyOk(k, org, member)))];
+    const inOrder = [];
+    for (const f of Array.isArray(opened.files) ? opened.files : []) {
+      for (const name of (f && Array.isArray(f.chunks) ? f.chunks : [])) {
+        const k = typeof name === 'string' && Object.prototype.hasOwnProperty.call(objects, name) ? objects[name] : null;
+        if (keyOk(k, org, member)) inOrder.push(k);
+      }
+    }
+    const keys = [...new Set(inOrder)];
     let p;
     try { p = planOf(await opts.plan(keys)); } catch { p = { ok: false }; }
-    if (p.ok === false) return { ok: false, because: typeof p.because === 'string' && p.because ? p.because : 'the backup\'s files could not be granted' };
+    if (p.ok === false) return { ok: false, because: typeof p.because === 'string' && p.because ? p.because : 'the backup\'s files could not be fetched' };
   }
   const fetchChunk = async (name, o) => {
     const key = Object.prototype.hasOwnProperty.call(objects, name) ? objects[name] : null;
@@ -200,12 +209,16 @@ async function runRestore(opts) {
   }
   // slice 2: why some files were not fetched (a grant refused part way, or files under an earlier key), so the person
   // is told the reason and not only which files failed.
-  let fetchProblems = [];
+  let fetchProblems = [], stoppedBecause = null;
   if (typeof opts.planned === 'function') {
     let p;
     try { p = planOf(opts.planned()); } catch { p = {}; }
-    if (typeof p.because === 'string' && p.because) fetchProblems.push(p.because);
+    if (typeof p.because === 'string' && p.because) { stoppedBecause = p.because; fetchProblems.push(p.because); }
     if (Array.isArray(p.unreadableBecause)) fetchProblems = fetchProblems.concat(p.unreadableBecause.filter((x) => typeof x === 'string'));
+  }
+  // A fetcher that stopped (a refusal part way, or Kosmos+ out of reach) while nothing was restored is no success.
+  if (!result.restored.length && stoppedBecause) {
+    return { ok: false, because: stoppedBecause };
   }
   return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result, fetchProblems };
 }

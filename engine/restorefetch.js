@@ -10,26 +10,40 @@
  * with one presigned GET per key, usable for 5 minutes.
  *
  * Why it batches: the route allows READ_GRANT_CALLS (40) calls an hour and 500 keys a call, and backuprestore asks for
- * chunks one at a time. So runRestore hands plan() every object key the opened manifest names, and a chunk's first
- * fetch grants its whole batch of 500. A URL near its expiry, or one S3 answers as expired, is granted again for its
- * batch, never per chunk. A refused grant (a 429 included) stops every later fetch with its reason (planned().because).
+ * chunks one at a time. So runRestore hands plan() every chunk key in the order restore will fetch them (file by file),
+ * plan() grants the first batch at once (so a refusal stops the restore before any file, with its reason), and each
+ * later batch is granted on its first fetch. A URL near its expiry, or one S3 answers as expired, is granted again for
+ * the keys of its batch not yet fetched, never per chunk. A refusal (a 429 included) stops every later fetch with its
+ * reason (planned().because); a grant that could not be reached is tried again on the next fetch, at most
+ * MAX_UNREACHED times in all.
+ *
+ * Expiry is kept on THIS computer's clock (review 1): a URL counts as usable for URL_LIFETIME_MS from when its grant was
+ * asked for. expires_at is on the coordinator's clock, so comparing it with a clock a few minutes fast made every URL
+ * look stale the moment it arrived; it is still required in the answer, and S3's own expired answer is the backstop.
  *
  * Nothing it is handed is trusted for content: every answer must echo the request (member, epoch, the manifest's key,
- * the recorded sha256 and size) and name only keys that were asked for, every URL must be https and is never
- * redirected, and every body is cut off at maxBytes. runRestore and backuprestore then check every byte against the
- * device-signed manifest, so a wrong URL reads as a failure, never as the member's data.
+ * the recorded sha256 and size) and name exactly the keys asked for; every URL must be https, on the manifest URL's own
+ * host, with a path that ends in its key, and never a bare IP address or localhost (review 1: otherwise a breached
+ * coordinator could point this computer's GETs anywhere); nothing is redirected and no body is read past maxBytes.
+ * runRestore and backuprestore then check every byte against the device-signed manifest, so a wrong URL reads as a
+ * failure, never as the member's data.
  *
- * Not here, and refused by name instead (#5536 comment 6404447686): a chunk under another key epoch. backupsnapshot.js
- * keeps an indexed chunk's epoch on purpose, the route grants only the request's epoch, and runRestore opens with one
- * member key, so a snapshot taken after a rotation inside its week names chunks this restore cannot read yet.
+ * Not here, and refused by name instead (#5536 comment 6404447686; the open card for it is #7156): a chunk under
+ * another key epoch. backupsnapshot.js keeps an indexed chunk's epoch on purpose, the route grants only the request's
+ * epoch, and runRestore opens with one member key, so a snapshot taken after a rotation inside its week names chunks
+ * this restore cannot read yet.
  */
 
 const GRANT_KEYS = 500;   // the route's most keys in one call
-const EXPIRY_MARGIN_MS = 30000;   // a URL this close to expires_at is granted again before it is used
-const GET_TIMEOUT_MS = 120000;   // one object (restorerun's FETCH_TIMEOUT_MS)
+const URL_LIFETIME_MS = 300000;   // the route's presigned GETs last 5 minutes
+const EXPIRY_MARGIN_MS = 30000;   // a URL this close to its expiry is granted again before it is used
+// One GET, well inside restorerun's FETCH_TIMEOUT_MS (2 min), which also covers a grant and a second try (review 1).
+const GET_TIMEOUT_MS = 45000;
+const MAX_UNREACHED = 3;   // grants that could not be reached before the restore gives up
 const HEX64_RE = /^[0-9a-f]{64}$/;
-const SHA256_RE = /^[0-9a-f]{64}$/;
 const ANOTHER_EPOCH = 'this backup names files sealed under another key of this member, which restore cannot read yet';
+const BAD_LINK = 'Kosmos+ sent back a download link restore will not use';
+const OTHER_FILES = 'Kosmos+ sent back links for different files than restore asked for';
 
 /* Why a key cannot be granted for this manifest, or null: the route's own rule, <org>/<member>/<epoch>/<period>/<64 hex>.
    A key that differs ONLY in its epoch gets its own sentence (the module header's rotation case). */
@@ -42,27 +56,39 @@ function keyProblem(key, { org, member, epoch, period }) {
   return null;
 }
 
-/* An https URL as given, or null: nothing else is fetched. */
-function httpsUrl(u) {
+/* The URL if restore may GET it for `key`: https, a host name (no IP literal, not localhost), the expected origin when
+   one is given, and a path whose decoded form ends in /<key>. Otherwise null. */
+function linkFor(u, key, origin) {
   if (typeof u !== 'string' || u.length > 8192) return null;
-  try { return new URL(u).protocol === 'https:' ? u : null; } catch { return null; }
+  let p;
+  try { p = new URL(u); } catch { return null; }
+  if (p.protocol !== 'https:' || p.username || p.password) return null;
+  const host = p.hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost') || host.startsWith('[') || /^[0-9.]+$/.test(host)) return null;
+  if (origin && p.origin !== origin) return null;
+  let path;
+  try { path = decodeURIComponent(p.pathname); } catch { return null; }
+  return path.endsWith(`/${key}`) ? u : null;
 }
 
 /* Why a grant answer cannot be used for this request, or null. */
 function answerProblem(a, req, rec) {
-  if (!a || typeof a !== 'object') return 'Kosmos+ answered the read grant with nothing usable';
-  if (a.member !== req.member || String(a.epoch) !== req.epoch) return 'Kosmos+ answered the read grant for another member or key';
+  if (!a || typeof a !== 'object') return 'Kosmos+ sent back nothing restore can use';
+  if (a.member !== req.member || String(a.epoch) !== req.epoch) return 'Kosmos+ answered for another member or key';
   const m = a.manifest;
   if (!m || m.key !== rec.key || m.sha256 !== rec.sha256 || (Number.isSafeInteger(rec.size) && m.size !== rec.size)) {
-    return 'Kosmos+ answered the read grant for another backup';
+    return 'Kosmos+ answered for another backup';
   }
-  if (!httpsUrl(m.url)) return 'Kosmos+ answered the read grant with an address restore will not use';
-  if (!Number.isSafeInteger(a.expires_at)) return 'Kosmos+ answered the read grant with no expiry';
-  if (!Array.isArray(a.objects) || a.objects.length !== req.keys.length) return 'Kosmos+ answered the read grant for other files than were asked';
+  const ml = linkFor(m.url, rec.key, null);
+  if (!ml) return BAD_LINK;
+  if (!Number.isSafeInteger(a.expires_at)) return 'Kosmos+ sent back links with no expiry';
+  if (!Array.isArray(a.objects) || a.objects.length !== req.keys.length) return OTHER_FILES;
+  const origin = new URL(ml).origin;
   const asked = new Set(req.keys);
   const seen = new Set();
   for (const o of a.objects) {
-    if (!o || !asked.has(o.key) || seen.has(o.key) || !httpsUrl(o.url)) return 'Kosmos+ answered the read grant for other files than were asked';
+    if (!o || !asked.has(o.key) || seen.has(o.key)) return OTHER_FILES;
+    if (!linkFor(o.url, o.key, origin)) return BAD_LINK;
     seen.add(o.key);
   }
   return null;
@@ -77,7 +103,7 @@ async function getOne(fetchFn, url, maxBytes, timeoutMs) {
     const r = await fetchFn(url, { method: 'GET', redirect: 'manual', signal: ac.signal });
     if (r.status !== 200) {
       let text = '';
-      if (r.status === 403) { try { text = (await readCapped(r, 8192)).toString('utf8'); } catch { /* the code is optional */ } }
+      if (r.status === 403) { try { text = ((await readCapped(r, 8192)) || Buffer.alloc(0)).toString('utf8'); } catch { /* the code is optional */ } }
       else { try { await r.body?.cancel(); } catch { /* nothing to read */ } }
       // Only S3's presigned-url expiry, as engine/backupupload.js reads it for a PUT.
       if (r.status === 403 && /<Code>AccessDenied<\/Code>/.test(text) && /Request has expired/.test(text)) return { kind: 'expired' };
@@ -119,12 +145,14 @@ async function readCapped(r, max) {
 
 /* The fetcher for one recorded manifest. opts:
      grant(body) -> { ok: true, answer } | { ok: false, because, retryAfterSecs? }
-                       body is the route's { member, epoch, manifest, keys }; the caller makes the call
+                       body is the route's { member, epoch, manifest, keys }; the caller makes the call. { ok: false }
+                       is a refusal and stops the restore; a throw or anything else reads as not reached, and is tried
+                       again on the next fetch
      org, member, epoch   as the release names them (epoch as runRestore takes it)
      manifest             the coordinator's record: { key, period, sha256, size }
-     fetch, now           globalThis.fetch and Date.now unless given; getTimeoutMs per GET (default 2 min)
-   Returns { fetchObject(key, { maxBytes }) -> Buffer | null, plan(keys) -> { ok, because?, unreadable }, planned() }.
-   Never throws on what a grant or a store hands it. */
+     fetch, now           globalThis.fetch and Date.now unless given; getTimeoutMs per GET (default 45 s)
+   Returns { fetchObject(key, { maxBytes }) -> Buffer | null, plan(keys) -> promise of planned(), planned() ->
+   { ok, because, unreadable, unreadableBecause } }. Never throws on what a grant or a store hands it. */
 function readGrantFetcher(opts) {
   const grant = opts.grant;
   const fetchFn = opts.fetch || globalThis.fetch;
@@ -132,31 +160,42 @@ function readGrantFetcher(opts) {
   const timeoutMs = Number.isSafeInteger(opts.getTimeoutMs) && opts.getTimeoutMs > 0 ? opts.getTimeoutMs : GET_TIMEOUT_MS;
   const rec = opts.manifest || {};
   const ctx = { org: opts.org, member: opts.member, epoch: String(opts.epoch), period: rec.period };
-  const urls = new Map();   // key -> { url, expiresAtMs }
+  const urls = new Map();   // key -> { url, expiresAtMs } (this computer's clock)
   const batchOf = new Map();   // key -> batch index
   const batches = [[]];   // batch 0 is the manifest alone (keys: [])
+  const done = new Set();   // keys already fetched, never asked for again
   const inFlight = new Map();   // batch index -> promise
   let stopped = null;   // the reason every later fetch is refused
+  let unreached = 0;
   const unreadable = new Map();   // key -> why it is not granted
 
   const fresh = (key) => { const u = urls.get(key); return u && now() < u.expiresAtMs - EXPIRY_MARGIN_MS ? u.url : null; };
 
-  async function grantBatch(i) {
+  async function grantBatch(i, forKey) {
     if (stopped) return;
     if (inFlight.has(i)) return inFlight.get(i);
     const p = (async () => {
       if (typeof grant !== 'function') { stopped = 'restore has no way to ask Kosmos+ for its files'; return; }
-      const body = { member: ctx.member, epoch: Number(ctx.epoch), manifest: rec.key, keys: batches[i].slice() };
+      // Only what is still to come: a batch granted again does not hand out links for files already restored.
+      const keys = batches[i].filter((k) => !done.has(k) || k === forKey);
+      const body = { member: ctx.member, epoch: Number(ctx.epoch), manifest: rec.key, keys };
+      const askedAt = now();
       let g;
-      try { g = await grant(body); } catch { g = null; }
-      if (!g || g.ok !== true) {
-        const wait = g && Number.isSafeInteger(g.retryAfterSecs) && g.retryAfterSecs > 0 ? ` (try again in ${Math.ceil(g.retryAfterSecs / 60)} min)` : '';
-        stopped = `${(g && typeof g.because === 'string' && g.because) || 'Kosmos+ refused to grant this backup\'s files'}${wait}`;
+      try { g = await grant(body); } catch { g = undefined; }
+      if (!g || typeof g !== 'object' || (g.ok !== true && g.ok !== false)) {
+        unreached += 1;
+        if (unreached >= MAX_UNREACHED) stopped = 'restore could not reach Kosmos+ to fetch this backup\'s files';
         return;
       }
-      const why = answerProblem(g.answer, { member: ctx.member, epoch: ctx.epoch, keys: body.keys }, rec);
+      if (g.ok !== true) {
+        const wait = Number.isSafeInteger(g.retryAfterSecs) && g.retryAfterSecs > 0 ? ` (try again in ${Math.ceil(g.retryAfterSecs / 60)} min)` : '';
+        stopped = `${(typeof g.because === 'string' && g.because) || 'Kosmos+ refused to hand out this backup\'s files'}${wait}`;
+        return;
+      }
+      const why = answerProblem(g.answer, { member: ctx.member, epoch: ctx.epoch, keys }, rec);
       if (why) { stopped = why; return; }
-      const expiresAtMs = g.answer.expires_at * 1000;
+      // From when it was asked for, on this clock: expires_at is the coordinator's clock, which this one cannot read.
+      const expiresAtMs = askedAt + URL_LIFETIME_MS;
       urls.set(rec.key, { url: g.answer.manifest.url, expiresAtMs });
       for (const o of g.answer.objects) urls.set(o.key, { url: o.url, expiresAtMs });
     })();
@@ -164,8 +203,8 @@ function readGrantFetcher(opts) {
     try { await p; } finally { inFlight.delete(i); }
   }
 
-  /* The object keys the opened manifest names, in the order they will be fetched. */
-  function plan(keys) {
+  /* The chunk keys the opened manifest names, in the order restore will fetch them. Grants the first batch now. */
+  async function plan(keys) {
     const list = Array.isArray(keys) ? keys : [];
     for (const key of list) {
       if (key === rec.key || batchOf.has(key) || unreadable.has(key)) continue;
@@ -176,6 +215,7 @@ function readGrantFetcher(opts) {
       batches[last].push(key);
       batchOf.set(key, last);
     }
+    if (batches.length > 1 && !batches[1].some((k) => fresh(k))) await grantBatch(1, null);
     return planned();
   }
 
@@ -192,13 +232,17 @@ function readGrantFetcher(opts) {
     else if (batchOf.has(key)) i = batchOf.get(key);
     else return null;   // not planned, or unreadable (planned() says why)
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (!fresh(key)) await grantBatch(i);
+      if (!fresh(key)) await grantBatch(i, key);
       const url = fresh(key);
-      if (!url) return null;
+      if (!url) {
+        if (stopped) return null;
+        continue;   // the grant could not be reached: its second try, within MAX_UNREACHED in all
+      }
       const got = await getOne(fetchFn, url, maxBytes, timeoutMs);
-      if (got.kind === 'bytes') return got.bytes;
+      if (got.kind === 'bytes') { done.add(key); return got.bytes; }
       if (got.kind !== 'expired') return null;
-      urls.delete(key);   // S3 says it lapsed (a fast local clock): grant its batch once more
+      // S3 says it lapsed while it looked fresh here (this clock slow, or a slow grant round trip): once more.
+      urls.delete(key);
     }
     return null;
   }
@@ -206,4 +250,4 @@ function readGrantFetcher(opts) {
   return { fetchObject, plan, planned };
 }
 
-module.exports = { readGrantFetcher, keyProblem, GRANT_KEYS, EXPIRY_MARGIN_MS, ANOTHER_EPOCH };
+module.exports = { readGrantFetcher, keyProblem, GRANT_KEYS, EXPIRY_MARGIN_MS, ANOTHER_EPOCH, BAD_LINK, OTHER_FILES };
