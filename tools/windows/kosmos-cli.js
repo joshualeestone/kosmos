@@ -949,16 +949,18 @@ async function verbNotice(ctx, args) {
   const got = await readPipedMessage(ctx, 'written', 'kosmos notice --from "<source>" --stdin <project-id>, with the text piped in.');
   if (got.code !== undefined) return got.code;
   if (!got.text) { ctx.err('Nothing was written: the notice was empty.'); return 2; }
+  // A job's notice may be its only copy (an alarm fires when the fleet is down): every failure below keeps it, and says where.
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/notice', { text: got.text, source }, { agent: false });
-  if (!r.reached) return ctx.unreachable('write that notice');
+  if (!r.reached) { const code = ctx.unreachable('write that notice'); keepPipedCopy(ctx, got.text); return code; }
   if (r.status >= 200 && r.status < 300) { ctx.out('Written to ' + project + ' as a Kosmos notice from ' + source + '.'); return 0; }
   const because = r.json && typeof r.json.error === 'string' ? r.json.error : '';
   if (r.status === 404) {
     ctx.err(/no project by that name/.test(because) ? 'There is no project called "' + project + '", so there is no room to write into.'
       : 'This board does not know kosmos notice yet: update Kosmos, then try again.');
-    return 1;
+  } else {
+    ctx.err('The notice was not written' + (because ? ': ' + because : '') + '.');
   }
-  ctx.err('The notice was not written' + (because ? ': ' + because : '') + '.');
+  keepPipedCopy(ctx, got.text);
   return 1;
 }
 
@@ -2600,6 +2602,7 @@ const DESCRIBE = {
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
   fingerprint: 'print the fingerprint of a file, to check a handed-off copy (the dates and ID inside a PDF are left out)',
   room: 'read a project room',
+  notice: "a job on this computer writes a line in a room, in Kosmos's voice",
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',
   records: "a project's records (accounts, leads, vendors): list, set, remove, label",
