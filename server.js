@@ -1806,7 +1806,7 @@ function inboxSince(raw) {
   if (!m) return NaN;
   // Date.parse rolls 2026-02-30 over to March 2 rather than refusing it, so the fields are range-checked first.
   const [y, mo, d, h, mi, se] = [m[1], m[2], m[3], m[4], m[5], m[7] || '0'].map(Number);
-  if (mo < 1 || mo > 12 || d < 1 || d > new Date(Date.UTC(y, mo, 0)).getUTCDate() || h > 23 || mi > 59 || se > 59) return NaN;
+  if (y < 1970 || mo < 1 || mo > 12 || d < 1 || d > new Date(Date.UTC(y, mo, 0)).getUTCDate() || h > 23 || mi > 59 || se > 59) return NaN;
   return Date.parse(s.replace(' ', 'T').replace(/([+-]\d\d)(\d\d)$/, '$1:$2'));
 }
 
@@ -17189,8 +17189,8 @@ const server = http.createServer(async (req, res) => {
       const kept = filtered ? all.slice(0, limit) : all.slice(-limit);
       const later = filtered ? all.length - kept.length : 0;
       const nextAt = later && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(all[kept.length].at || '') ? all[kept.length].at : null;
-      // More rows than the limit at one time: --since that time would show the same page again, so name --limit instead.
-      const stuck = later > 0 && timeOf(kept[0]) !== null && timeOf(kept[0]) === timeOf(all[kept.length]);
+      // When every shown row would pass --since nextAt, that --since shows this same page again, so name --limit instead.
+      const stuck = nextAt !== null && kept.every((m) => timeOf(m) === null || timeOf(m) >= Date.parse(nextAt));
       const masked = guideMaskedRows(kept, isSetupGuide(sender.card.sessionName) ? true : null);
       const rows = masked.map((m) => {
         const person = !(typeof m.from === 'string' && m.from);
@@ -17242,7 +17242,7 @@ const server = http.createServer(async (req, res) => {
         return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
       });
       const more = later ? [later + ' later ' + (later === 1 ? 'message' : 'messages') + ' not shown'
-        + (stuck ? (limit < 50 ? ': more than ' + limit + ' share one time, so add --limit 50.' : '.')
+        + (stuck ? (limit < 50 ? ': add --limit 50 to see more.' : '.')
           : nextAt ? ': run kosmos inbox' + (unanswered ? ' --unanswered' : '') + (limit !== 10 ? ' --limit ' + limit : '')
           + ' --since ' + nextAt + ' to see ' + (later === 1 ? 'it' : 'them') + '.' : '.')] : [];
       res.end(lines.concat(more).join('\n') + '\n');

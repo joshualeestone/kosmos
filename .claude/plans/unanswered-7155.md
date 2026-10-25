@@ -41,8 +41,8 @@ Extend `kosmos inbox` (no new verb) with two flags, on the Mac CLI, the Windows 
 `--since <nextAt>` is inclusive, so a shown message sharing nextAt's timestamp, and any row with no readable time, can
 appear again on the next page. Paging strictly after the last shown time would instead SKIP an unshown row that shares
 it. For a catch-up read a repeat is harmless and a skip is the failure this card exists to stop. (Challenge iteration 3.)
-When more rows than the limit share one time, a --since would show the same page forever, so the hint names
---limit 50 instead; past 50 rows at one millisecond nothing pages them, a limit accepted as unreal. (Iteration 4.)
+When every shown row would pass the --since it would hand out (rows sharing one time, or stored out of order), that
+--since shows the same page again, so the hint names --limit 50 instead (iteration 5); past 50 rows at one millisecond nothing pages them, a limit accepted as unreal. (Iteration 4.)
 
 ## Weakest premise
 That "unanswered" means "after your newest reply" rather than per message. One reply after three questions clears

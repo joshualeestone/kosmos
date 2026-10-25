@@ -112,7 +112,7 @@ test('#7155: --since together with --unanswered narrows both ways', async () => 
 });
 
 test('#7155: a time that is not a date with a clock time is refused, with how to write one', async () => {
-  for (const bad of ['yesterday', '2026-10-25', '2026-10-25T25:99', '', '10:00', '2026-02-30T05:22:00Z', '2026-02-29T05:22', '2026-10-25T24:00', '2026-10-25T05:60']) {
+  for (const bad of ['yesterday', '2026-10-25', '2026-10-25T25:99', '', '10:00', '2026-02-30T05:22:00Z', '2026-02-29T05:22', '2026-10-25T24:00', '2026-10-25T05:60', '0050-02-29T00:00Z']) {
     const r = await get('/api/inbox?as=text&since=' + encodeURIComponent(bad));
     assert.equal(r.code, 400, JSON.stringify(bad) + ' was accepted: ' + r.text);
     assert.match(r.text, /--since takes a date and a clock time/);
@@ -182,6 +182,23 @@ test('#7155: more rows at one time than the limit does not hand out a --since th
     for (let i = 1; i <= 3; i += 1) chat.appendMessage(chat.DIRECT, name, { text: 'same ' + i, at: same, delivery: { state: chat.DELIVERY.PLACED } });
     const res = await fetch(base + '/api/inbox?as=text&unanswered=1&limit=2', { headers: { 'x-kosmos-agent-token': tok } });
     const last = (await res.text()).trimEnd().split('\n').pop();
-    assert.equal(last, '1 later message not shown: more than 2 share one time, so add --limit 50.');
+    assert.equal(last, '1 later message not shown: add --limit 50 to see more.');
+  } finally { sendertoken.revoke(name); board.restore(); }
+});
+
+test('#7155: the same-page check holds when rows are stored out of time order', async () => {
+  const name = 'elm';
+  const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+  const tok = sendertoken.mint(name).token;
+  try {
+    const placed = { state: chat.DELIVERY.PLACED };
+    // Stored order: a later row first, then two at an earlier, shared time. limit=1 keeps the first STORED row.
+    chat.appendMessage(chat.DIRECT, name, { text: 'stored first, later time', at: '2026-10-25T14:00:09.000Z', delivery: placed });
+    chat.appendMessage(chat.DIRECT, name, { text: 'b', at: '2026-10-25T14:00:01.000Z', delivery: placed });
+    chat.appendMessage(chat.DIRECT, name, { text: 'c', at: '2026-10-25T14:00:01.000Z', delivery: placed });
+    const res = await fetch(base + '/api/inbox?as=text&unanswered=1&limit=1', { headers: { 'x-kosmos-agent-token': tok } });
+    const last = (await res.text()).trimEnd().split('\n').pop();
+    // The shown row (14:00:09) passes --since 14:00:01, so that --since would show it again: --limit is named.
+    assert.equal(last, '2 later messages not shown: add --limit 50 to see more.');
   } finally { sendertoken.revoke(name); board.restore(); }
 });
