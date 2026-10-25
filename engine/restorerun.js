@@ -2,7 +2,7 @@
 /**
  * kosmos#5536 (E0.7, restore) slice 1: ONE snapshot restored onto this computer, composed from the reviewed parts.
  * Design: #5536 comment 6399924599. Every source is injected, so this is tested against fakes now and wired to the
- * real routes later (the read grants, kosmos#5686 c; the device-key history, kosmos#7116).
+ * real routes later (the read grants, kosmos#5686 c, through engine/restorefetch.js; the device-key history, kosmos#7116).
  *
  *   engine/backupkeys.js     the member key, opened from the release's wrap with this computer's destination key
  *   engine/devkeyhist.js     the device-key history escrowd signs, and which key was valid when
@@ -131,7 +131,9 @@ async function fetchBounded(fetchObject, key, o, ms) {
      fetchObject(key, { maxBytes }) -> bytes | null   one stored object (a read grant's GET, later). It should refuse
                            more than maxBytes; each call is also cut off after fetchTimeoutMs (default 2 min).
      sink, maxTotalBytes   as backuprestore.restoreSnapshot
-   Resolves { ok: true, deviceKey, backfill, takenAt, result } (result is restoreSnapshot's) or { ok: false, because }.
+     plan, planned         optional: engine/restorefetch.js readGrantFetcher's, given with its fetchObject
+   Resolves { ok: true, deviceKey, backfill, takenAt, result, fetchProblems } (result is restoreSnapshot's;
+   fetchProblems the fetcher's reasons for any file it could not fetch) or { ok: false, because }.
    Never throws on what a store, a coordinator or a history hands it; a caller's own mistake (no sink) still throws
    from restoreSnapshot, as there. */
 async function runRestore(opts) {
@@ -152,7 +154,12 @@ async function runRestore(opts) {
   if (!candidates.length) return { ok: false, because: 'no device key of this member was valid when this backup was recorded' };
   if (!keyOk(manifest.key, org, member)) return { ok: false, because: 'the backup\'s manifest is not filed under this member' };
   const bytes = await fetchBounded(opts.fetchObject, manifest.key, { maxBytes: MAX_MANIFEST_OBJECT }, ms);
-  if (!bytes) return { ok: false, because: 'the backup\'s manifest could not be fetched' };
+  if (!bytes) {
+    // slice 2: a refused read grant says why (a 429's wait included), rather than only that nothing came back.
+    let why = null;
+    if (typeof opts.planned === 'function') { try { why = opts.planned().because; } catch { why = null; } }
+    return { ok: false, because: typeof why === 'string' && why ? why : 'the backup\'s manifest could not be fetched' };
+  }
   if (bytes.length > MAX_MANIFEST_OBJECT) return { ok: false, because: 'the backup\'s manifest is larger than any manifest can be' };
   if (crypto.createHash('sha256').update(bytes).digest('hex') !== manifest.sha256) {
     return { ok: false, because: 'the backup\'s manifest is not the one Kosmos+ recorded' };
@@ -167,6 +174,15 @@ async function runRestore(opts) {
   }
   if (!opened) return { ok: false, because: 'the backup\'s manifest does not open under this member\'s device key for that time' };
   const objects = opened.objects && typeof opened.objects === 'object' ? opened.objects : {};
+  // slice 2: a read-grant fetcher (engine/restorefetch.js) is told every object the manifest names before the first
+  // chunk, so it grants them in batches rather than one call per chunk; a grant it cannot get stops the restore here.
+  const planOf = (p) => (p && typeof p === 'object' ? p : {});
+  if (typeof opts.plan === 'function') {
+    const keys = [...new Set(Object.values(objects).filter((k) => keyOk(k, org, member)))];
+    let p;
+    try { p = planOf(await opts.plan(keys)); } catch { p = { ok: false }; }
+    if (p.ok === false) return { ok: false, because: typeof p.because === 'string' && p.because ? p.because : 'the backup\'s files could not be granted' };
+  }
   const fetchChunk = async (name, o) => {
     const key = Object.prototype.hasOwnProperty.call(objects, name) ? objects[name] : null;
     if (!keyOk(key, org, member)) return null;
@@ -182,7 +198,16 @@ async function runRestore(opts) {
     const what = result && (result.malformed || result.overBound);
     return { ok: false, because: `the backup could not be restored${what ? ` (${what})` : ''}` };
   }
-  return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result };
+  // slice 2: why some files were not fetched (a grant refused part way, or files under an earlier key), so the person
+  // is told the reason and not only which files failed.
+  let fetchProblems = [];
+  if (typeof opts.planned === 'function') {
+    let p;
+    try { p = planOf(opts.planned()); } catch { p = {}; }
+    if (typeof p.because === 'string' && p.because) fetchProblems.push(p.because);
+    if (Array.isArray(p.unreadableBecause)) fetchProblems = fetchProblems.concat(p.unreadableBecause.filter((x) => typeof x === 'string'));
+  }
+  return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result, fetchProblems };
 }
 
 module.exports = { newDestination, listSnapshots, runRestore, snapshotTimeOf, SNAPSHOT_TO_GRANT_SECS, CLOCK_SKEW_SECS };
