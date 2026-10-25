@@ -31,7 +31,8 @@ cd "$REPO"
 #   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js), and with
 #         KOSMOS_SHELL_PLATFORM=linux|mac as well (only with a shard, #6791) just that platform's share of it.
 #         KOSMOS_SHELL_PARALLEL=n (#7100, 1 to 8) runs all of test:shell as n shards at once on this computer;
-#         unset is 4 locally and 1 in CI or a CI shard (kosmos_shell_parallel_default), and a release cut sets 1
+#         unset is 4 locally and 1 in CI, a CI shard or platform share, or the cut-env shape
+#         (kosmos_shell_parallel_default); set but empty is 1, and a release cut sets 1
 #         (it has no effect on the node part or --only, which run no shell part, though a bad value still refuses).
 # Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates). --only (#4929,
 # below) keeps the temp root, the --require guards and the leak guards, and skips the queue wait, the coverage count,

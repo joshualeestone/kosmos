@@ -42,7 +42,13 @@ where every local run reads it.
 ## Weakest premises
 - Several tests start run-tests.sh themselves, in fixture trees with a scrubbed environment. Those nested runs now
   take the default too, 4 unless they set CI-style variables. No unset protects against that, because a default is
-  computed, not inherited. The full suite on this branch is the measurement.
+  computed, not inherited. Review 3 searched the tree: the only nested run that reaches the shell part with the
+  default is arm 9 itself (a stub node). The others use --only (test-runner-scale-export-5727), stop at a refusal,
+  only read the source, or run a fixture with --sleep (test-cut-guard). That is a search, not a run; the full suite
+  on this branch (Mortals, experiment e) is the measurement.
+- Arm 9 runs the real run-tests.sh to its end, so it also passes through the gates there (browser-check trailers on
+  this repo's branch diff, the LaunchAgents guard). It is judged on the shard calls alone, not the exit status (review
+  3), so a red elsewhere at the end does not read as a broken default.
 - Load: four shards beside another suite on a shared machine. Measured once on Agent1s (the 603 s run shared the
   machine) and on an idle Mortals. Not measured on a machine with less memory.
 - The CI environment check relies on `GITHUB_ACTIONS=true`. A self-hosted runner that does not set it would default
