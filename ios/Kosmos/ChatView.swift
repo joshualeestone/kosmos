@@ -956,7 +956,7 @@ struct ReactionPills: View {
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Capsule().fill(p.mine ? Palette.personBubble : Palette.card))
                         .overlay(Capsule().stroke(p.mine ? Palette.link : Palette.separator, lineWidth: p.mine ? 1 : 0.5))
-                        .frame(minHeight: 44)
+                        .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
