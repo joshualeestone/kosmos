@@ -88,6 +88,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           const state = { allowed: [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }] };
           const posted = [];
           let refuseNext = false;
+          let dropNext = false;     // a request that never reaches the board
           let forbidNext = false;   // a 403: the route did not read the press as from this screen
           let failReads = false;
           let failsServed = 0;
@@ -111,6 +112,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
               posted.push({ path: u.pathname, body });
               if (holdPost) await holdPost;
               let out;
+              if (dropNext) { dropNext = false; return await r.abort('connectionfailed'); }   // never answered: not counted
               if (forbidNext) { forbidNext = false; out = { status: 403, json: { error: 'Only a person at the Kosmos screen can take a computer out of a sealed project.' } }; }
               else if (refuseNext) { refuseNext = false; out = { status: 409, json: { error: REFUSAL } }; }
               else if (u.pathname.endsWith('/own-remove')) { state.allowed = state.allowed.filter((x) => x.pub !== body.pub); out = { json: { removed: true } }; }
@@ -367,6 +369,20 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           chk(!shut.open && posted.length === beforeGone, `${E} Remove it after the project closed under the dialog closes it and posts nothing`, JSON.stringify(shut));
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+          // A remove that never reached the board, then a list without the computer: the close says only that it is no
+          // longer listed, never that an attempt was refused.
+          await openOn('pub-desk');
+          dropNext = true;
+          await page.click('#mem-go');
+          await page.waitForFunction(() => /^Kosmos could not reach/.test(document.getElementById('mem-msg').textContent), null, { timeout: 8000 }).catch(() => null);
+          state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk');
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForFunction(() => document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
+          const unr = await page.evaluate((box) => ({ open: !document.getElementById('mem-modal').hidden, msg: (document.querySelector(box + ' .fmsg') || {}).textContent || '' }), BOX);
+          chk(!unr.open && unr.msg === 'That computer is no longer listed here.', `${E} a remove that never reached the board is not called a refusal when the list drops it`, JSON.stringify(unr));
+          state.allowed = state.allowed.concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
           // No answer in time: the dialog closes, the section says the timed-out sentence, and the computer stays listed.
           await openOn('pub-desk');
           await page.evaluate(() => { FED_ACT_LIMIT_MS = 200; });
@@ -380,7 +396,6 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
             `${E} a remove with no answer in time closes the dialog, says so in the section, and keeps the row`, JSON.stringify(to));
           await page.evaluate(() => { FED_ACT_LIMIT_MS = 60000; });
           release();
-          await until(() => answered > answeredT, 4000);
           state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk').concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
