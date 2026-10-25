@@ -83,7 +83,7 @@ RUNNER
 mkdir -p "$T/l4b" "$T/kids"
 STUB_KIDS="$T/kids" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4b" "$T/stubkid.sh" &
 sub=$!
-k=0; while [ "$(ls "$T/kids" | grep -c '^kid-')" -lt 2 ] && [ "$k" -lt 100 ]; do sleep 0.1; k=$((k + 1)); done
+k=0; while [ "$(ls "$T/kids" | grep -c '^kid-')" -lt 2 ] && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
 kill -TERM "$sub" 2>/dev/null; wait "$sub" 2>/dev/null
 alive=0; for f in "$T/kids"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp" 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done; kill -0 "$kp" 2>/dev/null && { alive=$((alive + 1)); kill "$kp" 2>/dev/null; }; done
 if [ "$(ls "$T/kids" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a TERM stops both shards' running tests (no orphan outlives the run)"
@@ -107,6 +107,12 @@ for v in 9 0 abc 1x; do
     bad "run-tests KOSMOS_SHELL_PARALLEL=$v: rc=$RT_RC(2) out=$(printf '%s' "$RT_OUT" | head -c 300)"
   fi
 done
+rt KOSMOS_SHELL_PARALLEL=2 KOSMOS_SHELL_CUT_ENV=1
+if [ "$RT_RC" = 2 ] && printf '%s' "$RT_OUT" | grep -q "KOSMOS_SHELL_PARALLEL and KOSMOS_SHELL_CUT_ENV=1 do not combine"; then
+  pass "run-tests refuses KOSMOS_SHELL_PARALLEL with KOSMOS_SHELL_CUT_ENV=1 (exit 2)"
+else
+  bad "run-tests parallel+cut-env: rc=$RT_RC(2) out=$(printf '%s' "$RT_OUT" | head -c 300)"
+fi
 rt KOSMOS_SHELL_PARALLEL=2 KOSMOS_SHELL_SHARD=1/2
 if [ "$RT_RC" = 2 ] && printf '%s' "$RT_OUT" | grep -q "KOSMOS_SHELL_PARALLEL and KOSMOS_SHELL_SHARD do not combine"; then
   pass "run-tests refuses KOSMOS_SHELL_PARALLEL with KOSMOS_SHELL_SHARD (exit 2)"

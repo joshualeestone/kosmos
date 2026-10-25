@@ -6,7 +6,9 @@ parallel node part. CI already splits the list into shards on separate runners (
 
 ## Change (this branch builds the switch; it does not turn it on)
 - tools/run-tests.sh: `KOSMOS_SHELL_PARALLEL=<n>`. Unset or 1 is today's run (shard 1 of 1). 2 to 8 runs all of
-  test:shell as n shards at once; anything else refuses (exit 2), and so does combining it with KOSMOS_SHELL_SHARD.
+  test:shell as n shards at once; anything else refuses (exit 2), and so does combining it with KOSMOS_SHELL_SHARD or
+  with KOSMOS_SHELL_CUT_ENV=1 (one stand-in cut for one shell part, and its wrapper is a shell function a shard
+  started through exec cannot run; review 2).
 - tools/lib/shell-parallel.sh, `kosmos_shell_parallel <n> <log dir> <command...>`: starts `<command> i n` for each
   shard, each to its own log, waits for all, prints the logs in shard order and one summary line (time taken, which
   shards were red). Returns the first red shard's status, so the part reds when any shard does.
@@ -14,7 +16,7 @@ parallel node part. CI already splits the list into shards on separate runners (
   families inside the root and would read the logs as a new one.
 - Each shard starts as the leader of its own process group (a perl setpgrp, then exec). Both of run-tests.sh's EXIT
   traps call `kosmos_shell_parallel_stop` first, which TERMs every running shard's whole group, the test it is
-  running included, and the folder is removed. A shard leaves `KOSMOS_SHELL_PARALLEL_PIDS` as soon as it has been
+  running included, waits up to about 2 s for the groups to be gone (review 2), and the folder is removed. A shard leaves `KOSMOS_SHELL_PARALLEL_PIDS` as soon as it has been
   waited on, so the trap never signals a pid another process may have taken since (review 1).
 - A line is printed as each shard ends, so a parallel run is not silent until the last one.
 - tools/release.sh's #5934 guard refuses KOSMOS_SHELL_PARALLEL other than 1 before the bump (review 1, BLOCKER): a
@@ -36,8 +38,8 @@ parallel node part. CI already splits the list into shards on separate runners (
 - Collision freedom is not shown by this branch. The static sweep found about 60 candidate files (fixed ports 15,
   literal /tmp 16, kill by pattern 13, real HOME paths 16, the machine claim 7, launchd 1, tmux 1). A concurrent run on
   Mortals is the measurement (serial, then two runs of 4 shards, same tree), and it can miss a race.
-- A TERM is asynchronous: a shard's test may still be exiting when the trap's later steps (the launchd boot-out,
-  removing the run root) run. A test that puts itself in another process group (setsid) is not reached.
+- A TERM is asynchronous: a shard's test that takes longer than the stop's 2 s wait to exit may still be running
+  when the trap's later steps (the launchd boot-out, removing the run root) run. A test that puts itself in another process group (setsid) is not reached.
 - The Mortals experiment measures tree 48d671ee, before review 1's changes to the harness (process groups, the pid
   list, the per-shard line). Those change how shards are started and stopped, not what the tests do, so the
   collision measurement still applies; the timing does not include them.
@@ -46,7 +48,9 @@ parallel node part. CI already splits the list into shards on separate runners (
 - The summary line's time is whole seconds from `date +%s`.
 
 ## Validation
-- tools/test-shell-parallel-7100.sh: 11 arms pass. Mutants, each red on its own arm: a serial runner (barrier and
+- tools/test-shell-parallel-7100.sh: 12 arms pass (the parallel and cut-env refusal arm added in review 2; its
+  mutant was reasoned, not run: without the refusal, the CI-only cut-env check refuses first with another message,
+  which the arm's message check rejects). Mutants, each red on its own arm: a serial runner (barrier and
   green); the last red's status (reds); killing the shard's pid, not its group (interruption); a line after the
   verdict exit in run-tests.sh (tripwire).
 - tools/test-cut-testpart-guard-5934.sh: all pass; release.sh without the new clause reds exactly the three refusal
