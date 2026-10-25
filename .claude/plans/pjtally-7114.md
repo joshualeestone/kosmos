@@ -33,4 +33,8 @@ counted and spoken as the board's pjProviderTally; the marks are the board's own
      Board.flowLines (tested: 30/30/30 at 100 is two lines; the measured-vs-placed mismatch was measured by the
      reviewer); unknown providers in arrival order pinned with names out of alphabetical order (that mutation now
      red); the chip's uppercasing pinned with a lowercase name. Room 268/268; Debug and Release SUCCEEDED.
+   - Round 4: 0 blockers, 1 warning, 2 nits. Fixed: TallyFlow places at the proposal width it measured at (it placed
+     at bounds.width, the reported width, and re-broke lines: measured by fuzz, both directions); flowLines sums as it
+     compares; a blank provider's chip is the board's "?"; the phone's pick-to-mark pairs pinned to the board's
+     PROVIDER_MARK_KEY. Room 277/277; Debug and Release SUCCEEDED.
 3. Validation, PR.

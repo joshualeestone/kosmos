@@ -564,7 +564,10 @@ extension Board {
         let n: Int
         var id: String { word }
         // The board's initial-letter chip, for a provider without a mark.
-        var initial: String { String(word.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased() }
+        var initial: String {
+            let first = String(word.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
+            return first.isEmpty ? "?" : first   // the board's || '?'
+        }
     }
     static func providerTally(_ members: [ProjectMember]) -> [TallyEntry] {
         var counts: [String: (pick: String, n: Int, at: Int)] = [:]
@@ -589,7 +592,7 @@ extension Board {
         var x = 0.0
         for (i, w) in widths.enumerated() {
             if let last = lines.indices.last, !lines[last].isEmpty, x + spacing + w <= width {
-                lines[last].append(i); x += spacing + w
+                lines[last].append(i); x = x + spacing + w   // summed as compared
             } else {
                 lines.append([i]); x = w
             }
