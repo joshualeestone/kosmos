@@ -130,10 +130,10 @@ final class RoomStore: ObservableObject {
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
         // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
         // as BoardClient.updatedAt is (its env.now() is Date() outside the tests).
-        let learned = Date()
-        let before = spokeBaseline.contains(project) ? rows[project] : nil
-        for who in Board.newSpeakers(before: before, fresh: fresh.rows) { spokeAt[project, default: [:]][who] = learned }
-        if !page.unread { spokeBaseline.insert(project) }
+        let stamped = Board.stampSpeakers(spokeAt[project] ?? [:], baselined: spokeBaseline.contains(project), before: rows[project],
+                                          fresh: fresh.rows, unread: page.unread, at: Date())
+        spokeAt[project] = stamped.spokeAt
+        if stamped.baselined { spokeBaseline.insert(project) }
         rows[project] = fresh.rows
         older[project] = fresh.older
         settle(project)

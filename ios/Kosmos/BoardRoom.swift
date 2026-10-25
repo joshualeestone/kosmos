@@ -153,6 +153,16 @@ extension Board {
         let had = Set(before.map(\.id))
         return Set(fresh.compactMap { r in r.kind == .post && !r.byPerson && !had.contains(r.id) ? r.from : nil })
     }
+    // One newest-page read's effect on who spoke since (review 4: tested here, as loadRoom is not in the suite). `before`
+    // is what the room held until this read, and counts as a baseline only once the room has had a real read
+    // (`baselined`); a read the computer could not answer never makes one, and nothing ever unmakes one (the board's
+    // ROOM_SPOKE_SEEDED). Returns the room's stamps and whether it is now baselined.
+    static func stampSpeakers(_ spokeAt: [String: Date], baselined: Bool, before: [RoomRow]?, fresh: [RoomRow], unread: Bool,
+                              at learned: Date) -> (spokeAt: [String: Date], baselined: Bool) {
+        var stamps = spokeAt
+        for who in newSpeakers(before: baselined ? before : nil, fresh: fresh) { stamps[who] = learned }
+        return (stamps, baselined || !unread)
+    }
     // The agents whose post reached the room strictly after `statusAt`, the status read the line is drawn from (the
     // board's learnedAt > LAST_AT). Both stamps are this phone's clock. No status read yet: nobody (there is no line).
     static func spokeSince(_ spokeAt: [String: Date], statusAt: Date?) -> Set<String> {

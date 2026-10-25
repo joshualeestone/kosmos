@@ -216,12 +216,16 @@ struct RoomView: View {
     // avoids (review 1; the board only repaints on a good poll, so this under-claims where it would keep the old line).
     // Live and fresh, as the Agents tab decides "not updating" (review 2: fresh alone stays true while unreachable).
     private var statusCurrent: Bool { if case .live = client.phase { return client.fresh } else { return false } }
+    private var workingNow: [String] {
+        statusCurrent ? Board.workingNames(members: project.members.map(\.session), agents: client.agents, project: project.id,
+                                           spokeSinceStatus: store.spokeSince(client.updatedAt, in: project.id)) : []
+    }
     @ViewBuilder private var workingLine: some View {
-        let names = statusCurrent ? Board.workingNames(members: project.members.map(\.session), agents: client.agents, project: project.id,
-                                                      spokeSinceStatus: store.spokeSince(client.updatedAt, in: project.id)) : []
-        if let parts = Board.workingLineParts(names) {
-            HStack(spacing: 6) {
+        if let parts = Board.workingLineParts(workingNow) {
+            // The dots sit on the first line's baseline when the line wraps, as the board's .act aligns to the text's end.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 WorkingDots().accessibilityHidden(true)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
                 parts.reduce(Text("")) { $0 + ($1.name ? Text($1.text).bold() : Text($1.text)) }
                     .font(.footnote).foregroundColor(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -372,6 +376,12 @@ struct RoomView: View {
                 } else if atBottom {
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
+            }
+            // kosmos#7080 review 4: the working line sits below the thread, so its coming, going or growing changes the
+            // thread's height; a reader at the end stays at the end (the board's holdFloorOnResize, #1037). Read before
+            // the layout moves the end marker, scrolled once it has.
+            .onChange(of: Board.workingLine(workingNow)) { _ in
+                if atBottom && settledAtBottom { DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
             // The person's own post always shows: pressing Post is asking to see it.
             .onChange(of: store.pending[project.id]?.count ?? 0) { n in
@@ -681,13 +691,15 @@ struct RoomBubble: View {
 // a repeatForever started on appear can catch layout changes in a pushed view), at 30 frames a second at most.
 struct WorkingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // With the person's text size, as the line beside them (review 4).
+    @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
             let period = reduceMotion ? 1.6 : 1.1, low = reduceMotion ? 0.35 : 0.45
-            HStack(spacing: 3) {
+            HStack(spacing: size * 0.75) {
                 ForEach(0..<3, id: \.self) { i in
-                    Circle().fill(Palette.secondary).frame(width: 4, height: 4)
+                    Circle().fill(Palette.secondary).frame(width: size, height: size)
                         .opacity(low + (1 - low) * (0.5 - 0.5 * cos((t - Double(i) * 0.16) * 2 * .pi / period)))
                 }
             }

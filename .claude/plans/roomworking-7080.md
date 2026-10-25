@@ -55,4 +55,11 @@ member order; the suite covers it against a captured real status row; it is merg
      one-poll over-claim. After a long stay in the background the line can show the last status until the next
      status read (N2); a time-based age check would not redraw on its own, and this is already stricter than the
      board, which keeps its line through any outage.
+   - Round 4 (fresh blind reviewer): 0 blockers, 1 warning, 3 nits. Fixed: a reader at the end of the room stays
+     there when the working line comes, goes or grows (W1, the board's holdFloorOnResize, #1037); the stamping moved
+     into Board.stampSpeakers and is tested in loadRoom's order (first read, unreadable read keeps the baseline, the
+     reply after it is stamped), which replaces round 2's N2 note (N1); the dots scale with text size and sit on the
+     first line's baseline (N2); a vacuous empty-dictionary assertion removed (N3). Room 186/186 (controls red:
+     unbaselining on an unreadable read, a baseline before any real read); run 1152, actions 99, settings 42, tasks
+     90; route check 5/5; Debug and KOSMOS_STORE_SHOTS Release SUCCEEDED.
 3. Validation, PR.

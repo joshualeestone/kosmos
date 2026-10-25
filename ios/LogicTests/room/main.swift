@@ -415,7 +415,19 @@ let statusRead = Date(timeIntervalSince1970: 1_800_000_000)
 let stamps = ["early": statusRead.addingTimeInterval(-5), "same": statusRead, "late": statusRead.addingTimeInterval(5)]
 check(Board.spokeSince(stamps, statusAt: statusRead) == ["late"], "only a post after the status read hides its agent")
 check(Board.spokeSince(stamps, statusAt: nil).isEmpty, "no status read yet: nobody is hidden")
-check(Board.spokeSince([:], statusAt: statusRead).isEmpty, "nobody has spoken: nobody is hidden")
+// One read's stamping, in the order loadRoom runs it: a first read stamps nobody; a later read the computer could not
+// answer leaves the room baselined; a reply in the read after it is stamped (review 4).
+let t1 = Date(timeIntervalSince1970: 1_800_000_100), t2 = t1.addingTimeInterval(5), t3 = t2.addingTimeInterval(5)
+let sp1 = Board.stampSpeakers([:], baselined: false, before: nil, fresh: before, unread: false, at: t1)
+check(sp1.spokeAt.isEmpty && sp1.baselined, "a room's first real read stamps nobody and becomes the baseline")
+let sp0 = Board.stampSpeakers([:], baselined: false, before: [], fresh: before, unread: false, at: t1)
+check(sp0.spokeAt.isEmpty, "rows shown before any real read are no baseline (an unreadable first read left them empty)")
+let sp2 = Board.stampSpeakers(sp1.spokeAt, baselined: sp1.baselined, before: before, fresh: before, unread: true, at: t2)
+check(sp2.baselined && sp2.spokeAt.isEmpty, "a later read the computer could not answer keeps the baseline")
+let sp3 = Board.stampSpeakers(sp2.spokeAt, baselined: sp2.baselined, before: before, fresh: rows, unread: false, at: t3)
+check(sp3.spokeAt == ["eli": t3], "the reply in the read after it is stamped with that read's time: \(sp3.spokeAt)")
+let firstUnread = Board.stampSpeakers([:], baselined: false, before: nil, fresh: [], unread: true, at: t1)
+check(!firstUnread.baselined, "a first read the computer could not answer is no baseline")
 // The names are the bold pieces (the board's <b>), and nothing else is.
 let pieces = Board.workingLineParts(["Kit", "Roo", "Pixel"]) ?? []
 check(pieces.filter(\.name).map(\.text) == ["Kit", "Roo", "Pixel"] && pieces.filter { !$0.name }.map(\.text) == [", ", ", and ", " are working\u{2026}"],
