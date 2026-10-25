@@ -27,6 +27,7 @@ const assert = require('node:assert/strict');
 const projects = require('./projects');
 const selfreport = require('./selfreport');
 const fleet = require('../test-support/fleet');
+const { cutUnits } = require('./textcut');
 
 const WORK = path.join(SANDBOX, 'work');
 fs.mkdirSync(WORK, { recursive: true });
@@ -39,6 +40,7 @@ function cards(specs) {
 const LONE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 // 299 units, then an emoji (two units) across the 300th.
 const SPLIT = 'a'.repeat(299) + '\u{1F600} and more';
+const LONE_ESCAPE = /\\ud[89a-f][0-9a-f]{2}/i;
 
 test('#7108: a question cut through an emoji keeps no half of it, and the answer stays strict JSON', () => {
   assert.ok(LONE.test('question:' + SPLIT.slice(0, 300)), 'CONTROL: the old cut did not leave half an emoji');
@@ -49,8 +51,9 @@ test('#7108: a question cut through an emoji keeps no half of it, and the answer
   assert.equal(m.needsYouHere, 'question');
   assert.equal(m.needsYouKey, 'question:' + 'a'.repeat(299), 'the key ends before the emoji');
   assert.ok(!LONE.test(m.needsYouKey), 'the key holds half an emoji');
-  // What the phone receives: no lone surrogate escape anywhere in the member's JSON.
-  assert.ok(!/\\ud[89ab][0-9a-f]{2}(?!\\ud[c-f])/i.test(JSON.stringify(m)), 'the projects answer carries a lone surrogate escape');
+  // What the phone receives: JSON.stringify escapes only a LONE half (a valid pair is written as itself), so any
+  // \ud800-\udfff escape in the whole project's answer is one the phone refuses.
+  assert.ok(!LONE_ESCAPE.test(JSON.stringify(r)), 'the projects answer carries a lone surrogate escape');
 });
 
 test('#7108: the shortened key still dismisses, and a whole emoji under the cut is kept', () => {
@@ -74,4 +77,36 @@ test('#7108: the board builds its fallback key the same way (pjNeedsNotice keyOf
   assert.ok(page.includes("const keyWords = (t) => { const w = String(t || '').slice(0, 300); const c = w.charCodeAt(w.length - 1); return c >= 0xD800 && c <= 0xDBFF ? w.slice(0, -1) : w; };"),
     'the board fallback no longer drops a trailing half of an emoji');
   assert.ok(page.includes("'question:' + keyWords(m.because)"), 'the board fallback does not use keyWords');
+});
+
+test('#7108 review 1: a question cut at 1000 units by the self-report keeps no half emoji either', () => {
+  const long = 'b'.repeat(999) + '\u{1F600} tail';
+  const p = projects.create({ name: 'Long', folder: folder('long'), agents: ['em11'] });
+  assert.equal(selfreport.record('em11', { state: 'needs_you', because: long, project: p.id }).recorded, true);
+  const r = projects.list(cards([fleet.agent('em11', { state: 'needs_you' })])).find((x) => x.id === p.id);
+  const m = r.agents.find((a) => a.sessionName === 'em11');
+  assert.ok(LONE.test(long.slice(0, 1000)), 'CONTROL: the old 1000-unit cut did not leave half an emoji');
+  assert.equal(m.because, 'b'.repeat(999), 'the question was not cut before the emoji');
+  assert.ok(!LONE_ESCAPE.test(JSON.stringify(r)), 'the projects answer carries a lone surrogate escape');
+});
+
+test('#7108 review 1: a broken key is refused, and a stored one never reaches the answer', () => {
+  const p = projects.create({ name: 'Legacy', folder: folder('legacy'), agents: ['em12'] });
+  assert.throws(() => projects.dismissNeeds(p.id, 'em12', 'question:' + SPLIT.slice(0, 300)), /not a reason a project shows/,
+    'a key ending in half an emoji was accepted');
+  // A dismissal saved before the fix, under a broken key, still in the store.
+  const all = projects.readAll();
+  const at = all.findIndex((x) => x.id === p.id);
+  all[at] = { ...all[at], needsDismissed: { em12: 'question:' + SPLIT.slice(0, 300) } };
+  projects.writeAll(all);
+  const r = projects.list(cards([])).find((x) => x.id === p.id);
+  assert.equal(r.needsDismissed, undefined, 'the dismissal store went out in the answer');
+  assert.ok(!LONE_ESCAPE.test(JSON.stringify(r)), 'a stored broken key reached the answer');
+  assert.ok(projects.readAll().find((x) => x.id === p.id).needsDismissed, 'CONTROL: the stored dismissal is still kept');
+});
+
+test('#7108: cutUnits keeps whole pairs and never ends on a lead half', () => {
+  assert.equal(cutUnits('ab\u{1F600}', 3), 'ab');
+  assert.equal(cutUnits('ab\u{1F600}', 4), 'ab\u{1F600}');
+  assert.equal(cutUnits('abc', 10), 'abc');
 });

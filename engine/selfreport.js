@@ -34,6 +34,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
+const { cutUnits } = require('./textcut');
 
 const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocked', 'stopped']);
 
@@ -100,7 +101,7 @@ function fileFor(sessionName) {
 function capped(value, cap) {
   if (value === null || value === undefined) return null;
   const s = String(value).replace(/[\n\t\r]/g, ' ').trim();
-  return s ? s.slice(0, cap) : null;
+  return s ? cutUnits(s, cap) : null;   // #7108: never half an emoji
 }
 
 /* #1996 (K-13 residual): `because` is a SENTENCE and may carry paragraph breaks;
@@ -125,7 +126,7 @@ function cappedSentence(value, cap) {
     .replace(/[\u2028\u2029]/g, '\n')
     .replace(/[\t\v\f]/g, ' ')
     .trim();
-  return s ? s.slice(0, cap) : null;
+  return s ? cutUnits(s, cap) : null;   // #7108: never half an emoji
 }
 
 /**

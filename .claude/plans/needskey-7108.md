@@ -8,8 +8,11 @@ tested with a control; merged.
 - Drop a trailing lead surrogate after slice(0, 300), in the engine (needsKeyWords) and the board's keyOf fallback.
   Cutting by code points instead would change the length rule dismissNeeds checks; dropping one unit keeps every
   existing key and only shortens the broken ones.
-- A dismissal stored under an old broken key no longer matches: that row shows once more and can be dismissed again.
-  Accepted (rare, recoverable, and the old key made the phone unable to read projects at all).
+- One helper, engine/textcut.js cutUnits, used by the key and by the self-report's caps (selfreport capped and
+  cappedSentence cut `because` at 1000 the same broken way, and that text also travels in /api/projects).
+- The dismissal store (needsDismissed, needsDismissGone) is left out of the projects answer: no page or server code
+  reads it, and a key stored before this fix could carry half an emoji (review 1). dismissNeeds refuses a key that is
+  not well-formed. A dismissal stored under an old broken key no longer matches: that row shows once more.
 - web/index.html changes a pure key helper inside pjNeedsNotice, nothing drawn: a Browser-check trailer, with the
   board line pinned in the engine test.
 - Weakest premise: the iPhone's refusal was measured on a minimal JSON string by the #7106 reviewer, not on a full
@@ -18,4 +21,9 @@ tested with a control; merged.
 ## Steps
 1. Engine, board, test. DONE: engine/projects-needskey-7108.test.js 3/3 (control: the old cut fails test 1);
    projects-needsquiet-6341 green.
-2. Review loop. 3. Validation, PR.
+2. Review loop.
+   - Round 1: 0 blockers, 2 warnings, 2 nits. Fixed: the stored dismissals left out of the answer and broken keys
+     refused (a legacy stored key reached the phone); the 1000-unit self-report cut made code-point safe through
+     the shared cutUnits; the whole project's JSON checked with the simpler lone-escape regex (any escaped
+     surrogate is lone). Recorded: the board-line test is a source pin (a fallback only for a missing key).
+     needskey 6/6 with needsquiet, selfreport and the dismiss route: 68 pass. 3. Validation, PR.

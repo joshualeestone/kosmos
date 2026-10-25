@@ -77,6 +77,7 @@ function offWriteIsQuiet(why, prior) {
 const fs = require('node:fs');
 const { execFileSync, spawn } = require('node:child_process');
 const os = require('node:os');
+const { cutUnits } = require('./textcut');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const filehash = require('./filehash');   // #6761: a Files row's sha256, hashed in the background
@@ -968,9 +969,7 @@ const NEEDS_KEY_WORDS = 300;
    surrogate pair, which JSON.stringify writes as a lone "\ud83d"; the iPhone's JSON reader then refuses the whole
    projects answer. A trailing lead surrogate is dropped (the board's pjNeedsNotice fallback cuts the same way). */
 function needsKeyWords(text) {
-  const words = String(text || '').slice(0, NEEDS_KEY_WORDS);
-  const last = words.charCodeAt(words.length - 1);
-  return last >= 0xD800 && last <= 0xDBFF ? words.slice(0, -1) : words;
+  return cutUnits(text || '', NEEDS_KEY_WORDS);
 }
 function needsDismissKey(reason, m) {
   if (!reason) return null;
@@ -1306,6 +1305,10 @@ function describe(project, roster, all) {
     /* #6994: a project's records are read only through /api/project/<id>/records; up to 500 rows of them do not
        travel with every project list the page polls. (undefined, so JSON leaves the key out.) */
     records: undefined,
+    /* #7108 review 1: the dismissal store is the engine's own bookkeeping (no page reads it), and a key saved before the
+       code-point cut could carry half an emoji, which made the phone refuse the whole answer. Left out of the answer. */
+    needsDismissed: undefined,
+    needsDismissGone: undefined,
     folder: project.folder,
     folderState: folderState(project.folder),
     // Normalized here rather than trusted from the record: a legacy project
@@ -3094,7 +3097,8 @@ function dismissNeeds(projectId, sessionName, reason) {
   if (typeof sessionName !== 'string' || !sessionName) throw new Error('say which agent to dismiss');
   // A question's key carries its words ('question:<words>', needsDismissKey); every other reason is the bare reason.
   const base = typeof reason !== 'string' ? '' : reason.startsWith('question:') ? 'question' : reason;
-  const ok = typeof reason === 'string' && NEEDS_REASONS.includes(base)
+  // #7108: never a key with half an emoji (it would be stored, and break a strict reader of anything that carries it).
+  const ok = typeof reason === 'string' && reason.isWellFormed() && NEEDS_REASONS.includes(base)
     && (base === 'question' ? reason.startsWith('question:') && reason.length <= 'question:'.length + NEEDS_KEY_WORDS : reason === base);
   if (!ok) throw new Error('that is not a reason a project shows');
   const stored = readAll();
