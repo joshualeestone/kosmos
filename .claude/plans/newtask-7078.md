@@ -79,3 +79,21 @@ path stays the app's own (isProjectId before the path; host is held.url).
   Who is on it.
 - LEFT: the added line under "No tasks yet" until the refresh lands (brief); "Review N" comment style is common in
   this repo, removed here anyway.
+
+## Iterations 4 (sonnet) and 5 (opus), and the design approval (22:19 CDT)
+- Create is held until the projects are read; the Mac's answer is scrolled into view; a line break in either question
+  becomes a space (the board's inputs are one line).
+- Nothing sent is not "could not tell": when throughMac sends nothing (not connected, or no request built) the sheet
+  says the board's "we could not add that task". Told apart in the view by noting whether a request was built,
+  without touching BoardClient (Angel's).
+- The board's limits: 200 for each question, 2000 for the details, counted in UTF-16 as the page counts, pinned
+  against web/index.html's maxlength and engine/tasks.js. Over 200 the Mac shortens the title and says so only in the
+  note the sheet does not show.
+- A spinner stands in for Create while a create is in the air.
+- Mona Lisa approved the design (#7078 comment 6392881242). The answer line is now plain text under the last
+  section, as the hints are; VoiceOver hears it from create()'s announcement.
+- DECIDED: the empty-state sentences stay the sheet's own. The board's ("Make a project first...", "Unarchive one,
+  or make a new one...") ask for things the phone cannot do; the sheet's say "on your computer".
+- LEFT (nits): "Create" and "Project" rather than "Create task" and "Which project" (Mona Lisa: keep Create);
+  Return in a question does not move to the next field; required-ness of the second question is in its footer, not
+  its label; a sheet left open across a client reset keeps its project list (the Mac then refuses, 404).

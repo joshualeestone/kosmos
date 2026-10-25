@@ -28,9 +28,13 @@ struct NewTaskView: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Create") { Task { await create() } }
-                            // Held until the projects are read: a kept draft's project is checked against them first.
-                            .disabled(list == nil || !NewTask.canCreate(draft) || sending)
+                        if sending {
+                            ProgressView().accessibilityLabel("Creating the task")
+                        } else {
+                            Button("Create") { Task { await create() } }
+                                // Held until the projects are read: a kept draft's project is checked against them first.
+                                .disabled(list == nil || !NewTask.canCreate(draft))
+                        }
                     }
                 }
         }
@@ -75,13 +79,13 @@ struct NewTaskView: View {
                 }
             }
             Section {
-                field(NewTask.Words.what, example: NewTask.Words.whatExample, text: oneLine($draft.what), lines: 1...4)
-                field(NewTask.Words.done, example: NewTask.Words.doneExample, text: oneLine($draft.done), lines: 1...3)
+                field(NewTask.Words.what, example: NewTask.Words.whatExample, text: oneLine($draft.what, max: NewTask.whatMax), lines: 1...4)
+                field(NewTask.Words.done, example: NewTask.Words.doneExample, text: oneLine($draft.done, max: NewTask.doneMax), lines: 1...3)
             } footer: {
                 Text(NewTask.Words.doneHint)
             }
             Section {
-                field(NewTask.Words.detail, example: NewTask.Words.detailExample, text: $draft.detail, lines: 2...6)
+                field(NewTask.Words.detail, example: NewTask.Words.detailExample, text: capped($draft.detail, max: NewTask.detailMax), lines: 2...6)
             }
             Section {
                 Picker("Part of", selection: $draft.parent) {
@@ -97,18 +101,20 @@ struct NewTaskView: View {
                 }
                 .large(typeSize)
             } footer: {
-                Text(NewTask.Words.whoHint)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(NewTask.Words.whoHint)
+                    // The Mac's answer, plain text under the last section as the hints are (in a box it read as a field).
+                    // VoiceOver hears it from create()'s announcement, as the board's #nt-msg alert.
+                    if let message { Text(message).foregroundColor(Palette.primary) }
+                }
             }
             .id("nt-who")
-            if let message {
-                Section { Text(message).font(.footnote).foregroundColor(Palette.secondary) }.id("nt-end")
-            }
         }
         // A moment after appearing, as the Tasks list's sample scroll: at appear the rows are not drawn yet.
         .onAppear {
             guard Self.sampleScrollToEnd else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                scroller.scrollTo(message == nil ? "nt-who" : "nt-end", anchor: .bottom)
+                scroller.scrollTo("nt-who", anchor: .bottom)
                 // scrollTo stops at the row, short of a section's footer: then the sheet's own list to its true end.
                 // Twice: a footer laid out after the first pass leaves it short of the end.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { Self.sampleScrollSheetToEnd() }
@@ -118,7 +124,7 @@ struct NewTaskView: View {
         // The Mac's answer is drawn at the end of the form, below the fold on a small phone: bring it into view.
         .onChange(of: message) { m in
             guard m != nil else { return }
-            DispatchQueue.main.async { withAnimation { scroller.scrollTo("nt-end", anchor: .bottom) } }
+            DispatchQueue.main.async { withAnimation { scroller.scrollTo("nt-who", anchor: .top) } }
         }
         }
         .scrollContentBackground(.hidden)
@@ -143,8 +149,12 @@ struct NewTaskView: View {
         .padding(.vertical, 2)
     }
 
-    private func oneLine(_ b: Binding<String>) -> Binding<String> {
-        Binding(get: { b.wrappedValue }, set: { b.wrappedValue = NewTask.oneLine($0) })
+    private func oneLine(_ b: Binding<String>, max: Int) -> Binding<String> {
+        Binding(get: { b.wrappedValue }, set: { b.wrappedValue = NewTask.capped(NewTask.oneLine($0), at: max) })
+    }
+
+    private func capped(_ b: Binding<String>, max: Int) -> Binding<String> {
+        Binding(get: { b.wrappedValue }, set: { b.wrappedValue = NewTask.capped($0, at: max) })
     }
 
     // A different project: the words stay, who and Part of do not (NewTask.aimed).
@@ -212,9 +222,16 @@ struct NewTaskView: View {
         sending = true
         message = nil
         let sent = draft
-        let got = await client.throughMac { NewTask.request(mac: $0, draft: sent) }
+        // throughMac answers nil both when nothing was sent and when a send got no answer; only the second may have made
+        // the task, so note whether a request was built and handed over.
+        var built = false
+        let got = await client.throughMac { mac in
+            let r = NewTask.request(mac: mac, draft: sent)
+            built = r != nil
+            return r
+        }
         sending = false
-        switch NewTask.result(status: got?.1.statusCode ?? 0, body: got?.0) {
+        switch NewTask.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
         case .made(let number, _):
             let name = list?.projects.first { $0.id == sent.project }?.name ?? "the project"
             let line = NewTask.addedLine(number: number, projectName: name)

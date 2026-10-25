@@ -140,6 +140,21 @@ check(NewTask.settled(keptLaunch, picked: "zeta", offered: offered) == keptLaunc
 let nothingOffered = NewTask.settled(keptWords, picked: nil, offered: [])
 check(nothingOffered.project == nil && nothingOffered.who == nil && !NewTask.canCreate(nothingOffered), "nothing offered: no project, Create off")
 
+section("nothing sent is not \"could not tell\"")
+check(NewTask.result(sent: false, status: 0, body: nil) == .refused(NewTask.fallback), "no request left the phone: the board's could-not-add words")
+check(NewTask.result(sent: true, status: 0, body: nil) == .unknown, "CONTROL: a request sent with no answer is still unknown")
+
+section("the board's limits")
+check(NewTask.capped(String(repeating: "a", count: 250), at: NewTask.whatMax).count == 200, "a title stops at 200")
+check(NewTask.capped("short", at: NewTask.whatMax) == "short", "a short one is untouched")
+let emoji = String(repeating: "a", count: 199) + "\u{1F600}"
+check(NewTask.capped(emoji, at: 200) == String(repeating: "a", count: 199), "a character that would cross the limit is left out whole, counted as the page counts (UTF-16)")
+check(page.contains(#"id="nt-what" type="text" maxlength="\#(NewTask.whatMax)""#), "200 is the board's limit for what needs doing")
+check(page.contains(#"id="nt-done" type="text" maxlength="\#(NewTask.doneMax)""#), "and for how you will know")
+check(page.contains(#"id="nt-detail" rows="3" maxlength="\#(NewTask.detailMax)""#), "2000 for the details")
+let engine = repoText("engine/tasks.js")
+check(engine.contains("const SENTENCE_MAX = \(NewTask.whatMax);") && engine.contains("const DETAIL_MAX = \(NewTask.detailMax);"), "the Mac's own limits are the same")
+
 section("both questions are one line, as the board's inputs")
 check(NewTask.oneLine("Proofread\nthe index") == "Proofread the index", "a line break becomes a space")
 check(NewTask.oneLine("a\r\nb\rc") == "a b c", "every kind of line break")

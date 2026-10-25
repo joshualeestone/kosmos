@@ -90,6 +90,23 @@ enum NewTask {
 
     static func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    // The board's limits (its inputs' maxlength, engine/tasks.js SENTENCE_MAX and DETAIL_MAX), counted as the page
+    // counts them, in UTF-16 units, and never splitting a character. Over 200 the Mac shortens a title and moves it into
+    // the details, saying so only in the note this sheet does not show, so the sheet stops the typing there instead.
+    static let whatMax = 200
+    static let doneMax = 200
+    static let detailMax = 2000
+    static func capped(_ s: String, at max: Int) -> String {
+        var used = 0
+        var out = ""
+        for c in s {
+            used += c.utf16.count
+            if used > max { break }
+            out.append(c)
+        }
+        return out
+    }
+
     // The board asks both questions in one-line inputs, and the Mac refuses a done-when check of more than one line,
     // so a line break typed (or pasted) into either becomes a space.
     static func oneLine(_ s: String) -> String {
@@ -155,7 +172,10 @@ enum NewTask {
 
     // The Mac's answer, read as the board's nt-go reads it: any 2xx is made; otherwise its own sentence (the done-when
     // one in the field's words), else unknown for a server error and the board's words for anything else.
-    static func result(status: Int, body: Data?) -> Result {
+    // sent false: no request left the phone (not connected to the Mac, or the request could not be built), so the
+    // task certainly was not made: the board's words, never "could not tell".
+    static func result(sent: Bool = true, status: Int, body: Data?) -> Result {
+        if !sent { return .refused(fallback) }
         if status == 0 { return .unknown }
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if (200...299).contains(status) {
