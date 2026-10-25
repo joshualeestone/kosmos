@@ -698,9 +698,7 @@ struct RoomView: View {
 
     // kosmos#7111: the room's members as the project list now has them (the list follows the status poll while a room is
     // open), so an Add goes away once the agent is a member.
-    private var liveMembers: [String] {
-        (store.list?.projects.first { $0.id == project.id }?.members ?? project.members).map(\.session)
-    }
+    private var liveMembers: [String] { project.members.map(\.session) }   // `project` reads the live list
     // Rows whose Add is in the air (it waits, as the board's disabled button), and the sentence a refused one earned.
     @State private var adding: Set<String> = []
     @State private var addFailed: [String: String] = [:]
@@ -721,7 +719,9 @@ struct RoomView: View {
                         guard visible else { return }
                         Self.say(Board.addedMemberLine(name))
                         composerFocused = true
-                    case let .refused(why): addFailed[row.id] = why
+                    case let .refused(why):
+                        addFailed[row.id] = why
+                        if visible { Self.say(why) }   // heard as well as seen (the board's role=status; review 1)
                     case .dropped: break
                     }
                 }
