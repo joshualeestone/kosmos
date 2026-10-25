@@ -16,6 +16,7 @@ const loginexpiry = require('./loginexpiry');
 const NOW = Date.parse('2026-10-25T22:00:00Z');
 const TOKEN = 'sk-ant-oat01-TEST-TOKEN-must-never-be-written';
 const cred = (o) => JSON.stringify({ claudeAiOauth: { accessToken: TOKEN, expiresAt: NOW + 3600000, ...o } });
+const EMAIL = 'a@example.test';
 const BODY = JSON.stringify({
   five_hour: { utilization: 4.0, resets_at: '2026-10-26T01:20:00.447680+00:00' },
   seven_day: { utilization: 56.0, resets_at: '2026-10-30T14:00:00.447704+00:00' },
@@ -28,7 +29,7 @@ function tmpDir(t) {
 }
 
 /* A fake https.request: records each call's options, answers { code, body } (or an error), and counts how many are
-   in flight at once. */
+   in flight at once. A fixed answer is for the usage request; the profile request then answers EMAIL's login. */
 function fakeRequest(answer, seen) {
   seen.calls = []; seen.inFlight = 0; seen.maxInFlight = 0;
   return (opts, cb) => {
@@ -39,7 +40,8 @@ function fakeRequest(answer, seen) {
       seen.inFlight += 1; seen.maxInFlight = Math.max(seen.maxInFlight, seen.inFlight);
       setImmediate(() => {
         seen.inFlight -= 1;
-        const a = typeof answer === 'function' ? answer(opts) : answer;
+        const a = typeof answer === 'function' ? answer(opts)
+          : opts.path === '/api/oauth/profile' ? { code: 200, body: JSON.stringify({ account: { email: EMAIL } }) } : answer;
         if (a.error) { req.emit('error', new Error('network')); return; }
         const res = new EventEmitter();
         res.statusCode = a.code;
@@ -80,7 +82,7 @@ test('#7152: off macOS the folder\'s own .credentials.json is read', async (t) =
 
 test('#7152: a good answer gives weekly and five-hour usage with reset times in seconds, over the right request', async () => {
   const seen = {};
-  const r = await usagepoll.readOne({ dir: '/u/x' }, {
+  const r = await usagepoll.readOne({ dir: '/u/x', email: EMAIL }, {
     now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, seen),
   });
   assert.deepEqual(r, {
@@ -98,7 +100,7 @@ test('#7152: a good answer gives weekly and five-hour usage with reset times in 
 test('#7152: a refused, failed or unreadable answer is a state, never a reading; an expired token sends no request', async () => {
   const read = (answer, raw = cred()) => {
     const seen = {};
-    return usagepoll.readOne({ dir: '/u/x' }, { now: NOW, platform: 'darwin', readCred: async () => raw, request: fakeRequest(answer, seen) })
+    return usagepoll.readOne({ dir: '/u/x', email: EMAIL }, { now: NOW, platform: 'darwin', readCred: async () => raw, request: fakeRequest(answer, seen) })
       .then((r) => ({ r, seen }));
   };
   assert.equal((await read({ code: 401, body: '{}' })).r.state, 'http-401');
@@ -113,7 +115,7 @@ test('#7152: a refused, failed or unreadable answer is a state, never a reading;
 
 test('#7152: the recorded file holds the numbers and the state, never the token, and only this user can read it', async (t) => {
   const d = tmpDir(t);
-  const n = await usagepoll.pollAll([{ dir: d }], {
+  const n = await usagepoll.pollAll([{ dir: d, email: EMAIL }], {
     now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}),
   });
   assert.equal(n, 1);
@@ -154,7 +156,7 @@ test('#7152 review 1: a window with usage but no reset yet is still a reading; a
     seven_day: { utilization: 0.0, resets_at: null },
     five_hour: { utilization: 1.0, resets_at: new Date(NOW + 12 * 3600000).toISOString() },
   });
-  const r = await usagepoll.readOne({ dir: '/u/x' }, {
+  const r = await usagepoll.readOne({ dir: '/u/x', email: EMAIL }, {
     now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}),
   });
   assert.equal(r.state, 'ok', 'an unused account was not measured');
@@ -166,10 +168,10 @@ test('#7152 review 1: a window with usage but no reset yet is still a reading; a
 test('#7152 review 1: a failed read keeps the last good figures, dated when they were measured', async (t) => {
   const d = tmpDir(t);
   const ok = { now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) };
-  assert.equal(await usagepoll.pollAll([{ dir: d }], ok), 1);
+  assert.equal(await usagepoll.pollAll([{ dir: d, email: EMAIL }], ok), 1);
   const later = NOW + 10 * 60000;
   const failed = { ...ok, now: later, request: fakeRequest({ code: 429, body: '{}' }, {}) };
-  assert.equal(await usagepoll.pollAll([{ dir: d }], failed), 0, 'a refused read was counted as measured');
+  assert.equal(await usagepoll.pollAll([{ dir: d, email: EMAIL }], failed), 0, 'a refused read was counted as measured');
   const r = usagepoll.readUsage(d, later + 1000);
   assert.equal(r.state, 'http-429', 'the failure was not recorded');
   assert.equal(r.weekly.usedPct, 56, 'the last good figure was thrown away');
@@ -192,25 +194,25 @@ test('#7152 review 1: a request that never finishes ends at its deadline', async
 test('#7152 review 3: a reading is dated when its figure last changed, as the status line dates its own', async (t) => {
   const d = tmpDir(t);
   const at = (now, body) => ({ now, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
-  await usagepoll.pollAll([{ dir: d }], at(NOW, BODY));
-  await usagepoll.pollAll([{ dir: d }], at(NOW + 10 * 60000, BODY));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, BODY));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, BODY));
   assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 11 * 60000).at, NOW, 'an unchanged figure claimed a new change');
   const moved = BODY.replace('"utilization":56', '"utilization":57');
   assert.notEqual(moved, BODY, 'CONTROL: the moved body differs');
-  await usagepoll.pollAll([{ dir: d }], at(NOW + 20 * 60000, moved));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 20 * 60000, moved));
   assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 21 * 60000).at, NOW + 20 * 60000, 'a changed figure kept the old time');
 });
 
 test('#7152 review 4: a reset that moves by under a minute between reads is the same window, so nothing changed', async (t) => {
   const d = tmpDir(t);
   const at = (now, body) => ({ now, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
-  await usagepoll.pollAll([{ dir: d }], at(NOW, BODY));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, BODY));
   const jitter = BODY.replace('2026-10-30T14:00:00.447704', '2026-10-30T13:59:59.569985');
   assert.notEqual(jitter, BODY, 'CONTROL: the jittered body differs');
-  await usagepoll.pollAll([{ dir: d }], at(NOW + 10 * 60000, jitter));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, jitter));
   assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 11 * 60000).at, NOW, 'a reset that moved by a second claimed a change');
   const nextWeek = BODY.replace('2026-10-30T14:00:00.447704', '2026-10-31T14:00:00.447704');
-  await usagepoll.pollAll([{ dir: d }], at(NOW + 20 * 60000, nextWeek));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 20 * 60000, nextWeek));
   assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 21 * 60000).at, NOW + 20 * 60000, 'CONTROL: a new week is a change');
 });
 
@@ -315,11 +317,36 @@ test('#7152 review 3: a fresh endpoint reading clears "will not update", since t
 
 test('#7152: accounts are read one at a time, so a slow read never stacks requests', async (t) => {
   const seen = {};
-  const list = [tmpDir(t), tmpDir(t), tmpDir(t)].map((dir) => ({ dir }));
+  const list = [tmpDir(t), tmpDir(t), tmpDir(t)].map((dir) => ({ dir, email: EMAIL }));
   const n = await usagepoll.pollAll(list, {
     now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, seen),
   });
   assert.equal(n, 3);
-  assert.equal(seen.calls.length, 3, 'CONTROL: every account was read');
+  assert.equal(seen.calls.length, 6, 'CONTROL: every account was read (usage, then profile)');
   assert.equal(seen.maxInFlight, 1, 'requests overlapped');
+});
+
+test('#7152 review 8: an account with no email listed is not measured, and its token is not sent', async () => {
+  const seen = {};
+  const r = await usagepoll.readOne({ dir: '/u/x' }, {
+    now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, seen),
+  });
+  assert.equal(r.state, 'identity-unknown', 'a login nobody could check was taken as this account');
+  assert.equal(seen.calls.length, 0, 'the token was sent for an account with nothing to check it against');
+  const ok = await usagepoll.readOne({ dir: '/u/x', email: EMAIL }, {
+    now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}),
+  });
+  assert.equal(ok.state, 'ok', 'CONTROL: the same account with its email is measured');
+});
+
+test('#7152 review 8: the server\'s sweep asks liveAllowed before it reads any login', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const start = src.indexOf('const usagePollTick = () => {');
+  assert.ok(start > 0, 'CONTROL: the sweep is where this test looks');
+  const body = src.slice(start, src.indexOf('\n      };', start));
+  const gate = body.indexOf('usagePoll.liveAllowed()');
+  const list = body.indexOf('accounts.list()');
+  assert.ok(list > 0 && body.includes('usagePoll.pollAll('), 'CONTROL: the sweep body was found whole');
+  assert.ok(gate > 0 && gate < list, 'the sweep reads logins without asking liveAllowed first');
+  assert.match(body, /\n\s*if \([^\n]*!usagePoll\.liveAllowed\(\)\) return;/, 'liveAllowed is called but does not stop the sweep');
 });

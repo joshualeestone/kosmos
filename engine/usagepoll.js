@@ -152,6 +152,9 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, ...deps } = {}
   if (!a || typeof a.dir !== 'string' || !a.dir || a.apiKey) return null;
   const t = await tokenStateFor(a, { now, ...deps });
   if (t.state !== 'ok') return { at: now, state: t.state };
+  /* Review 8: with no email listed there is nothing to check the token's login against (see review 6 below), so a
+     credential holding another login would put that login's figure here. Not measured, and no request is sent. */
+  if (!a.email) return { at: now, state: 'identity-unknown' };
   const r = await getUsage(t.token, { request, ...(timeoutMs ? { timeoutMs } : {}) });
   if (r.code !== 200) return { at: now, state: r.code ? `http-${r.code}` : 'unreachable' };
   let j;
@@ -164,13 +167,11 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, ...deps } = {}
      reading. Review 7: a profile that cannot be read is not a pass either, since one failed profile read would let
      another login's figure in, and the higher-figure rule would keep it on screen. So it is a failed read, and
      pollAll keeps the last good figures as it does for any other. */
-  if (a.email) {
-    const p = await getUsage(t.token, { request, path: PROFILE_PATH, ...(timeoutMs ? { timeoutMs } : {}) });
-    let email = null;
-    try { email = p.code === 200 ? (JSON.parse(p.body).account || {}).email : null; } catch { email = null; }
-    if (typeof email !== 'string' || !email) return { at: now, state: 'profile-unreadable' };
-    if (email.toLowerCase() !== String(a.email).toLowerCase()) return { at: now, state: 'other-account' };
-  }
+  const p = await getUsage(t.token, { request, path: PROFILE_PATH, ...(timeoutMs ? { timeoutMs } : {}) });
+  let email = null;
+  try { email = p.code === 200 ? (JSON.parse(p.body).account || {}).email : null; } catch { email = null; }
+  if (typeof email !== 'string' || !email) return { at: now, state: 'profile-unreadable' };
+  if (email.toLowerCase() !== String(a.email).toLowerCase()) return { at: now, state: 'other-account' };
   const fiveHour = windowOf(j && j.five_hour, { nowMs: now, maxAheadSeconds: statusline.FIVE_HOUR_MAX_AHEAD_SECONDS });
   return { at: now, state: 'ok', weekly, fiveHour };
 }

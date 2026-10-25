@@ -47,6 +47,10 @@ at 0%, had no reading at all (the card's opening).
   A profile that cannot be read is now a failed read (`profile-unreadable`, last good figures kept), not a pass: one
   failed profile read would otherwise let another login's figure in. Weakest premise: if the profile endpoint fails
   often, accounts with an email go unmeasured that often; the first live sweep's log line shows how often.
+- Review 8: an account with no email listed is not measured (`identity-unknown`) and its token is not sent, since
+  there is nothing to check the login against. The status line still covers it. Weakest premise: an account Kosmos
+  lists without an email (a `.claude.json` with no `oauthAccount`) gets no endpoint reading at all. A source check now
+  fails if the server's sweep stops asking `liveAllowed()` before it lists accounts.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
