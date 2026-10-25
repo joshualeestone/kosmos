@@ -7,8 +7,9 @@ included (seen in val-7130.log, 15:02 CDT 2026-10-25, a green 4-shard run). In a
 
 ## Change
 Arm 4c starts its stub runner with stderr sent to `$T/l4c.err`, as arm 4b does. It was the only arm that starts that
-runner without a redirect: checked on origin/main, where every other start of runner.sh redirects (4b to a file, 4d to
-4g and 4j to /dev/null). What the arm asserts is unchanged.
+runner without a redirect: checked on origin/main, where every other start of runner.sh redirects (4b to a file; 4d,
+4e, 4f, 4g and 4j to /dev/null). What the arm asserts is unchanged, and its failure message now carries the first 300
+bytes of that stderr, as arm 4b's does, so a real failure still shows its cause.
 
 ## Validation
 - The fixed file passes all 27 arms and prints no "run-tests: interrupted" line.

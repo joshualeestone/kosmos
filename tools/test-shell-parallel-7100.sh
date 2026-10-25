@@ -235,7 +235,7 @@ k=0; while ! grep -q 'shell shard 1 of 2: status' "$T/l4c.out" 2>/dev/null && [ 
 kill -TERM "$sub" 2>/dev/null; wait "$sub" 2>/dev/null
 alive=0; for f in "$T/kids4c"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp" 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done; kill -0 "$kp" 2>/dev/null && { alive=$((alive + 1)); kill "$kp" 2>/dev/null; }; done
 if [ "$(ls "$T/kids4c" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a TERM also stops what a finished shard left running in its group"
-else bad "finished shard's leftover: kids recorded $(ls "$T/kids4c" | grep -c '^kid-')(2), still alive after the stop: $alive(0)"; fi
+else bad "finished shard's leftover: kids recorded $(ls "$T/kids4c" | grep -c '^kid-')(2), still alive after the stop: $alive(0); stderr: $(head -c 300 "$T/l4c.err")"; fi
 
 # 4e) a shard that has ENDED but is not yet waited on (shards are waited on in order, and shard 1 is still running)
 # can have left something in its group. Its pid has no process by then, so the stop finds it by its group.
