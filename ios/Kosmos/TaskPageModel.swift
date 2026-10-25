@@ -36,9 +36,12 @@ final class TaskPageModel: ObservableObject {
     static let presentFor: TimeInterval = 120
     func touched() { lastTouch = now() }
     var present: Bool { onScreen && appActive && (assistive || now().timeIntervalSince(lastTouch) < Self.presentFor) }
-    // The 5-second tick: the first read always (the page has to show something), then only while the person is there,
-    // as the board's tick reads only under tkPresent.
-    func shouldRead(first: Bool) -> Bool { first || present }
+    // The 5-second tick, as the board's: the task itself is read on every tick while the page is on screen and the app
+    // in front (loadProjects repaints an open task page whatever tkPresent says), so its state and button never go
+    // stale; its activity, and the seen mark after it, only while the person is there (tkPollIfThere), and always the
+    // first time so the page has something to show.
+    var shouldReadTask: Bool { onScreen && appActive }
+    func shouldReadActivity(first: Bool) -> Bool { first || present }
     // The chats' forgetting count this page was opened under: another account or Mac makes it a page about nothing.
     private let openedIn: Int
     // Reads are numbered, so a slow earlier one never undoes a newer one.
@@ -147,7 +150,9 @@ final class TaskPageModel: ObservableObject {
         if let s = first?.1.statusCode, (200...299).contains(s) { recordedKey = key }
         guard Board.seenRetries(status: first?.1.statusCode ?? 0) else { return }
         await sleep(3)
-        guard current, activityKey == key, present else { return }
+        // Not tried again (the person left, or the state moved on): left unmarked, so the next mark of it is sent, as
+        // the board's tkMarkSeen settles it with onDone(false).
+        guard current, activityKey == key, present else { if seenKey == key { seenKey = nil }; return }
         let second = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }
         if let s = second?.1.statusCode, (200...299).contains(s) { recordedKey = key }
     }

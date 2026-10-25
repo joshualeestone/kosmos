@@ -88,16 +88,16 @@ struct TaskPageView: View {
             .onChange(of: model.activityKey) { _ in Task { await model.markSeen() } }
     }
 
-    // Read now and every 5 seconds while the page is on screen and the person is there, as the board's tick only reads
-    // under tkPresent (a phone left open on a stand stops asking); each read is followed by a seen mark, so a state that
-    // landed while they were idle is marked within one tick of their coming back.
+    // Read now and every 5 seconds: the task while the page is on screen, its activity and the seen mark only while the
+    // person is there (TaskPageModel.shouldReadTask / shouldReadActivity, the board's tick), so a state that landed while
+    // they were idle is marked within one tick of their coming back.
     private func startReading() {
         loop?.cancel()
         loop = Task {
             var first = true
             while !Task.isCancelled {
-                if model.shouldRead(first: first) {
-                    await model.read()
+                if first || model.shouldReadTask { await model.read() }
+                if model.shouldReadActivity(first: first) {
                     await model.readActivity(names: name)
                     await model.markSeen()
                 }
@@ -162,9 +162,10 @@ struct TaskPageView: View {
                 if let parent = p.parentNumber, let sentence = p.parentSentence {
                     Button { openSub = parent } label: {
                         Text("Part of #\(parent) " + sentence).foregroundColor(Palette.link)
+                            .frame(minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .frame(minHeight: 44, alignment: .leading)
                     .accessibilityHint("Opens task \(parent).")
                 }
             }
