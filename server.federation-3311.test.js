@@ -55,7 +55,7 @@ remote.macRequest = async (method, route, body) => {
 remote.address = () => 'attic.kosmos.test';
 // The account's computers are trusted only under the coordinator's own domain (account-computers.js).
 remote.COORDINATOR = () => 'https://login.kosmos.test';
-const ownCodeOf = (ref, name, from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name, from: from || 'study' })).toString('base64url');
+const ownCodeOf = (ref, name, from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 3, ref, name, from: from || 'study' })).toString('base64url');
 
 let base;
 test.before(async () => {
@@ -372,7 +372,10 @@ test('#4649 an own-account code joins as a self link, with one signed read of th
   assert.equal(link.role, 'self');
   assert.equal(link.ref, 'ref-own-1');
   assert.equal(link.edge_id, undefined, 'a self link has no edge');
-  assert.equal(require('./engine/fedseal').roomState(j.json.id), null, 'an own room starts with no seal record');
+  // Slice 2: it holds until the room's owner answers after a code compare (key-own-clear), whatever the code says.
+  assert.deepEqual(require('./engine/fedseal').roomState(j.json.id), { role: 'member', ownComputer: true, pendingClear: true, keys: {} },
+    'an own join waits to be let in');
+  assert.equal(link.pendingClear, true, 'and the link remembers it');
   const room = await (await fetch(base + '/api/project/' + encodeURIComponent(j.json.id) + '/room?as=text')).text();
   assert.match(room, /shared with your other computers\. Messages in this room are not sealed end to end/);
   assert.doesNotMatch(room, /older Kosmos/, 'the unsealed-owner note is not for an own room');
@@ -382,9 +385,16 @@ test('#4649 an own-account code joins as a self link, with one signed read of th
   assert.equal(again.status, 409, JSON.stringify(again.json));
   assert.equal(again.json.reason, 'already_joined');
 
-  // This joined computer can hand a code on to a third one; the room was told at join, so no second note.
+  // Not let in yet: it cannot hand a code on (slice 2).
+  const early = await post('/api/federation/own-code', { project: j.json.id }, SCREEN);
+  assert.deepEqual([early.status, early.json.reason], [409, 'not-in'], JSON.stringify(early.json));
+  // Once let in (the owner's clear adopted: the waiting record goes, the link's mark too), it can hand a code on to a
+  // third one; the room was told at join, so no second note.
+  require('./engine/fedseal').forgetRoom(j.json.id);
+  federation.recordLink(j.json.id, Object.assign({}, federation.linkFor(j.json.id), { pendingClear: false }));
   const fwd = await post('/api/federation/own-code', { project: j.json.id }, SCREEN);
   assert.equal(fwd.status, 200, JSON.stringify(fwd.json));
+  assert.equal(federation.parseOwnCode(fwd.json.code).v, 3);
   assert.equal(federation.parseOwnCode(fwd.json.code).ref, 'ref-own-1');
   await post('/api/federation/own-code', { project: j.json.id }, SCREEN);
   const room2 = await (await fetch(base + '/api/project/' + encodeURIComponent(j.json.id) + '/room?as=text')).text();

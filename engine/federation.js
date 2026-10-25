@@ -223,7 +223,10 @@ function ownCodeRefusal(projectId) {
   const link = linkFor(projectId);
   if (!link) return null;
   if (link.role !== 'owner' && link.role !== 'self') return 'guest';
-  const noKey = ownCodeSealed(projectId, link) && !roomKeyHeld(fedseal.roomState(projectId));
+  const st = fedseal.roomState(projectId);
+  // Slice 2: a computer still waiting to be let into an own room (pendingClear) vouches for nothing yet.
+  if (link.role === 'self' && (link.pendingClear === true || (st && st.pendingClear === true))) return 'not-in';
+  const noKey = ownCodeSealed(projectId, link) && !roomKeyHeld(st);
   if (noKey) return link.role === 'owner' ? 'sealed-waiting' : 'sealed-not-in';
   return null;
 }
@@ -275,8 +278,10 @@ function ownCode(projectId, projectName, from) {
   let chars = Array.from(String(projectName || '').slice(0, NAME_MAX));
   // A sealed room's code is version 2: a Kosmos older than #4658's sealed own join does not read it as an own
   // code (parseOwnCode there takes v 1 only), so it never joins by it.
+  // Slice 2: an unsealed room's code is version 3: the computer that joins by it holds its posts until this room's
+  // owner answers (key-own-clear), so it never trusts the code about sealing. Version 1 is no longer made.
   const make = () => OWN_PREFIX + Buffer.from(JSON.stringify(sealed ? { v: 2, ref, from, name: chars.join(''), sealed: true }
-    : { v: 1, ref, from, name: chars.join('') }), 'utf8').toString('base64url');
+    : { v: 3, ref, from, name: chars.join('') }), 'utf8').toString('base64url');
   let code = make();
   while (code.length > OWN_CODE_MAX && chars.length > 1) { chars = chars.slice(0, Math.floor(chars.length / 2)); code = make(); }
   return code;
@@ -301,14 +306,16 @@ function parseOwnCode(text) {
   if (!t.startsWith(OWN_PREFIX) || t.length > OWN_CODE_MAX) return null;
   let o;
   try { o = JSON.parse(Buffer.from(t.slice(OWN_PREFIX.length), 'base64url').toString('utf8')); } catch { return null; }
-  // Version 2 is a sealed room's code (#4658) and always says so; anything else is not a code.
+  // Version 2 is a sealed room's code (#4658) and always says so; version 3 an unsealed room's (slice 2); version 1 an
+  // older Kosmos's, parsed only so verify can say why it is refused. Anything else is not a code.
   const sealed = o && o.v === 2 && o.sealed === true;
-  if (!o || (o.v !== 1 && !sealed) || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
-  // A maker that is there but is not a name is a broken code; one that is absent is an older code (never a version 2 one).
+  const v3 = o && o.v === 3 && o.sealed === undefined;
+  if (!o || (o.v !== 1 && !sealed && !v3) || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
+  // A maker that is there but is not a name is a broken code; one that is absent is an older code (never a version 2 or 3 one).
   if (o.from !== undefined && (typeof o.from !== 'string' || !OWN_FROM_RE.test(o.from))) return null;
-  if (sealed && o.from === undefined) return null;
+  if ((sealed || v3) && o.from === undefined) return null;
   const name = o.name.trim().slice(0, NAME_MAX);
-  return name ? { ref: o.ref, name, from: o.from === undefined ? null : o.from, sealed } : null;
+  return name ? { ref: o.ref, name, from: o.from === undefined ? null : o.from, sealed, v: o.v } : null;
 }
 
 /* Why ownAccountNames could not answer when the Kosmos+ this computer is signed in to has an address
@@ -458,7 +465,9 @@ async function verify(remote, body) {
     /* kosmos#4699: only a code made on one of THIS account's computers. The own room a seat opens is
        always the caller's own account's, so another account's code leaked nothing, but it made a
        project that sat alone under a note saying it was shared. */
-    if (!own.from) {
+    // Slice 2: a version 1 code (an older Kosmos's) says nothing a computer could check about sealing, so it is not
+    // joined by: whatever the code claims, the room might be sealed, and this computer would post in the clear.
+    if (!own.from || own.v === 1) {
       return { status: 409, body: { reason: 'old-code', error: 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.' } };
     }
     const key = OWN_KEY_PREFIX + own.ref;
@@ -477,7 +486,7 @@ async function verify(remote, body) {
     const prevOwn = verified.get(key);
     const sealedOwnCode = own.sealed === true || !!(prevOwn && prevOwn.sealed === true && Date.now() - prevOwn.at <= SNAPSHOT_TTL_MS);
     const snap = Object.assign({ edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' },
-      sealedOwnCode ? { sealed: true } : {});
+      sealedOwnCode ? { sealed: true } : { pendingClear: true });
     verified.delete(key);
     verified.set(key, Object.assign({ at: Date.now(), ref: own.ref }, snap));
     while (verified.size > SNAPSHOT_MAX) verified.delete(verified.keys().next().value);

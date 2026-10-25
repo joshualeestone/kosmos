@@ -336,6 +336,31 @@ function openOwnShare(me, macId, ownerPub, nW, nO, frame, roomId) {
   return rk && rk.length === 32 ? { ownerPub: frame.owner, epoch: frame.epoch, roomKey: b64(rk) } : null;
 }
 
+/* kosmos#4658 slice 2: an UNSEALED room's answer to a waiting own computer, after the same compare and Allow as
+   a share. It carries no key: only "this room is not sealed", sealed to that computer for ONE run and bound like a
+   share (pair key over both keys and the room, AAD over the room, the computer and both nonces), so only the owner
+   whose offer the person confirmed can make it. */
+const OWN_CLEAR_TEXT = 'kosmos-own-clear-1';
+function ownClearFrame(owner, run, confirmedCode, roomId) {
+  const r = run || {};
+  const expected = compareCode(roomId, r.mac, r.pub, owner && owner.pub, r.nW, r.nO);
+  if (!expected || !sameCompareCode(confirmedCode, expected)) throw new Error('the code confirmed is not the one that computer shows');
+  const k = pairKey(owner, r.pub, roomId, owner.pub, r.pub, 'own-clear');
+  if (!k) throw new Error('we could not answer that computer');
+  const box = aeadSeal(k, aad('own-clear', roomId, r.mac, r.nW, r.nO), Buffer.from(OWN_CLEAR_TEXT, 'utf8'));
+  return { t: 'key-own-clear', v: V, mac: r.mac, owner: owner.pub, nonce: box.nonce, ct: box.ct };
+}
+/** true when the clear was sealed to THIS board's key, for this computer, room and run, BY `ownerPub` (the owner
+    key of the offer this computer's person confirmed), else false. */
+function openOwnClear(me, macId, ownerPub, nW, nO, frame, roomId) {
+  if (!frame || frame.t !== 'key-own-clear' || frame.v !== V || frame.mac !== macId || !macIdOk(macId) || frame.owner !== ownerPub) return false;
+  if (!publicKeyObject(frame.owner) || !nonceOk(nW) || !nonceOk(nO)) return false;
+  const k = pairKey(me, frame.owner, roomId, frame.owner, me.pub, 'own-clear');
+  if (!k) return false;
+  const pt = aeadOpen(k, aad('own-clear', roomId, macId, nW, nO), frame.nonce, frame.ct);
+  return !!pt && pt.toString('utf8') === OWN_CLEAR_TEXT;
+}
+
 /* ---- messages ---- */
 
 /** A room message sealed under the room key for `epoch`. Inside the seal it carries a
@@ -463,6 +488,7 @@ function splitInviteCode(pasted) {
 }
 
 module.exports = {
+  ownClearFrame, openOwnClear,
   KEY_FILE, ROOMS_FILE, sealingKey, newKeyPair, randomSecret,
   helloFrame, checkHello, shareFrame, openShare, rotateFrame, openRotate,
   ownCommit, compareCode, sameCompareCode, ownHelloFrame, checkOwnHello, ownOfferFrame, checkOwnOffer,
