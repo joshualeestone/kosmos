@@ -952,8 +952,12 @@ async function verbNotice(ctx, args) {
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/notice', { text: got.text, source }, { agent: false });
   if (!r.reached) return ctx.unreachable('write that notice');
   if (r.status >= 200 && r.status < 300) { ctx.out('Written to ' + project + ' as a Kosmos notice from ' + source + '.'); return 0; }
-  if (r.status === 404) { ctx.err('There is no project called "' + project + '", so there is no room to write into.'); return 1; }
   const because = r.json && typeof r.json.error === 'string' ? r.json.error : '';
+  if (r.status === 404) {
+    ctx.err(/no project by that name/.test(because) ? 'There is no project called "' + project + '", so there is no room to write into.'
+      : 'This board does not know kosmos notice yet: update Kosmos, then try again.');
+    return 1;
+  }
   ctx.err('The notice was not written' + (because ? ': ' + because : '') + '.');
   return 1;
 }

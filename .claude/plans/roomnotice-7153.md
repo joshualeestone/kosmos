@@ -15,6 +15,11 @@ refused; an agent's own token cannot write one; bad input is refused with a reas
 - CLI (Mac `install/kosmos` and Windows `tools/windows/kosmos-cli.js`, kept in parity): `kosmos notice --from <source>
   --stdin <project-id>`, board token only (off argv via kosmos_curl's header file on the Mac).
 
+- The row reads `<source> (automated notice): <text>`, one line: whitespace runs, control characters and bidi
+  overrides become single spaces, so a job's text cannot fake another row in `kosmos room` or reorder itself.
+- A CLI notice that cannot be written (board down, refused, too old) is kept in a private file and its path said, as
+  `kosmos post --stdin` does: an alarm fires when the fleet is down, so the text may be its only copy.
+
 ## Rejected
 - `kosmos post` from the job: needs an agent token or a pane; a launchd job has neither, so it is refused.
 - `POST /api/project/<id>/room` with the board token: that is the person's own post, so an alarm would read as Josh's.
@@ -26,6 +31,9 @@ refused; an agent's own token cannot write one; bad input is refused with a reas
 Board-token gating. #4491's guard denies board.token inside Claude Code's sandbox (agent sessions), not to a launchd job
 outside it, so jobs keep it and agents lose it. Until Josh installs that guard, an agent session can still read the
 token and could write a notice: the same exposure every board-token route has today.
+
+**Accepted residual:** a notice carries outside words (a digest quotes other people) in Kosmos's voice. The
+"(automated notice)" mark says what it is; only a board-token holder can write one.
 
 ## Checks
 - server.roomnotice-7153.test.js: gate refusals (no token, an agent's token), a written note from kosmos with its
