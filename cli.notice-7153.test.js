@@ -111,7 +111,8 @@ test('usage: no source, no --stdin, a source with a colon, or no words is refuse
     for (const [args, input, said] of [
       [['notice', '--stdin', 'fleetjosh'], 'hello', /Usage: kosmos notice/],
       [['notice', '--from', 'builder alarm', 'fleetjosh'], 'hello', /Usage: kosmos notice/],
-      [['notice', '--from', 'builder: alarm', '--stdin', 'fleetjosh'], 'hello', /one short line with no colon/],
+      [['notice', '--from', 'builder: alarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/],
+      [['notice', '--from', 'builder\talarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/],
       [['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], '', /empty|nothing was piped|Nothing was written/i],
     ]) {
       const out = await runCli(args, jobEnv(port), input);

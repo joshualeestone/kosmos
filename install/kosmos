@@ -2864,7 +2864,7 @@ cmd_notice() {
     esac
   done
   if [ -z "$source" ] || [ -z "$project" ] || [ "$stdin" -ne 1 ]; then say "$usage"; exit 2; fi
-  case "$source" in *:*|*$'\n'*|*$'\r'*) say "The source is one short line with no colon, such as \"builder alarm\"."; exit 2 ;; esac
+  if ! printf '%s' "$source" | LC_ALL=C grep -qE '^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$'; then say "The source is a few plain words (letters, digits, spaces, . _ -), such as \"builder alarm\"."; exit 2; fi
   require_valid_project_id "$project"
   local text=""
   _read_piped_message "written" "$usage"
@@ -5304,7 +5304,7 @@ done
 [ "${1:-}" = help ] && _kosmos_help=1
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect|update|reply-channel|claim|records)
+    msg|reply|post|react|report|room|notice|feedback|community|task|project|agent|connect|update|reply-channel|claim|records)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a

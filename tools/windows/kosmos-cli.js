@@ -943,7 +943,9 @@ async function verbNotice(ctx, args) {
     else { ctx.err(USAGE.notice); return 2; }
   }
   if (!source || !project || !fromStdin) { ctx.err(USAGE.notice); return 2; }
-  if (/[:\r\n]/.test(source)) { ctx.err('The source is one short line with no colon, such as "builder alarm".'); return 2; }
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(source)) { ctx.err('The source is a few plain words (letters, digits, spaces, . _ -), such as "builder alarm".'); return 2; }
+  // A write goes only to the project named: a name the slug would change is refused, never sent somewhere else.
+  if (projectSlug(project) !== project) { ctx.err('There is no project called "' + project + '", so there is no room to write into.'); return 1; }
   const got = await readPipedMessage(ctx, 'written', 'kosmos notice --from "<source>" --stdin <project-id>, with the text piped in.');
   if (got.code !== undefined) return got.code;
   if (!got.text) { ctx.err('Nothing was written: the notice was empty.'); return 2; }
