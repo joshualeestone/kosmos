@@ -396,5 +396,11 @@ test('review 14: the changes file says it is a pointer and the named sections ar
   const f = agentFile('jo', AFTER);
   ir.remember('jo', BEFORE);
   const body = fs.readFileSync(ir.prepareChanges('jo').path, 'utf8');
-  assert.match(body, /This is a pointer only: the sections the notice named are what count, so read them/);
+  assert.match(body, /This is a pointer only: read the sections the notice named\. It lists every change since you last read the file, changes elsewhere in it included, and those are your current instructions too\./);
+  assert.doesNotMatch(body, /for information|what count/, 'the header ranks some changes below others (review 15)');
+});
+
+test('review 15: making a new agent that reuses a name forgets the old copy (create.js, read as source)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  assert.match(src, /require\('\.\/instructionreread'\)\.forget\(name\)/);
 });

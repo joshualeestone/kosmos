@@ -5502,6 +5502,7 @@ function createAgentInner(opts) {
   try { require('./toolloop').forget(name); } catch { /* #6071: nor a run of repeated tool failures */ }
   try { require('./ownbounds').forget(name); } catch { /* #5154 slice B: nor an old own-bound give-up episode */ }
   try { require('./liveness').forget(name); } catch { /* #5957 slice 3: nor an old agent's last report */ }
+  try { require('./instructionreread').forget(name); } catch { /* kosmos#7149: nor an old agent's copy of what it last read */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {
     return {
