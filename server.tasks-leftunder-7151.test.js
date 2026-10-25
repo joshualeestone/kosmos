@@ -2,9 +2,9 @@
 
 /**
  * kosmos#7151 (feedback: tasks left behind by finished cycles pile up): `GET /api/tasks?state=open&quietDays=N` (the
- * list `kosmos task list --stale` prints) marks a quiet task with `leftUnder`, the closed task it was left under, when:
- * an agent or the Assigner filed it, a task above it closed AFTER it was made, and its agent is not waiting on the
- * person about it. Nothing is retired: the field only offers it. Every other row is unchanged.
+ * list `kosmos task list --stale` prints) marks a quiet task with `leftUnder`, the closed parent it was left under, by
+ * tasks.retireOffers: an agent filed it, everything above it has finished since it was made, its whole history is an
+ * agent's own rows, and its agent is not waiting on the person. Nothing is retired: the field only offers it.
  *
  * Same harness as server.tasks-across-7057.test.js: the board boots fully sandboxed, then enforces a board token.
  *
@@ -80,11 +80,21 @@ test('a quiet task an agent filed before its parent closed is offered with that 
   withProjects(t);
   /* The person acted on #5 (a real transcript entry, as the board writes one): it is never offered. An old date, so
      #5 stays quiet; its last activity is its newest entry. */
+  /* Histories as the board writes them, with old dates so each task stays quiet: #2 was made by its agent and left
+     alone (offered); the person acted on #5 (never offered). */
+  const write = (n, rows) => {
+    const f = taskchat.taskChatFile('cyc7151', n);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    t.after(() => { try { fs.rmSync(f, { force: true }); } catch { /* ignore */ } });
+  };
+  write(2, [{ at: ago(40), kind: 'created', sentence: 'diagnostic left behind', addedVia: 'process', addedBy: 'kit-7151', who: 'kit-7151' }]);
   const file = taskchat.taskChatFile('cyc7151', 5);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ at: ago(30), kind: 'done-when-set', doneWhen: 'it ships', person: true }) + '\n');
+  fs.writeFileSync(file, [{ at: ago(40), kind: 'created', sentence: 'one the person commented on', addedVia: 'process', addedBy: 'kit-7151' },
+    { at: ago(30), kind: 'done-when-set', doneWhen: 'it ships', person: true }].map((r) => JSON.stringify(r)).join('\n') + '\n');
   t.after(() => { try { fs.rmSync(file, { force: true }); } catch { /* ignore */ } });
-  assert.equal(taskchat.read('cyc7151', 5).length, 1, 'premise: #5 has the person\'s entry, 30 days old');
+  assert.equal(taskchat.read('cyc7151', 5).length, 2, 'premise: #5 has its creation and the person\'s entry, 30 days old');
   const r = await call('/api/tasks?project=cyc7151&state=open&quietDays=7');
   assert.equal(r.code, 200, r.text.slice(0, 200));
   const rows = byNumber(r);

@@ -20,7 +20,9 @@ process.on('exit', () => {
     try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 });
+const projects = require('./projects');
 const tasks = require('./tasks');
+const taskchat = require('./taskchat');
 const tasklist = require('./tasklist');
 const fleet = require('../test-support/fleet');
 
@@ -62,11 +64,40 @@ test('only the task\'s own parent counts, and only one closed as done', () => {
   const p = project([cycle,
     { number: 9, sentence: 'open middle', parent: 1, createdAt: at(2), addedVia: 'screen' },
     agentTask(2, { parent: 9 }), agentTask(3, { parent: undefined }), agentTask(4, { parent: 99 })]);
-  assert.equal(of(p, 2), null, 'under an open parent: work still going on, whatever is above it');
+  assert.equal(of(p, 2), null, 'under an open parent: work still going on');
   assert.equal(of(p, 3), null, 'no parent');
   assert.equal(of(p, 4), null, 'a parent number that is not a task here');
   const replaced = project([{ ...cycle, replacedBy: 5 }, agentTask(2), { number: 5, createdAt: at(19), addedVia: 'screen' }]);
   assert.equal(of(replaced, 2), null, 'a parent replaced by another task moved on; it did not finish');
+});
+
+test('every task above the parent must be finished too: a closed step of open work is work still going on', () => {
+  const top = { number: 1, sentence: 'open top', createdAt: at(1), addedVia: 'screen' };
+  const step = { number: 2, sentence: 'closed step', parent: 1, createdAt: at(2), closedAt: at(20), addedVia: 'screen' };
+  const p = project([top, step, agentTask(3, { parent: 2 })]);
+  assert.equal(of(p, 3), null, 'its parent is closed but the top task is open');
+  const done = project([{ ...top, closedAt: at(22) }, step, agentTask(3, { parent: 2 })]);
+  assert.equal(of(done, 3), 2, 'CONTROL: with the top task finished too, offered under its own parent');
+  const replacedTop = project([{ ...top, closedAt: at(22), replacedBy: 9 }, step, agentTask(3, { parent: 2 }), { number: 9, createdAt: at(21), addedVia: 'screen' }]);
+  assert.equal(of(replacedTop, 3), null, 'a top task replaced by another: that work moved on');
+});
+
+test('the history allow-list against the engine\'s own writers: an agent\'s untouched task passes; the person\'s acts do not', () => {
+  const pr = projects.create({ name: 'Writers 7151' });
+  projects.addAgent(pr.id, 'kit');
+  const made = (by) => tasks.create(pr.id, { sentence: 'Diagnostic ' + by, made: { via: 'process', by } }).number;
+  const untouched = made('kit');
+  assert.ok(tasks.agentOnlyHistory(taskchat.read(pr.id, untouched)), 'CONTROL: made by an agent and left alone');
+  const due = made('kit'); tasks.setDue(pr.id, due, '2026-12-01'); tasks.setDue(pr.id, due, null);
+  assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, due)), false, 'a due date set and cleared');
+  const held = made('kit'); tasks.setOnHold(pr.id, held, true, { viaScreen: true }); tasks.setOnHold(pr.id, held, false, { viaScreen: true });
+  assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, held)), false, 'a hold set and released on the screen');
+  const said = made('kit'); tasks.say(pr.id, said, 'a word from the screen');
+  assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, said)), false, 'a message (a said row names nobody)');
+  const agentHold = made('kit'); tasks.setOnHold(pr.id, agentHold, true); tasks.setOnHold(pr.id, agentHold, false);
+  assert.ok(tasks.agentOnlyHistory(taskchat.read(pr.id, agentHold)), 'CONTROL: a hold an agent set and cleared');
+  const theirs = tasks.create(pr.id, { sentence: 'From the screen' }).number;
+  assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, theirs)), false, 'the person made it');
 });
 
 test('only open tasks are offered: never one done, built (waiting on review) or on hold', () => {
@@ -89,16 +120,17 @@ function realCard(name) {
   const board = fleet.install([fleet.agent(name)], { strict: false });
   try { return { ...board.card(name) }; } finally { board.restore(); }
 }
+const AGENT_HISTORY = [{ at: at(5), kind: 'created', addedVia: 'process', addedBy: 'kit' }];
 const rowOf = (p, n) => ({ ...p.tasks.find((t) => t.number === n), projectId: p.id });
 
 test('retireOffers: an offered row, and the roster read only when some row would be offered', () => {
   const p = project([cycle, agentTask(2), agentTask(3, { addedVia: 'screen' })]);
   let reads = 0;
   const roster = () => { reads += 1; return [{ ...realCard('kit'), state: 'working' }]; };
-  const offers = tasks.retireOffers([rowOf(p, 2), rowOf(p, 3)], [p], roster, () => []);
+  const offers = tasks.retireOffers([rowOf(p, 2), rowOf(p, 3)], [p], roster, () => AGENT_HISTORY);
   assert.deepEqual([...offers], [[0, 1]]);
   assert.equal(reads, 1);
-  const none = tasks.retireOffers([rowOf(p, 3)], [p], roster, () => []);
+  const none = tasks.retireOffers([rowOf(p, 3)], [p], roster, () => AGENT_HISTORY);
   assert.equal(none.size, 0);
   assert.equal(reads, 1, 'no candidate: the roster is not read');
 });
@@ -106,26 +138,31 @@ test('retireOffers: an offered row, and the roster read only when some row would
 test('retireOffers: never one whose agent needs the person about it (a real card, and the control)', () => {
   const p = project([cycle, agentTask(2, { parts: [{ who: 'kit', addedVia: 'process' }] })]);
   const card = realCard('kit');
-  const asking = tasks.retireOffers([rowOf(p, 2)], [p], () => [{ ...card, state: 'needs_you', stateProject: p.id }], () => []);
+  const asking = tasks.retireOffers([rowOf(p, 2)], [p], () => [{ ...card, state: 'needs_you', stateProject: p.id }], () => AGENT_HISTORY);
   assert.equal(asking.size, 0, 'kit is asking the person about this project');
-  const elsewhere = tasks.retireOffers([rowOf(p, 2)], [p], () => [{ ...card, state: 'needs_you', stateProject: 'another' }], () => []);
+  const elsewhere = tasks.retireOffers([rowOf(p, 2)], [p], () => [{ ...card, state: 'needs_you', stateProject: 'another' }], () => AGENT_HISTORY);
   assert.equal(elsewhere.get(0), 1, 'CONTROL: a question about another project leaves it offered');
 });
 
 test('retireOffers: a roster that cannot be read offers nothing, never everything', () => {
   const p = project([cycle, agentTask(2)]);
-  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => null, () => []).size, 0, 'null');
-  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => { throw new Error('no snapshot'); }, () => []).size, 0, 'a throw');
-  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => []).get(0), 1, 'CONTROL: an empty roster that was read');
+  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => null, () => AGENT_HISTORY).size, 0, 'null');
+  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => { throw new Error('no snapshot'); }, () => AGENT_HISTORY).size, 0, 'a throw');
+  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => AGENT_HISTORY).get(0), 1, 'CONTROL: an empty roster that was read');
 });
 
 test('retireOffers: the history rules it out when the person acted, or it was re-parented or reopened', () => {
   const p = project([cycle, agentTask(2)]);
+  const created = { at: at(5), kind: 'created', addedVia: 'process', addedBy: 'kit' };
   const offer = (history) => tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => history).get(0);
-  assert.equal(offer([{ at: at(6), kind: 'message', by: 'kit' }]), 1, 'CONTROL: an agent\'s own note');
-  assert.equal(offer([{ at: at(6), kind: 'done-when-set', person: true }]), undefined, 'the person acted on it');
-  assert.equal(offer([{ at: at(21), kind: 'parent-set', parent: 1 }]), undefined, 'moved under its parent after it was made');
-  assert.equal(offer([{ at: at(21), kind: 'reopened' }]), undefined, 'reopened');
+  assert.equal(offer([created, { at: at(6), kind: 'assigned', who: 'kit', by: 'kit' }]), 1, 'CONTROL: only an agent\'s own rows');
+  assert.equal(offer([created, { at: at(6), kind: 'done-when-set', person: true }]), undefined, 'the person acted on it');
+  assert.equal(offer([created, { at: at(6), kind: 'said', text: 'from the screen or not, nothing says' }]), undefined, 'a message with no sender');
+  assert.equal(offer([created, { at: at(6), kind: 'hold-cleared', via: 'screen' }]), undefined, 'a hold the person cleared');
+  assert.equal(offer([]), undefined, 'no history (or one that could not be read: the reader answers the same)');
+  assert.equal(offer([{ at: at(6), kind: 'assigned', who: 'kit', by: 'kit' }]), undefined, 'a history that does not begin with its creation');
+  assert.equal(offer([created, { at: at(21), kind: 'parent-set', parent: 1 }]), undefined, 'moved under its parent after it was made');
+  assert.equal(offer([created, { at: at(21), kind: 'reopened' }]), undefined, 'reopened');
   assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => null).size, 0, 'a history that cannot be read');
   assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => { throw new Error('x'); }).size, 0, 'a history read that throws');
 });
@@ -133,8 +170,8 @@ test('retireOffers: the history rules it out when the person acted, or it was re
 test('retireOffers: a project held in two records is never offered', () => {
   const a = project([cycle, agentTask(2)]);
   const b = project([{ ...cycle, closedAt: undefined }, agentTask(2)]);
-  assert.equal(tasks.retireOffers([rowOf(a, 2)], [a, b], () => [], () => []).size, 0);
-  assert.equal(tasks.retireOffers([rowOf(a, 2)], [a], () => [], () => []).get(0), 1, 'CONTROL: one record');
+  assert.equal(tasks.retireOffers([rowOf(a, 2)], [a, b], () => [], () => AGENT_HISTORY).size, 0);
+  assert.equal(tasks.retireOffers([rowOf(a, 2)], [a], () => [], () => AGENT_HISTORY).get(0), 1, 'CONTROL: one record');
 });
 
 const body = (rows) => ({ tasks: rows, count: rows.length, listState: 'open', quietDays: 7, project: 'p' });
@@ -145,16 +182,16 @@ test('the stale list marks each offered task and says the rule once; nothing els
     { number: 3, whoNames: [], sentence: 'other', lastActivityAt: at(6) }]);
   assert.equal(out[0], '#2  open  kit  diag  (quiet 20 days, left under closed task #1)');
   assert.equal(out[1], '#3  open  nobody  other  (quiet 19 days)', 'a task not offered reads as before');
-  const rule = out.find((l) => l.startsWith('1 of these was added by an agent before the task it is part of was finished'));
-  assert.ok(rule, out.join('\n'));
-  assert.ok(rule.includes('kosmos task close p <task-number>'), 'the one project named: ' + rule);
-  assert.ok(rule.includes('Never offered: a task the person added or set up'), rule);
-  assert.equal(out.filter((l) => l.includes('probably left over')).length, 1, 'the rule is said once');
+  assert.equal(out[3], '1 of these looks left over: added by an agent, and the work it was part of has since finished.', out.join('\n'));
+  assert.equal(out[4], 'If one is yours and you are sure it is done with, close it: kosmos task close p <task-number>.', 'the one project named');
+  assert.ok(out[5].startsWith('Only offered when an agent did everything on it so far: never one the person added, set up or touched'), out[5]);
+  assert.equal(out.filter((l) => l.includes('left over')).length, 1, 'the rule is said once');
+  assert.ok(out.every((l) => l.length <= 200), 'no line of the rule runs past 200 characters');
 });
 
 test('two offered say so in the plural; none offered adds no line; --all leaves the project to fill in', () => {
   const two = lines([{ number: 2, sentence: 'a', lastActivityAt: at(5), leftUnder: 1 }, { number: 3, sentence: 'b', lastActivityAt: at(5), leftUnder: 1 }]);
-  assert.ok(two.some((l) => l.startsWith('2 of these were added by an agent before the task they are part of was finished, so they are probably')), two.join('\n'));
+  assert.ok(two.includes('2 of these look left over: added by an agent, and the work they were part of has since finished.'), two.join('\n'));
   const none = lines([{ number: 3, sentence: 'b', lastActivityAt: at(5) }]);
   assert.ok(!none.some((l) => l.includes('left over')), none.join('\n'));
   const junk = lines([{ number: 3, sentence: 'b', lastActivityAt: at(5), leftUnder: '1' }]);

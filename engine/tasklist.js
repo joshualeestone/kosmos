@@ -121,11 +121,11 @@ function acrossLines(body, flag, opts = {}) {
   const left = stale ? tasks.filter((x) => Number.isSafeInteger(x.leftUnder)).length : 0;
   if (left) {
     const where = every ? '<project-id>' : one(opts.project);
-    lines.push(left + ' of ' + (left === 1 ? 'these was' : 'these were') + ' added by an agent before the task '
-      + (left === 1 ? 'it is' : 'they are') + ' part of was finished, so ' + (left === 1 ? 'it is' : 'they are') + ' probably left over.'
-      + ' If you are sure, close ' + (left === 1 ? 'it' : 'each one') + ' with: kosmos task close ' + where + ' <task-number>.'
-      + ' Never offered: a task the person added or set up (a repeat, a due date, a done-when), one they have acted on,'
-      + ' one being reviewed or on hold, one under work still going on, or one whose agent is waiting on the person.');
+    lines.push(left + ' of ' + (left === 1 ? 'these looks' : 'these look') + ' left over: added by an agent, and the work '
+      + (left === 1 ? 'it was' : 'they were') + ' part of has since finished.');
+    lines.push('If one is yours and you are sure it is done with, close it: kosmos task close ' + where + ' <task-number>.');
+    lines.push('Only offered when an agent did everything on it so far: never one the person added, set up or touched,'
+      + ' one being reviewed or on hold, or one whose agent is waiting on the person.');
   }
   if (Number.isInteger(body.count) && body.count !== n) {
     lines.push('The board counted ' + body.count + ' but sent ' + n + ': list again to see them all.');

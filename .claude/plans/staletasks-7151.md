@@ -14,11 +14,12 @@ Card: kosmos#7151 (agent feedback, 2026-10-25). Rotation card, my shard (mod 7 =
   2. an agent filed it, naming itself (addedVia process with addedBy); the person's own, one with no record, one with
      no agent named, or a webhook's, is never offered;
   3. nothing on it the person set up: no repeat, due date or done-when, no part added or moved from the screen;
-  4. its OWN parent is closed as done (not replaced by another task), and it was made before that close; a task under
-     an open parent is part of work still going on, whatever is above it;
+  4. its parent is closed as done (not replaced by another task), it was made before that close, and every task above
+     the parent is closed as done too (a closed step of open work is work still going on);
   5. retireOffers: never in a project held in two records; never one whose agent needs the person about it (a real
-     roster, read only when some row would be offered; an unreadable roster offers nothing); never one whose history
-     shows the person acting on it, or a re-parent or reopen since it was made.
+     roster, read only when some row would be offered; an unreadable roster offers nothing); and only one whose WHOLE
+     history is rows an agent wrote naming itself (an allow-list, agentOnlyHistory), beginning with its creation by a
+     named agent: most rows the person's screen writes carry no sign of who wrote them, so anything else rules it out.
 
 ## Rejected
 - Auto-retire on a timer: see above.
@@ -26,8 +27,7 @@ Card: kosmos#7151 (agent feedback, 2026-10-25). Rotation card, my shard (mod 7 =
 - Parent closed alone: catches deliberate follow-ups under finished work.
 
 ## Known limit
-- taskchat.read answers [] both for no history and for an unreadable one, so an unreadable history reads as none; the
-  task's own fields (rules 2 to 4) still guard.
+- Each candidate's transcript is read twice (once for its quiet date, once for the allow-list). Only candidates pay it.
 
 ## Weakest premise
 "Made before the parent closed" stands for "left behind by that cycle". A task made earlier but still wanted after the
@@ -49,3 +49,12 @@ owning it is the one who closes it.
   real 30-day-old person entry in the transcript (removing the history check goes red). Engine 14/14, server 2/2, the
   18 task suites 174/174, fixture-discipline and no-name-refs. Broken copies: unreadable roster offering, two records
   allowed, no history check: each red.
+- Round 2: 1 blocker, 3 warnings, 4 nits. Blocker fixed: the history check was a deny-list, and most of what a person
+  does (a screen message, a hold or due date set and cleared, a part moved, a repeat cleared) leaves no person mark;
+  it is now an allow-list of rows only an agent writes, naming itself, tested against the engine's own writers
+  (create, setDue, setOnHold, say) with controls. Warnings fixed: every task above the parent must be finished; an
+  empty or unreadable history is no longer "never touched" (the history must begin with its creation); the line
+  speaks to the task's owner ("If one is yours"). Nits fixed: the server test's header; the history control uses real
+  row kinds; the rule is three short lines (each under 200 characters, asserted). Recorded: the transcript read twice
+  per candidate. Engine 16/16, server 2/2, task suites 176/176, tree guards. Broken copies: allow-all, parent only:
+  each red.

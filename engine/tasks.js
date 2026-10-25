@@ -1813,10 +1813,10 @@ function closedAtOf(t) {
  *     record of who did, or one with no agent named, is never offered;
  *   - nothing on it says the person set it up: no repeat, no due date, no done-when, and no part the person added or
  *     moved from the screen;
- *   - its own parent is closed as done (not replaced by another task: that work moved on, it did not finish), and this
+ *   - its parent is closed as done (not replaced by another task: that work moved on, it did not finish), and this
  *     task was made BEFORE the parent closed. Filing a follow-up under finished work is allowed on purpose
- *     (parentProblem), so a task made after its parent closed is new work. Only the parent counts: a task under an open
- *     parent is part of work still going on, whatever is above that. A task or a close with no date is never offered.
+ *     (parentProblem), so a task made after its parent closed is new work. Every task above the parent is closed as
+ *     done too: a closed step of open work is work still going on. A task or a close with no date is never offered.
  * The rest is the caller's (retireOffers): its history, its agent, the list's quiet days. `tree` is treeOf(p), passed
  * in so a list builds it once per project.
  */
@@ -1832,7 +1832,17 @@ function leftUnder(p, task, tree = treeOf(p)) {
   const parent = tree.byNum.get(up);
   if (!parent || Number.isSafeInteger(parent.replacedBy)) return null;
   const done = closedAtOf(parent);
-  return done && Number.isFinite(Date.parse(done)) && made < Date.parse(done) ? up : null;
+  if (!(done && Number.isFinite(Date.parse(done)) && made < Date.parse(done))) return null;
+  // Every task above the parent is finished too, so the whole piece of work it belonged to has ended: a closed step of
+  // a task still open is work still going on (review 2). Bounded on a store that loops.
+  const seen = new Set([task.number, up]);
+  for (let at = tree.up(parent); at !== null; at = tree.up(tree.byNum.get(at))) {
+    if (seen.has(at)) return null;
+    seen.add(at);
+    const above = tree.byNum.get(at);
+    if (!above || Number.isSafeInteger(above.replacedBy) || !closedAtOf(above)) return null;
+  }
+  return up;
 }
 
 /**
@@ -1841,11 +1851,30 @@ function leftUnder(p, task, tree = treeOf(p)) {
  *   - a project held in more than one record (a shared project) is never offered: which record's tree a row came from
  *     cannot be told, so its parent cannot be;
  *   - never one whose agent needs the person about it (waitingOnPerson, with the project's members);
- *   - never one whose history (`historyOf(projectId, number)`, the task's transcript) shows the person acting on it,
- *     or that it was moved under its parent or reopened since it was made (parent-set, reopened).
+ *   - only one whose whole history (`historyOf(projectId, number)`, the task's transcript) is rows an agent wrote,
+ *     naming itself, starting with its creation (agentOnlyHistory); anything else, or no history, is not offered.
  * `getRoster` is called only when some row would be offered, so a list with none costs nothing more; a roster that
  * cannot be read (not an array) offers nothing at all, never everything.
  */
+/* kosmos#7151 review 2: a task's history (its transcript) shows ONLY things an agent did, naming itself. An allow-list:
+   most rows a person's screen writes carry no mark of who wrote them (a message, a due date set and cleared, a part
+   moved), so a row that cannot be shown to be an agent's rules the task out. It must begin with its own creation by a
+   named agent through the CLI, which also means an empty or unreadable history (taskchat.read answers [] for both)
+   is never taken for "the person never touched it". */
+const AGENT_ROW = {
+  created: (e) => e.addedVia === 'process' && typeof e.addedBy === 'string' && e.addedBy.trim() !== '',
+  assigned: (e) => typeof e.by === 'string' && e.by.trim() !== '',
+  built: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
+  unbuilt: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
+  run: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
+  'hold-set': (e) => e.via === 'agent',
+  'hold-cleared': (e) => e.via === 'agent',
+};
+function agentOnlyHistory(history) {
+  if (!Array.isArray(history) || history.length === 0) return false;
+  if (!history[0] || history[0].kind !== 'created' || !AGENT_ROW.created(history[0])) return false;
+  return history.every((e) => e && Object.prototype.hasOwnProperty.call(AGENT_ROW, e.kind) && AGENT_ROW[e.kind](e));
+}
 function retireOffers(rows, records, getRoster, historyOf) {
   const out = new Map();
   if (!Array.isArray(rows) || rows.length === 0) return out;
@@ -1870,9 +1899,7 @@ function retireOffers(rows, records, getRoster, historyOf) {
     if (waitingOnPerson(t, roster, Array.isArray(r.agents) ? r.agents : [])) continue;
     let history = null;
     try { history = typeof historyOf === 'function' ? historyOf(t.projectId, t.number) : null; } catch { history = null; }
-    if (!Array.isArray(history)) continue;
-    if (history.some((e) => e && (e.person === true || e.kind === 'parent-set' || e.kind === 'reopened'))) continue;
-    out.set(i, n);
+    if (agentOnlyHistory(history)) out.set(i, n);
   }
   return out;
 }
@@ -2309,6 +2336,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 
 module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
