@@ -89,6 +89,12 @@ mixed-version own rooms must keep working, in which case v1 joins stay as today 
   (review 7). Nothing detects the version; the owner's screen says "Allowed" all the same.
 - The resent clear (s.ownCleared) is sent only while the room still reads clear, and forgotten once it does not (review 7).
 
+- **An owner restart** loses its in-memory clear cache (s.ownCleared): a joiner holding an unconfirmed clear keeps its
+  run while the restarted owner lists it with a new code its screen does not show (review 9). Start over, or confirming
+  the old code, recovers it; the share path has the same shape.
+- **Older keyless records** become the waiting variant at the next connect (review 9), so the screen, the room and
+  the code refusal all read them alike; posts they already held as sealed stay sealed-held.
+
 ## Not in this slice
 Lifting the self-shared invite refusal entirely (decision 5 of #7107): once every own computer holds until answered,
 a v1-shared room has only computers that joined before this slice; they still post in the clear. Lift it when no

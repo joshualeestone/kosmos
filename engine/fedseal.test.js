@@ -209,6 +209,11 @@ test('kosmos#4658 slice 2: a key-own-clear opens only for its own run, room, com
   assert.strictEqual(seal.openOwnClear(seal.newKeyPair(), mac, owner.pub, nW, nO, frame, room), false, 'another recipient');
   assert.strictEqual(seal.openOwnClear(w, 'mac-other', owner.pub, nW, nO, frame, room), false, 'another computer id');
   assert.strictEqual(seal.openOwnClear(w, mac, seal.newKeyPair().pub, nW, nO, frame, room), false, 'another owner key expected');
+  // Only the seal (not a field compare) can refuse these two (review 9): the identifying fields are rewritten to match.
+  const other = seal.newKeyPair();
+  const byOther = seal.ownClearFrame(other, { mac, pub: w.pub, nW, nO }, seal.compareCode(room, mac, w.pub, other.pub, nW, nO), room);
+  assert.strictEqual(seal.openOwnClear(w, mac, owner.pub, nW, nO, Object.assign({}, byOther, { owner: owner.pub }), room), false, 'sealed by another key, owner field rewritten');
+  assert.strictEqual(seal.openOwnClear(w, 'mac-other', owner.pub, nW, nO, Object.assign({}, frame, { mac: 'mac-other' }), room), false, 'a genuine clear with its computer id rewritten');
   assert.throws(() => seal.ownClearFrame(owner, { mac, pub: w.pub, nW, nO }, 'AAAAA-AAAAA', room), /the code confirmed is not the one/, 'a clear is never made for a code nobody confirmed');
 });
 

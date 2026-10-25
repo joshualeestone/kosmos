@@ -288,6 +288,7 @@ test('#4658 slice 2: a keyless record an older Kosmos wrote (no pendingClear) ta
   const seat = h.spawned[0];
   say(seat, { event: 'connected', room: 'room-pre1', expires_at: 9 });
   await settle();
+  assert.strictEqual(fedseal.roomState('own-pre1').pendingClear, true, 'an older keyless record was not read as waiting (review 9)');
   const hello = fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop());
   const o = handOwner('room-pre1', hello);
   say(seat, { event: 'message', data: o.offer });
