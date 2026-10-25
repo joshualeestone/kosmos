@@ -299,16 +299,17 @@ else
   bad "run-tests.sh verdict shape: last=[$last_run] refuse=[$refuse] after=[$after]"
 fi
 
-# 7) the switch is this run's alone (a TRIPWIRE on the source): once validated it is unset, so the tests the run
-# starts, some of which start run-tests.sh with a scrubbed environment that predates the switch, never inherit it.
-# The boundary is the unset line itself, found by its number; comments, indented or not, do not count as reads.
-unset_at=$(grep -n -x '_RT_SHELL_PARALLEL="\$KOSMOS_SHELL_PARALLEL"; unset KOSMOS_SHELL_PARALLEL' "$HERE/run-tests.sh" | cut -d: -f1)
+# 7) the switch is this run's alone (a TRIPWIRE on the source): once validated it is kept privately and 1 is
+# exported for everything the run starts, so a test that starts run-tests.sh itself runs one at a time. The boundary
+# is that line itself, found by its number; nothing after it may read or set the switch (comments do not count).
+# Arm 9 checks the same thing by behaviour: every shard sees KOSMOS_SHELL_PARALLEL=1.
+pin_at=$(grep -n -x '_RT_SHELL_PARALLEL="\$KOSMOS_SHELL_PARALLEL"; export KOSMOS_SHELL_PARALLEL=1' "$HERE/run-tests.sh" | cut -d: -f1)
 later=""
-[ -n "$unset_at" ] && later=$(grep -n 'KOSMOS_SHELL_PARALLEL' "$HERE/run-tests.sh" | grep -v '^[0-9]*:[[:space:]]*#' | awk -F: -v u="$unset_at" '$1 > u')
-if [ -n "$unset_at" ] && [ -z "$later" ]; then
-  pass "run-tests.sh: the switch is kept privately and unset, and nothing after its validation reads it"
+[ -n "$pin_at" ] && later=$(grep -n 'KOSMOS_SHELL_PARALLEL' "$HERE/run-tests.sh" | grep -v '^[0-9]*:[[:space:]]*#' | awk -F: -v u="$pin_at" '$1 > u')
+if [ -n "$pin_at" ] && [ -z "$later" ]; then
+  pass "run-tests.sh: the switch is kept privately, 1 is exported for what the run starts, and nothing after reads it"
 else
-  bad "run-tests.sh: KOSMOS_SHELL_PARALLEL unset at line '${unset_at:-none}', read after it: $(printf '%s' "$later" | head -3)"
+  bad "run-tests.sh: KOSMOS_SHELL_PARALLEL pinned at line '${pin_at:-none}', read after it: $(printf '%s' "$later" | head -3)"
 fi
 
 # 8) the unset default (kosmos_shell_parallel_default): 4 on a plain local run, 1 in CI, a CI shard or platform share,
@@ -334,7 +335,7 @@ fi
 mkdir -p "$T/stubnode"
 cat > "$T/stubnode/node" <<STUBNODE
 #!/bin/sh
-printf '%s\n' "\$*" >> "$T/node-argv.log"
+printf '%s KSP=%s\n' "\$*" "\${KOSMOS_SHELL_PARALLEL-unset}" >> "$T/node-argv.log"
 exit 0
 STUBNODE
 chmod +x "$T/stubnode/node"
@@ -342,6 +343,7 @@ rtd() {  # <env assignments...>: run-tests.sh's shell part with the stub node; s
   : > "$T/node-argv.log"
   RT_OUT=$(env -u GITHUB_ACTIONS -u CI -u KOSMOS_SHELL_SHARD -u KOSMOS_SHELL_PLATFORM -u KOSMOS_SHELL_CUT_ENV -u KOSMOS_SHELL_PARALLEL -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL "$@" PATH="$T/stubnode:$PATH" KOSMOS_TEST_PART=shell KOSMOS_TEST_PART_LOCAL=1 KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_TESTS_IGNORE_SUITE=1 KOSMOS_TESTS_IGNORE_HARNESS=1 perl -e "$GROUP60" /bin/bash "$HERE/run-tests.sh" 2>&1 < /dev/null); RT_RC=$?
   RT_SHARDS=$(grep -oE 'shell-shard\.js run [0-9]+ [0-9]+' "$T/node-argv.log" | sed 's/.*shell-shard\.js //' | sort | tr '\n' ';')
+  RT_KSP=$(grep 'shell-shard\.js run' "$T/node-argv.log" | grep -oE 'KSP=[^ ]*' | sort -u | tr '\n' ' ')
 }
 # Accepted on purpose: these four nested runs start from the real tree, not a kt sandbox, so for the second or so each
 # takes (node is a stub) another agent's suite count can see one more live suite and ask again 30 s later.
@@ -349,18 +351,18 @@ rtd() {  # <env assignments...>: run-tests.sh's shell part with the stub node; s
 # browser-check trailer gates read this repo's branch diff), which are not what this arm tests. A run refused before
 # the shell part starts no shard, so it still reds here. The status is printed on a red to show which it was.
 rtd
-d_run="$RT_SHARDS"; r_run=$RT_RC
+d_run="$RT_SHARDS"; r_run=$RT_RC; k_run="$RT_KSP"
 rtd GITHUB_ACTIONS=true
 d_ci="$RT_SHARDS"; r_ci=$RT_RC
 rtd KOSMOS_SHELL_PARALLEL=2
 d_two="$RT_SHARDS"; r_two=$RT_RC
 rtd KOSMOS_SHELL_PARALLEL=
 d_empty="$RT_SHARDS"; r_empty=$RT_RC
-if [ "$d_run" = "run 1 4;run 2 4;run 3 4;run 4 4;" ] && [ "$d_ci" = "run 1 1;" ] && [ "$d_two" = "run 1 2;run 2 2;" ] \
+if [ "$d_run" = "run 1 4;run 2 4;run 3 4;run 4 4;" ] && [ "$k_run" = "KSP=1 " ] && [ "$d_ci" = "run 1 1;" ] && [ "$d_two" = "run 1 2;run 2 2;" ] \
    && [ "$d_empty" = "run 1 1;" ]; then
   pass "run-tests.sh: unset starts 4 shards, GITHUB_ACTIONS=true runs 1 of 1, a set value is kept, and empty is 1"
 else
-  bad "run-tests.sh default end to end (rc unset=$r_run ci=$r_ci two=$r_two empty=$r_empty): unset=[$d_run] ci=[$d_ci] two=[$d_two] empty=[$d_empty] out=$(printf '%s' "$RT_OUT" | tail -c 300)"
+  bad "run-tests.sh default end to end (shards saw [$k_run]; rc unset=$r_run ci=$r_ci two=$r_two empty=$r_empty): unset=[$d_run] ci=[$d_ci] two=[$d_two] empty=[$d_empty] out=$(printf '%s' "$RT_OUT" | tail -c 300)"
 fi
 
 # 10) a TRIPWIRE on release.sh, which a test cannot run as a cut: it says 1 for its gate runs, after its guard (so
