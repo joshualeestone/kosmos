@@ -2,20 +2,19 @@
 #
 # kosmos_shell_parallel <n> <log dir> <command...>
 #   Starts <command...> <i> <n> for i = 1..n, all at once, each with its own log <log dir>/shard-<i>.log and each the
-#   leader of its own process group. Says so as each shard ends; when all have ended it prints the logs in shard order,
-#   then one line naming the time taken and which shards were red. Returns 0 when every shard returned 0, else the
-#   first red shard's status.
-#   KOSMOS_SHELL_PARALLEL_PIDS holds the pids of the shards still running (space separated): each is the id of its
-#   shard's process group, so the caller's EXIT trap can stop a whole shard, the test it is running included, with
-#   kosmos_shell_parallel_stop. A shard leaves the list as soon as it has been waited on, so the trap never signals a
-#   pid that an unrelated process may have taken since.
+#   leader of its own process group. The shards are waited on in shard order (bash 3.2 has no wait -n), and a line
+#   says each one's status when it is waited on, with the time it was seen to have ended (a shard that ended before a
+#   lower-numbered one is reported late). When all have ended it prints the logs in shard order, then one line naming
+#   the time taken and which shards were red. Returns 0 when every shard returned 0, else the first red shard's status.
+#   KOSMOS_SHELL_PARALLEL_PIDS holds the shards still running and KOSMOS_SHELL_PARALLEL_DONE the ones waited on; each
+#   pid is also the id of its shard's process group. kosmos_shell_parallel_stop, for the caller's EXIT trap, uses both.
 #
 # A shard is the command tools/shell-shard.js runs as `run <i> <n>`: the list it takes is fixed by a hash of each
 # command, so the union of the shards is the whole list (tools.shell-shard-4317.test.js).
 kosmos_shell_parallel() {
   local n="$1" dir="$2"; shift 2
   local i p q r rc=0 red="" t0 left
-  KOSMOS_SHELL_PARALLEL_PIDS=""
+  KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""
   t0=$(date +%s)
   i=1
   while [ "$i" -le "$n" ]; do
@@ -30,14 +29,15 @@ kosmos_shell_parallel() {
     wait "$p"; r=$?
     left=""
     for q in $KOSMOS_SHELL_PARALLEL_PIDS; do [ "$q" = "$p" ] || left="$left $q"; done
-    KOSMOS_SHELL_PARALLEL_PIDS="$left"
-    echo "run-tests: shell shard $i of $n ended (status $r) after $(( $(date +%s) - t0 )) s (#7100)"
+    KOSMOS_SHELL_PARALLEL_PIDS="$left"; KOSMOS_SHELL_PARALLEL_DONE="$KOSMOS_SHELL_PARALLEL_DONE $p"
+    echo "run-tests: shell shard $i of $n: status $r, seen ended at $(( $(date +%s) - t0 )) s (#7100)"
     if [ "$r" -ne 0 ]; then
       [ "$rc" -ne 0 ] || rc=$r
       red="$red $i"
     fi
     i=$((i + 1))
   done
+  KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""
   i=1
   while [ "$i" -le "$n" ]; do cat "$dir/shard-$i.log"; i=$((i + 1)); done
   if [ -n "$red" ]; then
@@ -48,19 +48,23 @@ kosmos_shell_parallel() {
   return "$rc"
 }
 
-# kosmos_shell_parallel_stop: TERM every shard still running, each as its whole process group, then wait up to about
-# 2 s for those groups to be gone, so the trap's next steps (the launchd boot-out, removing the run root) rarely run
-# under a test still exiting. For an EXIT trap.
+# kosmos_shell_parallel_stop, for an EXIT trap: TERM the process group of every shard still running, and of every
+# shard already waited on whose group still has members (something its tests left running). A group id cannot be
+# taken by another group while its own still has a member, so the second list is signalled only after a kill -0 on
+# the group says it still has one. Then wait up to about 2 s for those groups to be gone, so the trap's next steps
+# (the launchd boot-out, removing the run root) rarely run under a test still exiting.
 kosmos_shell_parallel_stop() {
-  local p k live
-  for p in ${KOSMOS_SHELL_PARALLEL_PIDS:-}; do kill -TERM -- "-$p" 2>/dev/null; done
+  local p k live targets=""
+  for p in ${KOSMOS_SHELL_PARALLEL_PIDS:-}; do targets="$targets $p"; done
+  for p in ${KOSMOS_SHELL_PARALLEL_DONE:-}; do kill -0 -- "-$p" 2>/dev/null && targets="$targets $p"; done
+  for p in $targets; do kill -TERM -- "-$p" 2>/dev/null; done
   k=0
   while [ "$k" -lt 20 ]; do
     live=0
-    for p in ${KOSMOS_SHELL_PARALLEL_PIDS:-}; do kill -0 -- "-$p" 2>/dev/null && live=1; done
+    for p in $targets; do kill -0 -- "-$p" 2>/dev/null && live=1; done
     [ "$live" = 0 ] && break
     sleep 0.1; k=$((k + 1))
   done
-  KOSMOS_SHELL_PARALLEL_PIDS=""
+  KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""
   return 0
 }
