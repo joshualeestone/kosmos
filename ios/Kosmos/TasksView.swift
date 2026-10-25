@@ -12,19 +12,46 @@ struct TasksTab: View {
     @State private var wasBackground = false
     @State private var openAgent: Board.Agent?
     @State private var openTask: TaskPageRef?
+    // kosmos#7078: the New task sheet (its project, picked in the list) and the line it leaves after a create.
+    @State private var newTaskFor: NewTaskStart?
+    @State private var notice: String?
+    @State private var newTaskDraft = NewTask.Draft()   // kept when the sheet closes, as the board keeps its draft
+    @State private var newTaskHeld: NewTask.Held?        // words that got "could not tell", kept with the draft
 
     var body: some View {
         NavigationView {
             TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
                       open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
                       answer: answer,
-                      refresh: { await client.refreshTasks() })
+                      refresh: { await client.refreshTasks() },
+                      newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
+                      notice: notice)
                 .background(chatLink)
                 .background(taskLink)
+                .sheet(item: $newTaskFor) { start in
+                    NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft,
+                                held: $newTaskHeld, heldFound: heldFound(in:)) { line in
+                        notice = line
+                        Task { await client.refreshTasks() }
+                    }
+                }
         }
         .navigationViewStyle(.stack)
-        .onChange(of: client.chatEpoch) { _ in openAgent = nil; openTask = nil }
-        .onAppear { visible = true; client.show(BoardClient.tasksViewer) }
+        // A Tasks read that shows the held task: it was made. Said as any create is (the sheet closes, the added line
+        // shows), and the hold and its words go.
+        .onChange(of: client.tasksList) { read in
+            guard let read else { return }
+            heldFound(in: read)
+        }
+        // Another account or Mac: its projects are not this one's, so the sheet, its draft and the added line go too.
+        .onChange(of: client.chatEpoch) { _ in
+            openAgent = nil; openTask = nil
+            newTaskFor = nil; newTaskDraft = NewTask.Draft(); newTaskHeld = nil; notice = nil
+        }
+        .onAppear {
+            visible = true; client.show(BoardClient.tasksViewer)
+            if Self.sampleNewTask && !Self.sampleNewTaskShown { Self.sampleNewTaskShown = true; newTaskFor = NewTaskStart(picked: nil) }
+        }
         .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.tasksViewer) }
         .onChange(of: scenePhase) { phase in
             guard visible else { return }
@@ -33,6 +60,31 @@ struct TasksTab: View {
         }
     }
 
+    // The one place a held task found in a Tasks read is said, whichever read found it (the tab's own, or the sheet's
+    // follow-up read, which may land after that sheet has gone): only a sheet showing the held words is closed and
+    // cleared, since one with other words may be creating another task.
+    private func heldFound(in read: Board.TasksRead) {
+        guard let h = newTaskHeld, let number = NewTask.found(h.sent, in: read, before: h.before) else { return }
+        let name = read.tasks.first { $0.number == number && $0.projectId == h.sent.project }?.projectName ?? "the project"
+        if NewTask.heldBack(newTaskDraft, by: h) {
+            newTaskFor = nil
+            newTaskDraft = NewTask.Draft()
+        }
+        newTaskHeld = nil
+        let line = NewTask.addedLine(number: number, projectName: name)
+        notice = line
+        // Said aloud, as the sheet's own "made" says it: a sheet closing with nothing said reads as a failure.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { UIAccessibility.post(notification: .announcement, argument: line) }
+    }
+
+    // Screenshots only (a Debug build with KOSMOS_SAMPLE_AGENTS=1): KOSMOS_SAMPLE_NEWTASK=1 opens the New task sheet once.
+    #if DEBUG
+    private static let sampleNewTask = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
+        && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWTASK"] == "1"
+    #else
+    private static let sampleNewTask = false
+    #endif
+    private static var sampleNewTaskShown = false
     // tskAgentName: the roster's name for a session, else the session name itself.
     private func name(_ session: String) -> String { client.agents.first { $0.session == session }?.name ?? session }
     // The agent the decision row waits on (the first named), in its native chat; one the roster does not list yet opens
@@ -74,6 +126,10 @@ struct TasksView: View {
     let open: (Board.TaskRow) -> Void
     let answer: (Board.TaskRow) -> Void
     let refresh: () async -> Void
+    // kosmos#7078: the New task sheet, opened with the project picked here (nil on All projects), and the line the
+    // sheet leaves after a create ("Added task 12 to Launch."). Both optional, so the samples and checks need neither.
+    var newTask: ((String?) -> Void)? = nil
+    var notice: String? = nil
 
     @State private var project: String? = nil
     @State private var shown: [Tasks.Section] = []
@@ -85,7 +141,16 @@ struct TasksView: View {
     var body: some View {
         content
             .navigationTitle("Tasks")
-            .toolbar { if let read, !read.tasks.isEmpty { ToolbarItem(placement: .navigationBarTrailing) { picker } } }
+            .toolbar {
+                if let read, !read.tasks.isEmpty { ToolbarItem(placement: .navigationBarTrailing) { picker } }
+                // Not gated on the Tasks read: the sheet reads its own projects, so a failed list does not stop a new task.
+                if let newTask {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button { newTask(project) } label: { Image(systemName: "plus") }
+                            .accessibilityLabel("New task")
+                    }
+                }
+            }
             .background(Palette.ground.ignoresSafeArea())
             .onAppear { completedOpen = Self.sampleCompletedOpen; layOut() }
             .onChange(of: read) { _ in update() }
@@ -96,7 +161,8 @@ struct TasksView: View {
         if let read {
             // The board's own empty line, as slice 1's empty state.
             if read.tasks.isEmpty && !read.rosterUnknown {
-                centred(title: "No tasks yet", detail: "Tasks are made on your computer, or by your agents.")
+                centred(title: "No tasks yet", detail: newTask != nil ? (notice ?? "Add one with +, or ask an agent to.")
+                        : "Tasks are made on your computer, or by your agents.")
             } else {
                 list(read)
             }
@@ -123,8 +189,14 @@ struct TasksView: View {
             Section {
                 EmptyView()
             } header: {
-                Text(Tasks.title(read, project: project))
-                    .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Tasks.title(read, project: project))
+                        .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
+                    // kosmos#7078: the board's tsk-msg line after a New task, where the board puts it.
+                    if let notice {
+                        Text(notice).font(.footnote).foregroundColor(Palette.primary).textCase(nil)
+                    }
+                }
             }
             ForEach(shown, id: \.group.key) { s in
                 if s.group.key == "closed" {
@@ -339,4 +411,10 @@ enum TasksPalette {
         default: return Palette.pair(0x4a4f57, 0xa9adb3)   // --tsk-nobody and --tsk-held
         }
     }
+}
+
+// kosmos#7078: one opening of the New task sheet, with the project the Tasks list had picked.
+struct NewTaskStart: Identifiable {
+    let id = UUID()
+    let picked: String?
 }
