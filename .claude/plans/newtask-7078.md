@@ -211,3 +211,7 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - Iteration 21 (opus): a held task found by any read is said in ONE place, the Tasks tab's heldFound, which closes and
   clears only a sheet still showing the held words. The sheet's follow-up read hands its read to it instead of acting
   itself: since Cancel works during that read, the sheet that sent it may be gone and another open.
+- Rebased onto main with #7084 (23:50 CDT). The iteration-6 CI deferral is now CLOSED there: #7084's
+  ios.board-parity-7084.test.js runs every LogicTests suite that reads web/ or engine/ in the board's node suite, and
+  after the rebase it reports "the newtask suite agrees with the board it reads" (7/7). After the rebase: newtask
+  108/108, tasks 90/90, taskpage 108/108.
