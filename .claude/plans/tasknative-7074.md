@@ -31,6 +31,13 @@ screen. An info button opens the board's page for what this does not do. Checked
   what the button says.
 - Not here, on the board's page by the info button: the task composer, due date and hold edits, parts (add, assign,
   done), Add subtask, Close them and this task, the receipt and undo, repeat controls.
+- Seen, as the board's tkPresent: only while the person is there (page on screen, app in front, a touch in the last two
+  minutes; with VoiceOver or Switch Control running, on screen and in front is enough, since their input reaches no
+  gesture the page sees). The 5-second read is gated the same way, and each read is followed by a seen mark; the page
+  appearing or the app coming back records the state once more (tkTabReturn).
+- Deferred: folded quiet runs show their one summary line (the board's details can be opened to the single runs); at
+  the largest text sizes a subtask's status sits beside a long title; whether the page-wide touch tracker
+  (simultaneousGesture) ever slows a scroll or pull-to-refresh: device check.
 - BoardRoom.swift (Mona Lisa's) is only called (projectsRequest, isProjectId), never edited.
 
 ## Steps
