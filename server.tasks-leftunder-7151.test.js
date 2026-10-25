@@ -46,7 +46,8 @@ test.after(() => {
 });
 
 async function call(p) {
-  const res = await fetch(base + p, { headers: { 'x-kosmos-board-token': BOARD } });
+  // Review 5: a deadline, so a request that hangs fails in seconds rather than at fetch's own five minutes.
+  const res = await fetch(base + p, { headers: { 'x-kosmos-board-token': BOARD }, signal: AbortSignal.timeout(5000) });
   const text = await res.text().catch(() => '');
   let json = null;
   try { json = JSON.parse(text); } catch { json = null; }
@@ -57,7 +58,7 @@ const DAY = 86400000;
 const ago = (d) => new Date(Date.now() - d * DAY).toISOString();
 
 /* One project: a cycle (#1) that closed 20 days ago, and under it the tasks the rule has to tell apart. Every open one
-   is quiet for at least 10 days (no transcript, so its createdAt is its last activity). */
+   is quiet for at least 10 days: each test writes the transcripts it needs, all dated 15 days ago or older. */
 function withProjects(t) {
   const realAll = projectsEngine.readAll;
   projectsEngine.readAll = () => [

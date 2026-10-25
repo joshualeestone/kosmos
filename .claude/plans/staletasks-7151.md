@@ -76,3 +76,8 @@ owning it is the one who closes it.
   wait counts too, for an unassigned task; the plain-list test now has an offered task, so it can fail. Recorded: the
   tmux-session identity limit (Known limit). Engine 19/19, server 3/3, task suites 180/180, tree guards. Broken copies:
   one level only, no filer check, no try/catch: each red.
+- Round 5: 0 blockers, 2 warnings, 2 nits. Fixed: every task under it gets the task's own checks (a named agent filed
+  it, nothing the person set up, agentsOwn) and an agent-only history too (a closed step from the person's Terminal,
+  or with a screen part, ruled it in before); the server test's requests have a 5 s deadline, so a hang fails in
+  5 s (measured) rather than at fetch's 300 s. Nits: the loop test now loops through the task itself; a stale comment.
+  Engine 21/21, server 3/3. Broken copies: no child history, child not checked as the agent's: each red.

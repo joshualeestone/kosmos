@@ -1820,24 +1820,35 @@ function closedAtOf(t) {
  * The rest is the caller's (retireOffers): its history, its agent, the list's quiet days. `tree` is treeOf(p), passed
  * in so a list builds it once per project.
  */
-function leftUnder(p, task, tree = treeOf(p)) {
-  if (!task || listGroup(task) !== 'open') return null;
-  if (task.addedVia !== 'process' || typeof task.addedBy !== 'string' || !task.addedBy.trim()) return null;
-  if (task.repeat || task.dueDate || task.doneWhen) return null;
-  if (partsOf(task).some((x) => x && (x.addedVia === 'screen' || x.movedVia === 'screen'))) return null;
-  const made = typeof task.createdAt === 'string' ? Date.parse(task.createdAt) : NaN;
-  if (!Number.isFinite(made)) return null;
-  // Every task under it, at any depth, is closed and was filed by an agent: an open one is work still going on (review
-  // 3), and one the person added is theirs, closed or not (review 4). Bounded on a store that loops.
-  const below = [...tree.under(task.number)];
-  const visited = new Set([task.number]);
+/* kosmos#7151: filed through the CLI by a named agent, and nothing on it the person set up (a repeat, a due date, a
+   done-when, a part added or moved from the screen). The task offered and every task under it must pass (review 5). */
+function agentsOwn(t) {
+  if (!t || t.addedVia !== 'process' || typeof t.addedBy !== 'string' || !t.addedBy.trim()) return false;
+  if (t.repeat || t.dueDate || t.doneWhen) return false;
+  return !partsOf(t).some((x) => x && (x.addedVia === 'screen' || x.movedVia === 'screen'));
+}
+/* Every task under `n`, at any depth, each once (a store that loops ends). */
+function descendantsOf(tree, n) {
+  const out = [];
+  const below = [...tree.under(n)];
+  const visited = new Set([n]);
   while (below.length) {
     const c = below.pop();
     if (!c || visited.has(c.number)) continue;
     visited.add(c.number);
-    if (!closedAtOf(c) || c.addedVia !== 'process') return null;
+    out.push(c);
     below.push(...tree.under(c.number));
   }
+  return out;
+}
+function leftUnder(p, task, tree = treeOf(p)) {
+  if (!task || listGroup(task) !== 'open') return null;
+  if (!agentsOwn(task)) return null;
+  const made = typeof task.createdAt === 'string' ? Date.parse(task.createdAt) : NaN;
+  if (!Number.isFinite(made)) return null;
+  // Every task under it, at any depth, is closed and was filed by an agent: an open one is work still going on (review
+  // 3), and one the person added is theirs, closed or not (review 4). Bounded on a store that loops.
+  if (descendantsOf(tree, task.number).some((c) => !closedAtOf(c) || !agentsOwn(c))) return null;
   const up = tree.up(task);
   if (up === null || up === task.number) return null;
   const parent = tree.byNum.get(up);
@@ -1863,7 +1874,8 @@ function leftUnder(p, task, tree = treeOf(p)) {
  *     cannot be told, so its parent cannot be;
  *   - never one whose agent needs the person about it (waitingOnPerson, with the project's members);
  *   - only one whose whole history (`historyOf(projectId, number)`, the task's transcript) is rows an agent wrote,
- *     naming itself, starting with its creation (agentOnlyHistory); anything else, or no history, is not offered.
+ *     naming itself, starting with its creation (agentOnlyHistory), and the same for every task under it; anything
+ *     else, or no history, is not offered.
  * `getRoster` is called only when some row would be offered, so a list with none costs nothing more; a roster that
  * cannot be read (not an array) offers nothing at all, never everything.
  */
@@ -1912,7 +1924,14 @@ function retireOffers(rows, records, getRoster, historyOf) {
     if (waitingOnPerson(t, roster, members) || waitingOnPerson({ ...t, parts: [{ who: t.addedBy }] }, roster, members)) continue;
     let history = null;
     try { history = typeof historyOf === 'function' ? historyOf(t.projectId, t.number) : null; } catch { history = null; }
-    if (agentOnlyHistory(history)) out.set(i, n);
+    if (!agentOnlyHistory(history)) continue;
+    // Review 5: every task under it has an agent-only history too, so nothing the person did below it hides.
+    const below = descendantsOf(trees.get(r.id), t.number);
+    if (below.every((c) => {
+      let h = null;
+      try { h = historyOf(t.projectId, c.number); } catch { h = null; }
+      return agentOnlyHistory(h);
+    })) out.set(i, n);
   }
   return out;
 }

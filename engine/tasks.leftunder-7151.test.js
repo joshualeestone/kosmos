@@ -115,8 +115,13 @@ test('every task under it, at any depth, must be closed and an agent\'s', () => 
   assert.equal(of(theirs, 2), null, 'a step the person added, even closed (review 4)');
   const ok = project([cycle, agentTask(2), child(3, 2), child(4, 3)]);
   assert.equal(of(ok, 2), 1, 'CONTROL: every task below closed and an agent\'s');
-  const loop = project([cycle, agentTask(2), child(3, 2), { ...child(4, 3), parent: 3 }]);
-  assert.equal(of(loop, 2), 1, 'a repeated child is visited once');
+  const noName = project([cycle, agentTask(2), child(3, 2, { addedBy: null })]);
+  assert.equal(of(noName, 2), null, 'a closed step added through the CLI with no agent named: the person\'s own Terminal (review 5)');
+  const screenPart = project([cycle, agentTask(2), child(3, 2, { parts: [{ who: 'kit', addedVia: 'screen', closedAt: at(8) }] })]);
+  assert.equal(of(screenPart, 2), null, 'a closed step with a part the person added (review 5)');
+  // Review 5: a real loop runs through the task itself: 2 under 3 and 3 under 2. It ends, and offers nothing.
+  const loop = project([cycle, agentTask(2, { parent: 3 }), child(3, 2)]);
+  assert.equal(of(loop, 2), null, 'a store that loops through the task ends');
 });
 
 test('only open tasks are offered: never one done, built (waiting on review) or on hold', () => {
@@ -193,6 +198,13 @@ test('retireOffers: the history rules it out when the person acted, or it was re
   assert.equal(offer([created, { at: at(21), kind: 'reopened' }]), undefined, 'reopened');
   assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => null).size, 0, 'a history that cannot be read');
   assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => { throw new Error('x'); }).size, 0, 'a history read that throws');
+});
+
+test('retireOffers: a task under it whose history shows the person rules it out (review 5)', () => {
+  const p = project([cycle, agentTask(2), { number: 3, parent: 2, createdAt: at(6), addedVia: 'process', addedBy: 'kit', closedAt: at(8) }]);
+  const agentRows = (n) => [{ at: at(5), kind: 'created', addedVia: 'process', addedBy: 'kit' }, ...(n === 3 ? [{ at: at(7), kind: 'said', text: 'x' }] : [])];
+  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], (pid, n) => agentRows(n)).size, 0, 'its step has a row nobody can be shown to have written');
+  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => AGENT_HISTORY).get(0), 1, 'CONTROL: every history an agent\'s');
 });
 
 test('retireOffers: a project held in two records is never offered', () => {
