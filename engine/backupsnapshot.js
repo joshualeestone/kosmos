@@ -853,7 +853,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
   const sealed = sealManifest(memberPk, deviceKey, ctx, manifest);
-  const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks, epoch: ctx.epoch });
+  // kosmos#7118: with the snapshot id the manifest is sealed under, so a restore (or the console) can open it.
+  const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks, epoch: ctx.epoch, snapshot: ctx.snapshot });
   if (!m || !m.ok) {
     // outlastsChunks: the named chunks lock out too soon for this manifest. Every lock was checked against this period's
     // manifest lock, so in practice Monday passed since (a FRESH reading says so; the one above cannot). Else

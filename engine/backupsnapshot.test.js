@@ -1665,3 +1665,21 @@ test('#5535: a snapshot carries its naming key, and restores with no naming key 
     assert.equal(out.failed.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('kosmos#7118: the manifest upload carries its snapshot id, and with it another process that knows only the coordinator\'s record can open it', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const sent = st.manifests[0].opts.snapshot;
+    assert.equal(sent, k.ctx.snapshot, 'the uploader was handed the context\'s snapshot id');
+    // What a destination knows: the org, member and epoch it asked about, the period and snapshot id the coordinator
+    // recorded (the period is in the manifest's key; the snapshot is what this card adds), the member key and the
+    // device key. Built from those alone, never from k.ctx.
+    const known = { org: 'o1', member: 'm1', epoch: '1', period: PERIOD, snapshot: sent };
+    assert.ok(bf.openManifest(k.member.sk, k.dev.publicKey, known, st.manifests[0].bytes), 'opens from the coordinator\'s record');
+    // CONTROL: the same, with a snapshot id the coordinator did not record, does not open (it is part of the context).
+    const wrong = Object.assign({}, known, { snapshot: 's-00000000' });
+    assert.equal(bf.openManifest(k.member.sk, k.dev.publicKey, wrong, st.manifests[0].bytes), null);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

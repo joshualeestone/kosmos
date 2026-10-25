@@ -55,6 +55,8 @@ const crypto = require('crypto');
 
 const GRANT_ROUTE = '/v1/org/backup/grant';
 const MANIFEST_ROUTE = '/v1/org/backup/manifest';
+// kosmos#7118: a manifest context id, the format's own rule (the coordinator checks the same one).
+const { CTX_ID_RE: SNAPSHOT_ID_RE } = require('./backupformat');
 const MAX_MANIFEST = 64 * 1024 * 1024;   // the coordinator's manifest ceiling (its floor is MIN_OBJECT, as a chunk's)
 const MAX_PER_GRANT = 500;              // the coordinator's limit per grant request
 const MIN_OBJECT = 4148;                // a sealed chunk's framing floor (backupformat's 4 KiB Padme floor plus framing)
@@ -567,6 +569,9 @@ function ownerOf(key) {
               manifest stored). The lock check refuses before the grant when THIS MAC'S clock already shows it,
               which errs toward refusing when that clock runs fast; else as the grant arrives, its allowance spent,
               before any byte is sent.
+   Plus snapshot (kosmos#7118), the snapshot id the manifest is sealed under (its context's `snapshot`): sent with the
+   grant so the coordinator keeps it, since nobody but this Mac could open the manifest without it (the id is the time
+   and 4 random bytes). Optional; one that is not a context id (backupformat CTX_ID_RE) is refused before any grant.
    Plus epoch, as uploadChunks (the manifest's own key must be under it; the chunks it names may be under an earlier
    one), and putTimeoutMs, as uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed
    PUT of a 64 MiB manifest holds the call about 70 minutes before it ends retryLater. The bytes are copied on entry,
@@ -651,11 +656,17 @@ async function uploadManifestInner(deps, bytes, o, st) {
   if (floor < now() + MANIFEST_LOCK_FLOOR_MS + GRANT_WINDOW_MS) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
   const timeoutMs = Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(bytes.length, 1);
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  // kosmos#7118: the context's snapshot id travels with the grant (the coordinator keeps it for whoever opens the
+  // manifest). Checked by the context's own rule, before anything is asked or spent.
+  const snapshot = o.snapshot;
+  if (snapshot !== undefined && (typeof snapshot !== 'string' || !SNAPSHOT_ID_RE.test(snapshot))) {
+    return { ok: false, grantSpent: false, because: 'the snapshot id is not a manifest context id' };
+  }
   for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
     const asked = now();
     st.asked = true;
     const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
-      () => ({ sha256, size: bytes.length, nonce: crypto.randomBytes(16).toString('hex') }),
+      () => Object.assign({ sha256, size: bytes.length }, snapshot !== undefined ? { snapshot } : {}, { nonce: crypto.randomBytes(16).toString('hex') }),
       (d) => parseManifestGrant(d, bytes, o.bucket, epoch));
     const earlier = st.granted;   // a grant answered before THIS request (read before this one's answer is counted)
     if (g.out && g.out.grantSpent) st.granted = true;

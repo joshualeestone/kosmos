@@ -1607,3 +1607,36 @@ test('#5744: a manifest grant naming another key epoch is refused before anythin
     assert.strictEqual(bad.grantSpent, false, 'refused before any grant');
   } finally { await b.close(); }
 });
+
+test('kosmos#7118: the manifest grant carries the snapshot id it is sealed under; a bad one asks for nothing; none sends none', async () => {
+  const id = '20261025T061500Z-0a1b2c3d';
+  // Sent: the body names it, and the manifest is stored as before.
+  let b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { snapshot: id }));
+    assert.strictEqual(r.ok, true, r.because);
+    assert.strictEqual(mc.bodies.length, 1);
+    assert.strictEqual(mc.bodies[0].snapshot, id);
+  } finally { await b.close(); }
+  // Not given (CONTROL): no snapshot field at all, so a coordinator that predates it reads the same body as before.
+  b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, true, r.because);
+    assert.ok(!('snapshot' in mc.bodies[0]), JSON.stringify(mc.bodies[0]));
+  } finally { await b.close(); }
+  // Not a context id: refused before any grant is asked (nothing spent), whatever the coordinator would answer.
+  for (const bad of ['', 'x'.repeat(129), 'a/b', ' x', 'a\nb', 'é', 7, null]) {
+    b = await bucket();
+    try {
+      const mc = manifestCoordinator(b);
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { snapshot: bad }));
+      assert.strictEqual(r.ok, false, JSON.stringify(bad));
+      assert.strictEqual(r.grantSpent, false, JSON.stringify(bad));
+      assert.strictEqual(mc.bodies.length, 0, `${JSON.stringify(bad)}: a grant was asked for`);
+      assert.strictEqual(b.puts, 0);
+    } finally { await b.close(); }
+  }
+});
