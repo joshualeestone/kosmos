@@ -1187,21 +1187,34 @@ do {
     check(rows.count == 4, "premise: four rows")
     check(rows[0].reactions == [Board.ChatReaction(emoji: "\u{1F44D}", count: 1, mine: true)] && rows[1].replyTo == "2026-10-24T10:00:00.000Z",
           "a row carries its reaction pills and the `at` of what it answers")
-    check(Board.replyHead(rows[1], in: rows, agentName: "Dana", olderCount: 4) == .answers(who: "Dana", gist: "Here are pages 1 to 8."),
+    check(Board.replyHead(to: rows[1].replyTo, in: rows, agentName: "Dana", olderLeft: 4) == .answers(who: "Dana", gist: "Here are pages 1 to 8."),
           "a reply names who and what it answers")
-    check(Board.replyHead(rows[2], in: rows, agentName: "Dana", olderCount: 4) == .furtherBack,
+    check(Board.replyHead(to: rows[2].replyTo, in: rows, agentName: "Dana", olderLeft: 4) == .furtherBack,
           "an original older than the oldest row, with older messages left out: further back")
-    check(Board.replyHead(rows[3], in: rows, agentName: "Dana", olderCount: 4) == .unavailable,
+    check(Board.replyHead(to: rows[3].replyTo, in: rows, agentName: "Dana", olderLeft: 4) == .unavailable,
           "an original that should be here but is not: unavailable")
-    check(Board.replyHead(rows[2], in: rows, agentName: "Dana", olderCount: 0) == .unavailable, "nothing older left out: unavailable, never further back")
-    check(Board.replyHead(rows[0], in: rows, agentName: "Dana", olderCount: 4) == nil, "a message that answers nothing has no header")
-    check(Board.replyIsAdjacent(rows[1], in: rows) && !Board.replyIsAdjacent(rows[2], in: rows) && !Board.replyIsAdjacent(rows[0], in: rows),
-          "a reply right under what it answers is adjacent (its header heard, not drawn); others are not")
+    check(Board.replyHead(to: rows[2].replyTo, in: rows, agentName: "Dana", olderLeft: 0) == .unavailable, "nothing older left out: unavailable, never further back")
+    check(Board.replyHead(to: rows[0].replyTo, in: rows, agentName: "Dana", olderLeft: 4) == nil, "a message that answers nothing has no header")
+    check(Board.repliesUnderOriginal(rows) == [rows[1].id], "a reply right under what it answers has its header left out; others keep theirs")
+    var chained = rows
+    var second = Board.ChatRow(id: "second", atRaw: "2026-10-24T10:01:30.000Z", at: nil, text: "and the cover", who: .person)
+    second.replyTo = "2026-10-24T10:00:00.000Z"
+    chained.insert(second, at: 2)
+    check(Board.repliesUnderOriginal(chained) == [rows[1].id, "second"], "a second reply to the same message, right under the first, is left out too (the chain)")
     let filesOnly = Board.ChatRow(id: "f", atRaw: "T", at: nil, text: "deck.pdf", who: .agent,
                                   attachments: [Board.Attachment(id: "0123456789abcdef01234567", name: "deck.pdf", type: "application/pdf", size: 1, kind: "pdf", url: "/api/attachment/0123456789abcdef01234567", preview: nil)])
     check(Board.replyGist(filesOnly) == "deck.pdf" && Board.replyGist(Board.ChatRow(id: "e", atRaw: "T", at: nil, text: "  ", who: .agent)) == "a message"
-          && Board.replyGist(Board.ChatRow(id: "w", atRaw: "T", at: nil, text: "two\nlines", who: .agent)) == "two lines",
-          "the gist: words on one line, else the file's name, else a message")
+          && Board.replyGist(Board.ChatRow(id: "w", atRaw: "T", at: nil, text: "\n  two\nlines", who: .agent)) == "two",
+          "the gist: the first line with words, else the file's name, else a message (pjReplyWords)")
+    check(Board.replyWords(String(repeating: "a", count: 90)) == String(repeating: "a", count: 80) + "\u{2026}" && Board.replyWords("ok") == "ok", "cut to 80 with an ellipsis")
+    check(Board.replyWords("e\u{301}\u{301}\u{301}\u{301}x") == "e\u{301}\u{301}x", "at most two marks on a letter")
+    check(Board.dropSelfName("Dana: here it is", names: ["Dana", "dana"]) == "here it is" && Board.dropSelfName("**Dana**: hi", names: ["Dana"]) == "hi"
+          && Board.dropSelfName("Dana - hi", names: ["Dana"]) == "hi", "the agent's own leading name is dropped (colon, bold, dash)")
+    check(Board.dropSelfName("Dana-style copy", names: ["Dana"]) == "Dana-style copy" && Board.dropSelfName("dana: x", names: ["Dana"]) == "dana: x"
+          && Board.dropSelfName("Dana:", names: ["Dana"]) == "Dana:" && Board.dropSelfName("Dana:/x", names: ["Dana"]) == "Dana:/x",
+          "kept when it is part of a word, another case, the whole message, or a colon before a slash")
+    check(Board.replyGist(Board.ChatRow(id: "n", atRaw: "T", at: nil, text: "Dana: pages are in", who: .agent), agentName: "Dana", session: "dana") == "pages are in",
+          "a gist drops the agent's own name, which the header says beside it")
 
     let reply = Board.sendRequest(mac: mac, session: "dana", text: "yes", replyTo: "2026-10-24T10:00:00.000Z")
     let replyBody = reply?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -1219,9 +1232,9 @@ do {
     check(Board.reactResult(status: 200, body: Data(#"{"ok":true,"op":"add","emoji":"x","at":"T1","reactions":[{"emoji":"x","count":1,"who":["you"],"mine":true}]}"#.utf8))
           == .reacted(at: "T1", pills: [Board.ChatReaction(emoji: "x", count: 1, mine: true)]), "added: the message's fresh pills")
     check(Board.reactResult(status: 400, body: Data(#"{"ok":false,"because":"there is no message from this agent at that time to react to"}"#.utf8))
-          == .refused("there is no message from this agent at that time to react to"), "refused: the Mac's reason")
-    check(Board.reactResult(status: 404, body: Data(#"{"error":"no agent by that name"}"#.utf8)) == .refused("no agent by that name")
-          && Board.reactResult(status: 0, body: nil) == .refused("we could not react to that just now"), "the route's error, or no answer")
+          == .refused("There is no message from this agent at that time to react to."), "refused: the Mac's reason, as a sentence")
+    check(Board.reactResult(status: 404, body: Data(#"{"error":"no agent by that name"}"#.utf8)) == .refused("No agent by that name.")
+          && Board.reactResult(status: 0, body: nil) == .refused("We could not react to that just now."), "the route's error, or no answer")
     let after = Board.withReactions(rows, at: "2026-10-24T10:00:00.000Z", pills: [])
     check(after[0].reactions.isEmpty && after[1] == rows[1], "a react answer repaints only the agent's row it names")
     check(Board.withReactions(rows, at: "2026-10-24T10:01:00.000Z", pills: [Board.ChatReaction(emoji: "x", count: 1, mine: true)])[1].reactions.isEmpty,
@@ -1921,6 +1934,18 @@ section("native board loop: connecting")
               "a reply posts its reply_to, and the bubble keeps it")
         await c.retry(c.pending["dana"]!.last!.id, to: dana)
         check(w.postedReplies.suffix(2) == ["2026-10-24T10:00:00.000Z", "2026-10-24T10:00:00.000Z"], "a retry sends the same reply_to")
+        // The Mac refuses a reply whose original has gone: "Send as a new message" sends it without one.
+        w.sendQueue = [(409, #"{"error":"That message is no longer in this conversation."}"#), (200, #"{"delivery":{"state":"placed","at":"2026-10-24T11:01:00.000Z"},"recorded":true}"#)]
+        await c.post("about that", replyTo: "2026-10-20T09:00:00.000Z", to: dana)
+        let stale = c.pending["dana"]!.last!
+        check(stale.failed && stale.replyTo == "2026-10-20T09:00:00.000Z", "premise: the stale reply failed and keeps its reply_to")
+        await c.retryWithoutReply(stale.id, to: dana)
+        check(w.postedReplies.last == "" && w.posted.last == "about that", "Send as a new message: the same words, with no reply_to")
+        // A kept, not-sent reply sent again goes as the same reply.
+        var lostReply = Board.ChatRow(id: "lr", atRaw: "T8", at: nil, text: "still yes", who: .person, notSent: "Not sent", resendable: true)
+        lostReply.replyTo = "2026-10-24T10:00:00.000Z"
+        await c.sendAgain(lostReply, to: dana)
+        check(w.posted.last == "still yes" && w.postedReplies.last == "2026-10-24T10:00:00.000Z", "sending a not-sent reply again keeps its reply_to")
         w.reactAnswer = (200, #"{"ok":true,"op":"add","emoji":"x","at":"T1","reactions":[{"emoji":"x","count":1,"who":["you"],"mine":true}]}"#)
         let r = await c.react("x", at: "T1", to: dana)
         check(r == .reacted(at: "T1", pills: [Board.ChatReaction(emoji: "x", count: 1, mine: true)]) && w.reacted.last == "T1|x",
