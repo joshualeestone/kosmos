@@ -36,6 +36,9 @@ final class TaskPageModel: ObservableObject {
     static let presentFor: TimeInterval = 120
     func touched() { lastTouch = now() }
     var present: Bool { onScreen && appActive && (assistive || now().timeIntervalSince(lastTouch) < Self.presentFor) }
+    // The 5-second tick: the first read always (the page has to show something), then only while the person is there,
+    // as the board's tick reads only under tkPresent.
+    func shouldRead(first: Bool) -> Bool { first || present }
     // The chats' forgetting count this page was opened under: another account or Mac makes it a page about nothing.
     private let openedIn: Int
     // Reads are numbered, so a slow earlier one never undoes a newer one.
@@ -45,6 +48,9 @@ final class TaskPageModel: ObservableObject {
     private var activityShown = 0
     // The activity's state the person has been shown seen for (the board's tkMarkSeen, once per state drawn).
     private var seenKey: String?
+    // The state the Mac last recorded as seen (a 2xx): only that one is recorded again on a return, as the board's
+    // tkTabReturn re-records only a recorded state.
+    private var recordedKey: String?
     private var rawEvents: [[String: Any]] = []
 
     init(project: String, number: Int, send: @escaping Send, sleep: @escaping (TimeInterval) async -> Void, epoch: @escaping () -> Int,
@@ -131,14 +137,16 @@ final class TaskPageModel: ObservableObject {
     // they were away or idle is marked once they are back. `again` (the page appearing, the app coming back) records
     // the same state once more, as the board's tkTabReturn does, so "seen at" moves to now.
     func markSeen(again: Bool = false) async {
-        if again { seenKey = nil }
+        if again, seenKey != nil, seenKey == recordedKey { seenKey = nil }
         guard current, let key = activityKey, key != seenKey, present else { return }
         seenKey = key
         let (project, number) = (self.project, self.number)
         let first = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }
+        if let s = first?.1.statusCode, (200...299).contains(s) { recordedKey = key }
         guard Board.seenRetries(status: first?.1.statusCode ?? 0) else { return }
         await sleep(3)
         guard current, activityKey == key, present else { return }
-        _ = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }
+        let second = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }
+        if let s = second?.1.statusCode, (200...299).contains(s) { recordedKey = key }
     }
 }

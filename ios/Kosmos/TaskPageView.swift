@@ -46,16 +46,19 @@ struct TaskPageView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
+                    // Not for a task the computer no longer has: its board page would be gone too.
+                    if !model.gone {
                     Button { if let url = client.taskURL(project: ref.project, number: ref.number) { openPage(url) } } label: {
                         Image(systemName: "info.circle")
                     }
                     .accessibilityLabel("Open this task on your computer's board")
+                    }
                 }
             }
             .background(subLink)
-            // The person in front of it (the board's tkPresent): on screen, the app in front, and touched in the last two
-            // minutes; opening the page or coming back to it counts as a touch.
-            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in model.touched() })
+            // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch or key press in
+            // the last two minutes (PresenceProbe, on the window); opening the page or coming back counts as one.
+            .background(PresenceProbe { model.touched() })
             .onAppear {
                 visible = true
                 model.onScreen = true
@@ -91,7 +94,7 @@ struct TaskPageView: View {
         loop = Task {
             var first = true
             while !Task.isCancelled {
-                if first || model.present {
+                if model.shouldRead(first: first) {
                     await model.read()
                     await model.readActivity(names: name)
                     await model.markSeen()
@@ -183,7 +186,7 @@ struct TaskPageView: View {
             let act = p.act
             Button { model.touched(); Task { await model.press(act, names: name) } } label: {
                 HStack(spacing: 8) {
-                    if model.pressing { ProgressView().tint(Palette.card) }
+                    if model.pressing { ProgressView().tint(Palette.card).accessibilityHidden(true) }
                     Text(act.title).font(.headline)
                 }
                 .foregroundColor(Palette.card)
@@ -294,6 +297,8 @@ struct TaskPageView: View {
                 + #"{"number":4,"sentence":"Pages 1 to 8","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","dueDate":"2026-10-30","builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
                 + #"{"number":8,"sentence":"Pages 9 to 12","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2800) + #"",\#(closed(8, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 9 to 12"}]}"#
                 + #"]}]}"#
+        } else if path.hasSuffix("/activity") && !path.contains("/task/4/") {
+            body = #"{"events":[{"at":""# + iso(4000) + #"","kind":"created"}]}"#
         } else if path.hasSuffix("/activity") {
             body = #"{"events":[{"at":""# + iso(2900) + #"","kind":"created","who":"dana","parent":3},{"at":""# + iso(300) + #"","kind":"said","text":"Use the March photos for the captions."},{"at":""# + iso(40) + #"","kind":"built","by":"dana","note":"captions need a check"}"#
                 + (sampleClosed.contains(4) ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "") + "]}"

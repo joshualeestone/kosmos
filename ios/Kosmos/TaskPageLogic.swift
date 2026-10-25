@@ -35,8 +35,10 @@ extension Board {
         let projectId: String
         let projectName: String
         let projectPaused: Bool
-        // The project's members, by session name (tkMemberName's first source).
+        // The project's members' own names, by session name (tkMemberName's first source), and who is a member at all
+        // (a member with no name of its own is still one).
         let members: [String: String]
+        let memberSessions: Set<String>
         let number: Int
         let sentence: String
         let detail: String?
@@ -87,8 +89,12 @@ extension Board {
         let tasks = (p["tasks"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
         guard let t = tasks.first(where: { integer($0["number"]) == number }) else { return .gone }
         var members: [String: String] = [:]
+        var memberSessions = Set<String>()
         for a in (p["agents"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
-            if let s = a["sessionName"] as? String, !s.isEmpty { members[s] = (a["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? s }
+            guard let s = a["sessionName"] as? String, !s.isEmpty else { continue }
+            memberSessions.insert(s)
+            // A member with no name of its own is named by the roster (tkMemberName: m.name || tskAgentName).
+            if let n = a["name"] as? String, !n.isEmpty { members[s] = n }
         }
         func text(_ v: Any?) -> String? { (v as? String).flatMap { $0.isEmpty ? nil : $0 } }
         func isClosed(_ x: [String: Any]) -> Bool {
@@ -121,7 +127,7 @@ extension Board {
         let replaces = tasks.filter { integer($0["replacedBy"]) == number && isClosed($0) }.compactMap { integer($0["number"]) }.sorted()
         return .page(TaskPage(
             projectId: project, projectName: text(p["name"]) ?? project, projectPaused: p["paused"] as? Bool == true,
-            members: members, number: number, sentence: text(t["sentence"]) ?? "", detail: text(t["detail"]),
+            members: members, memberSessions: memberSessions, number: number, sentence: text(t["sentence"]) ?? "", detail: text(t["detail"]),
             createdAt: text(t["createdAt"]), addedBy: text(t["addedBy"]), addedVia: text(t["addedVia"]),
             closed: closed, closedAt: closedAt,
             // Without the engine's progress the board says Open or Done (tkStateWord), never a count of its own.
@@ -147,7 +153,7 @@ extension Board.TaskPage {
     func name(_ session: String, roster: [String: String], holds: Bool = false) -> String {
         if let m = members[session] { return m }
         let shown = roster[session] ?? session
-        return holds ? shown + " (not on this project)" : shown
+        return holds && !memberSessions.contains(session) ? shown + " (not on this project)" : shown
     }
 
     // tkStateWord, and the built words after it.
@@ -394,7 +400,7 @@ extension Board {
         case "repeat-cleared": return "No longer repeats"
         case "run":
             let who = person ? "You" : nameOf("by")
-            let missed = (number(ev["missedBefore"]) ?? 0) >= 1 ? Int(number(ev["missedBefore"])!) : 0
+            let missed = count(ev["missedBefore"]) ?? 0
             let missedWords = missed == 0 ? ""
                 : ", after " + (ev["missedMore"] as? Bool == true ? "more than \(missed) missed runs" : missed == 1 ? "1 missed run" : "\(missed) missed runs")
             let unchanged = ev["unchanged"] as? Bool == true ? (ev["inferred"] as? Bool == true ? ", the same note again" : ", nothing new") : ""
@@ -436,8 +442,8 @@ extension Board {
         case "closed": return integer(ev["replacedBy"]).map { "Closed as replaced by task \($0)" } ?? "Marked done"
         case "replaced": return integer(ev["replacedBy"]).map { "Marked as replaced by task \($0)" } ?? "Marked as replaced"
         case "undone":
-            let files = number(ev["files"]) ?? 0
-            return files == 1 ? "One file\u{2019}s changes undone" : "File changes undone (\(Int(files)) files)"
+            let files = count(ev["files"]) ?? 0
+            return files == 1 ? "One file\u{2019}s changes undone" : "File changes undone (\(files) files)"
         case "reopened":
             let who = person ? "You" : nameOf("by")
             return (who.map { $0 + " put it back" } ?? "Put back") + (s("why").map { ": " + $0 } ?? "")
@@ -484,4 +490,9 @@ extension Board {
 
     // A JSON number as a Double (counts may come as Int or Double).
     fileprivate static func number(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
+    // A whole count of at least 1, clamped so no number the Mac sends can trap (the board's Number(x) >= 1).
+    fileprivate static func count(_ v: Any?) -> Int? {
+        guard let d = number(v), d.isFinite, d >= 1 else { return nil }
+        return Int(min(d, 1_000_000_000).rounded(.down))
+    }
 }
