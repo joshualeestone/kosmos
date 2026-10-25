@@ -121,3 +121,8 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - The done-when refusal fixtures use the engine's own sentence ("each done-when check ..."), pinned in engine/tasks.js.
 - LEFT (nits): projectTree vs the board's pjSortByChain for a child of an archived parent; the 0.7 s announcement
   delay is a measured-by-nobody guess.
+- Iteration 8 (sonnet): BLOCKER, the Release build did not compile: readProjects() used RoomStore.sampleProjects,
+  which exists only in Debug. The sample branch is now inside #if DEBUG. Every earlier build was Debug and the logic
+  suite never compiles this file, so nothing here could see it; a Release compile is now part of the local build.
+- After "could not tell", Create stays held until the Tasks list is read again or the words change.
+- LEFT: a parent task that closes between the pick and Create is dropped silently (the board's select does the same).

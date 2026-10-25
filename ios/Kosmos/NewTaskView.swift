@@ -20,6 +20,9 @@ struct NewTaskView: View {
     @State private var sending = false
     @State private var message: String?
     @State private var lastTasks: Board.TasksRead?
+    // After "could not tell", Create waits until the Tasks list has been read again or the words change: the line says
+    // to look in Tasks first, and a second tap straight away is how a duplicate gets made.
+    @State private var unsureHold = false
 
     var body: some View {
         NavigationView {
@@ -35,7 +38,7 @@ struct NewTaskView: View {
                             // Latched here, before the Task starts: a second tap in between would send a second create.
                             Button("Create") { guard !sending else { return }; sending = true; Task { await create() } }
                                 // Held until the projects are read: a kept draft's project is checked against them first.
-                                .disabled(list == nil || !NewTask.canCreate(draft))
+                                .disabled(list == nil || !NewTask.canCreate(draft) || unsureHold)
                         }
                     }
                 }
@@ -45,13 +48,14 @@ struct NewTaskView: View {
         .task { lastTasks = tasks; await readProjects() }
         // A pick no longer offered (the Tasks list re-read under the sheet) falls back, never sent unseen.
         .onChange(of: tasks) { new in
+            unsureHold = false
             if let new { lastTasks = new }
             dropUnoffered()
         }
         // The board's limits and one-line questions, applied after the field has stored what was typed: a binding that
         // refused the change itself left the field showing characters that were not in the draft.
-        .onChange(of: draft.what) { v in let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.whatMax); if c != v { draft.what = c } }
-        .onChange(of: draft.done) { v in let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.doneMax); if c != v { draft.done = c } }
+        .onChange(of: draft.what) { v in unsureHold = false; let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.whatMax); if c != v { draft.what = c } }
+        .onChange(of: draft.done) { v in unsureHold = false; let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.doneMax); if c != v { draft.done = c } }
         .onChange(of: draft.detail) { v in let c = NewTask.capped(v, at: NewTask.detailMax); if c != v { draft.detail = c } }
     }
 
@@ -171,11 +175,14 @@ struct NewTaskView: View {
     private func readProjects() async {
         readFailed = false
         // The sample Projects (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), as the Projects tab shows them, for screenshots.
+        // RoomStore.sampleProjects exists only in Debug, so the whole branch is compiled out of Release.
+        #if DEBUG
         if Self.sample, let parsed = Board.parseProjects(Data(RoomStore.sampleProjects.utf8)) {
             took(parsed)
             if Self.sampleUnsure { message = NewTask.unsureWords }
             return
         }
+        #endif
         let got = await client.throughMac { Board.projectsRequest(mac: $0) }
         guard let got, (200...299).contains(got.1.statusCode), let parsed = Board.parseProjects(got.0) else {
             if list == nil { readFailed = true }
@@ -250,6 +257,7 @@ struct NewTaskView: View {
             message = why
             UIAccessibility.post(notification: .announcement, argument: why)
         case .unknown:
+            unsureHold = true
             message = NewTask.unsureWords
             UIAccessibility.post(notification: .announcement, argument: NewTask.unsureWords)
             Task { await client.refreshTasks() }
