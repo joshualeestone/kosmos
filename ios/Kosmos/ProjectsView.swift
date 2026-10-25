@@ -572,9 +572,17 @@ struct ProjectRowView: View {
         if !project.members.isEmpty {
             // The tally beside the count when it fits, else on its own line under it (review 1: a narrow phone or a large
             // text size squeezed the numbers to "…"; the board's tally wraps its items).
+            // Last (review 2): when even that does not fit (the largest text on a narrow phone, a nested sub-project), the
+            // faces, the count (allowed to wrap) and the tally entries (wrapping, as the board's flex-wrap) each take
+            // what room there is, so nothing runs past the row's edge.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 4) { facesAndCount; providerTally }
-                VStack(alignment: .leading, spacing: 4) { facesAndCount; providerTally.padding(.leading, -4) }
+                HStack(spacing: 4) { facesAndCount; providerTally(hairline: true) }
+                VStack(alignment: .leading, spacing: 4) { facesAndCount; providerTally(hairline: false) }
+                VStack(alignment: .leading, spacing: 4) {
+                    faceRow
+                    countText.lineLimit(2)
+                    providerTally(hairline: false, wrap: true)
+                }
             }
             .accessibilityHidden(true)
         }
@@ -583,40 +591,51 @@ struct ProjectRowView: View {
     // kosmos#7114: the board's provider tally beside the count (pjProviderTally, .pjtally): a hairline, then each
     // provider's mark and its number, quiet; the faces stay as they are. Marks at the caption's size, scaled with text.
     @ScaledMetric(relativeTo: .footnote) private var markSize: CGFloat = 13
-    @ViewBuilder private var providerTally: some View {
+    @ViewBuilder private func providerTally(hairline: Bool, wrap: Bool = false) -> some View {
         let tally = Board.providerTally(project.members)
         if !tally.isEmpty {
-            HStack(spacing: 8) {
-                Rectangle().fill(Palette.separator).frame(width: 1, height: markSize + 2)
-                ForEach(tally) { t in
-                    HStack(spacing: 3) {
-                        if let mark = t.mark {
-                            Image(mark).resizable().scaledToFit().frame(width: markSize, height: markSize)
-                                .foregroundColor(Palette.primary)
-                                // As the board's: the OpenAI glyph fills about half its viewBox, so it is drawn larger.
-                                .scaleEffect(mark == "MarkOpenAI" ? 1.5 : 1)
-                        } else {
-                            // The board's .pcombo-chip: a filled rule-coloured square, the letter bold in the second ink.
-                            Text(t.initial).font(.system(size: markSize * 0.62, weight: .bold)).foregroundColor(Palette.secondary)
-                                .frame(width: markSize, height: markSize)
-                                .background(RoundedRectangle(cornerRadius: 3).fill(Palette.separator))
-                        }
-                        Text("\(t.n)").font(.footnote).foregroundColor(Palette.secondary).fixedSize()
-                    }
+            // A hairline only beside the count; on a line of its own it would stand against nothing (review 2).
+            if wrap {
+                TallyFlow(spacing: 8, lineSpacing: 4) { ForEach(tally) { t in tallyEntry(t) } }
+            } else {
+                HStack(spacing: 8) {
+                    if hairline { Rectangle().fill(Palette.separator).frame(width: 1, height: markSize + 2) }
+                    ForEach(tally) { t in tallyEntry(t) }
                 }
+                .padding(.leading, hairline ? 4 : 0)
             }
-            .padding(.leading, 4)
+        }
+    }
+    private func tallyEntry(_ t: Board.TallyEntry) -> some View {
+        HStack(spacing: 3) {
+            if let mark = t.mark {
+                Image(mark).resizable().scaledToFit().frame(width: markSize, height: markSize)
+                    .foregroundColor(Palette.primary)
+                    // As the board's: the OpenAI glyph fills about half its viewBox, so it is drawn larger.
+                    .scaleEffect(mark == "MarkOpenAI" ? 1.5 : 1)
+            } else {
+                // The board's .pcombo-chip: a filled rule-coloured square, the letter bold in the second ink.
+                Text(t.initial).font(.system(size: markSize * 0.62, weight: .bold)).foregroundColor(Palette.secondary)
+                    .frame(width: markSize, height: markSize)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(Palette.separator))
+            }
+            Text("\(t.n)").font(.footnote).foregroundColor(Palette.secondary).fixedSize()
         }
     }
 
-    private var facesAndCount: some View {
+    private var faceRow: some View {
         HStack(spacing: 4) {
             ForEach(project.members.prefix(5), id: \.session) { m in
                 AgentAvatar(name: m.name, picture: store.picture(m.session), tone: nil, size: 22)
             }
-            Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
-                .font(.footnote).foregroundColor(Palette.secondary).padding(.leading, 2).lineLimit(1).fixedSize()
         }
+    }
+    private var countText: some View {
+        Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
+            .font(.footnote).foregroundColor(Palette.secondary)
+    }
+    private var facesAndCount: some View {
+        HStack(spacing: 4) { faceRow; countText.padding(.leading, 2).lineLimit(1).fixedSize() }
     }
 
     private var spoken: String {
@@ -653,5 +672,33 @@ struct ArchivedRow: View {
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+// kosmos#7114 review 2: the tally's entries wrapped onto as many lines as they need (the board's .pjtally flex-wrap), for
+// a row too narrow for them on one line.
+struct TallyFlow: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
+        for s in subviews {
+            let size = s.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > width { y += line + lineSpacing; x = 0; line = 0 }
+            x += (x > 0 ? spacing : 0) + size.width
+            line = max(line, size.height); widest = max(widest, x)
+        }
+        return CGSize(width: min(widest, width), height: y + line)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
+        for s in subviews {
+            let size = s.sizeThatFits(.unspecified)
+            if x > bounds.minX && x + size.width > bounds.maxX { y += line + lineSpacing; x = bounds.minX; line = 0 }
+            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            line = max(line, size.height)
+        }
     }
 }

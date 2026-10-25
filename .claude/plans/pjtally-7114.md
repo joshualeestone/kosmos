@@ -25,4 +25,8 @@ counted and spoken as the board's pjProviderTally; the marks are the board's own
      the board's PJ_TALLY rows, so any field drifting fails (the reviewer's two mutations now red); the tally drops
      to its own line when it does not fit (ViewThatFits), counts never squeezed; the board's filled chip; Anthropic
      wears Claude's mark. Room 264/264; Debug SUCCEEDED.
+   - Round 2: 0 blockers, 2 warnings, 2 nits. Fixed: a third layout for when neither fits (faces, the count allowed
+     to wrap, the tally entries wrapping in TallyFlow, the board's flex-wrap), so nothing runs past the row; the
+     board's whole PJ_TALLY compared row for row; no hairline on a line of its own; the no-mark test uses names the
+     board has no mark for either. Room 264/264; Debug SUCCEEDED.
 3. Validation, PR.
