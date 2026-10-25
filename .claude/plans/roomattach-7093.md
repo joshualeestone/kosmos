@@ -33,4 +33,9 @@ limits and words are tested against the board's source; it is merged.
    - Round 1: 1 blocker, 0 warnings, 2 nits. Fixed: files off the chips at the press, back on refused or unsure
      (BoardClient.reattach, tested in run.sh: front of the list, never twice, control red); a not-confirmed post a
      read shows kept takes its files off; the grey line. run 1197/1197, room 224/224; Debug build SUCCEEDED.
+   - Round 2: 0 blockers, 2 warnings, 1 nit. Fixed: the ten count the files of this room's posts still in the air
+     (Board.roomFilesCounted, in RoomStore.attach, atFileLimit and the photo picker's count), so a refused post can
+     never leave more than ten; the come-back decision is Board.roomFilesAfter, tested on every answer (its wiring in
+     RoomStore.post is checked by reading: ProjectsView is in no suite); files a post put back are not announced as
+     added. Room 230/230 (controls red: unsure-but-kept brings them back, in-air not counted); run 1197; Debug OK.
 3. Validation, PR (after #7085 merges and this is rebased).

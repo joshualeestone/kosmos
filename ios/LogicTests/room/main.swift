@@ -502,6 +502,17 @@ check(Board.roomPostWords("", files: [fileA, fileB], replyMention: nil) == "pric
 check(Board.roomPostWords("@dana ", files: [fileA], replyMention: "@dana ") == "@dana price list.pdf", "after a Reply's @name alone: the @name, then the names")
 check(Board.roomPostWords("Look at this", files: [fileA], replyMention: nil) == "Look at this", "words typed: the words, as typed")
 check(Board.roomPostWords("", files: [], replyMention: nil) == "", "nothing typed and no files: nothing")
+// What happens to a post's files after its answer (review 2): kept, they went; refused, back; not confirmed, back unless
+// a read already showed it kept.
+check(Board.roomFilesAfter(.posted(note: nil), settledByRead: false) == .stayOff, "kept: the files went with it")
+check(Board.roomFilesAfter(.refused("no"), settledByRead: false) == .comeBack && Board.roomFilesAfter(.refused("no"), settledByRead: true) == .comeBack,
+      "refused: the files come back, even if a read matched someone else's same-words post")
+check(Board.roomFilesAfter(.unsure, settledByRead: false) == .comeBack, "not confirmed, nothing showing it: the files come back")
+check(Board.roomFilesAfter(.unsure, settledByRead: true) == .stayOff, "not confirmed but a read showed it kept: they went")
+// The ten count the files of posts still in the air, so a refused post can never leave more than ten.
+check(Board.roomFilesCounted(waiting: 6, uploading: 1, inAir: [[fileA, fileB], [fileA]]) == 10, "waiting, on their way and in the air all count")
+check(Board.uploadRefusal(size: nil, waiting: Board.roomFilesCounted(waiting: 7, uploading: 0, inAir: [[fileA, fileB, fileA]])) != nil,
+      "seven waiting and three in the air: no more can be added")
 for phrase in ["url: () => '/api/project/' + encodeURIComponent(PJ_CURRENT) + '/attachment',",
                "input.value = (onlyMention ? replyMention : '') + attachList(ATTACH_ROOM).map((r) => r.name).join(', ');",
                "pendingIds.length ? { attachments: pendingIds } : {},",

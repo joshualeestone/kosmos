@@ -476,7 +476,10 @@ struct RoomView: View {
     private var attachKey: String { Board.roomAttachKey(project.id) }
     private var attachedHere: [Board.Attached] { client.attached[attachKey] ?? [] }
     private var uploadingHere: Int { client.uploading[attachKey] ?? 0 }
-    private var atFileLimit: Bool { attachedHere.count + uploadingHere >= Board.maxFiles }
+    private var countedFiles: Int {
+        Board.roomFilesCounted(waiting: attachedHere.count, uploading: uploadingHere, inAir: store.filesInAir(project.id))
+    }
+    private var atFileLimit: Bool { countedFiles >= Board.maxFiles }
 
     private var addButton: some View {
         Menu {
@@ -593,7 +596,7 @@ struct RoomView: View {
         .background(Palette.ground)
         // Each picker on a host of its own, as the chat's (two presentations on one view can leave one that never opens).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
-                                             maxSelectionCount: max(1, Board.maxFiles - attachedHere.count - uploadingHere),
+                                             maxSelectionCount: max(1, Board.maxFiles - countedFiles),
                                              matching: .images, preferredItemEncoding: .compatible))
         .onChange(of: photoPicks) { picks in
             guard !picks.isEmpty else { return }
@@ -606,8 +609,11 @@ struct RoomView: View {
             case .failure: client.attachLine[attachKey] = "We could not open that file."
             }
         })
-        .onChange(of: attachedHere.count) { [was = attachedHere.count] now in
-            if now > was, let name = attachedHere.last?.name { Self.say("Added \(name)") }
+        // A new pick lands at the end; files a post put back go in front and are not announced as added (review 2).
+        .onChange(of: attachedHere.map(\.id)) { [was = attachedHere.map(\.id)] ids in
+            if let id = ids.last, !was.contains(id), store.cameBack[project.id]?.contains(id) != true, let name = attachedHere.last?.name {
+                Self.say("Added \(name)")
+            }
         }
     }
 

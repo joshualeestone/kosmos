@@ -71,7 +71,7 @@ final class RoomStore: ObservableObject {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
         returned = [:]; kept = [:]; drafts = [:]
-        held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []   // kosmos#7072 review 1: another account or computer's holds go too
+        held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -165,7 +165,15 @@ final class RoomStore: ObservableObject {
     // then shows kept settles, and a box still holding those words is cleared (`kept`).
     // kosmos#7093: a pick for this room's next post goes through the chat's own upload (BoardClient.attach), waiting
     // under the room's key. The sample rooms (a Debug build only) add it at once, as the sample chats do.
+    // The files of this room's posts still in the air, counted toward the ten (Board.roomFilesCounted).
+    func filesInAir(_ project: String) -> [[Board.Attached]] { (pending[project] ?? []).filter { $0.line == nil }.map(\.files) }
+    // The ids a refused or not-confirmed post put back on the chips, so the room does not announce them as added.
+    @Published private(set) var cameBack: [String: Set<String>] = [:]
     func attach(_ pick: BoardClient.Pick, epoch: Int, to project: String) async {
+        let key = Board.roomAttachKey(project)
+        let counted = Board.roomFilesCounted(waiting: client.attached[key]?.count ?? 0, uploading: client.uploading[key] ?? 0,
+                                             inAir: filesInAir(project))
+        if let refusal = Board.uploadRefusal(size: nil, waiting: counted) { client.attachLine[key] = refusal; return }
         #if DEBUG
         let sample = Self.sample
         #else
@@ -214,14 +222,18 @@ final class RoomStore: ObservableObject {
             if await loadRoom(project) { pending[project]?.removeAll { $0.id == item.id } }
             notes[project] = note
         case .refused, .unsure:
-            if pending[project]?.contains(where: { $0.id == item.id }) != true {
+            let settledByRead = pending[project]?.contains(where: { $0.id == item.id }) != true
+            if Board.roomFilesAfter(result, settledByRead: settledByRead) == .comeBack {
+                cameBack[project] = Set(files.map(\.id))
+                client.reattach(files, for: Board.roomAttachKey(project))
+            }
+            if settledByRead {
                 // A read already settled it on a same-words row: not confirmed, that row is the post. Refused, it was
                 // someone else's (or an older) post, so the bubble comes back, marked (the board's pjPostSend).
                 guard case .refused = result else { return }
                 pending[project, default: []].append(item)
             }
             guard let i = pending[project]?.firstIndex(where: { $0.id == item.id }) else { return }
-            client.reattach(files, for: Board.roomAttachKey(project))
             pending[project]?[i].line = Board.roomPostLine(result)
             if case let .refused(because) = result { notes[project] = because } else { notes[project] = Board.roomUnsureLine }
             returned[project] = Returned(text: item.text, replyTo: replyTo, pendingId: item.id)
