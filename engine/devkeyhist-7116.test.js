@@ -114,8 +114,8 @@ test('editing the org or member named in a signed history breaks the signature',
 test('a GENUINE history for another member is refused for this member (a coordinator substituting a whole history)', () => {
   const theirs = signed([{ kind: 'enrol', key: ATTACKER, at: NOW - 300, backfill: false }], { member: 'attacker-member' });
   assert.strictEqual(hist.verify(theirs, { ...opts, member: 'attacker-member' }).ok, true, 'control: it is genuine for its own member');
-  assert.match(hist.verify(theirs, opts).because, /different member/);
-  assert.match(hist.verify(signed(BASE, { org: 'o2' }), opts).because, /different member/, 'another org');
+  assert.match(hist.verify(theirs, opts).because, /names a different member/);
+  assert.match(hist.verify(signed(BASE, { org: 'o2' }), opts).because, /names a different member/, 'another org');
 });
 
 test('verify refuses when the caller does not name the org and member being restored', () => {
@@ -165,6 +165,7 @@ test('keyAt honours the window edges: from is inclusive, until is exclusive', ()
 });
 
 const PINNED_HEAD_SHA256 = '90ab1cc201e136591c0e786dddc4a6e3e978febf875d1eeda9c1fa076793707a';
+// The head bytes are pinned twice, here by hash and in the slice 2 interop test by signature: change both together.
 test('the signed head format is pinned, so the relay side (slice 2) can be checked against the same bytes', () => {
   const msg = hist.encodeHead('o1', 'm1', BASE, NOW - 60);
   assert.strictEqual(crypto.createHash('sha256').update(msg).digest('hex'), PINNED_HEAD_SHA256);
@@ -222,4 +223,17 @@ test('an org or member id that is not well-formed text cannot be signed or verif
   assert.strictEqual(hist.encodeHead('o1', 'm\ud800', BASE, NOW - 60), null);
   assert.strictEqual(hist.encodeHead('o\udc00', 'm1', BASE, NOW - 60), null);
   assert.deepStrictEqual(Buffer.from('m\ud800'), Buffer.from('m�'), 'the collision this refuses');
+});
+
+test('a freshness window or clock allowance that is not a number of seconds is refused, never widened to the default', () => {
+  const h = signed(BASE, { issuedAt: NOW - 450 });
+  assert.match(hist.verify(h, { ...opts, maxAgeSecs: 60 }).because, /too old/, 'control: a real narrow window refuses it');
+  assert.strictEqual(hist.verify(h, opts).ok, true, 'control: the default accepts it');
+  for (const bad of [0, -1, '60', 1.5, null, NaN]) {
+    assert.match(hist.verify(h, { ...opts, maxAgeSecs: bad }).because || '', /freshness window/, `maxAgeSecs ${String(bad)}`);
+  }
+  for (const bad of [-1, '60', 1.5, null, NaN]) {
+    assert.match(hist.verify(h, { ...opts, skewSecs: bad }).because || '', /clock allowance/, `skewSecs ${String(bad)}`);
+  }
+  assert.strictEqual(hist.verify(h, { ...opts, skewSecs: 0 }).ok, true, 'control: a zero allowance is a real one');
 });
