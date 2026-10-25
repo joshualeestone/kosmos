@@ -26,7 +26,13 @@ Extend `kosmos inbox` (no new verb) with two flags, on the Mac CLI, the Windows 
   and a last line says how many later ones were left out and the `--since <time>` that shows them. Without a flag
   inbox keeps the newest, as before. (Challenge iteration 1 changed this from newest-kept.)
 - Unanswered is timed as dmOwes times it (newest reply BY TIME, `from` equal to the agent), not by row position; a
-  row with no readable time is kept by both filters rather than dropped.
+  row with no readable time is kept by both filters rather than dropped. With a filter the rows are sorted by time
+  (no-time rows last) before the limit, since a held DM can be stored after a newer one (iteration 6).
+- Two deliberate differences from dmOwes: a message that did not reach you is listed, and Kosmos's daily-limit notice
+  never counts as your reply, even during its own pause (dmOwes counts it then). This is read to catch up AFTER a
+  gap, when the notice answered nothing. During a pause the board can say "clear" while this lists the message.
+- The person/agent test is the route's own (`from` a non-empty string is you), the one #4784 renders rows with, so a
+  row is filtered and printed by the same rule.
 - An empty answer says what was asked: "Nothing unanswered ..." / "No messages ... since ...".
 - The query string only gains `&unanswered=1` / `&since=` when the flag is given, so existing callers are unchanged.
 

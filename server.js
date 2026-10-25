@@ -17168,9 +17168,10 @@ const server = http.createServer(async (req, res) => {
            agent is marked: that is the message this verb most often exists to recover. */
       let all = (thread && Array.isArray(thread.messages) ? thread.messages : [])
         .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments));
-      /* #7155: unanswered is the person's messages newer than your newest reply, timed as chat.dmOwes times them, menu
-         answers left out as they owe nothing. Unlike dmOwes, one that did not reach you is kept (marked below). A row
-         with no readable time is kept by both filters rather than dropped. */
+      /* #7155: unanswered is the person's messages newer than your newest reply by time, menu answers left out as they
+         owe nothing. Two differences from chat.dmOwes, both on purpose: one that did not reach you is kept (marked
+         below), and Kosmos's own notice (dropped above) never counts as your reply, even during the pause it was
+         written in, since this is read to catch up after one. A row with no readable time is kept by both filters. */
       const timeOf = (m) => (typeof m.at === 'string' && Number.isFinite(Date.parse(m.at)) ? Date.parse(m.at) : null);
       const me = sender.card.sessionName;
       if (unanswered) {
@@ -17183,9 +17184,15 @@ const server = http.createServer(async (req, res) => {
           && (lastYou === null || timeOf(m) === null || timeOf(m) > lastYou));
       }
       if (since !== null) all = all.filter((m) => timeOf(m) === null || timeOf(m) >= since);
-      /* With a filter the OLDEST are kept, so after a gap the first message to answer is never the one cut; the rest are
-         named by the --since that shows them. Without one, inbox keeps the newest, as it always has. */
+      /* With a filter the rows are put in time order (a held DM can be stored after a newer one; a row with no readable
+         time goes last) and the OLDEST are kept, so the first message to answer is never the one cut; the rest are named
+         by the --since that shows them. Without one, inbox keeps the newest stored rows, as it always has. */
       const filtered = unanswered || since !== null;
+      if (filtered) {
+        all = all.map((m, i) => ({ m, i, t: timeOf(m) }))
+          .sort((a, b) => (a.t === null) - (b.t === null) || (a.t !== null && b.t !== null && a.t - b.t) || a.i - b.i)
+          .map((x) => x.m);
+      }
       const kept = filtered ? all.slice(0, limit) : all.slice(-limit);
       const later = filtered ? all.length - kept.length : 0;
       const nextAt = later && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(all[kept.length].at || '') ? all[kept.length].at : null;
@@ -17242,7 +17249,7 @@ const server = http.createServer(async (req, res) => {
         return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
       });
       const more = later ? [later + ' later ' + (later === 1 ? 'message' : 'messages') + ' not shown'
-        + (stuck ? (limit < 50 ? ': add --limit 50 to see more.' : '.')
+        + ((stuck || !nextAt) ? (limit < 50 ? ': add --limit 50 to see more.' : '.')
           : nextAt ? ': run kosmos inbox' + (unanswered ? ' --unanswered' : '') + (limit !== 10 ? ' --limit ' + limit : '')
           + ' --since ' + nextAt + ' to see ' + (later === 1 ? 'it' : 'them') + '.' : '.')] : [];
       res.end(lines.concat(more).join('\n') + '\n');

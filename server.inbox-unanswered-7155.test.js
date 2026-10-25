@@ -79,7 +79,7 @@ test('#7155: --unanswered lists the person\'s messages after your newest reply, 
   assert.match(all.text, /you: Done\./);
 });
 
-test('#7155: Kosmos\'s own notice never counts as your reply', async () => {
+test('#7155: Kosmos\'s own notice never counts as your reply (unlike dmOwes during its pause, on purpose)', async () => {
   const r = await get('/api/inbox?unanswered=1');
   assert.equal(r.code, 200, r.text);
   assert.ok(r.json.messages.some((m) => m.text === 'first unanswered'), 'the notice at +40s hid the message at +20s: ' + r.text);
@@ -200,5 +200,30 @@ test('#7155: the same-page check holds when rows are stored out of time order', 
     const last = (await res.text()).trimEnd().split('\n').pop();
     // The shown row (14:00:09) passes --since 14:00:01, so that --since would show it again: --limit is named.
     assert.equal(last, '2 later messages not shown: add --limit 50 to see more.');
+  } finally { sendertoken.revoke(name); board.restore(); }
+});
+
+test('#7155: with a filter, rows stored out of order are kept oldest by TIME, so paging never skips the oldest', async () => {
+  const name = 'ash';
+  const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+  const tok = sendertoken.mint(name).token;
+  try {
+    const placed = { state: chat.DELIVERY.PLACED };
+    chat.appendMessage(chat.DIRECT, name, { text: 'A', at: '2026-10-25T15:00:05.000Z', delivery: placed });
+    chat.appendMessage(chat.DIRECT, name, { text: 'B', at: '2026-10-25T15:00:09.000Z', delivery: placed });
+    chat.appendMessage(chat.DIRECT, name, { text: 'C, a held message stored last', at: '2026-10-25T15:00:01.000Z', delivery: placed });
+    chat.appendMessage(chat.DIRECT, name, { text: 'no time', at: 'garbled', delivery: placed });
+    const get1 = async (q) => (await fetch(base + '/api/inbox' + q, { headers: { 'x-kosmos-agent-token': tok } })).json();
+    const all = await get1('?unanswered=1');
+    assert.deepEqual(all.messages.map((m) => m.text), ['C, a held message stored last', 'A', 'B', 'no time']);
+    const p1 = await get1('?unanswered=1&limit=1');
+    assert.deepEqual(p1.messages.map((m) => m.text), ['C, a held message stored last']);
+    assert.equal(p1.nextAt, '2026-10-25T15:00:05.000Z');
+    // Control: without a filter the stored order and newest-kept rule are unchanged.
+    const plain = await get1('?limit=2');
+    assert.deepEqual(plain.messages.map((m) => m.text), ['C, a held message stored last', 'no time']);
+    // The page whose next row has no printable time still names a way to see it.
+    const res = await fetch(base + '/api/inbox?as=text&unanswered=1&limit=3', { headers: { 'x-kosmos-agent-token': tok } });
+    assert.equal((await res.text()).trimEnd().split('\n').pop(), '1 later message not shown: add --limit 50 to see more.');
   } finally { sendertoken.revoke(name); board.restore(); }
 });
