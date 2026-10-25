@@ -34,6 +34,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
+const { cutUnits } = require('./textcut');
 
 const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocked', 'stopped']);
 
@@ -100,7 +101,7 @@ function fileFor(sessionName) {
 function capped(value, cap) {
   if (value === null || value === undefined) return null;
   const s = String(value).replace(/[\n\t\r]/g, ' ').trim();
-  return s ? s.slice(0, cap) : null;
+  return s ? cutUnits(s, cap) : null;   // #7108: never half an emoji
 }
 
 /* #1996 (K-13 residual): `because` is a SENTENCE and may carry paragraph breaks;
@@ -125,7 +126,7 @@ function cappedSentence(value, cap) {
     .replace(/[\u2028\u2029]/g, '\n')
     .replace(/[\t\v\f]/g, ' ')
     .trim();
-  return s ? s.slice(0, cap) : null;
+  return s ? cutUnits(s, cap) : null;   // #7108: never half an emoji
 }
 
 /**
@@ -501,6 +502,7 @@ function readTail(sessionName) {
 }
 
 /* #6209 review 5: what read() reports for these rows (the tail, or a prefix of it), pure. */
+function wellFormed(s) { return typeof s === 'string' && s ? s.toWellFormed() : null; }
 function latestOf(rows, cut) {
   let latest = null;
   /* #763: the project carried forward. A report that names a project sets the
@@ -555,9 +557,11 @@ function latestOf(rows, cut) {
     state: latest.state,
     waiting: waitingOf(latest.state, latest.waiting) || null,   // #4569 fix 4
     final,   // #4612: the run's latest turn answer (see the loop above)
-    because: latest.because || null,
-    on: latest.on || null,
-    owner: latest.owner || null,
+    // #7108 review 2: a report stored before the code-point cut can end in half an emoji; made well-formed on read, so
+    // it never reaches /api/projects or /api/status as a lone escape the phone refuses.
+    because: wellFormed(latest.because),
+    on: wellFormed(latest.on),
+    owner: wellFormed(latest.owner),
     until: latest.until || null,
     at: latest.at || null,
     // #5943: null unless the latest report waits on a person (see the loop above).

@@ -33,6 +33,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
+const { cutUnits } = require('./textcut');
 
 /**
  * Where records live. `AGENT_WORKFORCE_DATA` relocates the whole store, which
@@ -413,7 +414,7 @@ function sanitise(commitments) {
       : new Date().toISOString();
     return {
       id: String((c && c.id) || crypto.randomUUID()).slice(0, 80),
-      what: what.slice(0, 300),
+      what: cutUnits(what.toWellFormed(), 300),   // #7108: never half an emoji (it goes out in /api/status)
       createdAt,
       source: String((c && c.source) || 'agent').slice(0, 40),
     };
@@ -508,7 +509,7 @@ function capForDisplay(commitments) {
       // was served as a blank string -- a guard validated against a different
       // value than the one served, which is the shape of half the bugs in this
       // branch's history.
-      what: String(c.what).trim().slice(0, 300),
+      what: cutUnits(String(c.what).trim().toWellFormed(), 300),   // #7108: also a broken character the agent sent
       createdAt: String(c.createdAt).slice(0, 40),
       source: String(c.source).slice(0, 40),
     }));
