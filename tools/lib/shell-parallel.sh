@@ -10,7 +10,8 @@
 #   pid is also the id of its shard's process group. kosmos_shell_parallel_stop, for the caller's EXIT trap, uses both.
 #
 # A shard is the command tools/shell-shard.js runs as `run <i> <n>`: the list it takes is fixed by a hash of each
-# command, so the union of the shards is the whole list (tools.shell-shard-4317.test.js).
+# command, so the union of the shards is the whole list (tools.shell-shard-4317.test.js). The command is exec'd, so it
+# must be a program, not a shell function.
 kosmos_shell_parallel() {
   local n="$1" dir="$2"; shift 2
   local i p q r rc=0 red="" t0 left
@@ -24,6 +25,8 @@ kosmos_shell_parallel() {
     i=$((i + 1))
   done
   local all="$KOSMOS_SHELL_PARALLEL_PIDS"
+  # Nothing else prints until shard 1 has been waited on; each shard's own log has a line per command meanwhile.
+  echo "run-tests: test:shell runs as $n shards at once; each one's progress is in $dir/shard-<i>.log (#7100)"
   i=1
   for p in $all; do
     wait "$p"; r=$?
@@ -49,10 +52,12 @@ kosmos_shell_parallel() {
 }
 
 # kosmos_shell_parallel_stop, for an EXIT trap: TERM the process group of every shard still running, and of every
-# shard already waited on whose group still has members (something its tests left running). A group id cannot be
-# taken by another group while its own still has a member, so the second list is signalled only after a kill -0 on
-# the group says it still has one. Then wait up to about 2 s for those groups to be gone, so the trap's next steps
-# (the launchd boot-out, removing the run root) rarely run under a test still exiting.
+# shard already waited on whose group still has members (something its tests left running). The second list is
+# signalled only when a kill -0 on the group finds a process in it. That cannot tell the shard's own group from a
+# new one that took the id after the shard's group emptied and the pid was reused; that takes the group to empty and
+# the pid space to wrap within one run, and such a stranger would get a TERM. Then wait up to about 2 s for those
+# groups to be gone, so the trap's next steps (the launchd boot-out, removing the run root) rarely run under a test
+# still exiting.
 kosmos_shell_parallel_stop() {
   local p k live targets=""
   for p in ${KOSMOS_SHELL_PARALLEL_PIDS:-}; do targets="$targets $p"; done

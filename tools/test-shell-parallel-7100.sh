@@ -78,7 +78,7 @@ cat > "$T/runner.sh" <<'RUNNER'
 #!/bin/bash
 . "$1"
 trap 'kosmos_shell_parallel_stop' EXIT
-kosmos_shell_parallel 2 "$2" "$3" >/dev/null
+kosmos_shell_parallel 2 "$2" "$3" > "$2.out"
 RUNNER
 mkdir -p "$T/l4b" "$T/kids"
 STUB_KIDS="$T/kids" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4b" "$T/stubkid.sh" &
@@ -102,7 +102,8 @@ mkdir -p "$T/l4c" "$T/kids4c"
 STUB_KIDS="$T/kids4c" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4c" "$T/stubleft.sh" &
 sub=$!
 k=0; while [ "$(ls "$T/kids4c" | grep -c '^kid-')" -lt 2 ] && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
-sleep 1   # shard 1 has ended and been waited on by now; shard 2 waits on its sleep
+# Until shard 1 has been waited on (its status line), so the stop meets it in the waited-on list.
+k=0; while ! grep -q 'shell shard 1 of 2: status' "$T/l4c.out" 2>/dev/null && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
 kill -TERM "$sub" 2>/dev/null; wait "$sub" 2>/dev/null
 alive=0; for f in "$T/kids4c"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp" 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done; kill -0 "$kp" 2>/dev/null && { alive=$((alive + 1)); kill "$kp" 2>/dev/null; }; done
 if [ "$(ls "$T/kids4c" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a TERM also stops what a finished shard left running in its group"
@@ -156,11 +157,14 @@ fi
 
 # 7) the switch is this run's alone (a TRIPWIRE on the source): once validated it is unset, so the tests the run
 # starts, some of which start run-tests.sh with a scrubbed environment that predates the switch, never inherit it.
-if grep -qx '_RT_SHELL_PARALLEL="\$KOSMOS_SHELL_PARALLEL"; unset KOSMOS_SHELL_PARALLEL' "$HERE/run-tests.sh" \
-   && ! grep -n 'KOSMOS_SHELL_PARALLEL' "$HERE/run-tests.sh" | grep -v '^[0-9]*:#' | awk -F: '$1 > 170' | grep -q .; then
+# The boundary is the unset line itself, found by its number; comments, indented or not, do not count as reads.
+unset_at=$(grep -n -x '_RT_SHELL_PARALLEL="\$KOSMOS_SHELL_PARALLEL"; unset KOSMOS_SHELL_PARALLEL' "$HERE/run-tests.sh" | cut -d: -f1)
+later=""
+[ -n "$unset_at" ] && later=$(grep -n 'KOSMOS_SHELL_PARALLEL' "$HERE/run-tests.sh" | grep -v '^[0-9]*:[[:space:]]*#' | awk -F: -v u="$unset_at" '$1 > u')
+if [ -n "$unset_at" ] && [ -z "$later" ]; then
   pass "run-tests.sh: the switch is kept privately and unset, and nothing after its validation reads it"
 else
-  bad "run-tests.sh: KOSMOS_SHELL_PARALLEL is not unset after validation, or is read later: $(grep -n 'KOSMOS_SHELL_PARALLEL' "$HERE/run-tests.sh" | awk -F: '$1 > 170' | head -3)"
+  bad "run-tests.sh: KOSMOS_SHELL_PARALLEL unset at line '${unset_at:-none}', read after it: $(printf '%s' "$later" | head -3)"
 fi
 
 if [ "$fails" -eq 0 ]; then echo "test-shell-parallel-7100: all arms passed"; exit 0; fi
