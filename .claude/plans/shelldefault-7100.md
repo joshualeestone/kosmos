@@ -20,8 +20,11 @@ where every local run reads it.
 - tools/release.sh: right after its #5934 guard, `export KOSMOS_SHELL_PARALLEL=1`, so a cut's gate runs stay one at
   a time. The guard still sees the caller's own value first.
 - CLAUDE.md and run-tests.sh's header describe the new default.
-- tools/test-shell-parallel-7100.sh: arm 8 (the default in seven environments, each scrubbed first) and arm 9 (two
-  source tripwires: the unset-only line in run-tests.sh, and the export after the guard in release.sh). 21 arms.
+- tools/test-shell-parallel-7100.sh: arm 8 (the default in seven environments, each scrubbed first); arm 9 (end to
+  end: the real run-tests.sh with a stub node that records each shell-shard.js call; unset starts run 1..4 of 4,
+  GITHUB_ACTIONS=true runs 1 of 1, KOSMOS_SHELL_PARALLEL=2 is kept); arm 10 (a tripwire: release.sh exports 1 after
+  its guard, since a test cannot run a cut). 21 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
+  arm 9: the tripwire would red on an equivalent rewrite and stay green if the value were overwritten later.)
 
 ## Decided
 - In the repo, not in the shared validation library: that library serves every org repo, and this is a Kosmos-only
@@ -43,7 +46,7 @@ where every local run reads it.
 ## Validation
 - tools/test-shell-parallel-7100.sh: 21 arms pass plainly and under a CI shard's environment
   (`KOSMOS_SHELL_SHARD=1/2 KOSMOS_SHELL_CUT_ENV=1 GITHUB_ACTIONS=true KOSMOS_SHELL_PLATFORM=linux`).
-- Mutants, each red on its own arm: always 4; ignoring GITHUB_ACTIONS; the old `:-1` default in run-tests.sh;
-  release.sh without the export; the export before the guard.
+- Mutants, each red on its own arm: always 4 (arms 8 and 9); ignoring GITHUB_ACTIONS (arm 8); the old `:-1`
+  default in run-tests.sh (arm 9); release.sh without the export, and the export before the guard (arm 10).
 - test-cut-testpart-guard-5934, test-cut-shape-6977, test-sleep-control-guard-6710, test-mktemp-template-4298 and
   test-gnu-only-forms-6808 all pass.
