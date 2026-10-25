@@ -83,7 +83,7 @@ test('#7155: Kosmos\'s own notice never counts as your reply', async () => {
   const r = await get('/api/inbox?unanswered=1');
   assert.equal(r.code, 200, r.text);
   assert.ok(r.json.messages.some((m) => m.text === 'first unanswered'), 'the notice at +40s hid the message at +20s: ' + r.text);
-  assert.equal(r.json.earlier, 0);
+  assert.equal(r.json.later, 0);
 });
 
 test('#7155: --since keeps only messages at or after the time; an offset and a local time are read', async () => {
@@ -115,18 +115,23 @@ test('#7155: a time that is not a date with a clock time is refused, with how to
   }
 });
 
-test('#7155: the limit says how many earlier matches it left out, and keeps the newest', async () => {
+test('#7155: with a filter the limit keeps the OLDEST, and names the --since that shows the rest', async () => {
   const r = await get('/api/inbox?as=text&unanswered=1&limit=1');
   assert.equal(r.code, 200, r.text);
   const lines = r.text.trimEnd().split('\n');
-  assert.equal(lines[0], '2 earlier messages not shown (--limit 50 shows more).');
-  assert.match(lines[1], /the person: third unanswered$/);
+  assert.match(lines[0], /the person: first unanswered$/);
+  assert.equal(lines[1], '2 later messages not shown: add --since 2026-10-25T10:00:50.000Z to see them.');
   assert.equal(lines.length, 2);
-  const j = await get('/api/inbox?unanswered=1&limit=1');
-  assert.equal(j.json.earlier, 2);
-  // Control: the plain read with a limit adds no such line (its old output is unchanged).
+  // Following that advice shows the rest, oldest first.
+  const next = await get('/api/inbox?unanswered=1&since=' + encodeURIComponent('2026-10-25T10:00:50.000Z'));
+  assert.deepEqual(next.json.messages.map((m) => m.text), ['lost one', 'third unanswered']);
+  const j = await get('/api/inbox?unanswered=1&limit=2');
+  assert.equal(j.json.later, 1);
+  assert.equal(j.json.nextAt, '2026-10-25T10:01:00.000Z');
+  // Control: the plain read with a limit keeps the NEWEST and adds no such line (its old output is unchanged).
   const plain = await get('/api/inbox?as=text&limit=1');
   assert.doesNotMatch(plain.text, /not shown/);
+  assert.match(plain.text, /third unanswered/);
 });
 
 test('#7155: an empty answer says what was asked', async () => {
@@ -136,5 +141,27 @@ test('#7155: an empty answer says what was asked', async () => {
   assert.match(both.text, /^Nothing unanswered/);
   keepAgentReply(WHO, 'Caught up.', new Date(t0 + 70000).toISOString());
   const clear = await get('/api/inbox?as=text&unanswered=1');
-  assert.equal(clear.text, 'Nothing unanswered: you have replied since the person\'s last message.\n');
+  assert.equal(clear.text, 'Nothing unanswered from the person.\n');
+  assert.match(both.text, /^Nothing unanswered from the person since then\.$/m);
+});
+
+test('#7155: unanswered is timed as dmOwes times it, not by where a row sits; a row with no readable time is kept', async () => {
+  const name = 'ivy';
+  const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+  const tok = sendertoken.mint(name).token;
+  try {
+    const at = (sec) => new Date(Date.parse('2026-10-25T12:00:00Z') + sec * 1000).toISOString();
+    const placed = { state: chat.DELIVERY.PLACED };
+    // Stored out of time order: the reply (+30s) is written BEFORE a question it came after (+10s).
+    keepAgentReply(name, 'Answered.', at(30));
+    chat.appendMessage(chat.DIRECT, name, { text: 'older question', at: at(10), delivery: placed });
+    chat.appendMessage(chat.DIRECT, name, { text: 'newer question', at: at(40), delivery: placed });
+    chat.appendMessage(chat.DIRECT, name, { text: 'no time on this one', at: 'garbled', delivery: placed });
+    const res = await fetch(base + '/api/inbox?unanswered=1', { headers: { 'x-kosmos-agent-token': tok } });
+    const j = await res.json();
+    assert.deepEqual(j.messages.map((m) => m.text), ['newer question', 'no time on this one'],
+      'a position-based cut would list the older, answered question: ' + JSON.stringify(j));
+    const s2 = await fetch(base + '/api/inbox?since=' + encodeURIComponent(at(35)), { headers: { 'x-kosmos-agent-token': tok } });
+    assert.deepEqual((await s2.json()).messages.map((m) => m.text), ['newer question', 'no time on this one']);
+  } finally { sendertoken.revoke(name); board.restore(); }
 });

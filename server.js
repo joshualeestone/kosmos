@@ -17164,20 +17164,27 @@ const server = http.createServer(async (req, res) => {
            agent is marked: that is the message this verb most often exists to recover. */
       let all = (thread && Array.isArray(thread.messages) ? thread.messages : [])
         .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments));
-      /* #7155: unanswered is the person's messages after your NEWEST reply (dmOwes's rule, so this agrees with the
-         board's "Nothing back yet."), menu answers left out as they owe nothing. Unlike dmOwes, one that did not reach
-         you is kept, and marked below: that is the message this exists to recover. Kosmos's own notice was dropped
-         above, so it never stands in for your reply here. */
+      /* #7155: unanswered is the person's messages newer than your newest reply, timed as chat.dmOwes times them, menu
+         answers left out as they owe nothing. Unlike dmOwes, one that did not reach you is kept (marked below). A row
+         with no readable time is kept by both filters rather than dropped. */
+      const timeOf = (m) => (typeof m.at === 'string' && Number.isFinite(Date.parse(m.at)) ? Date.parse(m.at) : null);
+      const me = sender.card.sessionName;
       if (unanswered) {
-        let lastYou = -1;
-        all.forEach((m, i) => { if (typeof m.from === 'string' && m.from) lastYou = i; });
-        all = all.slice(lastYou + 1).filter((m) => !(typeof m.wire === 'string' && m.wire));
+        let lastYou = null;
+        for (const m of all) {
+          const t = timeOf(m);
+          if (m.from === me && t !== null && (lastYou === null || t > lastYou)) lastYou = t;
+        }
+        all = all.filter((m) => !(typeof m.from === 'string' && m.from) && !(typeof m.wire === 'string' && m.wire)
+          && (lastYou === null || timeOf(m) === null || timeOf(m) > lastYou));
       }
-      if (since !== null) {
-        all = all.filter((m) => typeof m.at === 'string' && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) >= since);
-      }
-      const earlier = (unanswered || since !== null) ? Math.max(0, all.length - limit) : 0;
-      const kept = all.slice(-limit);
+      if (since !== null) all = all.filter((m) => timeOf(m) === null || timeOf(m) >= since);
+      /* With a filter the OLDEST are kept, so after a gap the first message to answer is never the one cut; the rest are
+         named by the --since that shows them. Without one, inbox keeps the newest, as it always has. */
+      const filtered = unanswered || since !== null;
+      const kept = filtered ? all.slice(0, limit) : all.slice(-limit);
+      const later = filtered ? all.length - kept.length : 0;
+      const nextAt = later && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(all[kept.length].at || '') ? all[kept.length].at : null;
       const masked = guideMaskedRows(kept, isSetupGuide(sender.card.sessionName) ? true : null);
       const rows = masked.map((m) => {
         const person = !(typeof m.from === 'string' && m.from);
@@ -17200,10 +17207,10 @@ const server = http.createServer(async (req, res) => {
             : (m.delivery.state === chat.DELIVERY.COULD_NOT || m.delivery.state === 'held' ? 'no' : 'maybe'),
         };
       });
-      if (!asText) { sendJson(res, 200, { ok: true, messages: rows, earlier }); return; }
+      if (!asText) { sendJson(res, 200, { ok: true, messages: rows, later, nextAt }); return; }
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
       if (!rows.length) {
-        if (unanswered) { res.end('Nothing unanswered: you have replied since the person\'s last message' + (since !== null ? ' (or they sent none since then)' : '') + '.\n'); return; }
+        if (unanswered) { res.end('Nothing unanswered from the person' + (since !== null ? ' since then' : '') + '.\n'); return; }
         if (since !== null) { res.end('No messages between you and the person since then.\n'); return; }
         res.end('No messages between you and the person yet.\n'); return;
       }
@@ -17228,9 +17235,9 @@ const server = http.createServer(async (req, res) => {
         const body = r.text.split(INBOX_BREAK).map((l) => l.replace(INBOX_DROP, ''));
         return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
       });
-      // #7155: say what the limit left out, first, so the oldest unanswered message is never silently missing.
-      const more = earlier ? [earlier + ' earlier ' + (earlier === 1 ? 'message' : 'messages') + ' not shown (--limit 50 shows more).'] : [];
-      res.end(more.concat(lines).join('\n') + '\n');
+      const more = later ? [later + ' later ' + (later === 1 ? 'message' : 'messages') + ' not shown'
+        + (nextAt ? ': add --since ' + nextAt + ' to see ' + (later === 1 ? 'it' : 'them') + '.' : '.')] : [];
+      res.end(lines.concat(more).join('\n') + '\n');
     } catch (err) {
       fail(500, 'Kosmos could not read your messages just now');
     }

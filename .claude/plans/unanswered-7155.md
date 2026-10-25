@@ -21,7 +21,11 @@ Extend `kosmos inbox` (no new verb) with two flags, on the Mac CLI, the Windows 
   (inbox already drops those rows): after a gap, the notice is not an answer.
 - `--since <time>`: only messages at or after an ISO time (`2026-10-25T05:22:00Z`, `2026-10-25T05:22-05:00`, or a
   local `2026-10-25 05:22`). A time Date.parse cannot read, or one without a clock time, is refused (400 / exit 2).
-- With either flag, when more messages match than --limit shows, one line says how many earlier ones were left out.
+- With either flag the limit keeps the OLDEST matches (after a gap the first to answer must never be the one cut),
+  and a last line says how many later ones were left out and the `--since <time>` that shows them. Without a flag
+  inbox keeps the newest, as before. (Challenge iteration 1 changed this from newest-kept.)
+- Unanswered is timed as dmOwes times it (newest reply BY TIME, `from` equal to the agent), not by row position; a
+  row with no readable time is kept by both filters rather than dropped.
 - An empty answer says what was asked: "Nothing unanswered ..." / "No messages ... since ...".
 - The query string only gains `&unanswered=1` / `&since=` when the flag is given, so existing callers are unchanged.
 
