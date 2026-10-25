@@ -3484,6 +3484,34 @@ do {
           "chat search: the line under a message sent while searching")
 }
 
+// kosmos#7120: the context ring, against the board's pctOf, memBand and memPrint.
+do {
+    func ctx(_ json: String) -> Any? { (try? JSONSerialization.jsonObject(with: Data(json.utf8))) }
+    check(Board.contextPercent(ctx(#"{"percent":82}"#)) == 82, "context: a number is the percent")
+    check(Board.contextPercent(ctx(#"{"percent":12.5}"#)) == 12.5, "context: a fraction is kept")
+    check(Board.contextPercent(ctx(#"{"percent":true}"#)) == nil, "context: true is not a percent (the board's Number.isFinite)")
+    check(Board.contextPercent(ctx(#"{"percent":"82"}"#)) == nil, "context: a string is not a percent")
+    check(Board.contextPercent(ctx(#"{}"#)) == nil && Board.contextPercent(nil) == nil, "context: none is unknown")
+    check(Board.memBand(nil) == nil, "memory band: unknown draws nothing")
+    check(Board.memBand(59.9) == .ok && Board.memBand(60) == .warn && Board.memBand(79.9) == .warn && Board.memBand(80) == .high,
+          "memory band: amber from 60, red from 80, as the board's WARM and NEARLY_FULL")
+    check(Board.isRealTrue(ctx(#"[true]"#).flatMap { ($0 as? [Any])?.first }) && !Board.isRealTrue(ctx(#"[1]"#).flatMap { ($0 as? [Any])?.first }),
+          "overCeiling: a real true, never a 1 (the board's === true)")
+    check(Board.memoryWords(82, full: false) == "memory 82%" && Board.memoryWords(12.5, full: false) == "memory 12.5%",
+          "memory words: the percent, as the board's memPrint")
+    check(Board.memoryWords(95, full: true) == "memory Full" && Board.memoryWords(nil, full: true) == nil,
+          "memory words: Full over the ceiling; nothing when unknown")
+    let row = #"{"agents":[{"sessionName":"cleo","name":"Cleo","state":"working","context":{"percent":83,"overCeiling":false}}]}"#
+    let parsed = Board.parseAgents(Data(row.utf8))?.first
+    check(parsed?.contextPercent == 83 && parsed?.contextFull == false, "status: an agent's context is read from /api/status")
+    // The board's page, found from this file (ios/LogicTests/main.swift), so the check runs wherever run.sh is called from.
+    let page = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("web/index.html")
+    let boardPage = (try? String(contentsOf: page, encoding: .utf8)) ?? ""
+    check(boardPage.contains("const NEARLY_FULL = 80;") && boardPage.contains("const WARM = 60;"),
+          "the board's bands are still 60 and 80 (read from web/index.html)")
+}
+
 await boardLoopTests()
 
 print("")

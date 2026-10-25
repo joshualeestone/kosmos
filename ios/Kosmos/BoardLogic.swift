@@ -223,6 +223,10 @@ enum Board {
         // kosmos#7080: the project the agent's work is attributed to (the card's stateProject), nil when unattributed.
         // The room's working line reads it, as the board's paintRoomBusy does.
         var stateProject: String? = nil
+        // kosmos#7120: how full the agent's context is (the board's pctOf(a.context)), nil when not known (a stopped
+        // agent carries none), and whether it is over its ceiling (context.overCeiling, the board's "Full").
+        var contextPercent: Double? = nil
+        var contextFull = false
         var id: String { session }
     }
 
@@ -258,7 +262,9 @@ enum Board {
                          needsReason: (row["needsReason"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                          stateProjectName: (row["stateProjectName"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                          waitingSince: isoDate(row["waitingSince"] as? String),
-                         stateProject: (row["stateProject"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                         stateProject: (row["stateProject"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                         contextPercent: Board.contextPercent(row["context"]),
+                         contextFull: Board.isRealTrue((row["context"] as? [String: Any])?["overCeiling"]))
         }
     }
 
@@ -1689,5 +1695,39 @@ extension Board {
 
     static func chatNoMatch(_ query: String) -> String {
         "Nothing here matches \"\(query.trimmingCharacters(in: .whitespacesAndNewlines))\". Clearing the search brings the conversation back."
+    }
+}
+
+// kosmos#7120: the context gauge, as the board's pctOf and memBand (web/index.html) and its memPrint words.
+extension Board {
+    enum MemBand: Equatable { case ok, warn, high }
+    static let memoryWarm = 60.0          // the board's WARM: amber from here
+    static let memoryNearlyFull = 80.0    // the board's NEARLY_FULL: red from here
+
+    // context.percent when it is a finite number (never a true or false), else unknown.
+    static func contextPercent(_ raw: Any?) -> Double? {
+        guard let ctx = raw as? [String: Any], let n = ctx["percent"] as? NSNumber,
+              CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite else { return nil }
+        return n.doubleValue
+    }
+
+    // A real JSON true, not a 1 (the board's `=== true`: a shape it does not understand is not evidence).
+    static func isRealTrue(_ raw: Any?) -> Bool {
+        guard let n = raw as? NSNumber else { return false }
+        return CFGetTypeID(n) == CFBooleanGetTypeID() && n.boolValue
+    }
+
+    static func memBand(_ pct: Double?) -> MemBand? {
+        guard let pct else { return nil }
+        return pct >= memoryNearlyFull ? .high : pct >= memoryWarm ? .warn : .ok
+    }
+
+    // What VoiceOver hears for the gauge, in the board's words (memPrint): "memory Full" or "memory 82%"; nothing
+    // when the percent is unknown (the ring is not drawn then either).
+    static func memoryWords(_ pct: Double?, full: Bool) -> String? {
+        guard let pct else { return nil }
+        if full { return "memory Full" }
+        let shown = pct.rounded() == pct ? String(Int(pct)) : String(format: "%.1f", pct)
+        return "memory \(shown)%"
     }
 }
