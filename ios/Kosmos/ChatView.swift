@@ -438,11 +438,12 @@ struct ChatView: View {
             .background(Palette.card)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
-            Button("Cancel") { closeSearch() }
-                .font(.body)
-                .fixedSize()
-                .foregroundColor(Palette.primary)
-                .frame(minHeight: 44)
+            // The 44 pt frame inside the label, so it is the tap area too (outside it only sized the slot, #7117).
+            Button { closeSearch() } label: {
+                Text("Cancel").font(.body).fixedSize().foregroundColor(Palette.primary)
+                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
