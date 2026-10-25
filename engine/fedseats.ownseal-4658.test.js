@@ -1030,3 +1030,13 @@ test('#4658: an offer drawn by a copied hello (same id and commitment, another k
   assert.strictEqual(rev.pub, hello.pub);
   assert.strictEqual(fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop()).commit, hello.commit, 'the run was reset by the copied offer');
 });
+
+test('kosmos#7144: one helper says "waiting to be let in" for the exemption, the #7129 mark and the post hold', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'fedseats.js'), 'utf8');
+  // Only the helper's own definition states the test; no site keeps a copy that could drift from it.
+  assert.strictEqual((src.match(/pendingClear\(sealed\) \|\| \(sealed === null && waitingLink\(/g) || []).length, 1, 'a copy of the waiting test outside the helper');
+  assert.match(src, /const waiting = waitingToBeLetIn\(sealed, sealedLink\);/);
+  assert.match(src, /\} else if \(sealedRoom && !waiting\) \{/, 'the no-downgrade exemption does not read the helper');
+  assert.match(src, /unverified = waiting;/, 'the #7129 mark does not read the helper');
+  assert.match(src, /if \(waitingToBeLetIn\(sealed, link\)\) \{\n {4}return holdPost\(/, 'the post hold does not read the helper');
+});

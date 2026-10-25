@@ -244,7 +244,9 @@ function handleEvent(projectId, line, heldAt) {
     // #3728: key frames are the room's handshake, never a row.
     if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data, ev.same_account === true); return; }
     const sealed = roomSeal(projectId);
-    const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, sealLink(projectId));
+    const sealedLink = sealLink(projectId);
+    const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, sealedLink);
+    const waiting = waitingToBeLetIn(sealed, sealedLink);   // kosmos#7144: one read, one test, for the exemption and the mark
     if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from ' + farSide(projectId) + ' was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
     if (fedseal.isSealed(ev.data)) {
       const now = Date.now();
@@ -320,13 +322,13 @@ function handleEvent(projectId, line, heldAt) {
         return;
       }
       ev.data = opened.m;
-    } else if (sealedRoom && !pendingClear(sealed) && !(sealed === null && waitingLink(sealLink(projectId)))) {
+    } else if (sealedRoom && !waiting) {
       // No downgrade: once a room is sealed, words sent in the clear are not shown. A computer still waiting to be let
       // into an unsealed room (pendingClear) does not know it is sealed, so it shows them (slice 2).
       noteOnce(projectId, s, 'unsealed', 'A message arrived unsealed in this sealed room, so it was not shown. If someone joined before this room was sealed, remove them from the shared project and send them a new code.');
       return;
     } else {
-      unverified = pendingClear(sealed) || (sealed === null && waitingLink(sealLink(projectId)));
+      unverified = waiting;
     }
   }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string' && ev.data.text.trim()) {
@@ -703,6 +705,12 @@ function pendingClear(st) {
 /** Slice 2: a self link waiting to be let into an unsealed room whose record is gone (sayHello writes it back). */
 function waitingLink(link) {
   return !!link && link.role === 'self' && link.pendingClear === true && link.sealed !== true;
+}
+/** kosmos#7144: this computer is waiting to be let into an own room: a keyless own record waiting for the owner's
+    answer, or no record while its link still waits. The ONE statement of it, for every site that must agree: the
+    no-downgrade exemption and the #7129 mark (the set shown while waiting IS the set marked), and sendPost's hold. */
+function waitingToBeLetIn(sealed, link) {
+  return pendingClear(sealed) || (sealed === null && waitingLink(link));
 }
 /** Slice 2 (review 5): whether a clear may let this computer in: any keyless own-computer record (one written by this
     slice's join, or by an older Kosmos on an unopenable envelope) whose link does not say it joined a sealed room. */
@@ -2071,7 +2079,7 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
   }
   // Slice 2: a computer still waiting to be let into an own room holds its posts, unmarked (never sealedHeld): they go
   // in the clear once the owner's clear is adopted, or sealed if the room turns out to be sealed after all.
-  if (pendingClear(sealed) || (sealed === null && waitingLink(link))) {
+  if (waitingToBeLetIn(sealed, link)) {
     return holdPost(projectId, s, msg, 'this computer is waiting to be let into this shared project by the computer that first shared it', 'once it is let in, if that is within the hour', heldAt);
   }
   if (sealedRoom) {
