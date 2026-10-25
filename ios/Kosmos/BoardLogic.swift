@@ -656,7 +656,8 @@ enum Board {
             let prev = rows[i - 1]
             let adjacent = prev.atRaw == target || (prev.replyTo == target && prevHid)
             if adjacent { hidden.insert(row.id) }
-            // Left out only when the original is there to name.
+            // The board's DM_ROWS.has: always true here once adjacent (the original or a hidden reply to it is just above),
+            // kept so the rule reads as the board's.
             prevHid = adjacent && ats.contains(target)
         }
         return hidden
