@@ -7,6 +7,10 @@
  * #4812 built (this browser asks that computer, which answers only a browser it already lets in). Both routes call
  * weeklyOf and weeklyBlockedOf here.
  *
+ * kosmos#7152: a reading comes from one of two sources, the status line (kosmos-statusline.js, written when an agent
+ * on the account takes a turn) or the usage endpoint (usagepoll.js, read every ten minutes for every account, idle ones
+ * included). weeklyOf and fiveHourOf give the newer of the two, so `at` can come from either.
+ *
  * summary() is what /api/status sends. The status poll runs every five seconds, so the summary is kept for CACHE_MS and
  * rebuilt only when it is older or the account list changed. A reading or a reason (`blocked`) can therefore be up to CACHE_MS old
  * here while /api/accounts reads it live.
@@ -27,9 +31,12 @@ function newer(statusLine, polled) {
   return b.at >= a.at ? b : a;
 }
 
+/* The endpoint's figure for one window, dated when it was MEASURED (a later failed read keeps it, see usagepoll). A
+   window with no reset time yet is left to the status line: the /api/status shape carries a reset time. */
 function polledOf(a, nowMs, key) {
   const r = require('./usagepoll').readUsage(a.dir, nowMs);
-  return r && r.state === 'ok' && r[key] ? { ...r[key], at: r.at } : null;
+  const w = r && r[key];
+  return w && typeof w.resetsAt === 'number' && typeof r.measuredAt === 'number' ? { ...w, at: r.measuredAt } : null;
 }
 
 /** The account's weekly reading, or null when there is none this week (an API key, none recorded, unreadable, the week
@@ -49,7 +56,6 @@ function fiveHourOf(a, nowMs = Date.now()) {
     return newer(require('./allowance').readFiveHour(a.dir, nowMs), polledOf(a, nowMs, 'fiveHour'));
   } catch { return null; }
 }
-
 
 /** Why there can be NO reading for this account, when that is known: 'own-statusline', 'not-wired',
     'linked-settings' (#6175) or 'unreadable-settings'. null when Kosmos's own status line is there, so a reading comes once an agent on it works.

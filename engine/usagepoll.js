@@ -14,7 +14,8 @@
  *
  * 🛑 SECRET DISCIPLINE, as loginexpiry.js: the credential body is parsed in tokenStateFor and the token leaves it only to
  *    be put in one request header to api.anthropic.com. It is never logged, returned to a route, or written: the file
- *    this module writes holds numbers and a state word.
+ *    this module writes holds numbers and a state word. (Clearing the local variables after use does not erase the
+ *    token from memory; the guarantee is what is never logged, written or returned, not when memory is freed.)
  * 🛑 NEVER REFRESHES A TOKEN. Claude Code rotates the refresh token when it refreshes, and a second refresher can leave a
  *    live agent's login broken. An expired access token is recorded as `token-expired`: the account is NOT measured.
  *
@@ -26,6 +27,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const https = require('node:https');
 const loginexpiry = require('./loginexpiry');
+const statusline = require('./kosmos-statusline');
 
 const FILE = 'kosmos-usage.json';
 const HOST = 'api.anthropic.com';
@@ -64,15 +66,19 @@ async function tokenStateFor(a, { now = Date.now(), ...deps } = {}) {
   return { state: 'ok', token };
 }
 
-/* One GET of the usage endpoint. Resolves { code, body }; code 0 on a network error or a timeout. Never rejects. */
-function getUsage(token, { request = https.request } = {}) {
+/* One GET of the usage endpoint. Resolves { code, body }; code 0 on a network error, an idle socket, or a request that
+   is still not finished TIMEOUT_MS after it started (the socket timeout alone would let a peer that trickles bytes keep
+   it open, and the poll reads one account at a time). Never rejects. */
+function getUsage(token, { request = https.request, timeoutMs = TIMEOUT_MS } = {}) {
   return new Promise((resolve) => {
     let done = false;
-    const finish = (v) => { if (!done) { done = true; resolve(v); } };
     let req;
+    const deadline = setTimeout(() => { try { if (req) req.destroy(); } catch { /* already gone */ } finish({ code: 0, body: '' }); }, timeoutMs);
+    if (typeof deadline.unref === 'function') deadline.unref();
+    const finish = (v) => { if (!done) { done = true; clearTimeout(deadline); resolve(v); } };
     try {
       req = request({
-        host: HOST, path: USAGE_PATH, method: 'GET', timeout: TIMEOUT_MS,
+        host: HOST, path: USAGE_PATH, method: 'GET', timeout: timeoutMs,
         headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': BETA, Accept: 'application/json' },
       }, (res) => {
         let body = '';
@@ -88,28 +94,36 @@ function getUsage(token, { request = https.request } = {}) {
   });
 }
 
-/* { usedPct, resetsAt (epoch SECONDS, as the status line's files) } from one window of the response, or null. */
-function windowOf(w) {
+/* { usedPct, resetsAt (epoch SECONDS, as the status line's files) } from one window of the response, or null when the
+   usage is not a number. A window with usage but no reset time yet (`resets_at: null`, which a window nobody has used
+   can carry) keeps its usage with resetsAt null: an unused account is still measured, and is the headroom slice 2 wants.
+   maxAheadSeconds refuses a reset further out than the window can be, as the status line's five-hour reader does. */
+function windowOf(w, { nowMs = Date.now(), maxAheadSeconds = null } = {}) {
   if (!w || typeof w !== 'object') return null;
   const pct = w.utilization;
+  if (typeof pct !== 'number' || !Number.isFinite(pct) || pct < 0) return null;
+  if (w.resets_at === null || w.resets_at === undefined) return { usedPct: pct, resetsAt: null };
   const at = typeof w.resets_at === 'string' ? Date.parse(w.resets_at) : NaN;
-  if (typeof pct !== 'number' || !Number.isFinite(pct) || pct < 0 || !Number.isFinite(at)) return null;
-  return { usedPct: pct, resetsAt: Math.floor(at / 1000) };
+  if (!Number.isFinite(at)) return null;
+  const resetsAt = Math.floor(at / 1000);
+  if (maxAheadSeconds !== null && resetsAt > nowMs / 1000 + maxAheadSeconds) return null;
+  return { usedPct: pct, resetsAt };
 }
 
 /* The record for one account: { at (ms), state, weekly?, fiveHour? }, or null for an API-key account (no weekly limit). */
-async function readOne(a, { now = Date.now(), request, ...deps } = {}) {
+async function readOne(a, { now = Date.now(), request, timeoutMs, ...deps } = {}) {
   if (!a || typeof a.dir !== 'string' || !a.dir || a.apiKey) return null;
   const t = await tokenStateFor(a, { now, ...deps });
   if (t.state !== 'ok') return { at: now, state: t.state };
-  const r = await getUsage(t.token, { request });
+  const r = await getUsage(t.token, { request, ...(timeoutMs ? { timeoutMs } : {}) });
   t.token = null;
   if (r.code !== 200) return { at: now, state: r.code ? `http-${r.code}` : 'unreachable' };
   let j;
   try { j = JSON.parse(r.body); } catch { return { at: now, state: 'unreadable-response' }; }
-  const weekly = windowOf(j && j.seven_day);
+  const weekly = windowOf(j && j.seven_day, { nowMs: now });
   if (!weekly) return { at: now, state: 'unreadable-response' };
-  return { at: now, state: 'ok', weekly, fiveHour: windowOf(j && j.five_hour) };
+  const fiveHour = windowOf(j && j.five_hour, { nowMs: now, maxAheadSeconds: statusline.FIVE_HOUR_MAX_AHEAD_SECONDS });
+  return { at: now, state: 'ok', weekly, fiveHour };
 }
 
 /* Write the record into the account folder, atomically, readable by this user only. Never throws. */
@@ -126,30 +140,59 @@ function write(dir, rec) {
   }
 }
 
-/* Read every Claude account in `list` (accounts.list() rows), one after another, and record each. Resolves the count
-   recorded. Accounts are read one at a time so a slow or hung read never stacks requests. */
+/* The file as written, without the freshness rules readUsage applies, or null. */
+function readRaw(dir) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(dir, FILE), 'utf8'));
+    return j && typeof j === 'object' ? j : null;
+  } catch { return null; }
+}
+
+/* Read every Claude account in `list` (accounts.list() rows), one after another, and record each. Accounts are read
+   one at a time so a slow or hung read never stacks requests. A failed read keeps the last good figures and the moment
+   they were measured (`measuredAt`) beside its own state, so one refused or rate-limited read does not throw away a
+   reading that is still fresh. Resolves the number of accounts MEASURED this time (state ok). */
 async function pollAll(list, deps = {}) {
-  let n = 0;
+  let measured = 0;
   for (const a of Array.isArray(list) ? list : []) {
     let rec = null;
     try { rec = await readOne(a, deps); } catch { rec = null; }
-    if (rec && write(a.dir, rec)) n += 1;
+    if (!rec) continue;
+    if (rec.state === 'ok') {
+      rec.measuredAt = rec.at;
+    } else {
+      const prev = readRaw(a.dir);
+      const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
+      if (typeof prevAt === 'number' && Number.isFinite(prevAt)) {
+        rec.measuredAt = prevAt;
+        rec.weekly = prev.weekly || null;
+        rec.fiveHour = prev.fiveHour || null;
+      }
+    }
+    if (write(a.dir, rec) && rec.state === 'ok') measured += 1;
   }
-  return n;
+  return measured;
 }
 
-/* The last record for an account folder, as { at, state, weekly, fiveHour }, or null when there is none to trust: no
-   file, unreadable, older than FRESH_MS. A window whose reset has passed reads as null within an otherwise good record
-   (a figure from a finished week is not this week's usage). */
+/* The last record for an account folder, as { at, measuredAt, state, weekly, fiveHour }, or null when there is none:
+   no file, unreadable, or the last read itself older than FRESH_MS. `state` is the last read's; the figures are from
+   `measuredAt`, the last read that worked, and are null once that is older than FRESH_MS. A window whose reset has
+   passed reads as null too (a figure from a finished week is not this week's usage). A window with no reset time yet
+   keeps resetsAt null (see windowOf). */
 function readUsage(dir, nowMs = Date.now()) {
   if (typeof dir !== 'string' || !dir) return null;
-  let j;
-  try { j = JSON.parse(fs.readFileSync(path.join(dir, FILE), 'utf8')); } catch { return null; }
-  if (!j || typeof j !== 'object' || typeof j.at !== 'number' || !Number.isFinite(j.at)) return null;
+  const j = readRaw(dir);
+  if (!j || typeof j.at !== 'number' || !Number.isFinite(j.at)) return null;
   if (nowMs - j.at > FRESH_MS || j.at - nowMs > 60000) return null;
-  const live = (w) => (w && typeof w.usedPct === 'number' && typeof w.resetsAt === 'number' && w.resetsAt * 1000 > nowMs
-    ? { usedPct: w.usedPct, resetsAt: w.resetsAt } : null);
-  return { at: j.at, state: typeof j.state === 'string' ? j.state : 'unknown', weekly: live(j.weekly), fiveHour: live(j.fiveHour) };
+  const measuredAt = typeof j.measuredAt === 'number' && Number.isFinite(j.measuredAt) ? j.measuredAt
+    : (j.state === 'ok' ? j.at : null);   // a record from a read that worked was measured when it was read
+  const fresh = measuredAt !== null && nowMs - measuredAt <= FRESH_MS;
+  const live = (w) => {
+    if (!fresh || !w || typeof w.usedPct !== 'number') return null;
+    if (w.resetsAt === null) return { usedPct: w.usedPct, resetsAt: null };
+    return typeof w.resetsAt === 'number' && w.resetsAt * 1000 > nowMs ? { usedPct: w.usedPct, resetsAt: w.resetsAt } : null;
+  };
+  return { at: j.at, measuredAt, state: typeof j.state === 'string' ? j.state : 'unknown', weekly: live(j.weekly), fiveHour: live(j.fiveHour) };
 }
 
 module.exports = {

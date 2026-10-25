@@ -25916,12 +25916,16 @@ function start(port = PORT) {
         let list = [];
         try { list = accounts.list(); } catch { list = []; }
         usagePoll.pollAll(list)
-          .then((n) => { if (n) process.stdout.write(`usage-poll: recorded ${n} account(s)\n`); })
+          .then((n) => { process.stdout.write(`usage-poll: measured ${n} of ${list.length} account(s)\n`); })
           .catch(() => { /* best-effort, like the sweeps above */ })
           .finally(() => { usagePollBusy = false; });
       };
       const usagePollSweep = setInterval(usagePollTick, Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.POLL_MS); // the env is the test seam only
       if (usagePollSweep && typeof usagePollSweep.unref === 'function') usagePollSweep.unref();
+      /* The first read 30 s after start, off the start path, so a restarted board does not go ten minutes with no reading
+         for an idle account. Same gating, inside the tick. */
+      const usagePollFirst = setTimeout(usagePollTick, 30 * 1000);
+      if (usagePollFirst && typeof usagePollFirst.unref === 'function') usagePollFirst.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
          stuck on a project past the grace period it convenes help ONCE: a room note, an ask

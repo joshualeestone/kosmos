@@ -149,6 +149,46 @@ test('#7152: accountsweekly takes the newer of the status line\'s reading and th
   assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).usedPct, 45, 'an unmeasured read hid the status line\'s reading');
 });
 
+test('#7152 review 1: a window with usage but no reset yet is still a reading; a five-hour reset too far out is not', async () => {
+  const body = JSON.stringify({
+    seven_day: { utilization: 0.0, resets_at: null },
+    five_hour: { utilization: 1.0, resets_at: new Date(NOW + 12 * 3600000).toISOString() },
+  });
+  const r = await usagepoll.readOne({ dir: '/u/x' }, {
+    now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}),
+  });
+  assert.equal(r.state, 'ok', 'an unused account was not measured');
+  assert.deepEqual(r.weekly, { usedPct: 0, resetsAt: null });
+  assert.equal(r.fiveHour, null, 'a five-hour window resetting in 12 h was taken as a reading');
+  assert.equal(usagepoll.windowOf({ utilization: 'x', resets_at: null }), null, 'CONTROL: a non-number is still refused');
+});
+
+test('#7152 review 1: a failed read keeps the last good figures, dated when they were measured', async (t) => {
+  const d = tmpDir(t);
+  const ok = { now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) };
+  assert.equal(await usagepoll.pollAll([{ dir: d }], ok), 1);
+  const later = NOW + 10 * 60000;
+  const failed = { ...ok, now: later, request: fakeRequest({ code: 429, body: '{}' }, {}) };
+  assert.equal(await usagepoll.pollAll([{ dir: d }], failed), 0, 'a refused read was counted as measured');
+  const r = usagepoll.readUsage(d, later + 1000);
+  assert.equal(r.state, 'http-429', 'the failure was not recorded');
+  assert.equal(r.weekly.usedPct, 56, 'the last good figure was thrown away');
+  assert.equal(r.measuredAt, NOW);
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, later + 1000).at, NOW, 'the kept figure was dated by the failed read');
+  const staleFigures = usagepoll.readUsage(d, NOW + usagepoll.FRESH_MS + 60000);
+  assert.equal(staleFigures.state, 'http-429', 'CONTROL: the last read is still fresh then');
+  assert.equal(staleFigures.weekly, null, 'kept figures outlived the moment they were measured');
+  assert.equal(usagepoll.readUsage(d, later + usagepoll.FRESH_MS + 60000), null, 'CONTROL: the whole record goes stale too');
+});
+
+test('#7152 review 1: a request that never finishes ends at its deadline', async () => {
+  const hung = () => { const req = new EventEmitter(); req.destroy = () => {}; req.end = () => {}; return req; };
+  const t0 = Date.now();
+  const r = await usagepoll.getUsage(TOKEN, { request: hung, timeoutMs: 50 });
+  assert.deepEqual(r, { code: 0, body: '' });
+  assert.ok(Date.now() - t0 < 2000, 'the deadline did not end the request');
+});
+
 test('#7152: accounts are read one at a time, so a slow read never stacks requests', async (t) => {
   const seen = {};
   const list = [tmpDir(t), tmpDir(t), tmpDir(t)].map((dir) => ({ dir }));
