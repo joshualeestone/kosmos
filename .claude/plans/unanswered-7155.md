@@ -41,8 +41,8 @@ That "unanswered" means "after your newest reply" rather than per message. One r
 all three. That is dmOwes's rule too, so the CLI and the board's "Nothing back yet." agree.
 
 ## Steps
-1. server.js /api/inbox: parse `unanswered`, `since`; filter before the limit; `earlier` count; empty texts. JSON
-   gains `earlier`.
+1. server.js /api/inbox: parse `unanswered`, `since`; filter before the limit; `later` count and `nextAt`;
+   empty texts. JSON gains `later` and `nextAt`.
 2. install/kosmos cmd_inbox + help; tools/windows/kosmos-cli.js verbInbox + USAGE.
 3. Tests: server.inbox-unanswered-7155.test.js, cli + windows arms in a new test file.
 4. Challenge loop (cap 8), validation, PR, merge on green.

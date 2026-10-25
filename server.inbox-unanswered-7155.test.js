@@ -120,7 +120,10 @@ test('#7155: with a filter the limit keeps the OLDEST, and names the --since tha
   assert.equal(r.code, 200, r.text);
   const lines = r.text.trimEnd().split('\n');
   assert.match(lines[0], /the person: first unanswered$/);
-  assert.equal(lines[1], '2 later messages not shown: add --since 2026-10-25T10:00:50.000Z to see them.');
+  assert.equal(lines[1], '2 later messages not shown: run kosmos inbox --unanswered --limit 1 --since 2026-10-25T10:00:50.000Z to see them.');
+  // Without --unanswered the hint names no --unanswered, and the default limit is not repeated.
+  const s1 = await get('/api/inbox?as=text&limit=2&since=' + encodeURIComponent('2026-10-25T10:00:00Z'));
+  assert.equal(s1.text.trimEnd().split('\n').pop(), '4 later messages not shown: run kosmos inbox --limit 2 --since 2026-10-25T10:00:20.000Z to see them.');
   assert.equal(lines.length, 2);
   // Following that advice shows the rest, oldest first.
   const next = await get('/api/inbox?unanswered=1&since=' + encodeURIComponent('2026-10-25T10:00:50.000Z'));

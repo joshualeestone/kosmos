@@ -1799,7 +1799,7 @@ const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
 const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 /* #7155: `kosmos inbox --since <time>`. A date WITH a clock time, as ISO (Z or an offset) or "YYYY-MM-DD HH:MM" (read
    as this computer's local time, which is the board's). A bare date is refused: Date.parse reads it as UTC midnight,
-   which is not what someone in Central time means by "since the 25th". NaN for anything else. */
+   which is not what someone in Central time means by "since the 25th". */
 function inboxSince(raw) {
   const s = String(raw == null ? '' : raw).trim();
   if (!/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d(:\d\d(\.\d+)?)?(Z|[+-]\d\d:?\d\d)?$/.test(s)) return NaN;
@@ -17236,7 +17236,8 @@ const server = http.createServer(async (req, res) => {
         return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
       });
       const more = later ? [later + ' later ' + (later === 1 ? 'message' : 'messages') + ' not shown'
-        + (nextAt ? ': add --since ' + nextAt + ' to see ' + (later === 1 ? 'it' : 'them') + '.' : '.')] : [];
+        + (nextAt ? ': run kosmos inbox' + (unanswered ? ' --unanswered' : '') + (limit !== 10 ? ' --limit ' + limit : '')
+          + ' --since ' + nextAt + ' to see ' + (later === 1 ? 'it' : 'them') + '.' : '.')] : [];
       res.end(lines.concat(more).join('\n') + '\n');
     } catch (err) {
       fail(500, 'Kosmos could not read your messages just now');
