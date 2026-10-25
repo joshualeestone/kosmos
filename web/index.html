@@ -65694,7 +65694,9 @@ function pjNeedsNotice(roster, redHere) {
   // The engine's needsYouKey (a question carries its words, so the next question is shown); the reason if absent.
   // Review 9: built as the engine builds it when a member arrives without needsYouKey, so the board never refuses it.
   const named = (rows.length || also.length) === 1 ? (rows.length ? rows : also)[0] : null;
-  const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + String(m.because || '').slice(0, 300) : m.needsYouHere);
+  // #7108: cut on a code-point boundary, as the engine's needsKeyWords (a trailing half of an emoji is dropped).
+  const keyWords = (t) => { const w = String(t || '').slice(0, 300); const c = w.charCodeAt(w.length - 1); return c >= 0xD800 && c <= 0xDBFF ? w.slice(0, -1) : w; };
+  const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + keyWords(m.because) : m.needsYouHere);
   const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act, keyOf(m)); }).join('');
   const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act, 'elsewhere'); }).join('');
   const n = rows.length || also.length;

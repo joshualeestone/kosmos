@@ -964,9 +964,17 @@ function needsYouReasonPastUsage(m, projectId) {
 /* #6341 review 5: what a dismissal is kept under. A question is kept with its own words, so the agent's NEXT question
    about this project is news and shown; every other reason is kept as the reason. */
 const NEEDS_KEY_WORDS = 300;
+/* #7108: the words are cut on a code-point boundary. slice() counts UTF-16 units, so a cut through an emoji left half a
+   surrogate pair, which JSON.stringify writes as a lone "\ud83d"; the iPhone's JSON reader then refuses the whole
+   projects answer. A trailing lead surrogate is dropped (the board's pjNeedsNotice fallback cuts the same way). */
+function needsKeyWords(text) {
+  const words = String(text || '').slice(0, NEEDS_KEY_WORDS);
+  const last = words.charCodeAt(words.length - 1);
+  return last >= 0xD800 && last <= 0xDBFF ? words.slice(0, -1) : words;
+}
 function needsDismissKey(reason, m) {
   if (!reason) return null;
-  return reason === 'question' ? 'question:' + String((m && m.because) || '').slice(0, NEEDS_KEY_WORDS) : reason;
+  return reason === 'question' ? 'question:' + needsKeyWords(m && m.because) : reason;
 }
 /* #6341: is this member red here for a reason not counted here (the rows #5692 lists after the counted ones)? */
 function needsRedElsewhere(m) {

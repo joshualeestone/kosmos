@@ -1,0 +1,77 @@
+'use strict';
+
+/**
+ * #7108: a question's dismiss key (needsYouKey) is cut on a code-point boundary. A cut through an emoji left half a
+ * surrogate pair, which JSON.stringify writes as a lone "\ud83d", and the iPhone's JSON reader refuses the whole
+ * projects answer.
+ *
+ *   node --test engine/projects-needskey-7108.test.js
+ *
+ * Sandbox first, before any require (see engine/projects.test.js): every root the code writes to.
+ */
+require('../test-support/tmpscope');
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-needskey-7108-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'kosmos-projects');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const projects = require('./projects');
+const selfreport = require('./selfreport');
+const fleet = require('../test-support/fleet');
+
+const WORK = path.join(SANDBOX, 'work');
+fs.mkdirSync(WORK, { recursive: true });
+const folder = (name) => { const d = path.join(WORK, name); fs.mkdirSync(d, { recursive: true }); return d; };
+function cards(specs) {
+  const board = fleet.install(specs);
+  try { return board.agents; } finally { board.restore(); }
+}
+// A lone half of a surrogate pair: a lead not followed by a trail, or a trail not after a lead.
+const LONE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+// 299 units, then an emoji (two units) across the 300th.
+const SPLIT = 'a'.repeat(299) + '\u{1F600} and more';
+
+test('#7108: a question cut through an emoji keeps no half of it, and the answer stays strict JSON', () => {
+  assert.ok(LONE.test('question:' + SPLIT.slice(0, 300)), 'CONTROL: the old cut did not leave half an emoji');
+  const p = projects.create({ name: 'Emoji', folder: folder('emoji'), agents: ['em08'] });
+  assert.equal(selfreport.record('em08', { state: 'needs_you', because: SPLIT, project: p.id }).recorded, true, 'fixture: the report was refused');
+  const r = projects.list(cards([fleet.agent('em08', { state: 'needs_you' })])).find((x) => x.id === p.id);
+  const m = r.agents.find((a) => a.sessionName === 'em08');
+  assert.equal(m.needsYouHere, 'question');
+  assert.equal(m.needsYouKey, 'question:' + 'a'.repeat(299), 'the key ends before the emoji');
+  assert.ok(!LONE.test(m.needsYouKey), 'the key holds half an emoji');
+  // What the phone receives: no lone surrogate escape anywhere in the member's JSON.
+  assert.ok(!/\\ud[89ab][0-9a-f]{2}(?!\\ud[c-f])/i.test(JSON.stringify(m)), 'the projects answer carries a lone surrogate escape');
+});
+
+test('#7108: the shortened key still dismisses, and a whole emoji under the cut is kept', () => {
+  const p = projects.create({ name: 'Emoji two', folder: folder('emoji2'), agents: ['em09'] });
+  selfreport.record('em09', { state: 'needs_you', because: SPLIT, project: p.id });
+  const roster = cards([fleet.agent('em09', { state: 'needs_you' })]);
+  const key = projects.list(roster).find((x) => x.id === p.id).agents.find((a) => a.sessionName === 'em09').needsYouKey;
+  projects.dismissNeeds(p.id, 'em09', key);
+  const after = projects.list(roster).find((x) => x.id === p.id).agents.find((a) => a.sessionName === 'em09');
+  assert.equal(after.needsYouHere, null, 'the dismissal under the new key did not hide the row');
+  // CONTROL: an emoji wholly inside the first 300 units is kept whole.
+  const whole = 'a'.repeat(298) + '\u{1F600}rest';
+  const q = projects.create({ name: 'Emoji three', folder: folder('emoji3'), agents: ['em10'] });
+  selfreport.record('em10', { state: 'needs_you', because: whole, project: q.id });
+  const k = projects.list(cards([fleet.agent('em10', { state: 'needs_you' })])).find((x) => x.id === q.id).agents[0].needsYouKey;
+  assert.equal(k, 'question:' + 'a'.repeat(298) + '\u{1F600}', 'a whole emoji under the cut was dropped');
+});
+
+test('#7108: the board builds its fallback key the same way (pjNeedsNotice keyOf)', () => {
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert.ok(page.includes("const keyWords = (t) => { const w = String(t || '').slice(0, 300); const c = w.charCodeAt(w.length - 1); return c >= 0xD800 && c <= 0xDBFF ? w.slice(0, -1) : w; };"),
+    'the board fallback no longer drops a trailing half of an emoji');
+  assert.ok(page.includes("'question:' + keyWords(m.because)"), 'the board fallback does not use keyWords');
+});
