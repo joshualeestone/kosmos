@@ -29,3 +29,13 @@ again at the end, N2 the shipped-list branch removed, N3 the raw words kept: eac
 - Arms: N4 (the check after the held-set return) and N5 (keyed on a named key again) red on that test; N1b (the
   setting read at the end) at first SURVIVED, because the later branch still used the start-time flag to block the
   offer and the start/end test asserted only "no offer"; that test now also asserts the words, and N1b is red.
+
+## Review 3: no real bug; three lows taken
+- The later guard (a key named in other words under the shipped list) had no test once review 2 moved the not-listed
+  check ahead of it, so plan arm N2 no longer held for it: new test (REFUSAL words under the shipped list: not offered;
+  control without it: offered); arm N2b (the guard removed) reds it.
+- One read of the shipped list per run: setupRun reads it once and hands it to setupEnv, so shippedList and the list
+  the connector is handed cannot disagree.
+- NOT_LISTED_WORDS is now the connector's whole sentence ("..., so nothing was registered"), so less echoed service
+  text can match. It narrows, not closes: a service could still send those words; the branch only changes wording.
+- Tests: 21 pass.
