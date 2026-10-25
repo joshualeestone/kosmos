@@ -76,9 +76,16 @@ struct AgentsView: View {
         }
     }
 
+    // kosmos#7120, a Debug build only: KOSMOS_SAMPLE_STALE=1 shows the list as not updating, for its screenshots.
+    #if DEBUG
+    private static let sampleStale = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_STALE"] == "1"
+    #else
+    private static let sampleStale = false
+    #endif
+
     @ViewBuilder private var content: some View {
         if let stale = shownList {
-            list(stale: stale)
+            list(stale: stale || Self.sampleStale)
         } else {
             others
         }
