@@ -237,7 +237,7 @@ function handleEvent(projectId, line, heldAt) {
     return;
   }
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to ' + farSide(projectId) + ': ' + clean(ev.because, 200) + '.'); return; }
-  // kosmos#7129: an unsealed message shown while this computer waits to be let in (pendingClear) would have been refused
+  // kosmos#7129: an unsealed message shown while this computer waits to be let in (waitingToBeLetIn) would have been refused
   // had the room turned out sealed. Its row records that it arrived while waiting, for good.
   let unverified = false;
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && !Array.isArray(ev.data)) {
@@ -324,7 +324,7 @@ function handleEvent(projectId, line, heldAt) {
       ev.data = opened.m;
     } else if (sealedRoom && !waiting) {
       // No downgrade: once a room is sealed, words sent in the clear are not shown. A computer still waiting to be let
-      // into an unsealed room (pendingClear) does not know it is sealed, so it shows them (slice 2).
+      // into an unsealed room (waitingToBeLetIn, #7144) does not know it is sealed, so it shows them (slice 2).
       noteOnce(projectId, s, 'unsealed', 'A message arrived unsealed in this sealed room, so it was not shown. If someone joined before this room was sealed, remove them from the shared project and send them a new code.');
       return;
     } else {
