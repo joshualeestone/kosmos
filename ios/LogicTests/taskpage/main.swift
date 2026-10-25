@@ -41,6 +41,8 @@ check(parent?.allSubtasksDone == false && parent?.allSubtasksBuilt == false, "on
 check(parent?.stateLine(roster: roster) == "Open" && parent?.act == .close && parent?.act.title == "Mark as done", "open: Mark as done")
 let createdAt = Tasks.parseISO("2026-10-25T00:36:58.000Z")!
 check(parent?.added(now: createdAt, calendar: cal) == "You, today", "added by the person, today")
+check(parent?.addedLine(now: createdAt, calendar: cal) == "Added by you, today" && page(5)?.addedLine(now: createdAt, calendar: cal) == "Added by eli, today",
+      "the line drawn: the board's fixed opening lowered, a name left as it is")
 check(parent?.added(now: createdAt.addingTimeInterval(86_400), calendar: cal) == "You, yesterday"
       && parent?.added(now: createdAt.addingTimeInterval(3 * 86_400), calendar: cal) == "You, 3 days ago", "yesterday, then days ago")
 check(parent?.partLines(roster: roster).map(\.who) == ["Nobody yet"] && parent?.closeNote(roster: roster) == nil,
@@ -67,6 +69,8 @@ let replaced = page(6)
 check(replaced?.stateWord == "Replaced by task 7" && replaced?.act == .reopen && replaced?.act.title == "Reopen", "replaced: says so, and Reopen")
 check(replaced?.closeNote(roster: roster) == nil && replaced?.holdLine == nil, "a closed task has no close note and no hold line")
 check(page(7)?.stateLine(roster: roster) == "Open. Replaces task 6", "the task that replaced it names it")
+check(page(2)?.closed == true && page(2)?.closeNote(roster: roster) == nil && page(2)?.partLines(roster: roster).first?.who == "Dana",
+      "a finished task with an agent on it: no close note (closing it again stops nobody)")
 check(page(4)?.dueLine(calendar: cal) == "Due Oct 30", "a due date, read only")
 check(page(1)?.dueLine(calendar: cal) == nil, "no due date: no line")
 
