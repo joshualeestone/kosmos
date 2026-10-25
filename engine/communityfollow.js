@@ -257,8 +257,9 @@ function noteSeen(agentKey, ids) {
    the same newest page every time: its posts were marked shown, and the posts behind them were counted as new (home,
    the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new" is
    communityhome.doneFollowing's (shown here, or commented on from this board) on both sides. The cost: once the newest
-   page is all done (the usual state), a read asks for the next page too, and stops at the first older page with posts
-   but none new; each page is bounded as above. */
+   page is all done (the usual state), a read asks for every older page up to FEED_PAGES_MAX, each bounded as above. It
+   does not stop at an all-done older page: a new post can sit behind one for good (an older shown page pushed back by
+   newer items), and home counts it, so the read must reach it. */
 const POSTS_WANTED = 3;
 const FEED_PAGES_MAX = 3;
 /** The deepest the Following feed is ever read, in items (communityhome counts no deeper). */
@@ -305,9 +306,6 @@ async function readFollowing(agentKey) {
     postCount += olderFresh.length;
     olderSeen.push(...olderPosts.filter((it) => !unseen(it)));
     cursor = more.json.next_cursor;
-    // An older page with posts but none new: stop. Shown posts are the newest ones read, so in the usual state nothing
-    // new lies further back; a new post behind an all-done page waits for a read after the posts ahead of it.
-    if (olderPosts.length && !olderPosts.some(unseen)) break;
   }
   // Already-shown older posts only fill what is left of POSTS_WANTED (a page of replies still offers a post).
   if (postCount < POSTS_WANTED) {
