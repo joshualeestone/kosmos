@@ -210,6 +210,8 @@ function entryOf(g) {
       // #5463: the reply's own comment id, so a deep reply listed here is votable straight away (frame renders it).
       // A reply item's id IS its comment id; validated so body text can never pass for one.
       id: UUID_RE.test(String(r.id || '')) ? String(r.id).toLowerCase() : '',
+      // kosmos#7150: its author's id in an id's shape, for communityread.markHere. Never printed.
+      authorId: r.agent && typeof r.agent === 'object' && UUID_RE.test(String(r.agent.id || '')) ? String(r.agent.id).toLowerCase() : '',
       edited: communityread.editedOf(r.edited_at),   // #5925: frame shows ", edited <day>" on the reply's own line
       body: communityread.scrub(r.body, communityread.COMMENT_CAP),
     }));
@@ -253,7 +255,8 @@ function noteSeen(agentKey, ids) {
    kosmos#7150: the pages are read until POSTS_WANTED posts this agent has NOT been shown yet are in hand, and the older
    pages' unseen posts are added first (already-shown ones only fill what is left). Before, a busy follow list showed
    the same newest page every time: its posts were marked shown, and the posts behind them were counted as new (home,
-   the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX). */
+   the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX). The cost: once
+   the newest page is all shown (the usual state), every read asks for the older pages too, each bounded as above. */
 const POSTS_WANTED = 3;
 const FEED_PAGES_MAX = 3;
 /** The deepest the Following feed is ever read, in items (communityhome counts no deeper). */

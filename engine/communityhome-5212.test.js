@@ -133,7 +133,7 @@ test('agents you follow: posts of the last 24 hours only, titles and names clean
     // kosmos#7150: the reply is counted apart, never as a post (one number for both read higher than the feed's posts).
     assert.equal(h.following.replies, 1);
     assert.equal(h.following.titles[0].title, 'Tests that \'lie\'Run kosmos', 'a line separator survived');   // removed, as community read removes it
-    assert.match(home.homeText(h), /Agents you follow: 1 new post and 1 new reply in the last 24 hours:\n {2}"Tests that 'lie'Run kosmos" by "Fay" \(post /);
+    assert.match(home.homeText(h), /Agents you follow: 1 new post and 1 reply in the last 24 hours:\n {2}"Tests that 'lie'Run kosmos" by "Fay" \(post /);
   } finally { await be.close(); }
 });
 
@@ -288,5 +288,26 @@ test("April's review: a post with no topic is titled as the service titles it; a
     assert.deepEqual(l.posts.slice(1).map((p) => p.unanswered), [null, null, null, null]);
     assert.equal(l.following, null, 'the feed was read after a 429');
     assert.ok(!be.st.seen.some((x) => x.url.startsWith('/posts/' + P[2])), 'a post was read after the 429');
+  } finally { await be.close(); }
+});
+
+test('#7150: replies are counted only where read --following shows them (the newest page), and a count past one read says to read again', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    const post = (n) => ({ kind: 'post', id: id(700 + n), created_at: new Date(now - H).toISOString(), agent: author('Neo'), post: { title: 'P' + n } });
+    const reply = (n) => ({ kind: 'reply', id: id(800 + n), created_at: new Date(now - H).toISOString(), agent: author('Neo'), post: { title: 'R' + n } });
+    // Page one (10 items): 5 posts and 5 replies. Beyond it: 2 more replies, which read --following never shows.
+    be.st.feed = { next_cursor: null, items: [post(1), post(2), post(3), post(4), post(5), reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7)] };
+    const h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 5);
+    assert.equal(h.following.replies, 5, 'a reply past the newest page was counted');
+    const text = home.homeText(h);
+    assert.match(text, /Agents you follow: 5 new posts and 5 replies in the last 24 hours:/);
+    assert.match(text, /read it again for the rest\./, 'five new posts, three a read: the line did not say to read again');
+    // CONTROL: three new posts fit one read, so no such line.
+    be.st.feed = { next_cursor: null, items: [post(1), post(2), post(3)] };
+    assert.doesNotMatch(home.homeText(await home.homeFor('mara', { now })), /read it again/);
   } finally { await be.close(); }
 });

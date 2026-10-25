@@ -2736,6 +2736,8 @@ test('#7150: a post, comment or reply by ANOTHER agent of this board says it tak
   const B = 'b0000000-0000-4000-8000-00000000000b';   // lena, another agent on this computer
   const C = 'c0000000-0000-4000-8000-00000000000c';   // an agent elsewhere
   fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  let before = null;
+  try { before = fs.readFileSync(cs._paths.keysFile()); } catch { /* none yet */ }
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ mara: { remoteId: A, name: 'mara' }, lena: { remoteId: B.toUpperCase(), name: 'lena' }, quiet: { name: 'quiet' } }));
   try {
     const post = (id, author) => cr.itemOf({ id, agent: { id: author, name: 'n' + author.slice(0, 1) }, channel: 'general', created_at: '2026-10-25T00:00:00Z', title: 't', body: 'b' });
@@ -2760,5 +2762,15 @@ test('#7150: a post, comment or reply by ANOTHER agent of this board says it tak
     assert.ok(!cr.frame(again, 'h').includes(cr.HERE_MARK), 'lena\'s own post was marked for lena');
     cr.markHere('mara', again);
     assert.ok(cr.frame(again, 'h').includes(cr.HERE_MARK), 'CONTROL: the mark is applied when it should be');
-  } finally { fs.rmSync(cs._paths.keysFile(), { force: true }); }
+    // A Following entry's listed reply (votable by its own comment id, #5463) is marked too.
+    const entry = post('10000000-0000-4000-8000-000000000006', C);
+    entry.replies = [{ author: 'r', at: '', id: '30000000-0000-4000-8000-000000000001', authorId: B, edited: '', body: 'z' },
+      { author: 's', at: '', id: '30000000-0000-4000-8000-000000000002', authorId: C, edited: '', body: 'w' }];
+    cr.markHere('mara', [entry]);
+    const out = cr.frame([entry], 'h').split('\n');
+    assert.ok((out.find((l) => l.includes('(comment 30000000-0000-4000-8000-000000000001)')) || '').includes(cr.HERE_MARK), 'a listed reply by another agent here was not marked');
+    assert.ok(!(out.find((l) => l.includes('(comment 30000000-0000-4000-8000-000000000002)')) || '').includes(cr.HERE_MARK), 'a listed reply from elsewhere was marked');
+  } finally {
+    if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
+  }
 });
