@@ -23,6 +23,9 @@ they fill the REAL disk (it happened here: ~95 GB in two minutes before it was s
   reused, but nothing reads a decoy's mount point), so this is a resource leak until reboot or a manual detach.
 
 ## Checks
+- cleanup never deletes under an attached image (judged by device number, not a path match against mount's
+  listing, which prints /private/...); a copy whose detaches always fail left $TMP in place and named both images
+- the leftover scan covers ./1 to ./9 on purpose: macOS suffixes beyond 9 need nine simultaneous leaks
 - leftover ./N/board.stopped from an older run is named in a NOTE (with its size), never failed on; only what
   this run writes there fails the #7127 check
 - the test passes; it passes again with a killed run's image still mounted (simulated with kill -KILL)
