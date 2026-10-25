@@ -39,6 +39,8 @@ Per-file times on this box, quiet, traced with `PS4='+${SECONDS} ${LINENO}: ' ba
   loaded box is slower, the arm goes red (never falsely green: its assertion is unchanged).
 - The staging cases pass with 3 immediate re-asks today; a future case that needs the board to list
   an agent on a later ask must set its own KOSMOS_AOC_LOST_TRIES/_GAP.
+- No run_case case now runs remove_agent's production defaults (6 tries, 10 s apart) or their non-numeric
+  fallback. Nothing asserted on them before either: only the incidental run is gone.
 
 ## Validation
 - Each changed file run alone on this box after the change: queued-heavy 142 OK / 0 BAD, staging
