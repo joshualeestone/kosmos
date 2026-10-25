@@ -214,15 +214,15 @@ function ownFromOf(address) {
    which the coordinator mints as 32 hex characters). */
 const OWN_KEY_PREFIX = 'own:';
 /* Why no own code can be made for this project, or null when one can: 'guest' for a project joined from
-   someone else. A sealed room's code is version 2 (ownCodeSealed, #4658), and it is made only by a computer
-   that holds the room's key, so the one that joins can always be let in: 'sealed-waiting' for an owner whose
-   invited people have not joined yet (it gets its key from the first one), 'sealed-not-in' for a computer
-   joined by own code that has not been let in itself. Throws when the room's record cannot be read. */
+   someone else. A sealed room's code is version 2 (ownCodeSealed, #4658), made only by a computer that holds
+   the room's key: 'sealed-waiting' for an owner whose key no guest's hello has made yet, 'sealed-not-in' for a
+   computer joined by own code that has not been let in itself. Throws when the room's record cannot be read. */
 function ownCodeRefusal(projectId) {
   const link = linkFor(projectId);
   if (!link) return null;
   if (link.role !== 'owner' && link.role !== 'self') return 'guest';
-  if (ownCodeSealed(projectId, link) && !roomKeyHeld(fedseal.roomState(projectId))) return link.role === 'owner' ? 'sealed-waiting' : 'sealed-not-in';
+  const noKey = ownCodeSealed(projectId, link) && !roomKeyHeld(fedseal.roomState(projectId));
+  if (noKey) return link.role === 'owner' ? 'sealed-waiting' : 'sealed-not-in';
   return null;
 }
 /** Whether a room's seal record holds the key for its current epoch (fedseats' hasKey). */
@@ -447,6 +447,10 @@ async function verify(remote, body) {
       return { status: 409, body: { reason: 'old-code', error: 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.' } };
     }
     const key = OWN_KEY_PREFIX + own.ref;
+    // A sealed snapshot for this room is never replaced by an unsealed one (review 3): a second verify of an
+    // altered or older code for the same room would otherwise make the next Join post in the clear.
+    const prevOwn = verified.get(key);
+    const sealedOwnCode = own.sealed === true || !!(prevOwn && prevOwn.sealed === true);
     const mine = await ownAccountNames(remote);
     /* A check that could not be made says nothing about the code, so it leaves an earlier accepted
        check of the same room alone (another tab's join may be waiting on it; it expires by itself). */
@@ -457,7 +461,7 @@ async function verify(remote, body) {
       return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.' } };
     }
     const snap = Object.assign({ edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' },
-      own.sealed ? { sealed: true } : {});
+      sealedOwnCode ? { sealed: true } : {});
     verified.delete(key);
     verified.set(key, Object.assign({ at: Date.now(), ref: own.ref }, snap));
     while (verified.size > SNAPSHOT_MAX) verified.delete(verified.keys().next().value);

@@ -85,7 +85,7 @@ test('#4658: a computer joined by own code makes a sealed code once it was let i
   const fedseal = require('./fedseal');
   federation.recordLink('proj-self-s', { role: 'self', ref: 'ref-self-s' });
   fedseal.setRoomState('proj-self-s', { role: 'member', ownComputer: true, keys: {} });
-  assert.equal(federation.ownCodeRefusal('proj-self-s'), 'sealed-not-in', 'not let in yet: it has no key to vouch for');
+  assert.equal(federation.ownCodeRefusal('proj-self-s'), 'sealed-not-in', 'not let in yet: it holds no key');
   assert.equal(federation.ownCode('proj-self-s', 'S', 'laptop'), null);
   fedseal.setRoomState('proj-self-s', { role: 'member', ownComputer: true, epoch: 0, keys: { 0: fedseal.randomSecret() } });
   assert.equal(federation.parseOwnCode(federation.ownCode('proj-self-s', 'S', 'laptop')).sealed, true);
@@ -133,8 +133,11 @@ test('#4658: an unsealed room shared by own code is not marked sealedOwn, even i
   federation.recordLink('proj-u1', { role: 'owner', ref: 'ref-u1' });
   federation.ownCode('proj-u1', 'U1', 'study');
   assert.deepEqual([federation.linkFor('proj-u1').selfShared, federation.linkFor('proj-u1').sealedOwn], [true, undefined]);
-  require('./fedseal').stashInvite('ref-u1', { s: 'B'.repeat(43), code: 'CODE9', invite: 'inv-9' });
-  federation.ownCode('proj-u1', 'U1', 'study');
+  const fedseal = require('./fedseal');
+  fedseal.stashInvite('ref-u1', { s: 'B'.repeat(43), code: 'CODE9', invite: 'inv-9' });
+  fedseal.setRoomState('proj-u1', { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  // Reached the recordLink branch for real: a sealed, keyed room makes a version 2 code here.
+  assert.equal(federation.parseOwnCode(federation.ownCode('proj-u1', 'U1', 'study')).sealed, true);
   assert.equal(federation.linkFor('proj-u1').sealedOwn, undefined, 'a v 1 computer may be in it: guests stay refused');
 });
 
