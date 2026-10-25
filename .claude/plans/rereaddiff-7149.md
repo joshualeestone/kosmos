@@ -33,10 +33,13 @@ That the text read just before the line is what the agent reads after it. A writ
   - whenever a later notice names none;
   - when its files are deleted (delete-leftover forgets the copy too).
 - **The copy's name:** it carries a hash of the exact session name, so two names that differ only in case keep two copies on macOS.
-- **Size:** whole lines only. An edit past any cut would print as two identical lines. The file is capped at 160 lines and 32 KB instead, and says so when it is cut.
+- **Size:** whole lines only. An edit past any cut would print as two identical lines. The DIFF is capped at 160 lines and 32 KB instead, with its cut note inside both caps. The file adds a three-line header (review 4).
 
 ## A window this does not widen (review 2)
 A rewrite that lands after the agent loaded its file, but before its `started` report, gets folded in. The copy is then taken after it, so the next diff omits it. The debt logic already treats a start after the last owe as having read every section, so that change was already never announced. The window and the miss are the same as before this change.
+
+## Runners without a start report (review 4)
+The copy moves at a `started` report and at a landed line. A runner or restart that posts no `started` report leaves the copy older than what the agent read. The next diff then shows MORE than changed since: changes already read are listed again. That errs in the safe direction: nothing is hidden. A start whose copy cannot be renewed drops the copy, so its next notice is as before.
 
 ## NOT CLAIMED
 - A renamed heading is labelled with the section above it.
