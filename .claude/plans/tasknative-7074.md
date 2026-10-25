@@ -33,8 +33,10 @@ screen. An info button opens the board's page for what this does not do. Checked
   done), Add subtask, Close them and this task, the receipt and undo, repeat controls.
 - Seen, as the board's tkPresent: only while the person is there (page on screen, app in front, a touch in the last two
   minutes; with VoiceOver or Switch Control running, on screen and in front is enough, since their input reaches no
-  gesture the page sees). The 5-second read is gated the same way, and each read is followed by a seen mark; the page
-  appearing or the app coming back records the state once more (tkTabReturn).
+  gesture the page sees). Every 5 seconds the task itself is read while the page is on screen (the board's
+  loadProjects repaints an open task whatever tkPresent says); its activity and the seen mark after it only while the
+  person is there (tkPollIfThere). The page appearing or the app coming back records a recorded state once more
+  (tkTabReturn); a mark whose retry was skipped is left unmarked, so it is sent next time.
 - Presence input is noted by PresenceProbe, a recognizer on the window that fails at once (never claims, delays or
   cancels a touch), not a SwiftUI gesture over the ScrollView. A touch counts as it begins; one held two minutes counts
   once (accepted: reading is scrolling and tapping, each a new touch).

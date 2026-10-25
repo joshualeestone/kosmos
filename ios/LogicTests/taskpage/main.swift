@@ -279,12 +279,20 @@ func modelTests() async {
     await m.markSeen(again: true)
     check(mac.asked.isEmpty, "the app in the background: not marked seen")
     m.appActive = true
+    // A state the Mac has never recorded, so only the skipped retry's handling can make the return send it.
+    mac.activity = (200, Data(#"{"events":[{"at":"2026-10-25T01:10:00Z","kind":"said","text":"newest"}],"count":1}"#.utf8))
+    await m.readActivity(names: nm)
+    mac.asked = []
     mac.seenAnswers = [(502, "{}")]
     mac.onSend = { r in if r.url!.path.hasSuffix("/seen") { m.onScreen = false } }
     await m.markSeen()
     mac.onSend = nil
     check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a retry is not sent once the person has left the page")
     m.onScreen = true
+    m.touched()
+    mac.asked = []
+    await m.markSeen(again: true)
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "and that state is sent again when they come back (left unmarked, not settled)")
 
     // A failed activity read keeps the rows shown.
     let shownRows = m.activity
@@ -311,11 +319,14 @@ func modelTests() async {
     await e.read()
     check(mac.asked.isEmpty, "and a page from before it sends nothing, not even a read")
 
-    // The 5-second tick reads first always, then only while the person is there.
+    // The 5-second tick: the task on every tick while on screen; its activity first, then only while the person is there.
     let t = model(3)
-    check(t.shouldRead(first: true) && t.shouldRead(first: false), "present: every tick reads")
+    check(t.shouldReadTask && t.shouldReadActivity(first: true) && t.shouldReadActivity(first: false), "present: every tick reads both")
     clock += TaskPageModel.presentFor + 1
-    check(t.shouldRead(first: true) && !t.shouldRead(first: false), "idle: only the first read, as the board's tick reads only under tkPresent")
+    check(t.shouldReadTask && t.shouldReadActivity(first: true) && !t.shouldReadActivity(first: false),
+          "idle: the task is still read (its state and button never go stale), its activity only the first time")
+    t.appActive = false
+    check(!t.shouldReadTask, "the app in the background: nothing is read")
 
     // Again re-records only a state the Mac recorded (tkTabReturn): a refused one is not sent again on every return.
     let rr = model(3)
