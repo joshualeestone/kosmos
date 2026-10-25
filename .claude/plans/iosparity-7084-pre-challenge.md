@@ -12,10 +12,16 @@ converged: true
 The plan (.claude/plans/iosparity-7084.md) records the finding and its fix.
 
 #### Iteration 1
-No blocker. Two lows taken: discovery read one shape of read, so every other suite that reads the repo may now read
-only ios/ files (arm: actions pointed at docs/push.md reds it); the skip reason now says "no swiftc" and that the
-suites were not checked there. Two recorded, not fixed: a hung swiftc can outlive node's timeout, and the premise
-(full validation on a Mac before merge) is a convention, not a gate.
+No blocker.
+[LOW, taken] Discovery recognised one shape of read (repoText / appendingPathComponent), so a future suite reading
+the board another way would be unguarded in silence. Fix: every other suite that reads the repo (KOSMOS_REPO) may
+read only ios/ files; anything else fails and names the read. Arm: actions pointed at docs/push.md reds it.
+[LOW, taken] The skip reason said "Linux CI", but the condition is "no swiftc" (also a Mac without Xcode). Fix: it
+now says no swiftc and that the suites were NOT checked there.
+[LOW, recorded] On a 10-minute timeout node kills only the runner, so a hung swiftc or test binary and its temp
+folder can outlive it. Needs a hang first; not fixed here.
+[LOW, recorded] The premise (a full validation on a Mac before every web or engine merge) is a fleet convention,
+not a CI gate. A PR merged without one is caught at the next iOS PR, as before.
 
 ### Final Ledger
 - Converged at iteration 1. ios.board-parity-7084.test.js: 6 pass; arms in the plan red as expected.
