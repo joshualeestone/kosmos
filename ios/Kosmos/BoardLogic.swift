@@ -597,6 +597,13 @@ enum Board {
         return row.attachments.first.map(\.name) ?? "a message"
     }
 
+    // dmReplyHead's adjacency (#3745): a reply right under the message it answers already reads that way, so its header
+    // is left out on screen (VoiceOver still hears what it answers).
+    static func replyIsAdjacent(_ row: ChatRow, in rows: [ChatRow]) -> Bool {
+        guard let target = row.replyTo, let i = rows.firstIndex(where: { $0.id == row.id }), i > 0 else { return false }
+        return rows[i - 1].atRaw == target
+    }
+
     // dmReplyHead: what a message that answers another says about it.
     enum ReplyHead: Equatable { case answers(who: String, gist: String), furtherBack, unavailable }
     static func replyHead(_ row: ChatRow, in rows: [ChatRow], agentName: String, olderCount: Int) -> ReplyHead? {

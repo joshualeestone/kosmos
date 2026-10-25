@@ -380,7 +380,7 @@ struct ChatView: View {
                            line: row.canSendAgain && !client.wasSentAgain(row, for: agent.session)
                                ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
                            sendAgain: { sendWhenFree { await client.sendAgain(row, to: agent) } },
-                           head: headFor(row),
+                           head: headFor(row), headHidden: headAdjacent(row),
                            react: row.who == .agent && row.atRaw != nil ? { e in reactTo(e, row) } : nil,
                            reply: row.who == .agent && row.atRaw != nil ? { replying = row } : nil)
                     .padding(.top, first ? 10 : 2)
@@ -552,7 +552,14 @@ struct ChatView: View {
     @State private var sampleApplied = false
     @State private var sampleFileApplied = false
     @State private var sampleOlderApplied = false
+    @State private var sampleReplyApplied = false
     private func applySampleChoice(_ t: Board.Thread) {
+        // kosmos#7083, KOSMOS_SAMPLE_REPLY=1: Reply pressed on Dana's newest message, for the strip's screenshot.
+        if !sampleReplyApplied, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REPLY"] == "1",
+           let last = t.rows.last(where: { $0.who == .agent && $0.atRaw != nil }) {
+            sampleReplyApplied = true
+            replying = last
+        }
         // KOSMOS_SAMPLE_OLDER=loading|failed: the earlier-messages line as a load would leave it.
         if !sampleOlderApplied, let state = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OLDER"], t.olderCount > 0 {
             sampleOlderApplied = true
@@ -806,6 +813,11 @@ struct ChatView: View {
         return Board.replyHead(row, in: Board.shownRows(earlier, thread: thread), agentName: shown.name, olderCount: thread.olderCount)
     }
 
+    private func headAdjacent(_ row: Board.ChatRow) -> Bool {
+        guard row.replyTo != nil, let thread else { return false }
+        return Board.replyIsAdjacent(row, in: Board.shownRows(earlier, thread: thread))
+    }
+
     // The strip above the composer: who and what the next send answers, and an x.
     private func replyStrip(_ row: Board.ChatRow) -> some View {
         HStack(spacing: 8) {
@@ -964,6 +976,8 @@ struct ChatBubble: View {
     // kosmos#7083: what this message answers, and React and Reply (on the agent's messages only, as the board's hover
     // bar; nil where they are not offered).
     var head: Board.ReplyHead? = nil
+    // Right under the message it answers: the header is heard, not drawn.
+    var headHidden = false
     var react: ((String) -> Void)? = nil
     var reply: (() -> Void)? = nil
     @Environment(\.openURL) private var openURL
@@ -972,7 +986,7 @@ struct ChatBubble: View {
 
     var body: some View {
         VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
-            if let head { ReplyHeadLine(head: head) }
+            if let head, !headHidden { ReplyHeadLine(head: head) }
             BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare, faded: line != nil)
                 .modifier(TapWhen(enabled: line?.canRetry == true, action: sendAgain))
                 // One long-press menu per bubble, set here (a menu on the shared bubble would hide the pending one's Delete).

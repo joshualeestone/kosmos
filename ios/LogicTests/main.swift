@@ -1195,6 +1195,8 @@ do {
           "an original that should be here but is not: unavailable")
     check(Board.replyHead(rows[2], in: rows, agentName: "Dana", olderCount: 0) == .unavailable, "nothing older left out: unavailable, never further back")
     check(Board.replyHead(rows[0], in: rows, agentName: "Dana", olderCount: 4) == nil, "a message that answers nothing has no header")
+    check(Board.replyIsAdjacent(rows[1], in: rows) && !Board.replyIsAdjacent(rows[2], in: rows) && !Board.replyIsAdjacent(rows[0], in: rows),
+          "a reply right under what it answers is adjacent (its header heard, not drawn); others are not")
     let filesOnly = Board.ChatRow(id: "f", atRaw: "T", at: nil, text: "deck.pdf", who: .agent,
                                   attachments: [Board.Attachment(id: "0123456789abcdef01234567", name: "deck.pdf", type: "application/pdf", size: 1, kind: "pdf", url: "/api/attachment/0123456789abcdef01234567", preview: nil)])
     check(Board.replyGist(filesOnly) == "deck.pdf" && Board.replyGist(Board.ChatRow(id: "e", atRaw: "T", at: nil, text: "  ", who: .agent)) == "a message"
