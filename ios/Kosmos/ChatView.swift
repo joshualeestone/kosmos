@@ -64,8 +64,12 @@ struct ChatView: View {
     @State private var photoPicks: [PhotosPickerItem] = []
     @State private var showPhotos = false
     @State private var showFiles = false
-    // kosmos#7083: the agent's message the next send answers (the board's DM reply strip).
+    // kosmos#7083: the agent's message the next send answers (the board's DM reply strip); the box's focus, taken by
+    // Reply; the last reaction refusal shown (only it is cleared by the next reaction that goes); reactions in the air.
     @State private var replying: Board.ChatRow?
+    @FocusState private var composerFocused: Bool
+    @State private var reactNote: String?
+    @State private var reacting: Set<String> = []
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -301,7 +305,8 @@ struct ChatView: View {
                           retry: { sendWhenFree { await client.retry(p.id, to: agent) } },
                           delete: { client.discard(p.id, for: agent.session) },
                           head: headFor(replyTo: p.replyTo), headHidden: pendingHeadsHidden.contains(p.id),
-                          dropReply: p.replyTo == nil ? nil : { sendWhenFree { await client.retryWithoutReply(p.id, to: agent) } })
+                          dropReply: p.replyTo != nil && Board.replyRefusedForGood(failedReason(p))
+                              ? { sendWhenFree { await client.retryWithoutReply(p.id, to: agent) } } : nil)
                 .padding(.top, 10)
                 .id(p.id)
         }
@@ -338,7 +343,8 @@ struct ChatView: View {
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     // kosmos#7083: what it answers, on a message with files too.
                     let head = headFor(replyTo: row.replyTo)
-                    if let head, !hiddenHeads.contains(row.id) { ReplyHeadLine(head: head) }
+                    // Heard in the files bubble's own label, so not a second time here.
+                    if let head, !hiddenHeads.contains(row.id) { ReplyHeadLine(head: head).accessibilityHidden(true) }
                     FilesBubble(text: Board.wordsShown(row.text, files: row.attachments), files: row.attachments,
                                 thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine,
                                 faded: mine && row.canSendAgain && !client.wasSentAgain(row, for: agent.session),
@@ -346,10 +352,10 @@ struct ChatView: View {
                                     + Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
                                                            count: row.attachments.count, notSent: row.notSent))
                         // kosmos#7083: Reply and the reactions on an agent's message with files too, from its bubble.
-                        .contextMenu { if row.who == .agent && row.atRaw != nil { replyMenu(row) } }
-                        .accessibilityActions { if row.who == .agent && row.atRaw != nil { replyMenu(row) } }
+                        .contextMenu { if row.answerable(by: agent.session) { replyMenu(row) } }
+                        .accessibilityActions { if row.answerable(by: agent.session) { replyMenu(row) } }
                     if !row.reactions.isEmpty {
-                        ReactionPills(pills: row.reactions, toggle: row.who == .agent && row.atRaw != nil ? { e in reactTo(e, row) } : nil)
+                        ReactionPills(pills: row.reactions, toggle: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil)
                     }
                     if mine, row.canSendAgain, !client.wasSentAgain(row, for: agent.session) {
                         let line = Board.notSentLine(agentRunning: running, name: shown.name)
@@ -393,8 +399,8 @@ struct ChatView: View {
                                ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
                            sendAgain: { sendWhenFree { await client.sendAgain(row, to: agent) } },
                            head: headFor(replyTo: row.replyTo), headHidden: hiddenHeads.contains(row.id),
-                           react: row.who == .agent && row.atRaw != nil ? { e in reactTo(e, row) } : nil,
-                           reply: row.who == .agent && row.atRaw != nil ? { startReply(row) } : nil)
+                           react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
+                           reply: row.answerable(by: agent.session) ? { startReply(row) } : nil)
                     .padding(.top, first ? 10 : 2)
             }
         }
@@ -756,6 +762,7 @@ struct ChatView: View {
 
     private var field: some View {
         TextField("", text: $draftText, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
+            .focused($composerFocused)
             .accessibilityLabel("Message \(shown.name)")
             .font(.body)
             .foregroundColor(Palette.primary)
@@ -856,8 +863,16 @@ struct ChatView: View {
 
     // React and Reply for one of the agent's messages (the menu on a files bubble, and its VoiceOver actions).
     @ViewBuilder private func replyMenu(_ row: Board.ChatRow) -> some View {
-        ForEach(Board.quickReactions, id: \.self) { e in Button("React with " + e) { reactTo(e, row) } }
+        ForEach(Board.quickReactions.filter { e in !row.reactions.contains { $0.emoji == e && $0.mine } }, id: \.self) { e in
+            Button("React with " + e) { reactTo(e, row) }
+        }
+        ForEach(row.reactions.filter(\.mine), id: \.emoji) { r in Button("Remove your " + r.emoji) { reactTo(r.emoji, row) } }
         Button("Reply") { startReply(row) }
+    }
+
+    private func failedReason(_ p: Board.PendingSend) -> String? {
+        if case .failed(let why) = p.state { return why }
+        return nil
     }
 
     // "Replying to Dana: ...", said when Reply is chosen, as the board announces it.
@@ -866,6 +881,8 @@ struct ChatView: View {
     }
     private func startReply(_ row: Board.ChatRow) {
         replying = row
+        // As the board and the native room: the box takes the words next.
+        composerFocused = true
         UIAccessibility.post(notification: .announcement, argument: replyingLine(row))
     }
 
@@ -873,9 +890,14 @@ struct ChatView: View {
     // on the composer line.
     private func reactTo(_ emoji: String, _ row: Board.ChatRow) {
         guard let at = row.atRaw else { return }
+        // One toggle of a pill at a time: a quick second tap would race the first.
+        let key = at + "|" + emoji
+        guard !reacting.contains(key) else { return }
+        reacting.insert(key)
         let startedIn = client.chatEpoch
         Task {
             let result = await client.react(emoji, at: at, to: agent)
+            reacting.remove(key)
             guard startedIn == client.chatEpoch else { return }
             switch result {
             case .reacted(let at, let pills):
@@ -883,8 +905,9 @@ struct ChatView: View {
                 if earlier.rows.contains(where: { $0.atRaw == at }) { earlier.rows = Board.withReactions(earlier.rows, at: at, pills: pills) }
             case .refused(let why):
                 composerNote = why
+                reactNote = why
             }
-            if case .reacted = result, composerNote != nil, composerNote != Board.choiceWaitLine { composerNote = nil }
+            if case .reacted = result, let shownNote = reactNote, composerNote == shownNote { composerNote = nil; reactNote = nil }
         }
     }
 

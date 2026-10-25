@@ -25,6 +25,8 @@ controls, server.ios-routes-6838.test.js (the react request is read in place), a
 - Reply and react only on the agent's messages (the board's hover bar; the Mac refuses a reaction on the person's own).
 - The pending reply is per open chat (not kept across leaving the chat); the board keeps one per agent.
 - A reaction answer repaints that one row from its pills, as the room does; the next read confirms.
+- The reply header is plain text; the board's is a button that jumps to the original. Deferred: scrolling to a row
+  (and loading earlier pages to reach it) is its own piece of work.
 - `ChatReaction` lives in BoardLogic.swift (the room's Board.Reaction shape) because BoardRoom.swift is not compiled by
   every suite that compiles the chat.
 

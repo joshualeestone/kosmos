@@ -530,6 +530,13 @@ enum Board {
         // it (#3650).
         var replyTo: String? = nil
         var reactions: [ChatReaction] = []
+        // Who sent it, as the Mac names it (nil: the person, or Kosmos's own line).
+        var from: String? = nil
+        // Reply and reactions only on this agent's own messages, not a question (server.js: a reply_to must be the
+        // agent's or the person's, never a question; chat.reactDirect: only `from === name`), as the board's hover bar.
+        func answerable(by session: String) -> Bool {
+            who == .agent && from == session && atRaw != nil && wayThrough != .question && wayThrough != .permission
+        }
     }
 
     // A reaction pill on a chat message: the room's Board.Reaction shape (BoardRoom.swift), kept here because not every
@@ -653,6 +660,14 @@ enum Board {
             prevHid = adjacent && ats.contains(target)
         }
         return hidden
+    }
+
+    // The Mac's two refusals that ask for the reply to go as a new message (server.js: its original gone, or a
+    // conversation this computer does not keep); only these offer "Send as a new message".
+    static func replyRefusedForGood(_ reason: String?) -> Bool {
+        guard let reason else { return false }
+        return reason.hasPrefix("That message is no longer in this conversation")
+            || reason.hasPrefix("This conversation is not kept on this computer, so there is no message to reply to")
     }
 
     // The board's Press x (its reply strip), for a bubble that offers its own "Send as a new message" instead.
@@ -1312,7 +1327,7 @@ enum Board {
                            because: because, resendable: resendable,
                            permission: permission, reported: isTrue(row["reported"]), attachments: parseAttachments(row),
                            replyTo: (row["replyTo"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                           reactions: parseReactions(row["reactions"]))
+                           reactions: parseReactions(row["reactions"]), from: from)
         }
     }
 

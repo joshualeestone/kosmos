@@ -1223,6 +1223,14 @@ do {
           "the bold forms with the colon inside or after")
     check(Board.dropSelfName("Dana Claude: hi", names: ["Dana", "Dana Claude"]) == "hi", "the longest name first")
     check(Board.dropSelfName("Dana:\u{663}", names: ["Dana"]) == "\u{663}", "a colon before a non-ASCII digit is still a name's colon (JavaScript's \\d is ASCII)")
+    let fromOther = Board.parseThread(Data(#"{"messages":[{"at":"T1","text":"hi","from":"dana"},{"at":"T2","text":"from elsewhere","from":"cleo"},{"at":"T3","text":"Tue or Wed?","from":"dana","kind":"question"},{"at":"T4","text":"me","from":null}]}"#.utf8))?.rows ?? []
+    check(fromOther.count == 4 && fromOther[0].answerable(by: "dana") && !fromOther[1].answerable(by: "dana") && !fromOther[2].answerable(by: "dana")
+          && !fromOther[3].answerable(by: "dana"),
+          "Reply and reactions only on this agent's own messages: not another sender's, not a question, not the person's")
+    check(Board.replyRefusedForGood("That message is no longer in this conversation. Press \u{00D7} to send this as a new message.")
+          && Board.replyRefusedForGood("This conversation is not kept on this computer, so there is no message to reply to. Send it as a new message.")
+          && !Board.replyRefusedForGood("Dana is at its trust prompt") && !Board.replyRefusedForGood(nil),
+          "Send as a new message only for the Mac's two refusals that ask for it")
     check(Board.withoutStripInstruction("That message is no longer in this conversation. Press \u{00D7} to send this as a new message.")
           == "That message is no longer in this conversation.", "the board's Press x is dropped where the bubble has its own button")
     // A pending reply right under its original (the newest shown row) draws no header, as the kept row will not.
