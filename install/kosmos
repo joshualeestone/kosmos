@@ -4031,16 +4031,29 @@ cmd_report_show() {
 # can say the person messaged you while its text never reached this session (a nudge carries none; a paste
 # can be lost); the board keeps every message, so this prints them rather than asking the person to resend.
 # Only YOUR thread: identity is resolved exactly as `report show` resolves it, and there is no agent argument.
+# #7155: --unanswered (only the person's messages after your newest reply) and --since <time> (only those at or after
+# it), for catching up after a gap. The board checks the time; here only that one was given.
 cmd_inbox() {
-  local _limit="" _haslimit=0
+  local _limit="" _haslimit=0 _unans=0 _since="" _hassince=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --limit) shift; _haslimit=1; _limit="${1:-}" ;;
       --limit=*) _haslimit=1; _limit="${1#--limit=}" ;;
-      *) say "kosmos inbox takes only --limit N."; exit 2 ;;
+      --unanswered) _unans=1 ;;
+      --since) shift; _hassince=1; _since="${1:-}" ;;
+      --since=*) _hassince=1; _since="${1#--since=}" ;;
+      *) say "kosmos inbox takes only --limit N, --unanswered and --since <time>."; exit 2 ;;
     esac
     shift || true
   done
+  local _extra=""
+  [ "$_unans" = 1 ] && _extra="&unanswered=1"
+  if [ "$_hassince" = 1 ]; then
+    case "$_since" in
+      ''|*[!0-9A-Za-z:.+\ -]*) say "--since takes a date and a clock time, like 2026-10-25T05:22:00Z or \"2026-10-25 05:22\"."; exit 2 ;;
+    esac
+    _extra="$_extra&since=$(printf '%s' "$_since" | sed 's/+/%2B/g; s/ /%20/g; s/:/%3A/g')"
+  fi
   # Review 2: a given --limit is a whole number from 1 to 50, checked before the board is asked.
   if [ "$_haslimit" = 1 ]; then
     case "$_limit" in
@@ -4060,7 +4073,7 @@ cmd_inbox() {
   local _bt; _bt="$(board_token || true)"
   local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
   local _body _rc=0 _code
-  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/inbox?as=text&limit=${_limit}&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/inbox?as=text&limit=${_limit}&from_pane=$_pane_q$_extra" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
     say_unreached "read your messages" "$_rc"
     exit 1
@@ -5290,7 +5303,7 @@ if [ "$_kosmos_help" = 1 ]; then
     inbox)
       # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private
       # messages, which is not what --help promises.
-      printf 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)\n'
+      printf 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")\n'
       exit 0 ;;
     fingerprint)
       printf 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)\n'

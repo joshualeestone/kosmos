@@ -1797,6 +1797,14 @@ const os = require('node:os');
    INBOX_DROP is C0 and C1 controls (tab kept) plus the bidirectional marks and overrides that can reorder a row. */
 const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
 const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+/* #7155: `kosmos inbox --since <time>`. A date WITH a clock time, as ISO (Z or an offset) or "YYYY-MM-DD HH:MM" (read
+   as this computer's local time, which is the board's). A bare date is refused: Date.parse reads it as UTC midnight,
+   which is not what someone in Central time means by "since the 25th". NaN for anything else. */
+function inboxSince(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d(:\d\d(\.\d+)?)?(Z|[+-]\d\d:?\d\d)?$/.test(s)) return NaN;
+  return Date.parse(s.replace(' ', 'T').replace(/([+-]\d\d)(\d\d)$/, '$1:$2'));
+}
 
 /**
  * Who is sending this? One derivation, used by every route that needs it.
@@ -17112,17 +17120,28 @@ const server = http.createServer(async (req, res) => {
     let asText = false;
     let fromPane = null;
     let limit = 10;
+    /* #7155: after a gap (out of usage, a crash, a restart), only what you have not answered (`unanswered=1`) and
+       only what came at or after a time (`since=`). Both are filters BEFORE the limit. */
+    let unanswered = false;
+    let sinceRaw = null;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
       fromPane = q.get('from_pane');
       const n = Number.parseInt(q.get('limit') || '', 10);
       if (Number.isFinite(n) && n > 0) limit = Math.min(n, 50);
+      unanswered = q.get('unanswered') === '1';
+      sinceRaw = q.has('since') ? q.get('since') : null;
     } catch { asText = false; fromPane = null; }
     const fail = (status, msg) => {
       if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
       else sendJson(res, status, { ok: false, because: msg });
     };
+    const since = sinceRaw === null ? null : inboxSince(sinceRaw);
+    if (since !== null && !Number.isFinite(since)) {
+      fail(400, '--since takes a date and a clock time, like 2026-10-25T05:22:00Z, 2026-10-25T05:22-05:00 or "2026-10-25 05:22" (this computer\'s time)');
+      return;
+    }
     try {
       const roster = safeRoster();
       if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who is asking'); return; }
@@ -17143,9 +17162,22 @@ const server = http.createServer(async (req, res) => {
            pasted to it is not shown back, here either.
          - An attachment and a menu choice are said, and a message of the person's that never reached the
            agent is marked: that is the message this verb most often exists to recover. */
-      const kept = (thread && Array.isArray(thread.messages) ? thread.messages : [])
-        .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments))
-        .slice(-limit);
+      let all = (thread && Array.isArray(thread.messages) ? thread.messages : [])
+        .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments));
+      /* #7155: unanswered is the person's messages after your NEWEST reply (dmOwes's rule, so this agrees with the
+         board's "Nothing back yet."), menu answers left out as they owe nothing. Unlike dmOwes, one that did not reach
+         you is kept, and marked below: that is the message this exists to recover. Kosmos's own notice was dropped
+         above, so it never stands in for your reply here. */
+      if (unanswered) {
+        let lastYou = -1;
+        all.forEach((m, i) => { if (typeof m.from === 'string' && m.from) lastYou = i; });
+        all = all.slice(lastYou + 1).filter((m) => !(typeof m.wire === 'string' && m.wire));
+      }
+      if (since !== null) {
+        all = all.filter((m) => typeof m.at === 'string' && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) >= since);
+      }
+      const earlier = (unanswered || since !== null) ? Math.max(0, all.length - limit) : 0;
+      const kept = all.slice(-limit);
       const masked = guideMaskedRows(kept, isSetupGuide(sender.card.sessionName) ? true : null);
       const rows = masked.map((m) => {
         const person = !(typeof m.from === 'string' && m.from);
@@ -17168,9 +17200,13 @@ const server = http.createServer(async (req, res) => {
             : (m.delivery.state === chat.DELIVERY.COULD_NOT || m.delivery.state === 'held' ? 'no' : 'maybe'),
         };
       });
-      if (!asText) { sendJson(res, 200, { ok: true, messages: rows }); return; }
+      if (!asText) { sendJson(res, 200, { ok: true, messages: rows, earlier }); return; }
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-      if (!rows.length) { res.end('No messages between you and the person yet.\n'); return; }
+      if (!rows.length) {
+        if (unanswered) { res.end('Nothing unanswered: you have replied since the person\'s last message' + (since !== null ? ' (or they sent none since then)' : '') + '.\n'); return; }
+        if (since !== null) { res.end('No messages between you and the person since then.\n'); return; }
+        res.end('No messages between you and the person yet.\n'); return;
+      }
       /* One row per message; a message's own further lines are INDENTED, so text a person typed can never read
          as another row ("<time> you: ...") in the agent's context. */
       /* Review 2: the markers sit BEFORE the colon, so nothing the person typed (it all comes after it) can
@@ -17192,7 +17228,9 @@ const server = http.createServer(async (req, res) => {
         const body = r.text.split(INBOX_BREAK).map((l) => l.replace(INBOX_DROP, ''));
         return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
       });
-      res.end(lines.join('\n') + '\n');
+      // #7155: say what the limit left out, first, so the oldest unanswered message is never silently missing.
+      const more = earlier ? [earlier + ' earlier ' + (earlier === 1 ? 'message' : 'messages') + ' not shown (--limit 50 shows more).'] : [];
+      res.end(more.concat(lines).join('\n') + '\n');
     } catch (err) {
       fail(500, 'Kosmos could not read your messages just now');
     }

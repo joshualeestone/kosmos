@@ -100,7 +100,7 @@ const USAGE = {
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   fingerprint: 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
-  inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
+  inbox: 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
     'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
@@ -870,17 +870,26 @@ async function verbWhoami(ctx) {
 async function verbInbox(ctx, args) {
   let limit = '';
   let given = false;
+  let unanswered = false;   // #7155, as install/kosmos
+  let since = null;
   while (args.length) {
     const a = args.shift();
     if (a === '--limit') { given = true; limit = args.shift() || ''; continue; }
     const m = /^--limit=(.*)$/.exec(a);
     if (m) { given = true; limit = m[1]; continue; }
+    if (a === '--unanswered') { unanswered = true; continue; }
+    if (a === '--since') { since = args.length ? args.shift() : ''; continue; }
+    const sm = /^--since=(.*)$/.exec(a);
+    if (sm) { since = sm[1]; continue; }
     ctx.err(USAGE.inbox);
     return 2;
   }
   // Review 2, as install/kosmos: a given --limit is a whole number from 1 to 50.
   if (given && !(/^[1-9]\d?$/.test(limit) && Number(limit) <= 50)) { ctx.err('--limit takes a whole number from 1 to 50.'); return 2; }
-  const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=');
+  // #7155: the board checks the time; here only that one was given, in the characters a time can hold.
+  if (since !== null && !/^[0-9A-Za-z:.+ -]+$/.test(since)) { ctx.err('--since takes a date and a clock time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22".'); return 2; }
+  const extra = (unanswered ? '&unanswered=1' : '') + (since !== null ? '&since=' + encodeURIComponent(since) : '');
+  const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=' + extra);
   if (!r.reached) return ctx.unreachable('read your messages');
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   if (r.status >= 400) { tokenRefusedHint(ctx, r); return 1; }   // #5333
