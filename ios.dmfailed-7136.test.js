@@ -60,6 +60,9 @@ function pinProblems(board, swift) {
   both('the no-reply condition', line.includes('!m.replyTo'), phone.can.includes('replyTo == nil'));
   both('the no-files condition', line.includes('&& !(Array.isArray(m.attachments) && m.attachments.length)'), phone.can.includes('&& attachments.isEmpty'));
   both('the no-wire condition', line.includes('!m.wire'), phone.parse.includes('resendable = failed && wire == nil'));
+  // Whose message counts as the person's newest.
+  both('the person\'s rows for the newest rule', board.includes("for (const r of allRows) if (r && !r.from && r.kind !== 'kosmos' && r.kind !== 'question' && typeof r.at === 'string') DM_NEWEST_MINE_AT = r.at;"),
+    phone.ext.includes('rows.last { $0.who == .person && !($0.atRaw ?? "").isEmpty }?.atRaw'));
   // The retry: the same row, by retry_of, with the words as the row holds them.
   both('retry_of with the row\'s own words', retry.includes('JSON.stringify({ text: row.text, retry_of: at })'), phone.ext.includes('["text": text, "retry_of": at]'));
   // What is said after.

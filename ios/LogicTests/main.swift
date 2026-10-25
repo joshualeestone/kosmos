@@ -1057,8 +1057,9 @@ do {
     check(res(200, #"{"delivery":{"state":"placed","at":"T1"},"recorded":true}"#) == .kept(at: "T1"), "placed and kept: the row is at T1")
     check(res(200, #"{"delivery":{"state":"held","at":"T2"},"recorded":true}"#) == .keptUndelivered(at: "T2", note: "Waiting to send"),
           "held is kept, undelivered: its row says Waiting to send, so the app never offers to send it twice")
-    check(res(200, #"{"delivery":{"state":"could_not","at":"T3","because":"x"},"recorded":true}"#) == .keptUndelivered(at: "T3", note: "Not sent"),
-          "could_not is kept, undelivered: never shown as sent; its row says Not sent and is sent again from there")
+    check(res(200, #"{"delivery":{"state":"could_not","at":"T3","because":"x"},"recorded":true}"#) == .keptUndelivered(at: "T3", note: "Message failed to deliver")
+          && res(200, #"{"delivery":{"state":"could_not","at":"T4","duplicateOf":"T1"},"recorded":true}"#) == .keptUndelivered(at: "T4", note: "Not sent"),
+          "could_not is kept, undelivered: never shown as sent; its row says the board's failed words (a kept copy, Not sent), as the row will once read")
     check(res(200, #"{"delivery":{"state":"placed","at":"T4"},"recorded":false}"#) == .taken, "placed but no row kept: shown as sent until a read holds the words")
     check(res(200, #"{"delivery":{"state":"unconfirmed","at":"T5"},"recorded":true}"#) == .keptUndelivered(at: "T5", note: "Not confirmed"),
           "unconfirmed is never shown as sent: it reads Not confirmed, as the board says it could not confirm")

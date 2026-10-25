@@ -785,7 +785,9 @@ struct ChatView: View {
 
     // kosmos#7136: the board's failed line for a row of the person's, as it is on this phone now.
     private func failedLine(_ row: Board.ChatRow) -> Board.FailedLine? {
-        Board.failedLine(row, newestMineAt: newestMine,
+        // Only the person's failed rows reach the newest-message scan.
+        guard row.who == .person, row.notSent == Board.failedWords || row.retrying else { return nil }
+        return Board.failedLine(row, newestMineAt: newestMine,
                          flying: client.isSendingAgain(row, for: agent.session) || row.atRaw.map { retrySettling.contains($0) } == true)
     }
 
@@ -800,6 +802,8 @@ struct ChatView: View {
             await read()
             retrySettling.remove(at)
             if out.refused {
+                // The same refusal twice does not change the line, so it would not be heard again: say it.
+                if composerNote == out.said { UIAccessibility.post(notification: .announcement, argument: out.said) }
                 composerNote = out.said
                 retryNote = out.said
             } else {
@@ -1259,7 +1263,7 @@ extension Notification.Name {
 }
 
 // One message as a bubble: the person's on the right, the agent's on the left, in the board's colours; the time (and a
-// tail) on the last bubble of a run. A message the Mac kept as not sent gets the not-sent line, and a tap sends it again.
+// tail) on the last bubble of a run. A message the Mac could not deliver gets the board's failed line (kosmos#7136).
 struct ChatBubble: View {
     let row: Board.ChatRow
     let firstOfRun: Bool
