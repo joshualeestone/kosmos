@@ -955,6 +955,10 @@ function withKeyChange(result) {
   // A registration that went through ends any offer: a later Accept must not vouch for a key nobody is asking about.
   if (result && result.ok === true) { lastOffered = null; acceptedKey = null; }
   if (!result || result.ok !== false || serviceKeySetHeld()) return result;
+  /* Nor under the shipped list: the connector now names a key it refuses for not being on the list it was handed
+     (kosmos#6596 follow-up), and under the shipped list an Accept is refused anyway (acceptOfferedKey), so the page must
+     not be shown one to press. That refusal stays an ordinary error. */
+  if (serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR })) return result;
   // The whole of stderr; `because` (its last line) only when there is no stderr, so a text naming two keys across
   // lines is not read as naming one.
   const offered = result.stderr ? offeredKeyIn(String(result.stderr)) : offeredKeyIn(String(result.because || ''));
