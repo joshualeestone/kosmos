@@ -758,7 +758,15 @@ function sealStep(projectId, fn) {
 /** Member, until it holds the room key: say hello with this board's key (on each
     connect and on each ensureAll pass, so a hello the relay dropped is said again). */
 function sayHello(projectId, s) {
-  const st = roomSeal(projectId);
+  let st = roomSeal(projectId);
+  // #4658: a computer that joined by a sealed own code and has lost its seal record writes it again, so it asks for
+  // the key instead of holding its posts with nothing asked (noteOwnSealed's record, from the link).
+  if (st === null && s.room) {
+    const link = safeLink(projectId);
+    if (link && link.role === 'self' && link.sealed === true) {
+      try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); st = roomSeal(projectId); } catch { return; }
+    }
+  }
   if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
   if (st.ownComputer === true) { sayOwnHello(projectId, s); return; }
   try { sendFrame(s, fedseal.helloFrame(st.s, st.code, fedseal.sealingKey(), s.room)); } catch (err) {

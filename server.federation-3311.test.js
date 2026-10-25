@@ -425,7 +425,7 @@ test('#4658: a sealed (version 2) own code joins holding the room as sealed from
   fedseal.stashInvite('ref-own-s2', { s: 'C'.repeat(43), code: 'CODE7', invite: 'inv-7' });
   const waiting = await post('/api/federation/own-code', { project: pid }, SCREEN);
   assert.deepEqual([waiting.status, waiting.json.reason], [409, 'sealed-waiting'], 'no guest has joined: no key to give yet');
-  assert.match(waiting.json.error, /none of them has connected to this computer yet/);
+  assert.match(waiting.json.error, /does not hold its key right now/);
   fedseal.setRoomState(pid, { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } });
   const oc = await post('/api/federation/own-code', { project: pid }, SCREEN);
   assert.equal(oc.status, 200, JSON.stringify(oc.json));

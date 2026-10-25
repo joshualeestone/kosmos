@@ -22494,7 +22494,7 @@ const server = http.createServer(async (req, res) => {
           if (federation.linkFor(proj.id) && !fedseats.linkFor(proj.id)) federation.forgetLink(proj.id);
           refusal = federation.ownCodeRefusal(proj.id);
           if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
-          if (refusal === 'sealed-waiting') { sendJson(res, 409, { reason: refusal, error: 'This project is sealed for the people you invited, and none of them has connected to this computer yet, so it has no key to give your other computers. Add them once someone has.' }); return; }
+          if (refusal === 'sealed-waiting') { sendJson(res, 409, { reason: refusal, error: 'This project is sealed for the people you invited, and this computer does not hold its key right now (none of them has connected to it yet, or the key was lost), so it has nothing to give your other computers. Add them once someone has connected.' }); return; }
           if (refusal === 'sealed-not-in') { sendJson(res, 409, { reason: refusal, error: 'This computer does not hold this sealed project\'s key right now, so it cannot add other computers. Add them from the computer that first shared the project.' }); return; }
           // kosmos#4699: the code names this computer, so the one it is pasted on can check it is on
           // the same account. A computer with no Kosmos+ address has no name to give.

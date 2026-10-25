@@ -280,6 +280,9 @@ test('#4658: a computer that joined by a sealed code and lost its seal record st
   fedseats.post('own-j3', { from: 'Josh', kind: 'person', text: 'no record words' });
   await settle();
   assert.ok(!seat.written.join('').includes('no record words'), 'a post went out in the clear after the seal record was lost');
+  // And it asks for the key again: the record is written back from the link and a hello goes out.
+  assert.deepEqual(fedseal.roomState('own-j3'), { role: 'member', ownComputer: true, keys: {} });
+  assert.ok(fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop()), 'no hello: it would hold its posts with nothing asked');
 });
 
 test('#4658 CONTROL: the same computer joined by a version 1 code (no record) sends its first post in the clear, as main does', async () => {
