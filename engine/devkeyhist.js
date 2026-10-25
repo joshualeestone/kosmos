@@ -33,6 +33,8 @@
  *   - the chain makes the entries one signed object, so a coordinator cannot hand over a subset (hiding a revoke);
  *   - `issuedAt` is escrowd's clock when it signed this head, and verify() refuses a head older than maxAgeSecs. An
  *     older head is a genuine signature over a shorter history, which is exactly how a revoke would be hidden by replay.
+ * A revoke therefore takes effect on a Mac only once every head signed before it is older than maxAgeSecs: up to 24
+ * hours (plus the clock allowance) in which a replayed earlier head still verifies.
  * What it does NOT stop, stated so nobody reads it as covered: a leaked key that was never revoked, and a manifest
  * signed by a revoked key with a time inside its validity window (the manifest's own time is the signer's word). The
  * caller passes a time it trusts more than the manifest's when it has one.
@@ -167,7 +169,7 @@ function verify(history, opts = {}) {
     if (typeof opts.org !== 'string' || !opts.org || typeof opts.member !== 'string' || !opts.member) {
       return { ok: false, because: 'the device key history was checked without naming the member it must belong to' };
     }
-    if (org !== opts.org || member !== opts.member) return { ok: false, because: 'the device key history is for a different member' };
+    if (org !== opts.org || member !== opts.member) return { ok: false, because: 'the device key history names a different member' };
     const sig = unb64(signature);
     const msg = encodeHead(org, member, entries, issuedAt);
     if (!msg || !sig || sig.length !== 64) return { ok: false, because: 'the device key history was not in the form escrowd signs' };
@@ -177,8 +179,11 @@ function verify(history, opts = {}) {
     if (opts.now !== undefined && !isTime(opts.now)) return { ok: false, because: 'the device key history was checked against a clock that is not a time' };
     const now = opts.now !== undefined ? opts.now : Math.floor(Date.now() / 1000);
     // A caller may narrow the freshness window, never widen it: freshness is what stops a replayed shorter history.
-    const maxAge = Number.isSafeInteger(opts.maxAgeSecs) && opts.maxAgeSecs > 0 ? Math.min(opts.maxAgeSecs, MAX_AGE_SECS) : MAX_AGE_SECS;
-    const skew = Number.isSafeInteger(opts.skewSecs) && opts.skewSecs >= 0 ? Math.min(opts.skewSecs, SKEW_SECS) : SKEW_SECS;
+    // A window that is not a number of seconds is refused, never read as "use the default".
+    if (opts.maxAgeSecs !== undefined && !(Number.isSafeInteger(opts.maxAgeSecs) && opts.maxAgeSecs > 0)) return { ok: false, because: 'the device key history was checked with a freshness window that is not a number of seconds' };
+    if (opts.skewSecs !== undefined && !isTime(opts.skewSecs)) return { ok: false, because: 'the device key history was checked with a clock allowance that is not a number of seconds' };
+    const maxAge = opts.maxAgeSecs !== undefined ? Math.min(opts.maxAgeSecs, MAX_AGE_SECS) : MAX_AGE_SECS;
+    const skew = opts.skewSecs !== undefined ? Math.min(opts.skewSecs, SKEW_SECS) : SKEW_SECS;
     if (issuedAt > now + skew) return { ok: false, because: 'the device key history is dated in the future' };
     if (now - issuedAt > maxAge) return { ok: false, because: 'the device key history is too old to trust; a fresh one is needed' };
     const keys = replay(entries, issuedAt);
