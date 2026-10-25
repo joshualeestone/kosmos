@@ -487,6 +487,7 @@ struct RoomView: View {
                     .padding(.vertical, 10).padding(.horizontal, 14)
                     .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator))
+                    .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
                 Button { send() } label: {
                     Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundColor(Palette.sendGlyph)
                         .frame(width: 44, height: 44).background(Circle().fill(Palette.sendFill))
@@ -498,6 +499,50 @@ struct RoomView: View {
             .padding(.horizontal, 12).padding(.vertical, 8)
         }
         .background(Palette.ground)
+    }
+
+    // kosmos#7085: the board's @ picker (#312), floating just above the box so the thread never moves: the project's
+    // members matching what follows the @, and a tap puts "@<key> " in its place (Board.mentionPick, tested). It shows
+    // only while the box has focus. At most a few rows, so it stays clear of the thread at any text size; typing more of
+    // the name narrows it, and the last line says so when some are not shown.
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ViewBuilder private var mentionList: some View {
+        if typing, let token = Board.mentionToken(draft) {
+            let all = Board.mentionMatches(project.members, typed: token.typed)
+            let cap = typeSize.isAccessibilitySize ? 3 : 5
+            VStack(alignment: .leading, spacing: 0) {
+                if all.isEmpty {
+                    Text(Board.mentionNone).font(.footnote).foregroundColor(Palette.secondary)
+                        .padding(.horizontal, 14).padding(.vertical, 12)
+                } else {
+                    ForEach(all.prefix(cap), id: \.session) { m in
+                        Button { if let text = Board.mentionPick(draft, key: m.session) { draft = text } } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(m.name).foregroundColor(Palette.primary)
+                                if m.name != m.session {
+                                    Text("@" + m.session).font(.footnote.monospaced()).foregroundColor(Palette.secondary)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 14).frame(minHeight: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(m.name)
+                        .accessibilityHint("Puts @" + m.session + " in your post")
+                    }
+                    if all.count > cap {
+                        Text(Board.mentionMore).font(.footnote).foregroundColor(Palette.secondary)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                    }
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Palette.separator))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Agents on this project")
+        }
     }
 
     // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through

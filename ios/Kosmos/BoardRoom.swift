@@ -411,6 +411,36 @@ extension Board {
         return said.caseInsensitiveCompare(m) == .orderedSame
     }
 
+    // kosmos#7085: the board's @ picker (#312, web/index.html MENTION_TOKEN / mentionMatches / mentionPick). The token
+    // being typed: "@" and the key characters after it, at the END of the box (a SwiftUI text field does not say where
+    // its cursor is, and on a phone the cursor is almost always there), when the "@" sits on the matcher's boundary, so
+    // "admin@mara" never opens the list mid-address. Returns where the "@" is and what follows it, or nil.
+    static func mentionToken(_ text: String) -> (at: String.Index, typed: String)? {
+        func isName(_ c: Character) -> Bool { c.isASCII && (c.isLetter || c.isNumber || c == "." || c == "_" || c == "-") }
+        var i = text.endIndex
+        while i > text.startIndex, isName(text[text.index(before: i)]) { i = text.index(before: i) }
+        guard i > text.startIndex else { return nil }
+        let at = text.index(before: i)
+        guard text[at] == "@" else { return nil }
+        if at > text.startIndex, isName(text[text.index(before: at)]) { return nil }
+        return (at, String(text[i...]))
+    }
+    // The members the list offers, in the room's member order, by the start of the key or of the shown name, without case.
+    static func mentionMatches(_ members: [ProjectMember], typed: String) -> [ProjectMember] {
+        let q = typed.lowercased()
+        return members.filter { !$0.session.isEmpty && (q.isEmpty || $0.session.lowercased().hasPrefix(q) || $0.name.lowercased().hasPrefix(q)) }
+    }
+    // A pick replaces the typed token with "@<key> ": the session key, which is what the engine's recipients hold, and a
+    // space so the token closes. Nil when the box holds no token (it changed under the list).
+    static func mentionPick(_ text: String, key: String) -> String? {
+        guard let token = mentionToken(text), !key.isEmpty else { return nil }
+        return String(text[..<token.at]) + "@" + key + " "
+    }
+    // The board's line when nobody matches.
+    static let mentionNone = "Nobody on this project matches that."
+    // The phone shows a few rows (the board's list has room for all): the last line when some are not shown.
+    static let mentionMore = "Type more of the name to see the others."
+
     // Whether `text` holds @word as a whole token (the engine's rule: not inside a longer name), without case.
     static func mentionsWord(_ text: String, _ word: String) -> Bool {
         mentionRanges(text, word).isEmpty == false
