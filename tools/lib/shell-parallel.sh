@@ -13,6 +13,27 @@
 # A shard is the command tools/shell-shard.js runs as `run <i> <n>`: the list it takes is fixed by a hash of each
 # command, so the union of the shards is the whole list (tools.shell-shard-4317.test.js). The command is exec'd, so it
 # must be a program, not a shell function.
+# Each shard runs under this perl, which leads the shard's process group and forks the shard's command beneath it.
+# It exits with the command's status. When its own parent (the runner) is gone, even by a KILL that ran no trap,
+# it TERMs its whole group, waits up to 2 s for the command, then KILLs the group, itself included.
+_KOSMOS_SHARD_SUPERVISOR='use POSIX ();
+setpgrp(0, 0);
+my $runner = getppid();
+my $kid = fork;
+die "fork: $!" unless defined $kid;
+if (!$kid) { exec @ARGV or die "exec: $!" }
+while (1) {
+  if (waitpid($kid, POSIX::WNOHANG()) == $kid) { exit(($? & 127) ? 128 + ($? & 127) : $? >> 8) }
+  if (getppid() != $runner) {
+    $SIG{TERM} = "IGNORE";
+    print STDERR "run-tests: this shell shard'"'"'s runner is gone; stopping the shard (#7100)\n";
+    kill "TERM", -$$;
+    for (1 .. 20) { last if waitpid($kid, POSIX::WNOHANG()) == $kid; select(undef, undef, undef, 0.1) }
+    kill "KILL", -$$;
+    exit 1;
+  }
+  select(undef, undef, undef, 0.5);
+}'
 kosmos_shell_parallel() {
   local n="$1" dir="$2"; shift 2
   local i p q r rc=0 red="" t0 left
@@ -20,8 +41,8 @@ kosmos_shell_parallel() {
   t0=$(date +%s)
   i=1
   while [ "$i" -le "$n" ]; do
-    # setpgrp then exec: the shard keeps this pid and leads a group of its own, which its children join.
-    perl -e 'setpgrp(0, 0); exec @ARGV or die "exec: $!"' "$@" "$i" "$n" > "$dir/shard-$i.log" 2>&1 &
+    # The supervisor keeps this pid and leads a group of its own, which the shard's command and its children join.
+    perl -e "$_KOSMOS_SHARD_SUPERVISOR" "$@" "$i" "$n" > "$dir/shard-$i.log" 2>&1 &
     KOSMOS_SHELL_PARALLEL_PIDS="$KOSMOS_SHELL_PARALLEL_PIDS $!"
     i=$((i + 1))
   done
