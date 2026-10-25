@@ -30,6 +30,9 @@ at 0%, had no reading at all (the card's opening).
 ## Decided
 - A second source next to the status line, not a replacement: the endpoint is not a documented API, so a change
   there leaves the status line's readings standing.
+- A response with a weekly window and no usable five-hour window reads `ok` with fiveHour null, whether the window
+  was missing or its reset was out of range. Slice 1's only consumer is the display, and slice 2's at-risk rule reads the
+  weekly figure, so the difference is not carried yet (review 2, deferred). Slice 2 adds it if it needs it.
 - No `source` field in the reading object. Three tests and the cross-computer /api/status contract pin its shape.
 - Ten minutes: often enough to see a week run down, rare enough to cost nothing. A reading older than 30 minutes
   (three missed polls) is not used.
@@ -42,6 +45,23 @@ at 0%, had no reading at all (the card's opening).
   entry can be another login. Measured on the fleet: there, the bare entry was a different account from the folder's.
   Kosmos's own agents never set it for the default account, so this covers Kosmos's agents.
 - Windows: the credentials-file path is reasoned, not measured on a Windows machine.
+- An idle account is the one most likely to hold an expired ACCESS token: only an agent running on it refreshes the
+  token, and this module never does. So an account nobody has used for hours often reads `token-expired` and stays
+  unmeasured. That is the honest answer, not a reading. Slice 2 must treat it as unknown, never as headroom (review 2).
+  Measured 2026-10-25: one of six accounts on the build Mac read `token-expired`; the other five were readable.
+
+## Measured, not reasoned (review 2 asked)
+The field names and units come from a real response, read 2026-10-25 for an account whose owner's web page showed 55%.
+Values and times stripped to their shape:
+```
+"five_hour": {"utilization": 4.0,  "resets_at": "2026-10-26T01:20:00.447680+00:00", ...}
+"seven_day": {"utilization": 56.0, "resets_at": "2026-10-30T14:00:00.447704+00:00", ...}
+"limits": [{"kind": "weekly_all", "percent": 56, "resets_at": "...", ...}, ...]
+```
+So `utilization` is a PERCENTAGE (56.0, matching the page's 55% and the response's own `percent: 56`), not a fraction.
+`resets_at` is ISO 8601 with a UTC offset. The reset time matched the day and hour the page showed. Six accounts read
+the same way that evening, and every readable one had a non-null `resets_at`, even at 0% (so the null-reset branch is
+defensive, and is kept because its cost is one line).
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
