@@ -561,6 +561,8 @@ function del(name, opts) {
      and while either is left the agent can still start. A stuck token alone does not hold it back, because a retry
      is refused once the folder and job are gone, so this is the only chance to retire it. */
   if (!stuck.some((s) => s !== 'its sender tokens')) {
+    // kosmos#7149: Kosmos's copy of what the agent last read of its instructions goes with its files. Bookkeeping only.
+    try { require('./instructionreread').forget(p.name); } catch { /* nothing kept, or nothing to say */ }
     try {
       require('./communitysend').requestRetire(p.name);
       steps.push({ step: 'its community account', ok: true });
