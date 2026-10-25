@@ -42,6 +42,7 @@ test('changedLines: a long change is cut and says so; a rewrite too large to dif
   const changed = many.replace(/line (\d+)/g, 'row $1');
   const d = ir.changedLines(many, changed);
   assert.ok(d.split('\n').length <= 162, 'the changes were not capped');
+  assert.ok(Buffer.byteLength(d) <= 33 * 1024, 'the changes were not capped by size');
   assert.match(d, /More changed than fits here/);
   const huge = Array.from({ length: 2500 }, (_, k) => 'a' + k).join('\n');
   assert.equal(ir.changedLines(huge, huge.replace(/a/g, 'b')), null);
@@ -51,10 +52,10 @@ test('prepareChanges: with a copy of what the agent last read, the changed lines
   const f = agentFile('ada', AFTER);
   const first = ir.prepareChanges('ada');
   assert.deepEqual(first, { text: AFTER, path: null }, 'a notice without a copy named a changes file');
-  assert.equal(fs.existsSync(path.join(path.dirname(f), '.kosmos-instructions-changed.md')), false);
+  assert.equal(fs.existsSync(path.join(path.dirname(f), '.kosmos-instructions-changed-ada.md')), false);
   assert.equal(ir.remember('ada', BEFORE), true);
   const got = ir.prepareChanges('ada');
-  assert.equal(got.path, path.join(path.dirname(f), '.kosmos-instructions-changed.md'));
+  assert.equal(got.path, path.join(path.dirname(f), '.kosmos-instructions-changed-ada.md'));
   const body = fs.readFileSync(got.path, 'utf8');
   assert.match(body, /^# What changed in your instructions file since you last read it\n/);
   assert.match(body, /- Post at least once a day\.\n\+ Post at least once a week\./);
@@ -139,7 +140,7 @@ test('review 1 BLOCKER: a link planted at the changes file is replaced, never fo
   const f = agentFile('cal', AFTER);
   const outside = path.join(SANDBOX, 'outside.txt');
   fs.writeFileSync(outside, 'untouched');
-  const p = path.join(path.dirname(f), '.kosmos-instructions-changed.md');
+  const p = path.join(path.dirname(f), '.kosmos-instructions-changed-cal.md');
   fs.symlinkSync(outside, p);
   ir.remember('cal', BEFORE);
   const got = ir.prepareChanges('cal');
@@ -147,13 +148,14 @@ test('review 1 BLOCKER: a link planted at the changes file is replaced, never fo
   assert.equal(fs.readFileSync(outside, 'utf8'), 'untouched', 'the write followed a planted link');
   assert.equal(fs.lstatSync(p).isSymbolicLink(), false);
   assert.equal(fs.statSync(p).mode & 0o777, 0o600, 'the changes file is not 0600');
-  const copy = path.join(require('./store').ROOT, 'instruction-reread-seen', 'cal.md');
+  const seenDir = path.join(require('./store').ROOT, 'instruction-reread-seen');
+  const copy = path.join(seenDir, fs.readdirSync(seenDir).find((n) => /^cal-[0-9a-f]{12}\.md$/.test(n)));
   assert.equal(fs.statSync(copy).mode & 0o777, 0o600, 'the copy is not 0600');
 });
 
 test('review 1: an older changes file is removed when a notice names none', () => {
   const f = agentFile('dee', AFTER);
-  const p = path.join(path.dirname(f), '.kosmos-instructions-changed.md');
+  const p = path.join(path.dirname(f), '.kosmos-instructions-changed-dee.md');
   ir.remember('dee', BEFORE);
   assert.ok(ir.prepareChanges('dee').path && fs.existsSync(p));
   ir.remember('dee', AFTER);   // nothing changed since
@@ -186,4 +188,57 @@ test('review 1: a line skipped after the checks (the card no longer idle) prepar
   await ir.passOnce(p.o);
   assert.deepEqual(p.sent, []);
   assert.equal(prepared, 0, 'a changes file was written for a line never typed');
+});
+
+test('review 2: an edit past character 400 of a long line is shown whole, not cut to two identical lines', () => {
+  const long = 'x'.repeat(450) + 'tail';
+  const d = ir.changedLines('## S\n' + long + '\n', '## S\n' + long.replace('tail', 'TAIL') + '\n');
+  assert.equal(d, '\nUnder S:\n- ' + long + '\n+ ' + long.replace('tail', 'TAIL'));
+});
+
+test('review 2: one trailing newline more or less is no change; a ~~~ line inside a ``` fence does not close it', () => {
+  assert.equal(ir.changedLines('a\nb\n', 'a\nb'), '');
+  const f = ['## Real', '```', '~~~', '# not a heading', '```', 'z', ''].join('\n');
+  assert.match(ir.changedLines(f, f.replace('\nz\n', '\nZ\n')), /^\nUnder Real:\n- z\n\+ Z$/);
+});
+
+test('review 2: names that differ only in case keep two copies; the next start drops the changes file; forget removes both', () => {
+  assert.equal(ir.remember('Eve', 'upper'), true);
+  assert.equal(ir.remember('eve', 'lower'), true);
+  assert.equal(ir.readSeen('Eve'), 'upper', 'two names shared one copy');
+  assert.equal(ir.readSeen('eve'), 'lower');
+  const f = agentFile('fay', AFTER);
+  const p = path.join(path.dirname(f), '.kosmos-instructions-changed-fay.md');
+  ir.remember('fay', BEFORE);
+  assert.ok(ir.prepareChanges('fay').path && fs.existsSync(p));
+  assert.equal(ir.rememberRead('fay'), true);
+  assert.equal(fs.existsSync(p), false, 'the changes file outlived the agent reading its whole file');
+  assert.equal(ir.readSeen('fay'), AFTER);
+  ir.remember('fay', BEFORE);
+  ir.prepareChanges('fay');
+  ir.forget('fay');
+  assert.equal(ir.readSeen('fay'), null, 'forget left the copy');
+  assert.equal(fs.existsSync(p), false, 'forget left the changes file');
+});
+
+test('review 2: a folder path with a space is never named in the line', () => {
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'gus');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), AFTER);
+  const instructions = require('./instructions');
+  const real = instructions.fileFor;
+  instructions.fileFor = (s) => (s === 'gus' ? path.join(SANDBOX, 'with space', 'CLAUDE.md') : real(s));
+  try {
+    fs.mkdirSync(path.join(SANDBOX, 'with space'), { recursive: true });
+    fs.writeFileSync(path.join(SANDBOX, 'with space', 'CLAUDE.md'), AFTER);
+    ir.remember('gus', BEFORE);
+    const realRead = instructions.read;
+    instructions.read = (s) => (s === 'gus' ? { exists: true, text: AFTER } : realRead(s));
+    try { assert.equal(ir.prepareChanges('gus').path, null, 'a path with a space was named'); } finally { instructions.read = realRead; }
+  } finally { instructions.fileFor = real; }
+});
+
+test('review 2: deleting what is left of an agent forgets its copy (delete-leftover, read as source)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'delete-leftover.js'), 'utf8');
+  assert.match(src, /require\('\.\/instructionreread'\)\.forget\(p\.name\)/);
 });

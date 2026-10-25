@@ -25,8 +25,18 @@ Card kosmos#7149, ask 1 (from an agent's feedback report). The decision is poste
 ## Weakest premise
 That the text read just before the line is what the agent reads after it. A write in between owes its own line, so it appears in the next diff.
 
-## The changes file's place (review 1)
-It sits in the agent's own folder, beside the brief it describes. For a connected agent that folder may be the person's repo, but the brief is already there. The changes file holds a subset of the brief's lines, so it exposes nothing the brief does not.
+## The changes file's place (reviews 1 and 2)
+- **Where it lives:** in the agent's own folder, beside the brief it describes, named per session (`.kosmos-instructions-changed-<session>.md`). Two agents sharing a recorded folder each get their own.
+- **What it holds that the brief does not:** the lines the person removed. Those are already in the folder, in the brief's `.previous` copy, which `instructions.write` keeps there. For a connected agent the folder may be the person's own repo, so neither file is new exposure for that repo.
+- **When it goes:**
+  - at the agent's next session start (it read the whole file);
+  - whenever a later notice names none;
+  - when its files are deleted (delete-leftover forgets the copy too).
+- **The copy's name:** it carries a hash of the exact session name, so two names that differ only in case keep two copies on macOS.
+- **Size:** whole lines only. An edit past any cut would print as two identical lines. The file is capped at 160 lines and 32 KB instead, and says so when it is cut.
+
+## A window this does not widen (review 2)
+A rewrite that lands after the agent loaded its file, but before its `started` report, gets folded in. The copy is then taken after it, so the next diff omits it. The debt logic already treats a start after the last owe as having read every section, so that change was already never announced. The window and the miss are the same as before this change.
 
 ## NOT CLAIMED
 - A renamed heading is labelled with the section above it.

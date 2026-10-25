@@ -194,12 +194,21 @@ function oweEach(told, owed, section, now = Date.now()) {
    against it and the changed lines are written to one file in the agent's own folder, which the line names. No copy, an
    unreadable file or no difference: the line is as before. The copy is Kosmos's bookkeeping, never shown to anyone. */
 const SEEN_SAFE = /^[A-Za-z0-9._-]{1,120}$/;
-const CHANGES_NAME = '.kosmos-instructions-changed.md';
+// Per session (review 2): two agents can share one recorded folder, and each must find only its own changes.
+const changesName = (session) => '.kosmos-instructions-changed-' + session + '.md';
 const DIFF_CELLS_MAX = 4 * 1000 * 1000;   // LCS table bound: a rewrite this large is read whole anyway
 const CHANGES_LINES_MAX = 160;
-const CHANGES_LINE_CHARS = 400;
+// Review 2: a whole line is never cut (an edit past the cut would print as two identical lines); the file is capped
+// by its size instead, and says so when it is.
+const CHANGES_BYTES_MAX = 32 * 1024;
 function seenDir() { return path.join(require('./store').ROOT, 'instruction-reread-seen'); }
-function seenFile(session) { return SEEN_SAFE.test(String(session || '')) && !/^\.+$/.test(String(session)) ? path.join(seenDir(), String(session) + '.md') : null; }
+/* Review 2: the exact name's hash is in the file name, so two names that differ only in case (one file on macOS) keep
+   two copies. */
+function seenFile(session) {
+  const s = String(session || '');
+  if (!SEEN_SAFE.test(s) || /^\.+$/.test(s)) return null;
+  return path.join(seenDir(), s + '-' + require('node:crypto').createHash('sha256').update(s).digest('hex').slice(0, 12) + '.md');
+}
 function readSeen(session) {
   const p = seenFile(session);
   if (!p) return null;
@@ -216,19 +225,41 @@ function remember(session, text) {
     return true;
   } catch { return false; }
 }
-/* The agent read its whole file just now (a session start). Never throws. */
+/* The changes file beside the agent's brief, or null. */
+function changesPath(session) {
+  try {
+    const file = require('./instructions').fileFor(session);
+    return file && SEEN_SAFE.test(String(session || '')) ? path.join(path.dirname(file), changesName(String(session))) : null;
+  } catch { return null; }
+}
+function dropChanges(session) {
+  const p = changesPath(session);
+  if (!p) return;
+  try { const st = fs.lstatSync(p); if (st.isFile() || st.isSymbolicLink()) fs.unlinkSync(p); } catch { /* none there */ }
+}
+/* The agent read its whole file just now (a session start). Its changes file has done its job, so it goes (review 2:
+   it may hold lines the person removed). Never throws. */
 function rememberRead(session) {
   try {
+    dropChanges(session);
     const got = require('./instructions').read(session);
     return got && got.exists === true && typeof got.text === 'string' ? remember(session, got.text) : false;
   } catch { return false; }
+}
+/* The agent's files are deleted (engine/delete-leftover.js): its copy and changes file go with them (review 2). */
+function forget(session) {
+  dropChanges(session);
+  const p = seenFile(session);
+  if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } }
 }
 /* Pure: the lines that differ between two texts, each run labelled with the nearest heading above it in the newer text
    (or the older one, for a run removed at the end). '' when they are the same, null when too large to diff. */
 function changedLines(before, after) {
   // Review 1: a CRLF file compares and prints without its carriage returns.
-  const a = String(before).replace(/\r\n/g, '\n').split('\n');
-  const b = String(after).replace(/\r\n/g, '\n').split('\n');
+  // Review 2: one trailing newline more or less is not a change.
+  const norm = (s) => String(s).replace(/\r\n/g, '\n').replace(/\n$/, '');
+  const a = norm(before).split('\n');
+  const b = norm(after).split('\n');
   let pre = 0;
   while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre += 1;
   let suf = 0;
@@ -248,11 +279,12 @@ function changedLines(before, after) {
   // A heading is a # line OUTSIDE a fenced code block (review 1: a shell comment in a fence is not a section).
   const headsOf = (lines) => {
     const heads = new Array(lines.length);
-    let fence = false;
+    let fence = null;   // review 2: the marker that opened it; only the same marker closes it
     let cur = null;
     for (let k = 0; k < lines.length; k += 1) {
-      if (/^\s*(```|~~~)/.test(lines[k])) fence = !fence;
-      else if (!fence && /^#{1,6} \S/.test(lines[k])) cur = lines[k];
+      const m = /^\s*(```|~~~)/.exec(lines[k]);
+      if (m) fence = fence === null ? m[1] : (fence === m[1] ? null : fence);
+      else if (fence === null && /^#{1,6} \S/.test(lines[k])) cur = lines[k];
       heads[k] = cur;
     }
     return heads;
@@ -274,15 +306,21 @@ function changedLines(before, after) {
   }
   flush();
   const out = [];
+  let bytes = 0;
   let cut = false;
+  const fits = (s) => out.length < CHANGES_LINES_MAX && bytes + Buffer.byteLength(s) + 1 <= CHANGES_BYTES_MAX;
   for (const r of runs) {
     // A label and at least one of its lines fit, or the run is left for the sections the notice names.
-    if (out.length + 3 > CHANGES_LINES_MAX) { cut = true; break; }
-    out.push('', r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'At the top of the file:');
+    const label = r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'At the top of the file:';
+    if (out.length + 3 > CHANGES_LINES_MAX || !fits('\n' + label + '\n' + r.lines[0])) { cut = true; break; }
+    out.push('', label);
+    bytes += Buffer.byteLength(label) + 2;
     for (const l of r.lines) {
-      if (out.length >= CHANGES_LINES_MAX) { cut = true; break; }
-      out.push(l.length > CHANGES_LINE_CHARS ? Array.from(l).slice(0, CHANGES_LINE_CHARS).join('') + ' [line cut here]' : l);
+      if (!fits(l)) { cut = true; break; }
+      out.push(l);
+      bytes += Buffer.byteLength(l) + 1;
     }
+    if (cut) break;
   }
   if (cut) out.push('', '[More changed than fits here: read the sections the notice names.]');
   return out.join('\n');
@@ -294,15 +332,15 @@ function prepareChanges(session) {
     const instructions = require('./instructions');
     const got = instructions.read(session);
     if (!got || got.exists !== true || typeof got.text !== 'string') return null;
-    const file = instructions.fileFor(session);
-    const p = file ? path.join(path.dirname(file), CHANGES_NAME) : null;
+    const p = changesPath(session);
     // Review 1: an older changes file is removed whenever this notice names none, so the agent never finds a stale one.
-    const none = () => { if (p) { try { const st = fs.lstatSync(p); if (st.isFile() || st.isSymbolicLink()) fs.unlinkSync(p); } catch { /* none there */ } } return { text: got.text, path: null }; };
+    const none = () => { dropChanges(session); return { text: got.text, path: null }; };
     const seen = readSeen(session);
     if (seen === null) return none();
     const diff = changedLines(seen, got.text);
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
-    if (!diff || !p || p.includes('"')) return none();
+    // Review 2: nor one with whitespace or a control character, which would make the unquoted path in the line ambiguous.
+    if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();
     const body = '# What changed in your instructions file since you last read it\n\n'
       + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
       + diff + '\n';
@@ -456,4 +494,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { changedLines, prepareChanges, remember, rememberRead, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { changedLines, prepareChanges, remember, rememberRead, forget, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
