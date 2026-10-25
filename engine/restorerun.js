@@ -135,7 +135,8 @@ async function fetchBounded(fetchObject, key, o, ms) {
    Resolves { ok: true, deviceKey, backfill, takenAt, result, fetchProblems } (result is restoreSnapshot's;
    fetchProblems the fetcher's reasons for any file it could not fetch), or { ok: false, because }, or, when the fetcher
    stopped part way, { ok: false, because, result, fetchProblems }, with partial: true when some files were restored.
-   ok: true still allows files in result.failed (one damaged file does not fail the rest), as before.
+   ok: true still allows files in result.failed (one damaged file does not fail the rest), as before, but never with
+   none restored: then it is { ok: false, because, result, fetchProblems }.
    Never throws on what a store, a coordinator or a history hands it; a caller's own mistake (no sink) still throws
    from restoreSnapshot, as there. */
 async function runRestore(opts) {
@@ -159,7 +160,10 @@ async function runRestore(opts) {
   if (!bytes) {
     // slice 2: a refused read grant says why (a 429's wait included), rather than only that nothing came back.
     let why = null;
-    if (typeof opts.planned === 'function') { try { why = opts.planned().because; } catch { why = null; } }
+    // review 4: or why the manifest itself did not come (the storage service timing out on a large one).
+    if (typeof opts.planned === 'function') {
+      try { const p = opts.planned() || {}; why = p.because || (Array.isArray(p.unreadableBecause) ? p.unreadableBecause[0] : null); } catch { why = null; }
+    }
     return { ok: false, because: typeof why === 'string' && why ? why : 'the backup\'s manifest could not be fetched' };
   }
   if (bytes.length > MAX_MANIFEST_OBJECT) return { ok: false, because: 'the backup\'s manifest is larger than any manifest can be' };
@@ -226,6 +230,10 @@ async function runRestore(opts) {
   if (stoppedBecause) {
     // review 3: the result and the reasons come back even when nothing was restored, so the failed files are named.
     return Object.assign({ ok: false, because: stoppedBecause }, result.restored.length ? { partial: true } : {}, { result, fetchProblems });
+  }
+  // review 4: files failed and none came back is no success either, stopped or not (every chunk under another key, say).
+  if (!result.restored.length && result.failed.length) {
+    return { ok: false, because: fetchProblems[0] || 'no file of this backup could be restored', result, fetchProblems };
   }
   return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result, fetchProblems };
 }
