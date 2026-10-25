@@ -8,7 +8,7 @@ struct NewTaskView: View {
     @ObservedObject var client: BoardClient
     let tasks: Board.TasksRead?        // the Tasks tab's read, for Part of
     let picked: String?                // the Tasks tab's picked project, if any
-    // Review 1: the draft is the Tasks tab's, so closing the sheet keeps it, as the board's Cancel keeps its draft; a
+    // The draft is the Tasks tab's, so closing the sheet keeps it, as the board's Cancel keeps its draft; a
     // create clears it.
     @Binding var draft: NewTask.Draft
     let added: (String) -> Void        // the line the Tasks tab shows after a create
@@ -34,9 +34,9 @@ struct NewTaskView: View {
                 }
         }
         .navigationViewStyle(.stack)
-        .interactiveDismissDisabled(sending)   // review 1: a create in the air is not walked away from
+        .interactiveDismissDisabled(sending)   // a create in the air is not walked away from
         .task { await readProjects() }
-        // Review 1: a pick no longer offered (the Tasks list re-read under the sheet) falls back, never sent unseen.
+        // A pick no longer offered (the Tasks list re-read under the sheet) falls back, never sent unseen.
         .onChange(of: tasks) { _ in dropUnoffered() }
     }
 
@@ -59,9 +59,9 @@ struct NewTaskView: View {
 
     private func form(_ list: Board.ProjectList) -> some View {
         let offered = NewTask.projects(list)
-        return Form {
+        return ScrollViewReader { scroller in Form {
             if offered.isEmpty {
-                // Review 1: every project archived is not "no project": say which.
+                // Every project archived is not "no project": say which.
                 Section { Text(list.projects.isEmpty ? "Make a project on your computer first, then add tasks to it here."
                                : "Your projects are all archived. Bring one back on your computer to add tasks to it.")
                     .foregroundColor(Palette.secondary) }
@@ -74,20 +74,15 @@ struct NewTaskView: View {
                 }
             }
             Section {
-                field("What needs doing?", text: $draft.what, lines: 1...4)
-                field("How will you know it is done?", text: $draft.done, lines: 1...3)
+                field(NewTask.Words.what, example: NewTask.Words.whatExample, text: $draft.what, lines: 1...4)
+                field(NewTask.Words.done, example: NewTask.Words.doneExample, text: $draft.done, lines: 1...3)
             } footer: {
-                Text("Both are needed. The second is how you or an agent will check it is finished.")
-            }
-            Section("Details") {
-                field("Anything else it needs (optional)", text: $draft.detail, lines: 2...6)
+                Text(NewTask.Words.doneHint)
             }
             Section {
-                Picker("Who is on it", selection: $draft.who) {
-                    Text("Nobody yet").tag(String?.none)
-                    ForEach(NewTask.members(of: draft.project, in: list), id: \.session) { m in Text(m.name).tag(Optional(m.session)) }
-                }
-                .large(typeSize)
+                field(NewTask.Words.detail, example: NewTask.Words.detailExample, text: $draft.detail, lines: 2...6)
+            }
+            Section {
                 Picker("Part of", selection: $draft.parent) {
                     Text("None").tag(Int?.none)
                     ForEach(NewTask.parents(of: draft.project, in: tasks)) { t in
@@ -95,28 +90,38 @@ struct NewTaskView: View {
                     }
                 }
                 .large(typeSize)
+                Picker("Who is on it", selection: $draft.who) {
+                    Text("Nobody yet").tag(String?.none)
+                    ForEach(NewTask.members(of: draft.project, in: list), id: \.session) { m in Text(m.name).tag(Optional(m.session)) }
+                }
+                .large(typeSize)
+            } footer: {
+                Text(NewTask.Words.whoHint)
             }
+            .id(message == nil ? "nt-end" : "nt-who")
             if let message {
-                Section { Text(message).font(.footnote).foregroundColor(Palette.secondary) }
+                Section { Text(message).font(.footnote).foregroundColor(Palette.secondary) }.id("nt-end")
             }
+        }
+        // A moment after appearing, as the Tasks list's sample scroll: at appear the rows are not drawn yet.
+        .onAppear {
+            guard Self.sampleScrollToEnd else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { scroller.scrollTo("nt-end", anchor: .bottom) }
+        }
         }
         .scrollContentBackground(.hidden)
         .background(Palette.ground.ignoresSafeArea())
         .disabled(sending)
     }
 
-    // A placeholder stays on one line and cut "What needs doing?" to "What needs..." at the largest text sizes (the
-    // design shots), so there the question stands above the field as words that wrap. VoiceOver reads it once, as the
-    // field's label.
-    @ViewBuilder private func field(_ question: String, text: Binding<String>, lines: ClosedRange<Int>) -> some View {
-        if typeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(question).foregroundColor(Palette.secondary).accessibilityHidden(true)
-                TextField(question, text: text, prompt: Text(""), axis: .vertical).lineLimit(lines)
-            }
-        } else {
-            TextField(question, text: text, axis: .vertical).lineLimit(lines)
+    // The board's layout: the question stays above its field while it is answered, and the board's example is the
+    // placeholder. VoiceOver reads the question once, as the field's label.
+    private func field(_ question: String, example: String, text: Binding<String>, lines: ClosedRange<Int>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(question).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary).accessibilityHidden(true)
+            TextField(question, text: text, prompt: Text(example), axis: .vertical).lineLimit(lines)
         }
+        .padding(.vertical, 2)
     }
 
     // A different project: the words stay, who and Part of do not (NewTask.aimed).
@@ -128,10 +133,8 @@ struct NewTaskView: View {
         readFailed = false
         // The sample Projects (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), as the Projects tab shows them, for screenshots.
         if Self.sample, let parsed = Board.parseProjects(Data(RoomStore.sampleProjects.utf8)) {
-            list = parsed
-            if draft.project == nil, let first = NewTask.firstProject(picked: picked, offered: NewTask.projects(parsed)) {
-                draft = NewTask.aimed(draft, at: first)
-            }
+            took(parsed)
+            if Self.sampleRefusal { message = NewTask.unsureWords }
             return
         }
         let got = await client.throughMac { Board.projectsRequest(mac: $0) }
@@ -139,16 +142,25 @@ struct NewTaskView: View {
             if list == nil { readFailed = true }
             return
         }
+        took(parsed)
+    }
+
+    private func took(_ parsed: Board.ProjectList) {
         list = parsed
-        if draft.project == nil, let first = NewTask.firstProject(picked: picked, offered: NewTask.projects(parsed)) {
-            draft = NewTask.aimed(draft, at: first)
-        }
+        draft = NewTask.settled(draft, picked: picked, offered: NewTask.projects(parsed))
+        dropUnoffered()
     }
 
     #if DEBUG
     private static let sample = RoomStore.sample
+    // Screenshots only: KOSMOS_SAMPLE_NEWTASK_SHOWS=refusal opens the sheet with its no-answer line showing, and
+    // KOSMOS_SAMPLE_SCROLL=end scrolls it to its last section.
+    private static let sampleRefusal = sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWTASK_SHOWS"] == "refusal"
+    private static let sampleScrollToEnd = sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLL"] == "end"
     #else
     private static let sample = false
+    private static let sampleRefusal = false
+    private static let sampleScrollToEnd = false
     #endif
 
     private func dropUnoffered() {
@@ -171,10 +183,14 @@ struct NewTaskView: View {
             draft = NewTask.Draft()
             added(line)
             dismiss()
-            UIAccessibility.post(notification: .announcement, argument: line)   // review 1: VoiceOver hears it
+            UIAccessibility.post(notification: .announcement, argument: line)   // VoiceOver hears it
         case .refused(let why):
             message = why
             UIAccessibility.post(notification: .announcement, argument: why)
+        case .unknown:
+            message = NewTask.unsureWords
+            UIAccessibility.post(notification: .announcement, argument: NewTask.unsureWords)
+            Task { await client.refreshTasks() }
         }
     }
 }
