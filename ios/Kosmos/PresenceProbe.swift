@@ -3,9 +3,11 @@ import UIKit
 import UIKit.UIGestureRecognizerSubclass
 
 // kosmos#7074: whether the person is doing anything on the page (the board's tkPresent counts pointer and key input),
-// seen where the window receives events rather than through a SwiftUI gesture: a page-wide drag gesture never sees a
-// hardware keyboard or Full Keyboard Access, and laid over a ScrollView it can stop the scroll. The recognizer on the
-// window notes every touch and key press and fails at once, so it never claims, delays or cancels anything.
+// noted where the window receives events rather than through a SwiftUI gesture, which laid over a ScrollView can stop
+// the scroll. The recognizer on the window notes each touch as it begins (a scroll or a tap is a new touch; one touch
+// held for two minutes counts once, at its start) and fails at once, so it never claims, delays or cancels anything.
+// It also notes key presses that reach the window; whether a hardware keyboard with nothing focused reaches it is
+// unproven here and is on the device check.
 struct PresenceProbe: UIViewRepresentable {
     let onInput: () -> Void
 

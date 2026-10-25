@@ -35,9 +35,19 @@ screen. An info button opens the board's page for what this does not do. Checked
   minutes; with VoiceOver or Switch Control running, on screen and in front is enough, since their input reaches no
   gesture the page sees). The 5-second read is gated the same way, and each read is followed by a seen mark; the page
   appearing or the app coming back records the state once more (tkTabReturn).
+- Presence input is noted by PresenceProbe, a recognizer on the window that fails at once (never claims, delays or
+  cancels a touch), not a SwiftUI gesture over the ScrollView. A touch counts as it begins; one held two minutes counts
+  once (accepted: reading is scrolling and tapping, each a new touch).
 - Deferred: folded quiet runs show their one summary line (the board's details can be opened to the single runs); at
-  the largest text sizes a subtask's status sits beside a long title; whether the page-wide touch tracker
-  (simultaneousGesture) ever slows a scroll or pull-to-refresh: device check.
+  the largest text sizes a subtask's status sits beside a long title.
+
+## Device checks (join #6838's list)
+1. Check it on Today and a Tasks row open the task; Mark as done and Reopen work on a real computer through Kosmos+.
+2. The page scrolls and pulls to refresh normally (iOS 16 and current), and every button still responds (PresenceProbe).
+3. With an external keyboard and nothing focused, key presses keep the page reading past two minutes; if not, record
+   it here and fall back to UIKeyCommand.
+4. An agent's nudge on the task reads as seen on the board only after the person looked (page open, touched).
+5. VoiceOver: the page reads in order; Mark as done says In progress while it goes.
 - BoardRoom.swift (Mona Lisa's) is only called (projectsRequest, isProjectId), never edited.
 
 ## Steps

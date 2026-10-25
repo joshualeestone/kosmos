@@ -214,6 +214,13 @@ func modelTests() async {
     check(mac.asked == ["POST /api/project/springcatalogue/task/3/close", "GET /api/projects", "GET /api/project/springcatalogue/task/3/activity"],
           "Mark as done: the close, then the page and its activity read again")
     check(m.refusal == "the person set this task to repeat, or chose who reviews it, so only they can close it" && !m.pressing, "a refusal is said, and the button is back")
+    // The task closed elsewhere meanwhile: the refusal about the close goes with the next read that shows it.
+    let savedProjects = mac.projects
+    mac.projects = (200, Data(#"{"projects":[{"id":"springcatalogue","name":"Spring catalogue","tasks":[{"number":3,"sentence":"Pages 9 to 12","closedAt":"2026-10-25T02:00:00.000Z","progress":{"done":1,"total":1,"closed":true}}]}]}"#.utf8))
+    await m.read()
+    check(m.page?.act == .reopen && m.refusal == nil, "closed elsewhere after a refused close: the refusal goes, and the button says Reopen")
+    mac.projects = savedProjects
+    await m.read()
 
     mac.asked = []
     await m.press(.reopen, names: nm)
