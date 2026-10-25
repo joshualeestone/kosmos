@@ -1,8 +1,8 @@
 # #7100: run test:shell's shards at once on this computer, for tools/run-tests.sh's KOSMOS_SHELL_PARALLEL.
 #
 # kosmos_shell_parallel <n> <log dir> <command...>
-#   Starts <command...> <i> <n> for i = 1..n, all at once, each with its own log <log dir>/shard-<i>.log and each the
-#   leader of its own process group. The shards are waited on in shard order (bash 3.2 has no wait -n), and a line
+#   Starts <command...> <i> <n> for i = 1..n, all at once, each with its own log <log dir>/shard-<i>.log and each in
+#   a process group of its own, led by its supervisor (below). The shards are waited on in shard order (bash 3.2 has no wait -n), and a line
 #   says each one's status when it is waited on, with the time it was seen to have ended (a shard that ended before a
 #   lower-numbered one is reported late). When all have ended it prints the logs in shard order, then one line naming
 #   the time taken and which shards were red. Returns 0 when every shard returned 0, else the status of the
@@ -14,14 +14,18 @@
 # command, so the union of the shards is the whole list (tools.shell-shard-4317.test.js). The command is exec'd, so it
 # must be a program, not a shell function.
 # Each shard runs under this perl, which leads the shard's process group and forks the shard's command beneath it.
-# It exits with the command's status. When its own parent (the runner) is gone, even by a KILL that ran no trap,
-# it TERMs its whole group, waits up to 2 s for the command, then KILLs the group, itself included.
+# Its first argument is the runner's pid, read by the shell before the fork, so a runner that dies before perl
+# starts is still seen as gone. It exits with the command's status. A TERM or INT sent to it alone is passed on to
+# the whole group. When its parent is no longer the runner, even after a KILL that ran no trap, it TERMs its group,
+# waits up to 2 s for the command, then KILLs the group, itself included.
 _KOSMOS_SHARD_SUPERVISOR='use POSIX ();
 setpgrp(0, 0);
-my $runner = getppid();
+my $runner = shift @ARGV;
 my $kid = fork;
 die "fork: $!" unless defined $kid;
 if (!$kid) { exec @ARGV or die "exec: $!" }
+my $pass = sub { my $sig = shift; $SIG{$sig} = "IGNORE"; kill $sig, -$$ };
+$SIG{TERM} = $pass; $SIG{INT} = $pass;
 while (1) {
   if (waitpid($kid, POSIX::WNOHANG()) == $kid) { exit(($? & 127) ? 128 + ($? & 127) : $? >> 8) }
   if (getppid() != $runner) {
@@ -36,13 +40,16 @@ while (1) {
 }'
 kosmos_shell_parallel() {
   local n="$1" dir="$2"; shift 2
-  local i p q r rc=0 red="" t0 left
+  local i p q r rc=0 red="" t0 left me
+  # This shell's own pid, right in a subshell too ($$ is not, and bash 3.2 has no BASHPID): the exec makes sh a
+  # direct child of this shell, so its parent pid is this shell's.
+  me=$(exec sh -c 'echo $PPID')
   KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""; KOSMOS_SHELL_PARALLEL_DIR="$dir"
   t0=$(date +%s)
   i=1
   while [ "$i" -le "$n" ]; do
     # The supervisor keeps this pid and leads a group of its own, which the shard's command and its children join.
-    perl -e "$_KOSMOS_SHARD_SUPERVISOR" "$@" "$i" "$n" > "$dir/shard-$i.log" 2>&1 &
+    perl -e "$_KOSMOS_SHARD_SUPERVISOR" "$me" "$@" "$i" "$n" > "$dir/shard-$i.log" 2>&1 &
     KOSMOS_SHELL_PARALLEL_PIDS="$KOSMOS_SHELL_PARALLEL_PIDS $!"
     i=$((i + 1))
   done

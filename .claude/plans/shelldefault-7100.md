@@ -25,7 +25,7 @@ where every local run reads it.
   end: the real run-tests.sh with a stub node that records each shell-shard.js call; unset starts run 1..4 of 4,
   GITHUB_ACTIONS=true runs 1 of 1, KOSMOS_SHELL_PARALLEL=2 is kept, empty is 1); arm 10 (a tripwire, since a test
   cannot run a cut: release.sh's export is the first code after its guard's fi, and no later code touches the
-  switch). 21 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
+  switch). Arms 4f to 4h cover the shard supervisor. 24 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
   arm 9: the tripwire would red on an equivalent rewrite and stay green if the value were overwritten later.)
 
 - tools/lib/shell-parallel.sh: each shard now runs under a small perl supervisor (`_KOSMOS_SHARD_SUPERVISOR`) in
@@ -69,7 +69,7 @@ where every local run reads it.
   independently. CI is unset in this machine's agents and suites (checked 2026-10-25), so local runs still get 4.
 
 ## Validation
-- tools/test-shell-parallel-7100.sh: 21 arms pass plainly and under a CI shard's environment
+- tools/test-shell-parallel-7100.sh: 24 arms pass plainly and under a CI shard's environment
   (`KOSMOS_SHELL_SHARD=1/2 KOSMOS_SHELL_CUT_ENV=1 GITHUB_ACTIONS=true KOSMOS_SHELL_PLATFORM=linux`).
 - Mutants, each red on its own arm: always 4 (arms 8 and 9); ignoring GITHUB_ACTIONS (arm 8); the old `:-1`
   default in run-tests.sh (arm 9); empty taking the default (arm 9); release.sh without the export, the export

@@ -108,6 +108,36 @@ alive=0; for f in "$T/kids4f"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp"
 if [ "$(ls "$T/kids4f" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a KILL to the runner still stops both shards' running tests within 8 s"
 else bad "runner KILLed: kids recorded $(ls "$T/kids4f" | grep -c '^kid-')(2), still alive 8 s later: $alive(0)"; fi
 
+# 4g) a TERM to one supervisor's own pid (not its group) is passed on to its group: that shard's test stops, and the
+# other shard's does not.
+mkdir -p "$T/l4g" "$T/kids4g"
+STUB_KIDS="$T/kids4g" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4g" "$T/stubkid.sh" 2>/dev/null &
+sub=$!
+k=0; while [ "$(ls "$T/kids4g" | grep -c '^kid-')" -lt 2 ] && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
+sup1=""; for c in $(pgrep -P "$sub"); do case "$(ps -o command= -p "$c")" in *" 1 2") sup1=$c ;; esac; done
+k1=$(cat "$T/kids4g/kid-1" 2>/dev/null); k2=$(cat "$T/kids4g/kid-2" 2>/dev/null)
+[ -n "$sup1" ] && kill -TERM "$sup1" 2>/dev/null
+k=0; while [ -n "$k1" ] && kill -0 "$k1" 2>/dev/null && [ "$k" -lt 80 ]; do sleep 0.1; k=$((k + 1)); done
+g_dead1=yes; [ -n "$k1" ] && kill -0 "$k1" 2>/dev/null && g_dead1=no
+g_alive2=no; [ -n "$k2" ] && kill -0 "$k2" 2>/dev/null && g_alive2=yes
+kill -TERM "$sub" 2>/dev/null; wait "$sub" 2>/dev/null
+for kp in $k1 $k2; do kill "$kp" 2>/dev/null; done
+if [ -n "$sup1" ] && [ "$g_dead1" = yes ] && [ "$g_alive2" = yes ]; then pass "a TERM to one supervisor alone stops that shard's test and no other"
+else bad "TERM to supervisor: found=[${sup1:-none}] its test gone=$g_dead1(yes) other test still running=$g_alive2(yes)"; fi
+
+# 4h) a runner already gone when its supervisor starts (the pid the shell passed is dead): the supervisor stops its
+# shard at once instead of waiting on a parent it never had.
+sleep 0 & dead=$!; wait "$dead"
+mkdir -p "$T/kids4h"
+STUB_KIDS="$T/kids4h" perl -e "$_KOSMOS_SHARD_SUPERVISOR" "$dead" "$T/stubkid.sh" 1 1 > /dev/null 2>&1 &
+sv=$!
+k=0; while kill -0 "$sv" 2>/dev/null && [ "$k" -lt 60 ]; do sleep 0.1; k=$((k + 1)); done
+h_sv=gone; kill -0 "$sv" 2>/dev/null && { h_sv=running; kill -KILL -- "-$sv" 2>/dev/null; }
+h_kid=gone; kh=$(cat "$T/kids4h/kid-1" 2>/dev/null); [ -n "$kh" ] && kill -0 "$kh" 2>/dev/null && { h_kid=running; kill "$kh" 2>/dev/null; }
+wait "$sv" 2>/dev/null
+if [ "$h_sv" = gone ] && [ "$h_kid" = gone ]; then pass "a supervisor whose runner is already gone stops its shard within 6 s"
+else bad "dead runner at start: supervisor $h_sv(gone), its test $h_kid(gone)"; fi
+
 # 4d) a test that ignores TERM (here a sleep under trap '' TERM) is KILLed after the stop's grace, not left running.
 cat > "$T/stubborn.sh" <<'STUBBORN'
 #!/bin/bash
