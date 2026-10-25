@@ -16,10 +16,13 @@ token, a notice without it is refused; an agent's own token cannot write one; ba
   --stdin <project-id>`, board token only (off argv via kosmos_curl's header file on the Mac).
 
 - The row reads `<source> (automated notice): <text>`, one line: whitespace runs, control characters and bidi
-  overrides (every control and format character, as externalPost strips) become single spaces, so a job's text cannot fake another row in `kosmos room` or reorder itself.
+  overrides (every control and format character) become single spaces and the blank-looking INVISIBLE set
+  (engine/externalname.js) is removed, so a job's text cannot fake another row in `kosmos room` or reorder itself.
 - The CLI reads the piped text FIRST, then checks the source and project, so every failure after the read (a wrong
   source or project in the job's own setup, board down, refused, too old) keeps it in a private file and says where,
   as `kosmos post --stdin` does: an alarm fires when the fleet is down, so the text may be its only copy.
+- The board refused the notice itself (400: too long, no words, a bad source): exit 2, since a retry sends the same
+  refusal; the usage line states the 4000-character limit. A job that cannot shorten its text should split it.
 - Not written for sure (not connected, refused): exit 1. Possibly written (a cut or slow answer): "may", kept as such,
   exit 3, never 1, so a job that retries on 1 does not write the alarm twice. Both platforms.
 - An agent session is refused with "use kosmos post", after the read and keeping the text: on the Mac by

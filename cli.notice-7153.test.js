@@ -102,7 +102,7 @@ test('a job writes a notice: the text and source go to the room\'s notice route,
 test('a refusal is said, with the board\'s reason, and exits non-zero; a missing project says so', async () => {
   await withBoard({ code: 400, body: { error: 'a notice needs words, at most 4000 characters' } }, async (port) => {
     const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(port), 'hello');
-    assert.notEqual(out.code, 0, 'a refused notice exited 0');
+    assert.equal(out.code, 2, 'a notice the board refused exited ' + out.code + ', not 2 (a job retrying on 1 would resend it forever)');
     assert.match(out.stdout, /The notice was not written: a notice needs words, at most 4000 characters\./);
     // A job's notice may be its only copy: the refusal keeps it, and says where.
     const saved = /saved at (\S+)/.exec(out.stdout);
@@ -138,6 +138,7 @@ test('usage and setup mistakes are refused before anything is sent; a wrong sour
       [['notice', '--from', 'builder\talarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/, 2, true],
       [['notice', '--from', 'builder\nalarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/, 2, true],
       [['notice', '--from', 'builder alarm', '--stdin', 'fleet josh'], 'hello', /There is no project called "fleet josh"/, 1, true],
+      [['notice', '--from', 'builder alarm', '--stdin', '..'], 'hello', /There is no project called "\.\."/, 1, true],
       [['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], '', /empty|nothing was piped|Nothing was written/i, 2, false],
     ]) {
       const out = await runCli(args, jobEnv(port), input);
