@@ -38,13 +38,17 @@ enum NewTask {
         return offered.first?.project.id
     }
 
-    // The draft outlives the sheet. As the board's openNewTask: it keeps its project only while words are typed (what,
-    // details or done) and the project is still offered; otherwise it is aimed as a fresh opening would be, at the
-    // Tasks tab's pick, never sent to a project the picker cannot show.
+    // The draft outlives the sheet, aimed as the board's openNewTask aims it. With a project picked in the Tasks tab
+    // the sheet is for that project, and a draft for another starts clean (ntAimAt). On All projects it keeps its
+    // project only while words are typed (what, details or done) and the project is still offered; else the first
+    // offered, and the words follow. Never sent to a project the picker cannot show.
     static func settled(_ d: Draft, picked: String?, offered: [Board.ProjectTreeRow]) -> Draft {
+        if let picked, offered.contains(where: { $0.project.id == picked }) {
+            return d.project == picked ? d : Draft(project: picked)
+        }
         let drafted = !trimmed(d.what).isEmpty || !trimmed(d.detail).isEmpty || !trimmed(d.done).isEmpty
         if drafted, let p = d.project, offered.contains(where: { $0.project.id == p }) { return d }
-        guard let first = firstProject(picked: picked, offered: offered) else {
+        guard let first = offered.first?.project.id else {
             var n = d
             n.project = nil; n.who = nil; n.parent = nil
             return n
@@ -89,6 +93,17 @@ enum NewTask {
     }
 
     static func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    // After "could not tell", a Tasks read that came back: the open task in the project it was sent to, with the
+    // sentence it was sent with, that was not there when it was sent. Nil when the read cannot say (no list from before
+    // the send, so an older task with the same words could not be told apart).
+    static func found(_ sent: Draft, in read: Board.TasksRead, before: Set<Int>?) -> Int? {
+        guard let before, let project = sent.project else { return nil }
+        let words = trimmed(sent.what)
+        return read.tasks.first {
+            $0.projectId == project && $0.state != "closed" && !before.contains($0.number) && trimmed($0.sentence) == words
+        }?.number
+    }
 
     // The board's limits (its inputs' maxlength, engine/tasks.js SENTENCE_MAX and DETAIL_MAX), counted as the page
     // counts them, in UTF-16 units, and never splitting a character. Over 200 the Mac shortens a title and moves it into

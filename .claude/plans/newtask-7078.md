@@ -126,3 +126,15 @@ path stays the app's own (isProjectId before the path; host is held.url).
   suite never compiles this file, so nothing here could see it; a Release compile is now part of the local build.
 - After "could not tell", Create stays held until the Tasks list is read again or the words change.
 - LEFT: a parent task that closes between the pick and Create is dropped silently (the board's select does the same).
+- Iteration 9 (opus): the kept project now matches BOTH branches of the board's openNewTask. With a project picked
+  in Tasks, the sheet is for that project and a draft for another starts clean (ntAimAt clears the words). On All
+  projects, a drafted project stays, else the first offered and the words follow. The iteration-7 note covered only
+  the All-projects branch. (A picked project that is archived: the board files there anyway; the sheet offers only
+  unarchived projects, so it falls back to the All-projects rule. LEFT.)
+- After "could not tell" the sheet awaits the Tasks refresh itself. If the read shows an open task in that project with
+  the sent words that was not there before the send, it is treated as made. Otherwise Create is released only by a
+  read that came back, or by the words changing; a failed read keeps the hold.
+- A create still in the air when the account or Mac changes is dropped (chatEpoch captured at the tap).
+- Proven: the Release compile of 88405fbf8c (the #if DEBUG fix) succeeded, XCB_RC=0.
+- LEFT (nits): members without their role; Who is pruned only against the projects read made when the sheet opens;
+  + sits leading (Mona Lisa reviewed the shot with it there).

@@ -20,8 +20,8 @@ struct NewTaskView: View {
     @State private var sending = false
     @State private var message: String?
     @State private var lastTasks: Board.TasksRead?
-    // After "could not tell", Create waits until the Tasks list has been read again or the words change: the line says
-    // to look in Tasks first, and a second tap straight away is how a duplicate gets made.
+    // After "could not tell", Create waits until a Tasks read has come back (the sheet checks it for the task) or the
+    // words change: a second tap straight away is how a duplicate gets made.
     @State private var unsureHold = false
 
     var body: some View {
@@ -48,7 +48,6 @@ struct NewTaskView: View {
         .task { lastTasks = tasks; await readProjects() }
         // A pick no longer offered (the Tasks list re-read under the sheet) falls back, never sent unseen.
         .onChange(of: tasks) { new in
-            unsureHold = false
             if let new { lastTasks = new }
             dropUnoffered()
         }
@@ -163,6 +162,17 @@ struct NewTaskView: View {
         .padding(.vertical, 2)
     }
 
+    private func made(number: Int?, sent: NewTask.Draft) {
+        let name = list?.projects.first { $0.id == sent.project }?.name ?? "the project"
+        let line = NewTask.addedLine(number: number, projectName: name)
+        unsureHold = false
+        draft = NewTask.Draft()
+        added(line)
+        dismiss()
+        // After the sheet has gone: an announcement posted as it closes is lost under the screen change.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { UIAccessibility.post(notification: .announcement, argument: line) }
+    }
+
     // The last Tasks read that came back: a read that fails keeps the Part of pick (keepingOffered), so the picker
     // keeps the row that shows it rather than drawing a pick it no longer lists.
     private var shownTasks: Board.TasksRead? { tasks ?? lastTasks }
@@ -235,6 +245,9 @@ struct NewTaskView: View {
         guard list != nil, NewTask.canCreate(draft) else { sending = false; return }
         message = nil
         let sent = draft
+        // Another account or Mac while this is in the air closes the sheet; its answer is then not this one's to show.
+        let epoch = client.chatEpoch
+        let before = shownTasks.map { Set($0.tasks.filter { $0.projectId == sent.project }.map(\.number)) }
         // throughMac answers nil both when nothing was sent and when a send got no answer; only the second may have made
         // the task, so note whether a request was built and handed over.
         var built = false
@@ -244,15 +257,10 @@ struct NewTaskView: View {
             return r
         }
         sending = false
+        guard epoch == client.chatEpoch else { return }
         switch NewTask.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
         case .made(let number, _):
-            let name = list?.projects.first { $0.id == sent.project }?.name ?? "the project"
-            let line = NewTask.addedLine(number: number, projectName: name)
-            draft = NewTask.Draft()
-            added(line)
-            dismiss()
-            // After the sheet has gone: an announcement posted as it closes is lost under the screen change.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { UIAccessibility.post(notification: .announcement, argument: line) }
+            made(number: number, sent: sent)
         case .refused(let why):
             message = why
             UIAccessibility.post(notification: .announcement, argument: why)
@@ -260,7 +268,14 @@ struct NewTaskView: View {
             unsureHold = true
             message = NewTask.unsureWords
             UIAccessibility.post(notification: .announcement, argument: NewTask.unsureWords)
-            Task { await client.refreshTasks() }
+            await client.refreshTasks()
+            guard epoch == client.chatEpoch, let read = client.tasksList else { return }   // no read: the hold stays
+            if let number = NewTask.found(sent, in: read, before: before) {
+                message = nil
+                made(number: number, sent: sent)
+            } else {
+                unsureHold = false
+            }
         }
     }
 }

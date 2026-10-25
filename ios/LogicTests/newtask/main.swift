@@ -137,9 +137,12 @@ check(archivedAway.who == nil && archivedAway.parent == nil, "who and Part of, p
 check(NewTask.settled(NewTask.Draft(project: "gone"), picked: "zeta", offered: offered).project == "zeta", "a project gone: the Tasks tab's pick")
 check(NewTask.settled(NewTask.Draft(), picked: "zeta", offered: offered).project == "zeta", "no project yet: the Tasks tab's pick")
 let keptLaunch = NewTask.Draft(project: "launch", what: "Proofread", who: nil, parent: nil)
-check(NewTask.settled(keptLaunch, picked: "zeta", offered: offered) == keptLaunch, "a kept project still offered stays while words are typed, whatever is picked")
+check(NewTask.settled(keptLaunch, picked: nil, offered: offered) == keptLaunch, "All projects: a kept project still offered stays while words are typed")
+check(NewTask.settled(keptLaunch, picked: "zeta", offered: offered) == NewTask.Draft(project: "zeta"), "a project picked in Tasks: the sheet is for it, and a draft for another starts clean (ntAimAt)")
+check(NewTask.settled(keptLaunch, picked: "launch", offered: offered) == keptLaunch, "a project picked in Tasks that is the draft's own: the draft stays")
 let untyped = NewTask.Draft(project: "launch", who: nil, parent: nil)
-check(NewTask.settled(untyped, picked: "zeta", offered: offered).project == "zeta", "with nothing typed, the Tasks tab's pick, as the board's openNewTask")
+check(NewTask.settled(untyped, picked: nil, offered: offered).project == "book", "All projects with nothing typed: the first offered, as the board's openNewTask")
+check(page.contains("  if (!sameDraft) {\n    NT_FOR = p.id;\n    document.getElementById('nt-what').value = '';"), "the board starts clean for a different project")
 check(page.contains("const drafted = NT_FOR && ['nt-what', 'nt-detail', 'nt-done'].some((id) => document.getElementById(id).value.trim());"), "the board keeps its project only for typed words")
 let nothingOffered = NewTask.settled(keptWords, picked: nil, offered: [])
 check(nothingOffered.project == nil && nothingOffered.who == nil && !NewTask.canCreate(nothingOffered), "nothing offered: no project, Create off")
@@ -164,6 +167,21 @@ check(NewTask.oneLine("Proofread\nthe index") == "Proofread the index", "a line 
 check(NewTask.oneLine("a\r\nb\rc") == "a b c", "every kind of line break")
 check(NewTask.oneLine("No typos left ") == "No typos left ", "a line with no break is left as typed")
 check(page.contains(#"id="nt-what" type="text""#) && page.contains(#"id="nt-done" type="text""#), "the board's two questions are one-line inputs")
+
+section("after could-not-tell, a read that came back")
+let sentDraft = NewTask.Draft(project: "book", what: "Proofread the index ", done: "x")
+let after = Board.parseTasks(Data(#"""
+{"tasks":[
+ {"projectId":"book","number":3,"sentence":"Cover","state":"working"},
+ {"projectId":"book","number":7,"sentence":"Proofread the index","state":"assigned"},
+ {"projectId":"book","number":12,"sentence":"Proofread the index","state":"unassigned"},
+ {"projectId":"zeta","number":13,"sentence":"Proofread the index","state":"working"}
+]}
+"""#.utf8))!
+check(NewTask.found(sentDraft, in: after, before: [3, 7]) == 12, "the new task with the sent words in that project is found")
+check(NewTask.found(sentDraft, in: after, before: [3, 7, 12]) == nil, "CONTROL: one that was there before is not it")
+check(NewTask.found(sentDraft, in: after, before: nil) == nil, "no list from before the send: cannot tell, so not found")
+check(NewTask.found(NewTask.Draft(project: "zeta", what: "Other"), in: after, before: []) == nil, "other words are not it")
 
 section("the board's own words")
 check(page.contains(">" + NewTask.Words.what + "</label>"), "the first question is the board's label")
