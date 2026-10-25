@@ -26,8 +26,9 @@ they fill the REAL disk (it happened here: ~95 GB in two minutes before it was s
 - cleanup never deletes under an attached image (judged by device number, not a path match against mount's
   listing, which prints /private/...); a copy whose detaches always fail left $TMP in place and named both images
 - the leftover scan covers ./1 to ./9 on purpose: macOS suffixes beyond 9 need nine simultaneous leaks
-- leftover ./N/board.stopped from an older run is named in a NOTE (with its size), never failed on; only what
-  this run writes there fails the #7127 check
+- leftover ./N/ debris from an older run (its fill, the logs/ it made, or any board.stopped*) is named in a NOTE
+  with its size, whether or not this Mac can mount an image, and never failed on; only N/ debris this run newly
+  creates fails the #7127 check (tested: a logs-only leftover and a stranded-marker leftover both get a NOTE)
 - the test passes; it passes again with a killed run's image still mounted (simulated with kill -KILL)
 - two-arm control with a private name (c7127): the OLD logic goes red with the card's exact error, the new passes
 - mutant (old parse back in, bounded dd): FAIL on the card's two checks and on the new #7127 check; wrote nothing
