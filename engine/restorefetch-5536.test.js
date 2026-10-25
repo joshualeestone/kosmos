@@ -195,7 +195,12 @@ test('#5536 slice 2 review 1: a restore that a refusal stopped part way, with no
       return g;
     };
     const r = await restoreWith(s, fetcherFor(s, w, t));
-    assert.deepEqual(r, { ok: false, because: 'no release' });
+    assert.equal(r.ok, false);
+    assert.equal(r.because, 'no release');
+    assert.equal(r.partial, undefined, 'nothing was restored');
+    assert.equal(r.result.restored.length, 0);
+    assert.ok(r.result.failed.length > 0, 'review 3: the failed files are still named');
+    assert.deepEqual(r.fetchProblems, ['no release']);
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
@@ -420,9 +425,89 @@ test('#5536 slice 2: a GET is never redirected, never read past maxBytes, and ne
   modes = null;
 });
 
-test('#5536 slice 2 review 2: a grant and a GET, twice, with the wait between, fit inside restorerun\'s own 2-minute deadline', () => {
+test('#5536 slice 2 reviews 2 and 3: one fetch makes at most two grants and two GETs with one wait, inside restorerun\'s 2 minutes', async () => {
+  // The budget, from the constants the code uses.
   const worst = 2 * (rf.GRANT_TIMEOUT_MS + rf.GET_TIMEOUT_MS) + rf.RETRY_WAIT_MS;
   assert.ok(rf.GRANT_TIMEOUT_MS > 0 && rf.GET_TIMEOUT_MS > 0 && worst < 120000, `worst path ${worst} ms`);
+  // And the path itself, counted (review 3: a sum of constants cannot see a third grant or a second wait).
+  const rec = { key: keyOf(), period: PERIOD, sha256: 'f'.repeat(64), size: 1 };
+  const objects = new Map([[rec.key, Buffer.from('m')]]);
+  const shapes = {
+    'always expired': () => new Response('<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>', { status: 403 }),
+    'always 503': () => new Response('', { status: 503 }),
+    'always dropped': () => { throw new Error('reset'); },
+  };
+  for (const [label, answer] of Object.entries(shapes)) {
+    const t = { now: NOW }, w = world(objects, [rec], t);
+    let grants = 0, gets = 0;
+    const waits = [];
+    const real = w.grant;
+    const f = rf.readGrantFetcher({ grant: async (b) => { grants += 1; return real(b); }, fetch: async () => { gets += 1; return answer(); },
+      now: () => t.now, sleep: async (ms) => { waits.push(ms); }, org: 'o1', member: 'm1', epoch: '1', manifest: rec });
+    assert.equal(await f.fetchObject(rec.key, { maxBytes: 1 }), null, label);
+    assert.ok(grants <= 2 && gets <= 2 && waits.length <= 1, `${label}: ${grants} grants, ${gets} GETs, ${waits.length} waits`);
+    assert.equal(gets, 2, `${label}: tried twice`);
+  }
+  const t = { now: NOW }, w = world(objects, [rec], t);
+  let grants = 0;
+  const waits = [];
+  const f = rf.readGrantFetcher({ grant: async () => { grants += 1; throw new Error('offline'); }, fetch: w.fetch, now: () => t.now,
+    sleep: async (ms) => { waits.push(ms); }, org: 'o1', member: 'm1', epoch: '1', manifest: rec });
+  assert.equal(await f.fetchObject(rec.key, { maxBytes: 1 }), null);
+  assert.deepEqual([grants, waits.length], [2, 1], 'two grants, one wait');
+});
+
+test('#5536 slice 2 review 3: a GET the store did not answer is tried once more, and a file lost that way says why', async () => {
+  const s = await oneSnapshot();
+  try {
+    const t = { now: NOW }, w = world(s.objects, [s.record], t);
+    const realFetch = w.fetch;
+    let n = 0;
+    // GET 1 is the manifest; GET 2 (a chunk's first try) is a 503 and GET 3 its second; GET 4 (the next chunk) is dropped.
+    w.fetch = async (u, init) => { n += 1; if (n === 2) return new Response('', { status: 503 }); if (n === 4) throw new Error('reset'); return realFetch(u, init); };
+    const sink = memorySink();
+    const r = await restoreWith(s, fetcherFor(s, w, t), { sink });
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.result.failed.length, 0, 'a 503 on one chunk and a reset on the next: each second try got through');
+    assert.ok(n >= 5);
+    // A chunk that never answers: its file fails, the rest restore, and the reason reaches the person.
+    const w2 = world(s.objects, [s.record], t);
+    const rf2 = w2.fetch;
+    let first = null;
+    w2.fetch = async (u, init) => { if (!u.includes(s.record.key) && (first === null || first === u.split('?')[0])) { first = u.split('?')[0]; return new Response('', { status: 503 }); } return rf2(u, init); };
+    const r2 = await restoreWith(s, fetcherFor(s, w2, t));
+    assert.equal(r2.ok, true, r2.because);
+    assert.equal(r2.result.failed.length, 1);
+    assert.deepEqual(r2.fetchProblems, ['the storage service did not answer for some files']);
+    // A 404 is not tried again.
+    const w3 = world(s.objects, [s.record], t);
+    const rf3 = w3.fetch;
+    let gets404 = 0;
+    w3.fetch = async (u, init) => { if (!u.includes(s.record.key)) { gets404 += 1; return new Response('', { status: 404 }); } return rf3(u, init); };
+    const f3 = fetcherFor(s, w3, t);
+    const r3 = await restoreWith(s, f3);
+    assert.equal(r3.ok, true);
+    assert.equal(gets404, r3.result.failed.length, 'one GET per failed file: a 404 does not change');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#5536 slice 2 review 3: a chunk a later file reuses is asked for with the next keys still to fetch, never alone', async () => {
+  const rec = { key: keyOf(), period: PERIOD, sha256: 'a'.repeat(64), size: 1 };
+  const objects = new Map([[rec.key, Buffer.from('m')]]);
+  const keys = Array.from({ length: 1000 }, () => { const k = keyOf(); objects.set(k, Buffer.from('x')); return k; });
+  const t = { now: NOW }, w = world(objects, [rec], t);
+  const f = rf.readGrantFetcher({ grant: w.grant, fetch: w.fetch, now: () => t.now, sleep: noWait, org: 'o1', member: 'm1', epoch: '1', manifest: rec });
+  await f.plan(keys);
+  for (const k of keys.slice(0, 10)) assert.ok(await f.fetchObject(k, { maxBytes: 1 }));
+  t.now += 400000;   // every link has lapsed
+  assert.ok(await f.fetchObject(keys[3], { maxBytes: 1 }), 'a reused chunk');
+  const last = w.calls[w.calls.length - 1];
+  assert.equal(last.keys.length, 500, 'topped up to a full call');
+  assert.equal(last.keys[0], keys[3]);
+  assert.deepEqual(last.keys.slice(1), keys.slice(10, 509), 'with the next keys still to fetch, in plan order');
+  const before = w.calls.length;
+  for (const k of keys.slice(10, 509)) assert.ok(await f.fetchObject(k, { maxBytes: 1 }));
+  assert.equal(w.calls.length, before, 'and those then cost nothing more');
 });
 
 test('#5536 slice 2 review 2: a grant that never answers is cut off, read as not reached, and the restore does not hang', { timeout: 15000 }, async () => {
@@ -444,7 +529,9 @@ test('#5536 slice 2 review 2: a grant that never answers is cut off, read as not
     w2.grant = (b) => (b.keys.length ? new Promise(() => {}) : real(b));
     const r2 = await restoreWith(s, fetcherFor(s, w2, t, { grantTimeoutMs: 20 }));
     // Not a refusal: the plan's miss and the first file's two tries are three in a row, and only then does it stop.
-    assert.deepEqual(r2, { ok: false, because: 'restore could not reach Kosmos+ to fetch this backup\'s files' });
+    assert.equal(r2.ok, false);
+    assert.equal(r2.because, 'restore could not reach Kosmos+ to fetch this backup\'s files');
+    assert.equal(r2.result.restored.length, 0);
     const f3 = fetcherFor(s, world(s.objects, [s.record], t), t);
     const r3 = await restoreWith(s, Object.assign({}, f3, { plan: () => new Promise(() => {}) }), { fetchTimeoutMs: 30 });
     assert.deepEqual(r3, { ok: false, because: 'the backup\'s files could not be fetched' });

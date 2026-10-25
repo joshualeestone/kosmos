@@ -134,7 +134,7 @@ async function fetchBounded(fetchObject, key, o, ms) {
      plan, planned         optional: engine/restorefetch.js readGrantFetcher's, given with its fetchObject
    Resolves { ok: true, deviceKey, backfill, takenAt, result, fetchProblems } (result is restoreSnapshot's;
    fetchProblems the fetcher's reasons for any file it could not fetch), or { ok: false, because }, or, when the fetcher
-   stopped part way after some files were restored, { ok: false, because, partial: true, result, fetchProblems }.
+   stopped part way, { ok: false, because, result, fetchProblems }, with partial: true when some files were restored.
    ok: true still allows files in result.failed (one damaged file does not fail the rest), as before.
    Never throws on what a store, a coordinator or a history hands it; a caller's own mistake (no sink) still throws
    from restoreSnapshot, as there. */
@@ -224,7 +224,8 @@ async function runRestore(opts) {
   // review 2: a fetcher that stopped (a refusal part way, Kosmos+ out of reach, the hourly limit) is no success, even
   // with some files restored: those are in the sink and in result, and partial says so.
   if (stoppedBecause) {
-    return result.restored.length ? { ok: false, because: stoppedBecause, partial: true, result, fetchProblems } : { ok: false, because: stoppedBecause };
+    // review 3: the result and the reasons come back even when nothing was restored, so the failed files are named.
+    return Object.assign({ ok: false, because: stoppedBecause }, result.restored.length ? { partial: true } : {}, { result, fetchProblems });
   }
   return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result, fetchProblems };
 }
