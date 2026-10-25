@@ -119,7 +119,8 @@ final class TaskPageModel: ObservableObject {
     }
 
     // GET .../activity. A failed read keeps the rows already shown (the board's: it says so only when it has none).
-    // `names` is a snapshot (the project's members over the roster), so the rows can be phrased off the main thread: a
+    // `names` is a snapshot of the roster; the project's own member names (tkMemberName's first choice) are laid over it
+    // here from the task as last read, so the rows can be phrased off the main thread: a
     // repeating task's history can run to thousands of events, read every 5 seconds. True when this read's state is the
     // one now shown (what a seen mark may then record).
     typealias BuildRows = ([String: String], Data) async -> (rows: [Board.ActivityRow], count: Int, lastAt: String, lastKind: String)?
@@ -132,8 +133,9 @@ final class TaskPageModel: ObservableObject {
         }.value
     }
     @discardableResult
-    func readActivity(names: [String: String]) async -> Bool {
+    func readActivity(names roster: [String: String]) async -> Bool {
         guard current else { return false }
+        let names = roster.merging(page?.members ?? [:]) { _, member in member }
         activityReads += 1
         let mine = activityReads
         let (project, number) = (self.project, self.number)

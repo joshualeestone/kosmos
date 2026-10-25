@@ -39,8 +39,8 @@ struct TaskPageView: View {
 
     // The roster's names, for an agent the project does not list.
     private var roster: [String: String] { Dictionary(client.agents.map { ($0.session, $0.name) }, uniquingKeysWith: { a, _ in a }) }
-    // The names the activity is phrased with: the project's own over the roster's (tkMemberName), as a snapshot.
-    private var names: [String: String] { roster.merging(model.page?.members ?? [:]) { _, member in member } }
+    // The roster's names, as a snapshot; the model lays the project's own over them after it has read the task.
+    private var names: [String: String] { roster }
 
     var body: some View {
         content
@@ -65,6 +65,7 @@ struct TaskPageView: View {
             .onAppear {
                 visible = true
                 model.onScreen = true
+                model.appActive = scenePhase == .active
                 model.assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
                 model.touched()
                 startReading(returning: true)
@@ -284,17 +285,22 @@ struct TaskPageView: View {
     #if DEBUG
     // The sample Mac (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), matching Today's and Tasks' sample tasks, so a
     // screenshot never shows a real account. A press closes or reopens the sample task for real (in memory).
+    // Locked: the sample Mac is called off the main actor, by the loop, a press and a seen mark at once.
+    private static let sampleLock = NSLock()
     private static var sampleClosed: Set<Int> = []
     private static func sampleSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://sample.invalid")!), let url = r.url else { return nil }
         let path = url.path
+        sampleLock.lock()
         if path.hasSuffix("/close") || path.hasSuffix("/reopen") {
             if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
                 if path.hasSuffix("/close") { sampleClosed.insert(n) } else { sampleClosed.remove(n) }
             }
         }
+        let closedNow = sampleClosed
+        sampleLock.unlock()
         let iso = { (m: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-m * 60)) }
-        func closed(_ n: Int, _ open: String) -> String { sampleClosed.contains(n) ? #""closedAt":""# + iso(0) + #"","progress":{"done":1,"total":1,"closed":true}"# : open }
+        func closed(_ n: Int, _ open: String) -> String { closedNow.contains(n) ? #""closedAt":""# + iso(0) + #"","progress":{"done":1,"total":1,"closed":true}"# : open }
         let body: String
         if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"p-cat","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
@@ -306,7 +312,7 @@ struct TaskPageView: View {
             body = #"{"events":[{"at":""# + iso(4000) + #"","kind":"created"}]}"#
         } else if path.hasSuffix("/activity") {
             body = #"{"events":[{"at":""# + iso(2900) + #"","kind":"created","who":"dana","parent":3},{"at":""# + iso(300) + #"","kind":"said","text":"Use the March photos for the captions."},{"at":""# + iso(40) + #"","kind":"built","by":"dana","note":"captions need a check"}"#
-                + (sampleClosed.contains(4) ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "") + "]}"
+                + (closedNow.contains(4) ? #",{"at":""# + iso(0) + #"","kind":"closed"}"# : "") + "]}"
         } else {
             body = "{}"
         }

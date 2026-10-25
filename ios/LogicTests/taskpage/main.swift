@@ -483,6 +483,11 @@ func modelTests() async {
     check(b1 && b2 && builds == 1, "an unchanged answer is not rebuilt, and still counts as drawn (\(builds) builds)")
     _ = await bm.readActivity(names: ["dana": "Dana R."])
     check(builds == 2 && bm.activity?.first?.text == "Created and given to Dana R., under task 1", "new names rebuild the rows")
+    // Once the task has been read, the project's own member names win over the roster's (tkMemberName).
+    let mn = model(3)
+    await mn.read()
+    _ = await mn.readActivity(names: ["dana": "Dana (roster)"])
+    check(mn.activity?.first?.text == "Created and given to Dana, under task 1", "the project's member name is used over the roster's")
 
     // A return that cannot mark leaves the recorded state recorded.
     let rs = model(3)

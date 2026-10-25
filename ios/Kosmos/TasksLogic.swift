@@ -315,8 +315,10 @@ enum Tasks {
         guard let iso, let d = parseISO(iso) else { return "" }
         return agoWords(now.timeIntervalSince(d) * 1000)
     }
-    // Two shared formatters (ISO8601DateFormatter is thread-safe once set up): a task page parses every event of a
-    // history on each read, and making a formatter is the costly part (kosmos#7074).
+    // Two shared formatters, set up once and never changed: a task page parses every event of a history on each read, and
+    // making a formatter is the costly part (kosmos#7074). They are read from several threads (the task page's build runs
+    // detached); ISO8601DateFormatter is CoreFoundation-backed and locks internally, and Apple documents formatters as
+    // thread-safe since iOS 7, though its own header carries no Sendable note.
     private static let isoFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

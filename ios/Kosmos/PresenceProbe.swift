@@ -53,12 +53,16 @@ struct PresenceProbe: UIViewRepresentable {
             delegate = self
         }
 
+        // super first, as UIGestureRecognizerSubclass.h requires of any override (UIKit keeps its own bookkeeping per
+        // touch and press).
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            super.touchesBegan(touches, with: event)
             onInput?()
             state = .failed
         }
 
         override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent) {
+            super.pressesBegan(presses, with: event)
             onInput?()
             state = .failed
         }
