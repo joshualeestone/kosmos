@@ -81614,6 +81614,13 @@ function fedOwnHtml() {
 /* The code as two groups around a plain hyphen, read letter by letter (the label spells it out). Not devCodeHtml's
    boxes: those are for typing a code into a provider's page and may break between groups, and a code compared across
    two screens is one unbroken line (Mona's review). compareCode always makes XXXXX-XXXXX, one hyphen. */
+function fedOwnSpelled(code) { return String(code).replace('-', '').split('').join(' '); }
+function fedOwnCodeHtml(code, extra) {
+  const c = String(code);
+  const [a, b] = c.split('-');
+  return '<span class="ownseal-code' + extra + '" role="img" aria-label="Code ' + esc(fedOwnSpelled(c)) + '">'
+    + esc(a) + (b !== undefined ? '<span class="ownseal-sep">-</span>' + esc(b) : '') + '</span>';
+}
 // When a computer was let in, as the row says it: a day and a month (the year too when it is not this year, the time
 // too when another row has the same day), or '' when the board did not say.
 function fedOwnWhen(at, withTime) {
@@ -81626,7 +81633,7 @@ function fedOwnWhen(at, withTime) {
   if (withTime) { o.hour = 'numeric'; o.minute = '2-digit'; }
   try { return d.toLocaleString(undefined, o); } catch { return ''; }
 }
-/* Each allowed row's day, with the time where two rows share a day, and its place in the list ("2 of 3", oldest first)
+/* Each allowed row's day, with the time where two rows share a day, and its place in the list ("2 of 3", in the order the board listed them)
    where two still read the same (let in the same minute), so no two Remove buttons or dialogs name the same thing.
    '' for a row the board gave no time. */
 function fedOwnWhens(allowed) {
@@ -81637,13 +81644,6 @@ function fedOwnWhens(allowed) {
 // How a row and its dialog name a computer: its day (fedOwnWhens), or, with no time from the board, its place.
 function fedOwnName(whens, i) {
   return whens[i] || (whens.length > 1 ? 'earlier (' + (i + 1) + ' of ' + whens.length + ')' : 'earlier');
-}
-function fedOwnSpelled(code) { return String(code).replace('-', '').split('').join(' '); }
-function fedOwnCodeHtml(code, extra) {
-  const c = String(code);
-  const [a, b] = c.split('-');
-  return '<span class="ownseal-code' + extra + '" role="img" aria-label="Code ' + esc(fedOwnSpelled(c)) + '">'
-    + esc(a) + (b !== undefined ? '<span class="ownseal-sep">-</span>' + esc(b) : '') + '</span>';
 }
 function fedOwnPaint() {
   const el = document.getElementById('pj-fed-own');
