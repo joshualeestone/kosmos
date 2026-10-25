@@ -95,11 +95,13 @@ struct RoomView: View {
             thread
                 .background(GeometryReader { g in Color.clear.onAppear { threadHeight = g.size.height }
                     .onChange(of: g.size.height) { threadHeight = $0 } })
-            if let note = store.notes[project.id] {
-                Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
-            } else if hiddenBySearch {
+            // The board has one line here and the newest write wins: a jump to a hidden post is the newest when it
+            // happens (a post clears it), so it shows over the last post's line, as the board's would.
+            if hiddenBySearch {
                 Text(Board.roomHiddenBySearch).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
+            } else if let note = store.notes[project.id] {
+                Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
             } else if sentWhileSearching {
                 // Below the post's own line: a post that did not go says so instead.
                 Text(Board.chatSentWhileSearching).font(.footnote).foregroundColor(Palette.secondary)
@@ -511,9 +513,10 @@ struct RoomView: View {
                 guard let id else { return }
                 jumpTo = nil
                 // kosmos#7096: an original the search hides is not gone to; the room says so (the board's
-                // PJ_HIDDEN_BY_SEARCH, said only for a post the room holds: one not loaded stays the header's own line).
-                if searching && !shownRows.contains(where: { $0.id == id }) && rows.contains(where: { $0.id == id }) {
+                // PJ_HIDDEN_BY_SEARCH, said only for a post the room holds: one not loaded keeps the jump's own behaviour).
+                if Board.roomJumpHidden(id, shown: shownRows, all: rows, searching: searching) {
                     hiddenBySearch = true
+                    sentWhileSearching = false
                     Self.say(Board.roomHiddenBySearch)
                     return
                 }
@@ -934,6 +937,7 @@ struct RoomView: View {
         client.attachLine[attachKey] = nil
         draft = ""; replying = nil; replyMention = nil
         if searching { sentWhileSearching = true }
+        hiddenBySearch = false   // the post is the newest thing to say
         Task { await store.post(text, to: project.id, replyTo: reply, files: files) }
     }
 }
