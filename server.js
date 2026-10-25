@@ -1739,6 +1739,7 @@ const chat = require('./engine/chat');
 const messages = require('./engine/messages');
 // kosmos#7153: the longest room notice a job may write, and its source label.
 const ROOM_NOTICE_MAX = 4000;
+const INVISIBLE_IN_NOTICE = require('./engine/externalname').INVISIBLE;
 // Letters, digits, spaces and . _ - only, so the source cannot carry a colon, a bracket or a control character.
 const ROOM_NOTICE_SOURCE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/;
 const unfurl = require('./engine/unfurl');
@@ -22047,7 +22048,7 @@ const server = http.createServer(async (req, res) => {
         // Control and format characters become spaces and the blank-looking INVISIBLE set goes, so a raw request cannot
         // reorder or hide what the line says.
         const text = body && typeof body.text === 'string'
-          ? body.text.replace(require('./engine/externalname').INVISIBLE, '').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
+          ? body.text.replace(INVISIBLE_IN_NOTICE, '').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
             .replace(/\s+/g, ' ').trim() : '';
         const source = body && typeof body.source === 'string' ? body.source.trim() : '';
         if (!text || [...text].length > ROOM_NOTICE_MAX) {

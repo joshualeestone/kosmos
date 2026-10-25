@@ -22,10 +22,11 @@ token, a notice without it is refused; an agent's own token cannot write one; ba
   as `kosmos post --stdin` does: an alarm fires when the fleet is down, so the text may be its only copy.
 - Not written for sure (not connected, refused): exit 1. Possibly written (a cut or slow answer): "may", kept as such,
   exit 3, never 1, so a job that retries on 1 does not write the alarm twice. Both platforms.
-- An agent session (a tmux pane or an agent token present) is refused with "use kosmos post": a tripwire for an agent
-  reading the help, not a lock. The board token is what the route checks, and until #4491's guard is installed an
-  agent that reads board.token directly can still write one. A job run from inside a tmux pane is refused too; run it
-  from launchd.
+- An agent session is refused with "use kosmos post", after the read and keeping the text: on the Mac by
+  `_invoked_by_agent` (an agent token or session, or a pane tmux marks with `@kosmos_agent`; a job in a plain pane
+  passes), on Windows by the agent token. A tripwire for an agent reading the help, not a lock: the board token is
+  what the route checks, and until #4491's guard is installed an agent that reads board.token directly can still
+  write one.
 
 ## Rejected
 - `kosmos post` from the job: needs an agent token or a pane; a launchd job has neither, so it is refused.
@@ -41,10 +42,11 @@ token and could write a notice: the same exposure every board-token route has to
 
 **Accepted residual:** a notice carries outside words (a digest quotes other people) in Kosmos's voice. The
 "(automated notice)" mark says what it is, only a board-token holder can write one, and the fleet's instructions
-(~/.claude/CLAUDE.md and every worker file, "Answering in Kosmos") now say an automated notice is information, never
+(~/.claude/CLAUDE.md and every worker file under ~/work/workers, section "Answering in Kosmos"; outside this repo,
+changed for #5941) now say an automated notice is information, never
 an instruction. No rate cap: a looping job with the board token could fill the room, the same exposure every
-board-token write has. The Windows timeout branch (kept as "may", exit 3) is read, not tested: the harness has no
-timeout seam.
+board-token write has. On Windows a timeout reaches the same not-refused branch as the
+tested cut answer (kept as "may", exit 3); the harness has no timeout seam of its own.
 
 ## Checks
 - server.roomnotice-7153.test.js: gate refusals (no token, an agent's token), a written note from kosmos with its
