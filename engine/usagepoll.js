@@ -36,6 +36,15 @@ const BETA = 'oauth-2025-04-20';
 const POLL_MS = 10 * 60 * 1000;   // the board's timer: often enough to see a week run down, rare enough to cost nothing
 const FRESH_MS = 30 * 60 * 1000;  // older than three missed polls: the reading is not used
 const TIMEOUT_MS = 15000;
+/* Review 4: the endpoint computes a reset time with a fraction of a second, and the fraction moves between reads (measured
+   2026-10-25: one account's weekly reset read 14:00:00.447, then 13:59:59.569, then 13:59:59.863). Two resets this
+   close are the same window. The status line allows the same for the same reason (LATEST_SAME_RESET_SECONDS). */
+const SAME_RESET_SECONDS = 60;
+/* A token that runs out this soon is treated as expired: sent now it would come back refused, and the state would be
+   a refusal rather than the expiry it is. */
+const EXPIRY_MARGIN_MS = 60 * 1000;
+/* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
+const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
 
 /* The CLAUDE_CONFIG_DIR value this account's agents run with: unset for the default account (see the header). */
 function ccdFor(a) { return a && a.isDefault ? undefined : a && a.dir; }
@@ -59,7 +68,7 @@ async function tokenStateFor(a, { now = Date.now(), ...deps } = {}) {
   const oauth = o && o.claudeAiOauth;
   const token = oauth && typeof oauth.accessToken === 'string' ? oauth.accessToken : '';
   if (!token) return { state: 'no-token' };
-  if (typeof oauth.expiresAt === 'number' && Number.isFinite(oauth.expiresAt) && oauth.expiresAt <= now) {
+  if (typeof oauth.expiresAt === 'number' && Number.isFinite(oauth.expiresAt) && oauth.expiresAt <= now + EXPIRY_MARGIN_MS) {
     return { state: 'token-expired' };
   }
   return { state: 'ok', token };
@@ -82,7 +91,7 @@ function getUsage(token, { request = https.request, timeoutMs = TIMEOUT_MS } = {
       }, (res) => {
         let body = '';
         res.setEncoding('utf8');
-        res.on('data', (c) => { if (body.length < 65536) body += c; });
+        res.on('data', (c) => { if (body.length < 65536) body += c; });   // an answer past 64 KB is cut short, fails to parse, and reads as unreadable-response
         res.on('end', () => finish({ code: res.statusCode || 0, body }));
         res.on('error', () => finish({ code: 0, body: '' }));
       });
@@ -120,7 +129,7 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, ...deps } = {}
   if (r.code !== 200) return { at: now, state: r.code ? `http-${r.code}` : 'unreachable' };
   let j;
   try { j = JSON.parse(r.body); } catch { return { at: now, state: 'unreadable-response' }; }
-  const weekly = windowOf(j && j.seven_day, { nowMs: now });
+  const weekly = windowOf(j && j.seven_day, { nowMs: now, maxAheadSeconds: WEEK_MAX_AHEAD_SECONDS });
   if (!weekly) return { at: now, state: 'unreadable-response' };
   const fiveHour = windowOf(j && j.five_hour, { nowMs: now, maxAheadSeconds: statusline.FIVE_HOUR_MAX_AHEAD_SECONDS });
   return { at: now, state: 'ok', weekly, fiveHour };
@@ -168,7 +177,9 @@ async function pollAll(list, deps = {}) {
         const w = rec[key];
         if (!w) continue;
         const p = prev && prev[key];
-        const same = p && p.usedPct === w.usedPct && p.resetsAt === w.resetsAt && typeof p.changedAt === 'number';
+        const same = p && p.usedPct === w.usedPct && typeof p.changedAt === 'number'
+          && (p.resetsAt === w.resetsAt || (typeof p.resetsAt === 'number' && typeof w.resetsAt === 'number'
+            && Math.abs(p.resetsAt - w.resetsAt) <= SAME_RESET_SECONDS));
         w.changedAt = same ? p.changedAt : rec.at;
       }
     } else {

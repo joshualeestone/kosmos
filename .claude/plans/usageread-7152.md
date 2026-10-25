@@ -25,6 +25,11 @@ at 0%, had no reading at all (the card's opening).
   and the page shows it as "last saw it change". So an idle account no longer claims a fresh change every ten minutes,
   and "newer" compares like with like. weeklyBlockedOf returns null while a fresh endpoint reading exists, because
   that reading does update: "it will not update" and "Set up usage reading" would be false next to it.
+- Review 4: two resets within 60 s are the same window (the endpoint's reset carries a fraction of a second that moves
+  between reads: measured 14:00:00.447, then 13:59:59.569, on one account), so jitter is not a change. Within one window
+  (resets within an hour) accountsweekly takes the HIGHER figure, since usage only rises, so a lagging source cannot
+  win by being later. A token with under a minute left counts as expired, and a weekly reset more than 8 days out is
+  not a reading.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -70,7 +75,7 @@ defensive, and is kept because its cost is one line).
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 14 tests (2 added in review 3: the change time, and the cleared "will not update"; 3 added in review 1: the null reset and the five-hour bound; a failed read keeping
+- engine/usagepoll-7152.test.js, 17 tests (counted from a run; 3 added in review 4: reset jitter, the higher figure within a window, the expiry margin and weekly cap; 2 added in review 3: the change time, and the cleared "will not update"; 3 added in review 1: the null reset and the five-hour bound; a failed read keeping
   its figures, dated when measured; the hard deadline), with an injected Keychain reader and request, no real credential and no network.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

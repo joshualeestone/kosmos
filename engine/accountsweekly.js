@@ -28,8 +28,15 @@ function newer(statusLine, polled) {
   const b = polled ? { usedPct: polled.usedPct, resetsAt: polled.resetsAt * 1000, at: polled.at } : null;
   if (!a) return b;
   if (!b) return a;
+  /* Review 4: two readings of the SAME window (resets within an hour of each other; the two sources stamp the reset
+     slightly differently) are compared by figure, because usage within a window only rises: the higher one is the
+     later truth, whichever source was quicker to see it. Across windows, the newer reading wins. */
+  if (Math.abs(a.resetsAt - b.resetsAt) <= SAME_WINDOW_MS) {
+    if (a.usedPct !== b.usedPct) return a.usedPct > b.usedPct ? a : b;
+  }
   return b.at >= a.at ? b : a;
 }
+const SAME_WINDOW_MS = 3600 * 1000;
 
 /* The endpoint's figure for one window, dated when it last CHANGED (usagepoll's changedAt), which is what the status
    line's `at` means and what the page shows as "last saw it change". A window with no reset time yet is left to the

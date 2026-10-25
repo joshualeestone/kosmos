@@ -201,6 +201,36 @@ test('#7152 review 3: a reading is dated when its figure last changed, as the st
   assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 21 * 60000).at, NOW + 20 * 60000, 'a changed figure kept the old time');
 });
 
+test('#7152 review 4: a reset that moves by under a minute between reads is the same window, so nothing changed', async (t) => {
+  const d = tmpDir(t);
+  const at = (now, body) => ({ now, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
+  await usagepoll.pollAll([{ dir: d }], at(NOW, BODY));
+  const jitter = BODY.replace('2026-10-30T14:00:00.447704', '2026-10-30T13:59:59.569985');
+  assert.notEqual(jitter, BODY, 'CONTROL: the jittered body differs');
+  await usagepoll.pollAll([{ dir: d }], at(NOW + 10 * 60000, jitter));
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 11 * 60000).at, NOW, 'a reset that moved by a second claimed a change');
+  const nextWeek = BODY.replace('2026-10-30T14:00:00.447704', '2026-10-31T14:00:00.447704');
+  await usagepoll.pollAll([{ dir: d }], at(NOW + 20 * 60000, nextWeek));
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 21 * 60000).at, NOW + 20 * 60000, 'CONTROL: a new week is a change');
+});
+
+test('#7152 review 4: within one window the higher figure wins, whichever source saw it first', (t) => {
+  const d = tmpDir(t);
+  const resetsAt = Math.floor((NOW + 3 * 86400000) / 1000);
+  fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 52, resetsAt, at: NOW - 30000, history: [] }));
+  usagepoll.write(d, { at: NOW, state: 'ok', weekly: { usedPct: 51, resetsAt: resetsAt + 1, changedAt: NOW }, fiveHour: null });
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 1000).usedPct, 52, 'a lagging endpoint figure beat the status line\'s higher one');
+  usagepoll.write(d, { at: NOW, state: 'ok', weekly: { usedPct: 55, resetsAt, changedAt: NOW }, fiveHour: null });
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 1000).usedPct, 55, 'CONTROL: a higher endpoint figure wins');
+});
+
+test('#7152 review 4: a token about to run out is expired, and a weekly reset years away is not a reading', async () => {
+  const st = await usagepoll.tokenStateFor({ dir: '/u/x' }, { now: NOW, platform: 'darwin', readCred: async () => cred({ expiresAt: NOW + 30000 }) });
+  assert.equal(st.state, 'token-expired', 'a token with 30 s left was sent');
+  assert.equal(usagepoll.windowOf({ utilization: 5, resets_at: '2030-01-01T00:00:00Z' }, { nowMs: NOW, maxAheadSeconds: 8 * 86400 }), null);
+  assert.notEqual(usagepoll.windowOf({ utilization: 5, resets_at: '2026-10-30T14:00:00Z' }, { nowMs: NOW, maxAheadSeconds: 8 * 86400 }), null, 'CONTROL: a reset within the week is a reading');
+});
+
 test('#7152 review 3: a fresh endpoint reading clears "will not update", since the endpoint keeps it updating', (t) => {
   const d = tmpDir(t);
   assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW), 'not-wired', 'CONTROL: no settings, no reading');
