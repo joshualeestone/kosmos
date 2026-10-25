@@ -29,9 +29,18 @@ cover the filter and the sentence with a broken-copy control that goes red.
 ## Decided, not missed
 - Kosmos rows (who == .kosmos) match by text only. Weakest premise: the board's dmWho on a kosmos
   row may give a non-empty from; changing it is one line if the reader finds it does.
-- Pending (sent, not yet a row) bubbles stay visible while searching: on the phone they are the
-  send's own feedback, not thread rows, so the board's "That message is hidden by your search."
-  case does not arise until it lands as a row. Rejected: hiding them (a send would vanish).
+- Pending (sent, not yet a row) bubbles stay visible while searching. The board leaves its pending
+  row out while filtering and instead adds "Clear the search to see it." to its not-sent line; the
+  phone has no such line, a failed send's only feedback is its own bubble, so hiding it would hide
+  the failure. Rejected: following the board here. The board's "That message is hidden by your
+  search." comes from jumping to a reply's original, which the phone does not have (#7083: header
+  not a jump), so it does not arise.
+- While searching every reply draws its header (dmReplyAdjacency: not while filtering), pending too.
+- Clearing the search scrolls to the newest message: the board resumes following then (convFollow
+  when not filtering). Weakest premise: a reader who scrolled up before searching loses that place.
+- The field is SwiftUI .searchable in the navigation bar drawer (iOS 16), shown by pulling down, the
+  system pattern for a conversation; the board's phone layout also hides the field at rest.
+- The query clears when the chat goes off screen, so coming back always shows everything.
 - Day lines are recomputed over the filtered rows (chatItems runs on what is shown), as the board
   repaints the filtered rows.
 - Not here: room search (pjRoomFilterRows, valve-band rule), searching unloaded history.

@@ -70,6 +70,9 @@ struct ChatView: View {
     @FocusState private var composerFocused: Bool
     @State private var reactNote: String?
     @State private var reacting: Set<String> = []
+    // kosmos#7089: the search field's words. The thread shows only the loaded rows they match (Board.chatFilter).
+    @State private var query = ""
+    private var searching: Bool { Board.chatSearching(query) }
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -127,12 +130,22 @@ struct ChatView: View {
         .onDisappear {
             visible = false
             armed = nil
+            // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
+            // search on opening another agent).
+            query = ""
             // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
             if epoch == client.chatEpoch { client.drafts[agent.session] = draftText }
             loop?.cancel()
             loop = nil
         }
         .onChange(of: thread) { _ in recomputeHiddenHeads() }
+        // kosmos#7089: in the bar's drawer, shown by pulling the thread down, as other iPhone conversations do.
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
+        .onChange(of: query) { _ in
+            recomputeHiddenHeads()
+            // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
+            if !searching { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+        }
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
@@ -195,7 +208,10 @@ struct ChatView: View {
     @ViewBuilder private var conversation: some View {
         if let thread {
             // Day lines run across loaded pages, so a page that ends mid-day does not repeat that day's line.
-            let items = Board.chatItems(Board.shownRows(earlier, thread: thread), now: Date(), calendar: .current)
+            // A search shows only the loaded rows it matches, day lines worked out over those (the board repaints the
+            // filtered rows the same way).
+            let rows = Board.chatFilter(Board.shownRows(earlier, thread: thread), agentName: shown.name, query: query)
+            let items = Board.chatItems(rows, now: Date(), calendar: .current)
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -214,6 +230,7 @@ struct ChatView: View {
                                 if self.thread != nil { settledAtEnd = true }
                             }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
+                        else if searching && rows.isEmpty { noMatch }
                         ForEach(items) { item in
                             itemView(item).id(item.id)
                                 // Which rows are on screen, so a page landing above keeps the one the reader is on.
@@ -315,8 +332,18 @@ struct ChatView: View {
     }
 
     // New messages come in at the bottom; if the person has scrolled up, the view stays and the capsule offers a jump.
+    // Not while searching: the person is reading what matched, and a new message may not even be among it (the
+    // board's convPause, #5624).
     private func follow(_ proxy: ScrollViewProxy) {
+        if searching { return }
         if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
+    }
+
+    private var noMatch: some View {
+        Text(Board.chatNoMatch(query)).font(.subheadline).foregroundColor(Palette.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 60)
     }
 
     private var empty: some View {
@@ -446,7 +473,8 @@ struct ChatView: View {
     // while one loads, never after a failure until Try again. Called when the top appears, after every read, and on
     // Try again (the board's earlierNearTop: on scroll, after a paint, and from its button).
     private func loadEarlier() {
-        guard let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
+        // A search shortens the thread; its top showing is not a reader at the top (the board's earlierNearTop).
+        guard !searching, let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
         else { return }
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
         earlier = start
@@ -842,14 +870,15 @@ struct ChatView: View {
     }
     // The pending messages whose header is left out (dmReplyAdjacency's `next`, carried through them in order).
     private var pendingHeadsHidden: Set<String> {
-        guard let thread else { return [] }
+        guard let thread, !searching else { return [] }
         return Board.pendingRepliesUnderOriginal(pending, after: Board.shownRows(earlier, thread: thread))
     }
     // The rows whose header is left out on screen (dmReplyAdjacency), worked out once when the conversation changes, not
     // once per row (review 4: per row it was quadratic on every redraw).
     @State private var hiddenHeads: Set<String> = []
     private func recomputeHiddenHeads() {
-        hiddenHeads = thread.map { Board.repliesUnderOriginal(Board.shownRows(earlier, thread: $0)) } ?? []
+        // Not while searching, which hides the rows between (dmReplyAdjacency): every reply draws its header then.
+        hiddenHeads = searching ? [] : thread.map { Board.repliesUnderOriginal(Board.shownRows(earlier, thread: $0)) } ?? []
     }
 
     // The strip above the composer: who and what the next send answers, and an x.
