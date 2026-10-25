@@ -41,7 +41,7 @@ test('changedLines: a long change is cut and says so; a rewrite too large to dif
   const many = Array.from({ length: 400 }, (_, k) => 'line ' + k).join('\n');
   const changed = many.replace(/line (\d+)/g, 'row $1');
   const d = ir.changedLines(many, changed);
-  assert.ok(d.split('\n').length <= 162, 'the changes were not capped');
+  assert.ok(d.split('\n').length <= 160, 'the changes were not capped at 160 lines, cut note included');
   assert.ok(Buffer.byteLength(d) <= 33 * 1024, 'the changes were not capped by size');
   assert.match(d, /More changed than fits here/);
   const huge = Array.from({ length: 2500 }, (_, k) => 'a' + k).join('\n');
@@ -133,7 +133,7 @@ test('passOnce CONTROL: a line that did not land moves no copy; without prepareC
 test('the report route takes the copy at a session start, and the board pass is handed both hooks (read as source)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /if \(body\.state === 'started'\) \{ try \{ require\('\.\/engine\/instructionreread'\)\.rememberRead\(who\); \}/);
-  assert.match(src, /prepareChanges: \(session\) => ir\.prepareChanges\(session\),\s*remember: \(session, text\) => ir\.remember\(session, text\),/);
+  assert.match(src, /prepareChanges: \(session\) => ir\.prepareChanges\(session\),\s*remember: \(session, text\) => ir\.remember\(session, text\),\s*dropChanges: \(session\) => ir\.dropChanges\(session\),/);
 });
 
 test('review 1 BLOCKER: a link planted at the changes file is replaced, never followed; both new files are 0600', () => {
@@ -241,4 +241,58 @@ test('review 2: a folder path with a space is never named in the line', () => {
 test('review 2: deleting what is left of an agent forgets its copy (delete-leftover, read as source)', () => {
   const src = fs.readFileSync(path.join(__dirname, 'delete-leftover.js'), 'utf8');
   assert.match(src, /require\('\.\/instructionreread'\)\.forget\(p\.name\)/);
+});
+
+test('review 3: the byte cap cuts (cut note inside it); one line larger than the cap names no file at all', () => {
+  const wide = Array.from({ length: 300 }, (_, k) => 'w' + k + ' ' + 'y'.repeat(300)).join('\n');
+  const d = ir.changedLines(wide, wide.replace(/y/g, 'z'));
+  assert.ok(d.split('\n').length < 160, 'this probe was meant to be cut by bytes, not lines');
+  assert.ok(Buffer.byteLength(d) <= 32 * 1024, 'the changes passed the byte cap');
+  assert.match(d, /More changed than fits here/);
+  assert.equal(ir.changedLines('a'.repeat(40000), 'b'.repeat(40000)), null);
+});
+
+test('review 3: a lone CR ends a line; a fence of four backticks is not closed by three', () => {
+  assert.equal(ir.changedLines('## S\ra\rb\r', '## S\ra\rc\r'), '\nUnder S:\n- b\n+ c');
+  const f = ['## Real', '````', '```', '# fake', '````', 'z', ''].join('\n');
+  assert.match(ir.changedLines(f, f.replace('\nz\n', '\nZ\n')), /^\nUnder Real:\n- z\n\+ Z$/);
+});
+
+test('review 3: a line naming no changes file, and a debt ended without a line, drop the old file', async () => {
+  const dropped = [];
+  const held = passArgs({ owed: { ida: debt(['community', 'rules']) }, o: { sectionOn: (s) => s === 'rules', dropChanges: (s) => dropped.push(s) } });
+  await ir.passOnce(held.o);
+  assert.deepEqual(dropped, ['ida'], 'a held line left an old changes file');
+  const gone = [];
+  const g = passArgs({ owed: { ghost: debt() }, o: { seenMissing: new Set(['ghost']), dropChanges: (s) => gone.push(s) } });
+  const r = await ir.passOnce(g.o);
+  assert.deepEqual(r.map((x) => x.act), ['gone']);
+  assert.deepEqual(gone, ['ghost']);
+  // CONTROL: a line that names a file drops nothing.
+  const named = [];
+  const n = passArgs({ owed: { ida: debt() }, o: { dropChanges: (s) => named.push(s) } });
+  await ir.passOnce(n.o);
+  assert.deepEqual(named, []);
+});
+
+test('review 3: an UNCONFIRMED line (or a throwing deliver) moves the copy, as settle ends the debt', async () => {
+  const u = passArgs({ owed: { ida: debt() }, o: { deliver: async (s, line) => { u.sent.push([s, line]); return { state: D.UNCONFIRMED }; } } });
+  await ir.passOnce(u.o);
+  assert.deepEqual(u.remembered, [['ida', AFTER]]);
+  const t = passArgs({ owed: { ida: debt() }, o: { deliver: async () => { throw new Error('pasted, then failed'); } } });
+  await ir.passOnce(t.o);
+  assert.deepEqual(t.remembered, [['ida', AFTER]]);
+});
+
+test('review 3: a folder path with a double quote is never named', () => {
+  const instructions = require('./instructions');
+  const realFile = instructions.fileFor;
+  const realRead = instructions.read;
+  instructions.fileFor = (s) => (s === 'hal' ? path.join(SANDBOX, 'q"uote', 'CLAUDE.md') : realFile(s));
+  instructions.read = (s) => (s === 'hal' ? { exists: true, text: AFTER } : realRead(s));
+  try {
+    fs.mkdirSync(path.join(SANDBOX, 'q"uote'), { recursive: true });
+    ir.remember('hal', BEFORE);
+    assert.equal(ir.prepareChanges('hal').path, null);
+  } finally { instructions.fileFor = realFile; instructions.read = realRead; }
 });

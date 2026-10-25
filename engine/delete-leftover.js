@@ -544,6 +544,7 @@ function del(name, opts) {
   try { require('./stuckterminal').forget(p.name); } catch { /* #5154 slice C: its stuck-terminal anchor goes too */ }
   try { require('./toolloop').forget(p.name); } catch { /* #6071: nor a run of repeated tool failures */ }
   try { require('./ownbounds').forget(p.name); } catch { /* #5154 slice B: its own-bound give-up episodes go too */ }
+  try { require('./instructionreread').forget(p.name); } catch { /* kosmos#7149: its copy of what it last read, and its changes file */ }
   try { require('./liveness').forget(p.name); } catch { /* #5957 slice 3: and its last report */ }
   try { tokens = sendertoken.revoke(p.name); } catch (err) {
     tokens = { ok: false, because: String((err && err.message) || err) };
@@ -561,8 +562,6 @@ function del(name, opts) {
      and while either is left the agent can still start. A stuck token alone does not hold it back, because a retry
      is refused once the folder and job are gone, so this is the only chance to retire it. */
   if (!stuck.some((s) => s !== 'its sender tokens')) {
-    // kosmos#7149: Kosmos's copy of what the agent last read of its instructions goes with its files. Bookkeeping only.
-    try { require('./instructionreread').forget(p.name); } catch { /* nothing kept, or nothing to say */ }
     try {
       require('./communitysend').requestRetire(p.name);
       steps.push({ step: 'its community account', ok: true });

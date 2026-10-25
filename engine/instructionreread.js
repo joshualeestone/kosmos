@@ -257,7 +257,7 @@ function forget(session) {
 function changedLines(before, after) {
   // Review 1: a CRLF file compares and prints without its carriage returns.
   // Review 2: one trailing newline more or less is not a change.
-  const norm = (s) => String(s).replace(/\r\n/g, '\n').replace(/\n$/, '');
+  const norm = (s) => String(s).replace(/\r\n?/g, '\n').replace(/\n$/, '');   // review 3: a lone CR is a line end too
   const a = norm(before).split('\n');
   const b = norm(after).split('\n');
   let pre = 0;
@@ -279,11 +279,14 @@ function changedLines(before, after) {
   // A heading is a # line OUTSIDE a fenced code block (review 1: a shell comment in a fence is not a section).
   const headsOf = (lines) => {
     const heads = new Array(lines.length);
-    let fence = null;   // review 2: the marker that opened it; only the same marker closes it
+    /* The opening run (review 3, as CommonMark): only a run of the same character at least as long closes it, with
+       nothing after it but spaces. */
+    let fence = null;
     let cur = null;
     for (let k = 0; k < lines.length; k += 1) {
-      const m = /^\s*(```|~~~)/.exec(lines[k]);
-      if (m) fence = fence === null ? m[1] : (fence === m[1] ? null : fence);
+      const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[k]);
+      if (m && fence === null) fence = m[1];
+      else if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) fence = null;
       else if (fence === null && /^#{1,6} \S/.test(lines[k])) cur = lines[k];
       heads[k] = cur;
     }
@@ -308,11 +311,15 @@ function changedLines(before, after) {
   const out = [];
   let bytes = 0;
   let cut = false;
-  const fits = (s) => out.length < CHANGES_LINES_MAX && bytes + Buffer.byteLength(s) + 1 <= CHANGES_BYTES_MAX;
+  // Room is kept for the cut note (review 3), so a cut file stays inside both caps.
+  const NOTE = '[More changed than fits here: read the sections the notice names.]';
+  const lineRoom = CHANGES_LINES_MAX - 2;
+  const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2;
+  const fits = (s) => out.length < lineRoom && bytes + Buffer.byteLength(s) + 1 <= byteRoom;
   for (const r of runs) {
     // A label and at least one of its lines fit, or the run is left for the sections the notice names.
     const label = r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'At the top of the file:';
-    if (out.length + 3 > CHANGES_LINES_MAX || !fits('\n' + label + '\n' + r.lines[0])) { cut = true; break; }
+    if (out.length + 3 > lineRoom || !fits('\n' + label + '\n' + r.lines[0])) { cut = true; break; }
     out.push('', label);
     bytes += Buffer.byteLength(label) + 2;
     for (const l of r.lines) {
@@ -322,7 +329,9 @@ function changedLines(before, after) {
     }
     if (cut) break;
   }
-  if (cut) out.push('', '[More changed than fits here: read the sections the notice names.]');
+  // Review 3: nothing fit (one line larger than the cap): too large, so the line names no file.
+  if (!out.length) return null;
+  if (cut) out.push('', NOTE);
   return out.join('\n');
 }
 /* Before a line: the current file, and (when a copy of what the agent last read exists and differs) the path of the
@@ -419,7 +428,12 @@ async function passOnce(o) {
     const cleared = {};
     const keep = {};
     let tried = 0;
-    const end = (session, act) => { cleared[session] = owed[session].n; out.push({ session, act }); };
+    const end = (session, act) => {
+      cleared[session] = owed[session].n;
+      out.push({ session, act });
+      // Review 3: a debt that ends without a line leaves no changes file behind.
+      if (act !== 'sent' && typeof o.dropChanges === 'function') { try { o.dropChanges(session); } catch { /* the next start removes it */ } }
+    };
     const ours = new Set(roster.filter((c) => c && c.isNamedOurs === true).map((c) => String(c.sessionName)));
     for (const session of Object.keys(owed)) {
       const debt = owed[session];
@@ -458,6 +472,8 @@ async function passOnce(o) {
          while a section is held (off): the copy would move past a change the agent is not told about yet. */
       let prepared = null;
       if (!off.length && typeof o.prepareChanges === 'function') { try { prepared = o.prepareChanges(session); } catch { prepared = null; } }
+      // Review 3: a line that names no changes file leaves none behind (a held section, or prepareChanges not reached).
+      if (!(prepared && prepared.path) && typeof o.dropChanges === 'function') { try { o.dropChanges(session); } catch { /* the next start removes it */ } }
       const line = lineFor(on, { communityStopped: stoppedNow, changesAt: prepared && prepared.path });
       tried += 1;
       const sentAt = Date.now();   // before the send: the agent's own report of the turn can land before deliver returns
@@ -494,4 +510,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { changedLines, prepareChanges, remember, rememberRead, forget, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };

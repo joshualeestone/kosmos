@@ -1439,6 +1439,7 @@ async function instructionRereadPass() {
       // kosmos#7149: the changed lines since the agent last read its file, named in the line; the copy moves on when it lands.
       prepareChanges: (session) => ir.prepareChanges(session),
       remember: (session, text) => ir.remember(session, text),
+      dropChanges: (session) => ir.dropChanges(session),
     });
     for (const d of done) if (['sent', 'restarted', 'gone', 'expired'].includes(d.act)) process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
   } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
