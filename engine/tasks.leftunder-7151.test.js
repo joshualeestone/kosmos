@@ -48,9 +48,10 @@ test('never offered: anything on it the person set up (repeat, due date, done-wh
   const p = project([cycle,
     agentTask(2, { repeat: { every: 'week' } }), agentTask(3, { dueDate: '2026-11-01' }), agentTask(4, { doneWhen: 'the box is green' }),
     agentTask(5, { parts: [{ who: 'kit', addedVia: 'screen' }] }), agentTask(6, { parts: [{ who: 'kit', addedVia: 'process', movedVia: 'screen' }] }),
-    agentTask(7, { parts: [{ who: 'kit', addedVia: 'process' }] })]);
+    ]);
   for (const n of [2, 3, 4, 5, 6]) assert.equal(of(p, n), null, 'task ' + n);
-  assert.equal(of(p, 7), 1, 'CONTROL: an agent\'s own part leaves it offered');
+  const own = project([cycle, agentTask(7, { parts: [{ who: 'kit', addedVia: 'process' }] })]);
+  assert.equal(of(own, 7), 1, 'CONTROL: an agent\'s own part leaves it offered (alone under its parent, so no sibling rule applies)');
 });
 
 test('never offered: a follow-up filed after its parent closed, at the same moment, or with no dates', () => {
@@ -133,10 +134,19 @@ test('a store whose parent links loop above the parent ends, and offers nothing 
   assert.equal(r.stdout, 'null', 'a loop above the parent offers nothing');
 });
 
+test('another task under the same parent still open and the person\'s, built or held, rules it out (review 8)', () => {
+  const sib = (extra = {}) => ({ number: 3, parent: 1, createdAt: at(4), addedVia: 'screen', ...extra });
+  assert.equal(of(project([cycle, agentTask(2), sib()]), 2), null, 'the person\'s own task under the parent is still open');
+  assert.equal(of(project([cycle, agentTask(2), sib({ addedVia: 'process', addedBy: 'kit', builtAt: at(10) })]), 2), null, 'a sibling built, waiting on review');
+  assert.equal(of(project([cycle, agentTask(2), sib({ addedVia: 'process', addedBy: 'kit', onHold: true })]), 2), null, 'a sibling on hold');
+  assert.equal(of(project([cycle, agentTask(2), sib({ closedAt: at(19) })]), 2), 1, 'CONTROL: the person\'s sibling closed');
+  assert.equal(of(project([cycle, agentTask(2), agentTask(3)]), 2), 1, 'CONTROL: an agent\'s own open leftover beside it');
+});
+
 test('only open tasks are offered: never one done, built (waiting on review) or on hold', () => {
-  const p = project([cycle, agentTask(2, { closedAt: at(22) }), agentTask(3, { builtAt: at(10) }), agentTask(4, { onHold: true }), agentTask(5)]);
+  const p = project([cycle, agentTask(2, { closedAt: at(22) }), agentTask(3, { builtAt: at(10) }), agentTask(4, { onHold: true })]);
   for (const n of [2, 3, 4]) assert.equal(of(p, n), null, 'task ' + n);
-  assert.equal(of(p, 5), 1, 'CONTROL: the same task open is offered');
+  assert.equal(of(project([cycle, agentTask(5)]), 5), 1, 'CONTROL: the same task open is offered');
 });
 
 test('a parent closed by all its parts closes when its last part did', () => {
@@ -157,7 +167,7 @@ const AGENT_HISTORY = [{ at: at(5), kind: 'created', addedVia: 'process', addedB
 const rowOf = (p, n) => ({ ...p.tasks.find((t) => t.number === n), projectId: p.id });
 
 test('retireOffers: an offered row, and the roster read only when some row would be offered', () => {
-  const p = project([cycle, agentTask(2), agentTask(3, { addedVia: 'screen' })]);
+  const p = project([cycle, agentTask(2), agentTask(3, { addedVia: 'screen', parent: undefined })]);
   let reads = 0;
   const roster = () => { reads += 1; return [{ ...realCard('kit'), state: 'working' }]; };
   const offers = tasks.retireOffers([rowOf(p, 2), rowOf(p, 3)], [p], roster, () => AGENT_HISTORY);

@@ -3,7 +3,7 @@
 /**
  * kosmos#7151 (feedback: tasks left behind by finished cycles pile up): `GET /api/tasks?state=open&quietDays=N` (the
  * list `kosmos task list --stale` prints) marks a quiet task with `leftUnder`, the closed parent it was left under, by
- * tasks.retireOffers: an agent filed it, everything above it has finished since it was made, its whole history is an
+ * tasks.retireOffers: an agent filed it, its parent closed after it was made and every task above that is closed, its whole history is an
  * agent's own rows, and its agent is not waiting on the person. Nothing is retired: the field only offers it.
  *
  * Same harness as server.tasks-across-7057.test.js: the board boots fully sandboxed, then enforces a board token.
@@ -64,12 +64,15 @@ function withProjects(t) {
   projectsEngine.readAll = () => [
     { id: 'cyc7151', name: 'Cycle', agents: ['kit-7151'], tasks: [
       { number: 1, sentence: 'the cycle', createdAt: ago(60), closedAt: ago(20), addedVia: 'screen' },
+      /* A second finished cycle for the person's own and the held task: under #1 they would (rightly) keep #2 from
+         being offered, review 8's sibling rule, which is tested in the engine suite. */
+      { number: 9, sentence: 'another cycle', createdAt: ago(60), closedAt: ago(20), addedVia: 'screen' },
       { number: 2, sentence: 'diagnostic left behind', parent: 1, createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151', parts: [{ who: 'kit-7151' }] },
       { number: 3, sentence: 'follow-up filed after', parent: 1, createdAt: ago(15), addedVia: 'process', addedBy: 'kit-7151' },
-      { number: 4, sentence: 'the persons own', parent: 1, createdAt: ago(40), addedVia: 'screen' },
+      { number: 4, sentence: 'the persons own', parent: 9, createdAt: ago(40), addedVia: 'screen' },
       { number: 5, sentence: 'one the person set a done-when on', parent: 1, createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151' },
       { number: 6, sentence: 'top level, no parent', createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151' },
-      { number: 7, sentence: 'left behind but on hold', parent: 1, createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151', onHold: true },
+      { number: 7, sentence: 'left behind but on hold', parent: 9, createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151', onHold: true },
       { number: 8, sentence: 'no date of its own', parent: 1, addedVia: 'process', addedBy: 'kit-7151' },
     ] },
   ];

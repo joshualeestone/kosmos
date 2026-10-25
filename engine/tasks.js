@@ -1823,7 +1823,8 @@ function agentsOwn(t) {
  *   - its parent is closed as done (not replaced by another task: that work moved on, it did not finish), and this
  *     task was made BEFORE the parent closed. Filing a follow-up under finished work is allowed on purpose
  *     (parentProblem), so a task made after its parent closed is new work. Every task above the parent is closed as
- *     done too: a closed step of open work is work still going on. A task or a close with no date is never offered.
+ *     done too: a closed step of open work is work still going on. And no other task under the parent is still open
+ *     and the person's, built or held. A task or a close with no date is never offered.
  * The rest is the caller's (retireOffers): its history, its agent, the list's quiet days. `tree` is treeOf(p), passed
  * in so a list builds it once per project.
  */
@@ -1841,6 +1842,10 @@ function leftUnder(p, task, tree = treeOf(p)) {
   if (!parent || Number.isSafeInteger(parent.replacedBy)) return null;
   const done = closedAtOf(parent);
   if (!(done && Number.isFinite(Date.parse(done)) && made < Date.parse(done))) return null;
+  // Review 8: a parent can be closed with work still open under it. Another task under the same parent that is still
+  // open and the person's (or built, waiting on review, or held) means the work it was part of has not finished.
+  if (tree.under(up).some((sib) => sib && sib.number !== task.number && !closedAtOf(sib)
+    && (!agentsOwn(sib) || listGroup(sib) !== 'open'))) return null;
   // Every task above the parent is finished too, so the whole piece of work it belonged to has ended: a closed step of
   // a task still open is work still going on (review 2). Bounded on a store that loops.
   const seen = new Set([task.number, up]);
