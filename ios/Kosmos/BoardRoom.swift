@@ -820,6 +820,9 @@ extension Board {
 }
 
 extension Board {
+    // kosmos#7096: the board's line when a reply's original is hidden by the search (PJ_HIDDEN_BY_SEARCH).
+    static let roomHiddenBySearch = "That message is hidden by your search."
+
     // kosmos#7096: the board's line for a read that could not read all of a room (paintRoom on ok false).
     static let roomPartialLine = "We could not read some of this room just now; what is below may be missing recent posts."
 

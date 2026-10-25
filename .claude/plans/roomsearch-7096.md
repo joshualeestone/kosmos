@@ -65,3 +65,7 @@ broken copy of BoardRoom run against them goes red (run by hand with run-room.sh
   the phone's read with a 503, roomFailed).
 - Tapping the room's composer with the search row open and empty puts the row away: the design's "leaving it
   empty hides it" (#7089), as in the chat. A row holding words stays.
+- A reply's header pressed while the search hides the post it answers does not move the room: the line under the
+  room says "That message is hidden by your search." (spoken), as the board's PJ_HIDDEN_BY_SEARCH, until the words
+  change or the search goes. Only for a post the room holds; one not loaded keeps the jump's own behaviour. Added
+  on the rebase onto #7101 (Mona Lisa's jump), as agreed with her: whichever merged second added this guard.
