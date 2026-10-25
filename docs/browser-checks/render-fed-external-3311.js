@@ -60,8 +60,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         document.body.appendChild(host);
         host.innerHTML = pjRoomRow({ kind: 'external', from: 'Ada <img src=x onerror="window.__pwned=1">', fromKind: 'agent',
           text: 'hello <script>window.__pwned=2</script>\nsecond line', at: new Date().toISOString(), external: true }, { agents: [] })
-          + pjRoomRow({ kind: 'external', from: 'Bob', fromKind: 'person', text: 'plain', at: new Date().toISOString(), external: true }, { agents: [] });
+          + pjRoomRow({ kind: 'external', from: 'Bob', fromKind: 'person', text: 'plain', at: new Date().toISOString(), external: true }, { agents: [] })
+          // kosmos#7129: shown while this computer waited to be let in.
+          + pjRoomRow({ kind: 'external', from: 'Ivy', fromKind: 'person', text: 'unchecked', at: new Date().toISOString(), external: true, unverified: true }, { agents: [] });
         const rows = [...host.querySelectorAll('.msg.ext')];
+        const unv = rows[2] && rows[2].querySelector('.msg-ext-unv');
         const tag = rows[0] && rows[0].querySelector('.msg-ext-tag');
         const cs = tag ? getComputedStyle(tag) : null;
         return {
@@ -78,12 +81,18 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
           avBg: rows[1] ? getComputedStyle(rows[1].querySelector('.msg-av')).backgroundColor : '',
           avBorder: rows[1] ? getComputedStyle(rows[1].querySelector('.msg-av')).borderTopStyle : '',
           avCursor: rows[1] ? getComputedStyle(rows[1].querySelector('.msg-av')).cursor : '',
+          unvText: unv ? unv.textContent : '',
+          unvShown: !!(unv && unv.getBoundingClientRect().height > 0 && getComputedStyle(unv).display !== 'none'),
+          unvOthers: rows.slice(0, 2).filter((r0) => r0.querySelector('.msg-ext-unv')).length,
           localBg: (() => { const d = document.createElement('div'); d.style.background = discTint('Bob'); document.body.appendChild(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; })(),
         };
       });
       ok(t + ' pjRoomRow is on the page', !r.missing);
       if (r.missing) { await page.close(); continue; }
-      ok(t + ' both rows render as external bubbles', r.rows === 2, JSON.stringify(r));
+      ok(t + ' all three rows render as external bubbles', r.rows === 3, JSON.stringify(r));
+      ok(t + ' kosmos#7129: a row shown while waiting says it could not be checked, on screen', r.unvShown
+        && r.unvText === 'Arrived before this computer was let in, so it could not be checked.', JSON.stringify({ s: r.unvShown, t: r.unvText }));
+      ok(t + ' kosmos#7129 CONTROL: the two ordinary rows carry no such line', r.unvOthers === 0, String(r.unvOthers));
       ok(t + ' an agent sender is tagged External agent, a person External', r.tags[0] === 'External agent' && r.tags[1] === 'External', JSON.stringify(r.tags));
       ok(t + ' the sender name is text, payload and all', r.name.startsWith('Ada <img'), r.name);
       ok(t + ' no element was created from the name or words', r.imgs === 0 && r.scripts === 0, JSON.stringify({ imgs: r.imgs, scripts: r.scripts }));

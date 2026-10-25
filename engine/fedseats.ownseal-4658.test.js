@@ -235,6 +235,8 @@ test('#4658 slice 2: a computer waiting to be let into an unsealed room holds it
   say(seat, { event: 'message', data: { from: 'Ada', kind: 'person', text: 'plain hello' } });
   await settle();
   assert.ok(h.recorded.some((r) => r.text === 'plain hello'), 'an unsealed message was refused while waiting');
+  // kosmos#7129: nothing checked who wrote it, and its row says so.
+  assert.strictEqual(h.recorded.find((r) => r.text === 'plain hello').unverified, true, 'a row shown while waiting was not marked unverified');
   const o = handOwner('room-c1', hello);
   say(seat, { event: 'message', data: o.offer });
   await settle();
@@ -260,6 +262,12 @@ test('#4658 slice 2: a computer waiting to be let into an unsealed room holds it
   fedseats.post('own-c1', { from: 'Josh', kind: 'person', text: 'after let in' });
   await settle();
   assert.ok(seat.written.join('').includes('after let in'), 'posts held again after a forged envelope');
+  // kosmos#7129 CONTROL: once let in, an unsealed message is an ordinary row of a clear room, not marked.
+  say(seat, { event: 'message', data: { from: 'Ada', kind: 'person', text: 'clear hello' } });
+  await settle();
+  const row = h.recorded.find((r) => r.text === 'clear hello');
+  assert.ok(row, 'a let-in computer refused an unsealed message');
+  assert.strictEqual(row.unverified, undefined, 'a let-in computer marked a clear room\'s message unverified');
 });
 
 test('#4658 slice 2: a computer with no seal record that sees an unopenable envelope waits for the owner\'s answer (pendingClear), and the owner\'s clear lets it go', async () => {

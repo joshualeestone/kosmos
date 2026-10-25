@@ -129,3 +129,13 @@ test('#4649 slice 3: a relay member is kept only in its account shape; anything 
   }
   assert.strictEqual(messages.externalPost('proj-1', { from: 'Scout', fromKind: 'agent', text: 'd' }).member, undefined, 'an older relay sends none');
 });
+
+test('kosmos#7129: a row shown while waiting to be let in is stored unverified, read back so; only exactly true counts', () => {
+  const row = messages.externalPost('proj-7129', { from: 'Ada', fromKind: 'person', text: 'waiting words', unverified: true });
+  assert.strictEqual(row.unverified, true);
+  const back = messages.record().rows.find((m) => m.id === row.id);
+  assert.strictEqual(back.unverified, true, 'the mark did not survive the store');
+  // CONTROLS: no mark, and a mark that is not exactly true, store no key at all.
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(messages.externalPost('proj-7129', { from: 'Ada', fromKind: 'person', text: 'a' }), 'unverified'), false);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(messages.externalPost('proj-7129', { from: 'Ada', fromKind: 'person', text: 'b', unverified: 'true' }), 'unverified'), false);
+});

@@ -21677,6 +21677,7 @@ const server = http.createServer(async (req, res) => {
              and the text view key on, never the name. */
           : m.kind === 'external'
           ? Object.assign({ kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true },
+            m.unverified === true ? { unverified: true } : {},   // kosmos#7129
             /* #4649 slice 3: the owner's own label for the account that posted (the relay's stamp, matched on this
                board). The stamp itself never leaves the board. */
             (() => { const l = typeof m.member === 'string' ? labelOf.get(m.member) : null; return l ? { invited_as: l } : {}; })())
@@ -21806,7 +21807,9 @@ const server = http.createServer(async (req, res) => {
             // posts are refused for carrying them (messages.js MARKERS); outside
             // words cannot be refused, so here they cannot spell one.
             const said = String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[«»]/g, '"').replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ');
-            return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + who + ' wrote: «' + said + '»'];
+            // kosmos#7129: shown while this computer waited to be let in, so nothing checked who wrote it.
+            const unchecked = m.unverified === true ? ' (arrived before this computer was let in, so it could not be checked)' : '';
+            return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + who + ' wrote: «' + said + '»' + unchecked];
           }
           const who = m.operator ? 'operator' : m.from;
           /* #2239: the store now keeps paragraph breaks in a post's text (for
