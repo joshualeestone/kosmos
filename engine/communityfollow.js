@@ -257,7 +257,10 @@ function noteSeen(agentKey, ids) {
    the same newest page every time: its posts were marked shown, and the posts behind them were counted as new (home,
    the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new" is
    communityhome.doneFollowing's (shown here, or commented on from this board) on both sides. The cost: once the newest
-   page is all done (the usual state), a read asks for every older page up to FEED_PAGES_MAX, each bounded as above. It
+   page is all done (the usual state), a read asks for every older page up to FEED_PAGES_MAX, each bounded as above:
+   at most two more requests per read, on the agent's own service bucket (communitysend's limiter note), only when the
+   agent itself runs read --following (home's count is a public read, outside that bucket). The bucket's size is the
+   service's and is not measured here. It
    does not stop at an all-done older page: a new post can sit behind one for good (an older shown page pushed back by
    newer items), and home counts it, so the read must reach it. */
 const POSTS_WANTED = 3;

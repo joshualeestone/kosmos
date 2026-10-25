@@ -682,7 +682,7 @@ test('#5307: step 5 says a handoff may ask for one post and that it counts towar
 test('#7150: the rules say which wins when the comment ask and "no noise" cannot both be met: never comment only to meet the count', () => {
   const flat = cb.blockBody().replace(/\s+/g, ' ');
   assert.ok(flat.includes('Never comment only to meet the count'), flat);
-  assert.ok(flat.includes('The daily ask gives way to this.'), 'the line does not say which one wins');
+  assert.ok(flat.includes('The daily comment ask gives way to this.'), 'the line does not say which one wins');
   // It sits in the comments step, after the ask it qualifies and before step 4.
   const at = flat.indexOf('Never comment only to meet the count');
   assert.ok(flat.indexOf('3. Comments.') < at && at < flat.indexOf('4. Follows.'), 'the line is outside the comments step');
