@@ -79,6 +79,7 @@ struct AgentsView: View {
     // kosmos#7120, a Debug build only: KOSMOS_SAMPLE_STALE=1 shows the list as not updating, for its screenshots.
     #if DEBUG
     private static let sampleStale = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_STALE"] == "1"
+        && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"   // only over the sample list
     #else
     private static let sampleStale = false
     #endif
@@ -359,13 +360,14 @@ struct AgentAvatar: View {
     }
 
     // A track and an arc of the percent from 12 o'clock, just outside the picture, one weight in every band as the
-    // board's small rings keep (the arc's length carries the value, the colour repeats it).
+    // board's small rings keep (the arc's length carries the value, the colour repeats it). It overhangs the picture's
+    // layout frame by about 4.75 pt each side (an overlay takes no room), inside the row's 12 pt spacing.
     @ViewBuilder private var memoryRing: some View {
         if let pct = memoryPercent, let band = Board.memBand(pct) {
             ZStack {
                 Circle().stroke(Palette.ringTrack, lineWidth: 2.5)
                 Circle()
-                    .trim(from: 0, to: min(max(pct, 0), 100) / 100)
+                    .trim(from: 0, to: pct / 100)   // already held to 0...100 (Board.contextPercent)
                     .stroke(memoryQuiet ? Palette.secondary : Palette.ring(band), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }

@@ -36,3 +36,6 @@ the parse, the bands and the words with a broken-copy control; shots in light an
   the arc still reads as a gauge over the fainter track.
 - Parity left as is: the status dot sits over the ring as on the board's list; at exactly 0% the phone draws the
   bare track where the board's round cap draws a dot.
+- Proportions follow the board's list-row ring on the computer (lrowRing in the consolidated rail: a 2.5 stroke a
+  little outside the picture); the phone web board draws a heavier ring with a wider gap round a bigger face. The
+  native row keeps its 40 pt avatar, so the lighter ring fits it.
