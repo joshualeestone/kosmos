@@ -57,9 +57,10 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    node's own test runner in every test process and by nothing else (the signal ping.js and feedbacksend.js settled
    on). Review 7: a board a harness boots outside node's runner (tools/browser-checks.sh, the shell tests,
    mobile-shots.js) does NOT carry it (tools.no-phone-home-4253.test.js records that), so AGENT_WORKFORCE_DRY_RUN=1,
-   which those harnesses set, refuses too. Not every harness sets it, so the guard that holds for all of them is in
-   readCredFor (the bare entry only for the real home's .claude). AGENT_WORKFORCE_USAGE_POLL_OFF=1 is the operator's
-   brake. */
+   which those harnesses set, refuses too. Not every harness sets it, so readCredFor also reads the bare entry only for
+   the real home's .claude, which covers every harness that sandboxes HOME or AGENT_WORKFORCE_HOME. A board started
+   with the real home, no NODE_TEST_CONTEXT and no DRY_RUN is not covered: it reads the real logins exactly as the
+   real board would, and writes the same accurate figures. AGENT_WORKFORCE_USAGE_POLL_OFF=1 is the operator's brake. */
 function liveAllowed(env = process.env) {
   return !env.NODE_TEST_CONTEXT && env.AGENT_WORKFORCE_DRY_RUN !== '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1';
 }
@@ -148,7 +149,7 @@ function windowOf(w, { nowMs = Date.now(), maxAheadSeconds = null } = {}) {
 }
 
 /* The record for one account: { at (ms), state, weekly?, fiveHour? }, or null for an API-key account (no weekly limit). */
-async function readOne(a, { now = Date.now(), request, timeoutMs, ...deps } = {}) {
+async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (dir) => require('./accounts').identityOf(dir), ...deps } = {}) {
   if (!a || typeof a.dir !== 'string' || !a.dir || a.apiKey) return null;
   const t = await tokenStateFor(a, { now, ...deps });
   if (t.state !== 'ok') return { at: now, state: t.state };
@@ -169,9 +170,19 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, ...deps } = {}
      pollAll keeps the last good figures as it does for any other. */
   const p = await getUsage(t.token, { request, path: PROFILE_PATH, ...(timeoutMs ? { timeoutMs } : {}) });
   let email = null;
-  try { email = p.code === 200 ? (JSON.parse(p.body).account || {}).email : null; } catch { email = null; }
+  let org = null;
+  try {
+    const pj = p.code === 200 ? JSON.parse(p.body) : null;
+    email = pj ? (pj.account || {}).email : null;
+    org = pj ? (pj.organization || {}).uuid : null;
+  } catch { email = null; }
   if (typeof email !== 'string' || !email) return { at: now, state: 'profile-unreadable' };
   if (email.toLowerCase() !== String(a.email).toLowerCase()) return { at: now, state: 'other-account' };
+  /* Review 9: one email can sign in to two organizations (a personal plan and a team), each its own weekly limit. So
+     when both sides name the organization, they must agree too. */
+  let want = null;
+  try { const who = identityOf(a.dir); want = who && who.organizationUuid; } catch { want = null; }
+  if (typeof want === 'string' && want && typeof org === 'string' && org && want !== org) return { at: now, state: 'other-account' };
   const fiveHour = windowOf(j && j.five_hour, { nowMs: now, maxAheadSeconds: statusline.FIVE_HOUR_MAX_AHEAD_SECONDS });
   return { at: now, state: 'ok', weekly, fiveHour };
 }
@@ -210,6 +221,7 @@ async function pollAll(list, deps = {}) {
     if (!rec) continue;
     if (rec.state === 'ok') {
       rec.measuredAt = rec.at;
+      rec.email = a.email;   // review 9: whose figures these are, so a later failed read keeps them only for the same login
       /* Review 3: each window carries when its figure last CHANGED, as the status line's `at` means (it is written
          only when the figure moves). A read that finds the same figure and reset keeps the earlier changedAt, so an
          idle account does not claim a fresh change every ten minutes, and accountsweekly compares like with like. */
@@ -226,7 +238,10 @@ async function pollAll(list, deps = {}) {
     } else {
       const prev = readRaw(a.dir);
       const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
-      if (typeof prevAt === 'number' && Number.isFinite(prevAt)) {
+      /* Review 9: a folder signed in again as another login must not show the old login's figures under the new one. */
+      const sameLogin = prev && typeof prev.email === 'string' && typeof a.email === 'string'
+        && prev.email.toLowerCase() === a.email.toLowerCase();
+      if (sameLogin && typeof prevAt === 'number' && Number.isFinite(prevAt)) {
         rec.measuredAt = prevAt;
         rec.weekly = prev.weekly || null;
         rec.fiveHour = prev.fiveHour || null;

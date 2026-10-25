@@ -51,6 +51,12 @@ at 0%, had no reading at all (the card's opening).
   there is nothing to check the login against. The status line still covers it. Weakest premise: an account Kosmos
   lists without an email (a `.claude.json` with no `oauthAccount`) gets no endpoint reading at all. A source check now
   fails if the server's sweep stops asking `liveAllowed()` before it lists accounts.
+- Review 9: one email can sign in to two organizations, each with its own weekly limit, so when the folder's
+  `.claude.json` and the profile both name an organization uuid they must agree (`accounts.identityOf` now returns
+  `organizationUuid`; `list()` rows are unchanged). Each good record names the email it was checked against, and a
+  failed read keeps the last figures only for that same login, so a folder signed in again as someone else does not
+  show the old login's usage. The review 7 comment now states the guard's true scope: a board started with the real
+  home and neither NODE_TEST_CONTEXT nor DRY_RUN reads the real logins, exactly as the real board would.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
