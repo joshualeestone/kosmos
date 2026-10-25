@@ -336,8 +336,11 @@ function changedLines(before, after) {
   const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2;
   const fits = (s) => out.length < lineRoom && bytes + Buffer.byteLength(s) + 1 <= byteRoom;
   for (const r of runs) {
+    // Review 8: a run that adds a heading is labelled by it, not by the section before it.
+    const added = r.lines.find((l) => /^\+ #{1,6} \S/.test(l));
+    const head = added ? added.slice(2) : r.head;
     // A label and at least one of its lines fit, or the run is left for the sections the notice names.
-    const label = r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'Before the first heading:';
+    const label = head ? 'Under ' + head.replace(/^#+ /, '') + ':' : 'Before the first heading:';
     if (out.length + 3 > lineRoom || !fits('\n' + label + '\n' + r.lines[0])) { cut = true; break; }
     out.push('', label);
     bytes += Buffer.byteLength(label) + 2;

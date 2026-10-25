@@ -23,7 +23,7 @@ Card kosmos#7149, ask 1 (from an agent's feedback report). The decision is poste
 - **The `.previous` copy:** one write back only.
 
 ## Weakest premise
-That the text read just before the line is what the agent reads after it. A write in between owes its own line, so it appears in the next diff.
+That the text read just before the line is what the agent reads after it. A write in between owes its own line, so it appears in the next diff. The reverse case is a session start during the send: its fresh copy can be overwritten by the pass's older text. That leaves the copy older than what the agent read, so the next diff only shows more (review 8).
 
 ## The changes file's place (reviews 1 and 2)
 - **Where it lives:** in the agent's own folder, beside the brief it describes, named per session with a hash of the exact name (`.kosmos-instructions-changed-<session>-<hash>.md`). Two agents sharing a recorded folder each get their own.
@@ -48,7 +48,6 @@ Within a run, each removed line sits beside the line that replaced it. A cut the
 The copy moves at a `started` report and at a landed line. A runner or restart that posts no `started` report leaves the copy older than what the agent read. The next diff then shows MORE than changed since: changes already read are listed again. That errs in the safe direction: nothing is hidden. A start whose copy cannot be renewed drops the copy, so its next notice is as before.
 
 ## NOT CLAIMED
-- A renamed heading is labelled with the section above it.
 - A REMOVED agent (remove.js, which never deletes) keeps its copy, as it keeps its files. Deleting what is left (delete-leftover) forgets it. Sessions are never renamed (only the display name changes), so no file is left under an old name.
 - An absolute path is named in the line. A folder path with whitespace, a double quote or a control character is never named, and its notice is as before.
 - A person's own edit to the file owes no notice (as before). It appears in the next Kosmos notice's diff unless the agent restarted in between.

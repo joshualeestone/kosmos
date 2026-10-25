@@ -341,3 +341,9 @@ test('review 6: a line that did not land drops the changes file it named', async
   assert.equal(k.sent.length, 1);
   assert.deepEqual(dropped, ['ida']);
 });
+
+test('review 8: a run that adds or renames a heading is labelled by the new heading', () => {
+  const before = ['## A', 'x', '## Old', 'y', ''].join('\n');
+  const after = ['## A', 'x', '## New', 'y', ''].join('\n');
+  assert.equal(ir.changedLines(before, after), '\nUnder New:\n- ## Old\n+ ## New');
+});
