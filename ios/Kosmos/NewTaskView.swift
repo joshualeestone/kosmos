@@ -98,7 +98,7 @@ struct NewTaskView: View {
             } footer: {
                 Text(NewTask.Words.whoHint)
             }
-            .id(message == nil ? "nt-end" : "nt-who")
+            .id("nt-who")
             if let message {
                 Section { Text(message).font(.footnote).foregroundColor(Palette.secondary) }.id("nt-end")
             }
@@ -106,7 +106,11 @@ struct NewTaskView: View {
         // A moment after appearing, as the Tasks list's sample scroll: at appear the rows are not drawn yet.
         .onAppear {
             guard Self.sampleScrollToEnd else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { scroller.scrollTo("nt-end", anchor: .bottom) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                scroller.scrollTo(message == nil ? "nt-who" : "nt-end", anchor: .bottom)
+                // scrollTo stops at the row, short of a section's footer: then the sheet's own list to its true end.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { Self.sampleScrollSheetToEnd() }
+            }
         }
         }
         .scrollContentBackground(.hidden)
@@ -114,12 +118,19 @@ struct NewTaskView: View {
         .disabled(sending)
     }
 
-    // The board's layout: the question stays above its field while it is answered, and the board's example is the
-    // placeholder. VoiceOver reads the question once, as the field's label.
+    // The board's layout: the question stays above its field while it is answered, and the board's example shows in
+    // the empty field. The example is drawn as text of its own because a placeholder keeps to one line and cut the
+    // board's longer examples short. VoiceOver reads the question as the field's label and the example as its hint.
     private func field(_ question: String, example: String, text: Binding<String>, lines: ClosedRange<Int>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(question).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary).accessibilityHidden(true)
-            TextField(question, text: text, prompt: Text(example), axis: .vertical).lineLimit(lines)
+            ZStack(alignment: .topLeading) {
+                if text.wrappedValue.isEmpty {
+                    Text(example).foregroundColor(Color(UIColor.placeholderText)).accessibilityHidden(true).allowsHitTesting(false)
+                }
+                TextField(question, text: text, prompt: Text(""), axis: .vertical).lineLimit(lines)
+                    .accessibilityHint(example)
+            }
         }
         .padding(.vertical, 2)
     }
@@ -134,7 +145,7 @@ struct NewTaskView: View {
         // The sample Projects (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), as the Projects tab shows them, for screenshots.
         if Self.sample, let parsed = Board.parseProjects(Data(RoomStore.sampleProjects.utf8)) {
             took(parsed)
-            if Self.sampleRefusal { message = NewTask.unsureWords }
+            if Self.sampleUnsure { message = NewTask.unsureWords }
             return
         }
         let got = await client.throughMac { Board.projectsRequest(mac: $0) }
@@ -153,20 +164,35 @@ struct NewTaskView: View {
 
     #if DEBUG
     private static let sample = RoomStore.sample
-    // Screenshots only: KOSMOS_SAMPLE_NEWTASK_SHOWS=refusal opens the sheet with its no-answer line showing, and
+    // Screenshots only: KOSMOS_SAMPLE_NEWTASK_SHOWS=unsure opens the sheet with its no-answer line showing, and
     // KOSMOS_SAMPLE_SCROLL=end scrolls it to its last section.
-    private static let sampleRefusal = sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWTASK_SHOWS"] == "refusal"
+    private static let sampleUnsure = sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWTASK_SHOWS"] == "unsure"
     private static let sampleScrollToEnd = sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLL"] == "end"
+    // The presented sheet's list, never the Tasks list underneath it.
+    private static func sampleScrollSheetToEnd() {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        func top(_ c: UIViewController) -> UIViewController { c.presentedViewController.map(top) ?? c }
+        func find(_ v: UIView) -> UIScrollView? {
+            if let s = v as? UICollectionView, s.window != nil, !s.isHidden, s.bounds.height > 0 { return s }
+            for c in v.subviews { if let s = find(c) { return s } }
+            return nil
+        }
+        guard let sheet = windows.lazy.compactMap({ $0.rootViewController }).map(top).first,
+              let s = find(sheet.view) else { return }
+        let end = s.contentSize.height - s.bounds.height + s.adjustedContentInset.bottom
+        s.setContentOffset(CGPoint(x: 0, y: max(-s.adjustedContentInset.top, end)), animated: false)
+    }
     #else
     private static let sample = false
-    private static let sampleRefusal = false
+    private static let sampleUnsure = false
     private static let sampleScrollToEnd = false
+    private static func sampleScrollSheetToEnd() {}
     #endif
 
     private func dropUnoffered() {
         guard let list else { return }
         draft = NewTask.keepingOffered(draft, members: NewTask.members(of: draft.project, in: list),
-                                       parents: NewTask.parents(of: draft.project, in: tasks))
+                                       parents: tasks.map { NewTask.parents(of: draft.project, in: $0) })
     }
 
     private func create() async {
@@ -183,7 +209,8 @@ struct NewTaskView: View {
             draft = NewTask.Draft()
             added(line)
             dismiss()
-            UIAccessibility.post(notification: .announcement, argument: line)   // VoiceOver hears it
+            // After the sheet has gone: an announcement posted as it closes is lost under the screen change.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { UIAccessibility.post(notification: .announcement, argument: line) }
         case .refused(let why):
             message = why
             UIAccessibility.post(notification: .announcement, argument: why)

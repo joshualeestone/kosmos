@@ -58,3 +58,24 @@ path stays the app's own (isProjectId before the path; host is held.url).
   sentence pins "sent as typed".
 - LEFT: the role beside a member's name (the phone's project parse has no role; a same-name pair would need it), and
   the added line staying until the next New task (the board's tsk-msg line persists the same way).
+
+## Challenge loop iterations 2 (sonnet) and 3 (opus), validation, and Mona Lisa's design review (22:00 CDT)
+- Validation red: the iOS routes sweep (server.ios-routes-6838) could not read the request, built away from its URL.
+  Now named in place, as BoardRoom's room request.
+- A kept draft whose project was archived or removed is re-aimed on every read (NewTask.settled).
+  DECIDED, a deliberate difference from the board: a kept project that is still offered stays even when the Tasks tab
+  has another picked (the board's openNewTaskFromTasks aims at the pick). Who and Part of were chosen for the kept
+  project, and the sheet's whole point in keeping the draft is not to lose them. Rejected: re-aiming at the pick,
+  which drops who and Part of unseen. Weakest premise: that a person reopening from another project's tasks sees the
+  Project row and notices; would change if Mona Lisa or a real user says it surprises them.
+- No answer is .unknown, not a refusal: status 0, or a 5xx with no sentence of the Mac's (the relay's plain 502/504
+  when the Mac stops answering). The sheet says it cannot tell whether it went through and refreshes Tasks. The
+  board says "could not add" here; it crosses no relay.
+- A failed Tasks read no longer clears a Part of pick (keepingOffered with parents nil keeps it).
+- The "Added task" announcement waits until the sheet has gone (posted as it closes, it is lost).
+- Design review (Mona Lisa): the board's words, pinned against web/index.html (the hint under the questions, the
+  examples, "Anything they should know", "You can give it to somebody later."); each question above its field at
+  every size, with the example drawn as wrapping text (a placeholder keeps to one line and cut it); Part of before
+  Who is on it.
+- LEFT: the added line under "No tasks yet" until the refresh lands (brief); "Review N" comment style is common in
+  this repo, removed here anyway.

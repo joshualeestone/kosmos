@@ -75,10 +75,11 @@ enum NewTask {
 
     // A pick that is no longer offered (its task closed or went, the member left, under a re-read) falls back to
     // nobody and None, as the board's selects fall back to their first option (ntFillParents), never sent unseen.
-    static func keepingOffered(_ d: Draft, members: [Board.ProjectMember], parents: [Board.TaskRow]) -> Draft {
+    // parents nil is a Tasks read that failed: nothing is known about Part of, so its pick stays.
+    static func keepingOffered(_ d: Draft, members: [Board.ProjectMember], parents: [Board.TaskRow]?) -> Draft {
         var n = d
         if let who = d.who, !members.contains(where: { $0.session == who }) { n.who = nil }
-        if let parent = d.parent, !parents.contains(where: { $0.number == parent }) { n.parent = nil }
+        if let parent = d.parent, let parents, !parents.contains(where: { $0.number == parent }) { n.parent = nil }
         return n
     }
 
@@ -120,8 +121,10 @@ enum NewTask {
         // shown: the board's Tasks line leaves it out, and its words are for the command line.
         case made(number: Int?, note: String?)
         case refused(String)
-        // No answer came back, so the Mac may have made it. The board says it failed here, but its request crosses no
-        // relay; a phone's reply is lost far more often, and "could not add" would invite a second, duplicate task.
+        // No answer from the Mac came back (none at all, or a server error with no sentence of the Mac's, which is what
+        // the relay sends when the Mac stops answering mid-request), so the Mac may have made it. The board says it
+        // failed here, but its request crosses no relay; a phone's reply is lost far more often, and "could not add"
+        // would invite a second, duplicate task.
         case unknown
     }
 
@@ -145,7 +148,7 @@ enum NewTask {
     static let fallback = "we could not add that task"
 
     // The Mac's answer, read as the board's nt-go reads it: any 2xx is made; otherwise its own sentence (the done-when
-    // one in the field's words), else the board's.
+    // one in the field's words), else unknown for a server error and the board's words for anything else.
     static func result(status: Int, body: Data?) -> Result {
         if status == 0 { return .unknown }
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -156,6 +159,7 @@ enum NewTask {
             return .made(number: number, note: note)
         }
         let why = obj?["error"] as? String ?? ""
+        if why.isEmpty && status >= 500 { return .unknown }
         if why.range(of: #"done-when check has to be (one line of plain text|\d+ characters or fewer)"#, options: .regularExpression) != nil {
             return .refused(doneWords)
         }
