@@ -42,8 +42,11 @@ struct TasksTab: View {
         .onChange(of: client.tasksList) { read in
             guard let h = newTaskHeld, let read, let number = NewTask.found(h.sent, in: read, before: h.before) else { return }
             let name = read.tasks.first { $0.number == number && $0.projectId == h.sent.project }?.projectName ?? "the project"
-            newTaskFor = nil
-            if newTaskDraft == h.sent { newTaskDraft = NewTask.Draft() }
+            // Only a sheet showing the held words is closed: one with other words may be creating another task.
+            if NewTask.heldBack(newTaskDraft, by: h) {
+                newTaskFor = nil
+                newTaskDraft = NewTask.Draft()
+            }
             newTaskHeld = nil
             notice = NewTask.addedLine(number: number, projectName: name)
         }

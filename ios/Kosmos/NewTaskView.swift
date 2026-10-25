@@ -32,7 +32,7 @@ struct NewTaskView: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending || checking) }
                     ToolbarItem(placement: .confirmationAction) {
-                        if sending {
+                        if sending || checking {
                             ProgressView().accessibilityLabel("Creating the task")
                         } else {
                             // Latched here, before the Task starts: a second tap in between would send a second create.
@@ -182,7 +182,9 @@ struct NewTaskView: View {
         let name = list?.projects.first { $0.id == sent.project }?.name ?? "the project"
         let line = NewTask.addedLine(number: number, projectName: name)
         held = nil
-        if draft == sent { draft = NewTask.Draft() }   // words typed since are someone's next task, not this one's
+        // Cleared by the hold's own test, so a changed pick or a stray space does not leave the same words behind with
+        // Create on; words typed since are someone's next task, not this one's.
+        if NewTask.heldBack(draft, by: NewTask.Held(sent: sent, before: nil)) { draft = NewTask.Draft() }
         added(line)
         dismiss()
         // After the sheet has gone: an announcement posted as it closes is lost under the screen change.
@@ -293,8 +295,7 @@ struct NewTaskView: View {
             Task { await client.refreshTasks() }
             guard epoch == client.chatEpoch, let fresh, (200...299).contains(fresh.1.statusCode),
                   let read = Board.parseTasks(fresh.0) else { return }   // no read came back: the hold stays
-            // Found: it was made. Not found proves nothing (the Mac may still be filing it), so the hold stays until the
-            // person changes the words.
+            // Found: it was made. Not found proves nothing (the Mac may still be filing it), so this read lifts nothing.
             // held is nil when the Tasks tab's own read found it first and has already said so (and closed the sheet).
             if held != nil, let number = NewTask.found(sent, in: read, before: before) {
                 message = nil

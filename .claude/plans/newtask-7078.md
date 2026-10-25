@@ -188,3 +188,10 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - DEFERRED (iteration 16): create()'s early return after Create's tap latch resets sending by hand (fragile to a future
   early return, no live bug); reopening from a picked project discards a kept draft for another project without saying
   so (the board's ntAimAt does exactly this, silently).
+- Iteration 17 (opus): after a found task the draft is cleared by the hold's own comparison (project and the three
+  fields, trimmed), not by full equality, so a changed pick or a stray space no longer leaves the same words behind with
+  Create on. The tab closes only a sheet showing the held words (one with other words may be creating another task).
+  The spinner stands in for Create during the follow-up read too.
+- LEFT (nits): the held line on a reopened sheet sits in the last footer and is not announced; members without role;
+  the sample projects' ids do not match the sample Tasks list, so Part of is empty in the shots; the view state
+  (hold, tab-found close, epoch drop) has no automated test (no UI test target here), only the logic it calls.
