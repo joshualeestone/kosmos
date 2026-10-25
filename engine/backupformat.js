@@ -294,4 +294,6 @@ module.exports = {
   verifyManifestSignature,
   openManifest,
   checkBackupContext,
+  // kosmos#7118: the rule for one context id, for the uploader to check the snapshot id it sends (one copy of the rule).
+  CTX_ID_RE,
 };
