@@ -482,8 +482,8 @@ final class BoardClient: ObservableObject {
         }
     }
 
-    // A copy can wait on Files fetching a file from the cloud for as long as that takes: on a thread of its own, never
-    // one of the few Swift's tasks share.
+    // A copy can wait on Files fetching a file from the cloud for as long as that takes: on a dispatch thread, so it
+    // never holds one of the few threads Swift's tasks share.
     nonisolated private static func offMain(_ work: @escaping @Sendable () -> Board.Prepared) async -> Board.Prepared {
         await withCheckedContinuation { done in
             DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) }

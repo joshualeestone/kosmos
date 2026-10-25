@@ -73,6 +73,7 @@ struct FileChip: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "doc").font(.system(size: 13)).foregroundColor(Palette.secondary)
+                .accessibilityHidden(true)
             Text(name).font(.footnote).foregroundColor(Palette.primary.opacity(faded ? 0.6 : 1))
                 .lineLimit(1).truncationMode(.middle)
                 // Cut in the middle, so a long name keeps its end and the next file shows beside it.
