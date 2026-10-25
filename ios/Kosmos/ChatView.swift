@@ -133,6 +133,8 @@ struct ChatView: View {
             loop = nil
         }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
+        .onChange(of: thread) { _ in recomputeHiddenHeads() }
+        .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         .onChange(of: client.chatEpoch) { now in
             epoch = now
             thread = nil
@@ -838,10 +840,11 @@ struct ChatView: View {
         guard let thread else { return [] }
         return Board.pendingRepliesUnderOriginal(pending, after: Board.shownRows(earlier, thread: thread))
     }
-    // The rows whose header is left out on screen (dmReplyAdjacency).
-    private var hiddenHeads: Set<String> {
-        guard let thread else { return [] }
-        return Board.repliesUnderOriginal(Board.shownRows(earlier, thread: thread))
+    // The rows whose header is left out on screen (dmReplyAdjacency), worked out once when the conversation changes, not
+    // once per row (review 4: per row it was quadratic on every redraw).
+    @State private var hiddenHeads: Set<String> = []
+    private func recomputeHiddenHeads() {
+        hiddenHeads = thread.map { Board.repliesUnderOriginal(Board.shownRows(earlier, thread: $0)) } ?? []
     }
 
     // The strip above the composer: who and what the next send answers, and an x.
@@ -990,19 +993,27 @@ struct ReactionPills: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(pills, id: \.emoji) { p in
-                Button { toggle?(p.emoji) } label: {
+                if toggle == nil {
+                    // Not toggleable here (not this agent's own message): plain words, never a button that does nothing.
                     Text(p.emoji + (p.count > 1 ? " \(p.count)" : ""))
                         .font(.footnote)
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Capsule().fill(p.mine ? Palette.personBubble : Palette.card))
-                        .overlay(Capsule().stroke(p.mine ? Palette.link : Palette.separator, lineWidth: p.mine ? 1 : 0.5))
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(Rectangle())
+                        .accessibilityLabel(p.emoji + (p.count > 1 ? ", \(p.count)" : "") + (p.mine ? ", yours" : ""))
+                } else {
+                    Button { toggle?(p.emoji) } label: {
+                        Text(p.emoji + (p.count > 1 ? " \(p.count)" : ""))
+                            .font(.footnote)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Capsule().fill(p.mine ? Palette.personBubble : Palette.card))
+                            .overlay(Capsule().stroke(p.mine ? Palette.link : Palette.separator, lineWidth: p.mine ? 1 : 0.5))
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(p.emoji + (p.count > 1 ? ", \(p.count)" : "") + (p.mine ? ", yours" : ""))
+                    .accessibilityAddTraits(p.mine ? .isSelected : [])
                 }
-                .buttonStyle(.plain)
-                .allowsHitTesting(toggle != nil)
-                .accessibilityLabel(p.emoji + (p.count > 1 ? ", \(p.count)" : "") + (p.mine ? ", yours" : ""))
-                .accessibilityAddTraits(p.mine ? .isSelected : [])
             }
         }
         .padding(.horizontal, 4)
@@ -1052,7 +1063,11 @@ struct ChatBubble: View {
                 // One long-press menu per bubble, set here (a menu on the shared bubble would hide the pending one's Delete).
                 .contextMenu {
                     if let react {
-                        ForEach(Board.quickReactions, id: \.self) { e in Button { react(e) } label: { Text(e) } }
+                        // As the files menu and the VoiceOver actions: a reaction already yours is offered as Remove.
+                        ForEach(Board.quickReactions.filter { e in !row.reactions.contains { $0.emoji == e && $0.mine } }, id: \.self) { e in
+                            Button { react(e) } label: { Text(e) }
+                        }
+                        ForEach(row.reactions.filter(\.mine), id: \.emoji) { r in Button("Remove your " + r.emoji) { react(r.emoji) } }
                     }
                     if let reply { Button(action: reply) { Label("Reply", systemImage: "arrowshape.turn.up.left") } }
                     Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
