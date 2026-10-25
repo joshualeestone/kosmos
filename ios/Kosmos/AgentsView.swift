@@ -269,7 +269,8 @@ struct AgentRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         // A list shown as not current says so to VoiceOver too, not only by colour.
-        .accessibilityLabel(([agent.name, agent.role, word] + (stale ? ["not updating"] : [])).compactMap { $0 }.joined(separator: ", "))
+        .accessibilityLabel(([agent.name, agent.role, word, Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
+                             + (stale ? ["not updating"] : [])).compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the chat")
     }
@@ -277,7 +278,7 @@ struct AgentRow: View {
     private var size: CGFloat { large ? 48 : 40 }
 
     private var avatar: some View {
-        AgentAvatar(name: agent.name, picture: picture, tone: tone, size: size)
+        AgentAvatar(name: agent.name, picture: picture, tone: tone, size: size, memoryPercent: agent.contextPercent)
     }
 
     private var name: some View {
@@ -313,6 +314,8 @@ struct AgentAvatar: View {
     let picture: UIImage?
     let tone: Board.Tone?
     let size: CGFloat
+    // kosmos#7120: the context ring round the picture, as the board's list row draws it (lrowRing); nil draws none.
+    var memoryPercent: Double? = nil
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -330,6 +333,7 @@ struct AgentAvatar: View {
             }
             .frame(width: size, height: size)
             .clipShape(Circle())
+            .overlay { memoryRing }
             if let tone {
                 // The status dot, 12pt with a 2pt ring in the card colour, 1pt outside the picture.
                 Circle()
@@ -341,6 +345,21 @@ struct AgentAvatar: View {
             }
         }
         .accessibilityHidden(true)
+    }
+
+    // A track and an arc of the percent from 12 o'clock, just outside the picture; thicker as it fills, as the board's
+    // .gf.warn and .gf.high are (the arc's length carries the value, colour and weight repeat it).
+    @ViewBuilder private var memoryRing: some View {
+        if let pct = memoryPercent, let band = Board.memBand(pct) {
+            ZStack {
+                Circle().stroke(Palette.ringTrack, lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: min(max(pct, 0), 100) / 100)
+                    .stroke(Palette.ring(band), style: StrokeStyle(lineWidth: band == .ok ? 2.5 : 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: size + 7, height: size + 7)
+        }
     }
 }
 
@@ -360,6 +379,14 @@ enum Palette {
     static let separator = pair(0xe3e1dc, 0x2a2d31)
     static let avatarFill = pair(0xece7dd, 0x252529)
     static let avatarLetter = pair(0x4a4f57, 0xc7c7cc)
+    // kosmos#7120: the board's .gt track and .gf ok, warn, high (high lightens in dark, as the board's does).
+    static let ringTrack = pair(0x14161a, 0xf5f5f4, lightAlpha: 0.10, darkAlpha: 0.14)
+    static let ringOk = pair(0x2f7d5a, 0x2f7d5a)
+    static let ringWarn = pair(0xd97528, 0xd97528)
+    static let ringHigh = pair(0xb3261e, 0xff8c82)
+    static func ring(_ band: Board.MemBand) -> Color {
+        switch band { case .ok: return ringOk; case .warn: return ringWarn; case .high: return ringHigh }
+    }
     static let banner = pair(0xf3efe6, 0x1c1f23)
     static let askedWord = pair(0x7a5200, 0xffca55)
     static let dangerWord = pair(0xb3261e, 0xff6b5e)
