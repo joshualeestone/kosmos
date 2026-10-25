@@ -147,6 +147,11 @@ check(folded.map(\.text) == ["2 runs found nothing new or repeated the same note
       "two quiet runs fold into one row; a late run never folds")
 check(folded.first?.at == Tasks.parseISO("2026-10-21T10:00:00Z"), "a folded row is dated by its last run")
 check(Board.activityPhrase(["kind": "something-new"], name: { $0 }) == "something-new", "an unknown kind shows its own name")
+check(Board.activityPhrase(["kind": "run", "missedBefore": 1e300], name: { $0 }) == "Ran, after 1000000000 missed runs"
+      && Board.activityPhrase(["kind": "undone", "files": 1e300], name: { $0 }) == "File changes undone (1000000000 files)",
+      "a count far too large is clamped, never a crash")
+let unnamed = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"dana","sentence":"S"}]}"#, agents: #"[{"sessionName":"dana","name":""}]"#)
+check(unnamed?.partLines(roster: ["dana": "Dana"]).first?.who == "Dana", "a member with no name of its own: the roster's name (tkMemberName)")
 check(Board.activityPhrase(["kind": "kept-dropped", "to": "dana", "person": true], name: { _ in "Dana" })
       == "Your message to Dana was never sent: Kosmos kept it while Dana was out of usage and could not send it within a day", "a dropped message")
 check(Board.activityPhrase(["kind": "missed", "count": 3, "told": "dana", "reached": false], name: { _ in "Dana" }) == "3 runs missed; Kosmos could not reach Dana",
@@ -298,6 +303,28 @@ func modelTests() async {
     await e.press(.close, names: nm)
     await e.read()
     check(mac.asked.isEmpty, "and a page from before it sends nothing, not even a read")
+
+    // The 5-second tick reads first always, then only while the person is there.
+    let t = model(3)
+    check(t.shouldRead(first: true) && t.shouldRead(first: false), "present: every tick reads")
+    clock += TaskPageModel.presentFor + 1
+    check(t.shouldRead(first: true) && !t.shouldRead(first: false), "idle: only the first read, as the board's tick reads only under tkPresent")
+
+    // Again re-records only a state the Mac recorded (tkTabReturn): a refused one is not sent again on every return.
+    let rr = model(3)
+    mac.activity = (200, fixture("activity-3.json"))
+    await rr.readActivity(names: nm)
+    mac.seenAnswers = [(403, "{}")]
+    mac.asked = []
+    await rr.markSeen(again: true)
+    await rr.markSeen(again: true)
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a state the Mac refused is not re-sent on a return")
+    mac.asked = []
+    let rec = model(3)
+    await rec.readActivity(names: nm)
+    await rec.markSeen()
+    await rec.markSeen(again: true)
+    check(mac.asked.filter { $0.hasSuffix("/seen") }.count == 2, "a recorded state is recorded again on a return")
 
     // Reads that land out of order: the newer answer stands.
     mac.epoch = 0
