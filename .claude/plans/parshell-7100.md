@@ -80,7 +80,7 @@ parallel node part. CI already splits the list into shards on separate runners (
 - The summary line's time is whole seconds from `date +%s`.
 
 ## Validation
-- tools/test-shell-parallel-7100.sh: 14 arms pass, plain and with a CI shard's environment (KOSMOS_SHELL_SHARD,
+- tools/test-shell-parallel-7100.sh: 16 arms pass (after review 6), plain and with a CI shard's environment (KOSMOS_SHELL_SHARD,
   KOSMOS_SHELL_PLATFORM, KOSMOS_SHELL_CUT_ENV=1, GITHUB_ACTIONS=true), which reddened the cut-env arm before review 3
   scrubbed it. Review 3's mutants, each red on its own arm: a stop that ignores waited-on shards (the leftover arm);
   run-tests.sh without the unset (the private-switch tripwire, now anchored to the unset's own line number, with

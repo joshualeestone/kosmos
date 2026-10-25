@@ -31,7 +31,7 @@ cd "$REPO"
 #   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js), and with
 #         KOSMOS_SHELL_PLATFORM=linux|mac as well (only with a shard, #6791) just that platform's share of it.
 #         KOSMOS_SHELL_PARALLEL=n (#7100, 2 to 8) runs all of test:shell as n shards at once on this computer
-#         (it does nothing for the node part or --only, which run no shell part).
+#         (it has no effect on the node part or --only, which run no shell part, though a bad value still refuses).
 # Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates). --only (#4929,
 # below) keeps the temp root, the --require guards and the leak guards, and skips the queue wait, the coverage count,
 # the shell part and the browser-check gates.
@@ -842,7 +842,8 @@ elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
     # would read the logs as a new temp family), and the logs are printed in shard order once all have ended. The part
     # is red when any shard is red. On an interruption the EXIT traps above stop each shard as a whole process group
     # (TERM, then KILL after about 2 s, its running test included, before the run root goes; not a process that left
-    # the group), print the end of each shard's log, and remove the folder.
+    # the group), print the end of each shard's log, and remove the folder. A SIGKILL to this script, or a kill of its
+    # own process group, runs no trap: the shards, in groups of their own, then run on until they end.
     _rt_ps_dir="$(mktemp -d "$(dirname "$KOSMOS_RUN_TMPDIR")/kt-shellpar.XXXXXXXXXX")" || _rt_ps_dir=""
     if [ -z "$_rt_ps_dir" ]; then
       echo "run-tests: could not make a folder for the parallel shell shards' logs; refusing rather than run them unlogged (#7100)" >&2

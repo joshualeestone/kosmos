@@ -5,7 +5,8 @@
 #   leader of its own process group. The shards are waited on in shard order (bash 3.2 has no wait -n), and a line
 #   says each one's status when it is waited on, with the time it was seen to have ended (a shard that ended before a
 #   lower-numbered one is reported late). When all have ended it prints the logs in shard order, then one line naming
-#   the time taken and which shards were red. Returns 0 when every shard returned 0, else the first red shard's status.
+#   the time taken and which shards were red. Returns 0 when every shard returned 0, else the status of the
+#   lowest-numbered red shard.
 #   KOSMOS_SHELL_PARALLEL_PIDS holds the shards still running and KOSMOS_SHELL_PARALLEL_DONE the ones waited on; each
 #   pid is also the id of its shard's process group. kosmos_shell_parallel_stop, for the caller's EXIT trap, uses both.
 #
