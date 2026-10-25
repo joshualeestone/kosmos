@@ -15,6 +15,7 @@ struct TasksTab: View {
     // kosmos#7078: the New task sheet (its project, picked in the list) and the line it leaves after a create.
     @State private var newTaskFor: NewTaskStart?
     @State private var notice: String?
+    @State private var newTaskDraft = NewTask.Draft()   // kept when the sheet closes, as the board keeps its draft
 
     var body: some View {
         NavigationView {
@@ -27,7 +28,7 @@ struct TasksTab: View {
                 .background(chatLink)
                 .background(taskLink)
                 .sheet(item: $newTaskFor) { start in
-                    NewTaskView(client: client, tasks: client.tasksList, picked: start.picked) { line in
+                    NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft) { line in
                         notice = line
                         Task { await client.refreshTasks() }
                     }
@@ -130,7 +131,7 @@ struct TasksView: View {
         if let read {
             // The board's own empty line, as slice 1's empty state.
             if read.tasks.isEmpty && !read.rosterUnknown {
-                centred(title: "No tasks yet", detail: newTask != nil ? (notice ?? "Add one with the + button, or your agents will.")
+                centred(title: "No tasks yet", detail: newTask != nil ? (notice ?? "Add one with +, or ask an agent to.")
                         : "Tasks are made on your computer, or by your agents.")
             } else {
                 list(read)
@@ -164,7 +165,6 @@ struct TasksView: View {
                     // kosmos#7078: the board's tsk-msg line after a New task, where the board puts it.
                     if let notice {
                         Text(notice).font(.footnote).foregroundColor(Palette.primary).textCase(nil)
-                            .accessibilityAddTraits(.updatesFrequently)
                     }
                 }
             }

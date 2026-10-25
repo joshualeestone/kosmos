@@ -57,6 +57,10 @@ let moved = NewTask.aimed(d, at: "zeta")
 check(moved.project == "zeta" && moved.what == "Proofread" && moved.done == "No typos left", "another project keeps the words")
 check(moved.who == nil && moved.parent == nil, "and drops who and Part of, picked for the other project")
 check(NewTask.aimed(d, at: "book") == d, "the same project changes nothing")
+let stillOffered = NewTask.keepingOffered(d, members: NewTask.members(of: "book", in: list), parents: NewTask.parents(of: "book", in: tasks))
+check(stillOffered == d, "picks still offered are kept")
+let gone = NewTask.keepingOffered(d, members: [], parents: [])
+check(gone.who == nil && gone.parent == nil && gone.what == d.what, "a pick no longer offered falls back to nobody and None (review 1); the words stay")
 
 section("Create, as the board's ntGoState (#5956)")
 check(NewTask.canCreate(d), "what, how you will know, and a project")
@@ -76,6 +80,8 @@ check(sent["detail"] as? String == "pages 1 to 40", "details trimmed")
 check(sent["doneWhen"] as? [String] == ["No typos left"], "doneWhen: one check, in a list")
 check(sent["who"] as? String == "cleo-discord", "who: the member's session name (the board's nt-who value)")
 check((sent["parent"] as? NSNumber)?.intValue == 7, "parent: a number")
+check(NewTask.body(NewTask.Draft(project: "book", what: "  Fix the  index ", done: "x"))["sentence"] as? String == "  Fix the  index ",
+      "the sentence is sent as typed, not trimmed (the board sends nt-what's value; the Mac tidies it)")
 let plain = NewTask.body(NewTask.Draft(project: "book", what: "Just this", done: "It is there"))
 check(Set(plain.keys) == ["sentence", "doneWhen"], "nothing picked: no detail, who or parent keys at all")
 check(NewTask.request(mac: mac, draft: NewTask.Draft(project: "book", what: "", done: "y")) == nil, "no request while Create is off")
@@ -83,7 +89,7 @@ check(NewTask.request(mac: mac, draft: NewTask.Draft(project: "book", what: "", 
 // task as the person's, not a process's. CONTROL: the same wrapper leaves a request to Kosmos+ itself unmarked.
 let coordinator = URL(string: "https://login.kosmosplus.com/")!
 check(req.map { Board.forMac($0, coordinator: coordinator) }?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin",
-      "as sent through BoardClient, it says it is the person's screen (Board.forMac)")
+      "through Board.forMac (the wrapper BoardClient applies to every send, pinned in LogicTests/main.swift), it says it is the person's screen")
 check(Board.forMac(URLRequest(url: coordinator), coordinator: coordinator).value(forHTTPHeaderField: "Sec-Fetch-Site") == nil,
       "CONTROL: a request to Kosmos+ itself is left as it is")
 check(NewTask.request(mac: mac, draft: NewTask.Draft(project: "../x", what: "a", done: "b")) == nil, "a project id that is not one is never put in a path")

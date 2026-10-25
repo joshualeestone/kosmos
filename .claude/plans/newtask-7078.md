@@ -19,7 +19,7 @@ Branch `newtask-7078`. Ice Cream Kitty, 2026-10-24 20:20 CDT.
 - The request is the board's nt-go body; Create is held down as ntGoState holds it.
 - The Mac's answers read as nt-go reads them: its own sentence, the done-when refusal in the field's words, else
   "we could not add that task". After a create the Tasks tab shows "Added task N to <project>." under its title (the
-  board's tsk-msg line), plus the Mac's same-text note when it sends one, and reads again.
+  board's tsk-msg line) and reads again. (The Mac's same-text note is read but NOT shown: review 1.)
 - The "from the screen" header (isViaScreen): NOT set here. Angel's #7075 (PR #7076) makes every request through
   BoardClient carry it (Board.forMac); this branch rebases onto main after it lands. Rejected: Board.asPerson (being
   removed, Angel 20:15) or a second copy of the header.
@@ -39,3 +39,22 @@ and the rebase must be checked by reading the request the client actually sends,
 #7076 merged; rebased cleanly. Read, not assumed: BoardClient.init wraps env.send with Board.forMac, and throughMac
 sends through self.env, so this sheet's POST carries Sec-Fetch-Site: same-origin to the Mac's host. Pinned in the suite
 (the request through Board.forMac says it is the person's; CONTROL: a request to Kosmos+ is left unmarked). 51/51.
+
+## Review 1 (blind, opus, 20:56 CDT): 0 BLOCKER, 4 WARNING, 6 NIT; taken except two NITs
+It confirmed the body, Create's rule and the answer reading match the board's nt-go and the taskMake route, and that the
+path stays the app's own (isProjectId before the path; host is held.url).
+- W the Mac's same-text note was shown; the board's Tasks line leaves it out and its words are for the CLI ("kosmos
+  task close ...") --> not shown.
+- W closing the sheet threw the draft away; the board's Cancel keeps it --> the draft is the Tasks tab's (a binding);
+  a create clears it.
+- W a picked Part of (or member) that leaves the list under a re-read was still sent --> NewTask.keepingOffered on
+  every Tasks re-read: it falls back to nobody/None, as the board's selects do. Tested.
+- W Cancel was live while sending --> Cancel and swipe-to-close are off while a create is in the air.
+- N VoiceOver never heard the refusal or the added line --> announced.
+- N all projects archived said "make a project" --> its own sentence.
+- N sample projects reachable in Release --> behind #if DEBUG.
+- N the empty-state line reworded: "Add one with +, or ask an agent to."
+- N tests: the forMac label says what it proves (the wrapper itself is pinned in LogicTests/main.swift); a padded
+  sentence pins "sent as typed".
+- LEFT: the role beside a member's name (the phone's project parse has no role; a same-name pair would need it), and
+  the added line staying until the next New task (the board's tsk-msg line persists the same way).

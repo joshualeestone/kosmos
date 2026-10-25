@@ -59,6 +59,15 @@ enum NewTask {
         return n
     }
 
+    // Review 1: a pick that is no longer offered (its task closed or went, the member left, under a re-read) falls back to
+    // nobody and None, as the board's selects fall back to their first option (ntFillParents), never sent unseen.
+    static func keepingOffered(_ d: Draft, members: [Board.ProjectMember], parents: [Board.TaskRow]) -> Draft {
+        var n = d
+        if let who = d.who, !members.contains(where: { $0.session == who }) { n.who = nil }
+        if let parent = d.parent, !parents.contains(where: { $0.number == parent }) { n.parent = nil }
+        return n
+    }
+
     // ntGoState: Create is held down until what needs doing, how you will know it is done, and a project exist.
     static func canCreate(_ d: Draft) -> Bool {
         d.project != nil && !trimmed(d.what).isEmpty && !trimmed(d.done).isEmpty
@@ -94,7 +103,8 @@ enum NewTask {
     }
 
     enum Result: Equatable {
-        // number: the new task's; note: the Mac's own note (a task with the same text, a title shortened), shown as sent.
+        // number: the new task's; note: the Mac's own note (a task with the same text, a title shortened). Read, but not
+        // shown (review 1): the board's Tasks line leaves it out, and its words are for the command line.
         case made(number: Int?, note: String?)
         case refused(String)
     }

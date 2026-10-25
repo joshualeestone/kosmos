@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // The native New task sheet (kosmos#7078, gap 2 of #7074), opened from the Tasks tab's toolbar. It draws what
 // NewTaskLogic decides, which is the board's New task dialog: the same fields, Create held down until what needs doing,
@@ -7,12 +8,14 @@ struct NewTaskView: View {
     @ObservedObject var client: BoardClient
     let tasks: Board.TasksRead?        // the Tasks tab's read, for Part of
     let picked: String?                // the Tasks tab's picked project, if any
+    // Review 1: the draft is the Tasks tab's, so closing the sheet keeps it, as the board's Cancel keeps its draft; a
+    // create clears it.
+    @Binding var draft: NewTask.Draft
     let added: (String) -> Void        // the line the Tasks tab shows after a create
     @Environment(\.dismiss) private var dismiss
 
     @State private var list: Board.ProjectList?
     @State private var readFailed = false
-    @State private var draft = NewTask.Draft()
     @State private var sending = false
     @State private var message: String?
 
@@ -22,7 +25,7 @@ struct NewTaskView: View {
                 .navigationTitle("New task")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Create") { Task { await create() } }
                             .disabled(!NewTask.canCreate(draft) || sending)
@@ -30,7 +33,10 @@ struct NewTaskView: View {
                 }
         }
         .navigationViewStyle(.stack)
+        .interactiveDismissDisabled(sending)   // review 1: a create in the air is not walked away from
         .task { await readProjects() }
+        // Review 1: a pick no longer offered (the Tasks list re-read under the sheet) falls back, never sent unseen.
+        .onChange(of: tasks) { _ in dropUnoffered() }
     }
 
     @ViewBuilder private var content: some View {
@@ -54,7 +60,10 @@ struct NewTaskView: View {
         let offered = NewTask.projects(list)
         return Form {
             if offered.isEmpty {
-                Section { Text("Make a project on your computer first, then add tasks to it here.").foregroundColor(Palette.secondary) }
+                // Review 1: every project archived is not "no project": say which.
+                Section { Text(list.projects.isEmpty ? "Make a project on your computer first, then add tasks to it here."
+                               : "Your projects are all archived. Bring one back on your computer to add tasks to it.")
+                    .foregroundColor(Palette.secondary) }
             } else {
                 Section {
                     Picker("Project", selection: projectBinding) {
@@ -87,7 +96,7 @@ struct NewTaskView: View {
                 }
             }
             if let message {
-                Section { Text(message).font(.footnote).foregroundColor(Palette.secondary).accessibilityAddTraits(.updatesFrequently) }
+                Section { Text(message).font(.footnote).foregroundColor(Palette.secondary) }
             }
         }
         .scrollContentBackground(.hidden)
@@ -102,8 +111,8 @@ struct NewTaskView: View {
 
     private func readProjects() async {
         readFailed = false
-        // The sample Projects (KOSMOS_SAMPLE_AGENTS=1), as the Projects tab shows them, for screenshots.
-        if RoomStore.sample, let parsed = Board.parseProjects(Data(RoomStore.sampleProjects.utf8)) {
+        // The sample Projects (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), as the Projects tab shows them, for screenshots.
+        if Self.sample, let parsed = Board.parseProjects(Data(RoomStore.sampleProjects.utf8)) {
             list = parsed
             if draft.project == nil, let first = NewTask.firstProject(picked: picked, offered: NewTask.projects(parsed)) {
                 draft = NewTask.aimed(draft, at: first)
@@ -121,6 +130,18 @@ struct NewTaskView: View {
         }
     }
 
+    #if DEBUG
+    private static let sample = RoomStore.sample
+    #else
+    private static let sample = false
+    #endif
+
+    private func dropUnoffered() {
+        guard let list else { return }
+        draft = NewTask.keepingOffered(draft, members: NewTask.members(of: draft.project, in: list),
+                                       parents: NewTask.parents(of: draft.project, in: tasks))
+    }
+
     private func create() async {
         guard NewTask.canCreate(draft), !sending else { return }
         sending = true
@@ -129,12 +150,16 @@ struct NewTaskView: View {
         let got = await client.throughMac { NewTask.request(mac: $0, draft: sent) }
         sending = false
         switch NewTask.result(status: got?.1.statusCode ?? 0, body: got?.0) {
-        case .made(let number, let note):
+        case .made(let number, _):
             let name = list?.projects.first { $0.id == sent.project }?.name ?? "the project"
-            added(NewTask.addedLine(number: number, projectName: name) + (note.map { " " + $0 } ?? ""))
+            let line = NewTask.addedLine(number: number, projectName: name)
+            draft = NewTask.Draft()
+            added(line)
             dismiss()
+            UIAccessibility.post(notification: .announcement, argument: line)   // review 1: VoiceOver hears it
         case .refused(let why):
             message = why
+            UIAccessibility.post(notification: .announcement, argument: why)
         }
     }
 }
