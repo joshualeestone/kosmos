@@ -636,6 +636,8 @@ do {
     check(Board.partialRooms(partial, project: "a", partial: false) == [], "room partial: a whole read clears it")
     check(Board.partialRooms(partial, project: "b", partial: false) == ["a"], "room partial: another room's read leaves it")
 
+}
+
 section("an addable refusal's Add (kosmos#7111)")
 // A refusal row as the room route sends one (kind refused, its from, why, and addable).
 let refusedPage = Board.parseRoom(Data(#"{"rows":[{"kind":"refused","at":"2026-10-25T09:00:00.000Z","from":"juno","because":"juno is not on this project","addable":true,"key":"k1"},{"kind":"refused","at":"2026-10-25T09:01:00.000Z","from":"tam","because":"the room is held","key":"k2"}]}"#.utf8),
