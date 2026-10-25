@@ -377,7 +377,8 @@ test('#4649 an own-account code joins as a self link, with one signed read of th
     'an own join waits to be let in');
   assert.equal(link.pendingClear, true, 'and the link remembers it');
   const room = await (await fetch(base + '/api/project/' + encodeURIComponent(j.json.id) + '/room?as=text')).text();
-  assert.match(room, /shared with your other computers\. Messages in this room are not sealed end to end/);
+  assert.match(room, /shared with your other computers\. This computer can post here once you let it in/);
+  assert.doesNotMatch(room, /not sealed end to end/, 'the join note decides sealing from the code (slice 2: only the owner\'s answer does)');
   assert.doesNotMatch(room, /older Kosmos/, 'the unsealed-owner note is not for an own room');
 
   // The same project cannot be joined twice on one computer.

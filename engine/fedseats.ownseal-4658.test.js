@@ -266,6 +266,43 @@ test('#4658 slice 2: a computer with no seal record that sees an unopenable enve
   assert.ok(seat.written.join('').includes('old held words'));
 });
 
+test('#4658 slice 2: a keyless record an older Kosmos wrote (no pendingClear) takes the owner\'s clear; a sealed-joined computer is told why it does not', async () => {
+  federation.recordLink('own-pre1', { role: 'self', ref: 'ref-own-pre1' });
+  fedseal.setRoomState('own-pre1', { role: 'member', ownComputer: true, keys: {} });
+  const h = harness();
+  await fedseats.ensure('own-pre1');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-pre1', expires_at: 9 });
+  await settle();
+  const hello = fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop());
+  const o = handOwner('room-pre1', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
+  await fedseats.confirmOwn('own-pre1', fedseal.compareCode('room-pre1', MY_MAC, hello.pub, o.owner.pub, nW, o.nO));
+  say(seat, { event: 'message', data: o.clear(nW) });
+  await settle();
+  assert.strictEqual(fedseal.roomState('own-pre1'), null, 'an older keyless record could never be let in by a clear');
+  // CONTROL: a computer whose link says it joined a sealed room never takes a clear, and is told why.
+  federation.recordLink('own-pre2', { role: 'self', ref: 'ref-own-pre2', sealed: true });
+  fedseal.setRoomState('own-pre2', { role: 'member', ownComputer: true, keys: {} });
+  const h2 = harness();
+  await fedseats.ensure('own-pre2');
+  const seat2 = h2.spawned[0];
+  say(seat2, { event: 'connected', room: 'room-pre2', expires_at: 9 });
+  await settle();
+  const hello2 = fedseal.checkOwnHello(sent(seat2, 'key-own-hello').pop());
+  const o2 = handOwner('room-pre2', hello2);
+  say(seat2, { event: 'message', data: o2.offer });
+  await settle();
+  const nW2 = fedseal.checkOwnReveal(revealOf(seat2), MY_MAC, o2.owner.pub, hello2.commit, hello2.pub);
+  await fedseats.confirmOwn('own-pre2', fedseal.compareCode('room-pre2', MY_MAC, hello2.pub, o2.owner.pub, nW2, o2.nO));
+  say(seat2, { event: 'message', data: o2.clear(nW2) });
+  await settle();
+  assert.deepStrictEqual(fedseal.roomState('own-pre2'), { role: 'member', ownComputer: true, keys: {} }, 'a sealed-joined computer took a clear');
+  assert.ok(h2.notes.some((n) => n.projectId === 'own-pre2' && /waits for the room's key, not for a clear/.test(n.text)), 'refused with no word why');
+});
+
 test('#4658 slice 2: a clear that arrives BEFORE the person confirms is kept, and the confirm lets the posts go', async () => {
   const { seat, hello } = await pendingComputer('own-c3', 'room-c3');
   fedseats.post('own-c3', { from: 'Josh', kind: 'person', text: 'early clear words' });
