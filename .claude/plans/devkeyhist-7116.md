@@ -22,3 +22,8 @@ take a snapshot's signing key from escrowd's word instead of the coordinator's.
 - [x] engine.reachable passes with the excuse
 - [ ] challenge-loop
 - [ ] push and PR after the Mortals hold lifts
+
+## Carried to slice 3 (wiring restore)
+- verify() reads the Mac's own clock when no `now` is passed, so a Mac with its clock rolled back accepts a head that
+  much older. Slice 3 passes the most trustworthy time it has, never a time taken from the manifest.
+- There is deliberately no option for the verifying key; slice 3 must not add one.

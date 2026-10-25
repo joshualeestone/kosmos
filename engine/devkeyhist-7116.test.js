@@ -29,7 +29,8 @@ function signed(entries, { org = 'o1', member = 'm1', issuedAt = NOW - 60, key =
   assert.ok(msg, 'fixture: the entries must be encodable');
   return { org, member, entries, issuedAt, signature: crypto.sign(null, msg, key).toString('base64url') };
 }
-const opts = { verifyingKey: VK, now: NOW, org: 'o1', member: 'm1' };
+hist.setVerifyingKeyForTests(VK);
+const opts = { now: NOW, org: 'o1', member: 'm1' };
 
 test('an honest history verifies and names each key with its window', () => {
   const r = hist.verify(signed(BASE), opts);
@@ -75,10 +76,28 @@ test('fails CLOSED with no verifying key: the shipped constant is null and that 
   assert.strictEqual(hist.VERIFYING_KEY, null, 'this test assumes the key has not shipped; revisit when it does');
   const h = signed(BASE);
   assert.strictEqual(hist.verify(h, opts).ok, true, 'control: the same history verifies with a key');
-  assert.match(hist.verify(h, {}).because, /cannot check/);
-  for (const bad of [null, undefined, Buffer.alloc(31), 'x'.repeat(64), VK.toString('hex')]) {
-    assert.strictEqual(hist.verify(h, { ...opts, verifyingKey: bad }).ok, false, `verifyingKey ${String(bad).slice(0, 12)} must not count`);
-  }
+  try {
+    for (const bad of [null, undefined, Buffer.alloc(31), 'x'.repeat(64), VK.toString('hex')]) {
+      hist.setVerifyingKeyForTests(bad);
+      assert.match(hist.verify(h, opts).because || '', /cannot check/, `${String(bad).slice(0, 12)} must not count as a key`);
+    }
+  } finally { hist.setVerifyingKeyForTests(VK); }
+  assert.strictEqual(hist.verify(h, opts).ok, true, 'control: restored');
+});
+
+test('a caller cannot hand in its own verifying key, and the test seam counts only inside a test process', () => {
+  const h = signed(BASE);
+  const other = crypto.generateKeyPairSync('ed25519').privateKey;
+  const forged = signed(BASE, { key: other });
+  const otherVk = crypto.createPublicKey(other).export({ format: 'der', type: 'spki' }).subarray(-32);
+  assert.match(hist.verify(forged, { ...opts, verifyingKey: otherVk }).because, /signature/, 'an option naming the forger\'s key is ignored');
+  const saved = process.env.NODE_TEST_CONTEXT;
+  assert.ok(saved, 'this file runs under node --test, which sets NODE_TEST_CONTEXT');
+  try {
+    delete process.env.NODE_TEST_CONTEXT;
+    assert.match(hist.verify(h, opts).because, /cannot check/, 'outside a test process the seam key does not count');
+  } finally { process.env.NODE_TEST_CONTEXT = saved; }
+  assert.strictEqual(hist.verify(h, opts).ok, true, 'control: back inside the test process');
 });
 
 test('a signature by any key but escrowd\'s is refused', () => {
@@ -102,7 +121,7 @@ test('a GENUINE history for another member is refused for this member (a coordin
 test('verify refuses when the caller does not name the org and member being restored', () => {
   const h = signed(BASE);
   for (const [org, member] of [[undefined, 'm1'], ['o1', undefined], ['', 'm1'], ['o1', ''], [7, 'm1']]) {
-    assert.match(hist.verify(h, { verifyingKey: VK, now: NOW, org, member }).because, /without naming/, `${org}/${member}`);
+    assert.match(hist.verify(h, { now: NOW, org, member }).because, /without naming/, `${org}/${member}`);
   }
 });
 
@@ -196,4 +215,11 @@ test('keyAt answers only for a key in the form the history holds it', () => {
   assert.ok(hist.keyAt(keys, K2, NOW - 100), 'control');
   assert.strictEqual(hist.keyAt(keys, 'AB'.repeat(32), NOW - 100), null);
   assert.strictEqual(hist.keyAt(keys, Buffer.from(K2, 'hex'), NOW - 100), null);
+});
+
+test('an org or member id that is not well-formed text cannot be signed or verified (it would collide after UTF-8)', () => {
+  assert.ok(hist.encodeHead('o1', 'm1', BASE, NOW - 60), 'control');
+  assert.strictEqual(hist.encodeHead('o1', 'm\ud800', BASE, NOW - 60), null);
+  assert.strictEqual(hist.encodeHead('o\udc00', 'm1', BASE, NOW - 60), null);
+  assert.deepStrictEqual(Buffer.from('m\ud800'), Buffer.from('m�'), 'the collision this refuses');
 });
