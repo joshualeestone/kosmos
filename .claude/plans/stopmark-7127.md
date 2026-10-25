@@ -19,10 +19,12 @@ they fill the REAL disk (it happened here: ~95 GB in two minutes before it was s
 
 ## Not done
 - Sweeping images leaked by killed runs at start. A killed run leaks two images: its own (at a private path) and the
-  decoy (at /Volumes/s6651-<pid>, visible machine-wide). Per-run names mean neither can collide with a later run, so
-  this is a resource leak until reboot or a manual detach, not a correctness one.
+  decoy (at /Volumes/s6651-<pid>, visible machine-wide). Neither can affect where a later run writes (pids can be
+  reused, but nothing reads a decoy's mount point), so this is a resource leak until reboot or a manual detach.
 
 ## Checks
+- leftover ./N/board.stopped from an older run is named in a NOTE (with its size), never failed on; only what
+  this run writes there fails the #7127 check
 - the test passes; it passes again with a killed run's image still mounted (simulated with kill -KILL)
 - two-arm control with a private name (c7127): the OLD logic goes red with the card's exact error, the new passes
 - mutant (old parse back in, bounded dd): FAIL on the card's two checks and on the new #7127 check; wrote nothing

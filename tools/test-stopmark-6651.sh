@@ -138,8 +138,9 @@ fi
 # mounted; with a fixed name macOS mounted the next as "/Volumes/s6651 1", and the old parse sent the writes to ./1/.
 # A same-named decoy, mounted the default way first, guards against going back to that: with it in place, reading the
 # mount point from hdiutil's output again would give "/Volumes/s6651-<pid> 1" and fail the check below on every run.
-# It is optional: if it cannot be mounted, the #7127 check says SKIP and the full-disk case still runs. (A killed run
-# leaks the decoy at /Volumes/s6651-<pid> as well as its own image; per-run names mean neither can collide.)
+# It is optional: if it cannot be mounted, a SKIP line says so and the full-disk case and the #7127 check still run,
+# without the collision. (A killed run leaks the decoy at /Volumes/s6651-<pid> as well as its own image; neither can
+# affect where a later run writes.)
 if command -v hdiutil >/dev/null 2>&1; then
   if hdiutil create -quiet -size 4m -fs APFS -volname "s6651-$$" "$TMP/decoy.dmg" >/dev/null 2>&1; then
     # The decoy is detached by its device node (first field of attach's first line), which carries no spaces.
@@ -147,6 +148,9 @@ if command -v hdiutil >/dev/null 2>&1; then
   fi
   [ -n "$DECOY" ] || echo "SKIP  #7127 collision check: the decoy volume could not be mounted"
 fi
+# What the old parse may have left in this checkout before this run ("N/board.stopped", N being macOS's suffix), so the
+# check below blames this run only for what it writes.
+debris_before=""; for n in 1 2 3 4 5 6 7 8 9; do [ -e "$n/board.stopped" ] && debris_before="$debris_before $n"; done
 if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
    && hdiutil create -quiet -size 8m -fs APFS -volname "s6651-$$" "$TMP/full.dmg" >/dev/null 2>&1 \
    && hdiutil attach -quiet -nobrowse -mountpoint "$TMP/mnt" "$TMP/full.dmg" >/dev/null 2>&1 && DISK="$TMP/mnt"; then
@@ -167,10 +171,17 @@ if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
       || bad "full-disk clear: marker $( [ -e "$DISK/board.stopped" ] && echo left || echo gone ), stdout '$out'"
     # kosmos#7127: the writes went to this run's own image, a filesystem of its own, and not to ./1/ (where the old
     # parse sent them). The device check fails if the attach left $TMP/mnt a plain folder.
-    { [ "$(stat -f %d "$DISK")" != "$(stat -f %d "$TMP")" ] && [ -e "$DISK/fill" ] && [ ! -e "1/board.stopped" ]; } \
+    new_debris=""; for n in 1 2 3 4 5 6 7 8 9; do
+      [ -e "$n/board.stopped" ] && case " $debris_before " in *" $n "*) ;; *) new_debris="$new_debris $n" ;; esac
+    done
+    { [ "$(stat -f %d "$DISK")" != "$(stat -f %d "$TMP")" ] && [ -e "$DISK/fill" ] && [ -z "$new_debris" ]; } \
       && ok "the full-disk case writes to its own image$( [ -n "$DECOY" ] && echo ', not where a parsed mount point would put it') (#7127)" \
-      || bad "the full-disk case wrote somewhere other than its own image (#7127)"
+      || bad "the full-disk case wrote somewhere other than its own image (#7127)${new_debris:+: it wrote into${new_debris}}"
   fi
+  # Not this run's doing: an older run with the old parse wrote here, possibly a huge N/fill. Named, never failed on.
+  for n in $debris_before; do
+    echo "NOTE  ./$n/ in $(pwd) is left over from an older run of this test (#7127): $(du -sh "$n" 2>/dev/null | awk '{ print $1 }'); remove it by hand"
+  done
 else
   echo "SKIP  full-disk case: hdiutil could not make a disk image here (macOS only)"
 fi
