@@ -68,6 +68,9 @@ struct RoomView: View {
     @State private var clears = 0
     // A post went while words filtered: the line under the room says it shows only if it matches (the chat's line).
     @State private var sentWhileSearching = false
+    // A reply's header was pressed while the search hides the post it answers: the room says so instead of moving
+    // (the board's PJ_HIDDEN_BY_SEARCH), until the search changes or goes.
+    @State private var hiddenBySearch = false
     // The empty-result sentence has been spoken for this entry into an empty result (the board's PJ_SEARCH_WAS_EMPTY):
     // not again while it stays empty, whatever is typed or whichever sentence a read shows. Forgotten when results
     // come back or the search goes.
@@ -94,6 +97,9 @@ struct RoomView: View {
                     .onChange(of: g.size.height) { threadHeight = $0 } })
             if let note = store.notes[project.id] {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
+            } else if hiddenBySearch {
+                Text(Board.roomHiddenBySearch).font(.footnote).foregroundColor(Palette.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
             } else if sentWhileSearching {
                 // Below the post's own line: a post that did not go says so instead.
                 Text(Board.chatSentWhileSearching).font(.footnote).foregroundColor(Palette.secondary)
@@ -175,10 +181,11 @@ struct RoomView: View {
             searchFocused = false
             openedAtNewest = false
             sentWhileSearching = false
+            hiddenBySearch = false
             spokeEmpty = false
         }
         .onChange(of: searching) { now in if now { filteredInMode = true } }
-        .onChange(of: query) { _ in sentWhileSearching = false }
+        .onChange(of: query) { _ in sentWhileSearching = false; hiddenBySearch = false }
         .onChange(of: searching && shownRows.isEmpty) { empty in if !empty { spokeEmpty = false } }
         // A post that did not go says so on its own line; the search's line is not about it.
         .onChange(of: store.notes[project.id] != nil) { now in if now { sentWhileSearching = false } }
@@ -204,6 +211,7 @@ struct RoomView: View {
             searchFocused = false
             openedAtNewest = false
             sentWhileSearching = false
+            hiddenBySearch = false
             spokeEmpty = false
             fileStates = [:]
             previewURL = nil
@@ -502,6 +510,13 @@ struct RoomView: View {
             .onChange(of: jumpTo) { id in
                 guard let id else { return }
                 jumpTo = nil
+                // kosmos#7096: an original the search hides is not gone to; the room says so (the board's
+                // PJ_HIDDEN_BY_SEARCH, said only for a post the room holds: one not loaded stays the header's own line).
+                if searching && !shownRows.contains(where: { $0.id == id }) && rows.contains(where: { $0.id == id }) {
+                    hiddenBySearch = true
+                    Self.say(Board.roomHiddenBySearch)
+                    return
+                }
                 if reduceMotion { proxy.scrollTo(id, anchor: .center) } else { withAnimation { proxy.scrollTo(id, anchor: .center) } }
                 // A repeat jump to the post still flashing starts the flash over, as the board's class removed and added
                 // again (review 4): only the latest jump's timer clears it.

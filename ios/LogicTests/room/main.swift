@@ -620,7 +620,8 @@ do {
     // The board's rules this mirrors are still the board's (a change there turns this red).
     check(boardPage.contains("const who = m.kind === 'valve' ? ''") && boardPage.contains("m.operator === true ? 'you'")
           && boardPage.contains("(m.kind === 'refused') ? ((m.doing ? m.doing + ' ' : '') + (m.because || ''))")
-          && boardPage.contains(Board.roomPartialLine),
+          && boardPage.contains(Board.roomPartialLine)
+          && boardPage.contains("const PJ_HIDDEN_BY_SEARCH = '" + Board.roomHiddenBySearch + "'"),
           "room search: the board's pjRoomFilterRows and partial-read line still say what the phone mirrors")
     // Which rooms' rows came from a read that could not read all of the room.
     let partial = Board.partialRooms([], project: "a", partial: true)
