@@ -84,6 +84,11 @@ mixed-version own rooms must keep working, in which case v1 joins stay as today 
 - **A pre-slice own computer** can be put into waiting by one unopenable envelope (review 6 asked): recoverable by a
   compare, where main sealed it for good; deferred, the trade is stated above.
 
+- **An older Kosmos joiner** (one that asks for a sealed room's key after an unopenable envelope) can be Allowed on a
+  new unsealed owner and is then dropped from the owner's list, but it ignores key-own-clear and never takes part
+  (review 7). Nothing detects the version; the owner's screen says "Allowed" all the same.
+- The resent clear (s.ownCleared) is sent only while the room still reads clear, and forgotten once it does not (review 7).
+
 ## Not in this slice
 Lifting the self-shared invite refusal entirely (decision 5 of #7107): once every own computer holds until answered,
 a v1-shared room has only computers that joined before this slice; they still post in the clear. Lift it when no

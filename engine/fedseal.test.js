@@ -192,3 +192,23 @@ test('#3728: a damaged rooms file is an error and is never overwritten (it holds
   assert.strictEqual(fs.readFileSync(f, 'utf8'), 'garbage', 'the damaged rooms file was replaced');
   fs.rmSync(f);
 });
+
+test('kosmos#4658 slice 2: a key-own-clear opens only for its own run, room, computer and owner (genuine one as the control)', () => {
+  const owner = seal.newKeyPair();
+  const w = seal.newKeyPair();
+  const nW = seal.randomSecret();
+  const nO = seal.randomSecret();
+  const room = 'room-clear-1';
+  const mac = 'mac-clear-1';
+  const code = seal.compareCode(room, mac, w.pub, owner.pub, nW, nO);
+  const frame = seal.ownClearFrame(owner, { mac, pub: w.pub, nW, nO }, code, room);
+  assert.strictEqual(seal.openOwnClear(w, mac, owner.pub, nW, nO, frame, room), true, 'CONTROL: the genuine clear opens');
+  assert.strictEqual(seal.openOwnClear(w, mac, owner.pub, seal.randomSecret(), nO, frame, room), false, 'another run (nW)');
+  assert.strictEqual(seal.openOwnClear(w, mac, owner.pub, nW, seal.randomSecret(), frame, room), false, 'another offer (nO)');
+  assert.strictEqual(seal.openOwnClear(w, mac, owner.pub, nW, nO, frame, 'room-other'), false, 'another room');
+  assert.strictEqual(seal.openOwnClear(seal.newKeyPair(), mac, owner.pub, nW, nO, frame, room), false, 'another recipient');
+  assert.strictEqual(seal.openOwnClear(w, 'mac-other', owner.pub, nW, nO, frame, room), false, 'another computer id');
+  assert.strictEqual(seal.openOwnClear(w, mac, seal.newKeyPair().pub, nW, nO, frame, room), false, 'another owner key expected');
+  assert.throws(() => seal.ownClearFrame(owner, { mac, pub: w.pub, nW, nO }, 'AAAAA-AAAAA', room), /the code confirmed is not the one/, 'a clear is never made for a code nobody confirmed');
+});
+
