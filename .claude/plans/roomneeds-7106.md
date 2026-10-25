@@ -39,4 +39,10 @@ the board's route with its two sentences; tested against a captured projects ans
      targets inside each button's label; an account guard on dismiss; the UTF-16 fallback key; a dismiss said done
      only once a re-read lands; the sentence choice tested (Board.needsDismissSaid); the fixture called captured
      and trimmed. Room 261/261; route check 5/5; Debug SUCCEEDED.
+   - Round 2: 0 blockers, 2 warnings, 3 nits. Fixed: with the last row dismissed, focus goes to the box (the head is
+     gone with the notice); nothing is said or focused once the room is left, and its failure line is not kept; a
+     test where the route's key differs from the built one (the parse mutation now red); Dismiss waits while its
+     request is in the air. Recorded: the fallback key cannot keep a lone surrogate as JavaScript's slice does (Swift
+     strings cannot hold one); the engine always sends needsYouKey, so the fallback only serves an older board; a
+     code-point-safe engine key would be its own card. Room 263/263; Debug SUCCEEDED.
 3. Validation, PR.

@@ -430,15 +430,16 @@ struct RoomView: View {
     // Show lists them, so the pinned band never takes the room over.
     @State private var needsOpen = false
     // VoiceOver's place after a dismiss (the board's pjNeedsDismissClick): the next row's Dismiss, else the last one
-    // left, else the head.
+    // left, else (the notice gone with its last row) the box, which outlives it (review 2).
     @AccessibilityFocusState private var needsFocus: String?
+    // Rows with a dismiss in the air: their Dismiss waits, as the board's disabled button (review 2).
+    @State private var dismissing: Set<String> = []
     @ViewBuilder private var needsLine: some View {
         if let notice = store.needsNotice(project.id) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(notice.head).font(.footnote.weight(.semibold)).foregroundColor(Palette.primary)
                         .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityFocused($needsFocus, equals: "head")
                     Spacer(minLength: 8)
                     if notice.rows.count > 1 {
                         Button { needsOpen.toggle() } label: {
@@ -466,14 +467,24 @@ struct RoomView: View {
     }
 
     private func dismiss(_ row: Board.NeedsRow) {
+        guard !dismissing.contains(row.session) else { return }
+        dismissing.insert(row.session)
         let keys = store.needsNotice(project.id)?.rows.map(\.session) ?? []
         Task {
-            guard let said = await store.dismissNeeds(row, in: project.id) else { return }
+            let said = await store.dismissNeeds(row, in: project.id)
+            dismissing.remove(row.session)
+            // Left the room meanwhile: nothing is said over another screen (the board returns when PJ_CURRENT moved),
+            // and a failure line is not left for the next visit.
+            guard visible else { store.clearNeedsFailed(project.id); return }
+            guard let said else { return }
             Self.say(said)
             guard said == Board.needsDismissed else { return }
             let left = store.needsNotice(project.id)?.rows.map(\.session) ?? []
-            let after = keys.drop(while: { $0 != row.session }).dropFirst().first { left.contains($0) }
-            needsFocus = after ?? left.last ?? "head"
+            if let next = keys.drop(while: { $0 != row.session }).dropFirst().first(where: { left.contains($0) }) ?? left.last {
+                needsFocus = next
+            } else {
+                composerFocused = true
+            }
         }
     }
 
@@ -490,6 +501,7 @@ struct RoomView: View {
                 Button { dismiss(row) } label: {
                     Text("Dismiss").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
+                .disabled(dismissing.contains(row.session))
                 .accessibilityLabel("Dismiss \(row.name)")
                 .accessibilityFocused($needsFocus, equals: row.session)
             }

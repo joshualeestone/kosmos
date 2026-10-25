@@ -761,6 +761,11 @@ let one = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", 
                                                   needsYouKey: nil, because: "Which cover photo?")], names: ["cleo": "Cleo"])
 check(one?.head == "Cleo needs you on this project." && one?.namedInHead == "cleo", "one: the head names it, and its row does not again")
 check(one?.rows.first?.key == "question:Which cover photo?", "no key from the route: built as the engine builds it")
+let keyed = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", hasAvatar: false, provider: nil, needsYouHere: "question",
+                                                    needsYouKey: "question:Which cover?", because: "Something newer")])
+check(keyed?.rows.first?.key == "question:Which cover?", "the route's own key is what Dismiss sends, never one built again")
+let parsedKeyed = Board.parseProjects(Data(#"{"projects":[{"id":"p1","name":"P","agents":[{"sessionName":"cleo","needsYouHere":"question","needsYouKey":"question:X","because":"Y"}]}]}"#.utf8))
+check(parsedKeyed?.projects.first?.members.first?.needsYouKey == "question:X", "the route's needsYouKey is read")
 let unknownReason = Board.needsNotice([Board.ProjectMember(session: "x", name: "X", hasAvatar: false, provider: nil, needsYouHere: "something_new")])
 check(unknownReason?.rows.first?.why == "Kosmos needs you to look at it." && unknownReason?.rows.first?.key == "something_new", "a reason this build does not know: the board's other")
 check(Board.needsNotice([Board.ProjectMember(session: "x", name: "X", hasAvatar: false, provider: nil)]) == nil, "nobody counted: no notice")
