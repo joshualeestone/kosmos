@@ -56,8 +56,8 @@ function fakeRequest(answer, seen) {
 test('#7152: the default account reads the bare Keychain entry and any other account its own folder\'s entry', async () => {
   const asked = [];
   const readCred = async (svc) => { asked.push(svc); return cred(); };
-  await usagepoll.tokenStateFor({ dir: '/u/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred });
-  await usagepoll.tokenStateFor({ dir: '/u/.claude-account-d' }, { now: NOW, platform: 'darwin', readCred });
+  await usagepoll.tokenStateFor({ dir: '/u/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: '/u' });
+  await usagepoll.tokenStateFor({ dir: '/u/.claude-account-d' }, { now: NOW, platform: 'darwin', readCred, realHome: '/u' });
   assert.deepEqual(asked, [loginexpiry.DEFAULT_SERVICE, loginexpiry.serviceNameFor('/u/.claude-account-d')]);
   assert.notEqual(asked[1], loginexpiry.DEFAULT_SERVICE, 'CONTROL: a non-default account must not read the bare entry');
 });
@@ -235,6 +235,7 @@ test('#7152 review 5: the sweep never reads real logins under a test, and the br
   assert.equal(usagepoll.liveAllowed({}), true, 'CONTROL: a plain board may read');
   assert.equal(usagepoll.liveAllowed({ NODE_TEST_CONTEXT: 'child-v8' }), false, 'a test-spawned server would read real logins');
   assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL_OFF: '1' }), false, 'the brake did not stop it');
+  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_DRY_RUN: '1' }), false, 'a harness board (no NODE_TEST_CONTEXT) would read real logins');
   assert.equal(usagepoll.liveAllowed(), false, 'this test process itself was allowed');
 });
 
@@ -264,7 +265,36 @@ test('#7152 review 6: a token whose profile is another account gives no reading 
     now: NOW, platform: 'darwin', readCred: async () => cred(),
     request: fakeRequest((opts) => (opts.path === '/api/oauth/profile' ? { code: 500, body: '' } : { code: 200, body: BODY }), {}),
   });
-  assert.equal(noProfile.state, 'ok', 'an unreadable profile blocked the reading');
+  assert.equal(noProfile.state, 'profile-unreadable', 'an unreadable profile let the reading in');
+});
+
+test('#7152 review 7: a sandboxed board never reads the bare Keychain entry, whatever its environment says', async () => {
+  const asked = [];
+  const readCred = async (svc) => { asked.push(svc); return cred(); };
+  /* The shape a harness board has: a sandbox HOME whose .claude is listed as the default account, and the real
+     Keychain, whose bare entry is the operator's own login. */
+  const st = await usagepoll.tokenStateFor({ dir: '/tmp/sandbox/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: '/Users/op' });
+  assert.equal(st.state, 'no-credential');
+  assert.deepEqual(asked, [], 'the operator\'s real login was read for a sandbox account');
+  await usagepoll.tokenStateFor({ dir: '/Users/op/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: '/Users/op' });
+  assert.deepEqual(asked, [loginexpiry.DEFAULT_SERVICE], 'CONTROL: the real home\'s default account reads the bare entry');
+  await usagepoll.tokenStateFor({ dir: '/tmp/sandbox/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: null });
+  assert.equal(asked.length, 1, 'an unknown real home read the bare entry');
+});
+
+test('#7152 review 7: a failed profile read keeps the last good figures and is not a reading', async (t) => {
+  const d = tmpDir(t);
+  const resets = Math.floor((NOW + 86400000) / 1000);
+  usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', weekly: { usedPct: 12, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null });
+  const n = await usagepoll.pollAll([{ dir: d, email: 'a@example.test' }], {
+    now: NOW, platform: 'darwin', readCred: async () => cred(),
+    request: fakeRequest((opts) => (opts.path === '/api/oauth/profile' ? { code: 429, body: '' } : { code: 200, body: BODY }), {}),
+  });
+  assert.equal(n, 0, 'a reading with an unread profile was counted as measured');
+  const r = usagepoll.readUsage(d, NOW);
+  assert.equal(r.state, 'profile-unreadable');
+  assert.equal(r.weekly.usedPct, 12, 'the endpoint figure replaced the kept one without its profile checked');
+  assert.equal(r.measuredAt, NOW - 60000, 'CONTROL: the kept figure keeps its own measured time');
 });
 
 test('#7152 review 6: once the endpoint stops answering, "will not update" comes back', (t) => {

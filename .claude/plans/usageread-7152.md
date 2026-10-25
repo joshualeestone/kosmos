@@ -30,15 +30,23 @@ at 0%, had no reading at all (the card's opening).
   (resets within an hour) accountsweekly takes the HIGHER figure, since usage only rises, so a lagging source cannot
   win by being later. A token with under a minute left counts as expired, and a weekly reset more than 8 days out is
   not a reading.
-- Review 5: the sweep never runs under a test. A server a test spawns inherits NODE_TEST_CONTEXT and has live execution
+- Review 5: the sweep does not run under node's test runner. A server a test spawns inherits NODE_TEST_CONTEXT and has live execution
   armed, so without `usagepoll.liveAllowed()` it would read the operator's real logins and write into the real account
   folders. Across windows, the endpoint reading is dated by when it was last MEASURED, since the question there is
   which reading is current. The request sends its own User-Agent.
 - Review 6: the profile behind the same token (`/api/oauth/profile`) is checked against the email Kosmos lists for the
   account, and a clear mismatch records `other-account`, not a reading. So a credential holding another login (seen
   on the fleet, where the bare entry and the default folder's entry were two accounts) cannot put that login's figure
-  on this account, and so cannot win the higher-figure rule with it. An unreadable profile does not block a reading.
+  on this account, and so cannot win the higher-figure rule with it.
   "Will not update" is cleared only while the endpoint's last read worked.
+- Review 7: review 5's guard covered only node's test runner. A board a harness starts from bash (browser-checks.sh,
+  the shell tests, mobile-shots.js) carries no NODE_TEST_CONTEXT, lists its sandbox `.claude` as the default account,
+  and shares the real Keychain, so it would have sent the operator's real token. Two guards now: AGENT_WORKFORCE_DRY_RUN=1
+  (which those harnesses set) stops the sweep, and the bare Keychain entry is read only for a default folder that IS
+  the real home's `.claude` (home from the user database, not $HOME), which holds for every harness whatever it sets.
+  A profile that cannot be read is now a failed read (`profile-unreadable`, last good figures kept), not a pass: one
+  failed profile read would otherwise let another login's figure in. Weakest premise: if the profile endpoint fails
+  often, accounts with an email go unmeasured that often; the first live sweep's log line shows how often.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:

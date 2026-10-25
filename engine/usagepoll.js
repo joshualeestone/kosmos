@@ -24,6 +24,7 @@
  * for its own folder. On macOS that is the login Keychain; elsewhere it is the folder's `.credentials.json`.
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const https = require('node:https');
 const loginexpiry = require('./loginexpiry');
@@ -54,17 +55,30 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    process's environment, and live execution is armed there (no --test in its execArgv), so without this the sweep would
    read the operator's real logins and write into the real account folders from a test. NODE_TEST_CONTEXT is set by
    node's own test runner in every test process and by nothing else (the signal ping.js and feedbacksend.js settled
-   on). AGENT_WORKFORCE_USAGE_POLL_OFF=1 is the operator's brake. */
+   on). Review 7: a board a harness boots outside node's runner (tools/browser-checks.sh, the shell tests,
+   mobile-shots.js) does NOT carry it (tools.no-phone-home-4253.test.js records that), so AGENT_WORKFORCE_DRY_RUN=1,
+   which those harnesses set, refuses too. Not every harness sets it, so the guard that holds for all of them is in
+   readCredFor (the bare entry only for the real home's .claude). AGENT_WORKFORCE_USAGE_POLL_OFF=1 is the operator's
+   brake. */
 function liveAllowed(env = process.env) {
-  return !env.NODE_TEST_CONTEXT && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1';
+  return !env.NODE_TEST_CONTEXT && env.AGENT_WORKFORCE_DRY_RUN !== '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1';
 }
 
 /* The CLAUDE_CONFIG_DIR value this account's agents run with: unset for the default account (see the header). */
 function ccdFor(a) { return a && a.isDefault ? undefined : a && a.dir; }
 
+/* Review 7: the home folder from the user database, not $HOME, so a harness that sandboxes HOME (or
+   AGENT_WORKFORCE_HOME) still compares against the real one. */
+function realHomeDir() { try { return os.userInfo().homedir; } catch { return null; } }
+
 /* The credential body for an account, or null. macOS: the Keychain entry its agents read. Elsewhere: the folder's own
    credentials file, which is where Claude Code keeps it off macOS. */
-function readCredFor(a, { platform = process.platform, readCred = loginexpiry.readCredAsync } = {}) {
+function readCredFor(a, { platform = process.platform, readCred = loginexpiry.readCredAsync, realHome = realHomeDir() } = {}) {
+  /* Review 7: the bare entry is the operator's own login, and a sandboxed board lists ITS .claude as the default
+     account. So the bare entry is read only for a default folder that IS the real home's .claude. */
+  if (platform === 'darwin' && a.isDefault && (!realHome || path.resolve(a.dir) !== path.join(realHome, '.claude'))) {
+    return Promise.resolve(null);
+  }
   if (platform === 'darwin') return readCred(loginexpiry.serviceNameFor(ccdFor(a)));
   return new Promise((resolve) => {
     fs.readFile(path.join(a.dir, '.credentials.json'), 'utf8', (err, body) => resolve(err ? null : body));
@@ -147,14 +161,15 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, ...deps } = {}
   /* Review 6: the credential carries no account, and the one an account's agents read can belong to another login
      (measured on a build Mac: the bare entry and the default folder's entry were two different accounts). So the
      profile behind the same token is checked against the account Kosmos lists: a clear mismatch is not this account's
-     reading. A profile that cannot be read does not block the reading (it is a second, optional request). */
+     reading. Review 7: a profile that cannot be read is not a pass either, since one failed profile read would let
+     another login's figure in, and the higher-figure rule would keep it on screen. So it is a failed read, and
+     pollAll keeps the last good figures as it does for any other. */
   if (a.email) {
     const p = await getUsage(t.token, { request, path: PROFILE_PATH, ...(timeoutMs ? { timeoutMs } : {}) });
     let email = null;
     try { email = p.code === 200 ? (JSON.parse(p.body).account || {}).email : null; } catch { email = null; }
-    if (typeof email === 'string' && email && email.toLowerCase() !== String(a.email).toLowerCase()) {
-      return { at: now, state: 'other-account' };
-    }
+    if (typeof email !== 'string' || !email) return { at: now, state: 'profile-unreadable' };
+    if (email.toLowerCase() !== String(a.email).toLowerCase()) return { at: now, state: 'other-account' };
   }
   const fiveHour = windowOf(j && j.five_hour, { nowMs: now, maxAheadSeconds: statusline.FIVE_HOUR_MAX_AHEAD_SECONDS });
   return { at: now, state: 'ok', weekly, fiveHour };
