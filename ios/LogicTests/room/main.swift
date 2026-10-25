@@ -635,6 +635,34 @@ do {
     check(partial == ["a"], "room partial: a landed read that could not read all of the room marks it")
     check(Board.partialRooms(partial, project: "a", partial: false) == [], "room partial: a whole read clears it")
     check(Board.partialRooms(partial, project: "b", partial: false) == ["a"], "room partial: another room's read leaves it")
+
+section("an addable refusal's Add (kosmos#7111)")
+// A refusal row as the room route sends one (kind refused, its from, why, and addable).
+let refusedPage = Board.parseRoom(Data(#"{"rows":[{"kind":"refused","at":"2026-10-25T09:00:00.000Z","from":"juno","because":"juno is not on this project","addable":true,"key":"k1"},{"kind":"refused","at":"2026-10-25T09:01:00.000Z","from":"tam","because":"the room is held","key":"k2"}]}"#.utf8),
+                                   names: ["juno": "Juno", "tam": "Tam"])
+let addableRow = refusedPage?.rows.first { $0.refusal?.key == "juno" }
+let plainRow = refusedPage?.rows.first { $0.refusal?.key == "tam" }
+check(addableRow != nil && plainRow != nil, "premise: both refusals parse")
+if let addableRow, let plainRow {
+    check(Board.addMemberShown(addableRow, members: ["kit"], live: ["juno", "kit"]), "addable, not a member, still on this computer: Add")
+    check(!Board.addMemberShown(addableRow, members: ["kit", "juno"], live: ["juno", "kit"]), "already a member: no Add (it goes away once added)")
+    check(!Board.addMemberShown(addableRow, members: ["kit"], live: ["kit"]), "an agent this computer no longer has: no Add (never a ghost)")
+    check(!Board.addMemberShown(plainRow, members: ["kit"], live: ["tam", "kit"]), "a refusal that adding would not end: no Add")
+}
+check(Board.addMemberLabel("Juno") == "Add Juno to this project" && Board.addedMemberLine("Juno") == "Added Juno to this project.",
+      "the board's words for the button and what VoiceOver hears")
+let addReq = Board.addMemberRequest(mac: mac, project: "springcatalogue", agent: "juno")
+check(addReq?.httpMethod == "POST" && addReq?.url?.path == "/api/project/springcatalogue/agent/juno", "Add posts to the board's route")
+check(Board.addMemberRequest(mac: mac, project: "../x", agent: "juno") == nil && Board.addMemberRequest(mac: mac, project: "springcatalogue", agent: "a/b") == nil,
+      "nothing sent for a bad project or agent")
+check(Board.addMemberRefusal(status: 200, Data("{}".utf8)) == nil, "added: no refusal")
+check(Board.addMemberRefusal(status: 409, Data(#"{"error":"that agent is already on this project"}"#.utf8)) == "That agent is already on this project.",
+      "refused: the route's reason as a sentence")
+check(Board.addMemberRefusal(status: nil, nil) == "We could not change that project.", "no answer: the board's fallback")
+for phrase in ["'\">Add ' + esc(nameR)\n        + ' to this project</button>", "pjRoomAnnounce('Added ' + ((p && pjNameOf(p, who)) || who) + ' to this project.');",
+               "fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(who), { method: 'POST' });",
+               "const add = m.addable === true && !onIt && live", "'We could not change that project.'"] {
+    check(boardPage.contains(phrase), "the board's Add still says: \(phrase.prefix(60))")
 }
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }

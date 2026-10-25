@@ -272,6 +272,19 @@ final class RoomStore: ObservableObject {
 
     // kosmos#7072: the board's Reopen the room. On a reopen the notice goes now, before the re-read, so a re-read that
     // fails cannot leave a held notice with a dead button (pjHeldReopenClick); a refusal carries the board's sentence.
+    // kosmos#7111: an addable refusal's Add. Added: the project list and the room are read again, so the button goes with
+    // the agent now a member (the board's pjReload). Refused: the route's sentence. Dropped: another account or computer.
+    func addMember(_ agent: String, to project: String) async -> Board.AddMemberOutcome {
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.addMemberRequest(mac: $0, project: project, agent: agent) }
+        guard same(epoch) else { return .dropped }
+        if let refusal = Board.addMemberRefusal(status: answer?.1.statusCode, answer?.0) { return .refused(refusal) }
+        await loadList()
+        await loadRoom(project)
+        guard same(epoch) else { return .dropped }
+        return .added
+    }
+
     func reopen(_ project: String) async -> Board.ReopenOutcome {
         #if DEBUG
         if Self.sample { Self.sampleReopened.insert(project); held[project] = nil; return .reopened }

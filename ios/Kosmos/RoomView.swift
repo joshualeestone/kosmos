@@ -663,8 +663,14 @@ struct RoomView: View {
             Text(label).font(.caption.weight(.semibold)).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.vertical, 6)
         case let .row(row, first, last):
             if row.kind == .kosmos {
-                Text(row.text).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.vertical, 4)
+                VStack(spacing: 2) {
+                    Text(row.text).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if Board.addMemberShown(row, members: liveMembers, live: Set(client.agents.map(\.session))) {
+                        addMemberButton(row)
+                    }
+                }
+                .frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.vertical, 4)
             } else {
                 RoomBubble(row: row, first: first, last: last, name: displayName(row), picture: store.picture(row.from),
                            // A post or an outside message, never a Kosmos line (a reply answers a post; review 1).
@@ -686,6 +692,51 @@ struct RoomView: View {
                            thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile)
                     .padding(.top, first ? 6 : 0)
                     .task { for f in row.attachments { await client.loadThumbnail(f) } }
+            }
+        }
+    }
+
+    // kosmos#7111: the room's members as the project list now has them (the list follows the status poll while a room is
+    // open), so an Add goes away once the agent is a member.
+    private var liveMembers: [String] {
+        (store.list?.projects.first { $0.id == project.id }?.members ?? project.members).map(\.session)
+    }
+    // Rows whose Add is in the air (it waits, as the board's disabled button), and the sentence a refused one earned.
+    @State private var adding: Set<String> = []
+    @State private var addFailed: [String: String] = [:]
+    private func addMemberButton(_ row: Board.RoomRow) -> some View {
+        let agent = row.refusal?.key ?? ""
+        let name = store.names[agent] ?? row.refusal?.who ?? agent
+        return VStack(spacing: 2) {
+            // On its own line under the sentence, at the size of the room notice's buttons (the board's pj-refused-act).
+            Button {
+                guard !adding.contains(row.id) else { return }
+                adding.insert(row.id); addFailed[row.id] = nil
+                Task {
+                    let outcome = await store.addMember(agent, to: project.id)
+                    adding.remove(row.id)
+                    switch outcome {
+                    case .added:
+                        // Said and focused only if the room is still on screen (the board's PJ_CURRENT check).
+                        guard visible else { return }
+                        Self.say(Board.addedMemberLine(name))
+                        composerFocused = true
+                    case let .refused(why): addFailed[row.id] = why
+                    case .dropped: break
+                    }
+                }
+            } label: {
+                Text(Board.addMemberLabel(name)).font(.footnote.weight(.semibold)).foregroundColor(Palette.primary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12).frame(minHeight: 44).contentShape(Rectangle())
+                    .background(Capsule().fill(Palette.card))
+                    .overlay(Capsule().stroke(Palette.separator))
+            }
+            .buttonStyle(.plain)
+            .disabled(adding.contains(row.id))
+            if let why = addFailed[row.id] {
+                Text(why).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
