@@ -342,8 +342,12 @@ test('review 6: a line that did not land drops the changes file it named', async
   assert.deepEqual(dropped, ['ida']);
 });
 
-test('review 8: a run that adds or renames a heading is labelled by the new heading', () => {
+test('reviews 8-9: an added heading labels itself; lines added above it stay under their own section; a # in an added fence is no label', () => {
   const before = ['## A', 'x', '## Old', 'y', ''].join('\n');
   const after = ['## A', 'x', '## New', 'y', ''].join('\n');
-  assert.equal(ir.changedLines(before, after), '\nUnder New:\n- ## Old\n+ ## New');
+  assert.equal(ir.changedLines(before, after), '\nUnder A:\n- ## Old\n\nUnder New:\n+ ## New');
+  const tail = ir.changedLines('## X\nx1\n## Y\ny1\n', '## X\nx1\nx2 added\n## New\nn1\n## Y\ny1\n');
+  assert.equal(tail, '\nUnder X:\n+ x2 added\n\nUnder New:\n+ ## New\n+ n1');
+  const fenced = ir.changedLines('## A\nx\n## B\ny\n', '## A\nx\nmore under A\n```\n# comment\n```\n## B\ny\n');
+  assert.equal(fenced, '\nUnder A:\n+ more under A\n+ ```\n+ # comment\n+ ```');
 });

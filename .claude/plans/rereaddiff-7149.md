@@ -48,6 +48,7 @@ Within a run, each removed line sits beside the line that replaced it. A cut the
 The copy moves at a `started` report and at a landed line. A runner or restart that posts no `started` report leaves the copy older than what the agent read. The next diff then shows MORE than changed since: changes already read are listed again. That errs in the safe direction: nothing is hidden. A start whose copy cannot be renewed drops the copy, so its next notice is as before.
 
 ## NOT CLAIMED
+- A recorded start that lands while a line is being typed removes the changes file that line names (rememberRead drops it). The agent finds no file, and the line already says the file is a pointer only and to read the sections (review 9).
 - A REMOVED agent (remove.js, which never deletes) keeps its copy, as it keeps its files. Deleting what is left (delete-leftover) forgets it. Sessions are never renamed (only the display name changes), so no file is left under an old name.
 - An absolute path is named in the line. A folder path with whitespace, a double quote or a control character is never named, and its notice is as before.
 - A person's own edit to the file owes no notice (as before). It appears in the next Kosmos notice's diff unless the agent restarted in between.
