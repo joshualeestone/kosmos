@@ -85,8 +85,8 @@ struct ChatView: View {
     // line, so a refused press or file is never hidden behind it.
     @State private var sentWhileSearching = false
     private var searching: Bool { Board.chatSearching(query) }
-    // The row open or a search on: no earlier pages, no following, no capsule (the board's earlierNearTop and
-    // convPause), so editing the words, even back to none, never moves the reader.
+    // The row open or a search on: no earlier pages (the board's earlierNearTop), so editing the words, even back to
+    // none, never loads one under the reader.
     private var searchMode: Bool { searchOpen || searching }
     // Whether this open of the search filtered the thread at some point: only then is the reader's place gone, and
     // putting the row away takes them to the newest message.
@@ -109,7 +109,7 @@ struct ChatView: View {
             ZStack(alignment: .bottom) {
                 conversation
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
-                if unseenNew && !searchMode { newMessagesCapsule }
+                if unseenNew && !searching { newMessagesCapsule }
             }
             if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
                 Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil && pressLine != nil ? Palette.dangerWord : Palette.secondary)
@@ -341,13 +341,11 @@ struct ChatView: View {
                 }
                 .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
                 .onChange(of: working) { now in if now { follow(proxy) } }
-                // Only a message just sent scrolls down; one settling into its row does not move the person's place. Not
-                // while searching (the board's jumpToOwnSend).
+                // Only a message just sent scrolls down; one settling into its row does not move the person's place.
+                // While searching too, unlike the board's jumpToOwnSend: the phone keeps the sent bubble on screen below
+                // what matched, and it is the send's only feedback.
                 .onChange(of: pending.count) { n in
-                    // While searching, to the message itself, not the end: the rows above it are only what matched.
-                    if n > lastPendingCount, let id = pending.last?.id {
-                        withAnimation { proxy.scrollTo(searching ? id : "end", anchor: .bottom) }
-                    }
+                    if n > lastPendingCount { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
                     lastPendingCount = n
                 }
                 // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
@@ -402,9 +400,9 @@ struct ChatView: View {
 
     // New messages come in at the bottom; if the person has scrolled up, the view stays and the capsule offers a jump.
     // Not while searching: the person is reading what matched, and a new message may not even be among it (the
-    // board's convPause, #5624). It is noted, so the capsule offers it once the row is put away.
+    // board's convPause, #5624).
     private func follow(_ proxy: ScrollViewProxy) {
-        if searchMode { unseenNew = true; return }
+        if searching { return }
         if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
     }
 
@@ -609,7 +607,8 @@ struct ChatView: View {
             let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
             let anchor = Board.anchorItem(shownNow, onScreen: onScreen)
             earlier = next
-            if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
+            // Not into a search: a page loading when it opened lands in rows the search hides, and moves no one.
+            if case .page(let rows, _, _) = read, !rows.isEmpty, !searchMode { keepAnchor = anchor }
         }
     }
 
