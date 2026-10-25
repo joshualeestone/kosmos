@@ -666,6 +666,7 @@ let boardKeyPairs = keyBlock.components(separatedBy: CharacterSet(charactersIn: 
     return (bits[0], bits[1])
 }
 let carried = Set(markKeyName.values)
+check(boardKeyPairs.filter { carried.contains($0.1) }.count == 8, "premise: the board's keys for the phone's marks were read (8)")
 for (key, mark) in boardKeyPairs where carried.contains(mark) {
     check(markKeyName[Board.providerMarkAsset[key] ?? ""] == mark, "the board's \(key) -> \(mark) is on the phone too")
 }

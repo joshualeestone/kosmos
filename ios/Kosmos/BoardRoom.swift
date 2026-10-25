@@ -565,7 +565,7 @@ extension Board {
         var id: String { word }
         // The board's initial-letter chip, for a provider without a mark.
         var initial: String {
-            let first = String(word.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
+            let first = String(word.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()   // JS trim
             return first.isEmpty ? "?" : first   // the board's || '?'
         }
     }

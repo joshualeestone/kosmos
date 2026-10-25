@@ -40,4 +40,6 @@ counted and spoken as the board's pjProviderTally; the marks are the board's own
    - Round 5: 0 blockers, 1 warning, 1 nit. Fixed: Board.flowLayout returns each line's width summed exactly as it was
      compared, and TallyFlow reports those, so breaking again at the reported width replays the same lines (the
      reviewer's measured fuzz case is a test); the board's PROVIDER_MARK_KEY checked the other way too. Room 287/287.
+   - Round 6: 0 blockers, 0 warnings, 2 nits, fixed: the reverse key check asserts it read the board's 8 keys; the
+     chip trims as JavaScript's trim. Converged (the reviewer's 500,000-case fuzz replayed every line).
 3. Validation, PR.
