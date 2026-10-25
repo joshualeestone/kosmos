@@ -10,8 +10,10 @@
  *
  * The link record lives in federation.json beside projects.json, keyed by the
  * local project id, so the projects schema is untouched:
- *   owner:  { role: 'owner',  ref, selfShared? }   ref = the project_ref invites were minted with;
- *           selfShared = an own code was made, so the owner sits in its own room with no guest (#4649)
+ *   owner:  { role: 'owner',  ref, selfShared?, sealedOwn? }   ref = the project_ref invites were minted with;
+ *           selfShared = an own code was made, so the owner's room seats this account's other computers (#4649);
+ *           sealedOwn = the first own code was made while the room was sealed, so every own computer in it
+ *           joined by a sealed (version 2) code (#4658)
  *   member: { role: 'member', edge_id, owner_handle, project_name, project_desc }
  *   self:   { role: 'self',   ref, project_name, project_created }   another computer of the same
  *           account, joined by own code; its seat is `fed-room --own-project <ref>` (#4649)
@@ -235,7 +237,7 @@ function ownCodeSealed(projectId, link) {
   if (link.role === 'owner') return refOk(link.ref) && fedseal.isSealedRef(link.ref) === true;
   if (link.role === 'self') {
     const st = fedseal.roomState(projectId);
-    return !!(st && st.role === 'member');
+    return !!(st && st.role === 'member' && st.ownComputer === true);
   }
   return false;
 }
