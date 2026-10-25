@@ -20,9 +20,11 @@ ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; fails=1; }
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test-stopmark-6651.XXXXXXXXXX")"
 DISK=""
+DECOY=""
 cleanup() {
   [ -n "${LIVE:-}" ] && kill "$LIVE" 2>/dev/null
   [ -n "$DISK" ] && hdiutil detach -quiet "$DISK" >/dev/null 2>&1
+  [ -n "$DECOY" ] && hdiutil detach -quiet "$DECOY" >/dev/null 2>&1
   rm -rf "${TMP:?}"
 }
 trap cleanup EXIT
@@ -130,9 +132,19 @@ else
 fi
 
 # A full disk: the card's own case. A name is an empty file, so it needs no data block.
-if command -v hdiutil >/dev/null 2>&1 && hdiutil create -quiet -size 8m -fs APFS -volname s6651 "$TMP/full.dmg" >/dev/null 2>&1 \
-   && DISK="$(hdiutil attach -nobrowse "$TMP/full.dmg" 2>/dev/null | awk '/s6651/ { print $NF }')" && [ -n "$DISK" ]; then
-  dd if=/dev/zero of="$DISK/fill" bs=1m 2>/dev/null; dd if=/dev/zero of="$DISK/fill2" bs=4k 2>/dev/null
+# kosmos#7127: this run's own volume name and its own mount point inside $TMP, so nothing is read back from hdiutil's
+# output and no other image (a run stopped with kill -KILL never runs the EXIT trap, so its image stays mounted, and
+# macOS would mount the next one as "/Volumes/s6651 1") can change where this run writes.
+# A decoy with the same name, mounted the default way first, puts the collision in place on every run, so the checks
+# below show where this run writes rather than assume it (detached by its device, never by a parsed mount point).
+if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
+   && hdiutil create -quiet -size 4m -fs APFS -volname "s6651-$$" "$TMP/decoy.dmg" >/dev/null 2>&1 \
+   && DECOY="$(hdiutil attach -nobrowse "$TMP/decoy.dmg" 2>/dev/null | awk 'NR == 1 { print $1 }')" && [ -n "$DECOY" ] \
+   && hdiutil create -quiet -size 8m -fs APFS -volname "s6651-$$" "$TMP/full.dmg" >/dev/null 2>&1 \
+   && hdiutil attach -quiet -nobrowse -mountpoint "$TMP/mnt" "$TMP/full.dmg" >/dev/null 2>&1 && DISK="$TMP/mnt"; then
+  # Bounded (twice the 8 MB image), never "until the disk is full": if DISK were ever the wrong path, an unbounded dd
+  # fills the real disk (kosmos#7127: a wrong mount-point parse once pointed it at a folder named "1").
+  dd if=/dev/zero of="$DISK/fill" bs=1m count=16 2>/dev/null; dd if=/dev/zero of="$DISK/fill2" bs=4k count=4096 2>/dev/null
   ( printf 'x\n' > "$DISK/probe" ) >/dev/null 2>&1
   if [ -s "$DISK/probe" ]; then
     bad "fixture: the disk image is not full, so this proves nothing"
@@ -145,6 +157,10 @@ if command -v hdiutil >/dev/null 2>&1 && hdiutil create -quiet -size 8m -fs APFS
     out="$(KOSMOS_HOME="$DISK" kosmos_clear_stranded_pause full-disk 2>/dev/null)"
     { [ ! -e "$DISK/board.stopped" ] && [ -z "$out" ]; } && ok "the clear works on a full disk, and its failed log line does not leak to stdout" \
       || bad "full-disk clear: marker $( [ -e "$DISK/board.stopped" ] && echo left || echo gone ), stdout '$out'"
+    # kosmos#7127: the writes above went to this run's own disk, with a same-named volume mounted beside it.
+    { [ -e "$DISK/fill" ] && [ ! -e "/Volumes/s6651-$$/fill" ] && [ ! -e "1/board.stopped" ]; } \
+      && ok "a same-named volume already mounted does not move where the full-disk case writes (#7127)" \
+      || bad "the full-disk case wrote somewhere other than its own image (#7127)"
   fi
 else
   echo "SKIP  full-disk case: hdiutil could not make a disk image here (macOS only)"

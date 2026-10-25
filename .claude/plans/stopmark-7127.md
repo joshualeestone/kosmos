@@ -1,0 +1,30 @@
+# stopmark-7127: tools/test-stopmark-6651.sh survives a leftover s6651 disk image
+
+Card: joshualeestone/kosmos#7127 (filed by Mona Lisa).
+
+## Problem
+The full-disk case attached its image under the fixed volume name `s6651` and read the mount point back with
+`awk '/s6651/ { print $NF }'`. A run stopped with kill -KILL never runs the EXIT trap, so its image stays mounted, and
+macOS mounts the next one as `/Volumes/s6651 1`; `$NF` then reads `1`, and every later run writes to `./1/` and goes red
+in anyone's validation. Found while fixing it: both `dd` fills were unbounded, so with a wrong DISK whose path exists
+they fill the REAL disk (it happened here: ~95 GB in two minutes before it was stopped).
+
+## Fix
+- Attach at a private mount point inside the run's temp folder (`-mountpoint "$TMP/mnt"`) under a per-run volume name
+  (`s6651-$$`): nothing is parsed from hdiutil's output, so no other volume can move where the run writes.
+- A same-named decoy is mounted the default way first, so every run carries the collision and a check asserts the
+  writes landed on the run's own image (the built-in control the card asks for).
+- Both `dd` fills are bounded to 16 MB (twice the image), so a wrong DISK can never fill a real disk.
+
+## Not done
+- Sweeping images leaked by killed runs at start: after this fix a leaked image sits at a private path and affects
+  nothing, so it is a resource leak until reboot, not a correctness one.
+
+## Checks
+- the test passes; it passes again with a killed run's image still mounted (simulated with kill -KILL)
+- two-arm control with a private name (c7127): the OLD logic goes red with the card's exact error, the new passes
+- mutant (old parse back in, bounded dd): FAIL on the card's two checks and on the new #7127 check; wrote nothing
+
+## Status
+- [x] fix and checks
+- [ ] challenge-loop, validation, PR
