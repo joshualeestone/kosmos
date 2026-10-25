@@ -81735,6 +81735,16 @@ async function fedOwnLoad(project, fromPress) {
     ? allowedAns.computers.filter((a) => a && typeof a.pub === 'string').map((a) => ({ pub: a.pub, at: a.at }))
     : (prev && allowedMissed < 3 ? (prev.allowed || []) : []);
   FED_OWN = { project, waiting: rows, allowed, code, missed, rowsMissed, allowedMissed, at: Date.now() };
+  // The third failed read drops the list from the section; an open Remove dialog stays (a failed read is not an
+  // answer), so it says why its computer is no longer shown under it.
+  const pendDrop = MEM_PENDING && MEM_PENDING.own;
+  if (pendDrop && pendDrop.project === project && pendDrop.gen === FED_OWN_GEN && FED_OWN_BUSY !== project && allowedMissed === 3) {
+    const line = document.getElementById('mem-msg');
+    if (line && !line.textContent) line.textContent = FED_OWN_LIST_UNREAD;
+  } else if (pendDrop && allowedMissed === 0) {
+    const line = document.getElementById('mem-msg');
+    if (line && line.textContent === FED_OWN_LIST_UNREAD) line.textContent = '';   // the list is back
+  }
   /* A Remove dialog open for a computer this answer no longer lists (removed by an earlier press whose answer was
      lost, or this computer is no longer the room's owner) can never succeed: it closes, and the section says so.
      Only on a real answer, and not while its own press is being asked. */
@@ -82081,6 +82091,8 @@ function fedClearLoose() {
 // disabled until the page reloads); the list is then asked again, so it shows what the board did. A let, so the
 // browser check can shorten it.
 let FED_ACT_LIMIT_MS = 60000;
+/** kosmos#4658: said in an open own Remove dialog when the section's list could not be read three times running. */
+const FED_OWN_LIST_UNREAD = 'Kosmos cannot read the list of computers right now. Remove it still takes out the one named above.';
 const FED_ACT_TIMED_OUT = 'Kosmos did not hear back in time. Check the list to see whether it went through.';
 // `send(signal)` makes the request, so each caller's URL stays a literal the route check (#3957) can read.
 async function fedActPost(send) {

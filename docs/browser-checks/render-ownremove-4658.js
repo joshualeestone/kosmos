@@ -306,8 +306,11 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           failReads = true;
           for (let k = 0; k < 3; k++) await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           failReads = false;
-          const fr = await page.evaluate((box) => ({ open: !document.getElementById('mem-modal').hidden, rows: document.querySelectorAll(box + ' [data-own-act="remove"]').length }), BOX);
+          const fr = await page.evaluate((box) => ({ open: !document.getElementById('mem-modal').hidden, rows: document.querySelectorAll(box + ' [data-own-act="remove"]').length,
+            msg: document.getElementById('mem-msg').textContent }), BOX);
           chk(fr.open && fr.rows === 0, `${E} three failed reads under an open dialog leave it open (the list dropped, not answered)`, JSON.stringify(fr));
+          chk(fr.msg === 'Kosmos cannot read the list of computers right now. Remove it still takes out the one named above.',
+            `${E} and the dialog says why its computer is no longer shown`, JSON.stringify(fr));
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
           // A list without the computer while its own remove is in flight does not close the dialog; the answer does.
