@@ -44,8 +44,9 @@
  *
  * verify(history, opts) never throws. history: { org, member, entries, issuedAt, signature (base64url) }.
  * opts: { org, member (REQUIRED: the member being restored; a genuine history for anyone else is refused),
- *   verifyingKey (a 32-byte Buffer, used ONLY while VERIFYING_KEY is null, i.e. by tests), now (Unix seconds),
- *   maxAgeSecs, skewSecs (each can only narrow the default window) }.
+ *   now (Unix seconds), maxAgeSecs, skewSecs (each can only narrow the default window) }.
+ * There is no option for the verifying key: a caller handing one in would become the trust anchor. Tests set one with
+ * setVerifyingKeyForTests(), which counts only inside a node test process and never once VERIFYING_KEY ships.
  * Answers { ok: true, keys } with keys [{ key, from, until (null while valid), backfill }], or { ok: false, because }.
  * keyAt(keys, key, t) answers the entry under which `key` (lowercase hex, as the history holds it) was valid at time `t`,
  * or null.
@@ -62,6 +63,7 @@ const SKEW_SECS = 300;
 const MAX_ENTRIES = 4096;
 const SPKI_ED25519 = Buffer.from('302a300506032b6570032100', 'hex');
 const KEY_RE = /^[0-9a-f]{64}$/;
+let verifyingKeyForTests = null;
 
 function put(parts, field) {
   const len = Buffer.alloc(4);
@@ -107,7 +109,8 @@ function chain(org, member, entries) {
 
 /* The signed head bytes, or null when an input is not what escrowd could have signed. */
 function encodeHead(org, member, entries, issuedAt) {
-  if (typeof org !== 'string' || !org || typeof member !== 'string' || !member) return null;
+  // Well-formed only: UTF-8 encoding turns a lone surrogate into U+FFFD, so two different ids could sign as one.
+  if (typeof org !== 'string' || !org || !org.isWellFormed() || typeof member !== 'string' || !member || !member.isWellFormed()) return null;
   if (!Array.isArray(entries) || entries.length > MAX_ENTRIES || !isTime(issuedAt)) return null;
   const c = chain(org, member, entries);
   if (!c) return null;
@@ -146,9 +149,9 @@ function replay(entries, issuedAt) {
 
 function verify(history, opts = {}) {
   try {
-    // The shipped key, once there is one, is the only key; the override counts only while none has shipped (tests).
-    // Only a real 32-byte key counts; null or anything else REFUSES (the difference from orgkeypin.js, on purpose).
-    const vk = VERIFYING_KEY != null ? Buffer.from(VERIFYING_KEY, 'hex') : Buffer.isBuffer(opts.verifyingKey) && opts.verifyingKey.length === 32 ? opts.verifyingKey : null;
+    // The shipped key, once there is one, is the only key. Until then only a test process has one; production REFUSES
+    // (the difference from orgkeypin.js, on purpose).
+    const vk = VERIFYING_KEY != null ? Buffer.from(VERIFYING_KEY, 'hex') : process.env.NODE_TEST_CONTEXT ? verifyingKeyForTests : null;
     if (vk == null) return { ok: false, because: 'this version of Kosmos cannot check the device key history yet, so the key was not trusted' };
     // Read every field once, into a copy: what is hashed is exactly what is replayed.
     const h = history && typeof history === 'object' ? history : {};
@@ -186,9 +189,11 @@ function verify(history, opts = {}) {
   }
 }
 
+function setVerifyingKeyForTests(k) { verifyingKeyForTests = Buffer.isBuffer(k) && k.length === 32 ? k : null; }
+
 function keyAt(keys, key, t) {
   if (!Array.isArray(keys) || typeof key !== 'string' || !KEY_RE.test(key) || !isTime(t)) return null;
   return keys.find((k) => k.key === key && t >= k.from && (k.until === null || t < k.until)) || null;
 }
 
-module.exports = { verify, keyAt, encodeHead, VERIFYING_KEY, HEAD_TAG, CHAIN_TAG };
+module.exports = { verify, keyAt, encodeHead, setVerifyingKeyForTests, VERIFYING_KEY, HEAD_TAG, CHAIN_TAG };
