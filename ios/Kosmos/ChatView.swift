@@ -75,6 +75,11 @@ struct ChatView: View {
     // The field is on screen when the magnifier opened it or while it holds words (Mona Lisa's #7089 design): a search
     // that is on is never out of sight, and an empty one takes no room.
     @State private var searchOpen = false
+    // Whether the reader was at the newest message when the magnifier opened the row, which pushes the thread down: it
+    // is put back there when the row goes, and the keyboard keeps it there meanwhile.
+    @State private var openedAtNewest = false
+    // Counts clears, so a clear's delayed steps act only if no later clear came after it.
+    @State private var clears = 0
     @FocusState private var searchFocused: Bool
     // A message went while the search was on: the line under the composer says it shows only if it matches. Last in
     // line, so a refused press or file is never hidden behind it.
@@ -122,7 +127,14 @@ struct ChatView: View {
         .toolbar {
             ToolbarItem(placement: .principal) { title }
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button { searchOpen = true; DispatchQueue.main.async { searchFocused = true } } label: {
+                Button {
+                    openedAtNewest = atBottom
+                    searchOpen = true
+                    DispatchQueue.main.async {
+                        searchFocused = true
+                        if openedAtNewest { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+                    }
+                } label: {
                     Image(systemName: "magnifyingglass").font(.system(size: 20)).foregroundColor(Palette.secondary)
                 }
                 .accessibilityLabel("Search this conversation")
@@ -161,21 +173,25 @@ struct ChatView: View {
         .onChange(of: thread) { _ in recomputeHiddenHeads() }
         .onChange(of: query) { _ in sentWhileSearching = false }
         // Leaving an empty field puts it away; one with words stays (searching keeps it drawn).
-        .onChange(of: searchFocused) { now in if !now && !searching { searchOpen = false } }
+        .onChange(of: searchFocused) { now in if !now && !searching && searchOpen { putSearchAway() } }
         // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
         .onChange(of: searching) { now in
             // Not when the search went with the conversation (an account reset empties both).
             guard !now && visible && thread != nil else { return }
             let cleared = epoch
+            clears += 1
+            let clear = clears
             // The whole thread comes back at the place the short one left, usually its top: until the scroll to the
             // newest settles, that top is not a reader asking for earlier messages (as on opening). The end marker or
             // the top leaving settles it; a chat too short to scroll moves neither, so a second settles it then.
             settledAtEnd = false
             NotificationCenter.default.post(name: .chatScrollToEnd, object: nil)
             // Again a turn later, once the whole thread has laid out: the first can land short on estimated heights.
-            DispatchQueue.main.async { if !searching && visible && epoch == cleared { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) } }
+            DispatchQueue.main.async {
+                if !searching && visible && epoch == cleared && clears == clear { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                if !searching && visible && epoch == cleared && !settledAtEnd { settledAtEnd = true; loadEarlier() }
+                if !searching && visible && epoch == cleared && clears == clear && !settledAtEnd { settledAtEnd = true; loadEarlier() }
             }
         }
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
@@ -317,14 +333,17 @@ struct ChatView: View {
                 // Only a message just sent scrolls down; one settling into its row does not move the person's place. Not
                 // while searching (the board's jumpToOwnSend).
                 .onChange(of: pending.count) { n in
-                    if n > lastPendingCount && !searching { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    // While searching, to the message itself, not the end: the rows above it are only what matched.
+                    if n > lastPendingCount, let id = pending.last?.id {
+                        withAnimation { proxy.scrollTo(searching ? id : "end", anchor: .bottom) }
+                    }
                     lastPendingCount = n
                 }
                 // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
                 // Whether it was at the newest message is read before the keyboard shrinks the thread (which hides the
                 // end marker), and acted on once it is up.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-                    keepNewestInView = atBottom
+                    keepNewestInView = atBottom || (searchOpen && openedAtNewest && !searching)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                     if keepNewestInView { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
@@ -407,6 +426,7 @@ struct ChatView: View {
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
             Button("Cancel") { closeSearch() }
                 .font(.body)
+                .fixedSize()
                 .foregroundColor(Palette.primary)
                 .frame(minHeight: 44)
         }
@@ -414,9 +434,18 @@ struct ChatView: View {
         .padding(.vertical, 6)
     }
     private func closeSearch() {
+        searchFocused = false
+        putSearchAway()
+    }
+    // The row goes empty (a field of spaces too), and a reader who opened it at the newest message goes back there.
+    private func putSearchAway() {
+        let wasSearching = searching
         query = ""
         searchOpen = false
-        searchFocused = false
+        // Clearing a search scrolls by itself (onChange(of: searching)); an empty one changes nothing there.
+        if openedAtNewest && !wasSearching && visible { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+        openedAtNewest = false
+        UIAccessibility.post(notification: .layoutChanged, argument: nil)
     }
 
     // Spoken as it appears: the search field keeps VoiceOver's focus, so nothing else says the thread went empty
