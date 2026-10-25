@@ -760,6 +760,9 @@ struct RoomBubble: View {
             .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         }
         .accessibilityElement(children: .combine)
+        // kosmos#7101 review 2: a reply's double-tap goes to the post it answers, as its label says. Only on a reply,
+        // so every other post keeps the double-tap it had.
+        .modifier(ReplyJumpDefault(on: replied != nil, jump: jump))
         .accessibilityActions {
             if answerable {
                 // React, Reply, Copy (the spec): each reaction pill is merged into the post, so each one is an action.
@@ -772,7 +775,11 @@ struct RoomBubble: View {
                 Button("Reply", action: reply)
             }
             Button("Copy") { UIPasteboard.general.string = row.text }
-            if replied != nil { Button(Board.replyJumpAction, action: jump) }
+            if replied != nil {
+                Button(Board.replyJumpAction, action: jump)
+                // The double-tap goes, as the label says (review 2); the agent's chat, which the avatar gave it, stays.
+                if !mine && last && row.kind != .external { Button("Open \(name)'s chat", action: openAgent) }
+            }
             // The post is read as one element and its cards are not buttons in it, so each file is an action on it
             // (kosmos#7062), saying what the card would: opening, another file opening, failed, or opens on the board.
             ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
@@ -807,18 +814,17 @@ struct RoomBubble: View {
             if let replied {
                 // kosmos#7101: a button, as the board's .msg-replyto: a tap goes to the post it answers. A 44 pt place to
                 // tap, laid out as the header alone.
-                let gist = replied.text.components(separatedBy: "\n").first ?? ""
+                let gist = Board.replyGist(replied)
                 Button(action: jump) {
                     Text("\(nameOf(replied)): \(gist)")
                         .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .padding(.leading, 8).overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
-                        // At least 44 pt to tap at every text size (a footnote line is about 18), laid out as the header.
-                        .padding(.vertical, 13).contentShape(Rectangle()).padding(.vertical, -13)
+                        // A real 44 pt minimum (review 2: a hit area hung past the header overlapped the words below).
+                        .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                // Read as the board's label (review 1), as words in the post: the jump is the post's own action below,
-                // never a second button competing for the double-tap.
+                // Read as the board's label (review 1), as words in the post; the jump is the post's double-tap (below).
                 .accessibilityRepresentation { Text(Board.replyJumpLabel(who: nameOf(replied), gist: gist)) }
             } else if row.replyTo != nil && roomComplete {
                 Text("Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
@@ -931,5 +937,14 @@ struct WorkingDots: View {
                 }
             }
         }
+    }
+}
+
+// kosmos#7101: the double-tap of a reply's post is the jump (a modifier, so posts that are not replies are untouched).
+private struct ReplyJumpDefault: ViewModifier {
+    let on: Bool
+    let jump: () -> Void
+    func body(content: Content) -> some View {
+        if on { content.accessibilityAction(.default, jump) } else { content }
     }
 }

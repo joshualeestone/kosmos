@@ -533,8 +533,20 @@ check(boardPage.contains("row.scrollIntoView({ block: 'center', behavior: still 
 // The header reaches the post by its id: the room's items carry each post's own id (Board.roomItems).
 let jumpItems = Board.roomItems(rows, now: Date(), calendar: .current)
 let missing = rows.filter { r in !jumpItems.contains { $0.id == r.id } }
-check(rows.contains { $0.kind == .post } && rows.filter { $0.kind == .post }.allSatisfy { r in jumpItems.contains { $0.id == r.id } },
-      "every post (what a reply can answer) is an item with its own id, for the jump to reach; not items: \(missing.map { "\($0.kind)" })")
+check(rows.contains { $0.kind == .post } && rows.filter { $0.kind != .kosmos }.allSatisfy { r in jumpItems.contains { $0.id == r.id } },
+      "every post or outside message (what a header can name) is an item with its own id; not items: \(missing.map { "\($0.kind)" })")
+// The gist: the first line; a files-only post's first file; else "a message" (the board's pjReplyGist fallbacks).
+let gistFile = Board.Attachment(id: "0123456789abcdef01234567", name: "report.pdf", type: "", size: nil, kind: "other",
+                                url: "/api/attachment/0123456789abcdef01234567", preview: nil)
+let gistRow = Board.RoomRow(id: "m1", atRaw: nil, at: nil, kind: .post, from: "cleo", byPerson: false, text: "  Which cover?\nThe blue one")
+check(Board.replyGist(gistRow) == "Which cover?", "the gist is the first line")
+var filesOnly = Board.RoomRow(id: "m2", atRaw: nil, at: nil, kind: .post, from: "cleo", byPerson: false, text: "")
+filesOnly.attachments = [gistFile]
+check(Board.replyGist(filesOnly) == "report.pdf", "a post of files alone: its first file's name")
+let nothingRow = Board.RoomRow(id: "m3", atRaw: nil, at: nil, kind: .post, from: "cleo", byPerson: false, text: " ")
+check(Board.replyGist(nothingRow) == "a message", "nothing at all: a message")
+check(boardPage.contains("return f ? (typeof f.name === 'string' && f.name ? f.name : 'a file') : 'a message';"), "the board's gist still falls back so")
+check(boardPage.contains("--gold-deep: #b88920"), "the flash is the board's --gold-deep")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 

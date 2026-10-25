@@ -14,7 +14,12 @@ it is merged.
   Palette has no gold); no fade under Reduce Motion, as the board's transition: none.
 - The header reads the board's label to VoiceOver (Board.replyJumpLabel, "<who>: <gist>, the message this answers.
   Go to it") as words in the post, through accessibilityRepresentation, so the jump stays one action on the post
-  rather than a second button competing for the double-tap. Its tap target is at least 44 pt.
+  rather than a second button competing for the double-tap. On a reply, that double-tap IS the jump, as the label
+  says (review 2); the agent's chat the avatar gave it stays as a named action. Other posts keep their double-tap.
+  The header has a real 44 pt minimum height (a hit area hung past it overlapped the words below).
+- The gist is Board.replyGist: the first line, a files-only post's first file, else "a message" (the board's
+  fallbacks). Not carried over: the board also drops an agent's own leading "Name:" from the gist; left for a later
+  card, since the header names the sender beside it.
 - VoiceOver's focus moves after the scroll (a lazy row far up does not exist until then), cleared first so a repeat
   jump still moves it. A page of older posts loading while the post flashes keeps it centred.
 - The header names only a post or an outside message; a Kosmos line is never an original.
@@ -33,4 +38,8 @@ it is merged.
      accessibilityRepresentation (no competing button); focus after the scroll, cleared first; older pages keep the
      flashing post centred; --gold-deep in both themes; no fade with Reduce Motion; a Kosmos line is never an
      original; the board-only centring check named as a premise. Room 235/235; Debug SUCCEEDED.
+   - Round 2: 0 blockers, 2 warnings, 3 nits. Fixed: the reply's double-tap is the jump (a modifier, only on
+     replies), with "Open <name>'s chat" kept as an action; a real 44 pt minimum height; Board.replyGist with the
+     board's fallbacks (tested); the item-id test covers outside messages; the gold pinned to --gold-deep.
+     Room 240/240; Debug SUCCEEDED.
 3. Validation, PR (after #7093 merges and this is rebased).
