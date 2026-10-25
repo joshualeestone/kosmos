@@ -102,6 +102,14 @@ struct NewTaskView: View {
 
     private func readProjects() async {
         readFailed = false
+        // The sample Projects (KOSMOS_SAMPLE_AGENTS=1), as the Projects tab shows them, for screenshots.
+        if RoomStore.sample, let parsed = Board.parseProjects(Data(RoomStore.sampleProjects.utf8)) {
+            list = parsed
+            if draft.project == nil, let first = NewTask.firstProject(picked: picked, offered: NewTask.projects(parsed)) {
+                draft = NewTask.aimed(draft, at: first)
+            }
+            return
+        }
         let got = await client.throughMac { Board.projectsRequest(mac: $0) }
         guard let got, (200...299).contains(got.1.statusCode), let parsed = Board.parseProjects(got.0) else {
             if list == nil { readFailed = true }

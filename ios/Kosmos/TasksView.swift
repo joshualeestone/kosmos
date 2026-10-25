@@ -35,7 +35,10 @@ struct TasksTab: View {
         }
         .navigationViewStyle(.stack)
         .onChange(of: client.chatEpoch) { _ in openAgent = nil; openTask = nil }
-        .onAppear { visible = true; client.show(BoardClient.tasksViewer) }
+        .onAppear {
+            visible = true; client.show(BoardClient.tasksViewer)
+            if Self.sampleNewTask && !Self.sampleNewTaskShown { Self.sampleNewTaskShown = true; newTaskFor = NewTaskStart(picked: nil) }
+        }
         .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.tasksViewer) }
         .onChange(of: scenePhase) { phase in
             guard visible else { return }
@@ -44,6 +47,14 @@ struct TasksTab: View {
         }
     }
 
+    // Screenshots only (a Debug build with KOSMOS_SAMPLE_AGENTS=1): KOSMOS_SAMPLE_NEWTASK=1 opens the New task sheet once.
+    #if DEBUG
+    private static let sampleNewTask = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
+        && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWTASK"] == "1"
+    #else
+    private static let sampleNewTask = false
+    #endif
+    private static var sampleNewTaskShown = false
     // tskAgentName: the roster's name for a session, else the session name itself.
     private func name(_ session: String) -> String { client.agents.first { $0.session == session }?.name ?? session }
     // The agent the decision row waits on (the first named), in its native chat; one the roster does not list yet opens
