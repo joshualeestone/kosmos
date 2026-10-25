@@ -61,14 +61,14 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
   Weakest premise: a chat row from ANOTHER agent; if those reach the phone it needs their names.
 - The no-match sentence is also announced to VoiceOver (the field keeps focus), as the board's room
   search announces it.
-- While searching, the person's own send scrolls to its own bubble, not to the end. The board does
+- While searching, the person's own send still scrolls to the end, where its bubble is drawn. The board does
   not move at all (jumpToOwnSend), but it also hides its pending row while filtering; the phone keeps
   the bubble as the send's only feedback, so it brings that bubble into view. The new-messages capsule
   is off while searching. Opening the row pushes the thread down, so a reader at the newest message
   is kept there (scrolled back after the row opens, kept by the keyboard).
-- Search mode is the row open OR words in it. In it: no earlier pages, no following (a new message
-  is noted and the capsule offers it after), so editing the words, even back to none, never moves
-  the reader. Putting the row away scrolls to the newest message only if this open filtered the
+- Search mode is the row open OR words in it. In it no earlier pages load (and a page already on its
+  way does not move the reader when it lands), so editing the words, even back to none, never loads
+  one under the reader. Following and the capsule pause only while words filter (convPause). Putting the row away scrolls to the newest message only if this open filtered the
   thread (the reader's place is gone then); an open that never filtered leaves the reader where they
   are, so closing it from a scroll that dismissed the keyboard does not pull them anywhere.
 - No match with a pending bubble showing: the sentence is about the conversation's rows and stays the
