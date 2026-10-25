@@ -309,9 +309,16 @@ function changedLines(before, after) {
   let j = 0;
   while (i < A.length || j < B.length) {
     if (i < A.length && j < B.length && A[i] === B[j]) { flush(); i += 1; j += 1; continue; }
-    if (!run) run = { head: headAt(headsB, pre + j - 1) || headAt(headsA, pre + i - 1), lines: [] };
+    /* Review 9: each changed line is labelled by the heading it sits under (headsOf, so a # line in a code fence never
+       counts): an added line by the new text at its own position (an added heading labels itself), a removed one by
+       the new text just above it, else the old. A change of label starts a new run, so lines added at the end of one
+       section are never filed under a heading added after them. */
+    const removing = i < A.length && (j >= B.length || L[(i + 1) * w + j] >= L[i * w + j + 1]);
+    const head = removing ? (headAt(headsB, pre + j - 1) || headAt(headsA, pre + i - 1)) : headAt(headsB, pre + j);
+    if (run && run.head !== head) flush();
+    if (!run) run = { head, lines: [] };
     // A removed line before the line that replaced it, as a reader expects.
-    if (i < A.length && (j >= B.length || L[(i + 1) * w + j] >= L[i * w + j + 1])) { run.lines.push('- ' + A[i]); i += 1; }
+    if (removing) { run.lines.push('- ' + A[i]); i += 1; }
     else { run.lines.push('+ ' + B[j]); j += 1; }
   }
   flush();
@@ -336,11 +343,8 @@ function changedLines(before, after) {
   const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2;
   const fits = (s) => out.length < lineRoom && bytes + Buffer.byteLength(s) + 1 <= byteRoom;
   for (const r of runs) {
-    // Review 8: a run that adds a heading is labelled by it, not by the section before it.
-    const added = r.lines.find((l) => /^\+ #{1,6} \S/.test(l));
-    const head = added ? added.slice(2) : r.head;
     // A label and at least one of its lines fit, or the run is left for the sections the notice names.
-    const label = head ? 'Under ' + head.replace(/^#+ /, '') + ':' : 'Before the first heading:';
+    const label = r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'Before the first heading:';
     if (out.length + 3 > lineRoom || !fits('\n' + label + '\n' + r.lines[0])) { cut = true; break; }
     out.push('', label);
     bytes += Buffer.byteLength(label) + 2;
