@@ -512,8 +512,14 @@ const askGrant = (macRequest, batch, seenKeys, runBucket, epoch) =>
 /* Check a manifest grant answer against the manifest's bytes: the same per-upload checks as a chunk's, bound by
    x-amz-checksum-sha256, and under `runPrefix`, the chunks' bucket path. { ok: true, expiresAtMs, lifetimeMs, upload }
    or { ok: false, because }. */
-function parseManifestGrant(data, bytes, runPrefix, epoch) {
+function parseManifestGrant(data, bytes, runPrefix, epoch, snapshot) {
   if (!data || typeof data !== 'object') return { ok: false, because: 'the manifest grant answer is not an object' };
+  // kosmos#7118 review: a coordinator that kept the snapshot id echoes it. One from before kosmos#7118 ignores the field
+  // and grants anyway; a manifest stored there could never be opened by anyone but this Mac, so it is refused, not
+  // uploaded (nothing is PUT; the grant itself is spent, as any refusal after an answer).
+  if (snapshot !== undefined && data.snapshot !== snapshot) {
+    return { ok: false, because: 'Kosmos+ did not keep this backup\'s snapshot id, so nobody could open it later; it needs a newer Kosmos+' };
+  }
   const expiresAtMs = expiryMs(data.expires_at);
   if (!Number.isFinite(expiresAtMs)) return { ok: false, because: 'the manifest grant answer has no readable expires_at' };
   if (!data.upload || typeof data.upload !== 'object' || Array.isArray(data.upload)) return { ok: false, because: 'the manifest grant answer has no upload' };
@@ -667,7 +673,7 @@ async function uploadManifestInner(deps, bytes, o, st) {
     st.asked = true;
     const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
       () => Object.assign({ sha256, size: bytes.length }, snapshot !== undefined ? { snapshot } : {}, { nonce: crypto.randomBytes(16).toString('hex') }),
-      (d) => parseManifestGrant(d, bytes, o.bucket, epoch));
+      (d) => parseManifestGrant(d, bytes, o.bucket, epoch, snapshot));
     const earlier = st.granted;   // a grant answered before THIS request (read before this one's answer is counted)
     if (g.out && g.out.grantSpent) st.granted = true;
     // A re-grant request that fails still follows a grant that answered: that one's allowance is spent.
