@@ -363,6 +363,7 @@ test('#7152 review 9: the same email in another organization is another account'
   assert.equal((await read('org-team', 'org-personal')).state, 'other-account', 'another organization\'s figure was taken as this account\'s');
   assert.equal((await read('org-team', 'org-team')).state, 'ok', 'CONTROL: the same organization is this account');
   assert.equal((await read(null, 'org-personal')).state, 'ok', 'CONTROL: with no organization listed, the email decides');
+  assert.equal((await read('org-team', null)).state, 'profile-unreadable', 'a profile with no organization passed the organization check');
 });
 
 test('#7152 review 9: the account folder\'s own sign-in names its organization, which the check reads', async (t) => {
@@ -388,4 +389,29 @@ test('#7152 review 9: a folder signed in again as another login does not keep th
   usagepoll.write(d, old);
   await usagepoll.pollAll([{ dir: d, email: 'OLD@example.test' }], failing);
   assert.equal(usagepoll.readUsage(d, NOW).weekly.usedPct, 12, 'CONTROL: the same login keeps its figures');
+});
+
+test('#7152 review 10: figures survive consecutive failed reads until they are stale, not just one', async (t) => {
+  const d = tmpDir(t);
+  const ok = { now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) };
+  const failAt = (now) => ({ ...ok, now, request: fakeRequest({ code: 429, body: '' }, {}) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], ok);
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], failAt(NOW + 10 * 60000));
+  assert.equal(usagepoll.readUsage(d, NOW + 10 * 60000).weekly.usedPct, 56, 'CONTROL: one failed read keeps the figures');
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], failAt(NOW + 20 * 60000));
+  assert.notEqual(usagepoll.readUsage(d, NOW + 20 * 60000).weekly, null, 'a second failed read in a row dropped figures that are still fresh');
+  assert.equal(usagepoll.readUsage(d, NOW + 20 * 60000).measuredAt, NOW, 'the kept figures lost their measured time');
+});
+
+test('#7152 review 10: a new login with the same figure is a change, not the old login\'s last change', async (t) => {
+  const d = tmpDir(t);
+  const ok = (now, email) => usagepoll.pollAll([{ dir: d, email }], { now, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) });
+  /* Seeded by hand: the fake profile always answers EMAIL, so a read as another login would not record anything. */
+  usagepoll.write(d, { at: NOW, measuredAt: NOW, state: 'ok', email: 'old@example.test', fiveHour: null,
+    weekly: { usedPct: 56, resetsAt: Math.floor(Date.parse('2026-10-30T14:00:00.447704Z') / 1000), changedAt: NOW } });
+  assert.equal(usagepoll.readUsage(d, NOW).weekly.changedAt, NOW, 'CONTROL: the old login\'s record is in place');
+  await ok(NOW + 10 * 60000, EMAIL);
+  assert.equal(usagepoll.readUsage(d, NOW + 10 * 60000).weekly.changedAt, NOW + 10 * 60000, 'the new login inherited the old one\'s change time');
+  await ok(NOW + 20 * 60000, EMAIL);
+  assert.equal(usagepoll.readUsage(d, NOW + 20 * 60000).weekly.changedAt, NOW + 10 * 60000, 'CONTROL: the same login keeps its change time');
 });

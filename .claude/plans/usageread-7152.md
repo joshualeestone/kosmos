@@ -57,6 +57,12 @@ at 0%, had no reading at all (the card's opening).
   failed read keeps the last figures only for that same login, so a folder signed in again as someone else does not
   show the old login's usage. The review 7 comment now states the guard's true scope: a board started with the real
   home and neither NODE_TEST_CONTEXT nor DRY_RUN reads the real logins, exactly as the real board would.
+- Review 10: a failed read carries the record's email forward with the figures, so consecutive failures keep them
+  until they are 30 minutes old (review 9 had made a second failure in a row drop them). A profile that names no
+  organization, when the folder names one, is `profile-unreadable`. A new login with the same figure is a change.
+  Accepted premise, not fixed: within one window the higher figure wins, which assumes usage never falls inside a
+  window. If Anthropic ever revises a figure down without moving the reset, the old higher one stays shown until
+  the window ends or a later status line moves.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:

@@ -182,7 +182,12 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (
      when both sides name the organization, they must agree too. */
   let want = null;
   try { const who = identityOf(a.dir); want = who && who.organizationUuid; } catch { want = null; }
-  if (typeof want === 'string' && want && typeof org === 'string' && org && want !== org) return { at: now, state: 'other-account' };
+  if (typeof want === 'string' && want) {
+    /* Review 10: a profile that names no organization cannot be checked against one, so it is unreadable, as review 7
+       made an unreadable email. */
+    if (typeof org !== 'string' || !org) return { at: now, state: 'profile-unreadable' };
+    if (want !== org) return { at: now, state: 'other-account' };
+  }
   const fiveHour = windowOf(j && j.five_hour, { nowMs: now, maxAheadSeconds: statusline.FIVE_HOUR_MAX_AHEAD_SECONDS });
   return { at: now, state: 'ok', weekly, fiveHour };
 }
@@ -231,6 +236,7 @@ async function pollAll(list, deps = {}) {
         if (!w) continue;
         const p = prev && prev[key];
         const same = p && p.usedPct === w.usedPct && typeof p.changedAt === 'number'
+          && typeof prev.email === 'string' && prev.email.toLowerCase() === String(a.email).toLowerCase()
           && (p.resetsAt === w.resetsAt || (typeof p.resetsAt === 'number' && typeof w.resetsAt === 'number'
             && Math.abs(p.resetsAt - w.resetsAt) <= SAME_RESET_SECONDS));
         w.changedAt = same ? p.changedAt : rec.at;
@@ -242,6 +248,7 @@ async function pollAll(list, deps = {}) {
       const sameLogin = prev && typeof prev.email === 'string' && typeof a.email === 'string'
         && prev.email.toLowerCase() === a.email.toLowerCase();
       if (sameLogin && typeof prevAt === 'number' && Number.isFinite(prevAt)) {
+        rec.email = prev.email;   // review 10: so a second failed read in a row still knows whose figures these are
         rec.measuredAt = prevAt;
         rec.weekly = prev.weekly || null;
         rec.fiveHour = prev.fiveHour || null;
