@@ -29,7 +29,7 @@ if [ -n "$g" ]; then
   # run <expected rc> <label> [VAR=value ...]: all three variables are unset first, then the arm's own are set.
   run() {
     want="$1"; label="$2"; shift 2
-    out="$(env -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL -u KOSMOS_SHELL_SHARD -u KOSMOS_SHELL_PLATFORM "$@" bash -c "set -euo pipefail; $SRC" 2>&1)"; rc=$?
+    out="$(env -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL -u KOSMOS_SHELL_SHARD -u KOSMOS_SHELL_PLATFORM -u KOSMOS_SHELL_PARALLEL "$@" bash -c "set -euo pipefail; $SRC" 2>&1)"; rc=$?
     if [ "$rc" = "$want" ]; then
       if [ "$want" = 1 ]; then
         case "$out" in *"A cut always tests the whole suite (#5934)"*) ok "$label" ;; *) bad "$label: refused without the #5934 message: $out" ;; esac
@@ -51,6 +51,10 @@ if [ -n "$g" ]; then
   run 1 "an EMPTY KOSMOS_SHELL_SHARD refuses" KOSMOS_SHELL_SHARD=
   run 1 "#6791: KOSMOS_SHELL_PLATFORM=linux alone refuses (run-tests.sh would stop the cut after the bump)" KOSMOS_SHELL_PLATFORM=linux
   run 1 "#6791: an EMPTY KOSMOS_SHELL_PLATFORM refuses" KOSMOS_SHELL_PLATFORM=
+  run 1 "#7100: KOSMOS_SHELL_PARALLEL=4 refuses (the cut's shell part would run as shards at once)" KOSMOS_SHELL_PARALLEL=4
+  run 1 "#7100: KOSMOS_SHELL_PARALLEL=0 refuses (run-tests.sh would stop the cut after the bump)" KOSMOS_SHELL_PARALLEL=0
+  run 1 "#7100: an EMPTY KOSMOS_SHELL_PARALLEL refuses" KOSMOS_SHELL_PARALLEL=
+  run 0 "#7100: KOSMOS_SHELL_PARALLEL=1 (today's run) is allowed" KOSMOS_SHELL_PARALLEL=1
   run 0 "KOSMOS_TEST_PART=all alone is allowed (the whole suite)" KOSMOS_TEST_PART=all
   run 0 "a clean environment passes (control)"
 else

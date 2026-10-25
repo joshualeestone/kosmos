@@ -787,8 +787,10 @@ fi
 # run-tests.sh refuses a non-empty one beside a whole suite, so a leftover one would stop the cut at step 3, after the
 # bump. An empty one is refused too, as the other two are, though run-tests.sh would ignore it. #6791: and so is
 # KOSMOS_SHELL_PLATFORM (CI's linux or mac share of the shell part), which run-tests.sh refuses without a shard.
-if { [ -n "${KOSMOS_TEST_PART+x}" ] && [ "$KOSMOS_TEST_PART" != all ]; } || [ -n "${KOSMOS_TEST_PART_LOCAL+x}" ] || [ -n "${KOSMOS_SHELL_SHARD+x}" ] || [ -n "${KOSMOS_SHELL_PLATFORM+x}" ]; then
-  echo "KOSMOS_TEST_PART, KOSMOS_TEST_PART_LOCAL, KOSMOS_SHELL_SHARD or KOSMOS_SHELL_PLATFORM is set in this shell (part '${KOSMOS_TEST_PART-}', local '${KOSMOS_TEST_PART_LOCAL-}', shard '${KOSMOS_SHELL_SHARD-}', platform '${KOSMOS_SHELL_PLATFORM-}'). A cut always tests the whole suite (#5934): unset them and run again."; exit 1
+# #7100: and KOSMOS_SHELL_PARALLEL other than 1: an invalid value would stop the cut at step 3 after the bump, and a
+# valid one would run the cut's shell part as shards at once, which is not the default until measured collision-free.
+if { [ -n "${KOSMOS_TEST_PART+x}" ] && [ "$KOSMOS_TEST_PART" != all ]; } || [ -n "${KOSMOS_TEST_PART_LOCAL+x}" ] || [ -n "${KOSMOS_SHELL_SHARD+x}" ] || [ -n "${KOSMOS_SHELL_PLATFORM+x}" ] || { [ -n "${KOSMOS_SHELL_PARALLEL+x}" ] && [ "$KOSMOS_SHELL_PARALLEL" != 1 ]; }; then
+  echo "KOSMOS_TEST_PART, KOSMOS_TEST_PART_LOCAL, KOSMOS_SHELL_SHARD, KOSMOS_SHELL_PLATFORM or KOSMOS_SHELL_PARALLEL is set in this shell (parallel '${KOSMOS_SHELL_PARALLEL-}', part '${KOSMOS_TEST_PART-}', local '${KOSMOS_TEST_PART_LOCAL-}', shard '${KOSMOS_SHELL_SHARD-}', platform '${KOSMOS_SHELL_PLATFORM-}'). A cut always tests the whole suite (#5934): unset them and run again."; exit 1
 fi
 # One authenticated request to Apple with the notary key, so a bad key or an outage refuses here,
 # before the bump is pushed. Step 4 can still fail at Apple after the bump (a notary outage that
