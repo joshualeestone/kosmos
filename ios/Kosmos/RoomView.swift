@@ -190,7 +190,7 @@ struct RoomView: View {
         .onChange(of: query) { _ in sentWhileSearching = false; hiddenBySearch = false }
         .onChange(of: searching && shownRows.isEmpty) { empty in if !empty { spokeEmpty = false } }
         // A post that did not go says so on its own line; the search's line is not about it.
-        .onChange(of: store.notes[project.id] != nil) { now in if now { sentWhileSearching = false } }
+        .onChange(of: store.notes[project.id] != nil) { now in if now { sentWhileSearching = false; hiddenBySearch = false } }
         // Leaving an empty field puts it away; one with words stays.
         .onChange(of: searchFocused) { now in if !now && !searching && searchOpen { putSearchAway() } }
         // kosmos#7072: a hold that appears while the room is on screen is said aloud, as the board's paint does.
