@@ -35,11 +35,15 @@ cleanup() {
   done
   # Never delete a folder that still backs an attached image, or through a live mount.
   still=""; for img in full.dmg decoy.dmg; do dev="$(img_dev "$img")"; [ -n "$dev" ] && still="$still $img=$dev"; done
-  # And by device number, which does not depend on hdiutil answering: an hdiutil that fails or prints something
-  # unexpected must not read as "nothing attached".
-  [ -d "$TMP/mnt" ] && [ "$(stat -f %d "$TMP/mnt" 2>/dev/null)" != "$(stat -f %d "$TMP" 2>/dev/null)" ] && still="$still mnt"
+  # And the image's mount by device number, which does not depend on hdiutil answering, so a failed or odd hdiutil
+  # info cannot read as "nothing mounted" there. An unreadable device counts as still mounted. (The decoy mounts under
+  # /Volumes, outside $TMP, so a missed decoy costs a leaked attach, never a delete through a mount.)
+  if [ -d "$TMP/mnt" ]; then
+    a="$(stat -f %d "$TMP/mnt" 2>/dev/null)"; b="$(stat -f %d "$TMP" 2>/dev/null)"
+    { [ -z "$a" ] || [ -z "$b" ] || [ "$a" != "$b" ]; } && still="$still mnt"
+  fi
   if [ -n "$still" ]; then
-    echo "NOTE  still attached after detach:$still; left $TMP in place (detach by hand, then remove it)" >&2
+    echo "NOTE  still attached after detach:$still; left $TMP in place (detach by hand, then remove it)"
   else
     rm -rf "${TMP:?}"
   fi
@@ -199,7 +203,7 @@ if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
     new_debris=""; for n in 1 2 3 4 5 6 7 8 9; do
       is_debris "$n" && case " $debris_before " in *" $n "*) ;; *) new_debris="$new_debris $n" ;; esac
     done
-    { [ "$(stat -f %d "$DISK")" != "$(stat -f %d "$TMP")" ] && [ -e "$DISK/fill" ] && [ -z "$new_debris" ]; } \
+    { [ "$(stat -f %d "$DISK")" != "$(stat -f %d "$(dirname "$DISK")")" ] && [ -e "$DISK/fill" ] && [ -z "$new_debris" ]; } \
       && ok "the full-disk case writes to its own image$( [ -n "$DECOY" ] && echo ', not where a parsed mount point would put it') (#7127)" \
       || bad "the full-disk case wrote somewhere other than its own image (#7127)${new_debris:+: it wrote into${new_debris}}"
   fi
