@@ -32,6 +32,7 @@ const statusline = require('./kosmos-statusline');
 const FILE = 'kosmos-usage.json';
 const HOST = 'api.anthropic.com';
 const USAGE_PATH = '/api/oauth/usage';
+const PROFILE_PATH = '/api/oauth/profile';
 const BETA = 'oauth-2025-04-20';
 /* Review 5: Node sends no User-Agent by default, and the real response was read with a client that sends one. Sending
    our own means the read does not depend on the endpoint accepting a request without one. */
@@ -89,7 +90,7 @@ async function tokenStateFor(a, { now = Date.now(), ...deps } = {}) {
 /* One GET of the usage endpoint. Resolves { code, body }; code 0 on a network error, an idle socket, or a request that
    is still not finished TIMEOUT_MS after it started (the socket timeout alone would let a peer that trickles bytes keep
    it open, and the poll reads one account at a time). Never rejects. */
-function getUsage(token, { request = https.request, timeoutMs = TIMEOUT_MS } = {}) {
+function getUsage(token, { request = https.request, timeoutMs = TIMEOUT_MS, path: reqPath = USAGE_PATH } = {}) {
   return new Promise((resolve) => {
     let done = false;
     let req;
@@ -98,7 +99,7 @@ function getUsage(token, { request = https.request, timeoutMs = TIMEOUT_MS } = {
     const finish = (v) => { if (!done) { done = true; clearTimeout(deadline); resolve(v); } };
     try {
       req = request({
-        host: HOST, path: USAGE_PATH, method: 'GET', timeout: timeoutMs,
+        host: HOST, path: reqPath, method: 'GET', timeout: timeoutMs,
         headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': BETA, Accept: 'application/json', 'User-Agent': USER_AGENT },
       }, (res) => {
         let body = '';
@@ -143,6 +144,18 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, ...deps } = {}
   try { j = JSON.parse(r.body); } catch { return { at: now, state: 'unreadable-response' }; }
   const weekly = windowOf(j && j.seven_day, { nowMs: now, maxAheadSeconds: WEEK_MAX_AHEAD_SECONDS });
   if (!weekly) return { at: now, state: 'unreadable-response' };
+  /* Review 6: the credential carries no account, and the one an account's agents read can belong to another login
+     (measured on a build Mac: the bare entry and the default folder's entry were two different accounts). So the
+     profile behind the same token is checked against the account Kosmos lists: a clear mismatch is not this account's
+     reading. A profile that cannot be read does not block the reading (it is a second, optional request). */
+  if (a.email) {
+    const p = await getUsage(t.token, { request, path: PROFILE_PATH, ...(timeoutMs ? { timeoutMs } : {}) });
+    let email = null;
+    try { email = p.code === 200 ? (JSON.parse(p.body).account || {}).email : null; } catch { email = null; }
+    if (typeof email === 'string' && email && email.toLowerCase() !== String(a.email).toLowerCase()) {
+      return { at: now, state: 'other-account' };
+    }
+  }
   const fiveHour = windowOf(j && j.five_hour, { nowMs: now, maxAheadSeconds: statusline.FIVE_HOUR_MAX_AHEAD_SECONDS });
   return { at: now, state: 'ok', weekly, fiveHour };
 }

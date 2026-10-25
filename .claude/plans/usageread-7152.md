@@ -34,6 +34,11 @@ at 0%, had no reading at all (the card's opening).
   armed, so without `usagepoll.liveAllowed()` it would read the operator's real logins and write into the real account
   folders. Across windows, the endpoint reading is dated by when it was last MEASURED, since the question there is
   which reading is current. The request sends its own User-Agent.
+- Review 6: the profile behind the same token (`/api/oauth/profile`) is checked against the email Kosmos lists for the
+  account, and a clear mismatch records `other-account`, not a reading. So a credential holding another login (seen
+  on the fleet, where the bare entry and the default folder's entry were two accounts) cannot put that login's figure
+  on this account, and so cannot win the higher-figure rule with it. An unreadable profile does not block a reading.
+  "Will not update" is cleared only while the endpoint's last read worked.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -82,7 +87,7 @@ defensive, and is kept because its cost is one line).
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 19 tests (counted from a run; 2 added in review 5: the test gate, and the cross-window rule; 3 added in review 4: reset jitter, the higher figure within a window, the expiry margin and weekly cap; 2 added in review 3: the change time, and the cleared "will not update"; 3 added in review 1: the null reset and the five-hour bound; a failed read keeping
+- engine/usagepoll-7152.test.js, 21 tests (counted from a run; 2 added in review 6: the identity check, and the reason coming back; 2 added in review 5: the test gate, and the cross-window rule; 3 added in review 4: reset jitter, the higher figure within a window, the expiry margin and weekly cap; 2 added in review 3: the change time, and the cleared "will not update"; 3 added in review 1: the null reset and the five-hour bound; a failed read keeping
   its figures, dated when measured; the hard deadline), with an injected Keychain reader and request, no real credential and no network.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

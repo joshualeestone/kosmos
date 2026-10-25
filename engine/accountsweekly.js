@@ -34,6 +34,7 @@ function newer(statusLine, polled) {
      later truth, whichever source was quicker to see it. Across windows, the newer reading wins. */
   if (Math.abs(a.resetsAt - b.resetsAt) <= SAME_WINDOW_MS) {
     if (a.usedPct !== b.usedPct) return a.usedPct > b.usedPct ? a : b;
+    return b.at >= a.at ? b : a;   // review 6: the same figure in the same window: the later change is the one shown
   }
   /* Review 5: across windows the question is which reading is CURRENT, so the endpoint's is dated by when it was last
      measured, not by when its figure last changed (an idle account's figure can sit unchanged for days). */
@@ -79,7 +80,7 @@ function weeklyBlockedOf(a, platform = process.platform, nowMs = Date.now()) {
   if (platform === 'win32') return null;
   /* kosmos#7152 review 3: the usage endpoint reads this account every ten minutes, so a fresh reading from it IS
      updating, and "it will not update" would be false next to it. None of these reasons stops a reading then. */
-  if (polledOf(a, nowMs, 'weekly')) return null;
+  if (polledOf(a, nowMs, 'weekly') && (require('./usagepoll').readUsage(a.dir, nowMs) || {}).state === 'ok') return null;   // review 6: only while the endpoint is still answering
   const sp = path.join(a.dir, 'settings.json');
   const linkedAway = () => {   // #6175: the same test the set-up route makes before it writes
     try { if (!fs.lstatSync(sp).isSymbolicLink()) return false; } catch { return false; }

@@ -252,6 +252,29 @@ test('#7152 review 5: across windows the reading measured more recently is curre
   assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).usedPct, 80, 'CONTROL: a status line measured later wins');
 });
 
+test('#7152 review 6: a token whose profile is another account gives no reading for this one', async () => {
+  const answer = (email) => (opts) => (opts.path === '/api/oauth/profile'
+    ? { code: 200, body: JSON.stringify({ account: { email } }) } : { code: 200, body: BODY });
+  const read = (acctEmail, profileEmail) => usagepoll.readOne({ dir: '/u/x', email: acctEmail }, {
+    now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest(answer(profileEmail), {}),
+  });
+  assert.equal((await read('a@example.test', 'b@example.test')).state, 'other-account', 'another login was taken as this account');
+  assert.equal((await read('A@Example.test', 'a@example.test')).state, 'ok', 'CONTROL: the same address in another case is this account');
+  const noProfile = await usagepoll.readOne({ dir: '/u/x', email: 'a@example.test' }, {
+    now: NOW, platform: 'darwin', readCred: async () => cred(),
+    request: fakeRequest((opts) => (opts.path === '/api/oauth/profile' ? { code: 500, body: '' } : { code: 200, body: BODY }), {}),
+  });
+  assert.equal(noProfile.state, 'ok', 'an unreadable profile blocked the reading');
+});
+
+test('#7152 review 6: once the endpoint stops answering, "will not update" comes back', (t) => {
+  const d = tmpDir(t);
+  usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 120000, state: 'http-401',
+    weekly: { usedPct: 12, resetsAt: Math.floor((NOW + 86400000) / 1000), changedAt: NOW - 120000 }, fiveHour: null });
+  assert.notEqual(accountsweekly.weeklyOf({ dir: d }, NOW), null, 'CONTROL: the kept figure is still shown');
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW), 'not-wired', 'a failing endpoint still hid the reason');
+});
+
 test('#7152 review 3: a fresh endpoint reading clears "will not update", since the endpoint keeps it updating', (t) => {
   const d = tmpDir(t);
   assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW), 'not-wired', 'CONTROL: no settings, no reading');
