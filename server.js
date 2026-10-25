@@ -25916,7 +25916,7 @@ function start(port = PORT) {
         let list = [];
         try { list = accounts.list(); } catch { list = []; }
         usagePoll.pollAll(list)
-          .then((n) => { process.stdout.write(`usage-poll: measured ${n} of ${list.length} account(s)\n`); })
+          .then((n) => { process.stdout.write(`usage-poll: measured ${n} of ${list.filter((a) => a && !a.apiKey).length} signed-in account(s)\n`); })
           .catch(() => { /* best-effort, like the sweeps above */ })
           .finally(() => { usagePollBusy = false; });
       };

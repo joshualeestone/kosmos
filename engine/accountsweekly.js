@@ -31,12 +31,14 @@ function newer(statusLine, polled) {
   return b.at >= a.at ? b : a;
 }
 
-/* The endpoint's figure for one window, dated when it was MEASURED (a later failed read keeps it, see usagepoll). A
-   window with no reset time yet is left to the status line: the /api/status shape carries a reset time. */
+/* The endpoint's figure for one window, dated when it last CHANGED (usagepoll's changedAt), which is what the status
+   line's `at` means and what the page shows as "last saw it change". A window with no reset time yet is left to the
+   status line: the /api/status shape carries a reset time. */
 function polledOf(a, nowMs, key) {
   const r = require('./usagepoll').readUsage(a.dir, nowMs);
   const w = r && r[key];
-  return w && typeof w.resetsAt === 'number' && typeof r.measuredAt === 'number' ? { ...w, at: r.measuredAt } : null;
+  return w && typeof w.resetsAt === 'number' && typeof w.changedAt === 'number'
+    ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.changedAt } : null;
 }
 
 /** The account's weekly reading, or null when there is none this week (an API key, none recorded, unreadable, the week
@@ -60,10 +62,14 @@ function fiveHourOf(a, nowMs = Date.now()) {
 /** Why there can be NO reading for this account, when that is known: 'own-statusline', 'not-wired',
     'linked-settings' (#6175) or 'unreadable-settings'. null when Kosmos's own status line is there, so a reading comes once an agent on it works.
     kosmos#6570: always null on Windows, where an agent's readings come from its own event stream (win32streamstate), not
-    the status line, which Claude Code never runs for a headless agent: none of these reasons stops a reading there. */
-function weeklyBlockedOf(a, platform = process.platform) {
+    the status line, which Claude Code never runs for a headless agent: none of these reasons stops a reading there.
+    kosmos#7152: also null while the usage endpoint has a fresh reading for the account, which keeps it updating. */
+function weeklyBlockedOf(a, platform = process.platform, nowMs = Date.now()) {
   if (!a || a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
   if (platform === 'win32') return null;
+  /* kosmos#7152 review 3: the usage endpoint reads this account every ten minutes, so a fresh reading from it IS
+     updating, and "it will not update" would be false next to it. None of these reasons stops a reading then. */
+  if (polledOf(a, nowMs, 'weekly')) return null;
   const sp = path.join(a.dir, 'settings.json');
   const linkedAway = () => {   // #6175: the same test the set-up route makes before it writes
     try { if (!fs.lstatSync(sp).isSymbolicLink()) return false; } catch { return false; }

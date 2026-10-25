@@ -56,7 +56,6 @@ async function tokenStateFor(a, { now = Date.now(), ...deps } = {}) {
   if (!raw) return { state: 'no-credential' };
   let o;
   try { o = JSON.parse(raw); } catch { return { state: 'no-credential' }; }
-  raw = null;
   const oauth = o && o.claudeAiOauth;
   const token = oauth && typeof oauth.accessToken === 'string' ? oauth.accessToken : '';
   if (!token) return { state: 'no-token' };
@@ -96,7 +95,9 @@ function getUsage(token, { request = https.request, timeoutMs = TIMEOUT_MS } = {
 
 /* { usedPct, resetsAt (epoch SECONDS, as the status line's files) } from one window of the response, or null when the
    usage is not a number. A window with usage but no reset time yet (`resets_at: null`, which a window nobody has used
-   can carry) keeps its usage with resetsAt null: an unused account is still measured, and is the headroom slice 2 wants.
+   can carry) keeps its usage with resetsAt null, so the record still says the account was measured. accountsweekly does not show
+   such a window (the /api/status shape carries a reset time); it is kept for slice 2. Measured 2026-10-25: no readable
+   account had a null reset, even at 0%, so this is a defensive branch.
    maxAheadSeconds refuses a reset further out than the window can be, as the status line's five-hour reader does. */
 function windowOf(w, { nowMs = Date.now(), maxAheadSeconds = null } = {}) {
   if (!w || typeof w !== 'object') return null;
@@ -116,7 +117,6 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, ...deps } = {}
   const t = await tokenStateFor(a, { now, ...deps });
   if (t.state !== 'ok') return { at: now, state: t.state };
   const r = await getUsage(t.token, { request, ...(timeoutMs ? { timeoutMs } : {}) });
-  t.token = null;
   if (r.code !== 200) return { at: now, state: r.code ? `http-${r.code}` : 'unreachable' };
   let j;
   try { j = JSON.parse(r.body); } catch { return { at: now, state: 'unreadable-response' }; }
@@ -160,6 +160,17 @@ async function pollAll(list, deps = {}) {
     if (!rec) continue;
     if (rec.state === 'ok') {
       rec.measuredAt = rec.at;
+      /* Review 3: each window carries when its figure last CHANGED, as the status line's `at` means (it is written
+         only when the figure moves). A read that finds the same figure and reset keeps the earlier changedAt, so an
+         idle account does not claim a fresh change every ten minutes, and accountsweekly compares like with like. */
+      const prev = readRaw(a.dir);
+      for (const key of ['weekly', 'fiveHour']) {
+        const w = rec[key];
+        if (!w) continue;
+        const p = prev && prev[key];
+        const same = p && p.usedPct === w.usedPct && p.resetsAt === w.resetsAt && typeof p.changedAt === 'number';
+        w.changedAt = same ? p.changedAt : rec.at;
+      }
     } else {
       const prev = readRaw(a.dir);
       const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
@@ -189,8 +200,9 @@ function readUsage(dir, nowMs = Date.now()) {
   const fresh = measuredAt !== null && nowMs - measuredAt <= FRESH_MS;
   const live = (w) => {
     if (!fresh || !w || typeof w.usedPct !== 'number') return null;
-    if (w.resetsAt === null) return { usedPct: w.usedPct, resetsAt: null };
-    return typeof w.resetsAt === 'number' && w.resetsAt * 1000 > nowMs ? { usedPct: w.usedPct, resetsAt: w.resetsAt } : null;
+    const changedAt = typeof w.changedAt === 'number' && Number.isFinite(w.changedAt) ? w.changedAt : measuredAt;
+    if (w.resetsAt === null) return { usedPct: w.usedPct, resetsAt: null, changedAt };
+    return typeof w.resetsAt === 'number' && w.resetsAt * 1000 > nowMs ? { usedPct: w.usedPct, resetsAt: w.resetsAt, changedAt } : null;
   };
   return { at: j.at, measuredAt, state: typeof j.state === 'string' ? j.state : 'unknown', weekly: live(j.weekly), fiveHour: live(j.fiveHour) };
 }

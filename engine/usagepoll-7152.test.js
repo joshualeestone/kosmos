@@ -189,6 +189,26 @@ test('#7152 review 1: a request that never finishes ends at its deadline', async
   assert.ok(Date.now() - t0 < 2000, 'the deadline did not end the request');
 });
 
+test('#7152 review 3: a reading is dated when its figure last changed, as the status line dates its own', async (t) => {
+  const d = tmpDir(t);
+  const at = (now, body) => ({ now, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
+  await usagepoll.pollAll([{ dir: d }], at(NOW, BODY));
+  await usagepoll.pollAll([{ dir: d }], at(NOW + 10 * 60000, BODY));
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 11 * 60000).at, NOW, 'an unchanged figure claimed a new change');
+  const moved = BODY.replace('"utilization":56', '"utilization":57');
+  assert.notEqual(moved, BODY, 'CONTROL: the moved body differs');
+  await usagepoll.pollAll([{ dir: d }], at(NOW + 20 * 60000, moved));
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 21 * 60000).at, NOW + 20 * 60000, 'a changed figure kept the old time');
+});
+
+test('#7152 review 3: a fresh endpoint reading clears "will not update", since the endpoint keeps it updating', (t) => {
+  const d = tmpDir(t);
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW), 'not-wired', 'CONTROL: no settings, no reading');
+  usagepoll.write(d, { at: NOW - 60000, state: 'ok', weekly: { usedPct: 12, resetsAt: Math.floor((NOW + 86400000) / 1000) }, fiveHour: null });
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW), null, 'a fresh endpoint reading still said it would not update');
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW + usagepoll.FRESH_MS + 120000), 'not-wired', 'CONTROL: a stale one does not count');
+});
+
 test('#7152: accounts are read one at a time, so a slow read never stacks requests', async (t) => {
   const seen = {};
   const list = [tmpDir(t), tmpDir(t), tmpDir(t)].map((dir) => ({ dir }));

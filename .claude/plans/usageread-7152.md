@@ -20,6 +20,11 @@ at 0%, had no reading at all (the card's opening).
   yet is still measured (resetsAt null), and accountsweekly leaves it to the status line, because the /api/status
   shape carries a reset time. A five-hour reset further out than the window can be is refused, as the status line
   refuses it. The request has a hard deadline, not only a socket timeout. The first read comes 30 s after start.
+- Review 3: each window carries `changedAt`, which moves only when its figure or reset changes, and accountsweekly dates
+  an endpoint reading by it. The status line's `at` means the same thing (it is written only when the figure moves),
+  and the page shows it as "last saw it change". So an idle account no longer claims a fresh change every ten minutes,
+  and "newer" compares like with like. weeklyBlockedOf returns null while a fresh endpoint reading exists, because
+  that reading does update: "it will not update" and "Set up usage reading" would be false next to it.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -65,7 +70,7 @@ defensive, and is kept because its cost is one line).
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 12 tests (3 added in review 1: the null reset and the five-hour bound; a failed read keeping
+- engine/usagepoll-7152.test.js, 14 tests (2 added in review 3: the change time, and the cleared "will not update"; 3 added in review 1: the null reset and the five-hour bound; a failed read keeping
   its figures, dated when measured; the hard deadline), with an injected Keychain reader and request, no real credential and no network.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.
