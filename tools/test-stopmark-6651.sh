@@ -35,6 +35,9 @@ cleanup() {
   done
   # Never delete a folder that still backs an attached image, or through a live mount.
   still=""; for img in full.dmg decoy.dmg; do dev="$(img_dev "$img")"; [ -n "$dev" ] && still="$still $img=$dev"; done
+  # And by device number, which does not depend on hdiutil answering: an hdiutil that fails or prints something
+  # unexpected must not read as "nothing attached".
+  [ -d "$TMP/mnt" ] && [ "$(stat -f %d "$TMP/mnt" 2>/dev/null)" != "$(stat -f %d "$TMP" 2>/dev/null)" ] && still="$still mnt"
   if [ -n "$still" ]; then
     echo "NOTE  still attached after detach:$still; left $TMP in place (detach by hand, then remove it)" >&2
   else
