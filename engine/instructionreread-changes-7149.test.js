@@ -391,3 +391,10 @@ test('review 13: the real chain, end to end: a start copy, a landed line naming 
   const kept = /listed in (\S+) \(a pointer only/.exec(u.sent[0][1])[1];
   assert.ok(fs.existsSync(kept), 'an UNCONFIRMED line lost its changes file');
 });
+
+test('review 14: the changes file says it is a pointer and the named sections are what count', () => {
+  const f = agentFile('jo', AFTER);
+  ir.remember('jo', BEFORE);
+  const body = fs.readFileSync(ir.prepareChanges('jo').path, 'utf8');
+  assert.match(body, /This is a pointer only: the sections the notice named are what count, so read them/);
+});
