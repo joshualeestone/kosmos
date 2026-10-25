@@ -291,7 +291,9 @@ async function readFollowing(agentKey) {
       + '&cursor=' + encodeURIComponent(cursor), { register: false, waitMs: PAGE_WAIT_MS });
     const got = more.ok && more.status === 200 && more.json && Array.isArray(more.json.items) ? more.json.items : null;
     if (!got) break;
-    const olderPosts = got.slice(0, communityread.MAX_ITEMS).filter(isPost);
+    // A post already in hand (a new item can shift one from page to page between calls) is not counted again.
+    const inHand = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
+    const olderPosts = got.slice(0, communityread.MAX_ITEMS).filter(isPost).filter((it) => !inHand.has(String(it.id || '').toLowerCase()));
     const olderFresh = olderPosts.filter(unseen).slice(0, POSTS_WANTED - fresh);
     page.push(...olderFresh);
     fresh += olderFresh.length;
