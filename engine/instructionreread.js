@@ -258,8 +258,9 @@ function forget(session) {
   const p = seenFile(session);
   if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } }
 }
-/* Pure: the lines that differ between two texts, each run labelled with the nearest heading above it in the newer text
-   (or the older one, for a run removed at the end). '' when they are the same, null when too large to diff. */
+/* Pure: the lines that differ between two texts, each line labelled by the heading it sits under (review 9: an added line
+   by the newer text, a removed one by the newer text above it, else the older), each run in a diff fence (review 11).
+   '' when they are the same, null when too large to diff. */
 function changedLines(before, after) {
   // Review 1: a CRLF file compares and prints without its carriage returns.
   // Review 2: one trailing newline more or less is not a change.
@@ -345,14 +346,22 @@ function changedLines(before, after) {
   for (const r of runs) {
     // A label and at least one of its lines fit, or the run is left for the sections the notice names.
     const label = r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'Before the first heading:';
-    if (out.length + 3 > lineRoom || !fits('\n' + label + '\n' + r.lines[0])) { cut = true; break; }
-    out.push('', label);
-    bytes += Buffer.byteLength(label) + 2;
+    /* Review 11: each run in a diff fence, longer than any backtick run inside it, so a removed line (- ...) can never
+       be read or rendered as a live bullet. */
+    let longest = 0;
+    for (const l of r.lines) for (const m of l.match(/`+/g) || []) longest = Math.max(longest, m.length);
+    const fence = '`'.repeat(Math.max(3, longest + 1));
+    const close = fence.length + 1;   // the closing fence's line, kept in reserve
+    if (out.length + 5 > lineRoom || !fits('\n' + label + '\n' + fence + 'diff\n' + r.lines[0] + '\n' + fence)) { cut = true; break; }
+    out.push('', label, fence + 'diff');
+    bytes += Buffer.byteLength(label) + fence.length + 7;
     for (const l of r.lines) {
-      if (!fits(l)) { cut = true; break; }
+      if (out.length + 1 >= lineRoom || bytes + Buffer.byteLength(l) + 1 + close > byteRoom) { cut = true; break; }
       out.push(l);
       bytes += Buffer.byteLength(l) + 1;
     }
+    out.push(fence);
+    bytes += close;
     if (cut) break;
   }
   // Review 3: nothing fit (one line larger than the cap): too large, so the line names no file.

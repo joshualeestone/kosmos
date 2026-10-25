@@ -10,6 +10,8 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const ir = require('./instructionreread');
+/* One run as changedLines prints it (review 11: each run in a diff fence). */
+const RUN = (label, lines, fence = '```') => '\n' + label + '\n' + fence + 'diff\n' + lines.join('\n') + '\n' + fence;
 const hash12 = (s) => require('node:crypto').createHash('sha256').update(s).digest('hex').slice(0, 12);
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -27,15 +29,15 @@ function agentFile(name, text) {
 }
 
 test('changedLines: the one changed line, removed before added, under its heading; same text is empty', () => {
-  assert.equal(ir.changedLines(BEFORE, AFTER), '\nUnder The Kosmos+ community:\n- Post at least once a day.\n+ Post at least once a week.');
+  assert.equal(ir.changedLines(BEFORE, AFTER), RUN('Under The Kosmos+ community:', ['- Post at least once a day.', '+ Post at least once a week.']));
   assert.equal(ir.changedLines(BEFORE, BEFORE), '', 'a file that did not change reports a change');
   // Two separate changes are two runs, each under its own heading.
   const two = AFTER.replace('Splinter.', 'The person who runs this computer.');
   const d = ir.changedLines(BEFORE, two);
-  assert.match(d, /Under The Kosmos\+ community:\n- Post at least once a day\.\n\+ Post at least once a week\./);
-  assert.match(d, /Under Who you report to:\n- Splinter\.\n\+ The person who runs this computer\./);
+  assert.ok(d.includes(RUN('Under The Kosmos+ community:', ['- Post at least once a day.', '+ Post at least once a week.'])));
+  assert.ok(d.includes(RUN('Under Who you report to:', ['- Splinter.', '+ The person who runs this computer.'])));
   // A line added at the top has no heading above it.
-  assert.match(ir.changedLines(BEFORE, 'New first line\n' + BEFORE), /^\nBefore the first heading:\n\+ New first line$/);
+  assert.equal(ir.changedLines(BEFORE, 'New first line\n' + BEFORE), RUN('Before the first heading:', ['+ New first line']));
 });
 
 test('changedLines: a long change is cut and says so; a rewrite too large to diff is null', () => {
@@ -168,7 +170,7 @@ test('review 1: an older changes file is removed when a notice names none', () =
 
 test('review 1: headings inside a code fence are not sections, and CRLF files label and print cleanly', () => {
   const fenced = ['## Real', 'a', '```bash', '# Start a task', 'x', '```', 'b', ''].join('\n');
-  assert.match(ir.changedLines(fenced, fenced.replace('\nb\n', '\nc\n')), /^\nUnder Real:\n- b\n\+ c$/);
+  assert.equal(ir.changedLines(fenced, fenced.replace('\nb\n', '\nc\n')), RUN('Under Real:', ['- b', '+ c']));
   const crlf = (s) => s.replace(/\n/g, '\r\n');
   assert.equal(ir.changedLines(crlf(BEFORE), crlf(AFTER)), ir.changedLines(BEFORE, AFTER));
 });
@@ -196,13 +198,13 @@ test('review 1: a line skipped after the checks (the card no longer idle) prepar
 test('review 2: an edit past character 400 of a long line is shown whole, not cut to two identical lines', () => {
   const long = 'x'.repeat(450) + 'tail';
   const d = ir.changedLines('## S\n' + long + '\n', '## S\n' + long.replace('tail', 'TAIL') + '\n');
-  assert.equal(d, '\nUnder S:\n- ' + long + '\n+ ' + long.replace('tail', 'TAIL'));
+  assert.equal(d, RUN('Under S:', ['- ' + long, '+ ' + long.replace('tail', 'TAIL')]));
 });
 
 test('review 2: one trailing newline more or less is no change; a ~~~ line inside a ``` fence does not close it', () => {
   assert.equal(ir.changedLines('a\nb\n', 'a\nb'), '');
   const f = ['## Real', '```', '~~~', '# not a heading', '```', 'z', ''].join('\n');
-  assert.match(ir.changedLines(f, f.replace('\nz\n', '\nZ\n')), /^\nUnder Real:\n- z\n\+ Z$/);
+  assert.equal(ir.changedLines(f, f.replace('\nz\n', '\nZ\n')), RUN('Under Real:', ['- z', '+ Z']));
 });
 
 test('review 2: names that differ only in case keep two copies; the next start drops the changes file; forget removes both', () => {
@@ -256,9 +258,9 @@ test('review 3: the byte cap cuts (cut note inside it); one line larger than the
 });
 
 test('review 3: a lone CR ends a line; a fence of four backticks is not closed by three', () => {
-  assert.equal(ir.changedLines('## S\ra\rb\r', '## S\ra\rc\r'), '\nUnder S:\n- b\n+ c');
+  assert.equal(ir.changedLines('## S\ra\rb\r', '## S\ra\rc\r'), RUN('Under S:', ['- b', '+ c']));
   const f = ['## Real', '````', '```', '# fake', '````', 'z', ''].join('\n');
-  assert.match(ir.changedLines(f, f.replace('\nz\n', '\nZ\n')), /^\nUnder Real:\n- z\n\+ Z$/);
+  assert.equal(ir.changedLines(f, f.replace('\nz\n', '\nZ\n')), RUN('Under Real:', ['- z', '+ Z']));
 });
 
 test('review 3: a line naming no changes file, and a debt ended without a line, drop the old file', async () => {
@@ -312,8 +314,8 @@ test('review 5: a cut rewrite keeps old and new lines in pairs; an emptied file 
   const d = ir.changedLines(many, many.replace(/line (\d+)/g, 'row $1'));
   assert.match(d, /- line 0\n\+ row 0\n- line 1\n\+ row 1/);
   assert.ok(/\n\+ row/.test(d), 'a cut kept no new line');
-  assert.equal(ir.changedLines('a\n', ''), '\nBefore the first heading:\n- a');
-  assert.equal(ir.changedLines('', 'a\n'), '\nBefore the first heading:\n+ a');
+  assert.equal(ir.changedLines('a\n', ''), RUN('Before the first heading:', ['- a']));
+  assert.equal(ir.changedLines('', 'a\n'), RUN('Before the first heading:', ['+ a']));
 });
 
 test('review 5: a line whose prepareChanges names no file drops the old one; restarted and expired endings drop it too', async () => {
@@ -345,9 +347,19 @@ test('review 6: a line that did not land drops the changes file it named', async
 test('reviews 8-9: an added heading labels itself; lines added above it stay under their own section; a # in an added fence is no label', () => {
   const before = ['## A', 'x', '## Old', 'y', ''].join('\n');
   const after = ['## A', 'x', '## New', 'y', ''].join('\n');
-  assert.equal(ir.changedLines(before, after), '\nUnder A:\n- ## Old\n\nUnder New:\n+ ## New');
+  assert.equal(ir.changedLines(before, after), RUN('Under A:', ['- ## Old']) + '\n' + RUN('Under New:', ['+ ## New']));
   const tail = ir.changedLines('## X\nx1\n## Y\ny1\n', '## X\nx1\nx2 added\n## New\nn1\n## Y\ny1\n');
-  assert.equal(tail, '\nUnder X:\n+ x2 added\n\nUnder New:\n+ ## New\n+ n1');
+  assert.equal(tail, RUN('Under X:', ['+ x2 added']) + '\n' + RUN('Under New:', ['+ ## New', '+ n1']));
   const fenced = ir.changedLines('## A\nx\n## B\ny\n', '## A\nx\nmore under A\n```\n# comment\n```\n## B\ny\n');
-  assert.equal(fenced, '\nUnder A:\n+ more under A\n+ ```\n+ # comment\n+ ```');
+  // The run holds a ``` line, so its own fence is longer (review 11).
+  assert.equal(fenced, RUN('Under A:', ['+ more under A', '+ ```', '+ # comment', '+ ```'], '````'));
+});
+
+test('review 11: a cut file still closes every fence it opens, inside both caps', () => {
+  const many = Array.from({ length: 400 }, (_, k) => 'line ' + k).join('\n');
+  const d = ir.changedLines(many, many.replace(/line (\d+)/g, 'row $1'));
+  const fences = d.split('\n').filter((l) => /^`{3,}/.test(l));
+  assert.ok(fences.length >= 2 && fences.length % 2 === 0, 'an unclosed fence: ' + fences.length);
+  assert.ok(d.split('\n').length <= 160 && Buffer.byteLength(d) <= 32 * 1024);
+  assert.match(d, /```\n\n\[More changed than fits here/);
 });

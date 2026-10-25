@@ -51,3 +51,24 @@ test('a recorded started report takes the copy; CONTROL: an idle report takes no
     assert.equal(ir.readSeen(WHO), '# You are Lia\n\n## The Kosmos+ community\nPost once a day.\n', 'a recorded start took no copy');
   } finally { board.restore(); }
 });
+
+test('review 11: a started report that is NOT recorded takes no copy (the row startedSince reads does not exist)', async () => {
+  const board = fleet.install([fleet.agent('mia', { state: 'idle' })]);
+  const selfreport = require('./engine/selfreport');
+  const real = selfreport.record;
+  try {
+    const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'mia');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# You are Mia\n');
+    TOKEN = sendertoken.mint('mia').token;
+    selfreport.record = () => ({ recorded: false, because: 'we could not save that report' });
+    const refused = await report({ state: 'started', text: 'session start' });
+    assert.notEqual(refused.recorded, true, JSON.stringify(refused));
+    assert.equal(ir.readSeen('mia'), null, 'a refused start moved the copy');
+    // CONTROL: the same start, recorded, takes it.
+    selfreport.record = real;
+    const kept = await report({ state: 'started', text: 'session start' });
+    assert.equal(kept.recorded, true, JSON.stringify(kept));
+    assert.equal(ir.readSeen('mia'), '# You are Mia\n');
+  } finally { selfreport.record = real; board.restore(); }
+});
