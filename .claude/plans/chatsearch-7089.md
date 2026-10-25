@@ -38,8 +38,11 @@ cover the filter and the sentence with a broken-copy control that goes red.
 - While searching every reply draws its header (dmReplyAdjacency: not while filtering), pending too.
 - Clearing the search scrolls to the newest message: the board resumes following then (convFollow
   when not filtering). Weakest premise: a reader who scrolled up before searching loses that place.
-- The field is SwiftUI .searchable in the navigation bar drawer (iOS 16), shown by pulling down, the
-  system pattern for a conversation; the board's phone layout also hides the field at rest.
+- The field is SwiftUI .searchable in the navigation bar drawer, displayMode .always. First built
+  with .automatic (hidden until pulled down); the first screenshot showed a filtered thread with the
+  field out of sight, nothing saying why the chat was short. Rejected .automatic for that. Cost: one
+  row (about 44 pt) always taken; a design question for Mona Lisa (shots in
+  ~/work/design-shots/kosmos-7089/).
 - The query clears when the chat goes off screen, so coming back always shows everything.
 - Day lines are recomputed over the filtered rows (chatItems runs on what is shown), as the board
   repaints the filtered rows.

@@ -139,8 +139,9 @@ struct ChatView: View {
             loop = nil
         }
         .onChange(of: thread) { _ in recomputeHiddenHeads() }
-        // kosmos#7089: in the bar's drawer, shown by pulling the thread down, as other iPhone conversations do.
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
+        // kosmos#7089: under the bar, always shown. Hidden until pulled down (.automatic), a search still filtering the
+        // thread was out of sight, so the chat looked shorter with nothing saying why (seen in the first screenshot).
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .onChange(of: query) { _ in
             recomputeHiddenHeads()
             // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
@@ -604,7 +605,13 @@ struct ChatView: View {
     @State private var sampleFileApplied = false
     @State private var sampleOlderApplied = false
     @State private var sampleReplyApplied = false
+    @State private var sampleSearchApplied = false
     private func applySampleChoice(_ t: Board.Thread) {
+        // kosmos#7089, KOSMOS_SAMPLE_SEARCH=<words>: those words typed in the search field, for its screenshots.
+        if !sampleSearchApplied, let words = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SEARCH"] {
+            sampleSearchApplied = true
+            query = words
+        }
         // kosmos#7083, KOSMOS_SAMPLE_REPLY=1: Reply pressed on Dana's newest message, for the strip's screenshot.
         if !sampleReplyApplied, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REPLY"] == "1",
            let last = t.rows.last(where: { $0.who == .agent && $0.atRaw != nil }) {
