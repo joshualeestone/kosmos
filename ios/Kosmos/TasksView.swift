@@ -2,8 +2,8 @@ import SwiftUI
 
 // The native Tasks tab (kosmos#7031, slice 7 of #6838; Mona Lisa's slice7/SPEC.md). It draws what TasksLogic decides,
 // which is the board's Tasks view: its groups in Josh's order, its title words and its project picker. A row opens the
-// board's task page (openPage: under Today in the board view, as Today's Check it does, until a native task page has
-// its own slice); Answer opens that agent's native chat, as Today's Answer does.
+// task's native page (kosmos#7074, TaskPageView), as Today's Check it does; Answer opens that agent's native chat, as
+// Today's Answer does.
 struct TasksTab: View {
     @ObservedObject var client: BoardClient
     let openPage: (URL) -> Void
@@ -11,17 +11,19 @@ struct TasksTab: View {
     @State private var visible = false
     @State private var wasBackground = false
     @State private var openAgent: Board.Agent?
+    @State private var openTask: TaskPageRef?
 
     var body: some View {
         NavigationView {
             TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
-                      open: { t in if let url = client.taskURL(for: t) { openPage(url) } },
+                      open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
                       answer: answer,
                       refresh: { await client.refreshTasks() })
                 .background(chatLink)
+                .background(taskLink)
         }
         .navigationViewStyle(.stack)
-        .onChange(of: client.chatEpoch) { _ in openAgent = nil }
+        .onChange(of: client.chatEpoch) { _ in openAgent = nil; openTask = nil }
         .onAppear { visible = true; client.show(BoardClient.tasksViewer) }
         .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.tasksViewer) }
         .onChange(of: scenePhase) { phase in
@@ -49,6 +51,15 @@ struct TasksTab: View {
     }
     @ViewBuilder private func chatDestination() -> some View {
         if let agent = openAgent { chat(for: agent) }
+    }
+    private var taskOpen: Binding<Bool> {
+        Binding(get: { openTask != nil }, set: { if !$0 { openTask = nil } })
+    }
+    private var taskLink: some View {
+        NavigationLink(isActive: taskOpen, destination: taskDestination, label: { EmptyView() }).hidden()
+    }
+    @ViewBuilder private func taskDestination() -> some View {
+        if let ref = openTask { TaskPageView(client: client, ref: ref, openPage: openPage) }
     }
     private func chat(for agent: Board.Agent) -> ChatView {
         let onBoard: () -> Void = { if let url = client.chatURL(for: agent) { openPage(url) } }

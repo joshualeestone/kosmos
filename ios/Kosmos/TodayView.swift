@@ -4,7 +4,7 @@ import UIKit
 // kosmos#7030 (the iPhone plan's slice 4, #6838): the native Today tab, built to Mona Lisa's slice 4 spec (24 Oct).
 // What needs you, what an agent marked built, and who is working, in the board's own words; what to show and in which
 // order is decided in TodayLogic.swift. Answer and Open open the agent's native chat, as the Agents tab does; Check it
-// opens the task's page in the board view under Today (openPage) until Tasks is native.
+// opens the task's native page (kosmos#7074, TaskPageView).
 struct TodayView: View {
     @ObservedObject var client: BoardClient
     let openPage: (URL) -> Void
@@ -13,6 +13,7 @@ struct TodayView: View {
     @State private var visible = false
     @State private var wasBackground = false
     @State private var openAgent: Board.Agent?
+    @State private var openTask: TaskPageRef?
     // The order is set when the screen appears, on a pull and at a re-sort, never under the thumb: live updates change a
     // card in place (slice 1's rule), and a new arrival goes after the ones already shown (Board.TodayOrder).
     @State private var order = Board.TodayOrder()
@@ -24,13 +25,21 @@ struct TodayView: View {
                 .background(Palette.ground.ignoresSafeArea())
                 // On the page, not on a card, so a card that goes away (its question answered) does not close the chat.
                 .background(chatLink)
+                .background(taskLink)
         }
         .navigationViewStyle(.stack)
-        .onChange(of: client.chatEpoch) { _ in openAgent = nil; order.clear() }
+        .onChange(of: client.chatEpoch) { _ in openAgent = nil; openTask = nil; order.clear() }
         .onAppear {
             visible = true
             order.clear()
             client.show(BoardClient.todayViewer)
+            #if DEBUG
+            // kosmos#7074's screenshots (a Debug build only): KOSMOS_SAMPLE_TASK=<n> opens that sample task's page, once.
+            if !Self.sampleTaskOpened, let n = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TASK"].flatMap(Int.init) {
+                Self.sampleTaskOpened = true
+                openTask = TaskPageRef(project: "p-cat", number: n)
+            }
+            #endif
         }
         .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.todayViewer) }
         .onChange(of: scenePhase) { phase in
@@ -53,6 +62,19 @@ struct TodayView: View {
     private func chat(for agent: Board.Agent) -> ChatView {
         let open: () -> Void = { openOnBoard(agent) }
         return ChatView(client: client, agent: agent, openOnBoard: open)
+    }
+    #if DEBUG
+    private static var sampleTaskOpened = false
+    #endif
+    // kosmos#7074: Check it pushes the task's native page.
+    private var taskOpen: Binding<Bool> {
+        Binding(get: { openTask != nil }, set: { if !$0 { openTask = nil } })
+    }
+    private var taskLink: some View {
+        NavigationLink(isActive: taskOpen, destination: taskDestination, label: { EmptyView() }).hidden()
+    }
+    @ViewBuilder private func taskDestination() -> some View {
+        if let ref = openTask { TaskPageView(client: client, ref: ref, openPage: openPage) }
     }
     private func openOnBoard(_ agent: Board.Agent) {
         if let url = client.chatURL(for: agent) { openPage(url) }
@@ -121,7 +143,7 @@ struct TodayView: View {
                         let agent = task.builtBy.flatMap { s in client.agents.first { $0.session == s } }
                         ReadyCard(task: task, agentName: agent?.name ?? task.builtBy, picture: agent.flatMap(picture),
                                   tone: agent.map { stale ? .quiet : Board.tone($0) }, stale: stale) {
-                            if let url = client.taskURL(for: task) { openPage(url) }
+                            openTask = TaskPageRef(project: task.projectId, number: task.number)
                         }
                         .cardRow()
                     }

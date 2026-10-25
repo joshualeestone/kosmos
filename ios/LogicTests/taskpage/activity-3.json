@@ -1,0 +1,26 @@
+{
+ "events": [
+  {
+   "at": "2026-10-25T00:36:58.421Z",
+   "kind": "created",
+   "sentence": "Pages 9 to 12",
+   "detail": null,
+   "addedBy": "operator",
+   "addedVia": "screen",
+   "who": "dana",
+   "parent": 1
+  },
+  {
+   "at": "2026-10-25T00:36:58.429Z",
+   "kind": "built",
+   "by": "dana",
+   "note": "captions need a check"
+  },
+  {
+   "at": "2026-10-25T00:36:58.498Z",
+   "kind": "said",
+   "text": "Use the March photos"
+  }
+ ],
+ "count": 3
+}

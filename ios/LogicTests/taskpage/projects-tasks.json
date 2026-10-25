@@ -1,0 +1,413 @@
+{
+ "projects": [
+  {
+   "id": "springcatalogue",
+   "name": "Spring catalogue",
+   "description": "",
+   "folder": "/Users/example/Kosmos/Projects/Spring catalogue",
+   "agents": [
+    {
+     "sessionName": "dana",
+     "name": "Dana",
+     "present": true,
+     "nameDerived": false,
+     "tied": false,
+     "role": null,
+     "roleHere": null,
+     "reportsTo": null,
+     "state": "unknown",
+     "restartFailed": false,
+     "runner": null,
+     "provider": null,
+     "stateProject": null,
+     "stateProjectInferred": false,
+     "reconnect": null,
+     "crashLoop": null,
+     "stuckError": null,
+     "ownBound": null,
+     "stateReportedBy": null,
+     "awaitingApproval": false,
+     "hasAvatar": false,
+     "avatarVer": 0,
+     "instructions": {
+      "state": "unknown",
+      "editable": false,
+      "version": null,
+      "startedAt": null,
+      "because": "we cannot tell whether this is the same agent"
+     },
+     "because": "something is running under this name, but we cannot tell that it is this agent",
+     "told": {
+      "state": "not_tried",
+      "because": null,
+      "becauseGroup": null
+     },
+     "needsYouHere": null,
+     "needsYouKey": null,
+     "needsYouQuiet": null
+    },
+    {
+     "sessionName": "eli",
+     "name": "Eli",
+     "present": true,
+     "nameDerived": false,
+     "tied": false,
+     "role": null,
+     "roleHere": null,
+     "reportsTo": null,
+     "state": "unknown",
+     "restartFailed": false,
+     "runner": null,
+     "provider": null,
+     "stateProject": null,
+     "stateProjectInferred": false,
+     "reconnect": null,
+     "crashLoop": null,
+     "stuckError": null,
+     "ownBound": null,
+     "stateReportedBy": null,
+     "awaitingApproval": false,
+     "hasAvatar": false,
+     "avatarVer": 0,
+     "instructions": {
+      "state": "unknown",
+      "editable": false,
+      "version": null,
+      "startedAt": null,
+      "because": "we cannot tell whether this is the same agent"
+     },
+     "because": "something is running under this name, but we cannot tell that it is this agent",
+     "told": {
+      "state": "not_tried",
+      "because": null,
+      "becauseGroup": null
+     },
+     "needsYouHere": null,
+     "needsYouKey": null,
+     "needsYouQuiet": null
+    }
+   ],
+   "everSeen": {
+    "dana": true,
+    "eli": true
+   },
+   "told": {},
+   "parent": null,
+   "made": {
+    "via": "screen",
+    "by": null,
+    "at": "2026-10-25T00:36:58.364Z"
+   },
+   "createdAt": "2026-10-25T00:36:58.364Z",
+   "updatedAt": "2026-10-25T00:36:58.487Z",
+   "memberChanges": [
+    {
+     "agent": "dana",
+     "act": "add",
+     "via": "screen",
+     "at": "2026-10-25T00:36:58.377Z"
+    },
+    {
+     "agent": "eli",
+     "act": "add",
+     "via": "screen",
+     "at": "2026-10-25T00:36:58.385Z"
+    }
+   ],
+   "taskCounter": 7,
+   "tasks": [
+    {
+     "number": 1,
+     "sentence": "Print-ready catalogue",
+     "detail": "All **twelve** pages, checked against the price sheet.",
+     "who": null,
+     "addedBy": "operator",
+     "addedVia": "screen",
+     "createdAt": "2026-10-25T00:36:58.392Z",
+     "closedAt": null,
+     "dueDate": null,
+     "parent": null,
+     "doneWhen": null,
+     "parts": [
+      {
+       "id": 1,
+       "who": null,
+       "sentence": "Print-ready catalogue",
+       "closedAt": null
+      }
+     ],
+     "progress": {
+      "done": 0,
+      "total": 1,
+      "closed": false,
+      "assigned": 0
+     },
+     "parentSentence": null,
+     "subtasks": {
+      "done": 1,
+      "built": 1,
+      "total": 3
+     }
+    },
+    {
+     "number": 2,
+     "sentence": "Pages 1 to 8",
+     "detail": null,
+     "who": "dana",
+     "whoSeen": null,
+     "addedBy": "operator",
+     "addedVia": "screen",
+     "createdAt": "2026-10-25T00:36:58.399Z",
+     "closedAt": "2026-10-25T00:36:58.406Z",
+     "dueDate": null,
+     "parent": 1,
+     "doneWhen": null,
+     "parts": [
+      {
+       "id": 1,
+       "who": "dana",
+       "sentence": "Pages 1 to 8",
+       "closedAt": "2026-10-25T00:36:58.406Z"
+      }
+     ],
+     "progress": {
+      "done": 1,
+      "total": 1,
+      "closed": true,
+      "assigned": 1
+     },
+     "parentSentence": "Print-ready catalogue",
+     "subtasks": {
+      "done": 0,
+      "built": 0,
+      "total": 0
+     }
+    },
+    {
+     "number": 3,
+     "sentence": "Pages 9 to 12",
+     "detail": null,
+     "who": "dana",
+     "whoSeen": null,
+     "addedBy": "operator",
+     "addedVia": "screen",
+     "createdAt": "2026-10-25T00:36:58.413Z",
+     "closedAt": null,
+     "dueDate": null,
+     "parent": 1,
+     "doneWhen": null,
+     "builtAt": "2026-10-25T00:36:58.421Z",
+     "builtBy": "dana",
+     "builtWho": [
+      "dana"
+     ],
+     "builtNote": "captions need a check",
+     "parts": [
+      {
+       "id": 1,
+       "who": "dana",
+       "sentence": "Pages 9 to 12",
+       "closedAt": null
+      }
+     ],
+     "progress": {
+      "done": 0,
+      "total": 1,
+      "closed": false,
+      "assigned": 1
+     },
+     "parentSentence": "Print-ready catalogue",
+     "subtasks": {
+      "done": 0,
+      "built": 0,
+      "total": 0
+     },
+     "claim": {
+      "claimed": null,
+      "because": "we cannot tell whether this is the same agent, so we cannot say whether it holds this task",
+      "about": "dana"
+     }
+    },
+    {
+     "number": 4,
+     "sentence": "Cover",
+     "detail": null,
+     "who": "eli",
+     "whoSeen": null,
+     "addedBy": "operator",
+     "addedVia": "screen",
+     "createdAt": "2026-10-25T00:36:58.429Z",
+     "closedAt": null,
+     "dueDate": "2026-10-30",
+     "parent": 1,
+     "doneWhen": null,
+     "parts": [
+      {
+       "id": 1,
+       "who": "eli",
+       "sentence": "Cover",
+       "closedAt": null
+      }
+     ],
+     "progress": {
+      "done": 0,
+      "total": 1,
+      "closed": false,
+      "assigned": 1
+     },
+     "parentSentence": "Print-ready catalogue",
+     "subtasks": {
+      "done": 0,
+      "built": 0,
+      "total": 0
+     },
+     "claim": {
+      "claimed": null,
+      "because": "we cannot tell whether this is the same agent, so we cannot say whether it holds this task",
+      "about": "eli"
+     }
+    },
+    {
+     "number": 5,
+     "sentence": "Price sheet",
+     "detail": null,
+     "whoSeen": null,
+     "addedBy": "eli",
+     "addedVia": "process",
+     "createdAt": "2026-10-25T00:36:58.444Z",
+     "closedAt": null,
+     "dueDate": null,
+     "parent": null,
+     "doneWhen": null,
+     "parts": [
+      {
+       "id": 1,
+       "who": "eli",
+       "sentence": "Price sheet",
+       "closedAt": "2026-10-25T00:36:58.459Z"
+      },
+      {
+       "id": 2,
+       "who": "dana",
+       "sentence": "Check linen prices",
+       "closedAt": null,
+       "addedVia": "screen",
+       "createdAt": "2026-10-25T00:36:58.451Z"
+      }
+     ],
+     "onHold": true,
+     "onHoldByPerson": true,
+     "progress": {
+      "done": 1,
+      "total": 2,
+      "closed": false,
+      "assigned": 2
+     },
+     "parentSentence": null,
+     "subtasks": {
+      "done": 0,
+      "built": 0,
+      "total": 0
+     },
+     "claim": {
+      "claimed": null,
+      "because": "we cannot tell whether this is the same agent, so we cannot say whether it holds this task",
+      "about": "dana"
+     }
+    },
+    {
+     "number": 6,
+     "sentence": "Old cover idea",
+     "detail": null,
+     "who": null,
+     "addedBy": "operator",
+     "addedVia": "screen",
+     "createdAt": "2026-10-25T00:36:58.473Z",
+     "closedAt": "2026-10-25T00:36:58.487Z",
+     "dueDate": null,
+     "parent": null,
+     "doneWhen": null,
+     "replacedBy": 7,
+     "parts": [
+      {
+       "id": 1,
+       "who": null,
+       "sentence": "Old cover idea",
+       "closedAt": "2026-10-25T00:36:58.487Z"
+      }
+     ],
+     "progress": {
+      "done": 1,
+      "total": 1,
+      "closed": true,
+      "assigned": 0
+     },
+     "parentSentence": null,
+     "subtasks": {
+      "done": 0,
+      "built": 0,
+      "total": 0
+     }
+    },
+    {
+     "number": 7,
+     "sentence": "New cover idea",
+     "detail": null,
+     "who": null,
+     "addedBy": "operator",
+     "addedVia": "screen",
+     "createdAt": "2026-10-25T00:36:58.479Z",
+     "closedAt": null,
+     "dueDate": null,
+     "parent": null,
+     "doneWhen": null,
+     "parts": [
+      {
+       "id": 1,
+       "who": null,
+       "sentence": "New cover idea",
+       "closedAt": null
+      }
+     ],
+     "progress": {
+      "done": 0,
+      "total": 1,
+      "closed": false,
+      "assigned": 0
+     },
+     "parentSentence": null,
+     "subtasks": {
+      "done": 0,
+      "built": 0,
+      "total": 0
+     }
+    }
+   ],
+   "folderState": {
+    "state": "readable",
+    "because": null,
+    "real": "/Users/example/Kosmos/Projects/Spring catalogue"
+   },
+   "archived": false,
+   "paused": false,
+   "pausedByPerson": false,
+   "archivedAt": null,
+   "parentName": null,
+   "parentArchived": null,
+   "folderInKosmos": true,
+   "defaultAgent": "dana",
+   "doneSet": false,
+   "summary": {
+    "total": 2,
+    "needsYou": 0,
+    "needsYouQuestions": 0,
+    "needsYouElsewhere": 0,
+    "needsYouUnattributed": 0,
+    "needsYouInferred": 0,
+    "working": 0,
+    "unseen": 2
+   }
+  }
+ ],
+ "agentsUnreadable": false
+}

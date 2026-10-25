@@ -1,0 +1,31 @@
+{
+ "events": [
+  {
+   "at": "2026-10-25T00:36:58.451Z",
+   "kind": "created",
+   "sentence": "Price sheet",
+   "detail": null,
+   "addedBy": "eli",
+   "addedVia": "process",
+   "who": "eli"
+  },
+  {
+   "at": "2026-10-25T00:36:58.459Z",
+   "kind": "part-added",
+   "partId": 2,
+   "sentence": "Check linen prices",
+   "who": "dana"
+  },
+  {
+   "at": "2026-10-25T00:36:58.466Z",
+   "kind": "part-closed",
+   "partId": 1
+  },
+  {
+   "at": "2026-10-25T00:36:58.473Z",
+   "kind": "hold-set",
+   "via": "screen"
+  }
+ ],
+ "count": 4
+}

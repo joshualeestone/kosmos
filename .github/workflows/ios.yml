@@ -102,6 +102,13 @@ jobs:
           ios/LogicTests/run-tasks.sh | tee "$RUNNER_TEMP/tasks.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/tasks.log"
 
+      # kosmos#7074: a task's native page, its own suite like the others.
+      - name: Task page logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-taskpage.sh | tee "$RUNNER_TEMP/taskpage.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/taskpage.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

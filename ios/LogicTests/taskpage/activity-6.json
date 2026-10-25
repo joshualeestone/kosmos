@@ -1,0 +1,19 @@
+{
+ "events": [
+  {
+   "at": "2026-10-25T00:36:58.479Z",
+   "kind": "created",
+   "sentence": "Old cover idea",
+   "detail": null,
+   "addedBy": "operator",
+   "addedVia": "screen",
+   "who": null
+  },
+  {
+   "at": "2026-10-25T00:36:58.495Z",
+   "kind": "closed",
+   "replacedBy": 7
+  }
+ ],
+ "count": 2
+}
