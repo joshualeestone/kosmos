@@ -192,6 +192,12 @@ test('#4658 slice 2: the owner of an UNSEALED own room answers a hello, lists th
   assert.strictEqual(sent(seat, 'key-own-offer').length, offersBefore, 'a repeated hello after Allow started a new run');
   assert.deepStrictEqual(sent(seat, 'key-own-clear').pop(), clear, 'the repeated hello did not get the same clear');
   assert.deepStrictEqual(fedseats.ownWaiting('own-o5'), [], 'listed again after Allow');
+  // The room is sealed since (a sealing invite): the same repeated hello gets no clear any more (review 7).
+  fedseal.stashInvite('ref-own-o5', { s: 'D'.repeat(43), code: 'CODE5', invite: 'inv-5' });
+  const clearsBefore = sent(seat, 'key-own-clear').length;
+  say(seat, { event: 'message', data: fedseal.ownHelloFrame(run.w, run.mac, run.nW) });
+  await settle();
+  assert.strictEqual(sent(seat, 'key-own-clear').length, clearsBefore, 'a room sealed since still resent its clear');
 });
 
 test('#4658 slice 2 CONTROL: an owner whose room is sealed but holds no key yet still answers no hello', async () => {
