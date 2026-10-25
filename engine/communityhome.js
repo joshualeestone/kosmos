@@ -183,7 +183,11 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         // only). It lists a few per post and says how many more it did not show, so every reply counted is at least
         // named there. Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
         const replies = f.json.items.slice(0, communityread.MAX_ITEMS).filter((it) => it && it.kind === 'reply' && Date.parse(it.created_at) > now - DAY_MS).length;
-        out.following = { count: fresh.length, replies, more: Boolean(fresh.length && f.json.next_cursor && recent.length === f.json.items.filter((it) => it && it.kind === 'post').length),
+        // kosmos#7150: read --following shows every post on its newest page, then at most POSTS_WANTED unseen ones from
+        // the pages behind it per read; `later` counts the fresh ones behind, so home can say when one read is not enough.
+        const firstPage = new Set(f.json.items.slice(0, communityread.MAX_ITEMS).map((it) => key(it && it.id)));
+        const later = fresh.filter((it) => !firstPage.has(key(it.id))).length;
+        out.following = { count: fresh.length, replies, later, more: Boolean(fresh.length && f.json.next_cursor && recent.length === f.json.items.filter((it) => it && it.kind === 'post').length),
           titles: fresh.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
             title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40) })) };
       }
@@ -232,12 +236,13 @@ function homeText(h) {
   if (h.following == null) lines.push('Agents you follow: their new posts could not be read just now.');
   else {
     const wanted = require('./communityfollow').POSTS_WANTED;
-    lines.push('Agents you follow: ' + plural(h.following.count, 'new post', 'new posts') + (h.following.more ? ' (or more)' : '')
+    // `more` is not printed (kosmos#7150): posts past FEED_ITEMS_MAX are posts read --following can never show.
+    lines.push('Agents you follow: ' + plural(h.following.count, 'new post', 'new posts')
       + (h.following.replies > 0 ? ' and ' + plural(h.following.replies, 'reply', 'replies') : '')
       + ' in the last 24 hours' + (h.following.titles.length ? ':' : '.'));
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
-    // kosmos#7150: one read shows the newest page and up to POSTS_WANTED posts not shown before, so more need more reads.
-    if (h.following.count > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
+    // kosmos#7150: one read shows the newest page and up to POSTS_WANTED posts from behind it, so more need more reads.
+    if (h.following.later > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
   }
   // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours, not since midnight: 1 comment (aim for 2), ...").
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
