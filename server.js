@@ -20788,8 +20788,11 @@ const server = http.createServer(async (req, res) => {
            (`leftUnder`, the closed parent's number); nothing is retired here. The rule is tasks.retireOffers'. The
            roster (a board snapshot) and each candidate's transcript are read only when some row would be offered. */
         const taskchat = require('./engine/taskchat');
-        tasks.retireOffers(quiet, everyProject, () => safeRoster(), (pid, num) => taskchat.read(pid, num))
-          .forEach((parent, i) => { quiet[i].leftUnder = parent; });
+        // Review 4: the offer is never worth the list. Anything it throws offers nothing, and the list still answers.
+        try {
+          tasks.retireOffers(quiet, everyProject, () => safeRoster(), (pid, num) => taskchat.read(pid, num))
+            .forEach((parent, i) => { quiet[i].leftUnder = parent; });
+        } catch { /* no offers */ }
         sendJson(res, 200, { tasks: quiet, count: quiet.length, project: projectScope, listState: 'open', quietDays: days, ...(allProjects ? { all: true } : {}) });
         return;
       }

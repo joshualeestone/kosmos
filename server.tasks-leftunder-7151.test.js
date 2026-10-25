@@ -116,7 +116,25 @@ test('a quiet task an agent filed before its parent closed is offered with that 
 
 test('the plain open list never carries leftUnder; only the stale list offers', async (t) => {
   withProjects(t);
+  /* Review 4: #2 has the history that makes the stale list offer it, so this can fail if the plain list offered too. */
+  const f = taskchat.taskChatFile('cyc7151', 2);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify({ at: ago(40), kind: 'created', sentence: 'diagnostic left behind', addedVia: 'process', addedBy: 'kit-7151' }) + '\n');
+  t.after(() => { try { fs.rmSync(f, { force: true }); } catch { /* ignore */ } });
+  const stale = await call('/api/tasks?project=cyc7151&state=open&quietDays=7');
+  assert.equal(byNumber(stale).get(2).leftUnder, 1, 'premise: the stale list offers #2');
   const plain = await call('/api/tasks?project=cyc7151&state=open');
   assert.equal(plain.code, 200, plain.text.slice(0, 200));
   assert.ok((plain.json.tasks || []).length > 0 && plain.json.tasks.every((x) => x.leftUnder === undefined), 'the plain open list offers nothing');
+});
+
+test('review 4: if the offer throws, the stale list still answers, with no offers', async (t) => {
+  withProjects(t);
+  const tasksEngine = require('./engine/tasks');
+  const real = tasksEngine.retireOffers;
+  t.after(() => { tasksEngine.retireOffers = real; });
+  tasksEngine.retireOffers = () => { throw new Error('a roster card the rule did not expect'); };
+  const r = await call('/api/tasks?project=cyc7151&state=open&quietDays=7');
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  assert.ok(r.json.tasks.length > 0 && r.json.tasks.every((x) => x.leftUnder === undefined), 'the list, and no offers');
 });

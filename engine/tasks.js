@@ -1812,7 +1812,7 @@ function closedAtOf(t) {
  *   - an agent filed it (`addedVia` process, naming the agent in `addedBy`); a task the person filed, one with no
  *     record of who did, or one with no agent named, is never offered;
  *   - nothing on it says the person set it up: no repeat, no due date, no done-when, and no part the person added or
- *     moved from the screen; and no open task under it (that work is still going on);
+ *     moved from the screen; and every task under it, at any depth, is closed and was filed by an agent;
  *   - its parent is closed as done (not replaced by another task: that work moved on, it did not finish), and this
  *     task was made BEFORE the parent closed. Filing a follow-up under finished work is allowed on purpose
  *     (parentProblem), so a task made after its parent closed is new work. Every task above the parent is closed as
@@ -1827,8 +1827,17 @@ function leftUnder(p, task, tree = treeOf(p)) {
   if (partsOf(task).some((x) => x && (x.addedVia === 'screen' || x.movedVia === 'screen'))) return null;
   const made = typeof task.createdAt === 'string' ? Date.parse(task.createdAt) : NaN;
   if (!Number.isFinite(made)) return null;
-  // A task with any open task under it is not left over: that work is still going on (review 3).
-  if (tree.under(task.number).some((c) => c && !closedAtOf(c))) return null;
+  // Every task under it, at any depth, is closed and was filed by an agent: an open one is work still going on (review
+  // 3), and one the person added is theirs, closed or not (review 4). Bounded on a store that loops.
+  const below = [...tree.under(task.number)];
+  const visited = new Set([task.number]);
+  while (below.length) {
+    const c = below.pop();
+    if (!c || visited.has(c.number)) continue;
+    visited.add(c.number);
+    if (!closedAtOf(c) || c.addedVia !== 'process') return null;
+    below.push(...tree.under(c.number));
+  }
   const up = tree.up(task);
   if (up === null || up === task.number) return null;
   const parent = tree.byNum.get(up);
@@ -1898,7 +1907,9 @@ function retireOffers(rows, records, getRoster, historyOf) {
   if (!Array.isArray(roster)) return out;
   for (const { i, n, r } of candidates) {
     const t = rows[i];
-    if (waitingOnPerson(t, roster, Array.isArray(r.agents) ? r.agents : [])) continue;
+    const members = Array.isArray(r.agents) ? r.agents : [];
+    // Its holders, and the agent that filed it (review 4: an unassigned task's filer may be the one asking), by the same rule.
+    if (waitingOnPerson(t, roster, members) || waitingOnPerson({ ...t, parts: [{ who: t.addedBy }] }, roster, members)) continue;
     let history = null;
     try { history = typeof historyOf === 'function' ? historyOf(t.projectId, t.number) : null; } catch { history = null; }
     if (agentOnlyHistory(history)) out.set(i, n);

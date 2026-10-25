@@ -103,8 +103,20 @@ test('the history allow-list against the engine\'s own writers: an agent\'s unto
 test('a task with an open task under it is not offered; with every child closed it is', () => {
   const p = project([cycle, agentTask(2), { number: 3, parent: 2, createdAt: at(6), addedVia: 'screen' }]);
   assert.equal(of(p, 2), null, 'its child is still open');
-  const closed = project([cycle, agentTask(2), { number: 3, parent: 2, createdAt: at(6), addedVia: 'screen', closedAt: at(8) }]);
-  assert.equal(of(closed, 2), 1, 'CONTROL: its child closed');
+  const closed = project([cycle, agentTask(2), { number: 3, parent: 2, createdAt: at(6), addedVia: 'process', addedBy: 'kit', closedAt: at(8) }]);
+  assert.equal(of(closed, 2), 1, 'CONTROL: its child closed (and an agent\'s)');
+});
+
+test('every task under it, at any depth, must be closed and an agent\'s', () => {
+  const child = (n, parent, extra = {}) => ({ number: n, parent, createdAt: at(6), addedVia: 'process', addedBy: 'kit', closedAt: at(8), ...extra });
+  const grand = project([cycle, agentTask(2), child(3, 2), child(4, 3, { closedAt: undefined })]);
+  assert.equal(of(grand, 2), null, 'a grandchild still open (review 4)');
+  const theirs = project([cycle, agentTask(2), child(3, 2, { addedVia: 'screen' })]);
+  assert.equal(of(theirs, 2), null, 'a step the person added, even closed (review 4)');
+  const ok = project([cycle, agentTask(2), child(3, 2), child(4, 3)]);
+  assert.equal(of(ok, 2), 1, 'CONTROL: every task below closed and an agent\'s');
+  const loop = project([cycle, agentTask(2), child(3, 2), { ...child(4, 3), parent: 3 }]);
+  assert.equal(of(loop, 2), 1, 'a repeated child is visited once');
 });
 
 test('only open tasks are offered: never one done, built (waiting on review) or on hold', () => {
@@ -149,6 +161,15 @@ test('retireOffers: never one whose agent needs the person about it (a real card
   assert.equal(asking.size, 0, 'kit is asking the person about this project');
   const elsewhere = tasks.retireOffers([rowOf(p, 2)], [p], () => [{ ...card, state: 'needs_you', stateProject: 'another' }], () => AGENT_HISTORY);
   assert.equal(elsewhere.get(0), 1, 'CONTROL: a question about another project leaves it offered');
+});
+
+test('retireOffers: never one whose filer is asking the person about this project, even unassigned (review 4)', () => {
+  const p = project([cycle, agentTask(2)]);
+  const card = realCard('kit');
+  const asking = tasks.retireOffers([rowOf(p, 2)], [p], () => [{ ...card, state: 'needs_you', stateProject: p.id }], () => AGENT_HISTORY);
+  assert.equal(asking.size, 0, 'nobody is on it, and kit, who filed it, is asking about this project');
+  const elsewhere = tasks.retireOffers([rowOf(p, 2)], [p], () => [{ ...card, state: 'needs_you', stateProject: 'another' }], () => AGENT_HISTORY);
+  assert.equal(elsewhere.get(0), 1, 'CONTROL: about another project');
 });
 
 test('retireOffers: a roster that cannot be read offers nothing, never everything', () => {

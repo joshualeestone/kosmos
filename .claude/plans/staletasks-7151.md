@@ -29,6 +29,10 @@ Card: kosmos#7151 (agent feedback, 2026-10-25). Rotation card, my shard (mod 7 =
 ## Known limit
 - Each candidate's transcript is read twice (once for its quiet date, once for the allow-list). Only candidates pay it.
 
+## Known limit (review 4)
+- "An agent filed it" rests on the CLI naming the sender from its tmux session, so a task the person types with
+  `kosmos task add` inside an agent's session reads as that agent's. That identity model is fleet-wide, not this card's.
+
 ## Weakest premise
 "Made before the parent closed" stands for "left behind by that cycle". A task made earlier but still wanted after the
 close (an agent's real follow-up that happened to be filed early) is offered too; the offer is advice, and the agent
@@ -66,3 +70,9 @@ owning it is the one who closes it.
   built and held tasks are never offered (the person reviews or parked them). Nits: stale comments, #5's title, the
   plan's checks heading, the card's old rule (a new comment replaces it). Not taken: a screen-opened mark as a hint
   (the allow-list already rules out anything the person did that is recorded). Engine 17/17, server 2/2.
+- Round 4: 0 blockers, 3 warnings, 3 nits. Fixed: every task under it at ANY depth must be closed and an agent's (an
+  open grandchild, or a closed step the person added, ruled it in before); the route wraps the offer in a try/catch
+  that offers nothing (a throw left the request hanging: the new test fails without it, by timeout); the filer's own
+  wait counts too, for an unassigned task; the plain-list test now has an offered task, so it can fail. Recorded: the
+  tmux-session identity limit (Known limit). Engine 19/19, server 3/3, task suites 180/180, tree guards. Broken copies:
+  one level only, no filer check, no try/catch: each red.
