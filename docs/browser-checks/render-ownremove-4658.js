@@ -112,7 +112,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
               posted.push({ path: u.pathname, body });
               if (holdPost) await holdPost;
               let out;
-              if (dropNext) { dropNext = false; return await r.abort('connectionfailed'); }   // never answered: not counted
+              if (dropNext) { dropNext = false; await r.abort('connectionfailed').catch(() => {}); return; }   // never answered: not counted
               if (forbidNext) { forbidNext = false; out = { status: 403, json: { error: 'Only a person at the Kosmos screen can take a computer out of a sealed project.' } }; }
               else if (refuseNext) { refuseNext = false; out = { status: 409, json: { error: REFUSAL } }; }
               else if (u.pathname.endsWith('/own-remove')) { state.allowed = state.allowed.filter((x) => x.pub !== body.pub); out = { json: { removed: true } }; }
