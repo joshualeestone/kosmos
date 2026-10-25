@@ -77,10 +77,11 @@ test('lineFor names the changes file when there is one, and is unchanged without
   const plain = ir.lineFor(['community']);
   assert.equal(ir.lineFor(['community'], { changesAt: null }), plain);
   const named = ir.lineFor(['community'], { changesAt: '/w/ada/.kosmos-instructions-changed.md' });
-  assert.match(named, /The lines that changed since you last read it are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(read that first/);
-  assert.equal(named.replace(/The lines that changed since you last read it are listed in \S+ \(read that first, and the rest of those sections only if you need it\)\. /, ''), plain);
-  // Review 5: the clause comes after the replaces sentence, so its it is the instructions file.
-  assert.ok(named.indexOf('What it says now replaces') < named.indexOf('The lines that changed'));
+  assert.match(named, /the changed lines are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(a pointer only: still read the sections themselves\)/);
+  assert.equal(named.replace(/To help you find what changed since you last read it, the changed lines are listed in \S+ \(a pointer only: still read the sections themselves\)\. /, ''), plain);
+  // Review 5: after the replaces sentence; review 6: the sections are still read, the file only points.
+  assert.ok(named.indexOf('What it says now replaces') < named.indexOf('To help you find'));
+  assert.match(plain, /Read the section headed "The Kosmos\+ community" in it now\./);
   assert.ok(!/"/.test(named.replace(/"The Kosmos\+ community"/, '')), 'a double quote was added (the #5304 test reads quoted text as headings)');
 });
 
@@ -331,4 +332,12 @@ test('review 5: a line whose prepareChanges names no file drops the old one; res
   const out3 = await ir.passOnce(e.o);
   assert.deepEqual(out3.map((x) => x.act), ['expired']);
   assert.deepEqual(d3, ['ida']);
+});
+
+test('review 6: a line that did not land drops the changes file it named', async () => {
+  const dropped = [];
+  const k = passArgs({ owed: { ida: debt() }, o: { deliver: async (s, line) => { k.sent.push([s, line]); return { state: D.COULD_NOT }; }, dropChanges: (s) => dropped.push(s) } });
+  await ir.passOnce(k.o);
+  assert.equal(k.sent.length, 1);
+  assert.deepEqual(dropped, ['ida']);
 });
