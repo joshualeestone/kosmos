@@ -23,6 +23,9 @@ they fill the REAL disk (it happened here: ~95 GB in two minutes before it was s
   reused, but nothing reads a decoy's mount point), so this is a resource leak until reboot or a manual detach.
 
 ## Checks
+- the decoy is the ONLY guard against a return to parsing the mount point, measured both arms: with the old parse
+  restored and the decoy disabled the test PASSES (the revert is invisible); with the decoy it FAILS three checks,
+  including the #7127 one. Without a same-named volume mounted, the old parse reads the right path.
 - cleanup never deletes under an attached image (judged by device number, not a path match against mount's
   listing, which prints /private/...); a copy whose detaches always fail left $TMP in place and named both images
 - the leftover scan covers ./1 to ./9 on purpose: macOS suffixes beyond 9 need nine simultaneous leaks
@@ -35,4 +38,5 @@ they fill the REAL disk (it happened here: ~95 GB in two minutes before it was s
 
 ## Status
 - [x] fix and checks
-- [ ] challenge-loop, validation, PR
+- [x] challenge-loop converged (12 iterations)
+- [ ] full validation, PR
