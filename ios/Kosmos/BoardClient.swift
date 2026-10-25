@@ -851,7 +851,19 @@ final class BoardClient: ObservableObject {
     }
     private func loadSampleThreads() {
         let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning Dana. How is the catalogue copy coming along?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Pages 1 to 8 are written and checked against the price sheet.","from":"dana"},{"at":"2026-10-23T13:34:00Z","text":"Great. What is left?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:35:00Z","text":"Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.","from":"dana"}],"olderCount":0,"question":null}"#
-        if let t = Board.parseThread(Data(json.utf8)) { sampleThreads["dana"] = t }
+        if var t = Board.parseThread(Data(json.utf8)) {
+            // kosmos#7083, KOSMOS_SAMPLE_REPLY=1: a reaction on Dana's first message and the person's reply to it.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REPLY"] == "1", let i = t.rows.firstIndex(where: { $0.who == .agent }), let at = t.rows[i].atRaw {
+                var rows = t.rows
+                rows[i].reactions = [Board.ChatReaction(emoji: "\u{1F44D}", count: 1, mine: true)]
+                var answer = Board.ChatRow(id: "sample-reply", atRaw: "2026-10-23T13:34:30Z", at: Board.isoDate("2026-10-23T13:34:30Z"),
+                                           text: "Perfect. Captions next, please.", who: .person)
+                answer.replyTo = at
+                rows.insert(answer, at: i + 1)
+                t = Board.Thread(rows: rows, olderCount: t.olderCount, choices: t.choices)
+            }
+            sampleThreads["dana"] = t
+        }
         // KOSMOS_SAMPLE_LONG=1: Dana's chat is 220 messages with 40 before them, to check that opening a long chat lands on
         // the newest message and loads nothing until the person scrolls up.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"] == "1" {
