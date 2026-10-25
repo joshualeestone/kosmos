@@ -29,7 +29,8 @@ struct NewTaskView: View {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Create") { Task { await create() } }
-                            .disabled(!NewTask.canCreate(draft) || sending)
+                            // Held until the projects are read: a kept draft's project is checked against them first.
+                            .disabled(list == nil || !NewTask.canCreate(draft) || sending)
                     }
                 }
         }
@@ -74,8 +75,8 @@ struct NewTaskView: View {
                 }
             }
             Section {
-                field(NewTask.Words.what, example: NewTask.Words.whatExample, text: $draft.what, lines: 1...4)
-                field(NewTask.Words.done, example: NewTask.Words.doneExample, text: $draft.done, lines: 1...3)
+                field(NewTask.Words.what, example: NewTask.Words.whatExample, text: oneLine($draft.what), lines: 1...4)
+                field(NewTask.Words.done, example: NewTask.Words.doneExample, text: oneLine($draft.done), lines: 1...3)
             } footer: {
                 Text(NewTask.Words.doneHint)
             }
@@ -112,6 +113,11 @@ struct NewTaskView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { Self.sampleScrollSheetToEnd() }
             }
         }
+        // The Mac's answer is drawn at the end of the form, below the fold on a small phone: bring it into view.
+        .onChange(of: message) { m in
+            guard m != nil else { return }
+            DispatchQueue.main.async { withAnimation { scroller.scrollTo("nt-end", anchor: .bottom) } }
+        }
         }
         .scrollContentBackground(.hidden)
         .background(Palette.ground.ignoresSafeArea())
@@ -133,6 +139,10 @@ struct NewTaskView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private func oneLine(_ b: Binding<String>) -> Binding<String> {
+        Binding(get: { b.wrappedValue }, set: { b.wrappedValue = NewTask.oneLine($0) })
     }
 
     // A different project: the words stay, who and Part of do not (NewTask.aimed).
@@ -196,7 +206,7 @@ struct NewTaskView: View {
     }
 
     private func create() async {
-        guard NewTask.canCreate(draft), !sending else { return }
+        guard list != nil, NewTask.canCreate(draft), !sending else { return }
         sending = true
         message = nil
         let sent = draft

@@ -140,6 +140,12 @@ check(NewTask.settled(keptLaunch, picked: "zeta", offered: offered) == keptLaunc
 let nothingOffered = NewTask.settled(keptWords, picked: nil, offered: [])
 check(nothingOffered.project == nil && nothingOffered.who == nil && !NewTask.canCreate(nothingOffered), "nothing offered: no project, Create off")
 
+section("both questions are one line, as the board's inputs")
+check(NewTask.oneLine("Proofread\nthe index") == "Proofread the index", "a line break becomes a space")
+check(NewTask.oneLine("a\r\nb\rc") == "a b c", "every kind of line break")
+check(NewTask.oneLine("No typos left ") == "No typos left ", "a line with no break is left as typed")
+check(page.contains(#"id="nt-what" type="text""#) && page.contains(#"id="nt-done" type="text""#), "the board's two questions are one-line inputs")
+
 section("the board's own words")
 check(page.contains(">" + NewTask.Words.what + "</label>"), "the first question is the board's label")
 check(page.contains(#"placeholder=""# + NewTask.Words.whatExample + #"""#), "its example is the board's placeholder")

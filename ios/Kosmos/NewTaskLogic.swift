@@ -90,6 +90,12 @@ enum NewTask {
 
     static func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    // The board asks both questions in one-line inputs, and the Mac refuses a done-when check of more than one line,
+    // so a line break typed (or pasted) into either becomes a space.
+    static func oneLine(_ s: String) -> String {
+        s.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).joined(separator: " ")
+    }
+
     // The board's nt-go body: the sentence as typed, the details and the check trimmed (left out when empty), who and
     // Part of only when picked.
     static func body(_ d: Draft) -> [String: Any] {
