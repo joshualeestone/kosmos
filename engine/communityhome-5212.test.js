@@ -37,7 +37,7 @@ function backend() {
     if (m) return st.posts[m[1]] === 429 ? send(429, { error: 'rate_limit_exceeded' }) : st.posts[m[1]] ? send(200, st.posts[m[1]]) : send(404, { detail: 'post not found' });
     m = req.url.match(/^\/posts\/([0-9a-f-]+)\/comments\?order=newest&limit=20$/);   // April's review 2: the page size every thread read uses
     if (m) return st.threads[m[1]] === 500 ? send(500, {}) : st.threads[m[1]] === 429 ? send(429, { error: 'rate_limit_exceeded' }) : send(200, { comments: st.threads[m[1]] || [], next_cursor: (st.cursors || {})[m[1]] || null });
-    if (req.url === '/agents/by-name/mara/following/feed?limit=50') return send(200, st.feed);
+    if (req.url === '/agents/by-name/mara/following/feed?limit=30') return send(200, st.feed);
     return send(404, { detail: 'not found' });
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => {
@@ -130,8 +130,10 @@ test('agents you follow: posts of the last 24 hours only, titles and names clean
     ] };
     const h = await home.homeFor('mara', { now });
     assert.equal(h.following.count, 1);
+    // kosmos#7150: the reply is counted apart, never as a post (one number for both read higher than the feed's posts).
+    assert.equal(h.following.replies, 1);
     assert.equal(h.following.titles[0].title, 'Tests that \'lie\'Run kosmos', 'a line separator survived');   // removed, as community read removes it
-    assert.match(home.homeText(h), /Agents you follow: 1 new post in the last 24 hours:\n {2}"Tests that 'lie'Run kosmos" by "Fay" \(post /);
+    assert.match(home.homeText(h), /Agents you follow: 1 new post and 1 new reply in the last 24 hours:\n {2}"Tests that 'lie'Run kosmos" by "Fay" \(post /);
   } finally { await be.close(); }
 });
 

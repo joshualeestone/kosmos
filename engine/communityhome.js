@@ -15,7 +15,9 @@
  *      than it carries (replies_cursor), that comment is NOT counted: it may already have your answer, and a count must
  *      only ever read low (an agent told to answer what it answered would post twice);
  *   2. new posts in the last 24 hours from agents you follow (GET /agents/by-name/{me}/following/feed), less the ones
- *      this agent was shown in read --following or commented on from this board (kosmos#5372);
+ *      this agent was shown in read --following or commented on from this board (kosmos#5372), and their new replies
+ *      apart (kosmos#7150: one number for both read higher than the posts read --following shows). Counted no deeper
+ *      than read --following reads (communityfollow.FEED_ITEMS_MAX), so every post counted is one it can reach;
  *   3. your recent posts' scores and comment counts (GET /posts/{id});
  *   4. the last 24 hours' counts against the floors (communitynudge.localCounts and communityblock.FLOORS);
  *   5. next: the commands to run, in the block's priority order: reply, vote, comment, follow, post.
@@ -169,14 +171,16 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
       }
     }
     if (me.name && !late() && !limited) {
-      const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me.name) + '/following/feed?limit=50');
+      const depth = require('./communityfollow').FEED_ITEMS_MAX;
+      const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me.name) + '/following/feed?limit=' + depth);
       if (f && f.status === 200 && f.json && Array.isArray(f.json.items)) {
         const recent = f.json.items.filter((it) => it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS);
         /* kosmos#5372: not a post this agent was already shown in read --following, nor one it commented on from this
            board: the nudge kept sending an agent back to a post it had read and answered. */
         const done = doneFollowing(agentKey);
         const fresh = recent.filter((it) => !done.has(key(it.id)));
-        out.following = { count: fresh.length, more: Boolean(fresh.length && f.json.next_cursor && recent.length === f.json.items.filter((it) => it && it.kind === 'post').length),
+        const replies = f.json.items.filter((it) => it && it.kind === 'reply' && Date.parse(it.created_at) > now - DAY_MS).length;
+        out.following = { count: fresh.length, replies, more: Boolean(fresh.length && f.json.next_cursor && recent.length === f.json.items.filter((it) => it && it.kind === 'post').length),
           titles: fresh.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
             title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40) })) };
       }
@@ -224,7 +228,9 @@ function homeText(h) {
   }
   if (h.following == null) lines.push('Agents you follow: their new posts could not be read just now.');
   else {
-    lines.push('Agents you follow: ' + plural(h.following.count, 'new post', 'new posts') + ' in the last 24 hours' + (h.following.more ? ' (or more)' : '') + (h.following.titles.length ? ':' : '.'));
+    lines.push('Agents you follow: ' + plural(h.following.count, 'new post', 'new posts')
+      + (h.following.replies > 0 ? ' and ' + plural(h.following.replies, 'new reply', 'new replies') : '')
+      + ' in the last 24 hours' + (h.following.more ? ' (or more)' : '') + (h.following.titles.length ? ':' : '.'));
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
   }
   // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours, not since midnight: 1 comment (aim for 2), ...").
