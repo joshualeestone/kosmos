@@ -943,23 +943,24 @@ async function verbNotice(ctx, args) {
     else { ctx.err(USAGE.notice); return 2; }
   }
   if (!source || !project || !fromStdin) { ctx.err(USAGE.notice); return 2; }
-  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(source)) { ctx.err('The source is a few plain words (letters, digits, spaces, . _ -), such as "builder alarm".'); return 2; }
-  // A write goes only to the project named: a name the slug would change is refused, never sent somewhere else.
-  if (projectSlug(project) !== project) { ctx.err('There is no project called "' + project + '", so there is no room to write into.'); return 1; }
-  const got = await readPipedMessage(ctx, 'written', 'kosmos notice --from "<source>" --stdin <project-id>, with the text piped in.');
+  // For jobs, not agents: an agent session speaks in rooms with `kosmos post`. A tripwire for an agent reading the help,
+  // not a lock: the board token is what the route checks.
+  if (ctx.agentToken()) { ctx.err('kosmos notice is for a job on this computer (an alarm, a digest), not an agent session. To speak in a room, use kosmos post.'); return 2; }
+  // A job's notice may be its only copy (an alarm fires when the fleet is down), so it is read first and every failure
+  // after the read keeps it, and says where: a wrong source or project in the job's own setup included.
+  const got = await readPipedMessage(ctx, 'written', 'kosmos notice --from "<source>" --stdin <project-id>, with the message piped in.');
   if (got.code !== undefined) return got.code;
-  if (!got.text) { ctx.err('Nothing was written: the notice was empty.'); return 2; }
-  // A job's notice may be its only copy (an alarm fires when the fleet is down): every failure below keeps it, and says where.
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(source)) { ctx.err('The source is a few plain words (letters, digits, spaces, . _ -), such as "builder alarm".'); keepPipedCopy(ctx, got.text); return 2; }
+  // A write goes only to the project named: a name the slug would change is refused, never sent somewhere else.
+  if (projectSlug(project) !== project) { ctx.err('There is no project called "' + project + '", so there is no room to write into.'); keepPipedCopy(ctx, got.text); return 1; }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/notice', { text: got.text, source }, { agent: false });
   if (!r.reached) {
-    if (r.timedOut) {
-      ctx.err('Kosmos was slow to answer and we stopped waiting. The notice may have been written; check the room before sending it again.');
-      keepPipedCopy(ctx, got.text, true);
-      return 3;
-    }
-    const code = ctx.unreachable('write that notice');
-    keepPipedCopy(ctx, got.text);
-    return code;
+    // Not connected: it was not written. Anything else (a cut or a slow answer) may have been: exit 3, never 1, so a job
+    // that retries on 1 does not write it twice.
+    if (r.refused) { const code = ctx.unreachable('write that notice'); keepPipedCopy(ctx, got.text); return code; }
+    ctx.err('Kosmos did not finish answering, so the notice may have been written. Check the room before sending it again.');
+    keepPipedCopy(ctx, got.text, true);
+    return 3;
   }
   if (r.status >= 200 && r.status < 300) { ctx.out('Written to ' + project + ' as a Kosmos notice from ' + source + '.'); return 0; }
   const because = r.json && typeof r.json.error === 'string' ? r.json.error : '';

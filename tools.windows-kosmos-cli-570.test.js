@@ -626,11 +626,26 @@ test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0
   assert.equal(ok.calls[0].method, 'POST');
   assert.deepEqual(ok.calls[0].body, { text: 'Splinter is unreachable.', source: 'builder alarm' });
   assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], undefined, 'a notice must not ride an agent token');
+  assert.equal(ok.calls[0].headers['x-kosmos-board-token'], BOARD, 'the notice route is board-token gated, so the board token must travel');
   assert.match(ok.out, /Written to fleetjosh as a Kosmos notice from builder alarm\./);
   // A write goes only to the project named: a name the slug would change is refused, not posted to another room.
   const retarget = await run(['notice', '--from', 'builder alarm', '--stdin', 'fleet josh'], () => ({ body: { ok: true } }), {}, piped('hi'));
   assert.equal(retarget.code, 1);
   assert.equal(retarget.calls.length, 0, 'a name the slug would change was posted to another room');
+  const rk = retarget.err.match(/saved at (\S+)/);
+  assert.ok(rk, 'a wrong project in the job\'s setup lost the text');
+  fs.rmSync(path.dirname(rk[1]), { recursive: true, force: true });
+  // An agent session is told to use kosmos post (a tripwire, not a lock).
+  const asAgent = await run(['notice', '--from', 'builder alarm', '--stdin', 'p1'], () => ({ body: { ok: true } }), { KOSMOS_AGENT_TOKEN: AGENT }, piped('hi'));
+  assert.equal(asAgent.code, 2);
+  assert.equal(asAgent.calls.length, 0);
+  assert.match(asAgent.err, /not an agent session\. To speak in a room, use kosmos post\./);
+  // A cut answer may have been written: "may", kept, exit 3 (never 1: a job that retries on 1 would write it twice).
+  const cut = await run(['notice', '--from', 'builder alarm', '--stdin', 'p1'], refusedWith(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })), {}, piped('cut'));
+  assert.equal(cut.code, 3, cut.err);
+  const ck = cut.err.match(/may not have been sent; a copy is saved at (\S+)/);
+  assert.ok(ck, 'a cut answer was not kept as "may": ' + cut.err);
+  fs.rmSync(path.dirname(ck[1]), { recursive: true, force: true });
   const missing = await run(['notice', '--from', 'builder alarm', '--stdin', 'nope'], () => ({ status: 404, body: { error: 'there is no project by that name, so there is no room to post into' } }), {}, piped('hi'));
   assert.equal(missing.code, 1);
   assert.equal(missing.err.split('\n')[0], 'There is no project called "nope", so there is no room to write into.');
@@ -657,6 +672,7 @@ test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0
     const u = await run(argv, () => ({ body: { ok: true } }), {}, piped('hi'));
     assert.equal(u.code, 2, argv.join(' '));
     assert.equal(u.calls.length, 0, argv.join(' ') + ' reached the board');
+    for (const m of u.err.matchAll(/saved at (\S+)/g)) fs.rmSync(path.dirname(m[1]), { recursive: true, force: true });
   }
 });
 

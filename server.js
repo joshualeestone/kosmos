@@ -22044,8 +22044,8 @@ const server = http.createServer(async (req, res) => {
         }
         /* One line: the room's text view prints a note as written, so a line break in a job's text (an email digest
            carries other people's words) would read there as a separate row by the person or an agent. */
-        // Control and format characters go too (as externalPost strips outside words), so a raw request cannot reorder or
-        // hide what the line says.
+        // Control and format characters become spaces and the blank-looking INVISIBLE set goes, so a raw request cannot
+        // reorder or hide what the line says.
         const text = body && typeof body.text === 'string'
           ? body.text.replace(require('./engine/externalname').INVISIBLE, '').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
             .replace(/\s+/g, ' ').trim() : '';

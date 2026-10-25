@@ -127,22 +127,51 @@ test('a refusal is said, with the board\'s reason, and exits non-zero; a missing
   });
 });
 
-test('usage: no source, no --stdin, a source with a colon, or no words is refused before anything is sent', () =>
+const clean = (out) => { for (const m of (out.stdout + out.stderr).matchAll(/saved at (\S+)/g)) fs.rmSync(m[1], { force: true }); };
+
+test('usage and setup mistakes are refused before anything is sent; a wrong source or project keeps the piped text', () =>
   withBoard({ code: 200, body: { ok: true } }, async (port, seen) => {
-    for (const [args, input, said] of [
-      [['notice', '--stdin', 'fleetjosh'], 'hello', /Usage: kosmos notice/],
-      [['notice', '--from', 'builder alarm', 'fleetjosh'], 'hello', /Usage: kosmos notice/],
-      [['notice', '--from', 'builder: alarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/],
-      [['notice', '--from', 'builder\talarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/],
-      [['notice', '--from', 'builder\nalarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/],
-      [['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], '', /empty|nothing was piped|Nothing was written/i],
+    for (const [args, input, said, code, kept] of [
+      [['notice', '--stdin', 'fleetjosh'], 'hello', /Usage: kosmos notice/, 2, false],
+      [['notice', '--from', 'builder alarm', 'fleetjosh'], 'hello', /Usage: kosmos notice/, 2, false],
+      [['notice', '--from', 'builder: alarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/, 2, true],
+      [['notice', '--from', 'builder\talarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/, 2, true],
+      [['notice', '--from', 'builder\nalarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/, 2, true],
+      [['notice', '--from', 'builder alarm', '--stdin', 'fleet josh'], 'hello', /There is no project called "fleet josh"/, 1, true],
+      [['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], '', /empty|nothing was piped|Nothing was written/i, 2, false],
     ]) {
       const out = await runCli(args, jobEnv(port), input);
-      assert.notEqual(out.code, 0, args.join(' ') + ' exited 0');
+      assert.equal(out.code, code, args.join(' ') + ' exited ' + out.code + ': ' + out.stdout);
       assert.match(out.stdout + out.stderr, said, args.join(' '));
+      assert.equal(/saved at /.test(out.stdout), kept, args.join(' ') + (kept ? ' did not keep the piped text' : ' kept a copy it had no reason to'));
+      clean(out);
     }
     assert.equal(seen.length, 0, 'a refused usage still reached the board');
   }));
+
+test('an agent session is told to use kosmos post: notice is for jobs (a tripwire, not a lock)', () =>
+  withBoard({ code: 200, body: { ok: true } }, async (port, seen) => {
+    for (const extra of [{ TMUX_PANE: '%7' }, { KOSMOS_AGENT_TOKEN: 'a'.repeat(64) }]) {
+      const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], { ...jobEnv(port), ...extra }, 'hello');
+      assert.equal(out.code, 2, JSON.stringify(Object.keys(extra)) + ' exited ' + out.code);
+      assert.match(out.stdout, /not an agent session\. To speak in a room, use kosmos post\./);
+    }
+    assert.equal(seen.length, 0, 'an agent session reached the notice route');
+  }));
+
+test('a cut answer may have been written: it says so, keeps the text as "may", and exits 3 so a job does not retry it', async () => {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && /\/notice$/.test(req.url)) { req.on('data', () => {}); req.on('end', () => req.socket.destroy()); return; }
+    res.writeHead(200, { 'content-type': 'text/html' }); res.end(HEALTH);
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(server.address().port), 'maybe sent');
+    assert.equal(out.code, 3, 'a cut answer exited ' + out.code + ': ' + out.stdout);
+    assert.match(out.stdout, /may not have been sent; a copy is saved at/);
+    clean(out);
+  } finally { server.close(); }
+});
 
 test('a board that is down: the notice is kept in a private file and its path said (an alarm may have no other copy)', async () => {
   // A port nothing listens on: taken, then let go.
