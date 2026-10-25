@@ -9,7 +9,7 @@ Card kosmos#7149, ask 1 (from an agent's feedback report). The decision is poste
    - "Lands" is settle's verdict: PLACED, or UNCONFIRMED (a throw included), which ends the debt as before (review 1). A refused or held line moves nothing.
    - Not while a section is held (switched off): the copy would move past a change not yet announced, so the line names no changes file (review 1).
 2. **At delivery:** `prepareChanges` diffs the copy against the file now. It is a whole-file line diff: the common head and tail are trimmed, then LCS over the rest, bounded at 4M cells. Each run of changes is labelled with the nearest heading above it. A heading inside a code fence does not count; a fence closes only on a run of the same character, at least as long. The output holds whole lines, capped at 160 lines and 32 KB with the cut note inside both caps. When nothing fits, the notice names no file.
-   - The result is written to `.kosmos-instructions-changed-<session>.md` in the agent's own folder. The line names it: read those lines first, and the rest of the section only if needed.
+   - The result is written to `.kosmos-instructions-changed-<session>.md` in the agent's own folder. The line names it as a pointer only: the agent still reads the sections themselves (review 6). A changed line can depend on unchanged lines around it, which a diff does not show.
    - It is written only after every check that can skip the line.
    - The changes file and the copy both go through securewrite: no symlink followed, mode 0600 (review 1 BLOCKER).
    - An older changes file is removed whenever a typed line names none (a held section included), and whenever a debt ends without a line (gone, expired, restarted).
@@ -34,6 +34,9 @@ That the text read just before the line is what the agent reads after it. A writ
   - when its files are deleted (delete-leftover forgets the copy too).
 - **The copy's name:** it carries a hash of the exact session name, so two names that differ only in case keep two copies on macOS.
 - **Size:** whole lines only. An edit past any cut would print as two identical lines. The DIFF is capped at 160 lines and 32 KB instead, with its cut note inside both caps. The file adds a three-line header (review 4).
+
+## Removed text (review 6)
+A line the person removes, a pasted key included, stays in two places. One is the copy under the data folder, until the next start, a landed line, or delete-leftover. The other is the changes file, until the next start, a notice that names none, a line that does not land, or delete-leftover. Both are 0600. It is also in the brief's `.previous`, which instructions.write keeps in the agent's folder: the same exposure, for as long or longer. This change does not make the case for removing a secret from the brief any worse. Rotating the secret is the answer either way.
 
 ## A window this does not widen (review 2)
 A rewrite that lands after the agent loaded its file, but before its `started` report, gets folded in. The copy is then taken after it, so the next diff omits it. The debt logic already treats a start after the last owe as having read every section, so that change was already never announced. The window and the miss are the same as before this change.

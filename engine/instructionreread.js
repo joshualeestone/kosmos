@@ -399,7 +399,7 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
         + 'its new text applies the next time you take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'The lines that changed since you last read it are listed in ' + changesAt + ' (read that first, and the rest of those sections only if you need it). '
+    ? 'To help you find what changed since you last read it, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves). '
     : '';
   // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
@@ -503,7 +503,11 @@ async function passOnce(o) {
          them is ever told (the community turn's review-15 defect). Its debt stays owed (settle keeps a held verdict). */
       if (v && v.held === true) tried -= 1;
       const after = settle(owed, session, v, o.DELIVERY, now);
-      if (after[session]) out.push({ session, act: 'kept', state: (v && v.state) || null });
+      if (after[session]) {
+        out.push({ session, act: 'kept', state: (v && v.state) || null });
+        // Review 6: a line that did not land leaves no changes file behind; the next pass writes a fresh one.
+        if (prepared && prepared.path && typeof o.dropChanges === 'function') { try { o.dropChanges(session); } catch { /* the next start removes it */ } }
+      }
       else {
         end(session, 'sent');
         if (off.length) keep[session] = { at: debt.at, last: debt.last, n: 1, sections: off };
