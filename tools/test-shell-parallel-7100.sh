@@ -227,7 +227,7 @@ wait
 STUBLEFT
 chmod +x "$T/stubleft.sh"
 mkdir -p "$T/l4c" "$T/kids4c"
-STUB_KIDS="$T/kids4c" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4c" "$T/stubleft.sh" &
+STUB_KIDS="$T/kids4c" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4c" "$T/stubleft.sh" 2> "$T/l4c.err" &
 sub=$!
 k=0; while [ "$(ls "$T/kids4c" | grep -c '^kid-')" -lt 2 ] && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
 # Until shard 1 has been waited on (its status line), so the stop meets it in the waited-on list.
