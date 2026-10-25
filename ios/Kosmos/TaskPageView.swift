@@ -250,7 +250,9 @@ struct TaskPageView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Task \(s.number), \(s.sentence), \(s.status)")
+                .accessibilityAddTraits(.isButton)
                 .accessibilityHint("Opens task \(s.number).")
             }
         }
@@ -291,14 +293,14 @@ struct TaskPageView: View {
     private static func sampleSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://sample.invalid")!), let url = r.url else { return nil }
         let path = url.path
-        sampleLock.lock()
-        if path.hasSuffix("/close") || path.hasSuffix("/reopen") {
-            if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
-                if path.hasSuffix("/close") { sampleClosed.insert(n) } else { sampleClosed.remove(n) }
+        let closedNow: Set<Int> = sampleLock.withLock {
+            if path.hasSuffix("/close") || path.hasSuffix("/reopen") {
+                if let n = Int(url.deletingLastPathComponent().lastPathComponent) {
+                    if path.hasSuffix("/close") { sampleClosed.insert(n) } else { sampleClosed.remove(n) }
+                }
             }
+            return sampleClosed
         }
-        let closedNow = sampleClosed
-        sampleLock.unlock()
         let iso = { (m: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-m * 60)) }
         func closed(_ n: Int, _ open: String) -> String { closedNow.contains(n) ? #""closedAt":""# + iso(0) + #"","progress":{"done":1,"total":1,"closed":true}"# : open }
         let body: String
