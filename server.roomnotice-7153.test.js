@@ -128,6 +128,8 @@ test('a notice the board cannot take is refused with a reason and nothing is wri
   assert.match((await notJson.json()).error, /not something we can read/, 'a broken request is told it was unreadable, not that it lacked words');
   const nowhere = await call('POST', '/api/project/no-such-room/notice', { headers: withBoard, body: { text: 'hello', source: 'builder alarm' } });
   assert.equal(nowhere.code, 404, 'a notice to a project that does not exist answered ' + nowhere.code);
+  // Both CLIs tell a missing room from an old board by these words, so they are pinned here.
+  assert.match(JSON.parse(nowhere.text).error, /no project by that name/);
   assert.equal(notes().length, before, 'a refused notice was written');
   // Characters, not UTF-16 units: 4000 emoji are taken, 4001 are not.
   const emoji = '\u{1F600}';

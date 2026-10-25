@@ -102,7 +102,7 @@ const USAGE = {
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
-  notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin; <source> names the job, such as "builder alarm")',
+  notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, one line of at most 4000 characters; <source> names the job, such as "builder alarm")',
   task: [
     'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
@@ -952,12 +952,12 @@ async function verbNotice(ctx, args) {
   if (ctx.agentToken()) { ctx.err('kosmos notice is for a job on this computer (an alarm, a digest), not an agent session. To speak in a room, use kosmos post.'); keepPipedCopy(ctx, got.text); return 2; }
   if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(source)) { ctx.err('The source is a few plain words (letters, digits, spaces, . _ -), such as "builder alarm".'); keepPipedCopy(ctx, got.text); return 2; }
   // A write goes only to the project named: a name the slug would change is refused, never sent somewhere else.
-  if (projectSlug(project) !== project) { ctx.err('There is no project called "' + project + '", so there is no room to write into.'); keepPipedCopy(ctx, got.text); return 1; }
+  if (projectSlug(project) !== project || /^\.+$/.test(project)) { ctx.err('There is no project called "' + project + '", so there is no room to write into.'); keepPipedCopy(ctx, got.text); return 1; }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/notice', { text: got.text, source }, { agent: false });
   if (!r.reached) {
     // Not connected: it was not written. Anything else (a cut or a slow answer) may have been: exit 3, never 1, so a job
     // that retries on 1 does not write it twice.
-    if (r.refused) { const code = ctx.unreachable('write that notice'); keepPipedCopy(ctx, got.text); return code; }
+    if (r.refused || r.notConnected) { const code = ctx.unreachable('write that notice'); keepPipedCopy(ctx, got.text); return code; }
     ctx.err('Kosmos did not finish answering, so the notice may have been written. Check the room before sending it again.');
     keepPipedCopy(ctx, got.text, true);
     return 3;
@@ -971,7 +971,8 @@ async function verbNotice(ctx, args) {
     ctx.err('The notice was not written' + (because ? ': ' + because : '') + '.');
   }
   keepPipedCopy(ctx, got.text);
-  return 1;
+  // The board refused the notice itself (too long, no words, a bad source): a retry sends the same refusal, so exit 2.
+  return r.status === 400 ? 2 : 1;
 }
 
 /* kosmos#7057, as install/kosmos: --stale's days are empty (7) or a whole number 1 to 3650. Returns the number, or null. */

@@ -656,7 +656,7 @@ test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0
   assert.equal(old.code, 1);
   assert.equal(old.err.split('\n')[0], 'This board does not know kosmos notice yet: update Kosmos, then try again.');
   const refused = await run(['notice', '--from', 'builder alarm', '--stdin', 'p1'], () => ({ status: 400, body: { error: 'a notice needs words, at most 4000 characters' } }), {}, piped('hi'));
-  assert.equal(refused.code, 1);
+  assert.equal(refused.code, 2, 'a notice the board refused must exit 2 (a retry sends the same refusal)');
   assert.equal(refused.err.split('\n')[0], 'The notice was not written: a notice needs words, at most 4000 characters.');
   // A failed notice is kept, as on the Mac: an alarm may have no other copy.
   const kept = refused.err.match(/saved at (\S+)/);
