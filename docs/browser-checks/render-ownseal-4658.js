@@ -91,6 +91,7 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           // The engine's state, as the four routes report and change it.
           const state = {
             code: FIRST_CODE,
+            pending: false,   // slice 2: waiting to be let into an UNSEALED room
             rows: [{ pub: 'pub-laptop', mac: 'mac-1', code: 'ABCDE-FGHJK', at: 1 }, { pub: 'pub-desk', mac: 'mac-2', code: '23456-789AB', at: 2 }],
           };
           const posted = [];
@@ -105,7 +106,7 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
               if (r.request().method() === 'GET') {
                 if (hold) await hold;
                 if (failReads) { failsServed += 1; return await r.fulfill({ status: 500, json: { error: 'blip' } }); }
-                if (u.pathname.endsWith('/own-compare')) return await r.fulfill({ json: { code: pid === waitingP.id ? state.code : null } });
+                if (u.pathname.endsWith('/own-compare')) return await r.fulfill({ json: { code: pid === waitingP.id ? state.code : null, pending: pid === waitingP.id && state.pending } });
                 // kosmos#7028's list (the Remove rows) is pinned in render-ownremove-4658.js; none here.
                 if (u.pathname.endsWith('/own-allowed')) return await r.fulfill({ json: { computers: [] } });
                 return await r.fulfill({ json: { computers: pid === ownerP.id ? state.rows : [] } });
@@ -188,6 +189,17 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           chk(w && w.code === FIRST_CODE, `${E} the waiting computer shows its own code`, JSON.stringify(w));
           chk(w && w.oneLine, `${E} the code stays on one line`, JSON.stringify(w));
           chk(w && w.acts.join('|') === 'It matches|Does not match', `${E} It matches and Does not match are offered`, JSON.stringify(w && w.acts));
+          // kosmos#4658 slice 2: a computer waiting to be let into an UNSEALED room is not told its room is sealed.
+          const head = () => page.evaluate(() => (document.querySelector('#pj-fed-own .fedout-h') || {}).textContent || '');
+          chk(await head() === 'This room is sealed', `${E} a sealed room's waiting card says so`, await head());
+          state.pending = true;
+          await page.evaluate((pid) => fedOwnLoad(pid), waitingP.id);
+          await page.waitForFunction(() => /Let this computer in/.test((document.querySelector('#pj-fed-own .fedout-h') || {}).textContent || ''), null, { timeout: 4000 }).catch(() => null);
+          const pend = await page.evaluate(() => (document.getElementById('pj-fed-own') || {}).textContent || '');
+          chk(/Let this computer in/.test(pend) && !/sealed/i.test(pend) && /It matches/.test(pend), `${E} a waiting card for an unsealed room says let in, not sealed, and keeps its buttons`, pend.slice(0, 200));
+          state.pending = false;
+          await page.evaluate((pid) => fedOwnLoad(pid), waitingP.id);
+          await page.waitForFunction(() => /This room is sealed/.test((document.querySelector('#pj-fed-own .fedout-h') || {}).textContent || ''), null, { timeout: 4000 }).catch(() => null);
           const look = await page.evaluate(() => {
             const bs = [...document.querySelectorAll('#pj-fed-own [data-own-act]')];
             const st = bs.map((b) => { const c = getComputedStyle(b); return { h: b.getBoundingClientRect().height, bg: c.backgroundColor, bd: c.borderTopColor + ' ' + c.borderTopWidth }; });

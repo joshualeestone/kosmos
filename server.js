@@ -22444,7 +22444,10 @@ const server = http.createServer(async (req, res) => {
     if (!pid) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
     let code = null;
     try { code = fedseats.ownCode(pid); } catch { code = null; }
-    sendJson(res, 200, { code });
+    // Slice 2: whether this computer is waiting to be let into an UNSEALED room (the screen does not call it sealed).
+    let pending = false;
+    try { const st = fedseal.roomState(pid); pending = !!(st && st.pendingClear === true); } catch { pending = false; }
+    sendJson(res, 200, { code, pending });
     return;
   }
   if (pathname === '/api/federation/own-confirm' && req.method === 'POST') {
