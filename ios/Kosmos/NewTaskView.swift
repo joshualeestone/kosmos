@@ -36,8 +36,7 @@ struct NewTaskView: View {
                         if sending || checking {
                             ProgressView().accessibilityLabel("Creating the task")
                         } else {
-                            // Latched here, before the Task starts: a second tap in between would send a second create.
-                            Button("Create") { guard !sending else { return }; sending = true; Task { await create() } }
+                            Button("Create") { startCreate() }
                                 // Held until the projects are read: a kept draft's project is checked against them first.
                                 .disabled(list == nil || !NewTask.canCreate(draft) || NewTask.heldBack(draft, by: held) || checking)
                         }
@@ -137,7 +136,11 @@ struct NewTaskView: View {
                     }
                     if NewTask.heldBack(draft, by: held) && !checking && !sending {
                         // The link colour and weight, as the chat's links: in the app's own tint it read as one more line of text.
-                        Button(NewTask.anyway) { held = nil }.textCase(nil).font(.body.weight(.semibold)).foregroundColor(Palette.link)
+                        // It creates, as the words say: the person has been told to look in Tasks first, and the words are
+                        // on screen (the hold applies only while they are). At least 44 points tall, as a tap target.
+                        Button(NewTask.anyway) { held = nil; startCreate() }
+                            .textCase(nil).font(.body.weight(.semibold)).foregroundColor(Palette.link)
+                            .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
                     }
                 }
             }
@@ -212,7 +215,11 @@ struct NewTaskView: View {
         if Self.sample, let parsed = Board.parseProjects(Data(RoomStore.sampleProjects.utf8)) {
             took(parsed)
             // As after a real "could not tell": the words are held, so the line and Create it anyway show.
-            if Self.sampleUnsure { held = NewTask.Held(sent: draft, before: nil) }
+            if Self.sampleUnsure {
+                draft.what = "Rewrite the handoff checklist"
+                draft.done = "The checklist fits on one page and the team has read it"
+                held = NewTask.Held(sent: draft, before: nil)
+            }
             return
         }
         #endif
@@ -263,6 +270,13 @@ struct NewTaskView: View {
         guard let list else { return }
         draft = NewTask.keepingOffered(draft, members: NewTask.members(of: draft.project, in: list),
                                        parents: tasks.map { NewTask.parents(of: draft.project, in: $0) })
+    }
+
+    // Latched here, before the Task starts: a second tap in between would send a second create.
+    private func startCreate() {
+        guard !sending else { return }
+        sending = true
+        Task { await create() }
     }
 
     private func create() async {

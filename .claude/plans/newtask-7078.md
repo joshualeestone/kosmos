@@ -215,3 +215,10 @@ path stays the app's own (isProjectId before the path; host is held.url).
   ios.board-parity-7084.test.js runs every LogicTests suite that reads web/ or engine/ in the board's node suite, and
   after the rebase it reports "the newtask suite agrees with the board it reads" (7/7). After the rebase: newtask
   108/108, tasks 90/90, taskpage 108/108.
+
+## Follow-up after #7094 (01:30 CDT), with Mona Lisa
+- "Create it anyway" creates (lifts the hold and sends, through the same latch as Create). Mona Lisa leaned this way:
+  the words are on screen and the line told them to look first. Rejected: renaming it to unlock Create (an extra tap).
+- It is at least 44 points tall, with its whole row tappable.
+- The could-not-tell screenshot sample puts words in the draft before holding it, so the shot shows the held words (an
+  empty held draft made the shot read as "sends words you cannot see").
