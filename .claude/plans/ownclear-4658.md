@@ -79,6 +79,11 @@ mixed-version own rooms must keep working, in which case v1 joins stay as today 
   (review 5: clearEligible = keyless own record and a link not marked sealed). Posts they held as sealed are not
   released in the clear by it (they say so): only posts written while the room was unknown go.
 
+- **After a clear Allow** the owner keeps that run's clear frame (s.ownCleared, at most 16, in memory) and answers the
+  joiner's repeated hello with it, so no new run is spent and a lost clear arrives again (review 6).
+- **A pre-slice own computer** can be put into waiting by one unopenable envelope (review 6 asked): recoverable by a
+  compare, where main sealed it for good; deferred, the trade is stated above.
+
 ## Not in this slice
 Lifting the self-shared invite refusal entirely (decision 5 of #7107): once every own computer holds until answered,
 a v1-shared room has only computers that joined before this slice; they still post in the clear. Lift it when no

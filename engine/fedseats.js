@@ -1051,6 +1051,10 @@ function ownerOwnHello(projectId, s, frame, me) {
   if (!h || !((hasKey(st) && st.role === 'owner') || ownerClearRoom(projectId))) return;
   if (st && st.peers && Object.prototype.hasOwnProperty.call(st.peers, h.pub)) return;   // a guest's key is never an own computer
   if (h.pub === me.pub) return;   // nor this board's own key
+  // Slice 2 (review 6): a computer this board already let in by a clear repeats its hello until its person confirms. The
+  // same run gets the same clear again (it is bound to that run, so a resend gives nothing new), and no new run is spent.
+  const cleared = s.ownCleared && s.ownCleared.get(h.pub);
+  if (cleared && cleared.commit === h.commit && cleared.mac === h.mac) { sendFrame(s, cleared.frame); return; }
   if (!s.ownWaiting) s.ownWaiting = new Map();
   let w = s.ownWaiting.get(h.pub);
   if (!w || w.commit !== h.commit || w.mac !== h.mac) {
@@ -1128,6 +1132,10 @@ function allowOwn(projectId, pub, confirmedCode) {
         return { ok: false, because: String((err && err.message) || err) };
       }
       if (!sendFrame(s, cf)) return { ok: false, because: 'the answer could not be sent to the room right now, so nothing changed; try again' };
+      if (!s.ownCleared) s.ownCleared = new Map();
+      s.ownCleared.delete(pub);
+      s.ownCleared.set(pub, { mac: w.mac, commit: w.commit, frame: cf });
+      while (s.ownCleared.size > OWN_WAITING_MAX) s.ownCleared.delete(s.ownCleared.keys().next().value);
       s.ownWaiting.delete(pub);
       return { ok: true, because: null };
     }
