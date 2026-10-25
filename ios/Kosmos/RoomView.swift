@@ -35,6 +35,12 @@ struct RoomView: View {
     // VoiceOver's place after a reopen takes the notice and its button away: the message box, as the board's focus,
     // without raising the keyboard (review 2).
     @AccessibilityFocusState private var composerFocused: Bool
+    // kosmos#7101: the post a reply's header asked to go to, the one flashing, and VoiceOver's place after the jump.
+    @State private var jumpTo: String?
+    @State private var flashed: String?
+    @State private var flashToken = 0
+    @AccessibilityFocusState private var focusedPost: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // kosmos#7062: each file card's state, and the file Quick Look shows (removed from the phone when it closes), as in
     // the chat.
     @State private var fileStates: [String: FileCardState] = [:]
@@ -156,7 +162,9 @@ struct RoomView: View {
         Task {
             let before = store.older[project.id]?.cursor
             await store.loadOlder(project.id)
-            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            // kosmos#7101 review 1: a post a reply's header just went to stays centred while it flashes.
+            if let jumped = flashed, rows.contains(where: { $0.id == jumped }) { proxy.scrollTo(jumped, anchor: .center) }
+            else if let anchor { proxy.scrollTo(anchor, anchor: .top) }
             // Still at the top with more to read (the page did not fill the screen): the next one, once per new cursor.
             let after = store.older[project.id]?.cursor
             if olderShowing, after != nil, after != before, !store.olderFailed.contains(project.id) {
@@ -353,7 +361,7 @@ struct RoomView: View {
                         }
                     }
                     if store.rows[project.id] != nil && rows.isEmpty { emptyRoom }
-                    ForEach(items) { item in itemView(item).id(item.id) }
+                    ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id) }
                     ForEach(store.pending[project.id] ?? []) { p in pendingView(p) }
                     if store.roomFailed.contains(project.id) {
                         Text("We cannot read this room right now. What is shown may be behind.")
@@ -387,6 +395,24 @@ struct RoomView: View {
             .onChange(of: Board.workingLine(workingNow)) { _ in
                 if atBottom && settledAtBottom { DispatchQueue.main.async { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             }
+            // kosmos#7101: a reply's header goes to the post it answers, centred, flashing for the board's 1.8 s, with
+            // VoiceOver's focus on it (the board's #3745: row.focus()). Still, with Reduce Motion (the board's
+            // prefers-reduced-motion branch).
+            .onChange(of: jumpTo) { id in
+                guard let id else { return }
+                jumpTo = nil
+                if reduceMotion { proxy.scrollTo(id, anchor: .center) } else { withAnimation { proxy.scrollTo(id, anchor: .center) } }
+                // A repeat jump to the post still flashing starts the flash over, as the board's class removed and added
+                // again (review 4): only the latest jump's timer clears it.
+                flashToken += 1
+                let token = flashToken
+                if flashed == id { flashed = nil; DispatchQueue.main.async { if flashToken == token { flashed = id } } } else { flashed = id }
+                // VoiceOver's focus once the post exists and has arrived (a lazy row far up is made by the scroll), and
+                // cleared first so a second jump to the same post still moves it (review 1).
+                focusedPost = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.05 : 0.4)) { focusedPost = id }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Board.replyJumpFlash) { if flashToken == token { flashed = nil } }
+            }
             // The person's own post always shows: pressing Post is asking to see it.
             .onChange(of: store.pending[project.id]?.count ?? 0) { n in
                 if n > pendingCount { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }   // a new post only
@@ -419,7 +445,8 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.vertical, 4)
             } else {
                 RoomBubble(row: row, first: first, last: last, name: displayName(row), picture: store.picture(row.from),
-                           replied: row.replyTo.flatMap { id in rows.first { $0.id == id } },
+                           // A post or an outside message, never a Kosmos line (a reply answers a post; review 1).
+                           replied: row.replyTo.flatMap { id in rows.first { $0.id == id && $0.kind != .kosmos } },
                            // Only once the whole room is loaded can an original be said to be gone; before that it may
                            // simply be on an older page.
                            roomComplete: store.older[project.id]?.cursor == nil, nameOf: { displayName($0) },
@@ -432,6 +459,7 @@ struct RoomView: View {
                                typing = true
                            },
                            openAgent: { if let a = store.agent(row.from) { chatAgent = a } },
+                           jump: { if let id = row.replyTo { jumpTo = id } }, flashing: flashed == row.id,
                            mentionNames: row.mentioned.compactMap { store.names[$0] },
                            thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile)
                     .padding(.top, first ? 6 : 0)
@@ -705,6 +733,10 @@ struct RoomBubble: View {
     let react: (String) -> Void
     let reply: () -> Void
     let openAgent: () -> Void
+    // kosmos#7101: a reply's header goes to the post it answers (the board's #3745), and that post flashes.
+    var jump: () -> Void = {}
+    var flashing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotionHere
 
     private var mine: Bool { row.byPerson }
     // kosmos#7062: the words shown beside the post's files (Board.roomWords, tested).
@@ -733,6 +765,9 @@ struct RoomBubble: View {
             .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         }
         .accessibilityElement(children: .combine)
+        // kosmos#7101 review 2: a reply's double-tap goes to the post it answers, as its label says. Only on a reply,
+        // so every other post keeps the double-tap it had.
+        .modifier(ReplyJumpDefault(on: replied != nil, jump: jump))
         .accessibilityActions {
             if answerable {
                 // React, Reply, Copy (the spec): each reaction pill is merged into the post, so each one is an action.
@@ -745,6 +780,11 @@ struct RoomBubble: View {
                 Button("Reply", action: reply)
             }
             Button("Copy") { UIPasteboard.general.string = row.text }
+            if replied != nil {
+                Button(Board.replyJumpAction, action: jump)
+                // The double-tap goes, as the label says (review 2); the agent's chat, which the avatar gave it, stays.
+                if !mine && last && row.kind != .external { Button("Open \(name)'s chat", action: openAgent) }
+            }
             // The post is read as one element and its cards are not buttons in it, so each file is an action on it
             // (kosmos#7062), saying what the card would: opening, another file opening, failed, or opens on the board.
             ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
@@ -752,6 +792,9 @@ struct RoomBubble: View {
             }
         }
     }
+
+    // The board's --gold-deep, in both themes, as the board draws it.
+    static let flashGold = Palette.pair(Board.replyFlashHex, Board.replyFlashHex)
 
     @ViewBuilder private var avatar: some View {
         if row.kind == .external {
@@ -774,9 +817,20 @@ struct RoomBubble: View {
                 }
             }
             if let replied {
-                Text("\(nameOf(replied)): \(replied.text.components(separatedBy: "\n").first ?? "")")
-                    .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
-                    .padding(.leading, 8).overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
+                // kosmos#7101: a button, as the board's .msg-replyto: a tap goes to the post it answers. A 44 pt place to
+                // tap, laid out as the header alone.
+                let gist = Board.replyGist(replied, shownName: nameOf(replied))
+                Button(action: jump) {
+                    Text("\(nameOf(replied)): \(gist)")
+                        .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .padding(.leading, 8).overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
+                        // A real 44 pt minimum (review 2: a hit area hung past the header overlapped the words below).
+                        .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                // Read as the board's label (review 1), as words in the post; the jump is the post's double-tap (below).
+                .accessibilityRepresentation { Text(Board.replyJumpLabel(who: nameOf(replied), gist: gist)) }
             } else if row.replyTo != nil && roomComplete {
                 Text("Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
             }
@@ -803,6 +857,10 @@ struct RoomBubble: View {
         }
         .padding(.vertical, 8).padding(.horizontal, 12)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
+        // kosmos#7101: the board's .msg-flash, a gold-deep outline on the post a reply's header went to, fading out.
+        // A 2 pt ring 2 pt out, as the board's outline-offset, its corners kept parallel to the bubble's (review 5).
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Self.flashGold, lineWidth: 2).padding(-4)
+            .opacity(flashing ? 1 : 0).animation(reduceMotionHere ? nil : .easeOut(duration: 0.3), value: flashing))
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
         .contextMenu {
             if answerable {
@@ -885,5 +943,14 @@ struct WorkingDots: View {
                 }
             }
         }
+    }
+}
+
+// kosmos#7101: the double-tap of a reply's post is the jump (a modifier, so posts that are not replies are untouched).
+private struct ReplyJumpDefault: ViewModifier {
+    let on: Bool
+    let jump: () -> Void
+    func body(content: Content) -> some View {
+        if on { content.accessibilityAction(.default, jump) } else { content }
     }
 }

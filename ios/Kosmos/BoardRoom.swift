@@ -690,6 +690,26 @@ extension Board {
         return nil
     }
 
+    // kosmos#7101: a reply's header, as the board's .msg-replyto: VoiceOver's words for the action that goes to the post
+    // it answers, and how long that post flashes (msg-flash, 1800 ms).
+    static let replyJumpAction = "Go to the message this answers"
+    // What a reply's header quotes of the post it answers (the board's pjReplyGist, through the chat's ports): its first
+    // line cut to 80 (replyWords), with an agent's own leading "Name:" dropped, since the header names the sender beside
+    // it (#4873; never for the person's post or an outside one, as the board's guard); for a post of files alone, its
+    // first file's name; otherwise "a message" (review 3).
+    static func replyGist(_ row: RoomRow, shownName: String) -> String {
+        let raw = row.kind == .post && !row.byPerson ? dropSelfName(row.text, names: [shownName, row.from ?? ""]) : row.text
+        let words = replyWords(raw)
+        if !words.isEmpty { return words }
+        if let f = row.attachments.first { return f.name.isEmpty ? "a file" : f.name }
+        return "a message"
+    }
+    // The flash's colour, the board's --gold-deep (pinned in the room suite).
+    static let replyFlashHex: UInt32 = 0xb88920
+    // The header's words for VoiceOver, the board's .msg-replyto aria-label.
+    static func replyJumpLabel(who: String, gist: String) -> String { who + ": " + gist + ", the message this answers. Go to it" }
+    static let replyJumpFlash: TimeInterval = 1.8
+
     // kosmos#7093: where a room's waiting files are kept in BoardClient.attached: a key no agent's name can be (a session
     // name has no colon), so a room and an agent never share one.
     static func roomAttachKey(_ project: String) -> String { "room:" + project }
