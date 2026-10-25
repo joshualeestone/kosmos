@@ -49,6 +49,8 @@ Within a run, each removed line sits beside the line that replaced it. A cut the
 The copy moves at a `started` report and at a landed line. A runner or restart that posts no `started` report leaves the copy older than what the agent read. The next diff then shows MORE than changed since: changes already read are listed again. That errs in the safe direction: nothing is hidden. A start whose copy cannot be renewed drops the copy, so its next notice is as before.
 
 ## NOT CLAIMED
+- No log line says when the pointer is skipped for a name or folder path it refuses to name (whitespace, a quote, a control character, a name outside [A-Za-z0-9._-]). Such an agent gets the line exactly as before, which is safe, so this is a diagnostic gap, not a defect (review 18).
+- The exposure of a changes file in a connected agent's own repo (it can be committed by `git add .`) is ACCEPTED, as the brief's `.previous` is there already (reviews 1, 2, 6, 10, 12, 16, 18).
 - While a section in a debt is held (switched off), no changes file is written and the copy does not move. A long hold turns the pointer off for that agent until its next start or until the debt expires (7 days). That is the safe direction (review 11).
 - An UNCONFIRMED verdict (a throwing deliver included) ends the debt and moves the copy, as settle always ended the debt. If that line never reached the agent, the next notice's diff leaves out those changes, as before this change, when the debt ended the same way (review 10).
 - A recorded start that lands while a line is being typed removes the changes file that line names (rememberRead drops it). The agent finds no file, and the line already says the file is a pointer only and to read the sections (review 9).
