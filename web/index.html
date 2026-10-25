@@ -81807,7 +81807,7 @@ async function fedOwnPress(btn) {
     if (res.ok) {
       ok = true;
       said = act === 'allow' ? 'Allowed. That computer takes part in this room once its person has confirmed the same code there (at once, if they already have).'
-        : act === 'match' ? 'Confirmed. This computer reads the room once the other computer has allowed it.'
+        : act === 'match' ? (FED_OWN && FED_OWN.pending ? 'Confirmed. This computer posts here once the other computer has allowed it.' : 'Confirmed. This computer reads the room once the other computer has allowed it.')
         : j && j.started_over === true ? 'Started over. A new code appears here when the other computer answers.'
         : 'There was nothing to start over: this computer is not waiting for a code right now.';
     } else said = (j && typeof j.error === 'string' && j.error) || 'That did not go through. Try again.';

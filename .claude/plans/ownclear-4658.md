@@ -20,14 +20,16 @@ or a room shared by v1 and sealed later lets a joiner post in the clear. Design 
    - posts are held WITHOUT `sealedHeld` (they flush in the clear once the room is verified clear);
    - unsealed messages from the room are SHOWN, not refused (the room is not known to be sealed);
    - the computer makes no own code (`sealed-not-in`-style refusal: 'not-in').
-   A sealed-looking frame while pendingClear turns it into the ordinary keyless sealed record (pendingClear dropped):
-   held posts are then re-held as sealedHeld (sendPost's sealed branch marks them) and go only under a share, and a
-   clear is refused from then on (adoptOwnClear needs pendingClear). A forged sealed frame costs only availability.
+   A sealed-looking envelope while pendingClear changes NOTHING (review 1: the relay or a guest can send one, and a flip
+   to sealed locked the computer out for good, since an unsealed owner never sends a share). It is noted and not shown;
+   the owner's authenticated answer decides: a share means sealed (adoptOwnShare drops pendingClear from the record and
+   the link and marks the link sealed), a clear means clear. A clear after a share changes nothing (it needs pendingClear).
 4. **The owner answers a hello with or without a room key**: ownerOwnHello / ownWaiting / allowOwn accept an owner
    whose room reads clear (isSealedRoom false). allowOwn on a clear room sends key-own-clear and writes no st.own.
 5. **The joiner adopts a clear** (adoptOwnClear, beside adoptOwnShare) only when its person confirmed the code, the
    clear opened under the confirmed owner key, its record is pendingClear, and its link is not sealed (a v2 joiner
-   never accepts a clear). It forgets the record (fedseal.forgetRoom), drops pendingClear from the link, and flushes.
+   never accepts a clear). It rewrites the link first, then forgets the record, and says "let in" only once both
+   wrote (review 1); a write that fails leaves it waiting, and the kept clear is taken again at the next connect.
 6. Screens: the own-computer card and the owner's waiting list stop saying "sealed" when the room is clear.
 
 ## Rejected
@@ -39,6 +41,12 @@ or a room shared by v1 and sealed later lets a joiner post in the clear. Design 
 That refusing v1 codes is acceptable: a person with one computer on an older Kosmos must update it before adding
 another. It is a beta with auto-update; the refusal says exactly what to do. What would change it: a ruling that
 mixed-version own rooms must keep working, in which case v1 joins stay as today (NOT CLAIMED) and only v3 holds.
+
+## NOT CLAIMED
+- **An older owner board** (review 1): a computer let into an own room before this slice can, once updated, make a v3
+  code while the room's first computer still runs an older Kosmos. That owner never answers, so the new computer holds
+  its posts (each dropped after the hour). Its waiting note says to update Kosmos on the other computer if no code
+  appears there. Auto-update makes this short-lived; nothing detects the owner's version.
 
 ## Not in this slice
 Lifting the self-shared invite refusal entirely (decision 5 of #7107): once every own computer holds until answered,

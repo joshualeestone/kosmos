@@ -22446,7 +22446,7 @@ const server = http.createServer(async (req, res) => {
     try { code = fedseats.ownCode(pid); } catch { code = null; }
     // Slice 2: whether this computer is waiting to be let into an UNSEALED room (the screen does not call it sealed).
     let pending = false;
-    try { const st = fedseal.roomState(pid); pending = !!(st && st.pendingClear === true); } catch { pending = false; }
+    try { pending = fedseats.ownPending(pid) === true; } catch { pending = false; }
     sendJson(res, 200, { code, pending });
     return;
   }

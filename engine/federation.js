@@ -225,7 +225,7 @@ function ownCodeRefusal(projectId) {
   if (link.role !== 'owner' && link.role !== 'self') return 'guest';
   const st = fedseal.roomState(projectId);
   // Slice 2: a computer still waiting to be let into an own room (pendingClear) vouches for nothing yet.
-  if (link.role === 'self' && (link.pendingClear === true || (st && st.pendingClear === true))) return 'not-in';
+  if (link.role === 'self' && !roomKeyHeld(st) && (link.pendingClear === true || (st && st.pendingClear === true))) return 'not-in';
   const noKey = ownCodeSealed(projectId, link) && !roomKeyHeld(st);
   if (noKey) return link.role === 'owner' ? 'sealed-waiting' : 'sealed-not-in';
   return null;
