@@ -131,12 +131,37 @@ sleep 0 & dead=$!; wait "$dead"
 mkdir -p "$T/kids4h"
 STUB_KIDS="$T/kids4h" perl -e "$_KOSMOS_SHARD_SUPERVISOR" "$dead" "$T/stubkid.sh" 1 1 > /dev/null 2>&1 &
 sv=$!
-k=0; while kill -0 "$sv" 2>/dev/null && [ "$k" -lt 60 ]; do sleep 0.1; k=$((k + 1)); done
-h_sv=gone; kill -0 "$sv" 2>/dev/null && { h_sv=running; kill -KILL -- "-$sv" 2>/dev/null; }
-h_kid=gone; kh=$(cat "$T/kids4h/kid-1" 2>/dev/null); [ -n "$kh" ] && kill -0 "$kh" 2>/dev/null && { h_kid=running; kill "$kh" 2>/dev/null; }
+# Judged on two things, so it cannot pass vacuously: the supervisor itself has ended (a group that does not exist
+# YET reads as empty), and its whole process group, which holds the shard's command and anything it started, is empty.
+k=0; while { kill -0 "$sv" 2>/dev/null || kill -0 -- "-$sv" 2>/dev/null; } && [ "$k" -lt 60 ]; do sleep 0.1; k=$((k + 1)); done
+h_sv=gone; kill -0 "$sv" 2>/dev/null && h_sv=running
+h_grp=empty; kill -0 -- "-$sv" 2>/dev/null && h_grp=occupied
+[ "$h_sv$h_grp" = goneempty ] || kill -KILL -- "-$sv" 2>/dev/null
 wait "$sv" 2>/dev/null
-if [ "$h_sv" = gone ] && [ "$h_kid" = gone ]; then pass "a supervisor whose runner is already gone stops its shard within 6 s"
-else bad "dead runner at start: supervisor $h_sv(gone), its test $h_kid(gone)"; fi
+if [ "$h_sv" = gone ] && [ "$h_grp" = empty ]; then pass "a supervisor whose runner is already gone stops, with its shard's group empty, within 6 s"
+else bad "dead runner at start after 6 s: supervisor $h_sv(gone), its group $h_grp(empty)"; fi
+
+# 4i) a TERM passed on to a shard whose test ignores it is followed by a KILL of the group: the supervisor does not
+# wait on a stubborn test for as long as its runner lives.
+cat > "$T/stubborn4i.sh" <<'STUBBORN4I'
+#!/bin/bash
+trap '' TERM
+sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"   # sleep-control-ok: stands in for a test the shard runs; the stop must kill it
+wait
+STUBBORN4I
+chmod +x "$T/stubborn4i.sh"
+mkdir -p "$T/kids4i"
+# The runner is this shell, which is the supervisor's parent and stays alive, so only the TERM can stop the shard.
+me4i=$(exec sh -c 'echo $PPID')
+STUB_KIDS="$T/kids4i" perl -e "$_KOSMOS_SHARD_SUPERVISOR" "$me4i" "$T/stubborn4i.sh" 1 1 > /dev/null 2>&1 &
+sv=$!
+k=0; while [ ! -s "$T/kids4i/kid-1" ] && [ "$k" -lt 100 ]; do sleep 0.1; k=$((k + 1)); done
+kill -TERM "$sv" 2>/dev/null
+k=0; while kill -0 -- "-$sv" 2>/dev/null && [ "$k" -lt 60 ]; do sleep 0.1; k=$((k + 1)); done
+i_grp=empty; kill -0 -- "-$sv" 2>/dev/null && { i_grp=occupied; kill -KILL -- "-$sv" 2>/dev/null; }
+wait "$sv" 2>/dev/null
+if [ -s "$T/kids4i/kid-1" ] && [ "$i_grp" = empty ]; then pass "a TERM to a supervisor whose test ignores it ends in a KILL of the group within 6 s"
+else bad "stubborn shard after a TERM: test recorded=$([ -s "$T/kids4i/kid-1" ] && echo yes || echo no)(yes), group $i_grp(empty)"; fi
 
 # 4d) a test that ignores TERM (here a sleep under trap '' TERM) is KILLed after the stop's grace, not left running.
 cat > "$T/stubborn.sh" <<'STUBBORN'

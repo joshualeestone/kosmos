@@ -25,12 +25,12 @@ where every local run reads it.
   end: the real run-tests.sh with a stub node that records each shell-shard.js call; unset starts run 1..4 of 4,
   GITHUB_ACTIONS=true runs 1 of 1, KOSMOS_SHELL_PARALLEL=2 is kept, empty is 1); arm 10 (a tripwire, since a test
   cannot run a cut: release.sh's export is the first code after its guard's fi, and no later code touches the
-  switch). Arms 4f to 4h cover the shard supervisor. 24 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
+  switch). Arms 4f to 4i cover the shard supervisor. 25 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
   arm 9: the tripwire would red on an equivalent rewrite and stay green if the value were overwritten later.)
 
 - tools/lib/shell-parallel.sh: each shard now runs under a small perl supervisor (`_KOSMOS_SHARD_SUPERVISOR`) in
   place of a plain `setpgrp; exec`. It leads the shard's group, forks the command beneath it, exits with its status,
-  and polls its own parent every 0.5 s. When the runner is gone (even by a KILL, which runs no trap), it TERMs its
+  and checks its own parent every 0.2 s. When the runner is gone (even by a KILL, which runs no trap), it TERMs its
   group, waits up to 2 s, and KILLs it. Why: at 10:31 CDT on 2026-10-25 a validation of this branch on Mortals was
   stopped by stop-mortals-validate.sh for the 0.7.67 cut. That script stops the run's leader group, TERM then KILL,
   so shards 2 to 4, each in a group of its own, ran on beside the cut until stopped by hand. With the default at 4,
@@ -69,11 +69,11 @@ where every local run reads it.
   independently. CI is unset in this machine's agents and suites (checked 2026-10-25), so local runs still get 4.
 
 ## Validation
-- tools/test-shell-parallel-7100.sh: 24 arms pass plainly and under a CI shard's environment
+- tools/test-shell-parallel-7100.sh: 25 arms pass plainly and under a CI shard's environment
   (`KOSMOS_SHELL_SHARD=1/2 KOSMOS_SHELL_CUT_ENV=1 GITHUB_ACTIONS=true KOSMOS_SHELL_PLATFORM=linux`).
 - Mutants, each red on its own arm: always 4 (arms 8 and 9); ignoring GITHUB_ACTIONS (arm 8); the old `:-1`
   default in run-tests.sh (arm 9); empty taking the default (arm 9); release.sh without the export, the export
   before the guard, the export inside a dead branch, and a later unset (arm 10); the old plain launcher, and a
-  supervisor that never checks its parent (arm 4f).
+  supervisor that never checks its parent (arm 4f); the runner read by getppid (arm 4h); no TERM pass-through (arms 4g, 4i); no KILL after a passed TERM (arm 4i).
 - test-cut-testpart-guard-5934, test-cut-shape-6977, test-sleep-control-guard-6710, test-mktemp-template-4298 and
   test-gnu-only-forms-6808 all pass.
