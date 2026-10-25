@@ -22044,10 +22044,10 @@ const server = http.createServer(async (req, res) => {
         }
         /* One line: the room's text view prints a note as written, so a line break in a job's text (an email digest
            carries other people's words) would read there as a separate row by the person or an agent. */
-        // Control characters and bidi overrides go too, so no caller (the Windows CLI and a raw request do not strip them)
-        // can reorder or hide what the line says.
+        // Control and format characters go too (as externalPost strips outside words), so a raw request cannot reorder or
+        // hide what the line says.
         const text = body && typeof body.text === 'string'
-          ? body.text.replace(/[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069]/gu, ' ').replace(/\s+/g, ' ').trim() : '';
+          ? body.text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ').replace(/\s+/g, ' ').trim() : '';
         const source = body && typeof body.source === 'string' ? body.source.trim() : '';
         if (!text || [...text].length > ROOM_NOTICE_MAX) {
           sendJson(res, 400, { error: 'a notice needs words, at most ' + ROOM_NOTICE_MAX + ' characters' });

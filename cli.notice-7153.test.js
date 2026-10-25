@@ -40,7 +40,13 @@ function runCli(args, env, input) {
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
     child.on('error', (e) => { clearTimeout(timer); reject(e); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      const done = { code };
+      // #3628: a killed CLI has no exit code, and null would pass notEqual(code, 0) as if it had refused.
+      if (typeof done.code !== 'number') { reject(new Error('the CLI gave no exit code (' + signal + ')')); return; }
+      resolve({ code, stdout, stderr });
+    });
     if (input === undefined) child.stdin.end(); else child.stdin.end(input);
   });
 }
@@ -128,6 +134,7 @@ test('usage: no source, no --stdin, a source with a colon, or no words is refuse
       [['notice', '--from', 'builder alarm', 'fleetjosh'], 'hello', /Usage: kosmos notice/],
       [['notice', '--from', 'builder: alarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/],
       [['notice', '--from', 'builder\talarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/],
+      [['notice', '--from', 'builder\nalarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/],
       [['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], '', /empty|nothing was piped|Nothing was written/i],
     ]) {
       const out = await runCli(args, jobEnv(port), input);

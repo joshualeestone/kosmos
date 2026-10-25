@@ -633,13 +633,19 @@ test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0
   assert.equal(retarget.calls.length, 0, 'a name the slug would change was posted to another room');
   const missing = await run(['notice', '--from', 'builder alarm', '--stdin', 'nope'], () => ({ status: 404, body: { error: 'there is no project by that name, so there is no room to post into' } }), {}, piped('hi'));
   assert.equal(missing.code, 1);
-  assert.equal(missing.err, 'There is no project called "nope", so there is no room to write into.');
+  assert.equal(missing.err.split('\n')[0], 'There is no project called "nope", so there is no room to write into.');
   const old = await run(['notice', '--from', 'builder alarm', '--stdin', 'nope'], () => ({ status: 404, body: { error: 'not found' } }), {}, piped('hi'));
   assert.equal(old.code, 1);
-  assert.equal(old.err, 'This board does not know kosmos notice yet: update Kosmos, then try again.');
+  assert.equal(old.err.split('\n')[0], 'This board does not know kosmos notice yet: update Kosmos, then try again.');
   const refused = await run(['notice', '--from', 'builder alarm', '--stdin', 'p1'], () => ({ status: 400, body: { error: 'a notice needs words, at most 4000 characters' } }), {}, piped('hi'));
   assert.equal(refused.code, 1);
-  assert.equal(refused.err, 'The notice was not written: a notice needs words, at most 4000 characters.');
+  assert.equal(refused.err.split('\n')[0], 'The notice was not written: a notice needs words, at most 4000 characters.');
+  // A failed notice is kept, as on the Mac: an alarm may have no other copy.
+  const kept = refused.err.match(/saved at (\S+)/);
+  assert.ok(kept, 'a refused notice was not kept: ' + refused.err);
+  assert.equal(fs.readFileSync(kept[1], 'utf8'), 'hi');
+  fs.rmSync(path.dirname(kept[1]), { recursive: true, force: true });
+  for (const r of [missing, old]) { const k = r.err.match(/saved at (\S+)/); assert.ok(k, 'a 404 notice was not kept'); fs.rmSync(path.dirname(k[1]), { recursive: true, force: true }); }
   for (const argv of [['notice', '--stdin', 'p1'], ['notice', '--from', 'x', 'p1'], ['notice', '--from', 'a: b', '--stdin', 'p1']]) {
     const u = await run(argv, () => ({ body: { ok: true } }), {}, piped('hi'));
     assert.equal(u.code, 2, argv.join(' '));

@@ -4,8 +4,8 @@ Card: joshualeestone/kosmos#7153. Parent: #5941 (Josh 2026-10-25 17:15: the flee
 
 ## Finished looks like
 A launchd job, with no agent token and no tmux pane, runs `kosmos notice --from "<source>" --stdin <project-id>` and the
-line appears in that room in Kosmos's own voice, its first words naming the source. Without the board token it is
-refused; an agent's own token cannot write one; bad input is refused with a reason and nothing is written.
+line appears in that room in Kosmos's own voice, its first words naming the source. On a board that enforces its
+token, a notice without it is refused; an agent's own token cannot write one; bad input is refused with a reason and nothing is written.
 
 ## Design (decided)
 - Board: `POST /api/project/<id>/notice {text, source}` writes `messages.roomNote(id, source + ': ' + text)` (the
@@ -16,7 +16,7 @@ refused; an agent's own token cannot write one; bad input is refused with a reas
   --stdin <project-id>`, board token only (off argv via kosmos_curl's header file on the Mac).
 
 - The row reads `<source> (automated notice): <text>`, one line: whitespace runs, control characters and bidi
-  overrides become single spaces, so a job's text cannot fake another row in `kosmos room` or reorder itself.
+  overrides (every control and format character, as externalPost strips) become single spaces, so a job's text cannot fake another row in `kosmos room` or reorder itself.
 - A CLI notice that cannot be written (board down, refused, too old) is kept in a private file and its path said, as
   `kosmos post --stdin` does: an alarm fires when the fleet is down, so the text may be its only copy.
 
