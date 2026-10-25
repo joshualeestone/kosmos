@@ -64,6 +64,8 @@ enum Settings {
         // The cookie goes by hand on this one request; nothing here keeps a cookie jar.
         r.httpShouldHandleCookies = false
         r.setValue("\(Board.macCookieName)=\(mac.cookie)", forHTTPHeaderField: "Cookie")
+        // kosmos#7075: the board's own, so Kosmos+ gives it the Mac's token (Board.forMac).
+        r.setValue("same-origin", forHTTPHeaderField: Board.fetchSiteHeader)
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             r.httpBody = body

@@ -110,7 +110,12 @@ final class BoardClient: ObservableObject {
         self.sessionStore = sessionStore
         self.macStore = macStore
         self.cookies = cookies
-        self.env = env
+        // kosmos#7075: every request this client sends to the Mac says it is the board's own (Board.forMac); here, once,
+        // so no call site can forget it.
+        var marked = env
+        marked.send = { [send = env.send] r in await send(Board.forMac(r, coordinator: coordinator)) }
+        marked.upload = { [upload = env.upload] r, file in await upload(Board.forMac(r, coordinator: coordinator), file) }
+        self.env = marked
         // Files opened in an earlier run are not kept: whose they were is not known any more. Nor are copies of picked
         // files an earlier run never finished sending (kosmos#7071).
         try? FileManager.default.removeItem(at: env.files)
