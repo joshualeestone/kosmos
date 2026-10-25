@@ -92,6 +92,14 @@ struct RoomView: View {
         VStack(spacing: 0) {
             needsLine
             if searchMode { searchBar }
+            // kosmos#7137: the board's #pj-fed-own-phone, one line above the room: why a shared room does not read here,
+            // and where the code to compare is. Callout, the third label colour, plain words, as the board's .ownseal-phone.
+            if let seal = store.ownSealLine(project.id) {
+                Text(seal).font(.callout).foregroundColor(Palette.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+            }
             thread
                 .background(GeometryReader { g in Color.clear.onAppear { threadHeight = g.size.height }
                     .onChange(of: g.size.height) { threadHeight = $0 } })

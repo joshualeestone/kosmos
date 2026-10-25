@@ -694,6 +694,35 @@ extension Board {
         r.httpBody = try? JSONSerialization.data(withJSONObject: ["agent": agent, "reason": reason])
         return r
     }
+    // kosmos#7137: GET /api/federation/own-compare?project=<id>, the board's own read (fedOwnPaint). The phone uses only
+    // whether this computer has a code for the project and whether it waits to be let in; the code itself is never shown.
+    struct OwnCompare: Equatable {
+        let hasCode: Bool
+        let pending: Bool
+    }
+    static func ownCompareRequest(mac: URL, project: String) -> URLRequest? {
+        // A project id is lowercase letters, digits, "-" and "_" only (isProjectId), so it needs no escaping in the query.
+        guard isProjectId(project) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/federation/own-compare?project=\(project)", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
+    }
+    // The board's `o.code` is truthy: a non-empty string. `pending` counts only when exactly true.
+    static func parseOwnCompare(_ data: Data) -> OwnCompare? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let code = (obj["code"] as? String) ?? ""
+        return OwnCompare(hasCode: !code.isEmpty, pending: isTrue(obj["pending"]))
+    }
+    // The board's #pj-fed-own-phone sentences, with where the code is said for a phone: the phone has no Members code
+    // section of its own (its room's Members button opens the board), so "under Members" names the computer's board.
+    static let ownSealedLine = "This room is sealed on this computer. The code to compare is on your computer's board, under Members."
+    static let ownWaitingLine = "This computer is waiting to be let in. The code to compare is on your computer's board, under Members."
+    // Shown as the board's: the shared-room UI is shown, and this computer has a code for the open project.
+    static func ownSealLine(_ c: OwnCompare?, fedShown: Bool) -> String? {
+        guard fedShown, let c, c.hasCode else { return nil }
+        return c.pending ? ownWaitingLine : ownSealedLine
+    }
+
     // JavaScript's slice(0, n) on UTF-16 units, never splitting a surrogate pair.
     static func utf16Prefix(_ s: String, _ n: Int) -> String {
         var units = Array(s.utf16.prefix(n))

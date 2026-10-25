@@ -65,6 +65,9 @@ final class RoomStore: ObservableObject {
     // the person leaves the room or another room replaces it. Not published: the room writes it as the box changes.
     struct Draft { var text = ""; var replyTo: Board.RoomRow?; var mention: String? }
     var drafts: [String: Draft] = [:]
+    // kosmos#7137: the own-compare read by project (whether this computer has a code and waits to be let in), for the
+    // line above a shared room. Never the code itself.
+    @Published private(set) var ownCompare: [String: Board.OwnCompare] = [:]
     static let pageSize = 50
 
     private let client: BoardClient
@@ -75,7 +78,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]
+        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
@@ -118,6 +121,17 @@ final class RoomStore: ObservableObject {
     // True when the read landed. A read cancelled (the room left, a member's chat pushed over it) is no answer, never
     // "we cannot read this room".
     @discardableResult
+    // kosmos#7137: the board's own-compare read for the line above a shared room. Only while the shared-room UI shows
+    // (the board's fedShow()); otherwise, or on any answer that is not a readable 200 (404 with sharing off, say), no line.
+    func loadOwnCompare(_ project: String) async {
+        guard client.fedShown else { ownCompare[project] = nil; return }
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.ownCompareRequest(mac: $0, project: project) }
+        guard same(epoch), !Task.isCancelled else { return }
+        if let answer, answer.1.statusCode == 200, let c = Board.parseOwnCompare(answer.0) { ownCompare[project] = c } else { ownCompare[project] = nil }
+    }
+    func ownSealLine(_ project: String) -> String? { Board.ownSealLine(ownCompare[project], fedShown: client.fedShown) }
+
     func loadRoom(_ project: String) async -> Bool {
         #if DEBUG
         if Self.sample {
@@ -142,6 +156,7 @@ final class RoomStore: ObservableObject {
             roomFailed.insert(project); return false
         }
         roomFailed.remove(project)
+        Task { await self.loadOwnCompare(project) }   // kosmos#7137: with each room read, as the board repaints it
         roomPartial = Board.partialRooms(roomPartial, project: project, partial: page.unread)
         if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)

@@ -813,6 +813,79 @@ check(Board.utf16Prefix(emojiQuestion, 300).utf16.count == 300 && Board.utf16Pre
 check(boardPage.contains("'question:' + String(m.because || '').slice(0, 300)") || boardPage.contains("'question:' + keyWords(m.because)"),
       "the board builds the fallback key from the first 300 units of the question")
 
+section("the line above a sealed or waiting shared room (kosmos#7137)")
+// The gate, as the board's fedGateMode: hidden until live (or staging), shown to a Kosmos+ member, and on staging
+// shown while membership is unknown (absent or not a real bool), never when it is a real false.
+let fgT: Any = NSNumber(value: true), fgF: Any = NSNumber(value: false), fgOne: Any = NSNumber(value: 1)
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgF, kosmosPlus: fgT) == "hidden", "gate: not live on a stable build is hidden, member or not")
+check(Board.fedGateMode(sourceChannel: nil, federationLive: nil, kosmosPlus: fgT) == "hidden", "gate: nothing said is hidden")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgT, kosmosPlus: fgT) == "show", "gate: live and a member shows")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgT, kosmosPlus: fgF) == "signup", "gate: live, not a member, is the sign-up gate")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgT, kosmosPlus: nil) == "signup", "gate: live, membership unknown, on a stable build is the sign-up gate (fail-safe)")
+check(Board.fedGateMode(sourceChannel: "staging", federationLive: fgF, kosmosPlus: nil) == "show", "gate: staging, membership unknown, shows")
+check(Board.fedGateMode(sourceChannel: "staging", federationLive: nil, kosmosPlus: fgF) == "signup", "gate: staging, a real false, is the sign-up gate")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgOne, kosmosPlus: fgT) == "hidden", "gate: federationLive 1 is not true (the board's === true)")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgT, kosmosPlus: fgOne) == "signup", "gate: kosmos_plus 1 is not true (the board's === true)")
+check(Board.fedGateMode(sourceChannel: "staging", federationLive: nil, kosmosPlus: "false") == "show", "gate: staging, the string \"false\" is unknown, not false (the board's !== false)")
+// The board's own function, so a change to its rule turns these red (the phone's lines above follow it, line for line).
+for line in ["  const staging = sourceChannel === 'staging';", "  const live = federationLive === true || staging;", "  if (!live) return 'hidden';",
+             "  if (kosmosPlus === true) return 'show';", "  const unknownPlus = kosmosPlus !== true && kosmosPlus !== false;",
+             "  if (staging && unknownPlus) return 'show';", "  return 'signup';",
+             "function fedShow() {\n  return document.documentElement.getAttribute('data-fed-ui') === 'show';",
+             "  const mode = fedGateMode(data.sourceChannel, data.federationLive, data.kosmos_plus);"] {
+    check(boardPage.contains(line), "the board's gate still reads: \(line.prefix(70))")
+}
+// Read off one status answer, as the board stamps it from the poll.
+check(Board.fedShown(fromStatus: Data(#"{"sourceChannel":"stable","federationLive":true,"kosmos_plus":true,"agents":[]}"#.utf8)), "status: live and a member, shown")
+check(!Board.fedShown(fromStatus: Data(#"{"sourceChannel":"stable","federationLive":true,"kosmos_plus":false,"agents":[]}"#.utf8)), "status: not a member, not shown")
+check(!Board.fedShown(fromStatus: Data(#"{"agents":[]}"#.utf8)), "status: an older Mac that says nothing, not shown")
+check(!Board.fedShown(fromStatus: Data("not json".utf8)), "status: an unreadable answer, not shown")
+// The read: the board's route, the project in its query, nothing else.
+let ocMac = URL(string: "https://mac.example/")!
+check(Board.ownCompareRequest(mac: ocMac, project: "book-launch")?.url?.absoluteString == "https://mac.example/api/federation/own-compare?project=book-launch"
+      && Board.ownCompareRequest(mac: ocMac, project: "book-launch")?.httpMethod == "GET", "own-compare: a GET of the board's route for this project")
+check(Board.ownCompareRequest(mac: ocMac, project: "a&b=c") == nil && Board.ownCompareRequest(mac: ocMac, project: "") == nil, "own-compare: no request for an id that is not one")
+check(boardPage.contains("fetch('/api/federation/own-compare?project=' + encodeURIComponent(project), o)"), "the board reads the same route")
+// The answer: a code is a non-empty string (the board's `o.code`), pending only when exactly true.
+check(Board.parseOwnCompare(Data(#"{"code":"4821-0937","pending":false}"#.utf8)) == Board.OwnCompare(hasCode: true, pending: false), "answer: a code, not waiting")
+check(Board.parseOwnCompare(Data(#"{"code":"4821-0937","pending":true}"#.utf8)) == Board.OwnCompare(hasCode: true, pending: true), "answer: a code, waiting")
+check(Board.parseOwnCompare(Data(#"{"code":null,"pending":true}"#.utf8))?.hasCode == false, "answer: a null code is no code")
+check(Board.parseOwnCompare(Data(#"{"code":"","pending":false}"#.utf8))?.hasCode == false, "answer: an empty code is no code (falsy, as the board's)")
+check(Board.parseOwnCompare(Data(#"{"code":"x","pending":"true"}"#.utf8))?.pending == false, "answer: pending \"true\" is not true")
+check(Board.parseOwnCompare(Data(#"{"error":"Federation is off."}"#.utf8))?.hasCode == false, "answer: an error body reads as no code")
+// The line: only while the shared-room UI shows and this computer has a code; waiting or sealed by `pending`.
+let sealedC = Board.OwnCompare(hasCode: true, pending: false), waitingC = Board.OwnCompare(hasCode: true, pending: true)
+check(Board.ownSealLine(sealedC, fedShown: true) == Board.ownSealedLine, "line: a code, not waiting, says sealed")
+check(Board.ownSealLine(waitingC, fedShown: true) == Board.ownWaitingLine, "line: a code, waiting, says waiting to be let in")
+check(Board.ownSealLine(sealedC, fedShown: false) == nil && Board.ownSealLine(waitingC, fedShown: false) == nil, "line: none while the shared-room UI is not shown")
+check(Board.ownSealLine(Board.OwnCompare(hasCode: false, pending: true), fedShown: true) == nil, "line: none without a code, waiting or not")
+check(Board.ownSealLine(nil, fedShown: true) == nil, "line: none before a read lands, or after one that failed")
+// The words: the board's two sentences, with "under Members" said as the computer's board on the phone.
+for (phone, board) in [(Board.ownSealedLine, "'This room is sealed on this computer. The code to compare is under Members.'"),
+                       (Board.ownWaitingLine, "'This computer is waiting to be let in. The code to compare is under Members.'")] {
+    check(boardPage.contains("o.pending ? 'This computer is waiting to be let in. The code to compare is under Members.' : 'This room is sealed on this computer. The code to compare is under Members.'"),
+          "the board picks its sentence by pending")
+    let stem = String(board.dropFirst().dropLast().dropLast("under Members.".count))
+    check(phone == stem + "on your computer's board, under Members.", "the phone's sentence is the board's, with where the code is: \(phone.prefix(50))")
+}
+check(boardPage.contains("line.hidden = !(below && o && o.code && o.project === PJ_CURRENT && fedShow());"), "the board's condition: a code, this project, the UI shown")
+check(boardPage.contains(".ownseal-phone { font: var(--text-callout) var(--font-ui); color: var(--label-3);"), "the board's line is callout in the third label colour")
+// The drawing and the wiring, in the app's own source.
+let roomBody = roomView.components(separatedBy: "var body: some View {").dropFirst().first ?? ""
+let sealDraw = "if let seal = store.ownSealLine(project.id) {\n                Text(seal).font(.callout).foregroundColor(Palette.tertiary)"
+check(roomBody.contains("if searchMode { searchBar }\n            // kosmos#7137") && roomBody.contains(sealDraw)
+      && (roomBody.range(of: sealDraw)?.lowerBound ?? roomBody.endIndex) < (roomBody.range(of: "            thread\n")?.lowerBound ?? roomBody.startIndex),
+      "the room draws the line in callout and the third colour, above the conversation")
+let projectsSource = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/ProjectsView.swift"), encoding: .utf8)) ?? ""
+check(projectsSource.contains("guard client.fedShown else { ownCompare[project] = nil; return }"), "the store reads own-compare only while the UI shows, and forgets it otherwise")
+check(projectsSource.contains("if let answer, answer.1.statusCode == 200, let c = Board.parseOwnCompare(answer.0) { ownCompare[project] = c } else { ownCompare[project] = nil }"),
+      "a failed or refused read leaves no line")
+check(projectsSource.contains("roomFailed.remove(project)\n        Task { await self.loadOwnCompare(project) }"), "the read follows each room read")
+check(projectsSource.contains("needsFailed = [:]; ownCompare = [:]"), "another account or computer forgets the reads")
+let clientSource = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""
+check(clientSource.contains("fedShown = Board.fedShown(fromStatus: data)") && clientSource.contains("projectsUnread = nil\n        fedShown = false"),
+      "the client takes the gate from each status read and forgets it with the Mac")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
