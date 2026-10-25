@@ -246,8 +246,8 @@ function handleEvent(projectId, line, heldAt) {
     const sealed = roomSeal(projectId);
     const sealedLink = sealLink(projectId);
     const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, sealedLink);
-    const waiting = waitingToBeLetIn(sealed, sealedLink);   // kosmos#7144: one read, one test, for the exemption and the mark
     if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from ' + farSide(projectId) + ' was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
+    const waiting = waitingToBeLetIn(sealed, sealedLink);   // kosmos#7144: one read, one test, for the exemption and the mark
     if (fedseal.isSealed(ev.data)) {
       const now = Date.now();
       // #5191: the relay's stamp names a member this owner knows is revoked, on a key that member

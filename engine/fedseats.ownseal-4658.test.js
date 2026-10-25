@@ -1034,8 +1034,9 @@ test('#4658: an offer drawn by a copied hello (same id and commitment, another k
 test('kosmos#7144: one helper says "waiting to be let in" for the exemption, the #7129 mark and the post hold', () => {
   const src = fs.readFileSync(path.join(__dirname, 'fedseats.js'), 'utf8');
   // Only the helper's own definition states the test; no site keeps a copy that could drift from it.
-  // waitingLink is CALLED in one place only, the helper (review 2): a copy of the test in any spelling, at any site, adds a call.
-  const calls = (src.match(/waitingLink\(/g) || []).length - (src.match(/function waitingLink\(/g) || []).length;
+  // waitingLink is CALLED in one place only, the helper (review 2): any copy of the test that calls waitingLink, at any
+  // site, adds a call. A copy that spells out waitingLink's own body would not; the three site pins below cover the known sites.
+  const calls = (src.match(/\bwaitingLink\(/g) || []).length - (src.match(/function waitingLink\(/g) || []).length;
   assert.strictEqual(calls, 1, 'waitingLink is called outside waitingToBeLetIn (' + calls + ' calls)');
   assert.match(src, /const waiting = waitingToBeLetIn\(sealed, sealedLink\);/);
   assert.match(src, /\} else if \(sealedRoom && !waiting\) \{/, 'the no-downgrade exemption does not read the helper');
