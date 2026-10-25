@@ -623,6 +623,13 @@ do {
           && boardPage.contains(Board.roomPartialLine)
           && boardPage.contains("const PJ_HIDDEN_BY_SEARCH = '" + Board.roomHiddenBySearch + "'"),
           "room search: the board's pjRoomFilterRows and partial-read line still say what the phone mirrors")
+    // A reply's jump to a post the search hides.
+    let allRows = [post("o1", "dana", "the original"), post("r9", nil, "a reply")]
+    let kept = [allRows[1]]
+    check(Board.roomJumpHidden("o1", shown: kept, all: allRows, searching: true), "room jump: an original the search hides is hidden")
+    check(!Board.roomJumpHidden("o1", shown: allRows, all: allRows, searching: true), "room jump: an original among the matches is not")
+    check(!Board.roomJumpHidden("o1", shown: kept, all: allRows, searching: false), "room jump: not while not searching")
+    check(!Board.roomJumpHidden("gone", shown: kept, all: allRows, searching: true), "room jump: a post the room does not hold is not called hidden")
     // Which rooms' rows came from a read that could not read all of the room.
     let partial = Board.partialRooms([], project: "a", partial: true)
     check(partial == ["a"], "room partial: a landed read that could not read all of the room marks it")

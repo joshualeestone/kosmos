@@ -69,3 +69,6 @@ broken copy of BoardRoom run against them goes red (run by hand with run-room.sh
   room says "That message is hidden by your search." (spoken), as the board's PJ_HIDDEN_BY_SEARCH, until the words
   change or the search goes. Only for a post the room holds; one not loaded keeps the jump's own behaviour. Added
   on the rebase onto #7101 (Mona Lisa's jump), as agreed with her: whichever merged second added this guard.
+- The lines under the room follow the board's one line, newest write wins: a jump to a hidden post shows over the
+  last post's line, a new post clears the hidden line, and the hidden line clears the sent-while-searching one.
+  The jump's rule is Board.roomJumpHidden, tested both ways.
