@@ -473,14 +473,18 @@ struct RoomView: View {
         Task {
             let said = await store.dismissNeeds(row, in: project.id)
             dismissing.remove(row.session)
+            // Focus moves only if VoiceOver was still on this Dismiss (the board returns when focus left the notice).
+            let stillHere = needsFocus == row.session
             // Left the room meanwhile: nothing is said over another screen (the board returns when PJ_CURRENT moved),
             // and a failure line is not left for the next visit.
             guard visible else { store.clearNeedsFailed(project.id); return }
             guard let said else { return }
             Self.say(said)
-            guard said == Board.needsDismissed else { return }
+            guard said == Board.needsDismissed, stillHere else { return }
             let left = store.needsNotice(project.id)?.rows.map(\.session) ?? []
-            if let next = keys.drop(while: { $0 != row.session }).dropFirst().first(where: { left.contains($0) }) ?? left.last {
+            // A row behind Hide is not drawn, so it cannot take focus: the box then.
+            let shown = left.count == 1 || needsOpen
+            if shown, let next = keys.drop(while: { $0 != row.session }).dropFirst().first(where: { left.contains($0) }) ?? left.last {
                 needsFocus = next
             } else {
                 composerFocused = true
@@ -493,10 +497,10 @@ struct RoomView: View {
             Text(named ? row.why : "\(row.name): \(row.why)").font(.footnote).foregroundColor(Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Button { if let a = store.agent(row.session) { chatAgent = a } } label: {
+                // An agent the status does not list (rare): the project's page on the computer's board, never a dead button.
+                Button { if let a = store.agent(row.session) { chatAgent = a } else { openBoardPage() } } label: {
                     Text(row.act).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
-                .disabled(store.agent(row.session) == nil)
                 .accessibilityLabel("\(row.act) \(row.name)")
                 Button { dismiss(row) } label: {
                     Text("Dismiss").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())

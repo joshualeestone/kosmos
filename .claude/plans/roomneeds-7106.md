@@ -45,4 +45,9 @@ the board's route with its two sentences; tested against a captured projects ans
      request is in the air. Recorded: the fallback key cannot keep a lone surrogate as JavaScript's slice does (Swift
      strings cannot hold one); the engine always sends needsYouKey, so the fallback only serves an older board; a
      code-point-safe engine key would be its own card. Room 263/263; Debug SUCCEEDED.
+   - Round 3: 0 blockers, 2 warnings, 4 nits. Fixed: the Debug sample room gives cleo a question and eli a trust
+     reason (the shots showed no notice at all under the new rule); focus moves after a dismiss only if VoiceOver was
+     still on that Dismiss (the board's own check), and never to a row behind Hide; Answer/Open for an agent the
+     status does not list opens the project's board page rather than being a dead button; the reasons pinned both
+     ways (the board's PJ_NEEDS_WHY keys equal the phone's). Room 264/264; Debug SUCCEEDED.
 3. Validation, PR.

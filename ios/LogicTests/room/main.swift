@@ -777,6 +777,16 @@ check(dismiss?.httpMethod == "POST" && dismiss?.url?.path == "/api/project/sprin
 check(Board.needsDismissRequest(mac: mac, project: "../x", agent: "cleo", reason: "q") == nil
       && Board.needsDismissRequest(mac: mac, project: "springcatalogue", agent: "cleo", reason: "") == nil, "nothing sent for a bad project or no reason")
 // The board still words and routes it so.
+// Both ways: every reason the board words is one the phone words (a new one would otherwise get "other" silently).
+if let start = boardPage.range(of: "const PJ_NEEDS_WHY = {"), let end = boardPage.range(of: "};", range: start.upperBound..<boardPage.endIndex) {
+    let block = String(boardPage[start.upperBound..<end.lowerBound])
+    let boardReasons = block.components(separatedBy: "\n").compactMap { line -> String? in
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard let colon = t.firstIndex(of: ":"), t.contains("['") else { return nil }
+        return String(t[..<colon])
+    }
+    check(Set(boardReasons) == Set(Board.needsWhy.keys), "the phone words exactly the board's reasons: \(boardReasons.sorted())")
+} else { check(false, "the board's PJ_NEEDS_WHY was not found") }
 for (reason, words) in Board.needsWhy {
     check(boardPage.contains("\(reason): ['\(words.why)', '\(words.act)']"), "the board's PJ_NEEDS_WHY still says \(reason)")
 }
