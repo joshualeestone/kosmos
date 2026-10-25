@@ -1,0 +1,28 @@
+# roomattach-7093: the + to add a photo or file to a room post (a slice 9 gap, #6838)
+
+**Done when:** on the iPhone, a project room's + adds photos or files that upload to the Mac at once and wait as
+chips, and Post carries their ids with the words (or their names alone), as the board's room does; the request shapes,
+limits and words are tested against the board's source; it is merged.
+
+## Decisions
+- The board's room attach (web/index.html ATTACH_ROOM, attachUpload, pjPostSend): PUT /api/project/<id>/attachment,
+  then the room's post with `attachments: [ids]`; files alone post their names (after a Reply's @name when that is
+  all the box holds); the files leave the box only once the post is kept. Each pinned against web/index.html.
+- Reuse, not copy, of Angel's chat upload (#7071, PR #7073): BoardClient.attach takes a key and a request, so the
+  room's files wait under Board.roomAttachKey(project) ("room:<id>", which no agent name can be) through the same
+  limits, sentences, copying and forgetting. The chat's own entry point is unchanged and its suite (run.sh) is green.
+  Board.uploadRequest(mac:path:...) is the shared builder; the room's route lives in BoardRoom.swift because three
+  suites compile BoardClient without it.
+- The +, chips and pickers in RoomView follow the chat's (ChatView) shape. They are written in RoomView rather than
+  extracted from ChatView because Angel's #7089 is open in ChatView; extracting a shared view is a follow-up once it
+  lands. The +'s VoiceOver label is the board's "Add a file to this conversation".
+- Post waits while a file is still on its way, as the chat's Send does.
+- Not here: dropping files onto the thread (no phone equivalent).
+- Weakest premise: the look, the pickers and a real upload through the relay are unverified on a screen or a device
+  (the simulator shot run is not permitted here, #7055). Built on roommention-7085, so it rebases after #7085 merges.
+
+## Steps
+1. Shared upload, store, view, suite, build. DONE: room 224/224 (controls red: attachments dropped from the body, the
+   Reply @name lost from a files-only post); run 1195 (the chat's upload tests), actions 99, settings 42, tasks 90,
+   taskpage 108; Debug build SUCCEEDED, no slow expressions.
+2. Review loop. 3. Validation, PR (after #7085 merges and this is rebased).

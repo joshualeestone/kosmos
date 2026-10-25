@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 
 // kosmos#7032 (slice 9 of #6838): a project's room, natively. The board's room on a phone (Mona Lisa's slice 9 spec):
 // the conversation with a sender on every row, the board's words for Kosmos's lines, reactions, replies, the
@@ -457,10 +458,86 @@ struct RoomView: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    // Words to post: not empty, and not only the @name Reply put there.
+    // Words to post: not empty, and not only the @name Reply put there. Files alone count, as their names (kosmos#7093,
+    // the board's pjPostSend), once none is still on its way, so a post never leaves one behind.
+    private var postWords: String { Board.roomPostWords(draft, files: attachedHere, replyMention: replyMention) }
     private var canPost: Bool {
         // Not before the room's first read: with nothing read, an older post with the same words could settle it.
-        store.rows[project.id] != nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !Board.isOnlyMention(draft, mention: replyMention)
+        store.rows[project.id] != nil && !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !Board.isOnlyMention(postWords, mention: replyMention) && (attachedHere.isEmpty || uploadingHere == 0)
+    }
+
+    // MARK: Adding files (kosmos#7093: the board's + on the room's composer, through the chat's upload, #7071)
+
+    @State private var photoPicks: [PhotosPickerItem] = []
+    @State private var showPhotos = false
+    @State private var showFiles = false
+    private var attachKey: String { Board.roomAttachKey(project.id) }
+    private var attachedHere: [Board.Attached] { client.attached[attachKey] ?? [] }
+    private var uploadingHere: Int { client.uploading[attachKey] ?? 0 }
+    private var atFileLimit: Bool { attachedHere.count + uploadingHere >= Board.maxFiles }
+
+    private var addButton: some View {
+        Menu {
+            Button { showPhotos = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
+                .disabled(atFileLimit)
+            Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
+                .disabled(atFileLimit)
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(Palette.primary)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Palette.card))
+                .overlay(Circle().stroke(Palette.separator, lineWidth: 0.5))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        // The board's own label for its + (#pj-attach).
+        .accessibilityLabel("Add a file to this conversation")
+        .accessibilityHint(atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "")
+    }
+
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                if uploadingHere > 0 {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
+                            .font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                    .padding(.horizontal, 6)
+                    .accessibilityElement(children: .combine)
+                }
+                ForEach(attachedHere) { a in
+                    FileChip(name: a.name, remove: { client.unattach(a.id, for: attachKey) })
+                }
+            }
+            .padding(.horizontal, 2)
+            .frame(minHeight: 44)
+        }
+        .padding(.horizontal, 12)
+    }
+
+    // One at a time, in the order picked, as the chat adds them (its comments say why).
+    private func addPhotos(_ picks: [PhotosPickerItem]) async {
+        let epoch = client.chatEpoch
+        let at = Date()
+        client.attachLine[attachKey] = nil
+        for (i, item) in picks.enumerated() {
+            await store.attach(.photo(load: {
+                guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
+                let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
+                return (Board.photoName(at: at, ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg", number: i + 1), data)
+            }), epoch: epoch, to: project.id)
+        }
+    }
+
+    private func addFiles(_ urls: [URL]) async {
+        let epoch = client.chatEpoch
+        client.attachLine[attachKey] = nil
+        for url in urls { await store.attach(.file(url), epoch: epoch, to: project.id) }
     }
 
     private var composer: some View {
@@ -480,7 +557,13 @@ struct RoomView: View {
                 }
                 .padding(.horizontal, 16)
             }
+            if let line = client.attachLine[attachKey] {
+                Text(line).font(.footnote).foregroundColor(Palette.dangerWord)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
+            }
+            if !attachedHere.isEmpty || uploadingHere > 0 { chips }
             HStack(alignment: .bottom, spacing: 8) {
+                addButton
                 TextField("Write something or @name to message someone…", text: $draft, axis: .vertical)
                     .lineLimit(1...5)
                     .focused($typing)
@@ -507,6 +590,24 @@ struct RoomView: View {
             .padding(.horizontal, 12).padding(.vertical, 8)
         }
         .background(Palette.ground)
+        // Each picker on a host of its own, as the chat's (two presentations on one view can leave one that never opens).
+        .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
+                                             maxSelectionCount: max(1, Board.maxFiles - attachedHere.count - uploadingHere),
+                                             matching: .images, preferredItemEncoding: .compatible))
+        .onChange(of: photoPicks) { picks in
+            guard !picks.isEmpty else { return }
+            photoPicks = []
+            Task { await addPhotos(picks) }
+        }
+        .background(Color.clear.fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            switch result {
+            case .success(let urls): Task { await addFiles(urls) }
+            case .failure: client.attachLine[attachKey] = "We could not open that file."
+            }
+        })
+        .onChange(of: attachedHere.count) { [was = attachedHere.count] now in
+            if now > was, let name = attachedHere.last?.name { Self.say("Added \(name)") }
+        }
     }
 
     // kosmos#7085: the board's @ picker (#312), floating just above the box so the thread never moves: the project's
@@ -574,10 +675,12 @@ struct RoomView: View {
     // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
     private func send() {
         guard canPost else { return }
-        let text = draft
+        let text = postWords
         let reply = replying
+        let files = attachedHere
+        client.attachLine[attachKey] = nil
         draft = ""; replying = nil; replyMention = nil
-        Task { await store.post(text, to: project.id, replyTo: reply) }
+        Task { await store.post(text, to: project.id, replyTo: reply, files: files) }
     }
 }
 

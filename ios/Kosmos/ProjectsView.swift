@@ -161,7 +161,22 @@ final class RoomStore: ObservableObject {
     // board's pjPostSend: the bubble stays, marked Not posted or Not confirmed (with Delete), the words go back to the
     // box, and the sentence goes under it (the computer's own, or the board's unsure one). A not-confirmed post a read
     // then shows kept settles, and a box still holding those words is cleared (`kept`).
-    func post(_ text: String, to project: String, replyTo: Board.RoomRow?) async {
+    // kosmos#7093: a pick for this room's next post goes through the chat's own upload (BoardClient.attach), waiting
+    // under the room's key. The sample rooms (a Debug build only) add it at once, as the sample chats do.
+    func attach(_ pick: BoardClient.Pick, epoch: Int, to project: String) async {
+        #if DEBUG
+        let sample = Self.sample
+        #else
+        let sample = false
+        #endif
+        await client.attach(pick, epoch: epoch, key: Board.roomAttachKey(project), sample: sample) { mac, name, type in
+            Board.roomUploadRequest(mac: mac, project: project, name: name, type: type)
+        }
+    }
+
+    // `files` go with the words (kosmos#7093); kept, they leave the box's chips, as the board's attachClear after a post
+    // that went. Not kept, they stay waiting, so the person can post again without adding them again.
+    func post(_ text: String, to project: String, replyTo: Board.RoomRow?, files: [Board.Attached] = []) async {
         let mine = Set((rows[project] ?? []).filter { $0.byPerson }.map { $0.id })
         let newest = (rows[project] ?? []).compactMap { $0.at }.max()
         let item = Pending(id: UUID().uuidString, text: text.trimmingCharacters(in: .whitespacesAndNewlines), line: nil, before: mine, after: newest)
@@ -169,7 +184,7 @@ final class RoomStore: ObservableObject {
         notes[project] = nil   // the last post's line goes at the next press, as on the board
         pending[project, default: []].append(item)
         #if DEBUG
-        if Self.sample { pending[project]?.removeAll { $0.id == item.id }; return }
+        if Self.sample { pending[project]?.removeAll { $0.id == item.id }; for f in files { client.unattach(f.id, for: Board.roomAttachKey(project)) }; return }
         #endif
         let epoch = client.chatEpoch
         let result: Board.RoomPostResult
@@ -177,7 +192,8 @@ final class RoomStore: ObservableObject {
             // Nothing was sent, so it is Not posted, never Not confirmed.
             result = sure
         } else {
-            let answer = await client.throughMac { Board.roomPostRequest(mac: $0, project: project, text: item.text, replyTo: replyTo?.id) }
+            let answer = await client.throughMac { Board.roomPostRequest(mac: $0, project: project, text: item.text, replyTo: replyTo?.id,
+                                                                         attachments: files.map(\.id)) }
             guard same(epoch) else { return }
             // No answer because the connection went between the check and the send: nothing left, so Not posted.
             result = answer == nil && client.macURL == nil
@@ -186,6 +202,7 @@ final class RoomStore: ObservableObject {
         }
         switch result {
         case let .posted(note):
+            for f in files { client.unattach(f.id, for: Board.roomAttachKey(project)) }
             // A read that shows the post settles its bubble (inside loadRoom). Once a re-read has landed, the bubble
             // goes even if it did not match (the board's #6168: kept is kept); a re-read that failed leaves it, so a
             // kept post never disappears while the room cannot be read.
