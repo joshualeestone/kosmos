@@ -11,6 +11,8 @@ struct NewTaskView: View {
     // The draft is the Tasks tab's, so closing the sheet keeps it, as the board's Cancel keeps its draft; a
     // create clears it.
     @Binding var draft: NewTask.Draft
+    // The words that got "could not tell", kept by the Tasks tab with the draft so closing the sheet does not lift it.
+    @Binding var held: NewTask.Draft?
     let added: (String) -> Void        // the line the Tasks tab shows after a create
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -20,9 +22,6 @@ struct NewTaskView: View {
     @State private var sending = false
     @State private var message: String?
     @State private var lastTasks: Board.TasksRead?
-    // After "could not tell", Create waits until the person changes the words: a second tap of the same words is how a
-    // duplicate gets made. (A read that finds the task closes the sheet as made.)
-    @State private var unsureHold = false
     @State private var checking = false   // the read after "could not tell" is in the air
 
     var body: some View {
@@ -39,7 +38,7 @@ struct NewTaskView: View {
                             // Latched here, before the Task starts: a second tap in between would send a second create.
                             Button("Create") { guard !sending else { return }; sending = true; Task { await create() } }
                                 // Held until the projects are read: a kept draft's project is checked against them first.
-                                .disabled(list == nil || !NewTask.canCreate(draft) || unsureHold || checking)
+                                .disabled(list == nil || !NewTask.canCreate(draft) || NewTask.heldBack(draft, by: held) || checking)
                         }
                     }
                 }
@@ -54,9 +53,9 @@ struct NewTaskView: View {
         }
         // The board's limits and one-line questions, applied after the field has stored what was typed: a binding that
         // refused the change itself left the field showing characters that were not in the draft.
-        .onChange(of: draft.what) { v in unsureHold = false; let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.whatMax); if c != v { draft.what = c } }
-        .onChange(of: draft.done) { v in unsureHold = false; let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.doneMax); if c != v { draft.done = c } }
-        .onChange(of: draft.detail) { v in unsureHold = false; let c = NewTask.capped(v, at: NewTask.detailMax); if c != v { draft.detail = c } }
+        .onChange(of: draft.what) { v in let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.whatMax); if c != v { draft.what = c } }
+        .onChange(of: draft.done) { v in let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.doneMax); if c != v { draft.done = c } }
+        .onChange(of: draft.detail) { v in let c = NewTask.capped(v, at: NewTask.detailMax); if c != v { draft.detail = c } }
     }
 
     @ViewBuilder private var content: some View {
@@ -172,7 +171,7 @@ struct NewTaskView: View {
     private func made(number: Int?, sent: NewTask.Draft) {
         let name = list?.projects.first { $0.id == sent.project }?.name ?? "the project"
         let line = NewTask.addedLine(number: number, projectName: name)
-        unsureHold = false
+        held = nil
         if draft == sent { draft = NewTask.Draft() }   // words typed since are someone's next task, not this one's
         added(line)
         dismiss()
@@ -272,7 +271,7 @@ struct NewTaskView: View {
             message = why
             UIAccessibility.post(notification: .announcement, argument: why)
         case .unknown:
-            unsureHold = true
+            held = sent
             message = NewTask.unsureWords
             UIAccessibility.post(notification: .announcement, argument: NewTask.unsureWords)
             // The sheet's own read, judged on what it returns: the Tasks tab's list can be left as it was by a refresh

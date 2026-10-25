@@ -16,6 +16,7 @@ struct TasksTab: View {
     @State private var newTaskFor: NewTaskStart?
     @State private var notice: String?
     @State private var newTaskDraft = NewTask.Draft()   // kept when the sheet closes, as the board keeps its draft
+    @State private var newTaskHeld: NewTask.Draft?       // words that got "could not tell", kept with the draft
 
     var body: some View {
         NavigationView {
@@ -28,7 +29,8 @@ struct TasksTab: View {
                 .background(chatLink)
                 .background(taskLink)
                 .sheet(item: $newTaskFor) { start in
-                    NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft) { line in
+                    NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft,
+                                held: $newTaskHeld) { line in
                         notice = line
                         Task { await client.refreshTasks() }
                     }
@@ -38,7 +40,7 @@ struct TasksTab: View {
         // Another account or Mac: its projects are not this one's, so the sheet, its draft and the added line go too.
         .onChange(of: client.chatEpoch) { _ in
             openAgent = nil; openTask = nil
-            newTaskFor = nil; newTaskDraft = NewTask.Draft(); notice = nil
+            newTaskFor = nil; newTaskDraft = NewTask.Draft(); newTaskHeld = nil; notice = nil
         }
         .onAppear {
             visible = true; client.show(BoardClient.tasksViewer)

@@ -94,6 +94,15 @@ enum NewTask {
 
     static func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    // After "could not tell", the words that got no answer hold Create back while they are what the draft says (the
+    // project and the three fields, as sent): a second create of the same words is how a duplicate gets made. Other
+    // words, or another project, are another task.
+    static func heldBack(_ d: Draft, by held: Draft?) -> Bool {
+        guard let held else { return false }
+        return d.project == held.project && trimmed(d.what) == trimmed(held.what) && trimmed(d.done) == trimmed(held.done)
+            && trimmed(d.detail) == trimmed(held.detail)
+    }
+
     // After "could not tell", a Tasks read that came back: the open task in the project it was sent to, with the
     // sentence it was sent with, that was not there when it was sent. Nil when the read cannot say (no list from before
     // the send, so an older task with the same words could not be told apart).
@@ -200,7 +209,8 @@ enum NewTask {
             return .made(number: number, note: note)
         }
         let why = obj?["error"] as? String ?? ""
-        if why.isEmpty && status >= 500 { return .unknown }
+        // 502 and 504 are a gateway's (the relay's) whatever they say: the Mac's task create never sends either.
+        if status == 502 || status == 504 || (why.isEmpty && status >= 500) { return .unknown }
         if why.range(of: #"done-when check has to be (one line of plain text|\d+ characters or fewer)"#, options: .regularExpression) != nil {
             return .refused(doneWords)
         }

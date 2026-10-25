@@ -118,6 +118,8 @@ check(NewTask.result(status: 400, body: Data("not json".utf8)) == .refused(NewTa
 check(NewTask.result(status: 500, body: Data("not json".utf8)) == .unknown, "a server error with no sentence of the Mac's: unknown")
 check(NewTask.result(status: 502, body: Data("BOARD_NOT_ANSWERING".utf8)) == .unknown, "the relay's plain 502 when the Mac stops answering: unknown")
 check(NewTask.result(status: 504, body: nil) == .unknown, "a gateway timeout: unknown")
+check(NewTask.result(status: 502, body: Data(#"{"error":"upstream timeout"}"#.utf8)) == .unknown, "a gateway error is unknown even with a sentence (the Mac's create never sends 502)")
+check(NewTask.result(status: 503, body: Data(#"{"error":"we could not read the projects, so the task was not made"}"#.utf8)) == .refused("we could not read the projects, so the task was not made"), "CONTROL: the Mac's own 503 sentence is its refusal")
 check(NewTask.result(status: 500, body: Data(#"{"error":"the task list could not be saved"}"#.utf8)) == .refused("the task list could not be saved"), "a server error in the Mac's own words is its refusal")
 check(NewTask.result(status: 0, body: Data(#"{"error":"stale"}"#.utf8)) == .unknown, "no answer: unknown, never a stale body or a refusal")
 check(NewTask.result(status: 0, body: nil) == .unknown, "no answer and no body: unknown")
@@ -167,6 +169,14 @@ check(NewTask.oneLine("Proofread\nthe index") == "Proofread the index", "a line 
 check(NewTask.oneLine("a\r\nb\rc") == "a b c", "every kind of line break")
 check(NewTask.oneLine("No typos left ") == "No typos left ", "a line with no break is left as typed")
 check(page.contains(#"id="nt-what" type="text""#) && page.contains(#"id="nt-done" type="text""#), "the board's two questions are one-line inputs")
+
+section("the words that got could-not-tell hold Create back")
+let heldWords = NewTask.Draft(project: "book", what: "Proofread", done: "No typos", detail: "")
+check(NewTask.heldBack(heldWords, by: heldWords), "the same words: held")
+check(NewTask.heldBack(NewTask.Draft(project: "book", what: "Proofread ", done: "No typos"), by: heldWords), "the same words with a stray space: still held")
+check(!NewTask.heldBack(NewTask.Draft(project: "book", what: "Proofread the index", done: "No typos"), by: heldWords), "other words: another task")
+check(!NewTask.heldBack(NewTask.Draft(project: "zeta", what: "Proofread", done: "No typos"), by: heldWords), "another project: another task")
+check(!NewTask.heldBack(heldWords, by: nil), "nothing held: not held")
 
 section("after could-not-tell, a read that came back")
 let sentDraft = NewTask.Draft(project: "book", what: "Proofread the index ", done: "x")

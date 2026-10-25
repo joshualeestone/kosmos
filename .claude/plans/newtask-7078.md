@@ -155,3 +155,11 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - LEFT (nits): two Tasks refreshes can start together after a found-after-unknown; Swift and JS trimming differ on a
   few code points (a sentence edged with U+FEFF is never found, so the hold simply stays); firstProject is pinned by
   the tests while settled uses the first offered directly; sampleNewTaskShown outside #if DEBUG.
+- Iteration 12 (sonnet): the hold lives with the draft in the Tasks tab, as "the words that got could-not-tell"
+  (NewTask.heldBack: same project and the three fields, trimmed). Closing and reopening no longer lifts it; other
+  words or another project are another task, so it lifts by itself. Cleared on a made task and on another account.
+- 502 and 504 are always unknown, whatever their body says: they are a gateway's. The Mac's task create never sends
+  either (server.js uses 502 only on the community routes, for an outside service; its 503s are its own "not done"
+  sentences and stay refusals, with a control). Not pinned by a test: a source pin on status codes would be brittle.
+- Tests after the rebase: 108/108 now (the 94/94 above is the count at that time).
+- LEFT (nits): a rewrite in onChange could reset an IME composition at the limit (reasoned, not tried).
