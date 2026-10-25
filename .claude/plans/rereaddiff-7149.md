@@ -48,6 +48,7 @@ Within a run, each removed line sits beside the line that replaced it. A cut the
 The copy moves at a `started` report and at a landed line. A runner or restart that posts no `started` report leaves the copy older than what the agent read. The next diff then shows MORE than changed since: changes already read are listed again. That errs in the safe direction: nothing is hidden. A start whose copy cannot be renewed drops the copy, so its next notice is as before.
 
 ## NOT CLAIMED
+- An UNCONFIRMED verdict (a throwing deliver included) ends the debt and moves the copy, as settle always ended the debt. If that line never reached the agent, the next notice's diff leaves out those changes, as before this change, when the debt ended the same way (review 10).
 - A recorded start that lands while a line is being typed removes the changes file that line names (rememberRead drops it). The agent finds no file, and the line already says the file is a pointer only and to read the sections (review 9).
 - A REMOVED agent (remove.js, which never deletes) keeps its copy, as it keeps its files. Deleting what is left (delete-leftover) forgets it. Sessions are never renamed (only the display name changes), so no file is left under an old name.
 - An absolute path is named in the line. A folder path with whitespace, a double quote or a control character is never named, and its notice is as before.
