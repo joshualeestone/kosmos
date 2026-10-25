@@ -124,6 +124,20 @@ test('#4658: a lost seal file still reads as sealed from the links (owner sealed
   assert.equal(federation.ownCode('proj-lost-s', 'L', 'laptop'), null);
 });
 
+test('#4658: a sealing invite marks the owner link sealed, so a lost seal file still refuses a version 1 code', async () => {
+  federation.recordLink('proj-inv-s', { role: 'owner', ref: 'ref-inv-s' });
+  const stub = { macRequest: async () => ({ ok: true, data: { code: 'C8', expires_at: 1, invite_id: 'inv-8' } }) };
+  const out = await federation.invite(stub, { project_ref: 'ref-inv-s', project_name: 'Mine', invited_kind: 'person' });
+  assert.equal(out.status, 200, JSON.stringify(out.body));
+  assert.equal(federation.linkFor('proj-inv-s').sealed, true, 'the link remembers the seal');
+  // The seal file is lost: the link alone says sealed, and there is no key, so no code (never a v 1 one).
+  const fedseal = require('./fedseal');
+  const realSealed = fedseal.isSealedRef;
+  fedseal.isSealedRef = () => false;
+  try { assert.equal(federation.ownCodeRefusal('proj-inv-s'), 'sealed-waiting'); }
+  finally { fedseal.isSealedRef = realSealed; }
+});
+
 test('#4658: a room whose own computers all came in by a sealed code can still invite guests; one shared by a v 1 code cannot', async () => {
   const calls = [];
   const stub = { macRequest: async (m, r, b) => { calls.push(b); return { ok: true, data: { code: 'C3', expires_at: 1, invite_id: 'inv-3' } }; } };

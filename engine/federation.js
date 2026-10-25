@@ -10,7 +10,8 @@
  *
  * The link record lives in federation.json beside projects.json, keyed by the
  * local project id, so the projects schema is untouched:
- *   owner:  { role: 'owner',  ref, selfShared?, sealedOwn? }   ref = the project_ref invites were minted with;
+ *   owner:  { role: 'owner',  ref, selfShared?, sealedOwn?, sealed? }   ref = the project_ref invites were minted with;
+ *           sealed = a sealing invite was made for it, as the seal file also records (#4658);
  *           selfShared = an own code was made, so the owner's room seats this account's other computers (#4649);
  *           sealedOwn = the first own code was made while the room was sealed, so every own computer in it
  *           joined by a sealed (version 2) code (#4658)
@@ -226,6 +227,12 @@ function ownCodeRefusal(projectId) {
   if (noKey) return link.role === 'owner' ? 'sealed-waiting' : 'sealed-not-in';
   return null;
 }
+/** Mark every owner link for `ref` as sealed (`sealed: true`). Throws on an unreadable or unwritable links record. */
+function markOwnerSealed(ref) {
+  for (const [id, l] of Object.entries(links())) {
+    if (l && l.role === 'owner' && l.ref === ref && l.sealed !== true) recordLink(id, Object.assign({}, l, { sealed: true }));
+  }
+}
 /** Whether a room's seal record holds the key for its current epoch. The same test as fedseats' hasKey (fedseats
     requires this module, so it cannot be imported from there); keep the two the same. */
 function roomKeyHeld(st) {
@@ -238,7 +245,7 @@ function roomKeyHeld(st) {
     is made rather than one that might be wrong. */
 function ownCodeSealed(projectId, link) {
   if (!link) return false;
-  if (link.role === 'owner') return link.sealedOwn === true || (refOk(link.ref) && fedseal.isSealedRef(link.ref) === true);
+  if (link.role === 'owner') return link.sealed === true || link.sealedOwn === true || (refOk(link.ref) && fedseal.isSealedRef(link.ref) === true);
   if (link.role === 'self') {
     if (link.sealed === true) return true;
     const st = fedseal.roomState(projectId);
@@ -415,6 +422,9 @@ async function invite(remote, body) {
   try { fedseal.stashInvite(body.project_ref, { s, code: r.data.code, invite: r.data.invite_id }); } catch (err) {
     return { status: 500, body: { error: 'We could not keep this invite\'s key on this computer, so no code was made. Try again. (' + String((err && err.message) || 'unknown') + ')' } };
   }
+  // #4658 (review 7): the owner link remembers the room is sealed too, so a lost seal file never makes it read as
+  // unsealed (an own code, or the owner's own posts). Best effort: the seal file is the record of the seal.
+  try { markOwnerSealed(body.project_ref); } catch { /* the seal file still holds it */ }
   // #4649: invite_id lets the owner's Members list tie this code to the connection redeemed from it.
   // kosmos#6708 review 1: the address the COORDINATOR bound the code to, when it says one (an older coordinator ignores
   // `email` and echoes none, and then the page must not promise a restriction that does not exist).

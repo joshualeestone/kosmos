@@ -285,6 +285,31 @@ test('#4658: a computer that joined by a sealed code and lost its seal record st
   assert.ok(fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop()), 'no hello: it would hold its posts with nothing asked');
 });
 
+test('#4658: a sealed own computer whose record cannot be written back still holds its posts, and says why', async () => {
+  federation.recordLink('own-j4', { role: 'self', ref: 'ref-own-j4', sealed: true });
+  const real = fedseal.setRoomState;
+  fedseal.setRoomState = () => { throw new Error('EACCES'); };
+  try {
+    const h = harness();
+    await fedseats.ensure('own-j4');
+    const seat = h.spawned[0];
+    say(seat, { event: 'connected', room: 'room-j4', expires_at: 9 });
+    await settle();
+    assert.strictEqual(fedseal.roomState('own-j4'), null, 'precondition: the record really was not written back');
+    fedseats.post('own-j4', { from: 'Josh', kind: 'person', text: 'unwritable words' });
+    await settle();
+    assert.ok(!seat.written.join('').includes('unwritable words'), 'the link alone must hold the post (isSealedRoom self clause)');
+    assert.ok(h.notes.some((n) => n.projectId === 'own-j4' && /could not record that/.test(n.text)), 'held with no word why');
+  } finally { fedseal.setRoomState = real; }
+});
+
+test('#4658: an owner room whose link says sealed reads as sealed with no seal file (no owner post in the clear)', () => {
+  assert.strictEqual(fedseats.isSealedRoom(null, { role: 'owner', ref: 'ref-none-1', sealedOwn: true }), true);
+  assert.strictEqual(fedseats.isSealedRoom(null, { role: 'owner', ref: 'ref-none-2', sealed: true }), true);
+  // CONTROL: the same owner with neither mark and no seal file is unsealed, as main reads it.
+  assert.strictEqual(fedseats.isSealedRoom(null, { role: 'owner', ref: 'ref-none-3' }), false);
+});
+
 test('#4658 CONTROL: the same computer joined by a version 1 code (no record) sends its first post in the clear, as main does', async () => {
   federation.recordLink('own-j2', { role: 'self', ref: 'ref-own-j2' });
   const h = harness();
