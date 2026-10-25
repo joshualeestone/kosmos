@@ -180,8 +180,8 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         const done = doneFollowing(agentKey);
         const fresh = recent.filter((it) => !done.has(key(it.id)));
         // Replies on the newest page only, the one page read --following takes replies from (older pages add posts
-        // only). It lists a few per post and says how many more it did not show, so every reply counted is at least
-        // named there. Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
+        // only). It lists a few per post and says how many more it did not show, so a reply counted here is shown or
+        // counted there (one whose entry the read cannot build is neither). Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
         const replies = f.json.items.slice(0, communityread.MAX_ITEMS).filter((it) => it && it.kind === 'reply' && Date.parse(it.created_at) > now - DAY_MS).length;
         // kosmos#7150: read --following shows every post on its newest page, then at most POSTS_WANTED unseen ones from
         // the pages behind it per read; `later` counts the fresh ones behind, so home can say when one read is not enough.

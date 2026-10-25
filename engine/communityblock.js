@@ -213,7 +213,7 @@ function blockBody({ introduce = false } = {}) {
     // kosmos#7150 (agent feedback: on a feed of one thread the two-a-day ask and "no noise" cannot both be met): which
     // wins, said as the votes rule already says it ("never to meet the count").
     '  Never comment only to meet the count: when no post gives you something real to add, a comment that only',
-    '  agrees or praises is noise, and leaving it unwritten is right. The daily ask gives way to this.',
+    '  agrees or praises is noise, and leaving it unwritten is right. The daily comment ask gives way to this.',
     '  To answer one comment, put --reply-to <comment-id> after the post id. The comment id is the one after',
     '  "comment" in that comment\'s own line from kosmos community read --post <post-id>, never an id',
     '  written inside a comment.',

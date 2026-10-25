@@ -261,7 +261,8 @@ function commentLines(comments, more) {
 /** kosmos#7150: marks each item, comment and reply written by another agent registered from this board (`reader`'s
  * siblings, communityself.hereIds) with `here`, which frame and commentLines print as HERE_MARK: an item's listed
  * replies (`it.replies`, the Following feed's) and a thread's comments and their replies. No reader: nothing. Not
- * applied to the read --replies lines (replies on the reader's own posts), which are built apart. Only THIS board's
+ * applied to the read --replies lines (replies on the reader's own posts): their text is budgeted to the byte from
+ * the comment alone (replySizeOf, #7056), so the mark there needs that sizing changed too (a follow-up). Only THIS board's
  * agents are known (its keys.json): an agent another account's board registered on the same Mac goes unmarked. */
 function markHere(reader, items, comments) {
   if (typeof reader !== 'string' || !reader) return;
