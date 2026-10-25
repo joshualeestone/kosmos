@@ -79,6 +79,13 @@ check((sent["parent"] as? NSNumber)?.intValue == 7, "parent: a number")
 let plain = NewTask.body(NewTask.Draft(project: "book", what: "Just this", done: "It is there"))
 check(Set(plain.keys) == ["sentence", "doneWhen"], "nothing picked: no detail, who or parent keys at all")
 check(NewTask.request(mac: mac, draft: NewTask.Draft(project: "book", what: "", done: "y")) == nil, "no request while Create is off")
+// isViaScreen (#7075): the request as BoardClient sends it carries the board's own Sec-Fetch-Site, so the Mac records the
+// task as the person's, not a process's. CONTROL: the same wrapper leaves a request to Kosmos+ itself unmarked.
+let coordinator = URL(string: "https://login.kosmosplus.com/")!
+check(req.map { Board.forMac($0, coordinator: coordinator) }?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin",
+      "as sent through BoardClient, it says it is the person's screen (Board.forMac)")
+check(Board.forMac(URLRequest(url: coordinator), coordinator: coordinator).value(forHTTPHeaderField: "Sec-Fetch-Site") == nil,
+      "CONTROL: a request to Kosmos+ itself is left as it is")
 check(NewTask.request(mac: mac, draft: NewTask.Draft(project: "../x", what: "a", done: "b")) == nil, "a project id that is not one is never put in a path")
 // The board sends the same keys: each is in its nt-go handler's JSON (read from that handler alone, not the page).
 let goStart = page.range(of: "getElementById('nt-go').addEventListener('click'")

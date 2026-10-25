@@ -34,3 +34,8 @@ Branch `newtask-7078`. Ice Cream Kitty, 2026-10-24 20:20 CDT.
 That #7076 lands as Angel describes (every throughMac request carries Sec-Fetch-Site). Without it the Mac records a
 phone-added task as a process's and the runaway breaker counts it. This branch must not merge before #7076 is on main,
 and the rebase must be checked by reading the request the client actually sends, not by trusting the rebase.
+
+## After the rebase onto #7076 (20:30 CDT)
+#7076 merged; rebased cleanly. Read, not assumed: BoardClient.init wraps env.send with Board.forMac, and throughMac
+sends through self.env, so this sheet's POST carries Sec-Fetch-Site: same-origin to the Mac's host. Pinned in the suite
+(the request through Board.forMac says it is the person's; CONTROL: a request to Kosmos+ is left unmarked). 51/51.
