@@ -124,8 +124,9 @@ extension Board {
             members: members, number: number, sentence: text(t["sentence"]) ?? "", detail: text(t["detail"]),
             createdAt: text(t["createdAt"]), addedBy: text(t["addedBy"]), addedVia: text(t["addedVia"]),
             closed: closed, closedAt: closedAt,
-            partsDone: integer(progress?["done"]) ?? parts.filter(\.closed).count,
-            partsTotal: integer(progress?["total"]) ?? parts.count,
+            // Without the engine's progress the board says Open or Done (tkStateWord), never a count of its own.
+            partsDone: integer(progress?["done"]) ?? 0,
+            partsTotal: integer(progress?["total"]) ?? 1,
             replacedBy: integer(t["replacedBy"]), dueDate: text(t["dueDate"]),
             onHold: t["onHold"] as? Bool == true, onHoldByPerson: t["onHoldByPerson"] as? Bool == true,
             builtAt: text(t["builtAt"]), builtBy: text(t["builtBy"]), builtByPerson: t["builtByPerson"] as? Bool == true,
@@ -169,10 +170,19 @@ extension Board.TaskPage {
     }
 
     // tkAdded: who added it and when, in whole days in the phone's own time zone.
-    func added(now: Date, calendar: Calendar = .current) -> String {
-        let who = addedVia == "webhook" ? (addedBy.map { $0 + " (a webhook)" } ?? "A webhook")
+    func added(now: Date, calendar: Calendar = .current) -> String { addedParts(now: now, calendar: calendar).words }
+
+    // Who and when, and whether the who is one of tkAdded's own fixed words (You, A webhook, An agent, Somebody) rather
+    // than a name, so the line drawn can lower it without ever touching a name.
+    func addedParts(now: Date, calendar: Calendar = .current) -> (words: String, fixedOpening: String?) {
+        let fixed: String? = addedVia == "webhook" ? (addedBy == nil ? "A webhook" : nil)
             : addedBy == "operator" ? "You"
-            : (addedBy ?? (addedVia == "process" ? "An agent" : "Somebody"))
+            : (addedBy == nil ? (addedVia == "process" ? "An agent" : "Somebody") : nil)
+        let who = fixed ?? (addedVia == "webhook" ? addedBy! + " (a webhook)" : addedBy!)
+        return (addedWhen(who: who, now: now, calendar: calendar), fixed)
+    }
+
+    private func addedWhen(who: String, now: Date, calendar: Calendar) -> String {
         guard let raw = createdAt, let at = Tasks.parseISO(raw) else { return who }
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: at), to: calendar.startOfDay(for: now)).day ?? 0
         let when: String
@@ -192,12 +202,9 @@ extension Board.TaskPage {
     // The line the page draws: "Added by you, today" (tkAdded's own words start a sentence, so its fixed openings are
     // lowered here; a name is left as it is).
     func addedLine(now: Date, calendar: Calendar = .current) -> String {
-        var words = added(now: now, calendar: calendar)
-        for opening in ["You", "An agent", "Somebody", "A webhook"] where words == opening || words.hasPrefix(opening + ",") || words.hasPrefix(opening + " ") {
-            words = opening.lowercased() + words.dropFirst(opening.count)
-            break
-        }
-        return "Added by " + words
+        let parts = addedParts(now: now, calendar: calendar)
+        guard let fixed = parts.fixedOpening else { return "Added by " + parts.words }
+        return "Added by " + fixed.lowercased() + parts.words.dropFirst(fixed.count)
     }
 
     // The due date, read only here (it is set on the board's page): "Due Oct 30".
@@ -223,7 +230,7 @@ extension Board.TaskPage {
         if projectPaused { return "This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out." }
         guard onHold else { return nil }
         return onHoldByPerson
-            ? "You put this on hold, so only you can take it off. Kosmos does not nudge anyone about it or hand it out."
+            ? "You put this on hold, so only you can take it off, on your computer's board. Kosmos does not nudge anyone about it or hand it out."
             : "This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out."
     }
 

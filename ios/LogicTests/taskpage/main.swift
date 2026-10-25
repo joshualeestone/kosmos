@@ -61,8 +61,8 @@ let parts = page(5)
 check(parts?.stateWord == "1 of 2 parts done", "two parts, one done: the count")
 check(parts?.partLines(roster: roster).map { "\($0.who)|\($0.line ?? "")|\($0.done)" } == ["Eli||true", "Dana|Check linen prices|false"],
       "each part: who, its own words when they differ, and done")
-check(parts?.holdLine == "You put this on hold, so only you can take it off. Kosmos does not nudge anyone about it or hand it out.",
-      "held by the person: said, without the board's control words")
+check(parts?.holdLine == "You put this on hold, so only you can take it off, on your computer's board. Kosmos does not nudge anyone about it or hand it out.",
+      "held by the person: said, and where it is taken off (the phone has no control for it)")
 check(parts?.added(now: createdAt, calendar: cal) == "eli, today", "added by an agent: the board's own words (its session name)")
 
 let replaced = page(6)
@@ -99,6 +99,13 @@ check(synthetic(#"{"number":1,"sentence":"S"}"#, paused: true)?.holdLine == "Thi
       "a paused project says so")
 let webhook = synthetic(#"{"number":1,"sentence":"S","addedBy":"Shop","addedVia":"webhook","createdAt":"2026-10-01T10:00:00.000Z"}"#)
 check(webhook?.added(now: Tasks.parseISO("2026-10-24T10:00:00.000Z")!, calendar: cal) == "Shop (a webhook), Oct 1", "a webhook's task, a while ago: the date")
+let youName = synthetic(#"{"number":1,"sentence":"S","addedBy":"You Need A Budget","addedVia":"webhook","createdAt":"2026-10-24T10:00:00.000Z"}"#)
+check(youName?.addedLine(now: Tasks.parseISO("2026-10-24T11:00:00.000Z")!, calendar: cal) == "Added by You Need A Budget (a webhook), today",
+      "a name that starts like a fixed word is left as it is")
+check(synthetic(#"{"number":1,"sentence":"S","addedVia":"process"}"#)?.addedLine(now: Date(), calendar: cal) == "Added by an agent",
+      "a fixed opening is lowered")
+check(synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"sentence":"S"},{"id":2,"sentence":"T","closedAt":"2026-10-24T10:00:00.000Z"}]}"#)?.stateWord == "Open",
+      "no progress from the engine: Open or Done, never a count of its own")
 
 section("Mark as done, Reopen and seen: the requests")
 let mac = URL(string: "https://studio.kosmosplus.com")!
@@ -153,6 +160,16 @@ final class FakeMac {
     var asked: [String] = []
     var epoch = 0
     var onSend: ((URLRequest) -> Void)?
+    // When set, the next request is held until release() (for reads that land out of order).
+    var holdNext = false
+    private var held: CheckedContinuation<Void, Never>?
+    var holding: Bool { held != nil }
+    func release() { let h = held; held = nil; h?.resume() }
+    func asyncSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
+        let answer = send(build)
+        if holdNext { holdNext = false; await withCheckedContinuation { held = $0 } }
+        return answer
+    }
     func send(_ build: (URL) -> URLRequest?) -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://studio.kosmosplus.com")!) else { return nil }
         asked.append((r.httpMethod ?? "GET") + " " + r.url!.path)
@@ -171,8 +188,13 @@ final class FakeMac {
 func modelTests() async {
     let mac = FakeMac()
     var slept: [TimeInterval] = []
+    var clock = Date(timeIntervalSince1970: 1_800_000_000)
     func model(_ n: Int) -> TaskPageModel {
-        TaskPageModel(project: "springcatalogue", number: n, send: { mac.send($0) }, sleep: { slept.append($0) }, epoch: { mac.epoch })
+        let m = TaskPageModel(project: "springcatalogue", number: n, send: { await mac.asyncSend($0) }, sleep: { slept.append($0) },
+                              epoch: { mac.epoch }, now: { clock })
+        m.onScreen = true
+        m.touched()
+        return m
     }
     let m = model(3)
     let nm: (String) -> String = { $0 == "dana" ? "Dana" : $0 }
@@ -201,19 +223,42 @@ func modelTests() async {
     // Seen: once per state of the activity; a 5xx tried once more after 3 s, only while it is still on screen.
     mac.asked = []
     mac.seenAnswers = [(503, "{}"), (200, "{}")]
-    await m.markSeen(onScreen: { true })
-    await m.markSeen(onScreen: { true })
+    await m.markSeen()
+    await m.markSeen()
     check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen", "POST /api/project/springcatalogue/task/3/seen"] && slept == [3],
           "a 503 is tried once more after 3 s, and the same state is not marked again")
     mac.asked = []
     mac.activity = (200, Data(#"{"events":[{"at":"2026-10-25T01:00:00Z","kind":"said","text":"new"}],"count":1}"#.utf8))
     await m.readActivity(names: nm)
-    await m.markSeen(onScreen: { false })
+    m.onScreen = false
+    await m.markSeen()
     check(mac.asked == ["GET /api/project/springcatalogue/task/3/activity"], "not on screen: not marked seen")
     mac.seenAnswers = [(403, #"{"error":"only the person's page can mark a task seen"}"#)]
     mac.asked = []
-    await m.markSeen(onScreen: { true })
-    check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a new state is marked; a 4xx settles it with no retry")
+    m.onScreen = true
+    m.touched()
+    await m.markSeen()
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"],
+          "the state that landed while it was off screen is marked when the page is back; a 4xx settles it with no retry")
+
+    // The person must be there (the board's tkPresent): no touch for two minutes, or the app in the background.
+    mac.activity = (200, Data(#"{"events":[{"at":"2026-10-25T01:05:00Z","kind":"said","text":"newer"}],"count":1}"#.utf8))
+    await m.readActivity(names: nm)
+    clock += TaskPageModel.presentFor + 1
+    mac.asked = []
+    await m.markSeen()
+    check(mac.asked.isEmpty, "nobody has touched it for two minutes: not marked seen (a phone left open on a stand)")
+    m.touched()
+    m.appActive = false
+    await m.markSeen()
+    check(mac.asked.isEmpty, "the app in the background: not marked seen")
+    m.appActive = true
+    mac.seenAnswers = [(502, "{}")]
+    mac.onSend = { r in if r.url!.path.hasSuffix("/seen") { m.onScreen = false } }
+    await m.markSeen()
+    mac.onSend = nil
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a retry is not sent once the person has left the page")
+    m.onScreen = true
 
     // A failed activity read keeps the rows shown.
     let shownRows = m.activity
@@ -237,7 +282,31 @@ func modelTests() async {
     check(e.page == nil && !e.readFailed, "a read that lands after another account or Mac changes nothing")
     mac.asked = []
     await e.press(.close, names: nm)
-    check(mac.asked.isEmpty, "and a page from before it sends nothing")
+    await e.read()
+    check(mac.asked.isEmpty, "and a page from before it sends nothing, not even a read")
+
+    // Reads that land out of order: the newer answer stands.
+    mac.epoch = 0
+    let o = model(3)
+    mac.holdNext = true
+    let first = Task { await o.read() }
+    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    mac.projects = (200, Data(#"{"projects":[]}"#.utf8))
+    await o.read()
+    check(o.gone, "premise: the newer read says the task is gone")
+    mac.release()
+    await first.value
+    check(o.gone && o.page == nil, "the older read, landing after it, does not bring the task back")
+    mac.projects = (200, projectsData)
+    mac.activity = (200, fixture("activity-3.json"))
+    mac.holdNext = true
+    let firstActivity = Task { await o.readActivity(names: nm) }
+    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    mac.activity = (200, Data(#"{"events":[],"count":0}"#.utf8))
+    await o.readActivity(names: nm)
+    mac.release()
+    await firstActivity.value
+    check(o.activity == [], "an older activity read landing after a newer one does not replace it")
 }
 await modelTests()
 

@@ -24,6 +24,15 @@ final class TaskPageModel: ObservableObject {
     private let send: Send
     private let sleep: (TimeInterval) async -> Void
     private let epoch: () -> Int
+    private let now: () -> Date
+    // Whether the person is in front of the page (the board's tkPresent: the page on screen, the app in front, and a
+    // touch in the last two minutes). Set by the view as it changes, read live at every mark and retry.
+    var onScreen = false
+    var appActive = true
+    private(set) var lastTouch: Date = .distantPast
+    static let presentFor: TimeInterval = 120
+    func touched() { lastTouch = now() }
+    var present: Bool { onScreen && appActive && now().timeIntervalSince(lastTouch) < Self.presentFor }
     // The chats' forgetting count this page was opened under: another account or Mac makes it a page about nothing.
     private let openedIn: Int
     // Reads are numbered, so a slow earlier one never undoes a newer one.
@@ -35,12 +44,14 @@ final class TaskPageModel: ObservableObject {
     private var seenKey: String?
     private var rawEvents: [[String: Any]] = []
 
-    init(project: String, number: Int, send: @escaping Send, sleep: @escaping (TimeInterval) async -> Void, epoch: @escaping () -> Int) {
+    init(project: String, number: Int, send: @escaping Send, sleep: @escaping (TimeInterval) async -> Void, epoch: @escaping () -> Int,
+         now: @escaping () -> Date = Date.init) {
         self.project = project
         self.number = number
         self.send = send
         self.sleep = sleep
         self.epoch = epoch
+        self.now = now
         self.openedIn = epoch()
     }
 
@@ -48,6 +59,8 @@ final class TaskPageModel: ObservableObject {
 
     // GET /api/projects, then the task by its number.
     func read() async {
+        // Not for a page opened under another account or Mac: its project id means nothing to the one now.
+        guard current else { return }
         pageReads += 1
         let mine = pageReads
         let answer = await send { Board.projectsRequest(mac: $0) }
@@ -69,6 +82,7 @@ final class TaskPageModel: ObservableObject {
 
     // GET .../activity. A failed read keeps the rows already shown (the board's: it says so only when it has none).
     func readActivity(names: @escaping (String) -> String) async {
+        guard current else { return }
         activityReads += 1
         let mine = activityReads
         let (project, number) = (self.project, self.number)
@@ -108,17 +122,18 @@ final class TaskPageModel: ObservableObject {
         pressing = false
     }
 
-    // POST .../seen for the activity state on screen, once per state; a 5xx or no answer is tried once more 3 s later,
-    // only if that state is still the one shown (the board's tkMarkSeen). `onScreen` says the page is still in front of
-    // the person when the retry comes.
-    func markSeen(onScreen: @escaping () -> Bool) async {
-        guard current, let key = activityKey, key != seenKey, onScreen() else { return }
+    // POST .../seen for the activity state on screen, once per state, only while the person is there (present); a 5xx
+    // or no answer is tried once more 3 s later, only if that state is still the one shown and they are still there
+    // (the board's tkMarkSeen). Called when a new state is drawn, when the page appears and when the app comes back, so
+    // a state that landed while they were away is marked when they return.
+    func markSeen() async {
+        guard current, let key = activityKey, key != seenKey, present else { return }
         seenKey = key
         let (project, number) = (self.project, self.number)
         let first = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }
         guard Board.seenRetries(status: first?.1.statusCode ?? 0) else { return }
         await sleep(3)
-        guard current, activityKey == key, onScreen() else { return }
+        guard current, activityKey == key, present else { return }
         _ = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }
     }
 }
