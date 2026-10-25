@@ -314,11 +314,12 @@ extension Board {
     // POST .../task/<n>/close or /reopen, with no body (the board's tk-done).
     static func taskActRequest(mac: URL, project: String, number: Int, act: TaskAct) -> URLRequest? {
         guard let url = taskRoute(mac: mac, project: project, number: number, act.rawValue) else { return nil }
-        var r = URLRequest(url: url)
-        r.httpMethod = "POST"
-        r.setValue("application/json", forHTTPHeaderField: "Accept")
-        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        return r
+        // Each request here has its own name, so server.ios-routes-6838.test.js can tell them apart (its SITES).
+        var press = URLRequest(url: url)
+        press.httpMethod = "POST"
+        press.setValue("application/json", forHTTPHeaderField: "Accept")
+        press.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return press
     }
 
     enum TaskActResult: Equatable { case done, refused(String) }
@@ -334,10 +335,10 @@ extension Board {
     // POST .../task/<n>/seen: the person has this task in front of them (engine/taskseen.js).
     static func taskSeenRequest(mac: URL, project: String, number: Int) -> URLRequest? {
         guard let url = taskRoute(mac: mac, project: project, number: number, "seen") else { return nil }
-        var r = URLRequest(url: url)
-        r.httpMethod = "POST"
-        r.setValue("application/json", forHTTPHeaderField: "Accept")
-        return r
+        var seen = URLRequest(url: url)
+        seen.httpMethod = "POST"
+        seen.setValue("application/json", forHTTPHeaderField: "Accept")
+        return seen
     }
 
     // A 5xx or no answer is tried once more; anything else settles it (the board's tkMarkSeen).
@@ -355,10 +356,10 @@ extension Board {
 
     static func taskActivityRequest(mac: URL, project: String, number: Int) -> URLRequest? {
         guard let url = taskRoute(mac: mac, project: project, number: number, "activity") else { return nil }
-        var r = URLRequest(url: url)
-        r.setValue("application/json", forHTTPHeaderField: "Accept")
-        r.cachePolicy = .reloadIgnoringLocalCacheData
-        return r
+        var activity = URLRequest(url: url)
+        activity.setValue("application/json", forHTTPHeaderField: "Accept")
+        activity.cachePolicy = .reloadIgnoringLocalCacheData
+        return activity
     }
 
     // The events, oldest first as the Mac keeps them; nil when the answer is not one.

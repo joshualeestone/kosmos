@@ -86,6 +86,17 @@ const SITES = [
     pins: ['path.hasPrefix("/api/agent/"), path.hasSuffix("/avatar")'],
     callers: { pattern: /\brequest\(host:[^,]+,\s*path:\s*("[^"]*"|[\w.]+)/g, every: /\brequest\(host:/g,
       skip: /\bfunc\s+request\(host:/, expect: ['"/"', '"/api/phone/notice"'], scope: 'file' } },
+  // kosmos#7074: a task's page. The URL is built by taskRoute (the task number is a real number here, since the board's
+  // routes take only digits); its callers pass the act (close or reopen), "seen" and "activity".
+  { file: 'ios/Kosmos/TaskPageLogic.swift', text: 'var press = URLRequest(url: url)', method: 'POST',
+    routes: ['POST /api/project/x/task/1/close', 'POST /api/project/x/task/1/reopen'],
+    pins: ['URL(string: "/api/project/\\(project)/task/\\(number)/\\(tail)"', 'case close, reopen'],
+    callers: { pattern: /\btaskRoute\(mac:[^,]+,\s*project:[^,]+,\s*number:[^,]+,\s*([^)]+)\)/g, every: /\btaskRoute\(/g,
+      skip: /\bfunc\s+taskRoute\(/, expect: ['act.rawValue', '"seen"', '"activity"'], scope: 'app' } },
+  { file: 'ios/Kosmos/TaskPageLogic.swift', text: 'var seen = URLRequest(url: url)', method: 'POST',
+    routes: ['POST /api/project/x/task/1/seen'], pins: ['taskRoute(mac: mac, project: project, number: number, "seen")'] },
+  { file: 'ios/Kosmos/TaskPageLogic.swift', text: 'var activity = URLRequest(url: url)', method: 'GET',
+    routes: ['GET /api/project/x/task/1/activity'], pins: ['taskRoute(mac: mac, project: project, number: number, "activity")'] },
 ];
 /* A SITES entry's callers (review 6): every call of the helper, in every app file, has its argument read, and the set
    of arguments must equal expect; a call the pattern cannot read is a problem too. So a new route passed to a helper

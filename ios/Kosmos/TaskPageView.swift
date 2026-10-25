@@ -268,7 +268,8 @@ struct TaskPageView: View {
                 ForEach(rows) { row in
                     VStack(alignment: .leading, spacing: 2) {
                         if let at = row.at {
-                            Text(Tasks.agoWords(Date().timeIntervalSince(at) * 1000)).font(.caption).foregroundColor(Palette.tertiary)
+                            // Secondary, not tertiary: small text needs AA contrast in dark mode too.
+                            Text(Tasks.agoWords(Date().timeIntervalSince(at) * 1000)).font(.caption).foregroundColor(Palette.secondary)
                         }
                         Text(row.text).font(.subheadline).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
                     }
@@ -295,7 +296,7 @@ struct TaskPageView: View {
         let iso = { (m: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-m * 60)) }
         func closed(_ n: Int, _ open: String) -> String { sampleClosed.contains(n) ? #""closedAt":""# + iso(0) + #"","progress":{"done":1,"total":1,"closed":true}"# : open }
         let body: String
-        if path == "/api/projects" {
+        if path.hasSuffix("/projects") {
             body = #"{"projects":[{"id":"p-cat","name":"Spring catalogue","paused":false,"agents":[{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"tasks":["#
                 + #"{"number":3,"sentence":"Print-ready catalogue","addedBy":"operator","addedVia":"screen","createdAt":""# + iso(4000) + #"",\#(closed(3, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":null,"sentence":"Print-ready catalogue"}]},"#
                 + #"{"number":4,"sentence":"Pages 1 to 8","detail":"Copy for pages 1 to 8, checked against the **price sheet**. Captions follow the March style guide.","parent":3,"addedBy":"operator","addedVia":"screen","createdAt":""# + iso(2900) + #"","dueDate":"2026-10-30","builtAt":""# + iso(40) + #"","builtBy":"dana","builtNote":"captions need a check",\#(closed(4, #""progress":{"done":0,"total":1,"closed":false}"#)),"parts":[{"id":1,"who":"dana","sentence":"Pages 1 to 8"}],"claim":{"claimed":true,"about":"dana"}},"#
