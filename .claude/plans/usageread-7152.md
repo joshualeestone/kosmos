@@ -15,6 +15,11 @@ at 0%, had no reading at all (the card's opening).
   folder's entry. Off macOS, the folder's `.credentials.json`.
 - States: `ok`, `no-credential`, `no-token`, `token-expired`, `http-<code>`, `unreachable`, `unreadable-response`. An
   expired token is never refreshed and no request is sent with it.
+- Review 1: a failed read keeps the last good figures and the moment they were measured (`measuredAt`) beside its own
+  state, so one refused or rate-limited read does not throw a fresh reading away. A window with usage but no reset time
+  yet is still measured (resetsAt null), and accountsweekly leaves it to the status line, because the /api/status
+  shape carries a reset time. A five-hour reset further out than the window can be is refused, as the status line
+  refuses it. The request has a hard deadline, not only a socket timeout. The first read comes 30 s after start.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -40,7 +45,8 @@ at 0%, had no reading at all (the card's opening).
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 9 tests, with an injected Keychain reader and request, no real credential and no network.
+- engine/usagepoll-7152.test.js, 12 tests (3 added in review 1: the null reset and the five-hour bound; a failed read keeping
+  its figures, dated when measured; the hard deadline), with an injected Keychain reader and request, no real credential and no network.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.
 - The five existing tests that read the weekly shapes (accountsweekly, win32usage-6570, server.accountsweekly-6178,
