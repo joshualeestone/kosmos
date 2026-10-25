@@ -15,8 +15,9 @@
  *           sealedOwn = the first own code was made while the room was sealed, so every own computer in it
  *           joined by a sealed (version 2) code (#4658)
  *   member: { role: 'member', edge_id, owner_handle, project_name, project_desc }
- *   self:   { role: 'self',   ref, project_name, project_created }   another computer of the same
- *           account, joined by own code; its seat is `fed-room --own-project <ref>` (#4649)
+ *   self:   { role: 'self',   ref, project_name, project_created, sealed? }   another computer of the same
+ *           account, joined by own code; its seat is `fed-room --own-project <ref>` (#4649); sealed = it
+ *           joined by a sealed (version 2) code (#4658)
  * The owner's ref is what lets the owner's board find the project's room later
  * (the coordinator derives the room from owner account + ref).
  */
@@ -230,12 +231,15 @@ function roomKeyHeld(st) {
   return !!st && !!st.keys && Number.isInteger(st.epoch) && typeof st.keys[st.epoch] === 'string';
 }
 /** Whether an own code made here now is for a sealed room: the owner's room has handed out a
-    sealing invite, or this computer (joined by own code) holds the room's sealed record. Throws
-    when either record cannot be read, so no code is made rather than one that might be wrong. */
+    sealing invite, or this computer (joined by own code) holds the room's sealed record. The link
+    remembers it too (sealedOwn on the owner, sealed on a self link joined by a sealed code), so a
+    lost seal file still reads as sealed (review 5). Throws when a record cannot be read, so no code
+    is made rather than one that might be wrong. */
 function ownCodeSealed(projectId, link) {
   if (!link) return false;
-  if (link.role === 'owner') return refOk(link.ref) && fedseal.isSealedRef(link.ref) === true;
+  if (link.role === 'owner') return link.sealedOwn === true || (refOk(link.ref) && fedseal.isSealedRef(link.ref) === true);
   if (link.role === 'self') {
+    if (link.sealed === true) return true;
     const st = fedseal.roomState(projectId);
     return !!(st && st.role === 'member' && st.ownComputer === true);
   }

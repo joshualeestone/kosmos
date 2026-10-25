@@ -22495,7 +22495,7 @@ const server = http.createServer(async (req, res) => {
           refusal = federation.ownCodeRefusal(proj.id);
           if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
           if (refusal === 'sealed-waiting') { sendJson(res, 409, { reason: refusal, error: 'This project is sealed for the people you invited, and none of them has connected to this computer yet, so it has no key to give your other computers. Add them once someone has.' }); return; }
-          if (refusal === 'sealed-not-in') { sendJson(res, 409, { reason: refusal, error: 'This computer has not been let in to this sealed project yet, so it cannot add other computers. Add them from the computer that first shared the project.' }); return; }
+          if (refusal === 'sealed-not-in') { sendJson(res, 409, { reason: refusal, error: 'This computer does not hold this sealed project\'s key right now, so it cannot add other computers. Add them from the computer that first shared the project.' }); return; }
           // kosmos#4699: the code names this computer, so the one it is pasted on can check it is on
           // the same account. A computer with no Kosmos+ address has no name to give.
           let from = null;
@@ -22558,7 +22558,8 @@ const server = http.createServer(async (req, res) => {
         try {
           /* kosmos#4649: a project from ANOTHER computer of this account is a `self` link:
              its seat is the account's own room, nothing was redeemed, nothing is sealed. */
-          if (snap.own) federation.recordLink(made.id, { role: 'self', ref: snap.ref, project_name: snap.project_name, project_created: made.createdAt });
+          if (snap.own) federation.recordLink(made.id, Object.assign({ role: 'self', ref: snap.ref, project_name: snap.project_name, project_created: made.createdAt },
+            snap.sealed === true ? { sealed: true } : {}));
           else federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
             project_name: snap.project_name, project_desc: snap.project_desc, project_created: made.createdAt });
         } catch (err) {

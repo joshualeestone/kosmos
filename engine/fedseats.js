@@ -695,6 +695,8 @@ function isSealedRoom(st, link) {
   if (link && link.role === 'owner' && typeof link.ref === 'string') {
     try { return fedseal.isSealedRef(link.ref); } catch { return undefined; }
   }
+  // #4658: a computer that joined by a sealed own code, whose seal record is gone: still sealed (its posts held).
+  if (link && link.role === 'self' && link.sealed === true) return true;
   return false;
 }
 /** The epochs this board opens now: the current one, and the one before it for a

@@ -116,6 +116,14 @@ test('an invite is refused for a project shared with this account\'s other compu
   assert.equal(require('./fedseal').isSealedRef('ref-ss'), false, 'the room was not sealed');
 });
 
+test('#4658: a lost seal file still reads as sealed from the links (owner sealedOwn, self sealed): no version 1 code', () => {
+  federation.recordLink('proj-lost-o', { role: 'owner', ref: 'ref-lost-o', selfShared: true, sealedOwn: true });
+  assert.equal(federation.ownCodeRefusal('proj-lost-o'), 'sealed-waiting', 'the owner link says sealed; with no key there, no code');
+  federation.recordLink('proj-lost-s', { role: 'self', ref: 'ref-lost-s', sealed: true });
+  assert.equal(federation.ownCodeRefusal('proj-lost-s'), 'sealed-not-in');
+  assert.equal(federation.ownCode('proj-lost-s', 'L', 'laptop'), null);
+});
+
 test('#4658: a room whose own computers all came in by a sealed code can still invite guests; one shared by a v 1 code cannot', async () => {
   const calls = [];
   const stub = { macRequest: async (m, r, b) => { calls.push(b); return { ok: true, data: { code: 'C3', expires_at: 1, invite_id: 'inv-3' } }; } };
