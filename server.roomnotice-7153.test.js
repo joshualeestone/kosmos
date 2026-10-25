@@ -109,7 +109,7 @@ test('a notice the board cannot take is refused with a reason and nothing is wri
   const cases = [
     [{ text: '', source: 'builder alarm' }, 400, /needs words/],
     [{ text: '   ', source: 'builder alarm' }, 400, /needs words/],
-    [{ text: 'x'.repeat(4001), source: 'builder alarm' }, 400, /at most 4000/],
+    [{ text: 'x'.repeat(4001), source: 'builder alarm' }, 400, /^a notice is at most 4000 characters$/],
     [{ text: 'hello' }, 400, /short source/],
     [{ text: 'hello', source: 'builder: alarm' }, 400, /short source/],
     [{ text: 'hello', source: 'builder\talarm' }, 400, /short source/],

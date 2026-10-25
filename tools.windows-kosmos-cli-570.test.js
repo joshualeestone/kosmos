@@ -617,7 +617,7 @@ test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the boa
 });
 
 /* kosmos#7153: a scheduled job writes a Kosmos notice into a room: the text from stdin and its source, board token only. */
-test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0, 404 -> 1, a refusal -> 1 with the board\'s words, usage -> 2', async () => {
+test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0, 404 -> 1, a board refusal (400) -> 2 with the board\'s words, usage -> 2', async () => {
   const piped = (text) => async () => ({ text, ended: true });
   const ok = await run(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], () => ({ body: { ok: true, project: 'fleetjosh' } }), {}, piped('Splinter is unreachable.\n'));
   assert.equal(ok.code, 0, ok.err);

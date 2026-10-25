@@ -19,7 +19,7 @@ token, a notice without it is refused; an agent's own token cannot write one; ba
   overrides (every control and format character) become single spaces and the blank-looking INVISIBLE set
   (engine/externalname.js) is removed, so a job's text cannot fake another row in `kosmos room` or reorder itself.
 - The CLI reads the piped text FIRST, then checks the source and project, so every failure after the read (a wrong
-  source or project in the job's own setup, board down, refused, too old) keeps it in a private file and says where,
+  source or project value, board down, refused, too old) keeps it in a private file and says where,
   as `kosmos post --stdin` does: an alarm fires when the fleet is down, so the text may be its only copy.
 - The board refused the notice itself (400: too long, no words, a bad source): exit 2, since a retry sends the same
   refusal; the usage line states the 4000-character limit. A job that cannot shorten its text should split it.
@@ -65,3 +65,6 @@ tested cut answer (kept as "may", exit 3); the harness has no timeout seam of it
 - [x] code + tests
 - [ ] challenge-loop
 - [ ] PR
+
+- Round 9: the Mac's 64 KB pre-check was removed: its premise (over 64 KB is always too long) is false for text that
+  is mostly whitespace, and Windows had none. A very large pipe costs time on the Mac, never correctness: the board decides.
