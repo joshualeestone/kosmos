@@ -26,7 +26,7 @@ explicitly to learn the repo's pre-PR commands and conventions.
   whole list as shard 1 of 1 locally, #5907), which prints each command's time and the slowest
   ones at the end. `KOSMOS_SHELL_PARALLEL=<2..8>` (#7100, off by default) runs that list as
   that many shards at once on this computer instead; it stays off until a measured run says
-  the shell tests do not collide.
+  the shell tests do not collide. A SIGKILL to the runner leaves its shards running.
 - `yarn test:install` / `test:install-gate` exercise the installer.
 - The `windows` CI job (#1777) runs the Windows test files on a real Windows runner:
   `node tools/windows-tests.js`, which says what it selects and how it judges. A red there is

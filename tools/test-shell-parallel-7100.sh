@@ -134,7 +134,8 @@ if [ "$(ls "$T/kids4c" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass 
 else bad "finished shard's leftover: kids recorded $(ls "$T/kids4c" | grep -c '^kid-')(2), still alive after the stop: $alive(0)"; fi
 
 # 5) run-tests.sh refuses a value it cannot run, before running anything: exit 2 and a line naming the variable.
-# Each arm's run-tests.sh leads a process group of its own under a small perl parent, and at 60 s the parent TERMs
+# These start the real run-tests.sh, so they rely on its validation coming before the queue wait and the node part;
+# the 60 s group kill below bounds the cost if that ever moves.# Each arm's run-tests.sh leads a process group of its own under a small perl parent, and at 60 s the parent TERMs
 # the whole group: a refusal that failed would start the suite, and costs that run and a red here, not its children
 # left running.
 GROUP60='$SIG{ALRM} = sub { $SIG{TERM} = "IGNORE"; kill "TERM", -$$; exit 124 }; setpgrp(0, 0); my $p = fork;
