@@ -12,8 +12,11 @@ The defect needs an index entry under epoch N with the same memberKeyId as the e
 So an entry under another epoch always has another memberKeyId, and is already a stale index (`sealed to another member key`). The card's scenario is reproduced only by hand: a new test builds an index from an epoch 1 run with the same member key and snapshots under epoch 2. Before this change that snapshot succeeded and named epoch 1 chunks.
 
 ## Decided
-`snapshotInner`'s index check also refuses an entry whose key's epoch segment is not `ctx.epoch` ("stored under another key epoch", staleIndex). The run then drops the index (backupstate.withRun) and seals and stores everything again under ctx.epoch. One snapshot, one epoch: restore opens it with one member key, and the read route grants one epoch per call. The comment in `keyProblem` that said an earlier-epoch entry may still restore is corrected.
+`snapshotInner`'s index check also refuses an entry whose key's epoch segment is not `ctx.epoch` ("stored under another key epoch", staleIndex). That run stops before anything is granted (no allowance spent). backupstate.withRun drops the index, and the NEXT scheduled run seals and stores everything again under its epoch, so one backup interval is lost (review 1). One snapshot, one epoch: restore opens it with one member key, and the read route grants one epoch per call. The comment in `keyProblem` that said an earlier-epoch entry may still restore is corrected.
 
 ## Not changed
-- Renet's fetcher refuses another epoch's chunk by name (ANOTHER_EPOCH). It now never fires for a new snapshot. A snapshot made before this change keeps that honest refusal.
-- No re-upload cost today, because the case cannot arise. If the invariant ever breaks, one week's upload allowance is spent once per rotation.
+- Renet's fetcher refuses another epoch's chunk by name (ANOTHER_EPOCH, on his branch restorefetch-5536, not yet on main). It now never fires for a new snapshot. A snapshot made before this change keeps that honest refusal.
+- No re-upload cost today, because the case cannot arise. If the invariant ever breaks, the re-seal is charged on top of the earlier epoch's chunks for that week, so a tree over about half the weekly allowance gets that week refused (overAllowance) rather than merely spent (review 1).
+
+## The epoch's type (review 1)
+The check compares `String(ctx.epoch)`. A numeric epoch cannot reach it in a working snapshot: backupformat refuses a context whose epoch is not a string ("the context needs a non-empty epoch of letters, digits and . _ : -"), and backupjob passes `String(k.key.epoch)`. So the coercion is belt and braces, and no test can make a numeric epoch succeed.
