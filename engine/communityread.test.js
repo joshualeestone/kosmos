@@ -81,7 +81,8 @@ test('#4373: reduced: only the text, the author\'s name, where and when; nothing
   // for a post (this fixture), so it still leaks nothing the service sends.
   // #5623 Rule 2: `person` joins it too: a boolean from the service's own kind, so it carries nothing the service sent.
   // #5924: `edited` joins it: a date the board re-shapes from the service's edited_at, or empty.
-  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'body', 'commentId', 'edited', 'id', 'person', 'title', 'where']);
+  // kosmos#7150: `authorId` joins it: the author's id only in an id's shape (UUID_RE), else empty, and never printed.
+  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'authorId', 'body', 'commentId', 'edited', 'id', 'person', 'title', 'where']);
   assert.equal(it.commentId, '', 'a post carries no commentId');
   assert.equal(it.person, false, 'an agent\'s post was marked as a person\'s');
   assert.ok(!JSON.stringify(it).includes('secret') && !JSON.stringify(it).includes('1.2.3.4'));
@@ -2728,4 +2729,36 @@ test('#7056: in the owed section, a person shown nowhere else comes before one t
   assert.match(r.text, /newer replies not shown yet/, 'fixture: the budget cut nothing');
   const first = (r.text.match(/^\[p1\] by ([^,(]+)/m) || [])[1];
   assert.equal(first && first.trim().split(' ')[0], 'Ada', 'the owed section did not start with the person shown nowhere else: ' + first);
+});
+
+test('#7150: a post, comment or reply by ANOTHER agent of this board says it takes no vote; the reader\'s own and others\' do not', () => {
+  const A = 'a0000000-0000-4000-8000-00000000000a';   // mara, the reader
+  const B = 'b0000000-0000-4000-8000-00000000000b';   // lena, another agent on this computer
+  const C = 'c0000000-0000-4000-8000-00000000000c';   // an agent elsewhere
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ mara: { remoteId: A, name: 'mara' }, lena: { remoteId: B.toUpperCase(), name: 'lena' }, quiet: { name: 'quiet' } }));
+  try {
+    const post = (id, author) => cr.itemOf({ id, agent: { id: author, name: 'n' + author.slice(0, 1) }, channel: 'general', created_at: '2026-10-25T00:00:00Z', title: 't', body: 'b' });
+    const items = [post('10000000-0000-4000-8000-000000000001', B), post('10000000-0000-4000-8000-000000000002', A), post('10000000-0000-4000-8000-000000000003', C)];
+    const comment = (id, author, replies) => cr.commentOf({ id, state: 'live', agent: { id: author, name: 'c' }, body: 'x', created_at: '2026-10-25T00:00:00Z', replies }, false);
+    const comments = [comment('20000000-0000-4000-8000-000000000001', C, [{ id: '20000000-0000-4000-8000-000000000002', state: 'live', agent: { id: B, name: 'r' }, body: 'y' }])];
+    cr.markHere('mara', items, comments);
+    const lines = cr.frame(items, 'h', { comments, more: false }).split('\n');
+    const header = (needle) => lines.find((l) => l.includes(needle)) || '';
+    assert.ok(header('(post 10000000-0000-4000-8000-000000000001)').includes(cr.HERE_MARK), 'another agent of this board (an upper-case stored id) was not marked');
+    assert.ok(!header('(post 10000000-0000-4000-8000-000000000002)').includes(cr.HERE_MARK), 'the reader\'s own post was marked');
+    assert.ok(!header('(post 10000000-0000-4000-8000-000000000003)').includes(cr.HERE_MARK), 'an agent elsewhere was marked');
+    assert.ok(header('(comment 20000000-0000-4000-8000-000000000002)').includes(cr.HERE_MARK), 'a reply by another agent of this board was not marked');
+    assert.ok(!header('(comment 20000000-0000-4000-8000-000000000001)').includes(cr.HERE_MARK), 'a comment from elsewhere was marked');
+    // No reader: nothing is marked (a read the board cannot attribute).
+    const plain = [post('10000000-0000-4000-8000-000000000004', B)];
+    cr.markHere(undefined, plain);
+    assert.ok(!cr.frame(plain, 'h').includes(cr.HERE_MARK));
+    // CONTROL: the same item, read by lena, is HER own and not marked; read by mara it is.
+    const again = [post('10000000-0000-4000-8000-000000000005', B)];
+    cr.markHere('lena', again);
+    assert.ok(!cr.frame(again, 'h').includes(cr.HERE_MARK), 'lena\'s own post was marked for lena');
+    cr.markHere('mara', again);
+    assert.ok(cr.frame(again, 'h').includes(cr.HERE_MARK), 'CONTROL: the mark is applied when it should be');
+  } finally { fs.rmSync(cs._paths.keysFile(), { force: true }); }
 });

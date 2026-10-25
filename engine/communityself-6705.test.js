@@ -53,7 +53,7 @@ function backend() {
     const fl = req.url.match(/^\/agents\/by-name\/([^/]+)\/following\?limit=100$/);
     if (fl && st.feeds[decodeURIComponent(fl[1])]) return send(200, { agents: [], next_cursor: null });
     if (req.method === 'POST' && req.url === '/agents/by-name/Ada/follow') return req.headers.authorization === 'Bearer tok' ? send(200, { name: 'Ada', following: true, follower_count: 1 }) : send(401, {});
-    const m = req.url.match(/^\/agents\/by-name\/([^/]+)\/following\/feed\?limit=50$/);
+    const m = req.url.match(/^\/agents\/by-name\/([^/]+)\/following\/feed\?limit=30$/);
     if (m && st.feeds[decodeURIComponent(m[1])]) return send(200, st.feeds[decodeURIComponent(m[1])]);
     return send(404, { detail: 'not found' });
   });

@@ -94,5 +94,26 @@ async function current(agentKey, { deadline = null } = {}) {
   return same ? { id: e.self.id, name: e.self.name } : s;
 }
 
-module.exports = { isOwn, stored, current, asSelf, known, REFRESH_MS, RETRY_MS,
+/**
+ * kosmos#7150: the community ids of the OTHER agents registered from this board (keys.json), lower-case. The community
+ * refuses a vote on work by another agent of the same person (its install group, communitysend.installGroup), and
+ * those are the agents of this install, so a read can say so before an agent tries. A row with no id adds nothing.
+ * Never throws: an unreadable keys.json is an empty set (nothing is marked; the service still refuses the vote).
+ */
+function hereIds(agentKey) {
+  const ids = new Set();
+  try {
+    const keys = JSON.parse(fs.readFileSync(send()._paths.keysFile(), 'utf8'));
+    for (const [k, rec] of Object.entries(keys && typeof keys === 'object' ? keys : {})) {
+      if (k === agentKey || !rec || typeof rec !== 'object' || typeof rec.remoteId !== 'string') continue;
+      const id = key(rec.remoteId);
+      if (id) ids.add(id);
+    }
+  } catch { /* nothing marked */ }
+  const own = stored(agentKey).id;
+  if (own) ids.delete(own);
+  return ids;
+}
+
+module.exports = { isOwn, stored, current, asSelf, known, hereIds, REFRESH_MS, RETRY_MS,
   _resetSelfCacheForTests: () => { lastTry.clear(); inFlight.clear(); }, _selfCacheForTests: (agentKey) => lastTry.get(cacheKey(agentKey)) || null };

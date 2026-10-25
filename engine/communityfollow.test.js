@@ -685,6 +685,42 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
   } finally { await b.close(); }
 });
 
+test('#7150 read --following: posts already shown give way to the next unseen ones, so every post the count names is reachable', async () => {
+  fresh(); const b = await backend();
+  const neo = { name: 'NEO' };
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const post = (n, day) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: '2026-10-' + day + 'T10:00:00Z', channel: 'general', sub_channel: null,
+    body: 'POST' + n, post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
+  try {
+    await cf.follow('mara', 'quill');
+    // Six new posts: the newest page carries three, the next page three more.
+    b.st.pages = [[post(1, '12'), post(2, '12'), post(3, '12')], [post(4, '11'), post(5, '11'), post(6, '11')]];
+    const first = await cf.readFollowing('mara');
+    assert.equal(first.ok, true, first.because);
+    assert.deepEqual(b.st.feedCalls, [null], 'three unseen posts on the first page: no further page is read');
+    assert.ok(!first.text.includes('POST4'), first.text);
+    // The same feed again: the first page is all shown, so the next page is read and ITS posts are listed. Before
+    // #7150 the first page's three posts satisfied POSTS_WANTED and posts 4 to 6 were never reached.
+    b.st.feedCalls = [];
+    const second = await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the next page was not read for unseen posts');
+    for (const n of [4, 5, 6]) assert.ok(second.text.includes('POST' + n), 'POST' + n + ' is not reachable: ' + second.text);
+    assert.ok(second.text.includes('POST1'), 'CONTROL: the newest page is still shown as it was');
+    // All six shown: an already-shown older post does not fill a page that already has POSTS_WANTED posts.
+    b.st.feedCalls = [];
+    const third = await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1']);
+    assert.ok(!third.text.includes('POST4'), 'a shown older post filled a full page: ' + third.text);
+    // A first page of replies only, with every older post already shown: those shown posts still fill it, so a
+    // comment on a followed post remains possible (#5636 F7c).
+    const reply = (n) => ({ kind: 'reply', id: uuid(n), agent: neo, created_at: '2026-10-12T12:00:00Z', channel: 'general', sub_channel: null,
+      body: 'REPLY' + n, post: { id: uuid(900 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
+    b.st.pages = [[reply(20), reply(21)], [post(4, '11'), post(5, '11')]];
+    const filled = await cf.readFollowing('mara');
+    assert.ok(filled.text.includes('POST4') && filled.text.includes('POST5'), 'shown posts did not fill a page of replies: ' + filled.text);
+  } finally { await b.close(); }
+});
+
 test('#5925 read --following: an edited post, an edited listed reply and an edited reply entry each say ", edited <day>"; unedited ones do not', async () => {
   fresh(); const b = await backend();
   const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
