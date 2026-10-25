@@ -46,6 +46,16 @@ Guest invites for a room that already has own computers that joined by a v 1 cod
 a code; it needs a signal the owner's key signs (the #7028 plan's Part 3 "what would change it"). The self-shared 409
 stays for them.
 
+## NOT CLAIMED, and known gaps (review 2)
+- **The code is not authenticated.** Anyone who can alter the pasted text can turn a version 2 code into a version 1
+  one for the same room, and that computer joins with no seal record and posts in the clear until it sees a sealed
+  frame. Main has the same exposure today, and the same person could already change the room the code names. The
+  owner still refuses to show such posts (the 'unsealed' note); the relay can read them. Closing it needs a code the
+  owner's key signs.
+- **No own code for a sealed room until a guest has joined** ('sealed-waiting'): the owner's room key is made by the
+  first guest's hello. Making the owner's key at the first own computer's hello instead is slice 2's to decide.
+- **A rewrite of the owner link that drops sealedOwn** fails closed: guest invites are refused again for that room.
+
 ## Rejected
 - A flag inside a v 1 code: an older board ignores fields it does not know (parseOwnCode's own comment), joins and
   posts in the clear. The version bump is what makes it fail closed.
