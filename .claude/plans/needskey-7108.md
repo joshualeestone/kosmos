@@ -48,4 +48,7 @@ tested with a control; merged.
      a sandbox (its source check is what fails); oneLine and the role cut have no emoji test (the strict writing
      covers them). needskey 10/10, strict-json 3/3, with commitments, selfreport, needsquiet, the dismiss route and
      status.test.js: 382 pass.
+   - Round 5: 0 blockers, 0 warnings, 3 nits. Converged. Fixed: the dismiss key is built from mended text (it reaches
+     the page through strictStringify, so the engine compares what the page echoes); a boxed String is mended
+     (tested). Recorded in the code: keys that mend to the same text keep the last value (no live object keyed so).
 3. Validation, PR.

@@ -969,7 +969,9 @@ const NEEDS_KEY_WORDS = 300;
    surrogate pair, which JSON.stringify writes as a lone "\ud83d"; the iPhone's JSON reader then refuses the whole
    projects answer. A trailing lead surrogate is dropped (the board's pjNeedsNotice fallback cuts the same way). */
 function needsKeyWords(text) {
-  return cutUnits(text || '', NEEDS_KEY_WORDS);
+  // Mended first (review 5): the page receives the key through strictStringify, so the engine's own comparison key must
+  // be the same well-formed text it echoes back, or a row could never be dismissed.
+  return cutUnits(String(text || '').toWellFormed(), NEEDS_KEY_WORDS);
 }
 function needsDismissKey(reason, m) {
   if (!reason) return null;
