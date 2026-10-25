@@ -1240,6 +1240,18 @@ do {
     pendingOther.replyTo = "2026-10-24T10:00:00.000Z"
     check(Board.pendingRepliesUnderOriginal([pendingReply], after: rows) == ["pr"] && Board.pendingRepliesUnderOriginal([pendingOther], after: rows).isEmpty,
           "a pending reply right under its original is left out; one answering something further up is not")
+    // The chain through pending bubbles: a second pending reply to the same original follows the first's left-out header.
+    var pendingSecond = Board.PendingSend(id: "ps", text: "also", at: Date())
+    pendingSecond.replyTo = rows.last!.atRaw
+    check(Board.pendingRepliesUnderOriginal([pendingReply, pendingSecond], after: rows) == ["pr", "ps"],
+          "two pending replies to the newest message: both left out (the chain)")
+    // Rows ending in a reply whose header was left out: a pending reply to the same original continues the chain.
+    var ended = Array(rows.prefix(2))
+    var tail = Board.PendingSend(id: "pt", text: "one more", at: Date())
+    tail.replyTo = "2026-10-24T10:00:00.000Z"
+    check(Board.repliesUnderOriginal(ended).contains(ended[1].id) && Board.pendingRepliesUnderOriginal([tail], after: ended) == ["pt"],
+          "a pending reply under a left-out reply to the same message is left out too")
+    ended.removeLast()
 
     let reply = Board.sendRequest(mac: mac, session: "dana", text: "yes", replyTo: "2026-10-24T10:00:00.000Z")
     let replyBody = reply?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }

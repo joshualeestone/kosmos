@@ -21,6 +21,9 @@ struct FilesBubble: View {
     // (who and when) before its cards.
     var faded = false
     var spoken: String? = nil
+    // kosmos#7083: Reply and the reactions, as VoiceOver actions on each file card (the container itself cannot be
+    // focused, so actions on it are never offered).
+    var actions: [(name: String, run: () -> Void)] = []
 
     // One file at a time: while one is on its way, the others are drawn off.
     private var busy: Bool { states.values.contains(.loading) }
@@ -37,6 +40,9 @@ struct FilesBubble: View {
             ForEach(Array(files.enumerated()), id: \.offset) { _, f in
                 FileCard(file: f, thumbnail: thumbnails[f.id], state: states[f.id] ?? .ready,
                          waiting: busy && states[f.id] != .loading, open: { open(f) })
+                    .accessibilityActions {
+                        ForEach(Array(actions.enumerated()), id: \.offset) { _, a in Button(a.name, action: a.run) }
+                    }
             }
         }
         .modifier(FilesBubbleBackground(widthShare: widthShare, mine: mine))

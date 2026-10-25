@@ -132,9 +132,9 @@ struct ChatView: View {
             loop?.cancel()
             loop = nil
         }
-        // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: thread) { _ in recomputeHiddenHeads() }
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
+        // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
             epoch = now
             thread = nil
@@ -352,10 +352,10 @@ struct ChatView: View {
                                 faded: mine && row.canSendAgain && !client.wasSentAgain(row, for: agent.session),
                                 spoken: (head.map { ReplyHeadLine.words($0) + " " } ?? "")
                                     + Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
-                                                           count: row.attachments.count, notSent: row.notSent))
+                                                           count: row.attachments.count, notSent: row.notSent),
+                                actions: row.answerable(by: agent.session) ? replyActionList(row) : [])
                         // kosmos#7083: Reply and the reactions on an agent's message with files too, from its bubble.
                         .contextMenu { if row.answerable(by: agent.session) { replyMenu(row) } }
-                        .accessibilityActions { if row.answerable(by: agent.session) { replyMenu(row) } }
                     if !row.reactions.isEmpty {
                         ReactionPills(pills: row.reactions, toggle: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil)
                     }
@@ -383,7 +383,10 @@ struct ChatView: View {
                     // A file that came with words: the words as a bubble, then the way through for the file.
                     if way == .attachment, !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ChatBubble(row: row, firstOfRun: true, lastOfRun: true, widthShare: widthShare, name: shown.name,
-                                   line: nil, sendAgain: {})
+                                   line: nil, sendAgain: {},
+                                   head: headFor(replyTo: row.replyTo), headHidden: hiddenHeads.contains(row.id),
+                                   react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
+                                   reply: row.answerable(by: agent.session) ? { startReply(row) } : nil)
                     }
                     WayThroughRow(text: wayText(way), action: openOnBoard)
                 }
@@ -765,6 +768,8 @@ struct ChatView: View {
     private var field: some View {
         TextField("", text: $draftText, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
             .focused($composerFocused)
+            // As the board's aria-describedby: the reply is heard whenever the box is reached, not only when chosen.
+            .accessibilityHint(replying.map { replyingLine($0) } ?? "")
             .accessibilityLabel("Message \(shown.name)")
             .font(.body)
             .foregroundColor(Palette.primary)
@@ -865,6 +870,15 @@ struct ChatView: View {
     }
 
     // React and Reply for one of the agent's messages (the menu on a files bubble, and its VoiceOver actions).
+    // The same choices as a list, for VoiceOver actions on each file card.
+    private func replyActionList(_ row: Board.ChatRow) -> [(name: String, run: () -> Void)] {
+        var out: [(name: String, run: () -> Void)] = []
+        for e in Board.quickReactions where !row.reactions.contains(where: { $0.emoji == e && $0.mine }) { out.append(("React with " + e, { reactTo(e, row) })) }
+        for r in row.reactions where r.mine { out.append(("Remove your " + r.emoji, { reactTo(r.emoji, row) })) }
+        out.append(("Reply", { startReply(row) }))
+        return out
+    }
+
     @ViewBuilder private func replyMenu(_ row: Board.ChatRow) -> some View {
         ForEach(Board.quickReactions.filter { e in !row.reactions.contains { $0.emoji == e && $0.mine } }, id: \.self) { e in
             Button("React with " + e) { reactTo(e, row) }
@@ -937,7 +951,9 @@ struct ChatView: View {
         readShown = mine
         switch result {
         case .thread(let fresh):
-            if fresh != thread { thread = fresh }
+            // The hidden headers in the same pass as the rows, so a pending reply's swap to its kept row never draws one
+            // frame with the old set (onChange alone runs after that body).
+            if fresh != thread { thread = fresh; recomputeHiddenHeads() }
             fillGap(fresh)
             // A moved reset leaves the top in view with nothing loading: the next read asks again.
             loadEarlier()
