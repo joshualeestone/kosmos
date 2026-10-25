@@ -26,7 +26,12 @@ cleanup() {
   # A busy volume is forced off, so the rm below never runs inside a still-mounted image.
   [ -n "$DISK" ] && { hdiutil detach -quiet "$DISK" || hdiutil detach -quiet -force "$DISK"; } >/dev/null 2>&1
   [ -n "$DECOY" ] && { hdiutil detach -quiet "$DECOY" || hdiutil detach -quiet -force "$DECOY"; } >/dev/null 2>&1
-  rm -rf "${TMP:?}"
+  # Never delete through a live mount: if the image is still attached, leave $TMP and say where it is.
+  if [ -n "$DISK" ] && mount | grep -qF " on $DISK "; then
+    echo "NOTE  $DISK is still mounted (detach failed); left $TMP in place" >&2
+  else
+    rm -rf "${TMP:?}"
+  fi
 }
 trap cleanup EXIT
 
@@ -148,12 +153,12 @@ if command -v hdiutil >/dev/null 2>&1; then
   fi
   [ -n "$DECOY" ] || echo "SKIP  #7127 collision check: the decoy volume could not be mounted"
 fi
-# What the old parse may have left in this checkout before this run ("N/board.stopped", N being macOS's suffix), so the
-# check below blames this run only for what it writes.
-debris_before=""; for n in 1 2 3 4 5 6 7 8 9; do [ -e "$n/board.stopped" ] && debris_before="$debris_before $n"; done
 if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
    && hdiutil create -quiet -size 8m -fs APFS -volname "s6651-$$" "$TMP/full.dmg" >/dev/null 2>&1 \
    && hdiutil attach -quiet -nobrowse -mountpoint "$TMP/mnt" "$TMP/full.dmg" >/dev/null 2>&1 && DISK="$TMP/mnt"; then
+  # What the old parse may have left in this checkout before this run ("N/board.stopped", N being macOS's suffix), so
+  # the #7127 check blames this run only for what it writes.
+  debris_before=""; for n in 1 2 3 4 5 6 7 8 9; do [ -e "$n/board.stopped" ] && debris_before="$debris_before $n"; done
   # Bounded (twice the 8 MB image), never "until the disk is full": if DISK were ever the wrong path, an unbounded dd
   # fills the real disk (kosmos#7127: a wrong mount-point parse once pointed it at a folder named "1").
   dd if=/dev/zero of="$DISK/fill" bs=1m count=16 2>/dev/null; dd if=/dev/zero of="$DISK/fill2" bs=4k count=4096 2>/dev/null
