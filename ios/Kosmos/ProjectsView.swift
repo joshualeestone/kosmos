@@ -18,7 +18,8 @@ final class RoomStore: ObservableObject {
     // "spoke after the status was read" rule (the board's ROOM_SPOKE_AT).
     @Published private(set) var spokeAt: [String: [String: Date]] = [:]
     // The rooms that have had one real newest-page read: only then are the rows a baseline for who spoke since (review 2:
-    // a first read the computer could not answer left an empty room, and the next read stamped everyone in it). Only
+    // a first read an older computer could not answer, ok:false at 200, left an empty room, and the next read stamped
+    // everyone in it; a current computer's 503 never reaches the stamping at all). Only
     // ever added to, as the board's ROOM_SPOKE_SEEDED (review 3: a later unreadable read leaves the rows as they were,
     // so they stay a baseline; dropping it would leave the next reply unstamped, under its own "is working").
     private var spokeBaseline: Set<String> = []

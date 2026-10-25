@@ -14,7 +14,8 @@ member order; the suite covers it against a captured real status row; it is merg
 - "Spoke after the status read": RoomStore.spokeAt records when a room read brings a new post from an agent
   (Board.newSpeakers), never on a room's first read, so opening a room does not hide everyone until the next status.
   The status time is BoardClient.updatedAt.
-- The dots are still when the person asks for less motion; they are hidden from VoiceOver, which reads the line.
+- With Reduce Motion the dots still fade, slower (the board's work-fade, #4591; round 2); they are hidden from
+  VoiceOver, which reads the line.
 - The suite reads status-working.json, a real /api/status row captured from a sandboxed board for a working fleet agent
   (unattributed, as the fleet gives it); attributed cases set stateProject on that same real row, as
   server.todayreason-7030.test.js does. The board's own source is checked for each rule and word.
@@ -64,4 +65,9 @@ member order; the suite covers it against a captured real status row; it is merg
      90; route check 5/5; Debug and KOSMOS_STORE_SHOTS Release SUCCEEDED.
    - Round 5 (fresh blind reviewer): 0 blockers, 0 warnings, 1 nit, fixed: the hold's scroll is animated, as the
      new-row scroll is, so a reply landing with its writer leaving the line slides in rather than jumping.
+   - Round 6 (fresh blind reviewer, on the rebase onto origin/main): 0 blockers, 0 warnings, 2 nits, both comments:
+     the ok:false guard is said to cover only a computer older than paged reads (a current one answers 503, which
+     never reaches the stamping), and the Decisions line about Reduce Motion now says the dots fade. No behaviour
+     changed, so the loop converges here. After the rebase: room 186, run 1152, actions 99, settings 42, tasks 90,
+     taskpage 108; route check 5/5; Debug and KOSMOS_STORE_SHOTS Release SUCCEEDED.
 3. Validation, PR.

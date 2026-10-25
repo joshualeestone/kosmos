@@ -75,8 +75,10 @@ extension Board {
         // The route's `unanswered` for the WHOLE room (messages.unanswered is not filtered by page), names shown; nil
         // when the computer did not send it. Applied to every post shown, not only this page's.
         var silent: [String: [String]]? = nil
-        // kosmos#7080 review 2: the computer could not read the room's log (ok:false, sent at 200 with no rows). Never a
-        // baseline for who spoke next, as the board seeds only when body.ok !== false.
+        // kosmos#7080 review 2: the computer could not read the room's log (ok:false at 200 with no rows). Never a baseline
+        // for who spoke next, as the board seeds only when body.ok !== false. Only a computer older than paged reads sends
+        // this: a current one answers the phone's ?n= read with a 503, which lands in roomFailed and never reaches here
+        // (review 6).
         var unread = false
     }
 
