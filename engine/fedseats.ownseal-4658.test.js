@@ -279,6 +279,12 @@ test('kosmos#7129: a waiting computer whose record was lost (its link still wait
   const row = h.recorded.find((r) => r.text === 'no record words');
   assert.ok(row, 'a waiting link refused an unsealed message');
   assert.strictEqual(row.unverified, true, 'a row shown under a waiting link alone was not marked');
+  // Review 2: the relay's same_account stamp and the mark reach the store together, so ownPostNudges can refuse it.
+  say(seat, { event: 'message', same_account: true, data: { from: 'Josh', kind: 'person', text: 'stamped words' } });
+  await settle();
+  const stamped = h.recorded.find((r) => r.text === 'stamped words');
+  assert.ok(stamped && stamped.sameAccount === true && stamped.unverified === true, JSON.stringify(stamped));
+  assert.strictEqual(require('./messages').ownPostNudges(stamped, {}), false, 'a stamped post shown while waiting would nudge');
 });
 
 test('#4658 slice 2: a computer with no seal record that sees an unopenable envelope waits for the owner\'s answer (pendingClear), and the owner\'s clear lets it go', async () => {
