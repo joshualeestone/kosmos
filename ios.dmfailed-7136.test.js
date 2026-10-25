@@ -59,7 +59,7 @@ function pinProblems(board, swift) {
   both('the newest-only condition', /DM_NEWEST_MINE_AT === m\.at/.test(line) && line.includes('&& newest'), /newestMineAt == row\.atRaw/.test(phone.ext) && phone.ext.includes('let canRetry = row.canSendAgain && newest'));
   both('the no-reply condition', line.includes('!m.replyTo'), phone.can.includes('replyTo == nil'));
   both('the no-files condition', line.includes('&& !(Array.isArray(m.attachments) && m.attachments.length)'), phone.can.includes('&& attachments.isEmpty'));
-  both('the no-wire condition', line.includes('!m.wire'), phone.parse.includes('resendable = failed && wire == nil'));
+  both('the no-wire condition', line.includes('!m.wire'), phone.parse.includes('resendable = failed && wire == nil') && phone.can.includes('&& resendable &&'));
   // Whose message counts as the person's newest.
   both('the person\'s rows for the newest rule', board.includes("for (const r of allRows) if (r && !r.from && r.kind !== 'kosmos' && r.kind !== 'question' && typeof r.at === 'string') DM_NEWEST_MINE_AT = r.at;"),
     phone.ext.includes('rows.last { $0.who == .person && !($0.atRaw ?? "").isEmpty }?.atRaw'));

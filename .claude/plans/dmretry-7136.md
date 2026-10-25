@@ -23,6 +23,8 @@ goes. Tested in the logic suite, pinned to web/index.html with a control, the ro
 - The phone's resend of replies and files (#7071, #7083) is dropped for a row the Mac kept: the board does not offer it
   and the Mac refuses retry_of with a reply or files. Such a row now reads "Message failed to deliver." as on the board.
 - "<name> isn't running on your computer" on a kept row is dropped (the board has no such state on this line).
+- Stricter than the board on one edge: a row carrying only the legacy single `attachment` field is not offered Try
+  again (the board looks only at `attachments`). Errs toward not typing a file's row as plain words.
 - Tapping the bubble to retry is dropped; "try again" is the button, as on the board.
 - NOT board parity, on purpose: a Try again in flight counts as a send in the air (isSending), so a choice press waits
   for it, as the phone already does for a typed send (dmChoiceBlocksSend: one key and one paste never overlap in the
@@ -42,7 +44,7 @@ real-iPhone check joins #6838's list.
 - Simulator build (xcodebuild -target Kosmos -sdk iphonesimulator).
 
 ## Status
-- [x] code + tests (logic 1245/1245, pin 2/2, routes 5/5)
+- [x] code + tests (logic 1246/1246, the other six logic suites green, pin 2/2, routes 5/5)
 - [ ] simulator build
-- [ ] challenge-loop
+- [x] challenge-loop converged (5 iterations)
 - [ ] PR
