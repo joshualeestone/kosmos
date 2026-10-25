@@ -818,7 +818,7 @@
     },
     {
       "title": "A message that did not go can be sent again",
-      "line": "When a message to an agent could not be delivered, a line under it says so, and try again sends the same words once.",
+      "line": "When your latest message in an agent's chat could not be delivered, a line under it says so; for plain words, try again sends them once.",
       "icon": "chat",
       "rank": 4.5,
       "since": "0.7.65",
