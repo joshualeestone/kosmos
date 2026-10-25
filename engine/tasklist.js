@@ -87,6 +87,8 @@ function quietWords(at, now) {
   const d = Math.floor((now - ms) / DAY_MS);
   return 'quiet ' + d + ' day' + (d === 1 ? '' : 's');
 }
+/* kosmos#7151: ", left under closed task #N" for a task the board offers for retiring. */
+const leftWords = (x) => (Number.isSafeInteger(x.leftUnder) ? ', left under closed task #' + x.leftUnder : '');
 function acrossLines(body, flag, opts = {}) {
   const stale = flag === 'stale';
   const group = stale ? 'open' : COMPACT[flag];
@@ -104,7 +106,7 @@ function acrossLines(body, flag, opts = {}) {
   if (body.listState !== group) return older('--' + flag);
   const label = stale ? 'open' : flag;
   const lines = tasks.map((x) => (every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + label
-    + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + ')' : ''));
+    + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + leftWords(x) + ')' : ''));
   const n = tasks.length;
   const what = n + ' ' + label + ' task' + (n === 1 ? '' : 's') + (stale ? ' quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more' : '');
   if (every) {
@@ -114,6 +116,14 @@ function acrossLines(body, flag, opts = {}) {
   } else {
     lines.push(n ? what + ' in ' + one(opts.project) + '.'
       : 'No open task in ' + one(opts.project) + ' has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.');
+  }
+  /* kosmos#7151: the tasks the board offers for retiring (leftUnder), with the rule, once. Nothing is retired for you. */
+  const left = stale ? tasks.filter((x) => Number.isSafeInteger(x.leftUnder)).length : 0;
+  if (left) {
+    lines.push(left + ' of ' + (left === 1 ? 'these was' : 'these were') + ' added by an agent before the task above '
+      + (left === 1 ? 'it' : 'them') + ' closed, so ' + (left === 1 ? 'it is' : 'they are') + ' probably left over from finished work.'
+      + ' If you are sure, close ' + (left === 1 ? 'it' : 'each one') + ' with: kosmos task close <project-id> <task-number>.'
+      + ' Never offered: a task the person added, one being reviewed or on hold, or one whose agent is waiting on the person.');
   }
   if (Number.isInteger(body.count) && body.count !== n) {
     lines.push('The board counted ' + body.count + ' but sent ' + n + ': list again to see them all.');

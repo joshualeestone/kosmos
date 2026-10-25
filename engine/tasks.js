@@ -1793,6 +1793,47 @@ function inListOrder(rows, only = null) {
     .map((x) => x.t);
 }
 
+/* When a task finished, as an ISO string: its own closedAt, else (closed by all its parts) the latest part's closedAt.
+   null when it is not closed, or when no date says when. */
+function closedAtOf(t) {
+  if (!t) return null;
+  if (typeof t.closedAt === 'string' && t.closedAt) return t.closedAt;
+  const pr = progressOf(t);
+  if (!pr.closed) return null;
+  const dates = pr.parts.map((x) => x.closedAt).filter((d) => typeof d === 'string' && Number.isFinite(Date.parse(d)));
+  return dates.length ? dates.sort((a, b) => Date.parse(a) - Date.parse(b))[dates.length - 1] : null;
+}
+
+/**
+ * kosmos#7151 (feedback: tasks left behind by finished cycles pile up across releases): the closed task this open task
+ * was LEFT UNDER, or null. The rule, which the list prints with each offer:
+ *   - the task is open (the list's open group: not done, held, or built, which wait on purpose or on review);
+ *   - an agent filed it (`addedVia` process) or the Assigner did (assigner); a task the person filed is never offered,
+ *     since they may still be waiting on it whatever became of its parent (a task with no record reads as theirs);
+ *   - a task above it in the same project (its parent, or that one's, and so on) is closed, and this task was made
+ *     BEFORE that one closed. Filing a follow-up under finished work is allowed on purpose (parentProblem), so a task
+ *     made after its parent closed is new work, never leftover. A task or a close with no date is never offered.
+ * The caller adds the rest: the list's quiet days, and that its agent is not waiting on the person about it.
+ * Returns the nearest such ancestor's number. `p` is the project ({ tasks }). Bounded on a store that loops.
+ */
+function leftUnder(p, task) {
+  if (!task || listGroup(task) !== 'open') return null;
+  if (task.addedVia !== 'process' && task.addedVia !== 'assigner') return null;
+  const made = typeof task.createdAt === 'string' ? Date.parse(task.createdAt) : NaN;
+  if (!Number.isFinite(made)) return null;
+  const tree = treeOf(p);
+  const seen = new Set([task.number]);
+  let up = tree.up(task);
+  while (up !== null && !seen.has(up)) {
+    seen.add(up);
+    const parent = tree.byNum.get(up);
+    const done = closedAtOf(parent);
+    if (done && Number.isFinite(Date.parse(done)) && made < Date.parse(done)) return up;
+    up = tree.up(parent);
+  }
+  return null;
+}
+
 /**
  * Where a task's work actually is, for the Tasks view (#3559), DERIVED from
  * evidence, never a column somebody drags it into (Josh, 2026-09-24).
@@ -2225,6 +2266,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 
 module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
