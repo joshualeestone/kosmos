@@ -35,6 +35,11 @@ struct RoomView: View {
     // VoiceOver's place after a reopen takes the notice and its button away: the message box, as the board's focus,
     // without raising the keyboard (review 2).
     @AccessibilityFocusState private var composerFocused: Bool
+    // kosmos#7101: the post a reply's header asked to go to, the one flashing, and VoiceOver's place after the jump.
+    @State private var jumpTo: String?
+    @State private var flashed: String?
+    @AccessibilityFocusState private var focusedPost: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // kosmos#7062: each file card's state, and the file Quick Look shows (removed from the phone when it closes), as in
     // the chat.
     @State private var fileStates: [String: FileCardState] = [:]
@@ -353,7 +358,7 @@ struct RoomView: View {
                         }
                     }
                     if store.rows[project.id] != nil && rows.isEmpty { emptyRoom }
-                    ForEach(items) { item in itemView(item).id(item.id) }
+                    ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id) }
                     ForEach(store.pending[project.id] ?? []) { p in pendingView(p) }
                     if store.roomFailed.contains(project.id) {
                         Text("We cannot read this room right now. What is shown may be behind.")
@@ -386,6 +391,17 @@ struct RoomView: View {
             // usually lands in the same update that takes its writer off the line (review 5: a plain scroll cut it short).
             .onChange(of: Board.workingLine(workingNow)) { _ in
                 if atBottom && settledAtBottom { DispatchQueue.main.async { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+            }
+            // kosmos#7101: a reply's header goes to the post it answers, centred, flashing for the board's 1.8 s, with
+            // VoiceOver's focus on it (the board's #3745: row.focus()). Still, with Reduce Motion (the board's
+            // prefers-reduced-motion branch).
+            .onChange(of: jumpTo) { id in
+                guard let id else { return }
+                jumpTo = nil
+                if reduceMotion { proxy.scrollTo(id, anchor: .center) } else { withAnimation { proxy.scrollTo(id, anchor: .center) } }
+                flashed = id
+                focusedPost = id
+                DispatchQueue.main.asyncAfter(deadline: .now() + Board.replyJumpFlash) { if flashed == id { flashed = nil } }
             }
             // The person's own post always shows: pressing Post is asking to see it.
             .onChange(of: store.pending[project.id]?.count ?? 0) { n in
@@ -432,6 +448,7 @@ struct RoomView: View {
                                typing = true
                            },
                            openAgent: { if let a = store.agent(row.from) { chatAgent = a } },
+                           jump: { if let id = row.replyTo { jumpTo = id } }, flashing: flashed == row.id,
                            mentionNames: row.mentioned.compactMap { store.names[$0] },
                            thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile)
                     .padding(.top, first ? 6 : 0)
@@ -705,6 +722,9 @@ struct RoomBubble: View {
     let react: (String) -> Void
     let reply: () -> Void
     let openAgent: () -> Void
+    // kosmos#7101: a reply's header goes to the post it answers (the board's #3745), and that post flashes.
+    var jump: () -> Void = {}
+    var flashing = false
 
     private var mine: Bool { row.byPerson }
     // kosmos#7062: the words shown beside the post's files (Board.roomWords, tested).
@@ -745,6 +765,7 @@ struct RoomBubble: View {
                 Button("Reply", action: reply)
             }
             Button("Copy") { UIPasteboard.general.string = row.text }
+            if replied != nil { Button(Board.replyJumpAction, action: jump) }
             // The post is read as one element and its cards are not buttons in it, so each file is an action on it
             // (kosmos#7062), saying what the card would: opening, another file opening, failed, or opens on the board.
             ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
@@ -752,6 +773,9 @@ struct RoomBubble: View {
             }
         }
     }
+
+    // The board's --gold-deep, with its --gold-bright in the dark.
+    static let flashGold = Palette.pair(0xb88920, 0xe3b341)
 
     @ViewBuilder private var avatar: some View {
         if row.kind == .external {
@@ -774,9 +798,16 @@ struct RoomBubble: View {
                 }
             }
             if let replied {
-                Text("\(nameOf(replied)): \(replied.text.components(separatedBy: "\n").first ?? "")")
-                    .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
-                    .padding(.leading, 8).overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
+                // kosmos#7101: a button, as the board's .msg-replyto: a tap goes to the post it answers. A 44 pt place to
+                // tap, laid out as the header alone.
+                Button(action: jump) {
+                    Text("\(nameOf(replied)): \(replied.text.components(separatedBy: "\n").first ?? "")")
+                        .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .padding(.leading, 8).overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
+                        .padding(.vertical, 10).contentShape(Rectangle()).padding(.vertical, -10)
+                }
+                .buttonStyle(.plain)
             } else if row.replyTo != nil && roomComplete {
                 Text("Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
             }
@@ -803,6 +834,9 @@ struct RoomBubble: View {
         }
         .padding(.vertical, 8).padding(.horizontal, 12)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
+        // kosmos#7101: the board's .msg-flash, a gold-deep outline on the post a reply's header went to, fading out.
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Self.flashGold, lineWidth: 2).padding(-2)
+            .opacity(flashing ? 1 : 0).animation(.easeOut(duration: 0.3), value: flashing))
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
         .contextMenu {
             if answerable {

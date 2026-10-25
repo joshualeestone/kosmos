@@ -690,6 +690,11 @@ extension Board {
         return nil
     }
 
+    // kosmos#7101: a reply's header, as the board's .msg-replyto: VoiceOver's words for the action that goes to the post
+    // it answers, and how long that post flashes (msg-flash, 1800 ms).
+    static let replyJumpAction = "Go to the message this answers"
+    static let replyJumpFlash: TimeInterval = 1.8
+
     // kosmos#7093: where a room's waiting files are kept in BoardClient.attached: a key no agent's name can be (a session
     // name has no colon), so a room and an agent never share one.
     static func roomAttachKey(_ project: String) -> String { "room:" + project }

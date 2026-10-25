@@ -520,6 +520,20 @@ for phrase in ["url: () => '/api/project/' + encodeURIComponent(PJ_CURRENT) + '/
     check(boardPage.contains(phrase), "the board's room attach still says: \(phrase.prefix(60))")
 }
 
+section("a reply's header goes to its post (kosmos#7101)")
+// The board's words and timing, so the two cannot drift unseen.
+check(boardPage.contains("', the message this answers. Go to it'") && Board.replyJumpAction.hasSuffix("the message this answers"),
+      "VoiceOver's action names what the board's header label says it does")
+check(boardPage.contains("setTimeout(() => row.classList.remove('msg-flash'), \(Int(Board.replyJumpFlash * 1000)));"),
+      "the post flashes for as long as the board's does")
+check(boardPage.contains("row.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });"),
+      "the board centres the post, and does not animate it for less motion")
+// The header reaches the post by its id: the room's items carry each post's own id (Board.roomItems).
+let jumpItems = Board.roomItems(rows, now: Date(), calendar: .current)
+let missing = rows.filter { r in !jumpItems.contains { $0.id == r.id } }
+check(rows.contains { $0.kind == .post } && rows.filter { $0.kind == .post }.allSatisfy { r in jumpItems.contains { $0.id == r.id } },
+      "every post (what a reply can answer) is an item with its own id, for the jump to reach; not items: \(missing.map { "\($0.kind)" })")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
