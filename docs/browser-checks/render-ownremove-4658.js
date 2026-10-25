@@ -313,6 +313,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
             `${E} and the dialog says why its computer is no longer shown`, JSON.stringify(fr));
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+          chk(await page.evaluate(() => document.getElementById('mem-msg').textContent) === '', `${E} the line goes when the list is read again`);
           // A list without the computer while its own remove is in flight does not close the dialog; the answer does.
           release = held();
           await page.click('#mem-go');
