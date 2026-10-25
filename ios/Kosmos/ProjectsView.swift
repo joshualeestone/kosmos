@@ -44,8 +44,10 @@ final class RoomStore: ObservableObject {
         let id: String; let text: String; var line: String?; var before: Set<String> = []
         // The newest row's time when Post was pressed: only a row after it can be this post.
         var after: Date? = nil
-        // kosmos#7093: the files it carries, off the box's chips while it is in the air.
+        // kosmos#7093: the files it carries, off the box's chips while it is in the air; and whether the computer kept
+        // it (it may stay while the room cannot be re-read, but its files no longer count toward the ten: review 3).
         var files: [Board.Attached] = []
+        var kept = false
     }
     @Published private(set) var pending: [String: [Pending]] = [:]
     @Published private(set) var notes: [String: String] = [:]
@@ -166,7 +168,7 @@ final class RoomStore: ObservableObject {
     // kosmos#7093: a pick for this room's next post goes through the chat's own upload (BoardClient.attach), waiting
     // under the room's key. The sample rooms (a Debug build only) add it at once, as the sample chats do.
     // The files of this room's posts still in the air, counted toward the ten (Board.roomFilesCounted).
-    func filesInAir(_ project: String) -> [[Board.Attached]] { (pending[project] ?? []).filter { $0.line == nil }.map(\.files) }
+    func filesInAir(_ project: String) -> [[Board.Attached]] { (pending[project] ?? []).filter { $0.line == nil && !$0.kept }.map(\.files) }
     // The ids a refused or not-confirmed post put back on the chips, so the room does not announce them as added.
     @Published private(set) var cameBack: [String: Set<String>] = [:]
     func attach(_ pick: BoardClient.Pick, epoch: Int, to project: String) async {
@@ -216,6 +218,7 @@ final class RoomStore: ObservableObject {
         }
         switch result {
         case let .posted(note):
+            if let i = pending[project]?.firstIndex(where: { $0.id == item.id }) { pending[project]?[i].kept = true }
             // A read that shows the post settles its bubble (inside loadRoom). Once a re-read has landed, the bubble
             // goes even if it did not match (the board's #6168: kept is kept); a re-read that failed leaves it, so a
             // kept post never disappears while the room cannot be read.

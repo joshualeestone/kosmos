@@ -38,4 +38,6 @@ limits and words are tested against the board's source; it is merged.
      never leave more than ten; the come-back decision is Board.roomFilesAfter, tested on every answer (its wiring in
      RoomStore.post is checked by reading: ProjectsView is in no suite); files a post put back are not announced as
      added. Room 230/230 (controls red: unsure-but-kept brings them back, in-air not counted); run 1197; Debug OK.
+   - Round 3: 0 blockers, 0 warnings, 1 nit, fixed: a kept post waiting on a failed re-read no longer counts its
+     files toward the ten (Pending.kept).
 3. Validation, PR (after #7085 merges and this is rebased).
