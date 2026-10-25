@@ -189,6 +189,17 @@ extension Board.TaskPage {
         return who + ", " + when
     }
 
+    // The line the page draws: "Added by you, today" (tkAdded's own words start a sentence, so its fixed openings are
+    // lowered here; a name is left as it is).
+    func addedLine(now: Date, calendar: Calendar = .current) -> String {
+        var words = added(now: now, calendar: calendar)
+        for opening in ["You", "An agent", "Somebody", "A webhook"] where words == opening || words.hasPrefix(opening + ",") || words.hasPrefix(opening + " ") {
+            words = opening.lowercased() + words.dropFirst(opening.count)
+            break
+        }
+        return "Added by " + words
+    }
+
     // The due date, read only here (it is set on the board's page): "Due Oct 30".
     func dueLine(calendar: Calendar = .current) -> String? {
         guard let due = dueDate else { return nil }

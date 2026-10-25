@@ -121,7 +121,7 @@ struct TaskPageView: View {
             Text(p.stateLine(roster: roster)).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
                 .padding(.top, 4)
             Group {
-                Text("Added by " + p.added(now: Date()))
+                Text(p.addedLine(now: Date()))
                 if let due = p.dueLine() { Text(due) }
                 if let parent = p.parentNumber, let sentence = p.parentSentence {
                     Button { openSub = parent } label: {
