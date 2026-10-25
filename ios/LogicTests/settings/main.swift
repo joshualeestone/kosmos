@@ -36,6 +36,8 @@ if let mac {
     let r = Settings.readRequest(mac)!
     check(r.httpMethod == "GET" && r.url?.absoluteString == "https://studio.kosmosplus.com/api/phone-notify", "a read is GET /api/phone-notify on that computer")
     check(r.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && r.httpShouldHandleCookies == false, "it carries the kept cookie and no other")
+    check(r.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin" && Settings.writeRequest(mac, kind: nil, on: true)?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin",
+          "as the board's own, so Kosmos+ gives it the computer's token (kosmos#7075)")
     let master = Settings.writeRequest(mac, kind: nil, on: true)!
     check(master.httpMethod == "PUT" && String(data: master.httpBody ?? Data(), encoding: .utf8) == #"{"on":true}"#, "the master switch sends { on } alone")
     let room = Settings.writeRequest(mac, kind: .postedRoom, on: false)!

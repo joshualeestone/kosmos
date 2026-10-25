@@ -43,6 +43,9 @@ let r = NotificationAction.replyRequest(userInfo: info, text: "  On it, thanks  
 check(r?.httpMethod == "POST" && r?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/ada/thread", "a POST to that agent's chat on that computer")
 check(r?.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && r?.httpShouldHandleCookies == false, "with the kept cookie, by hand")
 check(r?.timeoutInterval == 13, "the send's idle limit sits just under its 14 s total")
+check(r?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin"
+      && NotificationAction.checkRequest(userInfo: info, stored: kept(), session: session, coordinator: coordinator)?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin",
+      "the reply and its read say they are the board's own, so Kosmos+ gives them the computer's token (kosmos#7075)")
 check(NotificationAction.checkRequest(userInfo: info, stored: kept(), session: session, coordinator: coordinator)?.timeoutInterval == 7, "the read's idle limit sits just under its 8 s total")
 let sent = r.flatMap { $0.httpBody }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
 check(sent?["text"] as? String == "On it, thanks", "the text, trimmed, as the chat sends it (Board.sendRequest)")
@@ -157,6 +160,7 @@ check(prBody?["text"] as? String == "1" && prBody?["chose"] as? String == "Yes" 
 check(prBody?["lasting"] == nil, "never a lasting choice")
 check(!(pAllow?.request ?? "").isEmpty && prBody?["request"] as? String == pAllow?.request, "#7020: the press names the notice's request, so the Mac checks it too")
 check(pr?.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && pr?.httpShouldHandleCookies == false && pr?.timeoutInterval == 13, "the kept cookie by hand, the send's idle limit")
+check(pr?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin", "Allow from a notification says it is the board's own (kosmos#7075)")
 check(NotificationAction.pressRequest(userInfo: pinfoNotice, press: pAllow!, stored: kept(owner: Board.owner(of: "someone-else")), session: session, coordinator: coordinator) == nil, "another account's computer: nothing sent")
 check(NotificationAction.pressNotice(after: .sent, agent: "Ada", allow: true) == "Allowed for Ada.", "sent: says so (iOS took the notice away, so silence would look like a lost press; review 2)")
 check(NotificationAction.pressNotice(after: .sent, agent: "Ada", allow: false) == "Denied for Ada.", "sent Deny: says so")
