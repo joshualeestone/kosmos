@@ -501,7 +501,7 @@ struct ChatView: View {
                     if let head, !headsHidden.contains(row.id) { ReplyHeadLine(head: head).accessibilityHidden(true) }
                     FilesBubble(text: Board.wordsShown(row.text, files: row.attachments), files: row.attachments,
                                 thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine,
-                                faded: mine && row.canSendAgain && !client.wasSentAgain(row, for: agent.session),
+                                faded: false,
                                 spoken: (head.map { ReplyHeadLine.words($0) + " " } ?? "")
                                     + Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
                                                            count: row.attachments.count, notSent: row.notSent),
@@ -511,10 +511,13 @@ struct ChatView: View {
                     if !row.reactions.isEmpty {
                         ReactionPills(pills: row.reactions, toggle: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil)
                     }
-                    if mine, row.canSendAgain, !client.wasSentAgain(row, for: agent.session) {
-                        let line = Board.notSentLine(agentRunning: running, name: shown.name)
-                        NotSentLine(text: line.text, canRetry: line.canRetry,
-                                    action: { sendWhenFree { await client.sendAgain(row, to: agent) } })
+                    if mine, let failed = failedLine(row) {
+                        // kosmos#7136: the time as on any bubble, then the board's failed line under it.
+                        if last, let at = row.at {
+                            Text(at, style: .time).foregroundColor(Palette.tertiary).font(.caption2).padding(.horizontal, 4)
+                                .accessibilityHidden(true)
+                        }
+                        FailedLineView(line: failed, action: { tryAgain(row) })
                     } else if (last && row.at != nil) || row.notSent != nil {
                         // The time on the last of a run, as on every bubble (3a), and the Mac's word for one not sent.
                         HStack(spacing: 6) {
@@ -535,7 +538,7 @@ struct ChatView: View {
                     // A file that came with words: the words as a bubble, then the way through for the file.
                     if way == .attachment, !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ChatBubble(row: row, firstOfRun: true, lastOfRun: true, widthShare: widthShare, name: shown.name,
-                                   line: nil, sendAgain: {},
+                                   failed: nil, sendAgain: {},
                                    head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                                    react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                                    reply: row.answerable(by: agent.session) ? { startReply(row) } : nil)
@@ -550,11 +553,10 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
             } else {
-                // Not sent: tap to try again, once (a row already sent again waits for the read that shows the new one).
+                // kosmos#7136: one the Mac could not deliver gets the board's failed line, with Try again where it offers it.
                 ChatBubble(row: row, firstOfRun: first, lastOfRun: last, widthShare: widthShare, name: shown.name,
-                           line: row.canSendAgain && !client.wasSentAgain(row, for: agent.session)
-                               ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
-                           sendAgain: { sendWhenFree { await client.sendAgain(row, to: agent) } },
+                           failed: failedLine(row),
+                           sendAgain: { tryAgain(row) },
                            head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                            react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                            reply: row.answerable(by: agent.session) ? { startReply(row) } : nil)
@@ -771,6 +773,21 @@ struct ChatView: View {
     #endif
 
     // A send again or a retry while a press is in the air waits, and the line says why (dmChoiceBlocksSend).
+    // kosmos#7136: the board's failed line for a row of the person's, as it is on this phone now.
+    private func failedLine(_ row: Board.ChatRow) -> Board.FailedLine? {
+        Board.failedLine(row, newestMineAt: thread.flatMap { Board.newestMineAt($0.rows) },
+                         flying: client.isSendingAgain(row, for: agent.session))
+    }
+
+    // Try again, as the board's dmRetrySend: what happened is heard; a refusal is also said under the box.
+    private func tryAgain(_ row: Board.ChatRow) {
+        let newest = thread.flatMap { Board.newestMineAt($0.rows) }
+        sendWhenFree {
+            guard let out = await client.sendAgain(row, newestMineAt: newest, to: agent) else { return }
+            if out.refused { composerNote = out.said } else { UIAccessibility.post(notification: .announcement, argument: out.said) }
+        }
+    }
+
     private func sendWhenFree(_ go: @escaping () async -> Void) {
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         Task { await go(); await read() }
@@ -1226,7 +1243,8 @@ struct ChatBubble: View {
     let lastOfRun: Bool
     let widthShare: CGFloat
     let name: String
-    let line: (text: String, canRetry: Bool)?
+    // kosmos#7136: the board's failed line, for a message the Mac could not deliver.
+    let failed: Board.FailedLine?
     let sendAgain: () -> Void
     // kosmos#7083: what this message answers, and React and Reply (on the agent's messages only, as the board's hover
     // bar; nil where they are not offered).
@@ -1242,8 +1260,7 @@ struct ChatBubble: View {
     var body: some View {
         VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
             if let head, !headHidden { ReplyHeadLine(head: head) }
-            BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare, faded: line != nil)
-                .modifier(TapWhen(enabled: line?.canRetry == true, action: sendAgain))
+            BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare)
                 // One long-press menu per bubble, set here (a menu on the shared bubble would hide the pending one's Delete).
                 .contextMenu {
                     if let react {
@@ -1257,8 +1274,11 @@ struct ChatBubble: View {
                     Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                 }
             if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react) }
-            if let line {
-                NotSentLine(text: line.text, canRetry: line.canRetry, action: sendAgain)
+            if let failed {
+                if lastOfRun, let at = row.at {
+                    Text(at, style: .time).foregroundColor(Palette.tertiary).font(.caption2).padding(.horizontal, 4)
+                }
+                FailedLineView(line: failed, action: sendAgain)
             } else if lastOfRun || row.notSent != nil {
                 HStack(spacing: 6) {
                     if lastOfRun, let at = row.at { Text(at, style: .time).foregroundColor(Palette.tertiary) }
@@ -1273,7 +1293,9 @@ struct ChatBubble: View {
         .accessibilityLabel(spokenLabel)
         // Always present, doing nothing where there is no retry: without a default action VoiceOver's double-tap would
         // fall through as a tap at the bubble's centre, which can land on a link (#7014).
-        .accessibilityAction { if line?.canRetry == true { sendAgain() } }
+        .accessibilityAction { if failed?.canRetry == true { sendAgain() } }
+        // The board keeps the Mac's reason to the line's tooltip; here it is heard after the message.
+        .accessibilityHint(failed?.because ?? "")
         // The bubble is read as one element, so its links are offered as actions (one per link, named by its site, and
         // numbered when there is more than one).
         .accessibilityActions { linkActions }
@@ -1296,7 +1318,7 @@ struct ChatBubble: View {
         var said = Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
         if let head { said = ReplyHeadLine.words(head) + " " + said }
         if !row.reactions.isEmpty { said += ". Reactions: " + row.reactions.map { $0.emoji + ($0.count > 1 ? " \($0.count)" : "") }.joined(separator: ", ") }
-        if let line { return said + (line.canRetry ? ", not sent, double-tap to try again" : ", not sent") }
+        if let failed { return said + ", " + Board.failedWords.lowercased() + (failed.canRetry ? ", double-tap to try again" : "") }
         if let notSent = row.notSent { return said + ", " + notSent.lowercased() }
         return said
     }
@@ -1405,6 +1427,35 @@ struct PendingBubble: View {
 
     @ViewBuilder private var deleteAction: some View {
         if item.deletable { Button("Delete", action: delete) }
+    }
+}
+
+// kosmos#7136: the board's dmFailedLine under a message the Mac could not deliver: "Message failed to deliver, try
+// again." with "try again" the button, "sending…" while it goes, else "Message failed to deliver."; the reason is heard.
+struct FailedLineView: View {
+    let line: Board.FailedLine
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(Board.failedWords + (line.button == nil ? "." : ", "))
+            if let button = line.button {
+                Button(action: { if line.canRetry { action() } }) { Text(button).underline(line.canRetry) }
+                    .buttonStyle(.plain)
+                    .disabled(!line.canRetry)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                Text(".")
+            }
+        }
+        .font(.footnote)
+        .foregroundColor(Palette.secondary)
+        .padding(.horizontal, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(line.text)
+        .accessibilityHint(line.because)
+        .accessibilityAddTraits(line.canRetry ? .isButton : [])
+        .accessibilityAction { if line.canRetry { action() } }
     }
 }
 

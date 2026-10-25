@@ -390,8 +390,9 @@ final class BoardClient: ObservableObject {
     // Not published: the chat keeps the words it is editing itself and puts them here when it goes, so typing redraws
     // only the chat, not the Agents list under it.
     var drafts: [String: String] = [:]
-    // Rows of the person's the Mac kept as not sent that were already sent again, so a second tap sends nothing.
-    @Published private(set) var resent: Set<String> = []
+    // kosmos#7136: rows being sent again from this phone now (agent|at), the board's DM_RETRYING: drawn "sending…", and a
+    // second tap sends nothing.
+    @Published private(set) var resending: Set<String> = []
     // Published: a retry still reading counts as a send in the air, so the question's buttons are drawn off meanwhile.
     @Published private var retrying: Set<String> = []
 
@@ -540,19 +541,49 @@ final class BoardClient: ObservableObject {
         await deliver(id, to: agent)
     }
 
-    // A message of the person's the Mac kept as not sent: sent again as a new message, once.
-    func sendAgain(_ row: Board.ChatRow, to agent: Board.Agent) async {
-        let key = agent.session + "|" + row.id
-        // Not while a press is in the air: post would refuse it, and the row would read as sent again.
-        guard row.canSendAgain, isRunning(agent), !resent.contains(key), Board.fitsBoard(row.text), !pressing.contains(agent.session) else { return }
-        resent.insert(key)
-        // Its files go again with it (kosmos#7071): the Mac keeps them under this agent, so the same ids are good. A
-        // send that post refuses leaves the row as it was, so it can be tapped again.
-        // A reply goes again as the same reply (kosmos#7083).
-        if !(await post(row.text, files: row.attachments.map { Board.Attached(id: $0.id, name: $0.name) }, replyTo: row.replyTo, to: agent)) { resent.remove(key) }
+    // kosmos#7136: Try again on a message the Mac could not deliver, as the board's dmRetrySend: the same words into the
+    // same row (retry_of), so it stays one message, and only where the board offers it (Board.failedLine). What to say
+    // after, or nil when nothing was sent (not offered, already going, a press in the air, or the chats forgotten
+    // meanwhile). The chat reads the conversation again after, which shows the row as it now is.
+    func sendAgain(_ row: Board.ChatRow, newestMineAt: String?, to agent: Board.Agent) async -> Board.RetrySaid? {
+        guard let at = row.atRaw, Board.failedLine(row, newestMineAt: newestMineAt, flying: false)?.canRetry == true,
+              !pressing.contains(agent.session) else { return nil }
+        let key = agent.session + "|" + at
+        guard !resending.contains(key) else { return nil }
+        let epoch = chatEpoch
+        resending.insert(key)
+        defer { resending.remove(key) }
+        let said: Board.RetrySaid
+        #if DEBUG
+        if sampleThreads[agent.session] != nil { said = sampleRetry(at, to: agent.session) } else { said = await sendRetry(row.text, at: at, to: agent.session) }
+        #else
+        said = await sendRetry(row.text, at: at, to: agent.session)
+        #endif
+        return epoch == chatEpoch ? said : nil
     }
 
-    func wasSentAgain(_ row: Board.ChatRow, for session: String) -> Bool { resent.contains(session + "|" + row.id) }
+    private func sendRetry(_ text: String, at: String, to session: String) async -> Board.RetrySaid {
+        guard let held = admitted, let request = Board.retryRequest(mac: held.url, session: session, text: text, retryOf: at) else {
+            return Board.RetrySaid(said: Board.retryNoAnswer, refused: true)
+        }
+        let answer = await env.send(request)
+        return Board.retryResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
+    }
+
+    #if DEBUG
+    // The sample chats (a Debug build only): the row goes, as the Mac would place it.
+    private func sampleRetry(_ at: String, to session: String) -> Board.RetrySaid {
+        guard let sample = sampleThreads[session], let i = sample.rows.firstIndex(where: { $0.atRaw == at && $0.who == .person }) else {
+            return Board.RetrySaid(said: Board.sentence("there is no message of yours at that time to send again"), refused: true)
+        }
+        var rows = sample.rows
+        rows[i].notSent = nil; rows[i].because = nil; rows[i].resendable = false; rows[i].retryable = false
+        sampleThreads[session] = Board.Thread(rows: rows, olderCount: sample.olderCount, choices: sample.choices)
+        return Board.RetrySaid(said: "Sent.", refused: false)
+    }
+    #endif
+
+    func isSendingAgain(_ row: Board.ChatRow, for session: String) -> Bool { row.atRaw.map { resending.contains(session + "|" + $0) } ?? false }
 
     // A failed reply sent again without its reply (kosmos#7083): the Mac refuses one whose original has gone, and says to
     // send it as a new message.
@@ -759,7 +790,7 @@ final class BoardClient: ObservableObject {
         attachLine = [:]
         // Picked files still waiting to go are not left on the phone either.
         try? FileManager.default.removeItem(at: env.uploads)
-        resent = []
+        resending = []
         newestSeen = [:]
         // An open chat is showing what was forgotten: it resets when this moves (ChatView, AgentsView).
         chatEpoch += 1
