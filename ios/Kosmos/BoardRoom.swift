@@ -155,8 +155,10 @@ extension Board {
     // nil when the agent was added (the board's res.ok); otherwise the route's own reason as a sentence (pjSentence), or
     // the board's fallback.
     static func addMemberRefusal(status: Int?, _ data: Data?) -> String? {
-        if let status, (200...299).contains(status) { return nil }
         let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        // Added only on a 2xx this build can read (the board's res.json() throws on anything else; review 2: a proxy's
+        // page at 200 was taken for an add).
+        if let status, (200...299).contains(status), obj != nil { return nil }
         let said = sentence(obj?["error"] as? String)
         return said.isEmpty ? "We could not change that project." : said
     }

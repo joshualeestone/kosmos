@@ -30,4 +30,7 @@ and focus; tested and pinned to the board; merged.
 2. Review loop.
    - Round 1: 0 blockers, 2 warnings, 2 nits. Fixed: the list follows the status poll in a room; a refusal is heard;
      liveMembers is the room's live project; a sample addable refusal for the shots.
+   - Round 2: 0 blockers, 0 warnings, 2 nits. Fixed: a 2xx this build cannot read is a refusal, never an add (tested);
+     the route check's comment names the task-tail routes it also covers. Recorded: the sample room's Add is not
+     short-circuited, so the shots show the button and the refused line, not the added state. Converged.
 3. Validation, PR.

@@ -339,7 +339,8 @@ async function ask(method, p) {
 
 // A made-up path at the same depth, keeping the route's query string. kosmos#7111: when the route ENDS in a placeholder
 // (/api/project/x/agent/x), replacing that last part only names another agent on the same route, which the board answers
-// the same way, so the part before it is made up instead (/api/project/x/no-such-route/x).
+// the same way, so the part before it is made up instead (/api/project/x/no-such-route/x). This also applies to the task
+// tail routes written as /task/x/x in SITES (the number is made up there); both made-up-sibling controls still hold.
 const madeUp = (p, tag = 'no-such-route-7055') => {
   const [bare, q] = p.split('?');
   const made = /\/x$/.test(bare) && bare.split('/').length > 4 ? bare.replace(/\/[^/]+\/x$/, '/' + tag + '/x') : bare.replace(/\/[^/]+$/, '/' + tag);

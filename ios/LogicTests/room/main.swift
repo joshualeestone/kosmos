@@ -656,6 +656,8 @@ check(addReq?.httpMethod == "POST" && addReq?.url?.path == "/api/project/springc
 check(Board.addMemberRequest(mac: mac, project: "../x", agent: "juno") == nil && Board.addMemberRequest(mac: mac, project: "springcatalogue", agent: "a/b") == nil,
       "nothing sent for a bad project or agent")
 check(Board.addMemberRefusal(status: 200, Data("{}".utf8)) == nil, "added: no refusal")
+check(Board.addMemberRefusal(status: 200, Data("<html>sign in to the wifi</html>".utf8)) == "We could not change that project.",
+      "a 200 this build cannot read is never taken for an add")
 check(Board.addMemberRefusal(status: 409, Data(#"{"error":"that agent is already on this project"}"#.utf8)) == "That agent is already on this project.",
       "refused: the route's reason as a sentence")
 check(Board.addMemberRefusal(status: nil, nil) == "We could not change that project.", "no answer: the board's fallback")
