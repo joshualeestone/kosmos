@@ -860,14 +860,31 @@ check(Board.ownSealLine(waitingC, fedShown: true) == Board.ownWaitingLine, "line
 check(Board.ownSealLine(sealedC, fedShown: false) == nil && Board.ownSealLine(waitingC, fedShown: false) == nil, "line: none while the shared-room UI is not shown")
 check(Board.ownSealLine(Board.OwnCompare(hasCode: false, pending: true), fedShown: true) == nil, "line: none without a code, waiting or not")
 check(Board.ownSealLine(nil, fedShown: true) == nil, "line: none before a read lands, or after one that failed")
-// The words: the board's two sentences, with "under Members" said as the computer's board on the phone.
-for (phone, board) in [(Board.ownSealedLine, "'This room is sealed on this computer. The code to compare is under Members.'"),
-                       (Board.ownWaitingLine, "'This computer is waiting to be let in. The code to compare is under Members.'")] {
-    check(boardPage.contains("o.pending ? 'This computer is waiting to be let in. The code to compare is under Members.' : 'This room is sealed on this computer. The code to compare is under Members.'"),
-          "the board picks its sentence by pending")
-    let stem = String(board.dropFirst().dropLast().dropLast("under Members.".count))
-    check(phone == stem + "on your computer's board, under Members.", "the phone's sentence is the board's, with where the code is: \(phone.prefix(50))")
+// The words: the board's two sentences said from the phone. The board's "this computer" is the person's computer here,
+// and "under Members" is on that computer's board (the phone has no Members code section). Nothing else changes.
+check(boardPage.contains("o.pending ? 'This computer is waiting to be let in. The code to compare is under Members.' : 'This room is sealed on this computer. The code to compare is under Members.'"),
+      "the board picks its sentence by pending, in these words")
+func phoneSaid(_ board: String) -> String {
+    board.replacingOccurrences(of: "This computer is", with: "Your computer is").replacingOccurrences(of: "on this computer.", with: "on your computer.")
+        .replacingOccurrences(of: "is under Members.", with: "is on its board, under Members.")
 }
+check(Board.ownSealedLine == phoneSaid("This room is sealed on this computer. The code to compare is under Members."), "the sealed sentence is the board's, said from the phone")
+check(Board.ownWaitingLine == phoneSaid("This computer is waiting to be let in. The code to compare is under Members."), "the waiting sentence is the board's, said from the phone")
+check(!Board.ownSealedLine.contains("this computer") && !Board.ownWaitingLine.contains("this computer"), "the phone never calls the Mac \"this computer\"")
+// The keep rule, as the board's fedOwnLoad: an answer replaces; a failed read keeps the last through two misses.
+let kept1 = Board.ownCompareAfter(nil, answer: sealedC)
+check(kept1 == Board.OwnCompareKept(compare: sealedC, missed: 0), "keep: an answer is kept, no misses")
+let miss1 = Board.ownCompareAfter(kept1, answer: nil), miss2 = Board.ownCompareAfter(miss1, answer: nil), miss3 = Board.ownCompareAfter(miss2, answer: nil)
+check(miss1.compare == sealedC && miss2.compare == sealedC, "keep: one and two failed reads keep the line")
+check(miss3.compare == nil && miss3.missed == 3, "keep: the third failed read in a row drops it")
+check(Board.ownCompareAfter(miss2, answer: waitingC) == Board.OwnCompareKept(compare: waitingC, missed: 0), "keep: an answer after misses replaces and resets the count")
+check(Board.ownCompareAfter(kept1, answer: Board.OwnCompare(hasCode: false, pending: false)).compare?.hasCode == false, "keep: an answer with no code drops the line at once")
+check(Board.ownCompareAfter(nil, answer: nil) == Board.OwnCompareKept(compare: nil, missed: 1), "keep: a first read that fails shows nothing")
+check(boardPage.contains("const missed = mine ? 0 : (prev ? (prev.missed || 0) + 1 : 1);")
+      && boardPage.contains("const code = mine ? (typeof mine.code === 'string' ? mine.code : null) : (prev && missed < 3 ? prev.code : null);")
+      && boardPage.contains("const pending = mine ? mine.pending === true : !!(prev && missed < 3 && prev.pending);")
+      && boardPage.contains("return res.ok && body && typeof body === 'object' ? body : null;"),
+      "the board keeps its code through two misses, and any 2xx object is an answer")
 check(boardPage.contains("line.hidden = !(below && o && o.code && o.project === PJ_CURRENT && fedShow());"), "the board's condition: a code, this project, the UI shown")
 check(boardPage.contains(".ownseal-phone { font: var(--text-callout) var(--font-ui); color: var(--label-3);"), "the board's line is callout in the third label colour")
 // The drawing and the wiring, in the app's own source.
@@ -878,10 +895,14 @@ check(roomBody.contains("if searchMode { searchBar }\n            // kosmos#7137
       "the room draws the line in callout and the third colour, above the conversation")
 let projectsSource = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/ProjectsView.swift"), encoding: .utf8)) ?? ""
 check(projectsSource.contains("guard client.fedShown else { ownCompare[project] = nil; return }"), "the store reads own-compare only while the UI shows, and forgets it otherwise")
-check(projectsSource.contains("if let answer, answer.1.statusCode == 200, let c = Board.parseOwnCompare(answer.0) { ownCompare[project] = c } else { ownCompare[project] = nil }"),
-      "a failed or refused read leaves no line")
-check(projectsSource.contains("roomFailed.remove(project)\n        Task { await self.loadOwnCompare(project) }"), "the read follows each room read")
-check(projectsSource.contains("needsFailed = [:]; ownCompare = [:]"), "another account or computer forgets the reads")
+check(projectsSource.contains("guard same(epoch), ownSeq[project] == seq else { return }"), "only the newest read for a project writes (the board's FED_OWN_SEQ)")
+check(projectsSource.contains("let read = answer.flatMap { (200...299).contains($0.1.statusCode) ? Board.parseOwnCompare($0.0) : nil }\n        ownCompare[project] = Board.ownCompareAfter(ownCompare[project], answer: read)"),
+      "a 2xx JSON answer replaces, anything else is a miss under the keep rule")
+check(projectsSource.contains("func enterOwnCompare(_ project: String) { ownCompare[project] = nil; ownSeq[project, default: 0] += 1 }")
+      && roomView.contains("visible = true\n            store.enterOwnCompare(project.id)"), "entering the room starts the line empty and drops a read in the air (the board's fedOwnReset)")
+check(projectsSource.contains("roomFailed.remove(project)\n        Task { await self.loadOwnCompare(project) }"), "the read follows each room read that lands")
+check(projectsSource.contains("needsFailed = [:]; ownCompare = [:]; ownSeq = [:]"), "another account or computer forgets the reads")
+check(projectsSource.contains("    @discardableResult\n    func loadRoom(_ project: String) async -> Bool {"), "loadRoom keeps its @discardableResult (review 1: a function placed between them took it)")
 let clientSource = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""
 check(clientSource.contains("fedShown = Board.fedShown(fromStatus: data)") && clientSource.contains("projectsUnread = nil\n        fedShown = false"),
       "the client takes the gate from each status read and forgets it with the Mac")

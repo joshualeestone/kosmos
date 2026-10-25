@@ -713,10 +713,22 @@ extension Board {
         let code = (obj["code"] as? String) ?? ""
         return OwnCompare(hasCode: !code.isEmpty, pending: isTrue(obj["pending"]))
     }
-    // The board's #pj-fed-own-phone sentences, with where the code is said for a phone: the phone has no Members code
-    // section of its own (its room's Members button opens the board), so "under Members" names the computer's board.
-    static let ownSealedLine = "This room is sealed on this computer. The code to compare is on your computer's board, under Members."
-    static let ownWaitingLine = "This computer is waiting to be let in. The code to compare is on your computer's board, under Members."
+    // The board's fedOwnLoad keep rule: an answer replaces what is kept; a failed read keeps the last answer through
+    // two misses in a row and drops it at the third (the page can no longer say it is the code this computer shows).
+    struct OwnCompareKept: Equatable {
+        var compare: OwnCompare?
+        var missed: Int
+    }
+    static func ownCompareAfter(_ prev: OwnCompareKept?, answer: OwnCompare?) -> OwnCompareKept {
+        if let answer { return OwnCompareKept(compare: answer, missed: 0) }
+        let missed = (prev?.missed ?? 0) + 1
+        return OwnCompareKept(compare: missed < 3 ? prev?.compare : nil, missed: missed)
+    }
+    // The board's #pj-fed-own-phone sentences, said from the phone: the board's "this computer" is the person's
+    // computer here, and the phone has no Members code section of its own (its room's Members button opens the board), so
+    // the code is said to be on that computer's board.
+    static let ownSealedLine = "This room is sealed on your computer. The code to compare is on its board, under Members."
+    static let ownWaitingLine = "Your computer is waiting to be let in. The code to compare is on its board, under Members."
     // Shown as the board's: the shared-room UI is shown, and this computer has a code for the open project.
     static func ownSealLine(_ c: OwnCompare?, fedShown: Bool) -> String? {
         guard fedShown, let c, c.hasCode else { return nil }

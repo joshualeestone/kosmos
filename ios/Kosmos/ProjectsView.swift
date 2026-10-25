@@ -67,7 +67,8 @@ final class RoomStore: ObservableObject {
     var drafts: [String: Draft] = [:]
     // kosmos#7137: the own-compare read by project (whether this computer has a code and waits to be let in), for the
     // line above a shared room. Never the code itself.
-    @Published private(set) var ownCompare: [String: Board.OwnCompare] = [:]
+    @Published private(set) var ownCompare: [String: Board.OwnCompareKept] = [:]
+    private var ownSeq: [String: Int] = [:]
     static let pageSize = 50
 
     private let client: BoardClient
@@ -78,7 +79,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]
+        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
@@ -117,21 +118,28 @@ final class RoomStore: ObservableObject {
         return false
     }
 
+    // kosmos#7137: the board's own-compare read for the line above a shared room, as its fedOwnLoad: only while the
+    // shared-room UI shows (fedShow()); only the newest read for a project writes (FED_OWN_SEQ); any 2xx JSON answer
+    // replaces what is kept, and a failed read keeps it through two misses (Board.ownCompareAfter).
+    func loadOwnCompare(_ project: String) async {
+        guard client.fedShown else { ownCompare[project] = nil; return }
+        let epoch = client.chatEpoch
+        ownSeq[project, default: 0] += 1
+        let seq = ownSeq[project]!
+        let answer = await client.throughMac { Board.ownCompareRequest(mac: $0, project: project) }
+        guard same(epoch), ownSeq[project] == seq else { return }
+        let read = answer.flatMap { (200...299).contains($0.1.statusCode) ? Board.parseOwnCompare($0.0) : nil }
+        ownCompare[project] = Board.ownCompareAfter(ownCompare[project], answer: read)
+    }
+    // Entering the room starts it empty, as the board's fedOwnReset on entering a project: a previous visit's answer is
+    // not drawn before this visit's read lands. A newer seq drops a read still in the air.
+    func enterOwnCompare(_ project: String) { ownCompare[project] = nil; ownSeq[project, default: 0] += 1 }
+    func ownSealLine(_ project: String) -> String? { Board.ownSealLine(ownCompare[project]?.compare, fedShown: client.fedShown) }
+
     // The newest page, merged into what is shown (a post written late can land inside it; ios/README.md).
     // True when the read landed. A read cancelled (the room left, a member's chat pushed over it) is no answer, never
     // "we cannot read this room".
     @discardableResult
-    // kosmos#7137: the board's own-compare read for the line above a shared room. Only while the shared-room UI shows
-    // (the board's fedShow()); otherwise, or on any answer that is not a readable 200 (404 with sharing off, say), no line.
-    func loadOwnCompare(_ project: String) async {
-        guard client.fedShown else { ownCompare[project] = nil; return }
-        let epoch = client.chatEpoch
-        let answer = await client.throughMac { Board.ownCompareRequest(mac: $0, project: project) }
-        guard same(epoch), !Task.isCancelled else { return }
-        if let answer, answer.1.statusCode == 200, let c = Board.parseOwnCompare(answer.0) { ownCompare[project] = c } else { ownCompare[project] = nil }
-    }
-    func ownSealLine(_ project: String) -> String? { Board.ownSealLine(ownCompare[project], fedShown: client.fedShown) }
-
     func loadRoom(_ project: String) async -> Bool {
         #if DEBUG
         if Self.sample {

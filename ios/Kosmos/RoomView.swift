@@ -162,6 +162,7 @@ struct RoomView: View {
         )
         .onAppear {
             visible = true
+            store.enterOwnCompare(project.id)   // kosmos#7137: this visit's own-compare read draws the line, never the last one's
             // kosmos#7072: coming back to a room that is held says so, as the board does when it shows a held room.
             if store.held[project.id] != nil { Self.say(Board.heldAnnouncement) }
             // The box as the person left it (RoomStore.drafts), then anything handed back while they were away, and a

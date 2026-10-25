@@ -28,3 +28,14 @@ Card: kosmos#7137 (filed by me from a board-vs-phone sweep; the board's #pj-fed-
   deleted -> red.
 
 ## Review
+- Round 1: 0 blockers, 4 warnings, 4 nits. Fixed: loadOwnCompare had been put between loadRoom's @discardableResult and
+  loadRoom (four build warnings; pinned); a failed read keeps the line through two misses and drops it at the third,
+  any 2xx JSON object is an answer (Board.ownCompareAfter, the board's fedOwnLoad, tested and pinned); only the newest
+  read for a project writes (ownSeq, the board's FED_OWN_SEQ); entering the room starts the line empty and drops a
+  read in the air (enterOwnCompare, the board's fedOwnReset). Nit fixed: the words never call the Mac "this
+  computer" from the phone ("This room is sealed on your computer. The code to compare is on its board, under
+  Members."); a test counted twice moved out of its loop; "follows each room read" named "that lands". Recorded: the
+  Members word is on the board's card, which is where the line sends the person, not on the phone's info button.
+  Decided: enterOwnCompare runs on every onAppear, also coming back from an agent's chat pushed over the room, so the
+  line may be absent for one read then (the room re-reads at once). Room 423/423; every suite; both builds, no
+  warnings in the changed files. Broken copies: drops at two, no seq guard, no clear on entry: each red.
