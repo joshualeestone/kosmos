@@ -2853,38 +2853,44 @@ cmd_msg() {
 # room shows it in Kosmos's own voice, its first words naming the source. It is typed into nobody's session.
 cmd_notice() {
   local usage='Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this Mac writes a line into a room in Kosmos'"'"'s own voice, the text on stdin; <source> names the job, such as "builder alarm")'
-  local source="" project="" stdin=0
+  local source="" project="" from_stdin=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --from) [ $# -ge 2 ] || { say "$usage"; exit 2; }; source="$2"; shift 2 ;;
       --from=*) source="${1#--from=}"; shift ;;
-      --stdin) stdin=1; shift ;;
+      --stdin) from_stdin=1; shift ;;
       -*) say "$usage"; exit 2 ;;
       *) if [ -z "$project" ]; then project="$1"; shift; else say "$usage"; exit 2; fi ;;
     esac
   done
-  if [ -z "$source" ] || [ -z "$project" ] || [ "$stdin" -ne 1 ]; then say "$usage"; exit 2; fi
+  if [ -z "$source" ] || [ -z "$project" ] || [ "$from_stdin" -ne 1 ]; then say "$usage"; exit 2; fi
   if ! printf '%s' "$source" | LC_ALL=C grep -qE '^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$'; then say "The source is a few plain words (letters, digits, spaces, . _ -), such as \"builder alarm\"."; exit 2; fi
   require_valid_project_id "$project"
   local text=""
   _read_piped_message "written" "$usage"
   if [ -z "$text" ]; then say "Nothing was written: the notice was empty."; exit 2; fi
-  if ! healthy; then say_not_up "the notice cannot be written"; exit 1; fi
+  # A job's notice may be its only copy (an alarm fires when the fleet is down): every failure below keeps it, and says where.
+  if ! healthy; then say_not_up "the notice cannot be written"; _keep_piped; exit 1; fi
   local esc_text esc_source _bt _body _rc=0 _code because
   esc_text=$(printf '%s' "$text" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r' '  ' | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g') || { say "Nothing was written: the notice could not be prepared."; exit 2; }
   esc_source=$(printf '%s' "$source" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g')
   _bt="$(board_token || true)"
   _body=$(printf '%s' "{\"text\":\"$esc_text\",\"source\":\"$esc_source\"}" | kosmos_curl "$_bt" "" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$project/notice" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
-  if [ "$_rc" -ne 0 ]; then say_unreached "write that notice" "$_rc" write; exit 1; fi
+  if [ "$_rc" -ne 0 ]; then say_unreached "write that notice" "$_rc" write; case "$_rc" in 18|52|56) _keep_piped maybe ;; *) _keep_piped ;; esac; exit 1; fi
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   case "$_code" in
     2??) say "Written to $project as a Kosmos notice from $source." ;;
-    404) say "There is no project called \"$project\", so there is no room to write into."; exit 1 ;;
+    404)
+      case "$_body" in
+        *'no project by that name'*) say "There is no project called \"$project\", so there is no room to write into." ;;
+        *) say "This board does not know kosmos notice yet: update Kosmos, then try again." ;;
+      esac
+      _keep_piped; exit 1 ;;
     *)
       because=$(printf '%s' "$_body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
       say "The notice was not written${because:+: $because}."
-      exit 1 ;;
+      _keep_piped; exit 1 ;;
   esac
 }
 

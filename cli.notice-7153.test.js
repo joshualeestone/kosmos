@@ -98,11 +98,26 @@ test('a refusal is said, with the board\'s reason, and exits non-zero; a missing
     const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(port), 'hello');
     assert.notEqual(out.code, 0, 'a refused notice exited 0');
     assert.match(out.stdout, /The notice was not written: a notice needs words, at most 4000 characters\./);
+    // A job's notice may be its only copy: the refusal keeps it, and says where.
+    const saved = /saved at (\S+)/.exec(out.stdout);
+    assert.ok(saved, 'the refused notice was not kept: ' + out.stdout);
+    assert.equal(fs.readFileSync(saved[1], 'utf8'), 'hello', 'the kept copy is not the notice as piped');
+    fs.rmSync(saved[1], { force: true });
   });
-  await withBoard({ code: 404, body: { error: 'there is no project by that name' } }, async (port) => {
+  await withBoard({ code: 404, body: { error: 'there is no project by that name, so there is no room to post into' } }, async (port) => {
     const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'nosuchroom'], jobEnv(port), 'hello');
     assert.notEqual(out.code, 0);
     assert.match(out.stdout, /There is no project called "nosuchroom"/);
+    const saved = /saved at (\S+)/.exec(out.stdout);
+    if (saved) fs.rmSync(saved[1], { force: true });
+  });
+  // A board older than the notice route answers 404 without the project words: it is told to update, not that the room is missing.
+  await withBoard({ code: 404, body: { error: 'not found' } }, async (port) => {
+    const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(port), 'hello');
+    assert.notEqual(out.code, 0);
+    assert.match(out.stdout, /This board does not know kosmos notice yet/);
+    const saved = /saved at (\S+)/.exec(out.stdout);
+    if (saved) fs.rmSync(saved[1], { force: true });
   });
 });
 
