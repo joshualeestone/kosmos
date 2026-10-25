@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
+const { cutUnits } = require('./textcut');   // #7108: screen lines go out in /api/status; never half an emoji
 const launchidentity = require('./launchidentity'); // #1704: this board's Kosmos, and the roster key
 const selfreport = require('./selfreport');
 const wouldping = require('./wouldping');
@@ -2377,7 +2378,7 @@ function codexLimitMessage(rawRows) {
     if (!r.trim() || /^\s*[›•■●]/.test(r)) break;
     out += ' ' + r.trim();
   }
-  return out.length > 240 ? out.slice(0, 240) + '…' : out;
+  return out.length > 240 ? cutUnits(out, 240) + '…' : out;
 }
 function codexLimitStillCurrent(rows) {
   let at = -1;
@@ -3660,7 +3661,7 @@ function connectionLostAtTail(tail) {
   // Evidence without the ⏺/● bullet, so the same error reads the same however it was drawn.
   // The whole message, continuation rows included, so the evidence shows what the screen says.
   const line = atJoined.replace(/^[⏺●]\s+/, '').replace(/\s+/g, ' ').trim();
-  return line.length > 240 ? line.slice(0, 240) + '…' : line;
+  return line.length > 240 ? cutUnits(line, 240) + '…' : line;
 }
 
 /* #3410: Claude Code's live retry line, anchored at both ends:
@@ -4220,7 +4221,7 @@ function backgroundAgentWaitCount(row) {
    inline copy is exactly how one of them quietly stops matching the other. */
 function trimWaitEvidence(row) {
   const line = String(row == null ? '' : row).trim();
-  return line.length > 240 ? line.slice(0, 240) + '…' : line;
+  return line.length > 240 ? cutUnits(line, 240) + '…' : line;
 }
 
 /**
@@ -4431,7 +4432,7 @@ function matchedLine(text, markers) {
        collapsing them would widen one of them by accident. */
     const line = raw.replace(/^[\s>│├└─*❯›]+/, '').trim();
     if (!line) continue;
-    return line.length > 240 ? line.slice(0, 240) + '…' : line;
+    return line.length > 240 ? cutUnits(line, 240) + '…' : line;
   }
   return null;
 }
@@ -4492,7 +4493,7 @@ function messageAt(text, markers) {
       if (!line || !CONTINUES.test(line)) break;
       out += ' ' + line;
     }
-    return out.length > 240 ? out.slice(0, 240) + '…' : out;
+    return out.length > 240 ? cutUnits(out, 240) + '…' : out;
   }
   return null;
 }
@@ -4566,7 +4567,7 @@ function friendlyAuthLine(rows) {
     if (!AUTH_FRIENDLY_MESSAGE.test(row) || !AUTH_FRIENDLY_REMEDY.test(row)) continue;
     const line = row.replace(/^[\s>│├└─*❯›●]+/, '').trim();
     if (!line) continue;
-    return line.length > 240 ? line.slice(0, 240) + '…' : line;
+    return line.length > 240 ? cutUnits(line, 240) + '…' : line;
   }
   return null;
 }
@@ -4642,7 +4643,7 @@ function authFailed(tail) {
      from the same starting point a closed one would use, capped, rather than
      nothing and rather than an unbounded run. */
   const cut = joined.slice(envelopeStart(joined));
-  return cut.length > 240 ? cut.slice(0, 240) + '…' : cut;
+  return cut.length > 240 ? cutUnits(cut, 240) + '…' : cut;
 }
 
 /**
@@ -4689,7 +4690,7 @@ function trustPrompt(tail) {
        still only one dialog. */
     if (last > i + TRUST_PROMPT_REACH + 1) continue;
     const line = rows[i];
-    return line.length > 240 ? line.slice(0, 240) + '…' : line;
+    return line.length > 240 ? cutUnits(line, 240) + '…' : line;
   }
   return null;
 }
@@ -4741,7 +4742,7 @@ function consentPrompt(tail) {
   const hasExit = rows.some((row) => CONSENT_PROMPT_EXIT.test(row));
   const hasAccept = rows.some((row) => CONSENT_PROMPT_ACCEPT.test(row));
   if (!((hasExit && hasAccept) || (hasConfirm && (hasExit || hasAccept)))) return null;
-  const cap = (s) => (s.length > 240 ? s.slice(0, 240) + '…' : s);
+  const cap = (s) => (s.length > 240 ? cutUnits(s, 240) + '…' : s);
   let because = CONSENT_PROMPT_GENERIC_BECAUSE;
   let headingRow = null;
   let lastAccept = -1;
@@ -5583,7 +5584,7 @@ function classify(pane, paneText) {
                  : tail.indexOf('\n', m.index + m[0].length);
                const line = tail.slice(from, at === -1 ? tail.length : at)
                  .replace(/\s+/g, ' ').trim();
-               if (line.length > 240) return line.slice(0, 240) + '…';
+               if (line.length > 240) return cutUnits(line, 240) + '…';
                return closed ? line : line + '…';
              })() };
   }

@@ -26,4 +26,9 @@ tested with a control; merged.
      refused (a legacy stored key reached the phone); the 1000-unit self-report cut made code-point safe through
      the shared cutUnits; the whole project's JSON checked with the simpler lone-escape regex (any escaped
      surrogate is lone). Recorded: the board-line test is a source pin (a fallback only for a missing key).
-     needskey 6/6 with needsquiet, selfreport and the dismiss route: 68 pass. 3. Validation, PR.
+     needskey 6/6 with needsquiet, selfreport and the dismiss route: 68 pass.    - Round 2: 0 blockers, 2 warnings, 2 nits. Fixed: commitments (`what`, cut at 300 on report and on read, in every
+     /api/status poll) through cutUnits; a self-report stored before the fix is made well-formed on read (latestOf:
+     because, on, owner via toWellFormed); the ten 240-unit screen-line cuts in status.js (evidence in /api/status)
+     through cutUnits. Recorded: the board fallback test stays a source pin. needskey 8/8 (controls: the old
+     commitment cuts and the raw stored read each red); commitments, needsquiet, selfreport, dismiss route: 127 pass.
+3. Validation, PR.

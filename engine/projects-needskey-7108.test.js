@@ -110,3 +110,28 @@ test('#7108: cutUnits keeps whole pairs and never ends on a lead half', () => {
   assert.equal(cutUnits('ab\u{1F600}', 4), 'ab\u{1F600}');
   assert.equal(cutUnits('abc', 10), 'abc');
 });
+
+test('#7108 review 2: a commitment cut at 300 keeps no half emoji (it goes out in /api/status)', () => {
+  const commitments = require('./commitments');
+  const what = 'c'.repeat(299) + '\u{1F600} more';
+  assert.ok(LONE.test(what.slice(0, 300)), 'CONTROL: the old cut did not leave half an emoji');
+  commitments.report('cm08', [{ what }]);
+  const got = commitments.read('cm08');
+  const items = Array.isArray(got) ? got : (got && (got.commitments || got.items)) || [];
+  assert.ok(items.length >= 1, 'fixture: the commitment was not recorded: ' + JSON.stringify(got).slice(0, 200));
+  assert.equal(items[0].what, 'c'.repeat(299), 'the commitment was not cut before the emoji');
+  assert.ok(!LONE_ESCAPE.test(JSON.stringify(got)), 'the commitment carries a lone surrogate escape');
+});
+
+test('#7108 review 2: a report stored before the fix, ending in half an emoji, is read back well-formed', () => {
+  assert.equal(selfreport.record('em13', { state: 'needs_you', because: 'ok', project: 'x' }).recorded, true, 'fixture: the report was refused');
+  // Rewrite the stored line as an older build wrote it: cut through an emoji.
+  const file = selfreport.fileFor('em13');
+  assert.ok(fs.readFileSync(file, 'utf8').includes('"because":"ok"'), 'fixture: the stored report was not where fileFor says');
+  const broken = 'b'.repeat(999) + '\uD83D';
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('"because":"ok"', '"because":' + JSON.stringify(broken)));
+  const r = selfreport.read('em13');
+  assert.ok(LONE.test(broken), 'CONTROL: the stored text is broken');
+  assert.ok(!LONE.test(r.because), 'a stored half emoji was read back as is');
+  assert.ok(!LONE_ESCAPE.test(JSON.stringify(r)), 'the read report carries a lone surrogate escape');
+});
