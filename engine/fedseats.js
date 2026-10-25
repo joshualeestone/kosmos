@@ -856,7 +856,11 @@ function sayOwnHello(projectId, s) {
 function noteOwnSealed(projectId, s) {
   const link = safeLink(projectId);
   if (!link || link.role !== 'self') return false;
-  try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch {
+  // Slice 2: an unopenable envelope is not proof the room is sealed (the relay or a guest can send one). Unless the link
+  // says this computer joined a sealed room, it waits for the owner's authenticated answer (a share or a clear), as a
+  // computer joined by an unsealed room's code does; its posts are held either way.
+  const rec = link.sealed === true ? { role: 'member', ownComputer: true, keys: {} } : { role: 'member', ownComputer: true, pendingClear: true, keys: {} };
+  try { fedseal.setRoomState(projectId, rec); } catch {
     noteOnce(projectId, s, 'ownSealUnsaved', 'This shared room is sealed, and this computer could not record that, so it cannot ask for the room\'s key yet. Kosmos tries again with the next message.');
     return true;   // handled: the guest's "ask the owner for a new code" line is not this computer's
   }
@@ -878,7 +882,7 @@ function waitingOffer(projectId, s, frame) {
   if (run.offer && (run.offer.ownerPub !== offer.ownerPub || run.offer.nO !== offer.nO)) {
     // Confirmed or not: a run still waiting for its share ends (the owner's board may have restarted and lost it),
     // and the new run's code needs a new confirm. A run holding a genuine share keeps it.
-    if (run.got) return;
+    if (run.got || run.gotClear) return;   // a run holding a genuine share or clear keeps it (slice 2: the owner re-offers after Allow)
     if (!underRunLimit(s, 'ownResets')) {
       noteOnce(projectId, s, 'ownRunsPaused', 'The code on this screen has had to start over too many times this hour, so it stays as it is for now. If it does not match the other computer, press "Does not match" to start again.');
       return;
@@ -983,7 +987,7 @@ function adoptOwnShare(projectId, s) {
     this run (the key the person compares), as a share is. */
 function waitingClear(projectId, s, frame) {
   const run = s.ownRun;
-  if (!run || !run.offer || run.gotClear) return;
+  if (!run || !run.offer || run.gotClear || run.room !== s.room) return;
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
   if (!pendingClear(roomSeal(projectId))) return;
@@ -1001,8 +1005,9 @@ function adoptOwnClear(projectId, s) {
   if (!run || !run.confirmed || !run.gotClear || !pendingClear(st) || !link || link.role !== 'self' || link.sealed === true) return;
   // The link first: with it still saying pendingClear and the record gone, the posts would be held again and the next
   // connect would ask for a new code compare. Both written, then said.
-  try { federation.recordLink(projectId, Object.assign({}, link, { pendingClear: false })); } catch { return; }
-  try { fedseal.forgetRoom(projectId); } catch { return; }
+  const unsaved = () => noteOnce(projectId, s, 'ownClearUnsaved', 'The other computer let this one in, but this computer could not record it, so its posts are still held. Kosmos tries again when it next connects; if it restarts first, compare the codes again.');
+  try { federation.recordLink(projectId, Object.assign({}, link, { pendingClear: false })); } catch { unsaved(); return; }
+  try { fedseal.forgetRoom(projectId); } catch { unsaved(); return; }
   s.ownRun = null;
   say(projectId, 'This computer was let into this shared project. Messages in this room are not sealed end to end.');
   flushHeld(projectId, s);

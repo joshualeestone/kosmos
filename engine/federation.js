@@ -218,7 +218,8 @@ const OWN_KEY_PREFIX = 'own:';
 /* Why no own code can be made for this project, or null when one can: 'guest' for a project joined from
    someone else. A sealed room's code is version 2 (ownCodeSealed, #4658), made only by a computer that holds
    the room's key: 'sealed-waiting' for an owner whose key no guest's hello has made yet, 'sealed-not-in' for a
-   computer joined by own code that has not been let in itself. Throws when the room's record cannot be read. */
+   computer joined by own code that has not been let in itself, 'not-in' for one still waiting to be let into an
+   unsealed room (slice 2). Throws when the room's record cannot be read. */
 function ownCodeRefusal(projectId) {
   const link = linkFor(projectId);
   if (!link) return null;
