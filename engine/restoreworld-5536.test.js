@@ -315,7 +315,8 @@ test('a git folder in an agent makes it not offered; one at the top of workers b
   l = rw.listRestoredAgents({ base, world: p.world, nameOk });
   by = Object.fromEntries(l.agents.map((a) => [a.folder, a]));
   assert.match(by.ann.because, /workers folder holds a git folder/, 'a git folder above every agent blocks them all');
-  assert.ok(l.shared.some((x) => x.where === 'workers' && x.label === '.git'));
+  assert.ok(l.shared.some((x) => x.label === '(the workers folder itself)' && x.runs.includes('.git')));
+  assert.ok(!l.shared.some((x) => x.label === '.git'), 'a dot-entry gets no row of its own; the folder row names it');
 });
 
 test('a world folder left on disk under the chosen id is never reused: it is hidden and the next name is taken', (t) => {
@@ -465,7 +466,7 @@ test('git reads HEAD, objects and refs as a repository with no .git: in an agent
   assert.match(by.barry.because, /git folder/);
   assert.ok(by.barry.runs.some((r) => /^HEAD \(git can read/.test(r)));
   assert.ok(l.shared.some((x) => x.where === 'projects' && x.label === '(the projects folder itself)' && x.runs.includes('.git')));
-  assert.ok(l.shared.some((x) => x.where === 'projects' && x.label === '.git' && x.runs.includes('.git')), 'the .git row says why it is shared');
+  assert.ok(l.shared.some((x) => x.label === '(the projects folder itself)' && x.runs.includes('git runs its settings here (hooks, fsmonitor) when an agent uses git in this folder')), 'the row says why it is shared');
   bare(w);
   l = rw.listRestoredAgents({ base, world: p.world, nameOk });
   by = Object.fromEntries(l.agents.map((a) => [a.folder, a]));
@@ -500,7 +501,9 @@ test('listing refuses a world that is not in the registry', (t) => {
   const dir = worlds.worldBaseDir(base, ghost);
   fs.mkdirSync(path.join(dir, 'workers', 'ann'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'workers', 'ann', 'CLAUDE.md'), '# ann\n');
-  assert.deepEqual(rw.listRestoredAgents({ base, world: ghost, nameOk }).agents, []);
+  const l = rw.listRestoredAgents({ base, world: ghost, nameOk });
+  assert.deepEqual(l.agents, []);
+  assert.match(l.because, /not a Kosmos on your list/, 'a refusal says so, rather than reading as an empty restore');
 });
 
 test('a hidden world is neither finished nor listed', (t) => {
@@ -620,4 +623,51 @@ test('listing does not read agents through a restore folder swapped for a link',
   fs.renameSync(p.restoreDir, `${p.restoreDir}-real`);
   fs.symlinkSync(`${p.restoreDir}-real`, p.restoreDir);
   assert.deepEqual(rw.listRestoredAgents({ base, world: p.world, restoreDir: p.restoreDir, nameOk }).agents, []);
+});
+
+test('only plain-named folders at the top of workers and projects become the world\'s; the rest is held back and named', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(p.restoreDir, rel)), { recursive: true }); fs.writeFileSync(path.join(p.restoreDir, rel), text); };
+  put('workers/ann/CLAUDE.md', '# ann\n');
+  put('workers/.git/config', '[core]\n\tfsmonitor = touch /tmp/x\n');
+  put('workers/HEAD', 'ref: refs/heads/main\n');
+  put('workers/CLAUDE.md', 'every agent @~/.ssh/id\n');
+  put('projects/site/README.md', 'site\n');
+  put('projects/.git/config', '[core]\n');
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  assert.deepEqual(r.moved, ['workers', 'projects']);
+  assert.deepEqual(r.heldBack, ['workers/.git', 'workers/CLAUDE.md', 'workers/HEAD', 'projects/.git']);
+  const roots = worlds.envOverridesFor(base, p.world);
+  assert.deepEqual(fs.readdirSync(roots.AGENT_WORKFORCE_WORKERS), ['ann'], 'nothing sits above the agents a person makes later');
+  assert.deepEqual(fs.readdirSync(roots.AGENT_WORKFORCE_PROJECTS), ['site']);
+  const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  assert.equal(l.agents.find((a) => a.folder === 'ann').because, null);
+  assert.deepEqual(l.shared, []);
+});
+
+test('held-back files from an earlier try in the way refuse the finish, and nothing moves', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', '.git'));
+  fs.mkdirSync(path.join(p.restoreDir, 'held-back', 'workers', '.git'), { recursive: true });
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /in the way of workers\/\.git/);
+  assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), 'nothing moved');
+});
+
+test('an agents folder that cannot be read leaves the list marked incomplete', { skip: process.platform === 'win32' ? 'POSIX modes' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const agentsDir = path.join(p.restoreDir, 'agents');
+  fs.mkdirSync(path.join(agentsDir, 'x9'), { recursive: true });
+  assert.equal(rw.listRestoredAgents({ base, world: p.world, restoreDir: p.restoreDir, nameOk }).more, false, 'control');
+  fs.chmodSync(agentsDir, 0o000);
+  let l;
+  try { l = rw.listRestoredAgents({ base, world: p.world, restoreDir: p.restoreDir, nameOk }); } finally { fs.chmodSync(agentsDir, 0o755); }
+  assert.deepEqual(l.agents, []);
+  assert.equal(l.more, true);
 });
