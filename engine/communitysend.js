@@ -1479,8 +1479,8 @@ async function sweepInstallGroup(keys, on) {
  * What a failure does:
  *   a refusal about one agent (the coordinator's 400, or a site 4xx other than 401, 404, 405 and 429): that
  *   agent waits 15 minutes and the pass goes on. After a pass-wide pause the next pass starts just after the
- *   agent it stopped on. An agent refused for good is asked again every 15 minutes until the refusal ends or
- *   the board restarts: at most 96 small mints and site calls a day per such agent, accepted;
+ *   agent it stopped on. An agent refused for good is asked again every 15 minutes until the refusal ends (a
+ *   board restart only resets the wait): at most 96 small mints and site calls a day per such agent, accepted;
  *   a coordinator 403 (this computer is not allowed, or the account lapsed): the pass pauses 15 minutes;
  *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
  *   a site 429: Retry-After, capped like #4940's register wait;
@@ -1569,7 +1569,7 @@ async function sweepOwnerLink(keys, on) {
         if (st === 400) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
         const unknown = !minted.ok && ownerPassUnknown(minted);
         ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
-        stopHere();
+        if (!unknown) stopHere();   // a missing route is the same for every agent
         log(`owner link: ${unknown ? 'Kosmos+ cannot vouch for agents yet' : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '')}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
         break;
       }

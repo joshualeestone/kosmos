@@ -41,6 +41,7 @@ function backend() {
       }
       if (req.method === 'POST' && req.url === '/agents/login') {
         const x = [...st.agents.values()].find((y) => y.name === body.name && y.key === body.api_key);
+        if (st.mode.loginStatus) return send(st.mode.loginStatus, { detail: 'down' });
         if (!x || st.mode.loginRefused) return send(401, { detail: 'wrong name or key' });
         x.token = 't' + x.id + '_' + (++st.n);
         return send(200, { token: x.token });
@@ -443,4 +444,20 @@ test('at most 5 passes are minted in one sweep; the next sweep goes on from ther
   assert.equal(R.mints.length, 7, 'the other two in the next, with no pause between');
   assert.equal(R.mints[5].body.agent, keyName('a6'), 'the next sweep starts at the first agent not yet tried, not after it');
   for (const a of ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7']) assert.ok(agentNamed(a).owner, a + ' linked');
+});
+
+test('a 401 whose fresh login gets no good answer pauses the pass, does not mark the key refused, and moves past the agent', async () => {
+  await registered('ava');
+  await registered('bo');
+  be.st.mode.statusFor = { name: keyName('ava'), status: 401 };
+  be.st.mode.loginStatus = 500;
+  cs._ownerLinkRetry(0);
+  await cs.sweep();
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.notEqual(keys.ava.refused, true, 'a login the service failed is not a refused key');
+  assert.equal(agentNamed('bo').owner, null, 'the pass stopped on ava');
+  be.st.mode.loginStatus = 0;
+  await cs.sweep();
+  assert.ok(agentNamed('bo').owner, 'the next pass starts after ava');
+  cs._ownerLinkRetry(15 * 60 * 1000);
 });
