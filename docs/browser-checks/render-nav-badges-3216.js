@@ -119,7 +119,10 @@ const chk = (ok, label, extra) => {
     const src = fs.readFileSync(nodePath.join(ROOT, 'web', 'index.html'), 'utf8');
     chk(/setNavBadge\('nav-badge-agents',\s*dmTotal\)/.test(src), 'the Agents badge is wired to the fleet dmTotal (tick), the same total as the #st-dm tile');
     chk(/setNavBadge\('nav-badge-projects',\s*Math\.max\(0,\s*\(Number\(c\.projectsUnread\)\s*\|\|\s*0\)\s*-\s*openUnread\)\)/.test(src), 'the Projects badge is set in tick() from the always-polled counts.projectsUnread minus the open room (live cross-tab)');
-    chk(/const openProj = PJ_CURRENT \? pjById\(PJ_CURRENT\) : null;/.test(src) && /const openUnread = \(openProj && !openProj\.archived\) \?/.test(src), 'the open ACTIVE room is subtracted (option i, agreed w/ Angel: prevents the reading-a-room over-count glitch; archived open project not subtracted)');
+    chk(/const openProj = PJ_CURRENT \? pjById\(PJ_CURRENT\) : null;/.test(src) && /const openUnread = \(openProj && !openProj\.archived(?: && pjNotifyLevel\(openProj\) === 'all')?\) \?/.test(src), 'the open ACTIVE room is subtracted (option i, agreed w/ Angel: prevents the reading-a-room over-count glitch; archived open project not subtracted)');
+    /* kosmos#7210: a project on Mentions only or Muted is left out of the server's projectsUnread, so its open room is
+       not subtracted either (else the badge would under-count by that room's unread). */
+    chk(/const openUnread = \(openProj && !openProj\.archived && pjNotifyLevel\(openProj\) === 'all'\) \?/.test(src), '#7210: the open room is subtracted only when its project is on All (the server total leaves a quiet project out)');
     chk(!/setNavBadge\('nav-badge-projects', pjDmTotal\)/.test(src), 'the stale paintProjects-based Projects badge is removed (no visibility-gated freeze)');
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
