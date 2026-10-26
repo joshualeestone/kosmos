@@ -1,5 +1,7 @@
 # winreplyfile-7221: a Windows board refuses network and device paths for a reply attachment before resolving them
 
+**Posture:** production
+
 Addresses #7221 (follow-up of #6726, Windows half). Branch `winreplyfile-7221`, worktree `work/wt-7221`, built and
 verified on the Windows box (Homer), 2026-10-26.
 
