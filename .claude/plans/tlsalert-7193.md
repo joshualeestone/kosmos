@@ -102,3 +102,6 @@ the app's immediate re-ask landed inside the same two seconds.
   - Nit decided against: matching only this alert's own sheet. A dropped sheet with another sheet up then holds back,
     which is the safe side; matching only our own would let this alert queue again behind another sheet, which is the
     bug. The line now says "an alert or another sheet is already on screen", so it is true either way.
+- Round 5: 0 blockers, 0 warnings, 2 nits. CONVERGED. The WeakMap is right on every path traced (joining, finally, a
+  fresh run behind a plain one; required is never cached). Nits taken: the window check clears the held-back note with
+  the mark; the comment says the hold-back applies while this alert's mark is set.

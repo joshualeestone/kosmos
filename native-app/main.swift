@@ -3674,13 +3674,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         /* Review 1: the WINDOW decides, not only the mark. On macOS 26 a sheet begun over another can be dropped without
            its completion (#2807), which would leave the mark set for good; so the mark holds an alert back only while a
            sheet is really attached (or a runModal one is up, which clears its own mark). Held back is said, not silent. */
-        /* Review 4: any sheet holds it back, not only this alert's: matching only our own would let this alert queue
-           again behind another sheet, which is the stacking this prevents. The line says so, once per alert. */
+        /* Review 4: while this alert's mark is set, any sheet holds it back, not only this alert's: matching only our
+           own would let this alert queue again behind another sheet, which is the stacking this prevents. Said once per alert. */
         if tlsPinAlertShowing, window == nil || window?.attachedSheet != nil {
             if !tlsPinHeldSaid { tlsPinHeldSaid = true; logToSystem("tls-pin: an alert or another sheet is already on screen, so this refusal is not shown") }
             return
         }
         tlsPinAlertShowing = false
+        tlsPinHeldSaid = false   // review 5: a mark cleared here (a dropped sheet) clears its held-back note too
         let now = ProcessInfo.processInfo.systemUptime
         if now - tlsPinDismissedAt < 60 { return }   // review 1: a minute after the person last answered, whichever computer
         if let at = tlsPinToldAt[host], now - at < 60 { return }
