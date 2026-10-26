@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: projmute-7210
-diff_hash: ca2a3dec5ed67df7c1b47317a2929cc83ff360149076c4ab4788a0ace25cf3b0
+diff_hash: f654c5fe3c1b3565663c48ca5ba7a4f28b53830f028ac42f043936dcf0414a04
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-26T20:27:09Z
+timestamp: 2026-10-26T22:38:37Z
 iterations: 4
 converged: true
 ---
@@ -16,7 +16,7 @@ converged: true
 **Converged:** Yes (iteration 3, sonnet: no BLOCKER or WARNING; iteration 4, opus, reviewed the design-review delta and its two WARNINGs were fixed)
 **Total findings:** 0 BLOCKERs, 5 WARNINGs, 13 NITs
 **Fixed:** every WARNING and the NITs that changed behaviour | **Deferred:** 0 | **Accepted with a reason:** the rest (in the plan)
-**Validation:** full validation PASSED on this head 7b3c178ce4 (hash ca2a3dec5ed6), rebased on main at 13:42: node suite 24319 tests (0 fail), test:shell 4 shards all green, type-check, lint, build. Validation 1 before it (Mortals, ddd4ab5b58) found three wiring gaps, all fixed: the new check was in no runner list (gated.txt), had no SITE_COUNTS line, and the surface gate wanted seven checks run.
+**Validation:** full validation PASSED on this head e95ff4cfd7 (hash f654c5fe3c1b), rebased on main at 13:42: node suite 24319 tests (0 fail). The first PR CI (on 033ba407e2) failed render-nav-badges-3216, which pins the exact source of the open-room subtraction that #7210 changed; e95ff4cfd7 updates the check (and pins the new level clause), CI then passed 10/10. Validation before that, also passed: 7b3c178ce4 (hash ca2a3dec5ed6), test:shell 4 shards all green, type-check, lint, build. Validation 1 before it (Mortals, ddd4ab5b58) found three wiring gaps, all fixed: the new check was in no runner list (gated.txt), had no SITE_COUNTS line, and the surface gate wanted seven checks run.
 **Browser-check gates:** render-projmute-7210 (new, wired) 24/24, render-bubblepop-2407 (level arm) 18/18, and the seven surface-mapped checks (render-room-msgbox-2806, render-unread-edge-3743, render-consolidated-nav-4345, render-head-row, render-signin-visible-3892, render-docs-seg-4937, render-agentdm-3414) all PASS through tools/browser-checks.sh on 7015ad96ea; trailers in 58f536381a.
 **Design review:** approved by Mona Lisa (m428, m430); shots in ~/work/design-shots/kosmos-7210/. The muted-room shot's room area is empty because of kosmos#7233 (sample rooms empty since #7185, fixed on shotseed-7233), not this change.
 
