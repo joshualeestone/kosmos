@@ -89,6 +89,16 @@ if raw "refs/tags/t-bad $(git rev-parse web-bad) refs/tags/t-bad $Z"; then bad '
 # 5b. Review 3: a backup push to wip/ is not checked, even of the checked-out bad branch.
 if raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/wip/web-bad $Z"; then ok 'a wip/ backup push is not checked'
 else bad 'a wip/ backup push was refused: '"$(cat "$T/out")"; fi
+# 5b'. Review 4: a wip/ backup and the real branch in one push: the real branch is still checked.
+if raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/wip/web-bad $Z" "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/web-bad $Z"; then
+  bad 'a wip/ ref beside the real branch let the real branch through'
+else ok 'a wip/ ref beside the real branch: the real branch is still checked'; fi
+# Review 4: an annotated tag at HEAD arrives as the tag object's id, and is still checked.
+git tag -a -m 'annotated' t-bad-annotated web-bad
+if raw "refs/tags/t-bad-annotated $(git rev-parse t-bad-annotated) refs/tags/t-bad-annotated $Z"; then bad 'an annotated tag at HEAD was let through'
+else ok 'an annotated tag at HEAD is checked like the branch'; fi
+[ "$(git rev-parse t-bad-annotated)" != "$(git rev-parse web-bad)" ] && ok 'CONTROL: the annotated tag is its own object, not the commit' || bad 'CONTROL: the tag is lightweight, so the arm proves nothing'
+
 # 5c. Review 3: a stale origin/main. Someone else's web/ change lands on origin main; this branch is rebased onto it
 #     and changes only a README, but this clone's origin/main still points at the old main. Without the hook's own
 #     fetch the gates would count that web/ commit as this branch's and refuse it.
@@ -101,6 +111,20 @@ git update-ref refs/remotes/origin/main "$old"   # this clone has not seen their
 if raw "refs/heads/stale-base $(git rev-parse stale-base) refs/heads/stale-base $Z"; then ok 'a stale origin/main does not refuse a branch that changes no web/ itself (the hook fetches)'
 else bad 'a stale origin/main refused a branch for someone else'"'"'s web/ change: '"$(cat "$T/out")"; fi
 [ "$(git rev-parse origin/main)" != "$old" ] && ok 'CONTROL: the hook moved origin/main forward' || bad 'CONTROL: origin/main was not fetched, so the arm above proves nothing'
+git checkout -q web-bad
+# Review 4: a fetch that fails (here: origin unreachable) is said beside the refusal, so a stale base can be suspected.
+git remote set-url origin "$T/nowhere.git"
+if raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/web-bad $Z"; then bad 'CONTROL: the bad branch passed with origin unreachable'
+elif grep -q 'origin main could not be fetched just now' "$T/out"; then ok 'a failed fetch is said beside the refusal'
+else bad 'a failed fetch was not said: '"$(cat "$T/out")"; fi
+git remote set-url origin "$T/origin.git"
+# Review 4: a branch with no web/ change against the base spends no fetch (origin unreachable would show it as a delay
+# only, so the arm checks the ref did not move instead).
+git checkout -q docs-only
+before=$(git rev-parse origin/main); git update-ref refs/remotes/origin/main "$old"
+if raw "refs/heads/docs-only $(git rev-parse docs-only) refs/heads/docs-only $Z" && [ "$(git rev-parse origin/main)" = "$old" ]; then ok 'a push with no web/ change does not fetch'
+else bad 'a push with no web/ change fetched (or was refused): '"$(cat "$T/out")"; fi
+git update-ref refs/remotes/origin/main "$before"
 git checkout -q web-bad
 
 # 6. Review 1: a real git push through core.hooksPath, so git's own stdin, the hook's working directory and the
