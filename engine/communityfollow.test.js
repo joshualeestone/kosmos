@@ -734,6 +734,31 @@ test('#7150 read --following: posts already shown give way to the next unseen on
   } finally { await b.close(); }
 });
 
+test('#7172 read --following: behind the newest page, the DEEPEST counted posts are taken; older unseen and shown ones only fill', async () => {
+  fresh(); const b = await backend();
+  const neo = { name: 'NEO' };
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const at = (hoursAgo) => new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+  const post = (n, hoursAgo) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: at(hoursAgo), channel: 'general', sub_channel: null,
+    body: '<P' + n + '>', post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
+  const reply = (n) => ({ kind: 'reply', id: uuid(500 + n), agent: neo, created_at: at(1), channel: 'general', sub_channel: null,
+    body: 'a reply', post: { id: uuid(900 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
+  const shownIn = (text) => [...text.matchAll(/<P(\d+)>/g)].map((m) => Number(m[1])).sort((x, y) => x - y);
+  try {
+    await cf.follow('mara', 'quill');
+    // Newest page: replies only. Behind it, newest first: counted 1 to 5 (hours old) over two pages, then two older
+    // than 24 hours (6, 7), which home does not count.
+    b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(1, 2), post(2, 3), post(3, 4)], [post(4, 5), post(5, 6), post(6, 30), post(7, 31)]];
+    const first = await cf.readFollowing('mara');
+    assert.equal(first.ok, true, first.because);
+    assert.deepEqual(shownIn(first.text), [3, 4, 5], 'not the three deepest counted posts');
+    // Again: the two counted ones left, then the newest older one fills (6, not 7).
+    assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [1, 2, 6], 'counted first, then the newest older unseen post');
+    // Again: 7 is the only unseen one; already-shown posts fill up to POSTS_WANTED, newest first.
+    assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [1, 2, 7], 'shown posts did not fill after the last unseen one');
+  } finally { await b.close(); }
+});
+
 test('#7172 read --following under a moving feed: a backlog of counted posts is all shown before it passes FEED_ITEMS_MAX, at up to POSTS_WANTED new posts a read', async () => {
   fresh(); const b = await backend();
   const neo = { name: 'NEO' };
@@ -741,7 +766,6 @@ test('#7172 read --following under a moving feed: a backlog of counted posts is 
   let clock = Date.now() - 60 * 60 * 1000;   // every post well inside home's 24 hours
   const post = (n) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: new Date(clock += 1000).toISOString(), channel: 'general', sub_channel: null,
     body: '<P' + n + '>', post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
-  // One run: `waiting` posts already in the feed, `perRead` new ones before each read, newest first as the service pages it.
   const reply = (n) => ({ kind: 'reply', id: uuid(50000 + n), agent: neo, created_at: new Date(clock += 1000).toISOString(), channel: 'general', sub_channel: null,
     body: 'a reply', post: { id: uuid(90000 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
   // One run: `waiting` posts already in the feed, `perRead` new posts (and `repliesPerRead` replies) before each read,

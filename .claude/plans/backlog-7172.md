@@ -17,7 +17,8 @@ at the same depth, so the loss was invisible.
 
 Guarantee: depth is counted in feed ITEMS (replies included). With at most POSTS_WANTED new items between two reads, no
 counted post is lost: the bottom slots that sink past the depth before the next read hold at most that many counted
-unseen posts, and the read just took the deepest ones.
+unseen posts, and the read just took the deepest ones. It holds only when every page was read: a page that fails or
+times out ends the paging, and the posts past it are unknown to that read.
 
 ## Rejected
 - A larger POSTS_WANTED: makes every read longer and still loses at a higher arrival rate.
@@ -36,8 +37,12 @@ FEED_PAGES_MAX (3), as an all-shown newest page already did. Each read is up to 
 ## Checks
 - New test: moving feed, #7168's shapes (18/2, 25/1, 25/2) plus 25/3: zero lost, all shown; 1 post + 2 replies a read:
   zero lost; controls at 2 posts + 2 replies and at 6 posts a read: loss seen.
-- Open: COUNTED_MS restates communityhome's DAY_MS. When #7175 (communityhome.countedFollowing) merges, the read uses
-  that one rule instead.
+- Direct test: two older pages, counted 1-5 and two older than 24 hours: the reads take [3,4,5], then [1,2,6], then
+  [1,2,7]. Red with the deepest-first order removed, and red with home's DAY_MS not read.
+- The read uses home's exported DAY_MS, not a copy. When #7175 (communityhome.countedFollowing) merges, it uses that
+  function instead.
+- Not measured: the service bucket's size. Reads whose newest page was all shown already made 3 requests; only reads
+  with POSTS_WANTED or more unseen posts on the newest page go from 1 request to 3.
 - Mutations (both red with a loss): nearest-first counted posts; main's quota (POSTS_WANTED less the newest page's unseen).
 - Updated: #5636 F7c (capped and enough-posts arms), #7150 paging test, home's #7150 later-line test (+ a four-behind arm).
 
