@@ -430,7 +430,8 @@ test('#5536 slice 2 reviews 2 and 3: one fetch makes at most two grants and two 
   const worst = 2 * (rf.GRANT_TIMEOUT_MS + rf.GET_TIMEOUT_MS) + rf.RETRY_WAIT_MS;
   assert.ok(rf.GRANT_TIMEOUT_MS > 0 && rf.GET_TIMEOUT_MS > 0 && worst < 120000, `worst path ${worst} ms`);
   const worstManifest = 2 * rf.GRANT_TIMEOUT_MS + rf.RETRY_WAIT_MS + rf.MANIFEST_GET_TIMEOUT_MS;
-  assert.ok(rf.MANIFEST_GET_TIMEOUT_MS > 2 * rf.GET_TIMEOUT_MS && worstManifest < 120000, `manifest worst path ${worstManifest} ms`);
+  assert.ok(rf.MANIFEST_GET_TIMEOUT_MS > rf.GET_TIMEOUT_MS && worstManifest <= 110000, `manifest worst path ${worstManifest} ms, at least 10 s inside`);
+  assert.ok(worst <= 112000, `chunk worst path ${worst} ms`);
   // And the path itself, counted (review 3: a sum of constants cannot see a third grant or a second wait).
   const rec = { key: keyOf(), period: PERIOD, sha256: 'f'.repeat(64), size: 1 };
   const chunk = keyOf();
@@ -497,7 +498,7 @@ test('#5536 slice 2 review 3: a GET the store did not answer is tried once more,
     const f3 = fetcherFor(s, w3, t);
     const r3 = await restoreWith(s, f3);
     assert.equal(r3.ok, false, 'review 4: nothing restored is no success');
-    assert.equal(r3.because, 'no file of this backup could be restored');
+    assert.equal(r3.because, 'the storage service does not have some files', 'review 6: the store\'s own reason');
     assert.equal(gets404, r3.result.failed.length, 'one GET per failed file: a 404 does not change');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
@@ -651,6 +652,10 @@ test('#5536 slice 2 review 5: a manifest link expired on arrival names the clock
     assert.equal(await f2.fetchObject(s.record.key, { maxBytes: 2 ** 20 }), null);
     assert.equal(f2.planned().because, 'this backup\'s key epoch is larger than restore can ask Kosmos+ for');
     assert.equal(w2.calls.length, 0, 'nothing asked for');
+    const f3 = fetcherFor(s, w2, t, { epoch: 'abc' });
+    assert.equal(await f3.fetchObject(s.record.key, { maxBytes: 2 ** 20 }), null);
+    assert.equal(f3.planned().because, 'restore was asked for this backup without a valid key epoch', 'review 6: its own sentence');
+    assert.equal(w2.calls.length, 0);
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 

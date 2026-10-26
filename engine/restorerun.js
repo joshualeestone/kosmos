@@ -237,7 +237,8 @@ async function runRestore(opts) {
   // review 4: files failed and none came back is no success either, stopped or not (every chunk under another key, say).
   if (!result.restored.length && result.failed.length) {
     // review 5: the fetch's reason heads it only when every file failed on a fetch; a file that failed for its own
-    // reason (a damaged chunk, a path clash) must not be blamed on the fetch.
+    // reason (a damaged chunk, a path clash) must not be blamed on the fetch. Only the failures backuprestore lists
+    // are seen (it caps the list), so a long list decides on its listed part (review 6, stated).
     const fetchOnly = result.failed.every((x) => x && FETCH_FAILURES.has(x.why));
     const why = fetchOnly && fetchProblems.length ? fetchProblems[0] : 'no file of this backup could be restored';
     return { ok: false, because: why, result, fetchProblems };
