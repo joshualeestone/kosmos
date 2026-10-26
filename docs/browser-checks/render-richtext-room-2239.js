@@ -176,6 +176,11 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         const r2 = await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
         const j = await r2.json().catch(() => null);
         if (j && j.delivery && j.delivery.state === 'could_not') return { error: 'post refused: ' + j.delivery.because };
+        /* kosmos#7214, Josh's shape: words, then a table of file names and 64-character hashes, with NO block before the
+           table. A block before it (the code fence above) closes the room's <p> first and hides the defect. */
+        const hashes = 'Here are the files and their checksums.\n\n| File | sha256 |\n|---|---|\n'
+          + '| `catalogue-proof-final.pdf` (214,952 bytes, 4 pages) | `3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b2907e5c` |\n\nBoth match.';
+        await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: hashes }) });
         return { id };
       }, pjName);
       if (made.error) { bad(t + ' Layer 2 fixture posted a room message', made.error); await p.close(); continue; }
@@ -188,6 +193,8 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         const bubbles = document.querySelectorAll('#pj-room .msg-b');
         return Array.from(bubbles).some((b) => b.querySelector('.mdh'));
       }, null, { timeout: 15000 }).catch(() => {});
+      // kosmos#7214: and the second post, the table of hashes.
+      await p.waitForFunction(() => Array.from(document.querySelectorAll('#pj-room .msg-b')).some((b) => /checksums/.test(b.textContent) && b.querySelector('table.mdtable')), null, { timeout: 15000 }).catch(() => {});
 
       const dom = await p.evaluate(() => {
         const bubbles = Array.from(document.querySelectorAll('#pj-room .msg-b'));
@@ -223,6 +230,15 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           codeBg: csC ? csC.backgroundColor : null,
           // #2701
           hasTable: !!(b && b.querySelector('table.mdtable')),
+          // kosmos#7214: the table stays in its scroll wrapper (a room <p> used to throw it out) and inside the bubble.
+          ...(() => {
+            const hb = bubbles.find((x) => /checksums/.test(x.textContent) && x.querySelector('table.mdtable'));
+            const tb = hb && hb.querySelector('table.mdtable'), bd = hb && hb.querySelector('.msg-bd');
+            if (!tb || !bd) return { tableWrapped: false, tableSpill: null };
+            const wrap = tb.closest('.mdtablewrap');
+            const seen = wrap ? Math.min(tb.getBoundingClientRect().right, wrap.getBoundingClientRect().right) : tb.getBoundingClientRect().right;
+            return { tableWrapped: !!(tb.parentElement && tb.parentElement.classList.contains('mdtablewrap')), tableSpill: Math.round(seen - bd.getBoundingClientRect().right) };
+          })(),
           h1px: h1 ? parseFloat(getComputedStyle(h1).fontSize) : null,
           h6px: h6 ? parseFloat(getComputedStyle(h6).fontSize) : null,
         };
@@ -238,6 +254,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       if (dom.hasLi) ok(t + ' DOM: list rendered in room'); else bad(t + ' DOM: list rendered', dom.html);
       // #2701: a real table element painted (not literal piped text).
       if (dom.hasTable) ok(t + ' DOM: table rendered in room (#2701)'); else bad(t + ' DOM: table rendered', dom.html);
+      if (dom.tableWrapped) ok(t + ' DOM: the room table sits in its scroll wrapper (kosmos#7214)'); else bad(t + ' DOM: room table in its scroll wrapper', dom.html);
+      if (dom.tableSpill !== null && dom.tableSpill <= 0) ok(t + ' DOM: a table with a 64-character hash stays inside the bubble (kosmos#7214, ' + dom.tableSpill + 'px)');
+      else bad(t + ' DOM: table inside the bubble', 'spills ' + dom.tableSpill + 'px past the bubble edge');
       // #2701: the level-1 heading paints LARGER than the level-6 -- the "different
       // sizes" complaint, proven by computed CSS rather than by the emitted class.
       if (dom.h1px && dom.h6px && dom.h1px > dom.h6px) ok(t + ' DOM: heading levels render at different sizes (#2701, ' + dom.h1px + 'px > ' + dom.h6px + 'px)');

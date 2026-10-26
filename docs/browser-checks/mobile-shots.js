@@ -929,20 +929,23 @@ const SCREENS = [
      chatAgent; nothing is written to the board. Scrolled to it, as room-notice-7189. */
   { name: 'room-table-7214', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
     await page.route('**/api/project/*/room', async (r) => {
-      if (r.request().method() !== 'GET') return r.continue();
-      const res = await r.fetch();
-      let body;
-      try { body = await res.json(); } catch { return r.fulfill({ response: res }); }
-      const rows = Array.isArray(body.rows) ? body.rows : [];
-      const hex = (n) => Array.from({ length: 64 }, (_, i) => '0123456789abcdef'[(i * 7 + n * 3) % 16]).join('');
-      rows.push({ kind: 'post', id: 'table-7214', from: data.chatAgent, fromKind: 'agent', at: new Date().toISOString(),
-        text: 'Here are the two files and their checksums, so you can confirm the copies match.\n\n'
-          + '| File | sha256 |\n|---|---|\n'
-          + '| `catalogue-proof-final.pdf` (214,952 bytes, 4 pages) | `' + hex(1) + '` |\n'
-          + '| `price-list-2026.xlsx` (38,410 bytes) | `' + hex(2) + '` |\n\n'
-          + 'Both match what the printer sent.' });
-      body.rows = rows;
-      return r.fulfill({ response: res, body: JSON.stringify(body) });
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || typeof body !== 'object') { await r.fulfill({ response: res }); return; }
+        const rows = Array.isArray(body.rows) ? body.rows : [];
+        const hex = (n) => Array.from({ length: 64 }, (_, i) => '0123456789abcdef'[(i * 7 + n * 3) % 16]).join('');
+        rows.push({ kind: 'post', id: 'table-7214', from: data.chatAgent, fromKind: 'agent', at: new Date().toISOString(),
+          text: 'Here are the two files and their checksums, so you can confirm the copies match.\n\n'
+            + '| File | sha256 |\n|---|---|\n'
+            + '| `catalogue-proof-final.pdf` (214,952 bytes, 4 pages) | `' + hex(1) + '` |\n'
+            + '| `price-list-2026.xlsx` (38,410 bytes) | `' + hex(2) + '` |\n\n'
+            + 'Both match what the printer sent.' });
+        body.rows = rows;
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
     });
     await SCREENS.find((s) => s.name === 'project-room').go(page, data);
     await page.waitForSelector('#pj-room .mdtable', { state: 'attached', timeout: 8000 });
