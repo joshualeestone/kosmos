@@ -76,3 +76,6 @@ seat concluded the file had changed.
   still differs (a bare value is byte for byte), and the words add that the value is this PDF's fingerprint and to
   give it with its label. N2 exit 1 means both "differs" and "install incomplete" -> accepted: the install exit 1
   predates this branch, and the words say which; a script that needs the split can read the text.
+- Iteration 5 (sonnet): CONVERGED, no BLOCKER or WARNING. N1 "nothing in it was left out" for a PDF over 64 MB is true
+  -> accepted. N2 an older CLI given the notice's two-argument form gets a usage error -> accepted (CLI and board ship
+  in one install; listed under Deliberate gaps). N3 working rules -> already DEFERRED above.
