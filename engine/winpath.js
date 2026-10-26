@@ -109,8 +109,21 @@ function shareTail(p) {
 function mayHold(folder, given, real) {
   if (writtenInside(given, folder) || writtenInside(real, folder)) return true;
   if (isNetworkSpelling(folder) && !shareOf(folder)) return !isNoFileNamespace(folder);
+  const f = asWritten(folder);
+  if ((!!driveOf(f) || isPlainShare(f)) && [given, real].some((p) => insideAllowingShortNames(asWritten(p), f))) return true;
   const ft = shareTail(folder);
-  return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && t.startsWith(ft + '\\'); });
+  return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && insideAllowingShortNames(t, ft); });
+}
+/* An 8.3 short name (RUNNER~1, PROGRA~1, AB12C4~1.TXT). Windows gives one to a long name, and a path may be written
+   with either, but realpath gives the long one, so a folder written with a short name never matches by spelling the
+   real path of a file in it (CI's temp folder is C:\Users\RUNNER~1\...). Which long name a short one stands for
+   cannot be known without asking the disk, or the share, so where a match must err toward yes a short name stands
+   for any one name. Only mayHold uses this: a check that lets a path through never does. */
+const SHORT_NAME = /^[^\\~]{1,8}~\d+(?:\.[^\\.]{0,3})?$/;
+function insideAllowingShortNames(p, folder) {
+  const ps = p.split('\\');
+  const fparts = folder.split('\\');
+  return ps.length > fparts.length && fparts.every((s, i) => s === ps[i] || SHORT_NAME.test(s) || SHORT_NAME.test(ps[i]));
 }
 
 /* Whether a path starts \\ or // (a share, or the \\?\ and \\.\ namespaces, a local drive's long spelling too). */

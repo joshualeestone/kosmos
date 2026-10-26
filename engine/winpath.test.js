@@ -32,3 +32,18 @@ test('#7221: the shared device-name rule carries no global or sticky flag, so sh
   assert.equal(winpath.WINDOWS_DEVICE_NAME.test('NUL'), true);
   assert.equal(winpath.WINDOWS_DEVICE_NAME.test('NUL'), true, 'asked twice, the same answer');
 });
+
+test('#7221: mayHold lets an 8.3 short name in a folder stand for any one long name, and only one', () => {
+  const folder = String.raw`\\127.0.0.1\C$\Users\RUNNER~1\AppData\Local\Temp\aw\s16outer\nested`;
+  const real = String.raw`\\127.0.0.1\C$\Users\runneradmin\AppData\Local\Temp\aw\s16outer\nested\secret.txt`;
+  assert.equal(winpath.mayHold(folder, real, real), true, 'a file under the long name the short one stands for');
+  // CONTROLS: a file beside the folder, and one a level short of it, are not held
+  const beside = String.raw`\\127.0.0.1\C$\Users\runneradmin\AppData\Local\Temp\aw\s16outer\mine.txt`;
+  assert.equal(winpath.mayHold(folder, beside, beside), false);
+  const shallow = String.raw`\\127.0.0.1\C$\Users\runneradmin\nested\secret.txt`;
+  assert.equal(winpath.mayHold(folder, shallow, shallow), false);
+  // the same on a drive, and with the short name on the file's side
+  assert.equal(winpath.mayHold(String.raw`C:\PROGRA~1\App`, String.raw`C:\Program Files\App\x.txt`, String.raw`C:\Program Files\App\x.txt`), true);
+  assert.equal(winpath.mayHold(String.raw`C:\Program Files\App`, String.raw`C:\PROGRA~1\App\x.txt`, String.raw`C:\Program Files\Other\x.txt`), true);
+  assert.equal(winpath.mayHold(String.raw`C:\Program Files\App`, String.raw`C:\Program Files\Other\x.txt`, String.raw`C:\Program Files\Other\x.txt`), false);
+});

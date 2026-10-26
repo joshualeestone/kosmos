@@ -932,8 +932,10 @@ test('#7221 review 21-2: readOwn walks the links again before it resolves the gi
      read before that second realpath: no resolution is attempted, and the read says the file changed. */
   const dir = path.join(SANDBOX, 'readown-recheck');
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'f.txt');
-  fs.writeFileSync(file, 'x');
+  fs.writeFileSync(path.join(dir, 'f.txt'), 'x');
+  /* As attach passes it: the path its own realpath gives, long names and all (a temp folder may be written with 8.3
+     short names, which realpath would not give back). */
+  const file = fs.realpathSync.native(path.join(dir, 'f.txt'));
   counting();
   let rechecked = 0;
   const out = fs.openSync(path.join(dir, 'out.bin'), 'w');
