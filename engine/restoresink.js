@@ -29,7 +29,8 @@
  * back (refused if the drive ignored it), and its macOS ACL removed, before the temp folder and hard-link probe; if a
  * probe then refuses, the folder keeps that tighter mode.
  * Every call is synchronous (writes, fsyncs, and on Windows short retry sleeps), so a large restore blocks its thread:
- * the restore engine should run it in a worker or a child process, not on the board's event loop. On macOS fsync does
+ * the restore engine should run it in a child process, not on the board's event loop (nor in a worker thread when it
+ * records: a recording sink's lock cannot tell a live worker of this process from an ended one). On macOS fsync does
  * not force data to the platters (that is F_FULLFSYNC), so a power loss can still lose recent files.
  * On Windows a root outside the user's profile (another drive, say) is refused: the folder picker must offer one
  * inside the profile.
@@ -255,9 +256,13 @@ function verifyResumable(rootReal, held, recordAt) {
       names.add(nfc);
       const abs = path.join(dirAbs, name);
       const at = fs.lstatSync(abs, { bigint: true });
-      const key = collisionKey(rel);   // looked up folded; the two-names check above stays NFC, so a case-sensitive disk's A and a pass
+      // Looked up folded, as APFS and NTFS match names; the two-names check above stays NFC, so on a case-sensitive
+      // disk a folder A and a folder a (both legitimately made there) do not refuse each other.
+      const key = collisionKey(rel);
       // The record itself, and only the very file readRecord read (review 1: on Windows a link there was never looked at).
       if (!dirRel && name === LOCK_NAME && at.isFile() && !at.isSymbolicLink() && !untrusted(at, true)) continue;   // ours, taken before the walk
+      // A pending lock a crash left between its write and its link (review 5): ours, removed.
+      if (!dirRel && name.startsWith(`${LOCK_NAME}.`) && at.isFile() && !at.isSymbolicLink() && !untrusted(at, true)) { fs.rmSync(abs, { force: true }); continue; }
       if (!dirRel && name === RECORD_NAME) {
         if (at.isSymbolicLink() || at.dev !== recordAt.dev || at.ino !== recordAt.ino) throw new Error('restoresink: the restore record changed while it was read');
         continue;
@@ -294,37 +299,53 @@ function verifyResumable(rootReal, held, recordAt) {
   return kept;
 }
 
-/* slice 3 review 3: take this root's lock, or refuse while another live process holds it. A lock left by a process
-   that is gone (a crash) is stale and taken over. Returns the release function. */
+/* slice 3 review 3: take this root's lock, or refuse while a live holder has it. The lock is written whole to a
+   pending name and then hard-linked into place (review 5: an O_EXCL lock caught before its owner wrote its pid read as
+   stale), so it is never seen empty. It holds "pid threadId token": a lock of this process and thread whose token no
+   open sink here holds was left by a sink never closed, and is stale; one of this process but another thread cannot
+   be proved dead, so the sink is meant for a child process, not a worker (header). A lock that is empty or unreadable
+   counts as stale only once it is LOCK_STALE_MS old. Returns the release function. */
+const liveTokens = new Set();   // the tokens of the locks this thread's open sinks hold
+const LOCK_STALE_MS = 10000;
+const LOCK_BUSY = 'a restore of this folder is already running in Kosmos; wait for it to finish, or restart Kosmos';
 function acquireLock(rootReal) {
+  const { threadId } = require('worker_threads');
   const file = path.join(rootReal, LOCK_NAME);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    let fd;
-    try { fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600); } catch (e) {
-      if (e.code !== 'EEXIST') throw new Error(`restoresink: could not take this folder's restore lock (${e.code || e.message})`);
-      const at = fs.lstatSync(file, { bigint: true });
+  const token = crypto.randomBytes(12).toString('hex');
+  const pending = `${file}.${token}`;
+  try {
+    const fd = fs.openSync(pending, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+    try { fs.writeSync(fd, `${process.pid} ${threadId} ${token}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  } catch (e) {
+    try { fs.rmSync(pending, { force: true }); } catch { /* best effort */ }
+    throw new Error(`restoresink: could not take this folder's restore lock (${e.code || e.message})`);
+  }
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try { fs.linkSync(pending, file); liveTokens.add(token); return () => { liveTokens.delete(token); fs.rmSync(file, { force: true }); }; } catch (e) {
+        if (e.code !== 'EEXIST') throw new Error(`restoresink: could not take this folder's restore lock (${e.code || e.message})`);
+      }
+      const at = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
+      if (!at) continue;
       if (at.isSymbolicLink() || !at.isFile() || untrusted(at, true)) throw new Error('restoresink: this folder\'s restore lock is not a private file of yours');
-      const pid = Number(fs.readFileSync(file, 'utf8').trim());
-      if (pid === process.pid) throw new Error(`restoresink: a restore of this folder was left open in this process (close it first); if none is, remove the hidden file ${LOCK_NAME} from the folder`);
-      let alive = false;
-      if (Number.isSafeInteger(pid) && pid > 0) { try { process.kill(pid, 0); alive = true; } catch (k) { alive = k.code === 'EPERM'; } }
-      if (alive) throw new Error(`restoresink: another restore is running in this folder (process ${pid}); if none is, remove the hidden file ${LOCK_NAME} from the folder`);
+      let text = '';
+      try { text = fs.readFileSync(file, 'utf8').trim(); } catch { /* read as empty */ }
+      const [pidS, threadS, held] = text.split(' ');
+      const pid = Number(pidS);
+      let stale;
+      if (!text || !Number.isSafeInteger(pid) || pid <= 0) stale = Date.now() - Number(at.mtimeMs) > LOCK_STALE_MS;
+      else if (pid === process.pid) stale = Number(threadS) === threadId && !liveTokens.has(held);
+      else { try { process.kill(pid, 0); stale = false; } catch (k) { stale = k.code !== 'EPERM'; } }
+      if (!stale) throw new Error(`restoresink: ${LOCK_BUSY}`);
       // Taken over only if it is still the stale lock just read (review 4: narrows, does not close, the race where two
       // resumes both find a dead owner; stated in the header).
       const again = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
       if (again && again.dev === at.dev && again.ino === at.ino) fs.rmSync(file, { force: true });
-      continue;
     }
-    try { fs.writeSync(fd, `${process.pid}\n`); fs.fsyncSync(fd); } catch (e) {
-      // A lock that could not be written must not stay behind in the person's folder (review 4).
-      try { fs.closeSync(fd); } catch { /* removed below */ }
-      fd = null;
-      try { fs.rmSync(file, { force: true }); } catch { /* best effort */ }
-      throw new Error(`restoresink: could not take this folder's restore lock (${e.code || e.message})`);
-    } finally { if (fd !== null) fs.closeSync(fd); }
-    return () => { fs.rmSync(file, { force: true }); };
+    throw new Error('restoresink: could not take this folder\'s restore lock (it kept reappearing)');
+  } finally {
+    try { fs.rmSync(pending, { force: true }); } catch { /* the lock itself is the link */ }
   }
-  throw new Error('restoresink: could not take this folder\'s restore lock (it kept reappearing)');
 }
 
 /** A sink over the empty folder at root. Throws unless root is a fresh folder. Call close() when the restore ends.
@@ -478,8 +499,10 @@ function createSink(root, opts, lock) {
     // A fresh restore creates it (never over an existing one); a resumed one appends to the one it just read.
     const flags = resume ? fs.constants.O_WRONLY | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0)
       : fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_APPEND;
+    let created = false;
     try {
       recordFd = fs.openSync(file, flags, 0o600);
+      created = !rec;
       // A resumed record must be the very file read and verified above (review 1: O_NOFOLLOW is 0 on Windows).
       if (rec) {
         const st = fs.fstatSync(recordFd, { bigint: true });
@@ -490,7 +513,8 @@ function createSink(root, opts, lock) {
     } catch (e) {
       if (recordFd !== null) { try { fs.closeSync(recordFd); } catch { /* reported below */ } recordFd = null; }
       // A fresh root is left as it was given (review 2: a record whose first line failed stayed behind).
-      if (!rec) { try { fs.rmSync(file, { force: true }); } catch { /* reported below */ } }
+      // Only one this call made (review 5: one that already existed is another sink's).
+      if (created) { try { fs.rmSync(file, { force: true }); } catch { /* reported below */ } }
       try { removeTree(tempDir); } catch { /* reported below */ }
       throw new Error(`restoresink: could not open the restore record (${e.code || e.message})`);
     }
@@ -578,9 +602,13 @@ function createSink(root, opts, lock) {
     },
     /** Removes the temp folder, and the record unless keepRecord. Files already committed stay. */
     close(o = {}) {
-      if (recordFd !== null) { const f = recordFd; recordFd = null; fs.closeSync(f); if (!(o && o.keepRecord)) fs.rmSync(path.join(rootReal, RECORD_NAME), { force: true }); }
-      removeTree(tempDir);
-      if (lock.release) { const r = lock.release; lock.release = null; r(); }
+      try {
+        if (recordFd !== null) { const f = recordFd; recordFd = null; fs.closeSync(f); if (!(o && o.keepRecord)) fs.rmSync(path.join(rootReal, RECORD_NAME), { force: true }); }
+        removeTree(tempDir);
+      } finally {
+        // Released whatever the cleanup did (review 5: a Windows EBUSY in removeTree left the folder locked).
+        if (lock.release) { const r = lock.release; lock.release = null; r(); }
+      }
     },
   };
 }
