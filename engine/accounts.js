@@ -138,6 +138,8 @@ function identityOf(dir) {
   return {
     email,
     organization: typeof acct.organizationName === 'string' ? acct.organizationName : null,
+    /* kosmos#7152: one email can sign in to two organizations, so usagepoll checks a token's login by this too. */
+    organizationUuid: typeof acct.organizationUuid === 'string' ? acct.organizationUuid : null,
   };
 }
 
