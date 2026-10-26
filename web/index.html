@@ -24682,7 +24682,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   /* The version and boot from BEFORE the press, for the same reason: the page's own status poll keeps running while
      the POST hangs and may already have seen the updated board by the time the POST fails. The served version stands
      in when no status has been seen yet, so a finished update still reloads. */
-  const before = { version: LAST_VERSION || SERVED_VERSION || null, boot: LAST_BOOTED_AT || null };
+  const pressedOn = { version: LAST_VERSION || SERVED_VERSION || null, boot: LAST_BOOTED_AT || null };
   const hadFocus = document.activeElement === go;
   if (hadFocus) document.getElementById('uc-no').focus();   // a disabled button drops focus to the page
   go.disabled = true;   // one click, one installer; the route is idempotent as the backstop
@@ -24701,7 +24701,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   const stale = gen !== UPD_WAIT_GEN || document.getElementById('updconfirm').hidden;
   if (!res) {
     if (stale) return;
-    waitForUnansweredPress(rollingBack, gen, hadFocus, before);
+    waitForUnansweredPress(rollingBack, gen, hadFocus, pressedOn);
     return;
   }
   if (!res.ok) {
