@@ -279,6 +279,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    would read `more` and nothing could be enabled; the contract now says to pass restoreDir). Deferred as duplicate:
    ids that fold together (round 6, #7181).
 
+37. (sonnet) No new findings. Not issues: an absent world folder reads as not Restored, as the doc already says (it
+   holds nothing to start in); a target holding a stray .localized refuses (createWorld makes the folders empty);
+   isTopFolder and the projects loop both read a linked folder as a link; a rename-aside folder rm could not remove is
+   swept after ten minutes. Deferred as duplicate: the stale takeover compares pids, so same-pid lockers are the
+   three-taker race already stated (round 26; ownership itself is a token since round 36). Converged.
+
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
 - On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that
