@@ -167,6 +167,17 @@ test('kosmos#7248: putting the good copy back happens only on request, and keeps
     assert.equal(refused.ok, false);
     assert.match(refused.why, /saved since Kosmos started, so Kosmos left it; the copy is kept at removed\.json\.bak/);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'removed.json'), 'utf8')), ['newer'], 'newer data was replaced');
+    // Review 3: a hand edit that left it still unreadable is newer data too, and is never replaced.
+    fs.writeFileSync(path.join(root, 'removed.json'), '["newer",');
+    assert.equal(sc2.restore('removed.json', () => {}).ok, false, 'a still-broken but edited store was replaced');
+    // Review 3: a store in a folder is described by its folder, not by a root store of the same name.
+    fs.mkdirSync(path.join(root, 'profiles'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'profiles', 'remote.json'), '');
+    delete require.cache[require.resolve('./engine/storecheck')];
+    const sc3 = require('./engine/storecheck');
+    sc3.atStart({}, () => {});
+    const prof = sc3.current().find((x) => x.file === path.join('profiles', 'remote.json'));
+    assert.equal(prof && prof.holds, "an agent's profile", 'a profile was described as a root store: ' + JSON.stringify(prof));
     // CONTROL: classify tells the three kinds and a good value apart.
     assert.deepEqual([sc.classify(Buffer.from('')), sc.classify(Buffer.alloc(3)), sc.classify(Buffer.from('{ no')), sc.classify(Buffer.from('[]'))], ['empty', 'nul', 'unreadable', null]);
   } finally {

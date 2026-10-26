@@ -69,3 +69,7 @@ named in the board log and on the screen, and nothing else is touched.
     size and time); the sensitive list matches the path relative to the data root (not any file named remote.json),
     dead entries removed; the browser check's refusal is one the board gives; the order test now finds the later start
     calls (communityswitch.migrate, wireDefaultHooks, installSupervisor, syncEveryone) and asserts them after.
+- Round 3 (.claude/plans/storecheck-7248-review3.md): 0 blockers, 0 warnings, 3 nits; converged. The aside copy is
+  written by securewrite.writeSecret at the store's mode in one step (never briefly 644); the root's words describe only
+  root files (profiles/remote.json is "an agent's profile"); "saved since start" is one rule for every size, its size or
+  time moved, so an edit that left the store still unreadable is never replaced (tested).

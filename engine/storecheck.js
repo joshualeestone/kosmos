@@ -164,7 +164,10 @@ function scan(opts) {
     }
     if (!problem) continue;
     const folder = path.basename(path.dirname(file));
-    const holds = HOLDS[path.basename(file)] || (path.dirname(file) !== store.ROOT && FOLDERS[folder]) || 'a record Kosmos keeps';
+    // The root's own words only for a file at the root (or the worlds registry at the base): profiles/remote.json is
+    // an agent's profile, not your Kosmos+ settings (review 3).
+    const atRoot = path.dirname(file) === store.ROOT || path.basename(file) === 'worlds.json';
+    const holds = (atRoot && HOLDS[path.basename(file)]) || (!atRoot && FOLDERS[folder]) || 'a record Kosmos keeps';
     const copy = problem === 'toobig' || problem === 'unopenable' ? null : goodCopy(file);
     found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs });
   }
@@ -186,20 +189,20 @@ function atStart(opts, write) {
   return found;
 }
 
+/** Whether a store was written since this start found it damaged: its size or its time moved. */
+function changedSince(d) {
+  const st = fs.statSync(d.abs);
+  return st.size !== d.size || st.mtimeMs !== d.mtimeMs;
+}
+
 /** What the page shows: the damaged stores this start found and has not been told to put back. */
 function current() {
   /* Looked at again each time the page asks (review 1): a reader that treats a damaged store as empty writes over it
      on its next save, and then "Kosmos has not changed it" would no longer be true. `savedOver` says so. */
   return FOUND.map((d) => {
     let savedOver = false;
-    if (d.problem === 'empty' || d.problem === 'nul' || d.problem === 'unreadable') {
-      try {
-        // Only a small file is read again per ask; a large one is re-read only if its size or time moved.
-        const st = fs.statSync(d.abs);
-        if (st.size <= 1024 * 1024) savedOver = classify(fs.readFileSync(d.abs)) === null;
-        else savedOver = st.size !== d.size || st.mtimeMs !== d.mtimeMs;
-      } catch { savedOver = false; }
-    }
+    // One rule for every size (review 3): its size or time moved since start, even if it is still not readable.
+    try { savedOver = changedSince(d); } catch { savedOver = false; }
     return { file: d.file, holds: d.holds, problem: d.problem, backup: d.backup, secret: d.secret, savedOver };
   });
 }
@@ -226,12 +229,14 @@ function restore(file, write) {
   if (lst.isSymbolicLink()) return { ok: false, why: 'it is a link to another place, so Kosmos left it alone' };
   let now;
   try { now = fs.readFileSync(d.abs); } catch { return { ok: false, why: 'Kosmos cannot open it' }; }
-  if (classify(now) === null) return { ok: false, why: 'it has been saved since Kosmos started, so Kosmos left it; the copy is kept at ' + d.backup.file };
+  // Still the SAME damaged file, not merely still unreadable: a hand edit that left a stray comma is newer data (review 3).
+  if (classify(now) === null || changedSince(d)) return { ok: false, why: 'it has been saved since Kosmos started, so Kosmos left it; the copy is kept at ' + d.backup.file };
   const aside = d.abs + '.damaged-' + new Date().toISOString().replace(/[:.]/g, '-');
   try {
     if (fs.existsSync(aside)) return { ok: false, why: 'try again in a moment' };
-    store.saveFlushed(aside, now);
-    fs.chmodSync(aside, lst.mode & 0o777);   // the damaged copy keeps the store's own permissions (review 2)
+    // Created at the store's own permissions in one step, never briefly readable by others (reviews 2 and 3).
+    if (process.platform === 'win32') require('./securewrite').writeSecret(aside, now, null, { atomicOnly: true, umaskDefault: true });
+    else require('./securewrite').writeSecret(aside, now, lst.mode & 0o777, { atomicOnly: true });
     store.saveFlushed(d.abs, buf);   // flushed before it replaces the file, so a crash cannot leave it blank again
   } catch (err) {
     say('Kosmos could not put back the good copy of ' + d.file + ' (' + ((err && err.code) || 'an error') + ').');
