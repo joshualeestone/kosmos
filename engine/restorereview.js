@@ -19,15 +19,16 @@
  * reviewAgent({ name, files: [{ name, text }], templates? }) -> {
  *   name, nameProblem, closest: role key or null,
  *   files: [{ name, instructions: bool, lines, added: [line numbers], removed: [template lines], truncated }],
- *   flags: [{ file, line, kind: 'url' | 'credential' | 'schedule' | 'invisible' | 'long', text, at, length, split? }],
+ *   flags: [{ file, line, kind: 'url' | 'credential' | 'schedule' | 'invisible' | 'hides' | 'long', text, at, length, split? }],
  *   flagsNotListed, unreviewed: [{ file, why }], flagged }
  */
 
 const MAX_FILE_CHARS = 512 * 1024;   // instructions are capped at 256 KB; past this a file is unreviewed
 const MAX_TOTAL_CHARS = 4 * 1024 * 1024;   // across files (review 2: fifty large notes blocked the board for 12 s)
-const MAX_TEST_CHARS = 8 * 1024;     // a line is tested to here; a longer one is flagged 'long'
+const MAX_TEST_CHARS = 4 * 1024;     // a line is tested to here; a longer one is flagged 'long' (review 3: cost)
 const MAX_DIFF_CELLS = 8 * 1000 * 1000;   // past this a file is not diffed: every line counts as added
 const SHOW = 200;
+const JOINT = 300;   // characters each side of a line break tested as one (review 3)
 const MAX_FLAGS_PER_KIND = 200;
 const MAX_REMOVED = 200;
 const PLACEHOLDER = '{{NAME}}';
@@ -36,13 +37,43 @@ const INSTRUCTION_FILES = new Set(['claude.md', 'agents.md', 'gemini.md']);
 
 /* Invisible code points (review 2): format characters (zero-width, bidi, the Unicode tag block), variation
    selectors, and the tag block itself. A line holding one is never a template line and is flagged. */
-const INVISIBLE_RE = /[\p{Cf}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/u;
+const INVISIBLE_CLASS = String.raw`\p{Cf}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u034F\u115F\u1160\u2800\u3164\uFFA0`;   // review 3: blank fillers too
+const INVISIBLE_RE = new RegExp(`[${INVISIBLE_CLASS}]`, 'u');
+const INVISIBLE_ONE = new RegExp(`^[${INVISIBLE_CLASS}]$`, 'u');
 /* For the tests only: tag characters (U+E0020-E007E) are decoded to the ASCII they spell, so a hidden URL is still a
    URL; other invisible code points are dropped; NFKC folds full-width forms; defanged addresses read as real. */
-function canonical(line) {
-  return line.replace(/[\u{E0020}-\u{E007E}]/gu, (c) => String.fromCharCode(c.codePointAt(0) - 0xE0000))
-    .normalize('NFKC').replace(/[\p{Cf}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/gu, '')
-    .replace(/\bhxxp/gi, 'http').replace(/\[\.\]|\(\.\)|\{\.\}/g, '.').replace(/\[:\]/g, ':');
+function canonical(line) { return canonicalMap(line).text; }
+/* The canonical text and, for each of its UTF-16 units, the index in the raw line it came from (review 3: a match's
+   position was the canonical one, so zero-width padding shifted the shown window off the match). */
+function canonicalMap(line) {
+  let text = '';
+  const map = [];
+  let i = 0;
+  for (const ch of line) {
+    const cp = ch.codePointAt(0);
+    let out;
+    if (cp >= 0xE0020 && cp <= 0xE007E) out = String.fromCharCode(cp - 0xE0000);
+    else if (INVISIBLE_ONE.test(ch)) out = '';
+    else out = ch.normalize('NFKC');
+    for (let k = 0; k < out.length; k += 1) map.push(i);
+    text += out;
+    i += ch.length;
+  }
+  // Defanged addresses read as real ones, keeping the map in step.
+  const defang = [[/hxxp/gi, 'http'], [/\[\.\]|\(\.\)|\{\.\}/g, '.'], [/\[:\]/g, ':']];
+  for (const [re, to] of defang) {
+    let nt = '', nm = [], last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(text))) {
+      nt += text.slice(last, m.index); nm.push(...map.slice(last, m.index));
+      const rep = m[0].toLowerCase() === 'hxxp' ? (m[0][0] === 'H' ? 'Http' : 'http') : to;
+      nt += rep; for (let k = 0; k < rep.length; k += 1) nm.push(map[m.index] ?? i);
+      last = m.index + m[0].length;
+    }
+    nt += text.slice(last); nm.push(...map.slice(last));
+    text = nt; map.length = 0; map.push(...nm);
+  }
+  return { text, map, end: i };
 }
 
 // Endings that are mostly file extensions or words (sh, to, in, me) are left out, so deploy.sh is not an address.
@@ -96,12 +127,13 @@ const KINDS = [['url', URL_RE], ['credential', CREDENTIAL_RE], ['schedule', SCHE
 /* Each kind a line is, with where it matched: [{ kind, at }]. Tests the first MAX_TEST_CHARS only. */
 function matchesOf(line) {
   const raw = String(line).slice(0, MAX_TEST_CHARS);
-  const c = canonical(raw);
+  const { text: c, map, end } = canonicalMap(raw);
+  const back = (k) => (k < map.length ? map[k] : end);   // a canonical position, in the raw line
   const out = [];
   for (const [kind, re] of KINDS) {
     const m = re.exec(c);
-    if (m) out.push({ kind, at: m.index });
-    else if (kind === 'schedule') { const at = cronAt(c); if (at >= 0) out.push({ kind, at }); }
+    if (m) out.push({ kind, at: back(m.index) });
+    else if (kind === 'schedule') { const at = cronAt(c); if (at >= 0) out.push({ kind, at: back(at) }); }
   }
   const inv = INVISIBLE_RE.exec(raw);
   if (inv) out.push({ kind: 'invisible', at: inv.index });
@@ -109,9 +141,14 @@ function matchesOf(line) {
 }
 const kindsOf = (line) => matchesOf(line).map((x) => x.kind);
 
+/* A name Kosmos will write into the baseline: a strict name shape (review 3: a 63-character name holding a sentence
+   passed every other check and became template text). Anything else keeps the placeholder, so every line holding it
+   is added. */
+const NAME_SHAPE = /^[\p{L}\p{N}][\p{L}\p{M}\p{N}' .-]{0,39}$/u;
 function nameProblem(name) {
   if (typeof name !== 'string' || !name.trim()) return 'it has no name';
   if (name.length > NAME_MAX) return 'its name is too long to be a name';
+  if (!NAME_SHAPE.test(name) || name.trim().split(/\s+/).length > 4 || /\.\s|\.\.|^\.|\.$/.test(name.trim())) return 'its name is not shaped like a name';
   if (/[\p{Cc}\p{Cf}\u2028\u2029\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/u.test(name)) return 'its name holds control or invisible characters';
   if (matchesOf(name).length) return 'its name looks like an address, a credential or a schedule';
   return null;
@@ -130,18 +167,39 @@ const linesOf = (text) => String(text).split(/\r\n|\r|\n|\u2028|\u2029/);
 // with any is never equal to a template line.
 const norm = (l) => l.normalize('NFKC').trim().replace(/\s+/g, ' ');
 
+/* The template sharing the most lines with these, found through one index from line to templates (review 3: every
+   template against every line was seconds on a large restore). Ties go to the first. */
 function closestTemplate(lines, templates) {
-  const mine = new Set(lines.filter(Boolean));
-  let best = null, bestCount = 0;
-  for (const t of templates) {
-    if (!t || typeof t.text !== 'string') continue;
+  const index = new Map();
+  const kept = [];
+  templates.forEach((t) => {
+    if (!t || typeof t.text !== 'string') return;
     const theirs = linesOf(t.text).map(norm).filter(Boolean);
-    const set = new Set(theirs);
-    let n = 0;
-    for (const l of mine) if (set.has(l)) n += 1;
-    if (n > bestCount) { best = { key: t.key, lines: theirs }; bestCount = n; }
-  }
-  return best;
+    const ti = kept.push({ key: t.key, lines: theirs }) - 1;
+    for (const l of new Set(theirs)) { if (!index.has(l)) index.set(l, []); index.get(l).push(ti); }
+  });
+  const counts = new Uint32Array(kept.length);
+  for (const l of new Set(lines.filter(Boolean))) for (const ti of index.get(l) || []) counts[ti] += 1;
+  let best = -1;
+  counts.forEach((n, ti) => { if (n > 0 && (best < 0 || n > counts[best])) best = ti; });
+  return best < 0 ? null : kept[best];
+}
+
+/* Lines inside an HTML comment or a code fence (review 3: wrapping the template's rules in one disables them while
+   every line still matched). They never match the template, so the rules count as removed; the opening line is
+   flagged 'hides'. Returns { hidden: Set of line indexes, opens: [line indexes] }. */
+function hiddenRegions(raw) {
+  const hidden = new Set(), opens = [];
+  let fence = null, comment = false;
+  raw.forEach((line, i) => {
+    const t = line.trim();
+    if (fence) { hidden.add(i); if (t.startsWith(fence)) fence = null; return; }
+    if (comment) { hidden.add(i); if (t.includes('-->')) comment = false; return; }
+    const f = /^(`{3,}|~{3,})/.exec(t);
+    if (f) { fence = f[1]; hidden.add(i); opens.push(i); return; }
+    if (t.includes('<!--')) { hidden.add(i); opens.push(i); comment = !t.slice(t.indexOf('<!--') + 4).includes('-->'); }
+  });
+  return { hidden, opens };
 }
 
 /* The longest common subsequence of a file's non-blank lines and the template's, IN ORDER (review 2: a set let a
@@ -153,7 +211,8 @@ function align(fileLines, tpl) {
   const a = idx.map((i) => fileLines[i]);
   const n = a.length, m = tpl.length;
   const matchedFile = new Set(), matchedTpl = new Set();
-  if (!n || !m || n * m > MAX_DIFF_CELLS) return { matchedFile, matchedTpl, diffed: !(n * m > MAX_DIFF_CELLS) };
+  const pairs = [];
+  if (!n || !m || n * m > MAX_DIFF_CELLS) return { matchedFile, matchedTpl, pairs, diffed: !(n * m > MAX_DIFF_CELLS) };
   // Lengths of LCS suffixes, one row per file line (Uint32, so 8M cells is 32 MB at most).
   const W = m + 1;
   const L = new Uint32Array((n + 1) * W);
@@ -163,11 +222,11 @@ function align(fileLines, tpl) {
     }
   }
   for (let i = 0, j = 0; i < n && j < m;) {
-    if (a[i] === tpl[j]) { matchedFile.add(idx[i]); matchedTpl.add(j); i += 1; j += 1; }
+    if (a[i] === tpl[j]) { matchedFile.add(idx[i]); matchedTpl.add(j); pairs.push([idx[i], j]); i += 1; j += 1; }
     else if (L[(i + 1) * W + j] >= L[i * W + j + 1]) i += 1;
     else j += 1;
   }
-  return { matchedFile, matchedTpl, diffed: true };
+  return { matchedFile, matchedTpl, pairs, diffed: true };
 }
 
 function shown(line, at) {
@@ -182,7 +241,12 @@ function reviewAgent({ name, files, templates } = {}) {
   const unreviewed = [];
   const read = [];
   let budget = MAX_TOTAL_CHARS;
-  for (const f of Array.isArray(files) ? files : []) {
+  // Instruction files are read first (review 3: notes listed ahead of CLAUDE.md spent the budget on it), then the
+  // order the caller gave is put back.
+  const given = (Array.isArray(files) ? files : []).map((f, order) => ({ f, order }));
+  const isInstr = (f) => !!f && typeof f === 'object' && typeof f.name === 'string' && INSTRUCTION_FILES.has(f.name.split(/[\\/]/).pop().toLowerCase());
+  given.sort((x, y) => (isInstr(y.f) - isInstr(x.f)) || (x.order - y.order));
+  for (const { f, order } of given) {
     // Nothing handed in disappears without a trace (review 2).
     if (!f || typeof f !== 'object') { unreviewed.push({ file: '(unnamed)', why: 'it is not a file' }); continue; }
     const fname = typeof f.name === 'string' ? f.name : '(unnamed)';
@@ -195,12 +259,16 @@ function reviewAgent({ name, files, templates } = {}) {
     budget -= text.length;
     if (truncated) unreviewed.push({ file: fname, why: `only its first ${Math.floor(limit / 1024)} KB were read` });
     const base = fname.split(/[\\/]/).pop().toLowerCase();
-    read.push({ name: fname, raw: linesOf(text), truncated, instructions: INSTRUCTION_FILES.has(base) });
+    read.push({ name: fname, raw: linesOf(text), truncated, instructions: INSTRUCTION_FILES.has(base), order });
   }
-  for (const f of read) f.normed = f.raw.map(norm);
+  read.sort((x, y) => x.order - y.order);
+  for (const f of read) {
+    f.hidden = f.instructions ? hiddenRegions(f.raw) : { hidden: new Set(), opens: [] };
+    f.normed = f.raw.map(norm);
+  }
   // The closest template, from the instruction files only (notes are never matched against a template).
   const closest = closestTemplate(read.filter((f) => f.instructions).flatMap((f) => f.normed), tpl);
-  const counts = { url: 0, credential: 0, schedule: 0, invisible: 0, long: 0 };
+  const counts = { url: 0, credential: 0, schedule: 0, invisible: 0, long: 0, hides: 0 };
   const flags = [];
   let flagsNotListed = 0;
   const flag = (x) => {
@@ -209,21 +277,35 @@ function reviewAgent({ name, files, templates } = {}) {
     flags.push(x);
   };
   const out = read.map((f) => {
-    const al = f.instructions && closest ? align(f.normed, closest.lines) : { matchedFile: new Set(), matchedTpl: new Set(), diffed: false };
+    const al = f.instructions && closest ? align(f.normed, closest.lines) : { matchedFile: new Set(), matchedTpl: new Set(), pairs: [], diffed: false };
+    // A line the member put inside a comment or fence does not match a template line that is not in one: the rule
+    // is disabled, so it counts as removed and the line as added. A template's own fenced block still matches.
+    if (al.pairs.length) {
+      const tplHidden = hiddenRegions(closest.lines).hidden;
+      for (const [fi, tj] of al.pairs) {
+        if (f.hidden.hidden.has(fi) && !tplHidden.has(tj)) { al.matchedFile.delete(fi); al.matchedTpl.delete(tj); }
+      }
+    }
     if (f.instructions && closest && !al.diffed) unreviewed.push({ file: f.name, why: 'it is too long to compare with its template, so every line counts as added' });
     const added = [];
+    // Each line is matched once (review 3: alone, as a neighbour and joined was three times the work).
+    const cache = new Map();
+    const matches = (i) => { if (!cache.has(i)) cache.set(i, matchesOf(f.raw[i])); return cache.get(i); };
+    const isAdded = (i) => (f.raw[i].trim() || INVISIBLE_RE.test(f.raw[i])) && !al.matchedFile.has(i);
     f.raw.forEach((line, i) => {
-      if (!line.trim() && !INVISIBLE_RE.test(line)) return;
-      if (al.matchedFile.has(i)) return;
+      if (!isAdded(i)) return;
       added.push(i + 1);
       if (line.length > MAX_TEST_CHARS) flag({ file: f.name, line: i + 1, kind: 'long', text: shown(line, 0), at: 0, length: line.length });
-      const here = matchesOf(line);
+      if (f.hidden.opens.includes(i)) flag({ file: f.name, line: i + 1, kind: 'hides', text: shown(line, 0), at: 0, length: line.length });
+      const here = matches(i);
       for (const m of here) flag({ file: f.name, line: i + 1, kind: m.kind, text: shown(line, m.at), at: m.at, length: line.length });
+      // An instruction split over two lines: only the joint is tested (the end of this line, the start of the next).
       const next = f.raw[i + 1];
       if (typeof next === 'string' && next.trim()) {
-        const alone = new Set([...here.map((m) => m.kind), ...kindsOf(next)]);
-        for (const m of matchesOf(`${line} ${next}`)) {
-          if (!alone.has(m.kind)) flag({ file: f.name, line: i + 1, kind: m.kind, text: shown(`${line} ${next}`, m.at), at: m.at, length: line.length, split: true });
+        const alone = new Set([...here.map((m) => m.kind), ...(isAdded(i + 1) ? matches(i + 1) : matchesOf(next)).map((m) => m.kind)]);
+        const joint = `${line.slice(-JOINT)} ${next.slice(0, JOINT)}`;
+        for (const m of matchesOf(joint)) {
+          if (!alone.has(m.kind)) flag({ file: f.name, line: i + 1, kind: m.kind, text: shown(joint, m.at), at: m.at, length: line.length, split: true });
         }
       }
     });
