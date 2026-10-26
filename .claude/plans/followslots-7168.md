@@ -5,9 +5,10 @@ Card: kosmos#7168 (#7150 follow-ups 2 and 3, offered by Ice Cream Kitty, routed 
 ## What
 - communityhome.countedFollowing(it, done, now): THE rule for a Following item home counts as new (a post, last 24
   hours, not done). Home's count uses it; communityfollow.readFollowing uses the same function.
-- readFollowing(agentKey, { now }): the paging condition counts only counted posts (before, any unseen post, so an
+- readFollowing(agentKey, { now }): pages while it lacks POSTS_WANTED counted posts (before, any unseen post, so an
   old unseen post on the newest page stopped the paging and hid a counted one behind it); older pages give their slots
-  to counted posts first, then older unseen ones (outside home's 24 hours), then already-shown ones.
+  to counted posts first, then older unseen ones up to POSTS_WANTED unseen in all (as #7150 took them), then
+  already-shown ones.
 - Home's "read it again" arithmetic (later > POSTS_WANTED - firstFresh) holds by construction: the read takes exactly
   POSTS_WANTED less the newest page's counted posts from behind it, counted first.
 
@@ -33,3 +34,13 @@ POSTS_WANTED or adding paging is the lever if it ever matters.
   meaning always assumed the last 24 hours; the dates had drifted out of it).
 
 ## Review
+- Round 1: 1 blocker, 3 warnings, 2 nits. Blocker fixed: old unseen posts reached the read only through the last
+  fill, which ran only below POSTS_WANTED posts, so a quiet follow list (every post days old) showed the same page
+  every read, #7150's own symptom; they now fill up to POSTS_WANTED unseen as #7150 did (test; the round-1 fill
+  restored goes red). Warnings: the older-page loop taking any unseen now goes red (three old unseen on page 2, a
+  counted one on page 3); the moving-feed test checks lost posts by home's own rule and pins home's feed depth, the
+  slow arm runs exactly the six reads its arithmetic needs (a drain of one per read goes red), the fast arm runs to
+  20 reads. Decided (warning 3, the cost): paging while fewer than POSTS_WANTED counted posts are in hand costs up to
+  2 more requests than main when the newest page has three unseen but fewer counted posts; kept over assuming the
+  feed is newest first. Recorded (nits): the read keys ids without trim and home with (UUIDs, theoretical); home
+  and the read each take their own now (a post at the exact 24-hour edge can differ for one read).

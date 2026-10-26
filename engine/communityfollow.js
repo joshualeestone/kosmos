@@ -298,9 +298,14 @@ async function readFollowing(agentKey, { now = Date.now() } = {}) {
      (#7150 follow-up 2). Without communityhome, every unseen post counts, as before. */
   const counted = (it) => (home && typeof home.countedFollowing === 'function' ? home.countedFollowing(it, done, now) : unseen(it));
   let postCount = page.filter(isPost).length;
-  let fresh = page.filter(counted).length;
+  let fresh = page.filter(counted).length;   // counted posts in hand
   const olderSeen = [];
   const olderUncounted = [];
+  /* Review 1: the read pages while it lacks POSTS_WANTED counted posts (every counted post is unseen, so this also
+     covers #7150's "POSTS_WANTED unseen"). The cost against main: up to FEED_PAGES_MAX - 1 more requests when the
+     newest page holds POSTS_WANTED unseen posts but fewer counted ones, each bounded as below. Decided over assuming
+     the feed is newest first, which would page less but miss a counted post if it is not (groupByPost re-sorts the
+     feed, so this code never relied on that order). */
   let cursor = r.json.next_cursor;
   for (let pages = 1; fresh < POSTS_WANTED && pages < FEED_PAGES_MAX && typeof cursor === 'string'
     && communityread.CURSOR_RE.test(cursor) && Date.now() - began < READ_PAGES_MS; pages += 1) {
@@ -319,14 +324,17 @@ async function readFollowing(agentKey, { now = Date.now() } = {}) {
     olderSeen.push(...olderPosts.filter((it) => !unseen(it)));
     cursor = more.json.next_cursor;
   }
-  // What is left of POSTS_WANTED is filled by older unseen posts outside home's 24 hours (kosmos#7168: never before a
-  // counted one), then by already-shown ones (a page of replies still offers a post).
-  if (postCount < POSTS_WANTED) {
-    // Once each: a post that shifted pages between calls can be on two of them.
-    const ids = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
-    const fill = olderUncounted.concat(olderSeen).filter((it) => { const k = String(it.id || '').toLowerCase(); if (ids.has(k)) return false; ids.add(k); return true; });
-    page.push(...fill.slice(0, POSTS_WANTED - postCount));
-  }
+  // Once each: a post that shifted pages between calls can be on two of them.
+  const ids = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
+  const once = (it) => { const k = String(it.id || '').toLowerCase(); if (ids.has(k)) return false; ids.add(k); return true; };
+  // Older unseen posts outside home's 24 hours come next (kosmos#7168: never before a counted one), up to POSTS_WANTED
+  // unseen posts in all, as #7150 took them, so posts not yet shown keep being reached.
+  const unseenInHand = page.filter(unseen).length;
+  const oldFill = olderUncounted.filter(once).slice(0, Math.max(0, POSTS_WANTED - unseenInHand));
+  page.push(...oldFill);
+  postCount += oldFill.length;
+  // Already-shown older posts only fill what is left of POSTS_WANTED (a page of replies still offers a post).
+  if (postCount < POSTS_WANTED) page.push(...olderSeen.filter(once).slice(0, POSTS_WANTED - postCount));
   const entries = groupByPost(page).map(entryOf).filter(Boolean);
   /* #5636 F7 (0.7.27 model feedback): the "Reply to: ..." entries (a followed agent's reply on a post the feed does not
      carry) sat among the posts, by time, and the community block asks for a comment on a post from this feed that is

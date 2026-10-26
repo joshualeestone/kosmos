@@ -770,6 +770,21 @@ test('#7168 read --following: an old unseen post on the newest page does not sto
     b.st.pages = [[reply(21, '2026-10-12T19:00:00Z')], [post(40, old), post(41, old), post(42, old), post(50, old)]];
     const order = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.ok(order.text.includes('POST50'), 'an old unseen post gave way to posts already shown: ' + order.text);
+    /* Review 1 (the blocker): a quiet follow list, every post days old. The second read moves on to posts not yet
+       shown, as #7150 does, never the same newest page again. */
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [[post(61, old), post(62, old), post(63, old)], [post(64, old), post(65, old), post(66, old)]];
+    await cf.readFollowing('mara', { now: NOW_7168 });
+    const quiet = await cf.readFollowing('mara', { now: NOW_7168 });
+    for (const n of [64, 65, 66]) assert.ok(quiet.text.includes('POST' + n), 'a quiet follow list showed the same page again, POST' + n + ' missing: ' + quiet.text);
+    /* Review 1: three old unseen posts on page 2 and a counted one on page 3 (a feed in any order): the counted one is
+       still reached, because the read pages while it lacks POSTS_WANTED counted posts. */
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [[reply(22, '2026-10-12T19:00:00Z')], [post(70, old), post(71, old), post(72, old)], [post(73, '2026-10-12T07:00:00Z')]];
+    b.st.feedCalls = [];
+    const deep = await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'the read stopped before the page with the counted post');
+    assert.ok(deep.text.includes('POST73'), 'a counted post behind three old unseen ones was not reached: ' + deep.text);
   } finally { await b.close(); }
 });
 
@@ -802,21 +817,30 @@ test('#7168 read --following under a moving feed: reached while arrivals are slo
     return { backlog, shown, feed };
   }
   try {
-    /* One new post between reads: each read drains two from behind the newest page while the feed moves one, so every
-       counted post is reached. (Each read shows the newest page whole, then POSTS_WANTED less the newest page's counted
-       posts from behind it, the arithmetic home's "read it again" line relies on.) */
-    const slow = await run(100, 1, 12);
+    /* One new post between reads. Read 1 shows the newest page whole (ten counted posts, so it pages no further);
+       each later read finds one new counted post on the newest page and takes POSTS_WANTED - 1 = 2 more from behind it,
+       the arithmetic home's "read it again" line relies on. Nine wait behind after read 1, so reads 2 to 6 reach them:
+       six reads, no more, so a read that drained fewer would fail here. */
+    const slow = await run(100, 1, 6);
     const missed = slow.backlog.filter((id) => !slow.shown.has(id));
     assert.deepEqual(missed, [], 'counted posts never reached under a slowly moving feed: ' + missed.join(', '));
     /* Three or more between reads: the read drains none from behind (the newest page already holds three counted
        posts), so older ones drift past the read's depth unread. The bound, stated and checked: every one lost is past
        DEPTH at the end, where home's count (which reads no deeper) no longer names it, so the count never names a post
        no read can reach. */
-    const fast = await run(300, 3, 8);
+    const fast = await run(300, 3, 20);
     const lost = fast.backlog.filter((id) => !fast.shown.has(id));
     assert.ok(lost.length > 0, 'CONTROL: a fast feed lost nothing, so the arm above cannot tell a lost post from a reached one');
-    const at = (id) => fast.feed.findIndex((it) => it.body.trim() === id);
-    for (const id of lost) assert.ok(at(id) >= DEPTH, id + ' was lost while still inside home\'s count window (index ' + at(id) + ' < ' + DEPTH + ')');
+    /* Review 1: by home's own rule, not a position: what home would count now (communityhome.countedFollowing over the
+       items it reads, FEED_ITEMS_MAX deep, with its done set). A post lost to the read is never one home still counts. */
+    const home = require('./communityhome');
+    const done = home.doneFollowing('mara');
+    const homeCounts = new Set(fast.feed.slice(0, DEPTH).filter((it) => home.countedFollowing(it, done, NOW_7168)).map((it) => it.body.trim()));
+    for (const id of lost) assert.ok(!homeCounts.has(id), id + ' was never shown, yet home still counts it');
+    // And home really reads no deeper than that (its feed call asks for exactly FEED_ITEMS_MAX items).
+    const homeSrc = require('node:fs').readFileSync(require.resolve('./communityhome'), 'utf8');
+    assert.ok(homeSrc.includes("const depth = require('./communityfollow').FEED_ITEMS_MAX;") && homeSrc.includes("/following/feed?limit=' + depth"),
+      'home reads its Following feed to a depth other than the read\'s, so the bound above no longer holds');
   } finally { await b.close(); }
 });
 
