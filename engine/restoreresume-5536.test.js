@@ -283,3 +283,65 @@ test('#5536 slice 3 review 1: a record that would pass its cap is dropped, and t
     assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /no restore record/);
   } finally { setRecordMaxBytesForTests(256 * 1024 * 1024); }
 });
+
+test('#5536 slice 3 review 2: folders that differ only in case, one folder on this disk, still resume (control: a case-sensitive disk keeps both)', (t) => {
+  const root = fresh(t);
+  const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
+  for (const [rel, text] of [['A/x.txt', 'ex'], ['a/y.txt', 'why']]) { const o = sink.begin(rel); o.write(Buffer.from(text)); o.commit(); }
+  sink.close({ keepRecord: true });
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.equal(r.has('A/x.txt', sha(Buffer.from('ex')), 2), true);
+  assert.equal(r.has('a/y.txt', sha(Buffer.from('why')), 3), true, 'found though the disk may spell it A/y.txt');
+  r.close();
+});
+
+test('#5536 slice 3 review 2: a record whose last line was torn by a power cut still resumes, and the next line starts on its own', (t) => {
+  const root = stoppedRoot(t);
+  const rec = path.join(root, RECORD_NAME);
+  fs.appendFileSync(rec, '{"path":"c.txt","si');
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.equal(r.has('a.txt', sha(Buffer.from('alpha')), 5), true);
+  const o = r.begin('c.txt'); o.write(Buffer.from('gamma')); o.commit();
+  r.close({ keepRecord: true });
+  const lines = fs.readFileSync(rec, 'utf8').split('\n').filter(Boolean);
+  for (const l of lines) JSON.parse(l);   // every line whole: the torn one was cut back off
+  assert.equal(JSON.parse(lines[lines.length - 1]).path, 'c.txt');
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close();   // and it resumes again
+});
+
+test('#5536 slice 3 review 2: a short record write is finished, and a first line that fails leaves a fresh root empty', (t) => {
+  const real = fs.writeSync;
+  try {
+    // Half of each record line at a time, as a write near a full disk may return.
+    fs.writeSync = function (fd, buf, off, len, pos) {
+      if (Buffer.isBuffer(buf) && buf.includes('"sha256"') && typeof len === 'number' && len > 8) return real.call(fs, fd, buf, off, Math.ceil(len / 2), pos);
+      return real.apply(fs, arguments);
+    };
+    const root = fresh(t);
+    const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
+    for (const rel of ['a.txt', 'b.txt']) { const o = sink.begin(rel); o.write(Buffer.from(rel)); o.commit(); }
+    sink.close({ keepRecord: true });
+    fs.writeSync = real;
+    const lines = fs.readFileSync(path.join(root, RECORD_NAME), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.deepEqual(lines.slice(1).map((l) => l.path), ['a.txt', 'b.txt']);
+    // The snapshot line's write fails: the sink refuses, and the root is as empty as it was given.
+    fs.writeSync = function (fd, buf) {
+      if (Buffer.isBuffer(buf) && buf.includes('"snapshot"')) { const e = new Error('no space'); e.code = 'ENOSPC'; throw e; }
+      return real.apply(fs, arguments);
+    };
+    const empty = fresh(t);
+    assert.throws(() => createRestoreSink(empty, { record: true, snapshot: SNAP }), /could not open the restore record \(ENOSPC\)/);
+    assert.deepEqual(fs.readdirSync(empty), []);
+  } finally { fs.writeSync = real; }
+});
+
+test('#5536 slice 3 review 2: two names that are one name in NFC refuse, where the disk can hold both (skipped where it cannot)', (t) => {
+  const root = fresh(t);
+  const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
+  const o = sink.begin('café.md'); o.write(Buffer.from('coffee')); o.commit();
+  sink.close({ keepRecord: true });
+  // A second entry spelled in NFD beside it: only a normalisation-sensitive disk (ext4, say) can hold both.
+  try { fs.writeFileSync(path.join(root, 'café.md'), 'coffee', { flag: 'wx', mode: 0o600 }); } catch { t.skip('this disk holds one name for both forms'); return; }
+  if (fs.readdirSync(root).filter((n) => n.normalize('NFC') === 'café.md').length < 2) { t.skip('this disk folded the two names'); return; }
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /two names that are one name/);
+});
