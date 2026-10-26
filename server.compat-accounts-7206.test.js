@@ -248,3 +248,15 @@ test('1b review 2: a DeepSeek agent reads as DeepSeek on the board (accountForAg
   assert.equal(providerOf({ runner: 'claude', account: { dir: '/x/.claude-a' } }), 'anthropic', 'CONTROL');
   assert.equal(providerOf({ runner: 'codex', account: { provider: 'alibaba' } }), 'alibaba', 'CONTROL: Qwen unchanged');
 });
+
+test('1b review 3: a DeepSeek agent\'s model line names DeepSeek, never Claude', () => {
+  const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const script = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const at = script.indexOf('function modelLine(');
+  assert.ok(at > -1, 'modelLine moved');
+  // eslint-disable-next-line no-new-func
+  const modelLine = new Function('cardStOf', script.slice(at, script.indexOf('\n}\n', at) + 2) + '\nreturn modelLine;')(() => ({ pres: 'on' }));
+  assert.equal(modelLine({ runner: 'claude', account: { provider: 'deepseek' } }), 'DeepSeek');
+  assert.equal(modelLine({ runner: 'claude', account: { provider: 'deepseek' }, modelName: 'deepseek-chat' }), 'deepseek-chat');
+  assert.doesNotMatch(String(modelLine({ runner: 'claude', account: { dir: '/x/.claude-a' }, modelName: 'claude-sonnet-5' })), /DeepSeek/, 'CONTROL');
+});
