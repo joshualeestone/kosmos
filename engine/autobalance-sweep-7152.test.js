@@ -1,0 +1,167 @@
+'use strict';
+/* kosmos#7152 slice 3: the auto-balance sweep's record (engine/autobalance-sweep.js) and the rule changes slice 3 brought
+   to engine/autobalance.js. Every effect is a dep; the only file is the record, in a temp folder. Real board cards from
+   test-support/fleet (fixture-discipline.test.js). */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const ab = require('./autobalance');
+const sweep = require('./autobalance-sweep');
+const fleet = require('../test-support/fleet');
+
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-absweep-7152-'));
+test.after(() => { fleet.restore(); fs.rmSync(TMP, { recursive: true, force: true }); });
+
+const H = 3600000;
+const NOW = Date.now();
+const S = (ms) => Math.floor(ms / 1000);   // the usage record keeps resets in seconds
+let n = 0;
+const fileFor = () => path.join(TMP, `record-${++n}.jsonl`);
+
+const realCards = (...specs) => {
+  const b = fleet.install(specs.map(([name, state = 'idle']) => fleet.agent(name, { state })));
+  return specs.map(([name]) => b.card(name));
+};
+
+/* Two accounts: Work at 93% (resets in 35 h) with ada on it, Spare at 10%. Both read by a usage call that worked. */
+const LIST = [
+  { dir: '/u/.claude-work', label: 'work', email: 'w@example.test', memoryShared: true, apiKey: false },
+  { dir: '/u/.claude-spare', label: 'spare', email: 's@example.test', memoryShared: true, apiKey: false },
+];
+const reading = (pct, resetsInH, o = {}) => ({ at: NOW, measuredAt: NOW, state: 'ok',
+  weekly: { usedPct: pct, resetsAt: S(NOW + resetsInH * H) }, fiveHour: null, ...o });
+const USAGE = { '/u/.claude-work': reading(93, 35), '/u/.claude-spare': reading(10, 100) };
+
+function deps(o = {}) {
+  const cards = o.cards || realCards(['ada']);
+  return {
+    list: () => o.list || LIST,
+    readUsage: (dir) => (o.usage || USAGE)[dir] || null,
+    agentsOn: o.agentsOn || ((dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true, moving: [] })),
+    roster: () => cards,
+    records: () => [],
+    readCommitment: () => ({ state: 'clear' }),
+    isGuide: () => false,
+    guideName: () => null,
+    settingOn: () => (o.settingOn === undefined ? true : o.settingOn),
+    labelOf: (dir) => (LIST.find((a) => a.dir === dir) || {}).label || null,
+  };
+}
+
+test('#7152 slice 3: a decision is recorded once per change, with labels, reason and kind, and no email', async () => {
+  const file = fileFor();
+  const run = sweep.create({ file });
+  const d = deps();
+  assert.equal((await run.tick(d, NOW)).did, 'recorded');
+  assert.equal((await run.tick(d, NOW + 1000)).did, 'nothing', 'the same decision was recorded twice');
+  const lines = sweep.readLines(file);
+  assert.equal(lines.length, 1);
+  assert.deepEqual(lines[0].moves.map((m) => [m.agent, m.fromLabel, m.toLabel, m.kind]), [['ada', 'work', 'spare', 'usage']]);
+  assert.match(lines[0].moves[0].why, /^it is at 93% of its weekly limit/);
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /@/, 'an email reached the record');
+  /* CONTROL: a changed decision is recorded again, and a return to the first one too. */
+  await run.tick(deps({ usage: { ...USAGE, '/u/.claude-work': reading(50, 35) } }), NOW + 2000);
+  await run.tick(d, NOW + 3000);
+  assert.equal(sweep.readLines(file).length, 2, 'a decision that came back after a change was not recorded');
+});
+
+test('#7152 slice 3: the sweep moves nothing: its module has no way to', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'autobalance-sweep.js'), 'utf8');
+  for (const word of ['startMove', 'accountmove', 'setAccount', 'restart']) {
+    assert.equal(new RegExp(`\\b${word}\\s*\\(`).test(src), false, `the record-only sweep calls ${word}()`);
+  }
+  assert.ok(/\bab\.decide\s*\(/.test(src), 'CONTROL: the pattern finds a call that is there');
+});
+
+test('#7152 slice 3: with the setting off nothing is recorded; with one account the agents are not even walked', async () => {
+  const file = fileFor();
+  assert.equal((await sweep.create({ file }).tick(deps({ settingOn: false }), NOW)).did, 'off');
+  assert.deepEqual(sweep.readLines(file), []);
+  let walks = 0;
+  const one = deps({ list: [LIST[0], { dir: '/u/.claude-key', apiKey: true }], agentsOn: () => { walks += 1; return { names: [], complete: true }; } });
+  assert.equal((await sweep.create({ file: fileFor() }).tick(one, NOW)).did, 'nothing');
+  assert.equal(walks, 0, 'the agents were walked with one account');
+});
+
+test('#7152 slice 3: a decision whose line could not be written is written on a later tick', async () => {
+  const blocker = path.join(TMP, `blocker-${++n}`);
+  fs.writeFileSync(blocker, 'a file, so nothing can be written under it');
+  const file = path.join(blocker, 'record.jsonl');
+  const run = sweep.create({ file });
+  assert.equal((await run.tick(deps(), NOW)).did, 'nothing', 'CONTROL: the write failed');
+  fs.rmSync(blocker);
+  assert.equal((await run.tick(deps(), NOW + 1000)).did, 'recorded', 'a decision whose write failed was never written');
+  assert.equal(sweep.readLines(file).length, 1);
+});
+
+test('#7152 slice 3: a restart does not record the same decision again; a line from the future and odd lines are not trusted', async () => {
+  const file = fileFor();
+  const d = deps();
+  await sweep.create({ file }).tick(d, NOW);
+  await sweep.create({ file, nowMs: NOW + 1000 }).tick(d, NOW + 1000);
+  assert.equal(sweep.readLines(file).length, 1, 'every board restart wrote the decision again');
+  const f2 = fileFor();
+  sweep.append(f2, { kind: 'decision', at: NOW + 10 * sweep.CLOCK_SLACK_MS, moves: [{ agent: 'ada', from: '/u/.claude-work', to: '/u/.claude-spare' }], held: [], atRisk: [{ from: '/u/.claude-work', kind: 'usage' }] });
+  sweep.append(f2, { kind: 'decision', at: NOW - 1000, moves: [null, 7], held: [null], atRisk: [null] });
+  let run;
+  assert.doesNotThrow(() => { run = sweep.create({ file: f2, nowMs: NOW }); }, 'an odd line stopped the board starting');
+  assert.equal((await run.tick(d, NOW)).did, 'recorded', 'a line stamped in the future stood in for the last decision');
+});
+
+test('#7152 slice 3: recent is newest first, keeps only decisions with a move, and the record keeps its newest lines', () => {
+  const file = fileFor();
+  fs.writeFileSync(file, 'not json\n');
+  for (let i = 0; i < sweep.KEEP_LINES + 3; i += 1) sweep.append(file, { kind: 'decision', at: i, moves: i % 2 ? [{ agent: 'ada' }] : [], held: [], atRisk: [] });
+  const lines = sweep.readLines(file);
+  assert.equal(lines.length, sweep.KEEP_LINES);
+  assert.equal(lines[0].at, 3);
+  assert.deepEqual(sweep.recent(file, 2).map((l) => l.at), [sweep.KEEP_LINES + 1, sweep.KEEP_LINES - 1], 'recent is not newest first, or counted a decision with no move');
+});
+
+test('#7152 slice 3: rows from the cheap readings: a working usage call is signed in, only a 401 or 403 is a stopped login', () => {
+  const more = ['x', 'r', 'p', 'rate', 'unread', 'other'].map((k) => ({ dir: `/u/.claude-${k}`, label: k }));
+  const recs = { '/u/.claude-x': { at: NOW, state: 'no-credential' }, '/u/.claude-r': { at: NOW, state: 'http-401', weekly: { usedPct: 5, resetsAt: S(NOW + H) } },
+    '/u/.claude-p': { at: NOW, state: 'profile-http-403' }, '/u/.claude-rate': { at: NOW, state: 'http-429' },
+    '/u/.claude-unread': { at: NOW, state: 'unreadable-response' }, '/u/.claude-other': { at: NOW, state: 'other-account' } };
+  const rows = ab.rowsFromReadings({ list: [...LIST, { dir: '/u/.claude-key', apiKey: true }, ...more],
+    readUsage: (dir) => recs[dir] || USAGE[dir] || null, agentsOn: () => ({ names: [], complete: true }), nowMs: NOW });
+  const by = Object.fromEntries(rows.map((r) => [r.dir, r]));
+  assert.equal(by['/u/.claude-key'], undefined, 'an API key became a row');
+  assert.equal(by['/u/.claude-work'].connection.badge, 'working');
+  assert.equal(by['/u/.claude-work'].weekly.resetsAt, S(NOW + 35 * H) * 1000, 'the reset was not turned into ms');
+  assert.equal(by['/u/.claude-x'].connection.badge, null, 'a record that is neither a reading nor a refusal claimed a login state');
+  assert.equal(by['/u/.claude-r'].connection.badge, 'rejected');
+  assert.equal(by['/u/.claude-p'].connection.badge, 'rejected', 'a refused profile call is the same token refused');
+  assert.equal(by['/u/.claude-r'].weekly, null, 'a refused read showed a usage figure');
+  for (const k of ['rate', 'unread', 'other']) assert.equal(by[`/u/.claude-${k}`].connection.badge, null, `a ${recs[`/u/.claude-${k}`].state} read as a stopped login`);
+  const d = ab.decide({ rows: ab.rowsFromReadings({ list: LIST, nowMs: NOW, agentsOn: (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true }),
+    readUsage: (dir) => (dir === '/u/.claude-work' ? { at: NOW, state: 'http-429' } : USAGE[dir]) }), movable: () => true, nowMs: NOW });
+  assert.deepEqual([d.atRisk, d.moves], [[], []], 'the usage endpoint\'s own rate limit named a working account at risk');
+});
+
+test('#7152 slice 3: a target well into its five-hour window is not a target', () => {
+  const rows = ab.rowsFromReadings({ list: LIST, nowMs: NOW,
+    readUsage: (dir) => (dir === '/u/.claude-spare' ? reading(10, 100, { fiveHour: { usedPct: 90, resetsAt: S(NOW + 2 * H) } }) : USAGE[dir]),
+    agentsOn: (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true }) });
+  assert.deepEqual(ab.decide({ rows, movable: () => true, nowMs: NOW }).moves, [], 'agents were named for an account at 90% of its five hours');
+  rows[1].fiveHour.usedPct = 89;
+  assert.equal(ab.decide({ rows, movable: () => true, nowMs: NOW }).moves.length, 1, 'CONTROL: at 89% it is a target');
+  rows[1].fiveHour.usedPct = 95; rows[1].fiveHour.resetsAt = NOW - 1000;
+  assert.equal(ab.decide({ rows, movable: () => true, nowMs: NOW }).moves.length, 1, 'CONTROL: a five-hour window that has reset does not count');
+});
+
+test('#7152 slice 3: the guide fails closed, and words left unsent in an agent\'s box keep it where it is', () => {
+  const [ada] = realCards(['ada']);
+  const base = { cards: [ada], records: [], readCommitment: () => ({ state: 'clear' }) };
+  assert.equal(ab.movableFor({ ...base, isGuide: () => false, guideName: () => null })('ada'), true, 'CONTROL: an ordinary idle agent is movable');
+  assert.equal(ab.movableFor({ ...base, isGuide: () => true, guideName: () => null })('ada'), false, 'the guide was movable');
+  assert.equal(ab.movableFor({ ...base, isGuide: () => { throw new Error('unreadable'); }, guideName: () => null })('ada'), false, 'a guide check that could not tell let the agent move');
+  assert.equal(ab.movableFor({ ...base, isGuide: () => false, guideName: () => 'Ada ' })('ada'), false, 'the seeded guide name was movable');
+  assert.equal(ab.movableFor({ ...base, isGuide: () => false, guideName: () => { throw new Error('x'); } })('ada'), false, 'a guide name that could not be read let the agent move');
+  assert.equal('unsentInput' in ada, true, 'CONTROL: a real card carries unsentInput');
+  const waiting = { ...ada, unsentInput: { since: new Date(NOW).toISOString() } };
+  assert.equal(ab.movableFor({ ...base, cards: [waiting], isGuide: () => false, guideName: () => null })('ada'), false, 'an agent with unsent words in its box was movable');
+});

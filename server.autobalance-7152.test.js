@@ -26,7 +26,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, _automoveDepsForTest } = require('./server');
+const { start, server, _autobalanceSweepDepsForTest } = require('./server');
 const statusline = require('./engine/kosmos-statusline');
 const jobfix = require('./test-support/jobfixture');
 const fleet = require('./test-support/fleet');
@@ -170,22 +170,21 @@ test('#7152 review 6: an idle agent the real board lists, on an account running 
   fs.rmSync(pp, { force: true });
 });
 
-test('#7152 slice 3: Settings is told that moves are off, and gets the record newest first', async () => {
-  const automove = require('./engine/automove');
-  const file = path.join(path.dirname(require('./engine/autobalance-setting').FILE), automove.FILE);
+test('#7152 slice 3: Settings is told the sweep does not record under a test, and gets the record newest first', async () => {
+  const sweep = require('./engine/autobalance-sweep');
+  const file = path.join(path.dirname(require('./engine/autobalance-setting').FILE), sweep.FILE);
   assert.ok(file.startsWith(SANDBOX), 'CONTROL: the record would be written inside the sandbox');
   const first = (await call('GET', '/api/accounts?agents=1')).json.autobalance;
-  assert.equal(first.movesOn, false, 'moves read as on with AGENT_WORKFORCE_AUTOMOVE unset');
   assert.equal(first.recording, false, 'a board under a test said its sweep records (the sweep cannot run here)');
+  assert.equal('movesOn' in first, false, 'the route still reports a move switch, and nothing in this slice moves');
   assert.deepEqual(first.recent, [], 'a record was shown before anything was recorded');
-  automove.append(file, { kind: 'decision', at: 1, live: false, moves: [{ agent: 'ada', from: '/a', to: '/b', why: 'x' }], held: [], atRisk: [] });
-  automove.append(file, { kind: 'skipped', at: 2, agent: 'ada', because: 'it was no longer idle' });
+  sweep.append(file, { kind: 'decision', at: 1, moves: [{ agent: 'ada', from: '/a', to: '/b', why: 'x' }], held: [], atRisk: [] });
+  sweep.append(file, { kind: 'decision', at: 2, moves: [{ agent: 'bo', from: '/a', to: '/b', why: 'x' }], held: [], atRisk: [] });
   const recent = (await call('GET', '/api/accounts?agents=1')).json.autobalance.recent;
   assert.deepEqual(recent.map((e) => e.at), [2, 1], 'the record did not reach Settings newest first');
 });
-
 test('#7152 slice 3: one real tick through the board wiring records the decision, moves nothing, and names no email', async () => {
-  const automove = require('./engine/automove');
+  const sweep = require('./engine/autobalance-sweep');
   const usagepoll = require('./engine/usagepoll');
   const home = process.env.AGENT_WORKFORCE_HOME;
   const main = path.join(home, '.claude');
@@ -205,27 +204,26 @@ test('#7152 slice 3: one real tick through the board wiring records the decision
   const pp = jobfix.jobPath('ada');
   fs.mkdirSync(path.dirname(pp), { recursive: true });
   fs.writeFileSync(pp, jobfix.jobFor('ada', '/bin/claude', '/bin/tmux', 'opus', null, 'claude'));
-  const file = path.join(SANDBOX, 'automove-tick.jsonl');
+  const file = path.join(SANDBOX, 'autobalance-sweep-tick.jsonl');
   const board = fleet.install([fleet.agent('ada', { state: 'idle' })], { strict: false });
   let r;
   let deps;
   try {
-    deps = _automoveDepsForTest();
-    assert.equal(deps.movesOn(), false, 'CONTROL: moves are off in this process');
-    r = await automove.create({ file }).tick(deps, now);
+    deps = _autobalanceSweepDepsForTest();
+    assert.equal('startMove' in deps, false, 'the sweep was handed a way to move agents');
+    r = await sweep.create({ file }).tick(deps, now);
   } finally { board.restore(); }
-  const lines = automove.readLines(file);
+  const lines = sweep.readLines(file);
   assert.equal(r.did, 'recorded', 'the tick did not record a decision: ' + JSON.stringify(r) + ' ' + JSON.stringify(lines));
   const d = lines[0];
   assert.deepEqual(d.moves.map((m) => [m.agent, m.from, m.to, m.toLabel, m.fromLabel]), [['ada', main, spare, 'spare', 'the main account']],
     'the real wiring did not name ada moving to the measured spare account');
-  assert.equal(d.live, false);
   assert.equal(fs.readFileSync(file, 'utf8').includes('@'), false, 'an email reached the record');
   /* CONTROL: without a fresh reading the spare account is not a target, so the same wiring holds instead. */
   fs.rmSync(path.join(spare, usagepoll.FILE), { force: true });
   const board2 = fleet.install([fleet.agent('ada', { state: 'idle' })], { strict: false });
-  try { await automove.create({ file: file + '.2' }).tick(_automoveDepsForTest(), now); } finally { board2.restore(); }
-  assert.deepEqual(automove.readLines(file + '.2')[0].held.map((h) => h.from), [main], 'an unmeasured account was taken as a target');
+  try { await sweep.create({ file: file + '.2' }).tick(_autobalanceSweepDepsForTest(), now); } finally { board2.restore(); }
+  assert.deepEqual(sweep.readLines(file + '.2')[0].held.map((h) => h.from), [main], 'an unmeasured account was taken as a target');
   fs.rmSync(path.join(main, usagepoll.FILE), { force: true });
   fs.rmSync(pp, { force: true });
 });

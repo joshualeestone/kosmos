@@ -1,131 +1,69 @@
-# kosmos#7152 slice 3: usage auto-balance acts (one move at a time), checks the agent works, keeps a record
+# kosmos#7152 slice 3: usage auto-balance on a timer, RECORDING what it would move (nothing moves)
 
-Slice 2 (PR #7176) shows the decision in Settings. This slice runs the same decision on a timer, keeps a record of it,
-and, when moves are switched on, makes one move at a time through the existing account move, then watches whether
-the moved agent works on its new account.
+Slice 2 (PR #7176) shows the current decision in Settings when a person opens it. This slice runs the same decision on
+a timer and keeps a record of it, so a person (and the PM) can read a day of what Kosmos would have moved, and why,
+before anything moves on its own. Moving is slice 3b.
 
-## The call on "on by default" (and why)
-The card asks for ON with two or more accounts. This slice ships the sweep and the record ON wherever slice 1's usage
-reading is on (it needs those readings: an idle account is unmeasured otherwise), and the MOVES behind their own switch,
-AGENT_WORKFORCE_AUTOMOVE=1, off unless set. Without it the sweep records "would move" decisions only.
-Review 3, stated plainly: slice 1's reading is itself OFF unless AGENT_WORKFORCE_USAGE_POLL=1 (its review 19), so by
-default nothing is recorded either. A day of decisions needs that one switched on; moves need both.
-- Why: Kosmos on the fleet's own Mac manages the fleet's agents, and Splinter's standing ask (10-25) is that automatic
-  moves stay a dry run until he has seen a full day of decisions. This slice is what produces that day of decisions,
-  through the product rather than the prototype.
-- Rejected: moves on by default now (the card's end state). It is one line to flip once a day's record has been read,
-  and a wrong automatic restart of a working fleet costs more than a day's wait.
-- Rejected: a second switch in Settings for moves. A person sees one switch (slice 2); the env is the operator's,
-  until the default flips, when it goes.
-- Weakest premise: that a day of "would move" lines is the evidence Splinter wants. If he wants the prototype's file
-  instead, this record has the same fields.
-- What would change it: Splinter or Josh saying moves may run; then the default flips and the env becomes the brake.
+## The call (and why), made at review round 8
+This branch first built the moves as well, behind AGENT_WORKFORCE_AUTOMOVE=1, off by default. Eight blind review rounds
+followed; every round from 4 to 8 found its warnings in the moving half: a person's own move undone on the next tick,
+a Stop undone, partial and unknown moves mis-watched, a target held or retried wrongly, holds that had to survive a
+board restart. Each round's fixes added surface for the next. Meanwhile the moves were switched off, and the PM's
+standing ask (10-25) is that automatic moves wait until a full day of decisions has been read.
+- Call: ship the record now; build the moves as slice 3b, against the record's evidence and the review findings.
+- Rejected: shipping the moves switched off. Dead code behind a switch nobody may use yet, with an open list of
+  defects, costs every reviewer of every later change and earns nothing before the day of records exists.
+- Rejected: an unbounded ninth round. The loop was converging on a target that kept moving.
+- Kept, not lost: the full mover is pushed as branch automove-live-7152 (f33e2432c8), and its review ledger (rounds 1 to
+  8, with the open items) is the requirements list for 3b.
+- Weakest premise: that a day of these records is the evidence the PM wants. If he wants the fleet prototype's file
+  instead, the record has the same fields.
+- What would change it: the PM or Josh asking for moves before a day of records; then 3b is next, not later.
 
 ## Inputs on a timer (no live checks)
 GET /api/accounts uses listLive (a live login check per account), which must never run on a timer. The sweep builds
-its rows from the cheap reads instead:
+its rows from cheap reads instead (engine/autobalance.js rowsFromReadings):
 - accounts.list(): dir, label, email, organization, memoryShared, apiKey, isDefault.
 - usagepoll.readUsage(dir): weekly and five-hour figures, fresh only. A fresh record whose state is 'ok' is a real
   usage call that worked for this login, so it stands for "signed in" (badge 'working'). A fresh 401 or 403 (usage or
-  profile call) stands for 'rejected'. Anything else gives no badge: not a target, and not at risk by login.
-  Review 2 (the blocker): usagepoll's wider refusal set is NOT a stopped login. A 429 is the usage endpoint's own rate
-  limit, held for an hour; an unreadable answer or another login's token says nothing about the agents' own login.
-  Reading them as stopped would have moved a working account's agents for an hour, and put false lines in the record.
-- agentsHere: claudeAgentsByAccount() (the walk; it already leaves the guide out).
+  profile call) stands for 'rejected'. Anything else gives no badge: not a target, and not at risk by login. A 429 is
+  the usage endpoint's own rate limit, not a stopped login; an unreadable answer or another login's token says
+  nothing about the agents' own login.
+- agentsHere and the roster: claudeAgentsByAccount() (the walk, which leaves the guide out), once per tick.
 - movable: movableFor on the walk's roster.
+It runs only where slice 1's usage reading runs (it needs those readings: an idle account is unmeasured otherwise),
+which is OFF unless AGENT_WORKFORCE_USAGE_POLL=1 (slice 1's review 19). So by default nothing is recorded either.
 
-## The rule changes, both from slice 2's round 11
-- The guide fails CLOSED: movableFor asks setup-assistant isGuideFolderStrict and guideNameStrict itself, and a check that throws is "not
-  movable". The walk's own guide test treats a throw as "not the guide", which is fine for a display line and wrong
-  for a move.
-- A target whose five-hour usage is at or above 90% (a fresh reading) is not a target: agents sent there would stall
-  for hours. Slice 2's lines change the same way, since it is one rule.
+## Rule changes that reach slice 2's lines too (one rule)
+- The guide fails CLOSED: movableFor asks setup-assistant isGuideFolderStrict and guideNameStrict itself; a check that
+  throws is "not movable". The walk's own guide test reads a throw as "not the guide".
+- A target whose five-hour usage is at or above 90% (a fresh reading) is not a target.
+- An agent with words left unsent in its box (the card's unsentInput, which appears once they have sat 3 minutes) is
+  not movable.
 
-## One move per tick
-- Gated: live execution allowed, usagepoll enabled and liveAllowed, the setting on, at least two Claude subscription
-  accounts (slice 2's eligible rule, checked before the agents walk), no account move running (accountmove.busy), the board not about to restart, AGENT_WORKFORCE_AUTOMOVE_OFF not 1.
-- Fresh decision every tick, so the target is picked again before each move (slice 2's stated assumption).
-- Review 2: an agent is moved only when it was movable on the previous tick too, and not while its box holds unsent
-  words (the card's unsentInput, which appears once the words have sat for 3 minutes: newer words are not seen).
-- Review 5: no second agent goes to a target while the first one moved there has not yet shown it can work (its
-  watch is still open), so a target that answers usage calls but refuses turns strands at most one agent.
-- Review 5: a move whose call throws is recorded as 'unknown', not refused: the account may already be saved. It is
-  held like a refusal and watched like a started move. WEAKEST PREMISE, and the reason moves stay off: an agent sitting at its prompt with
-  a background SHELL job (a long validation, a monitor) still reads idle, and a restart kills the job. A background
-  agent reads working; a background shell does not. Two ticks narrow it, they do not close it. Before moves go on by
-  default, the move must see the agent's own child processes (or Claude's background-task count on its screen).
-- The first move only. Idleness is read again just before the move, from a new roster read (slice 2's other stated
-  assumption: its roster was a few seconds old).
-- IT MOVES FOR USAGE ONLY. An account whose login has stopped (a 401 or 403 from the usage endpoint) is recorded and
-  shown as at risk, and its would-move lines are written, but nothing is moved off it automatically.
-  Built and then REMOVED in review 4, with the automatic move back: both needed the agent to read idle, and an agent
-  whose request was just refused shows the auth error on its screen, so its card reads auth_failed, not idle. Neither
-  could fire in the one case it was for, and the tests passed only because they modelled the refused agent as an idle
-  card the real board never produces. Rejected as a patch: moving an auth_failed agent (its turn has ended, but a
-  restart is still a guess about what it was doing, made with moves off by default and nobody to watch the first
-  ones). What would change it: a day of records showing stopped logins where a move would clearly have helped; then
-  it is its own slice, built against real auth_failed cards.
-- A 409 from the board (a move began meanwhile, or a restart is coming) is not the agent's refusal: no hold, no line.
-- A target onto which an earlier automatic move did NOT work (the moved agent's first real call was rejected) is not
-  used again for a day (FAILED_HOLD_MS, review 4: six hours let a target that refuses turns but answers usage calls
-  strand one agent four times a day). Rejected: "until its usage reading is newer", since the reading comes every
-  10 minutes and a working usage call does not prove an agent's turn works there.
-- The move is accountmove.start({ dir: to, names: [agent] }) with the same deps the bulk-move route builds (moved into
-  one function, so the two cannot drift).
+## The sweep and the record
+- engine/autobalance-sweep.js: one tick per usage-poll period, gated (autobalanceSweepRuns): live execution, the usage
+  reading on and allowed (never under a test or a dry run), AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF not 1, the record
+  read at start. The setting off records nothing; fewer than two subscription accounts stops before the agents walk.
+- One JSON line per CHANGED decision (moves with labels, reason and kind; held; at risk), in the board's data folder,
+  newest 500 kept. The last decision is rebuilt from the record at start, so a restart does not write it again; a line
+  stamped in the future is not trusted; odd lines are skipped; a write that fails is tried again next tick. No email.
+- A record that cannot be read leaves the sweep off (a log line), never the board.
 
-## The works-again check
-observed holds each agent's last real-call outcome. From the moment the move starts (review 2: not when it ends, so
-a first call made as the restart finishes counts), the first call seen decides a 'works' line: 'yes' (OK) or 'no'
-(rejected). Until then nothing is written: an idle agent may take no turn for hours, and that is not a failure. After
-24 h with none, a 'not-seen' line. On 'no' the target is held for a day, and the agent is NOT moved back (see above):
-the person's thread with it gets one Kosmos line saying its first request on the new account was refused and that it can be
-moved back in Settings, and Settings says the same. A watch is dropped when the agent is no longer on the account it
-was moved to (a person moved it), so a later call is never blamed on that account; a second move of one agent
-replaces its watch (review 4).
-The move writes a 'started' line before its restarts run (review 4), so a board that stops mid-move still knows on its
-next start that the agent may be on its new account. The holds and the watches (from 'started' and 'changed' lines
-with no ending) are rebuilt from the record when the board starts; a line stamped more than a minute in the future
-is not trusted.
+## Telling the person
+GET /api/accounts?agents=1 adds autobalance.recording (the sweep's own gate) and autobalance.recent (the newest 10
+decisions with a move, newest first). Settings shows them in their own box (#ab-recent) under the decision's lines:
+"Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.", then one line per
+would-move with its reason, and another day's entry says the day. Where the sweep does not record, it says so. The
+record shows also when the current decision could not be worked out. The hint keeps slice 2's "Nothing is moved".
 
-## The record and telling the person
-- engine/automove.js keeps a JSON-lines file in the board's data folder: one line per CHANGED decision (would-move
-  lines are not repeated every tick) and one per move with its outcome and works-again state. Bounded (last 500 lines).
-  Account labels and agent names only; no email.
-- The person's thread with the moved agent gets one Kosmos line (keepAgentReply, kosmos: true): which account to which and why.
-- GET /api/accounts?agents=1 adds autobalance.recording (the sweep's own gate: live execution, the usage reading on
-  and allowed, no brake), autobalance.movesOn (recording and the move switch) and autobalance.recent (the last 10
-  entries the page draws, newest first; a decision made with moves on is one only for its moves off a stopped login,
-  which are never made and so are said);
-  Settings shows them in their own box (#ab-recent) under the decision's lines, with one line saying moves are not
-  switched on when they are not. Their own box so slice 2's lines, and its browser check's claims about them, are
-  unchanged.
-- A "partial" move (saved, restart failed) and a "stopped" one (the person stopped it; it is put back) are recorded
-  as such, and the agent is not told it moved, since it has not. An entry from another day says the day.
-- Shared: the bulk-move route's deps are now accountMoveDeps() in server.js, used by the route and the sweep.
-
-## Not in this slice
-Codex (slice 4). Counting a target's room across several at-risk accounts (one move per tick makes it moot: the next
-tick reads the target's new figure... only after the next usage reading, stated: two moves in a row can land on one
-target before its figure moves).
-
-## Review 6
-- A PERSON'S MOVE WINS. When a moved agent is no longer on the account Kosmos put it on (a person moved it), the watch
-  ends with a 'released' line and the agent is left alone for a day (PERSON_HOLD_MS), rebuilt on restart; an agent
-  whose first request was refused (the person is told to move it back) is left alone for a day too. Before this, the
-  next tick saw an idle agent on an at-risk account and moved it straight back off.
-- With moves on, a held or unproven target is left out of the decision (decide's skipTarget), so the next-best account
-  takes the move rather than nothing. With moves off the record names the best account, as Settings does.
-- A partial move (saved; lands at the next restart) is watched and leaves its target unproven; a 'not-seen' close
-  holds the target a day. A started move with no ending found at startup gets an 'unknown' ending, so Settings says it.
-- An agent refused three times in a day is passed over for the day, not retried hourly.
-- The last decision is rebuilt from the record, so a restart does not write it again.
-- Settings shows the record even when the current decision could not be worked out.
-
-## Review 7
-- A person's Stop on an automatic move wins too, and an agent Kosmos has moved rests a day, so it is not moved again
-  and again as usage shifts (both rebuilt from the record).
-- A partial or unknown move (the agent may still be running on its old account until its next restart) takes no
-  sighting as proof: observed is keyed by agent alone. Its watch closes only as not-seen or when the agent leaves.
-- A record line that cannot be read never stops the board: create() tolerates odd lines, and the board turns the
-  sweep off (with a log line) if create() throws anyway. An unfinished move keeps its own time and is held.
-- The person is told in their thread with the agent (keepAgentReply, kosmos: true), not "the agent's conversation".
+## What slice 3b must satisfy (from rounds 1 to 8 of the live branch)
+One move per tick through the bulk move's own deps; two idle ticks and a fresh roster and projects re-check; usage
+only (never a stopped login); no automatic move back; a refused first request holds the target a day and tells the
+person in their thread; one unproven agent per target; a person's move or Stop wins for a day (including moves made
+through the routes, which today leave no trace the sweep reads: round 8); a moved agent rests a day (partial and
+unknown included: round 8); a partial or unknown move takes no sighting as proof until the agent's session has
+restarted on the target (round 7, 8); holds and watches rebuilt from the record; a throw before setAccount is a
+refusal, after it unknown (round 8); "no longer idle" said only when it is idle-ness that changed (round 8).
+The background-shell gap stays the weakest premise for any move: an agent at its prompt with a background shell job
+reads idle, and a restart kills the job.
