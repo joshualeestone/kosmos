@@ -23,12 +23,14 @@ set off for 13 minutes).
 
 ## Weakest premise
 That no owner or agent account on a CI Mac is named kosmos-ci<something>. A human account named like
-that would have its suites ignored. The names come from KOSMOS_CI_USER, which the runbook sets.
+that would have its suites ignored. The pattern is fixed rather than read from KOSMOS_CI_USER, because the
+runner being set up is not the one whose suite is running. The runners live today are kosmos-ci and kosmos-ci2 (#5488, 10-22).
 
 ## Tests (tools/test-ci-runner-setup-4601.sh)
 - suite-owner: an owner pid that is known (agent1) still refuses.
 - suite-mixed: a runner's suite beside an owner's still refuses, naming the owner's line.
 - suite-lookalike-user: kosmos-cix.y is not a runner name; refuses.
+- suite-prefixed-user: xkosmos-ci is not a runner name (the ^ anchor); refuses.
 - suite-runner: two runner users' suites pass preflight, each printed as a note, no REFUSE.
 - the existing `suite` case (owner unreadable) still refuses.
 

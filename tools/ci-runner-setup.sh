@@ -12,7 +12,8 @@
 # Usage: tools/ci-runner-setup.sh [--apply] <stage> [args]
 #   preflight                 as the machine owner. Reads only. Refuses while the agents' launchd jobs, crontab
 #                             or a suite are live (runbook part 3, step 0; a runner user's suite is only noted,
-#                             #5488), and checks disk, FileVault, sleep, power restore, tmux, pwsh, the Command Line Tools, the owner's home mode, the CI
+#                             #5488), and checks disk, FileVault, sleep, power restore, tmux, pwsh, the Command
+#                             Line Tools, the owner's home mode, the CI
 #                             user and the repo variables. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named launchd jobs stay
 #                             loaded. KOSMOS_CI_SYSTEM_AGENTS, KOSMOS_CI_OWNER_HOME and KOSMOS_CI_BREW are test seams.
 #   create-user               as the machine owner (an admin). Runs preflight first, then creates kosmos-ci as a STANDARD user
