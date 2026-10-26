@@ -217,7 +217,7 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs }) {
     out.push({ provider: 'anthropic', dir: a.dir, label: a.label || null, isDefault: a.isDefault === true,
       email: a.email || null, organization: a.organization || null, memoryShared: a.memoryShared === true, apiKey: false,
       connection: { badge }, weekly: rec && rec.state === 'ok' ? ms(rec.weekly) : null,
-      fiveHour: rec && rec.state === 'ok' ? ms(rec.fiveHour) : null, agentsHere: here });
+      fiveHour: rec && rec.state === 'ok' ? ms(rec.fiveHour) : null, agentsHere: here});
   }
   return out;
 }

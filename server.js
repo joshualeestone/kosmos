@@ -2899,13 +2899,15 @@ function automoveDeps() {
     try { moving = walk.moving(dir, isDefault); } catch { moving = []; }
     return { names: walk.on(dir, isDefault), complete: walk.complete === true, moving };
   };
+  let listed;
+  const list = () => (listed || (listed = accounts.list()));   // once per tick (review 3)
   const labelOf = (dir) => {
-    const a = (accounts.list() || []).find((x) => x && x.dir === dir);
+    const a = (list() || []).find((x) => x && x.dir === dir);
     return a ? (a.isDefault ? 'the main account' : (a.label || path.basename(dir))) : null;
   };
   let records;
   return {
-    list: () => accounts.list(),
+    list,
     readUsage: (dir, nowMs) => usagePoll.readUsage(dir, nowMs),
     agentsOn,
     roster: () => safeRoster(),   // a NEW read each time it is asked: the move re-checks idleness from it
