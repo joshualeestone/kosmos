@@ -203,6 +203,34 @@ async function throwawayProjectGone(page, projectName) {
   if (st !== 200) throw new Error('could not delete the throwaway project "' + projectName + '" after the shot (' + st + ')');
 }
 async function offProject6895Gone(page) { await throwawayProjectGone(page, OFFPROJECT_6895); }
+/* kosmos#7196: enough posts that the room scrolls (idempotent across sizes and themes, which share one board); the room
+   at its newest row with the page at its top, as a room opens (the bug's own state); and the check that the newest row
+   is above the composer, at a phone width only (the desktop layout never had the bug and is not capped). */
+async function seedRoom7196(page, projectId, n) {
+  await page.evaluate(async ({ id, n }) => {
+    const base = '/api/project/' + encodeURIComponent(id);
+    const room = await (await fetch(base + '/room')).json().catch(() => ({}));
+    const have = (room.rows || []).filter((r) => r && /^Room busy 7196 post/.test(r.text || '')).length;
+    for (let i = have + 1; i <= n; i++) {
+      await fetch(base + '/room', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Room busy 7196 post ' + i + ': a line or two of ordinary project talk, so the room scrolls.' }) });
+    }
+  }, { id: projectId, n });
+}
+async function roomFloor7196(page) {
+  await page.evaluate(() => { window.scrollTo(0, 0); const r = document.querySelector('#pj-room'); if (r) r.scrollTop = r.scrollHeight; });
+  await page.waitForTimeout(250);
+}
+async function newestAbove7196(page) {
+  const m = await page.evaluate(() => {
+    if (!matchMedia('(max-width: 30rem)').matches) return null;
+    const room = document.querySelector('#pj-room'), comp = document.querySelector('.pjmid .composer');
+    const rows = room ? [...room.children].filter((e) => e.getBoundingClientRect().height > 0) : [];
+    if (!rows.length || !comp) return { missing: true };
+    return { last: Math.round(rows[rows.length - 1].getBoundingClientRect().bottom), comp: Math.round(comp.getBoundingClientRect().top) };
+  });
+  if (m && (m.missing || m.last > m.comp)) throw new Error('#7196: the newest row is not above the composer: ' + JSON.stringify(m));
+}
 /* kosmos#7184: a throwaway project with three tasks; task 1 held from the screen until task 2 closes ('task') or until a
    time ('at'), then its page opened and scrolled to the hold row. */
 async function holdUntil7184(page, data, kind) {
@@ -1019,6 +1047,39 @@ const SCREENS = [
     await page.evaluate(() => { const c = document.querySelector('.pjmid'); if (c) c.scrollIntoView({ block: 'end' }); });
     await page.waitForTimeout(150);
   } },
+  /* kosmos#7196 (Mona Lisa's conditions): a busy room at its newest row with the page at its top as the room opens, a
+     short room, and the keyboard up (phone only: the visible height shrinks by a keyboard's 336px). Each verifies, at a
+     phone width, that the newest row sits above the composer, so a shot of the bug never reaches the review. */
+  { name: 'room-busy-7196', owner: 'Angel', go: async (page, data) => {
+    await seedRoom7196(page, data.projectId, 24);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, data);
+    await roomFloor7196(page);
+  }, verify: async (page) => { await newestAbove7196(page); } },
+  { name: 'room-short-7196', owner: 'Angel', go: async (page, data) => {
+    const id = await page.evaluate(async (agent) => {
+      const list = await (await fetch('/api/projects')).json().catch(() => ({}));
+      const had = (list.projects || []).find((p) => p && p.name === 'Short room');
+      if (had) return had.id;
+      const r = await (await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Short room' }) })).json();
+      const pid = r.project.id;
+      await fetch('/api/project/' + pid + '/agent/' + encodeURIComponent(agent), { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      await fetch('/api/project/' + pid + '/room', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'Just one message so far.' }) });
+      return pid;
+    }, data.chatAgent);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
+    await roomFloor7196(page);
+  }, verify: async (page) => { await newestAbove7196(page); },
+  after: async (page) => { await throwawayProjectGone(page, 'Short room'); } },
+  { name: 'room-keyboard-7196', owner: 'Angel', phoneOnly: true, go: async (page, data) => {
+    await seedRoom7196(page, data.projectId, 24);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, data);
+    const vp = page.viewportSize();
+    page.__vp7196 = vp;
+    await page.setViewportSize({ width: vp.width, height: vp.height - 336 });
+    await page.waitForTimeout(300);
+    await roomFloor7196(page);
+  }, verify: async (page) => { await newestAbove7196(page); },
+  after: async (page) => { if (page.__vp7196) { await page.setViewportSize(page.__vp7196); page.__vp7196 = null; } } },
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
      and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
   { name: 'project-head', owner: 'Mona Lisa', go: async (page, data) => {
