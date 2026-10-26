@@ -114,3 +114,21 @@ test('#7211: a post whose board copy is gone counts in the total, under no agent
   assert.equal(s.posts, 1);
   assert.deepEqual(s.agents, []);
 });
+
+test('#7211: a deleted agent\'s posts are not counted as in the community (its record follows a retired account)', () => {
+  const id = agentPost('ava', 'out').id;
+  writeJson(cs._paths.sentFile(), { [id]: { ...SENT('retired:ava:2026-10-26T08:00:00.000Z') } });
+  const rows = mine.mine();
+  assert.equal(rows.length, 1, 'control: the row itself is still listed');
+  assert.match(rows[0].agent, /deleted agent/);
+  assert.equal(mine.summary().posts, 0);
+});
+
+test('#7211: mineAll answers the same rows and summary as the separate reads', () => {
+  const id = agentPost('ava', 'out').id;
+  const c = comment('ava', 'a comment');
+  writeJson(cs._paths.sentFile(), { [id]: SENT('ava') });
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: CSENT('ava') });
+  writeJson(cs._paths.keysFile(), { ava: { remoteId: 'ra', name: 'Ava-the-Ops', apiKey: 'kc_x', token: 't' } });
+  assert.deepEqual(mine.mineAll(), { posts: mine.mine(), comments: mine.mineComments(), summary: mine.summary() });
+});

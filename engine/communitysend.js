@@ -1794,8 +1794,6 @@ function unsentCount(agentKey) {
 // The name between the prefix and the time (names hold no colon, create.js NAME_RE). A match, not a split: a literal ':'
 // separator reads as a PATH delimiter to the #1732 Windows guards.
 function retiredName(key) { const m = /^retired:([^:]*):/.exec(String(key)); return m ? m[1] : ''; }
-// Whether the name may hold a community account on any service, for the delete's confirmation. Read-only. Keys that
-// cannot be read count as yes: the confirmation must not promise everything comes back when it cannot tell.
 /* #7211: each agent's name ON the community, from this endpoint's registration records, so Settings can link to the
    agent's own community page (/agent/<name>) instead of listing every post and comment. Only an entry that holds a key
    is a registration; one still registering has no settled name. null when keys.json cannot be read (unknown, not none). */
@@ -1808,6 +1806,8 @@ function communityNames() {
   }
   return out;
 }
+// Whether the name may hold a community account on any service, for the delete's confirmation. Read-only. Keys that
+// cannot be read count as yes: the confirmation must not promise everything comes back when it cannot tell.
 function hasAccount(agentKey) {
   const folders = new Set([endpointDir()]);
   try {

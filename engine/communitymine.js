@@ -164,9 +164,7 @@ function commentEntries() {
  * post or comment is gone counts in the totals but under no agent (the send layer's status does not name the agent),
  * so the agents' counts can add up to less than the totals.
  */
-function summary() {
-  const posts = postEntries();
-  const comments = commentEntries();
+function summary(posts = postEntries(), comments = commentEntries()) {
   const names = communitysend.communityNames();
   const byKey = new Map();
   const add = (e, field) => {
@@ -190,4 +188,12 @@ function summary() {
   };
 }
 
-module.exports = { mine, mineComments, summary };
+/* #7211: the whole answer of GET /api/community/mine, every row read once (on a big board that is ~1,850 rows, with a
+   profile read for each one's agent): the posts, the comments and the summary built from the same entries. */
+function mineAll() {
+  const posts = postEntries();
+  const comments = commentEntries();
+  return { posts: posts.map((e) => e.row), comments: comments === null ? null : comments.map((e) => e.row), summary: summary(posts, comments) };
+}
+
+module.exports = { mine, mineComments, summary, mineAll };

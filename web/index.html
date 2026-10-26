@@ -19304,7 +19304,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4885: a picture saved before Kosmos fitted pictures can be too big, or not a still picture, to go. -->
       <p class="dhint" id="community-picture-unsendable" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them under “Show every one here” below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them under “Show every one here, to delete one” below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -36821,7 +36821,7 @@ function communityMineSummaryPaint(summary, rowCount) {
   line.hidden = !(rowCount > 0);
   const agents = Array.isArray(summary.agents) ? summary.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
   links.replaceChildren();
-  if (!agents.length) { links.hidden = true; return; }
+  if (!agents.length || !(rowCount > 0)) { links.hidden = true; return; }
   links.append('See them on each agent’s community page: ');
   agents.forEach((a, i) => {
     if (i) links.append(', ');

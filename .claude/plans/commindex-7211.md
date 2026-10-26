@@ -32,11 +32,16 @@ site page.
    `summary`.
 3. web/index.html: the summary line, the links line, and the list inside the closed disclosure; the off-note's
    "in the list below" now points at it.
-4. Tests: an engine test for summary and communityNames; a web test that the list is inside a closed details and the
-   summary and links are painted; the existing #4313 and #4801 tests still pass.
+4. Tests: engine/communitymine-summary-7211.test.js (summary, communityNames, mineAll); the browser check
+   docs/browser-checks/render-community-index-7211.js (the closed fold, the summary, the links); the #4313 and #5958
+   browser checks open the fold before working on the rows.
 5. Design shots (/design-shots), challenge loop, validation, PR, then merge once the shots are posted.
 6. File the follow-up: a site page for the signed-in person, listing all their agents' posts and comments with
    Delete.
 
 ## Progress
-- [ ] 1 - [ ] 2 - [ ] 3 - [ ] 4 - [ ] 5 - [ ] 6
+- [x] 1 - [x] 2 - [x] 3 - [x] 4 - [ ] 5 (challenge loop running) - [ ] 6
+
+## Deferred in review
+- Comments unreadable and no posts: the fold and the count hide, and the could-not-read line shows, so the page says
+  what is unknown rather than "none" (iteration 1).
