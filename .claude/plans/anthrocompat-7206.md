@@ -153,3 +153,17 @@ removing the first survives); it guards a switch that fails mid-move, as Qwen's 
 kosmos-vendor.json in 1a (it collided with Qwen's marker).
 Next: the create path (a new agent on DeepSeek), the page (Settings and setup rows, behind GET /api/accounts/compat),
 the every-route-hidden test, knownsecrets, accountproblem wording, design shots and a browser check.
+
+## Slice 1b review 1 (2026-10-26 15:1x)
+No blockers. FIXED, each red-checked by a mutant: the check route obeys the switch (it sent a stored key to the vendor
+with the switch off); Repair obeys the switch (it would rebuild and launch a vendor agent); setAccount keeps the
+provider (a DeepSeek agent moves between DeepSeek accounts only, through setVendorAccount, mirroring setQwenAccount; a
+Claude agent never lands on a vendor folder; both leave job and profile agreeing); compatAsk shares one request, reuses
+an answer for 5 s, keeps the last answer on a failed ask, and puts the form away (clearing a pasted key) only on a
+definite off.
+Accepted, not changed:
+- The failover (assigner providerOf) counts a DeepSeek agent as its own provider, so stalled work may go to an idle
+  DeepSeek agent. That is how Qwen behaves, and it can only happen while the switch is on, which is after the
+  measurement: the switch, not the failover, is the gate on unproven paths.
+- "Name (optional)" in the form becomes the account's label (its folder name, cleaned), not a separate display name:
+  the vendor module has no display name, and the label is what the row shows.
