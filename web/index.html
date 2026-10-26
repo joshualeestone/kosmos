@@ -22098,10 +22098,12 @@ function stateReason(a, opts) {
     if (a.stuckError.state === 'auth_failed') return 'Kosmos has seen this agent unable to sign in for about ' + mins + ' minutes. It cannot work until you reconnect its account. Open Settings to reconnect it.';
     if (a.stuckError.state === 'rate_limited') return 'Kosmos has seen this agent paused by a rate limit for about ' + mins + ' minutes. It will keep trying when the limit lifts. You can wait, or switch its model.';
   }
-  /* kosmos#7212 slice 2: Kosmos's messages to it have waited half an hour or more behind its input box (the board's
+  /* kosmos#7212 slice 2a: Kosmos's messages to it have waited half an hour or more behind its input box (the board's
      minute sweep). Before #6249's sentence, because this one is also said when the box cannot be read, which is when
      the card used to say Idle for a week. Idle or working only: a signed-out, limited or restarting agent keeps its own
-     sentence, as for #6249. What to do follows what the box read. */
+     sentence, as for #6249. What to do follows what the box read, and never asks the person to send text unread or to
+     restart a working agent (review 1). The sentence only: whether this counts as needing the person (the Issues
+     filter, the project pill, Today and the phone's own needsPerson) is slice 2b, one change across every copy. */
   if (a && (a.state === 'idle' || a.state === 'working') && a.heldInput && Number(a.heldInput.count) > 0) {
     const since = Date.parse(a.heldInput.since);
     const mins = Number.isFinite(since) ? Math.max(30, Math.round((Date.now() - since) / 60000)) : 30;
@@ -22109,9 +22111,12 @@ function stateReason(a, opts) {
     /* Minutes up to two hours, then hours up to two days, then days: a week-long hold reads as days. */
     const forWords = mins < 120 ? 'about ' + mins + ' minutes' : mins < 2880 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + Math.round(mins / 1440) + ' days';
     const lead = 'Kosmos has held ' + (n === 1 ? '1 message' : n + ' messages') + ' to it for ' + forWords + ' behind its input box. ';
-    if (a.heldInput.box === 'text') return lead + 'Text sits unsent there. Open it and press Enter to send it, and they will follow.';
-    if (a.heldInput.box === 'empty') return lead + 'The box reads empty now, so they should go within a minute.';
-    return lead + 'Kosmos cannot read the box, so it cannot tell what is there. Open it to look, and restart it there if it does not answer.';
+    if (a.heldInput.box === 'text') return lead + 'Something sits unsent there. Open it and read it, then send it with Enter or clear it, and they will follow.';
+    /* An empty box with messages still held after the minute's try: something else holds them (a limit, a sign-in, a
+       menu), so this never promises they are about to go. */
+    if (a.heldInput.box === 'empty') return lead + 'The box reads empty now, but they are still waiting, so something else may be holding them. Open it to see what it shows.';
+    return lead + 'Kosmos cannot read the box, so it cannot tell what is there. ' + (a.state === 'idle'
+      ? 'Open it to look, and restart it there if it does not answer.' : 'Open it to look.');
   }
   /* #6249: text has sat in its input box, unsent, for a few minutes (engine status unsentInputOf): a message left
      there is never read by an idle agent, so the card says so and how to clear it. Idle only (round 2): a signed-out,
@@ -22578,10 +22583,7 @@ function agentNeedsAttention(a) {
     || (a.stuckError && a.stuckError.stuck === true)
     // #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) gave up on this agent.
     // Keep byte-for-byte aligned with engine/status.js needsPerson.
-    || (a.ownBound && a.ownBound.raised === true)
-    // kosmos#7212 slice 2: Kosmos's messages to it have waited half an hour behind its input box.
-    // Keep byte-for-byte aligned with engine/status.js needsPerson.
-    || (a.heldInput && Number(a.heldInput.count) > 0)));
+    || (a.ownBound && a.ownBound.raised === true)));
 }
 
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
@@ -66022,7 +66024,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      borrows it from the latest /api/status, so the members row and the card agree. Before liveM, which keeps its shape. */
   if (m && typeof m === 'object' && !('crashLoop' in m) && typeof LAST !== 'undefined' && Array.isArray(LAST)) {
     const lastRow = (LAST.find((a) => a && a.sessionName === m.sessionName)) || {};
-    m = Object.assign({}, m, { crashLoop: lastRow.crashLoop || null, stuckError: lastRow.stuckError || null, ownBound: lastRow.ownBound || null, heldInput: lastRow.heldInput || null });   // #5154 slice C: stuckError too; slice B: ownBound too; #7212: heldInput too
+    m = Object.assign({}, m, { crashLoop: lastRow.crashLoop || null, stuckError: lastRow.stuckError || null, ownBound: lastRow.ownBound || null });   // #5154 slice C: stuckError too; slice B: ownBound too
   }
   /* #3410: where the automatic reconnect stands. #3726: the member projection now carries it
      (m.reconnect, from the same /api/projects answer the project's Issue pill counts from), so the

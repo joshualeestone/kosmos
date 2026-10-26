@@ -25878,37 +25878,23 @@ function start(port = PORT) {
          process open, and every run is best-effort: the room's own
          unanswered line is the person-facing surface either way. */
       /* #7212: agents whose current held stretch was already said, and when (limitqueue.heldInputToSay keeps it). */
-      const heldInputSaid = new Map();
+      const heldInputSaid = heldinput.loadSaid();   // slice 2a: from disk, so a restart does not say or push again
       /* #7212: messages held behind an agent's input box for half an hour are said once per held stretch, with what
          the box reads now (text, or nothing Kosmos can read), so a hold that lasts days is never silent. Run after the
          minute's flush has settled, and not while an older run is still typing (flush skips a minute that finds one),
          so the box is never read while a delivery is typing into it. */
+      /* Slice 2a: engine/heldinput.js sweep (tested there); only the pane reads and the push are the server's. One
+         roster read per minute, and the box is read only for agents already held half an hour. */
       const sayHeldInput = () => {
-        try {
-          if (limitqueue.isFlushing()) return;   // said next minute
-          const now = Date.now();
-          const roster = safeRoster();
-          const cardOf = (name) => { try { return chat.resolveCard(roster, name); } catch { return null; } };
-          /* Slice 2: every agent held past half an hour, with what its box reads, for the cards (heldinput.peek in
-             /api/status). Read here, once a minute and only for held agents, so a board poll never reads a pane. */
-          const held = limitqueue.heldBehindInput(now, limitqueue.HELD_INPUT_SAY_MS).map((h) => {
-            let box = 'unread';
-            try { box = chat.inputBoxReads(cardOf(h.name)); } catch { /* could not be read */ }
-            return { ...h, box };
-          });
-          heldinput.setAll(held);
-          const boxOf = new Map(held.map((h) => [h.name, h.box]));
-          for (const h of limitqueue.heldInputToSay(now, limitqueue.HELD_INPUT_SAY_MS, heldInputSaid)) {
-            const box = boxOf.get(h.name);
-            const reads = box === 'text' ? 'holds text that was not sent' : box === 'empty' ? 'reads empty' : 'could not be read';
-            process.stdout.write('limit-queue: ' + h.name + ' has ' + h.count + ' message(s) held behind its input box, the oldest kept since ' + h.since + '; the box ' + reads + '\n');
-            /* Slice 2: the phone once per held stretch, as a stuck terminal error is (the card says why). */
-            if (h.first) {
-              const card = cardOf(h.name);
-              try { phonenotify.happened({ kind: 'needs_you', id: 'heldinput:' + h.name + ':' + now, agent: (card && card.name) || h.name, session: h.name, project: null }); } catch { /* best effort */ }
-            }
-          }
-        } catch { /* said next minute */ }
+        let roster = null;
+        const cardOf = (name) => { if (roster === null) roster = safeRoster(); return chat.resolveCard(roster, name); };
+        heldinput.sweep({
+          said: heldInputSaid,
+          readBox: (name) => chat.inputBoxReads(cardOf(name)),
+          cardName: (name) => { const c = cardOf(name); return c && c.name; },
+          log: (line) => process.stdout.write(line),
+          push: (event) => phonenotify.happened(event),
+        });
       };
       const sweep = setInterval(() => {
         /* ⚠️ safeRoster(), NEVER paneRoster(): the sweep delivers, and
