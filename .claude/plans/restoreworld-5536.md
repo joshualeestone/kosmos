@@ -27,8 +27,10 @@ no profile record, and STARTS the agent: enable then bootstrap).
     including AGENTS.override.md). `shared` carries the tops of workers and projects and any project with `runs`.
     `more` says the list is incomplete. A world not on the list answers with a `because`. Registers, starts and
     writes nothing; reads are bounded per folder and in total.
-  - `isRestoredWorld(base, world)`: whether the world carries prepare's mark. Every agent start path in 4c checks it
-    and starts git with hooks and fsmonitor off there.
+  - `isRestoredWorld(base, world)`: whether the world carries prepare's mark, failing CLOSED: any doubt (no world, a
+    relative base, an unsafe id, a link, a lookup error) reads as Restored; only a certainly absent mark, or the
+    default world, reads as not. Every agent start path in 4c checks it and starts git with hooks and fsmonitor off
+    there. (Finish and the listing use the opposite direction, markCertainlyPresent, where doubt reads as no.)
 - The member's name loses control, format and bidi characters and is cut at 60 code points before it names a world.
 
 ## Rejected
@@ -267,6 +269,15 @@ no profile record, and STARTS the agent: enable then bootstrap).
    says it is made new, never reused. Deferred as duplicates: the opts hooks are prose-guarded (round 33, with its
    weakest premise), and finish's read of the target folder is unbounded (round 11's unbounded tops). Not new: the
    EXCUSED text (round 34).
+
+36. (default model) W: the contract asked the screen to review past the listing cap, which this call has no paging
+   for; it now says such a restore cannot be enabled until 4c adds an offset, and the screen says so. Nits taken: a
+   refusal after the counts were made reported failedFiles 0 (refuse now reads the counts as they stand); the plan states
+   isRestoredWorld's fail-closed direction; lock ownership is a random token beside the pid (two finishes on worker
+   threads of one board share a pid; no test, as for the owner check before it). Not taken: a listing not given the restore folder setting `more` (tried and
+   reverted: the restore folder outlives the finish, holding what was held back and kept, so every later listing
+   would read `more` and nothing could be enabled; the contract now says to pass restoreDir). Deferred as duplicate:
+   ids that fold together (round 6, #7181).
 
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.

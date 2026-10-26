@@ -228,7 +228,8 @@ function finishRestoreWorld(opts = {}) {
     return Object.assign({ ok, moved, kept: keptIn(restoreDir, base, world).filter((n) => !recorded.includes(n)),
       heldBack: heldIn(restoreDir, recorded), failedFiles, fetchProblems }, because ? { because } : {});
   };
-  let refuse = (because) => ({ ok: false, moved: [], kept: [], heldBack: [], failedFiles: 0, fetchProblems: [], because });
+  // Reads failedFiles and fetchProblems as they stand, so a refusal after they are counted reports them.
+  let refuse = (because) => ({ ok: false, moved: [], kept: [], heldBack: [], failedFiles, fetchProblems, because });
   if (!dir || !realDir(dir)) return refuse('the restore did not name its Kosmos');
   if (!opts.result || opts.result.ok !== true) return refuse('the restore did not succeed, so its files stay where it can continue');
   if (!onTheList(base, world.id)) return refuse('this is not a Kosmos on your list, so nothing is moved into it');
@@ -340,10 +341,14 @@ const FINISH_LOCK_PIDLESS_MS = 30 * 1000;
 function takeFinishLock(dir) {
   const at = path.join(dir, FINISH_LOCK);
   const mine = String(process.pid);
+  // Ownership is a token, not the pid: two finishes on worker threads of one board share a pid. The pid file stays
+  // what the stale check reads.
+  const token = crypto.randomBytes(12).toString('hex');
   for (let tries = 0; tries < 2; tries++) {
     const tmp = `${at}.new-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
     try {
       fs.mkdirSync(tmp, { mode: 0o700 });
+      fs.writeFileSync(path.join(tmp, 'owner'), token, { mode: 0o600 });
       fs.writeFileSync(path.join(tmp, 'pid'), mine, { mode: 0o600 });
     } catch (e) {
       try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort */ }
@@ -359,7 +364,7 @@ function takeFinishLock(dir) {
         renameRetrying(tmp, at);
       }
       sweepLeftovers(dir);
-      const ours = () => { try { return fs.readFileSync(path.join(at, 'pid'), 'utf8') === mine; } catch { return false; } };
+      const ours = () => { try { return fs.readFileSync(path.join(at, 'owner'), 'utf8') === token; } catch { return false; } };
       return {
         release: () => { try { if (ours()) fs.rmSync(at, { recursive: true, force: true }); } catch { /* gone */ } },
         // Called between roots: a live finish keeps its lock young, so the ten-minute rule never takes it over.
@@ -597,9 +602,12 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    or at the top of workers refuses. Projects keep their own .git (restoring a repository whole is the point), so an
    agent made in this world later meets it without this review: start agents in a Restored world with git's hooks
    and fsmonitor switched off (4c); isRestoredWorld is the check every start path makes. Agents kept elsewhere sit
-   under the restore folder, whose top a snapshot chooses, so never run git or open a terminal there. A backup can
-   force `more` with enough empty folders, so the screen should let the person review past the cap rather than stop. Keep the person out of a Restored world until its finish has run: an
-   agent or project made there first fills the folders finish needs empty. An empty `runs` also says nothing about
+   under the restore folder, whose top a snapshot chooses, so never run git or open a terminal there; they are listed
+   only when opts.restoreDir names that folder (pass it, or they are left out without a `more`). A backup can
+   force `more` with enough empty folders, and this call has no paging: until 4c adds one (an offset here), such a
+   restore cannot be enabled, and the screen says so rather than offering part of a list. Keep the person out of a
+   Restored world until its finish has run: an agent or project made there first fills the folders finish needs
+   empty. An empty `runs` also says nothing about
    files a shell hook (direnv, mise) would run on entering a folder. Nothing is registered, started or written.
    A world not on the list (no registry row, hidden, or its folder swapped for a link) answers with no rows and a
    `because`, so a refusal cannot read as an empty restore.
