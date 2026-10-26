@@ -847,3 +847,12 @@ test('lock and record temp files a crash left are swept once old, and kept while
   assert.ok(!fs.existsSync(oldLock) && !fs.existsSync(oldRec), 'old leftovers swept');
   assert.ok(fs.existsSync(youngLock), 'a young one may belong to a finish under way');
 });
+
+test('a Restored world carries a mark an agent start path can ask for; an ordinary world does not', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  assert.equal(rw.isRestoredWorld(base, p.world), true);
+  const plain = worlds.createWorld(base, `Restored: Ann, ${DAY} (lookalike)`);   // the name alone proves nothing
+  assert.equal(rw.isRestoredWorld(base, plain), false);
+  assert.equal(rw.isRestoredWorld(base, { id: 'missing' }), false);
+});
