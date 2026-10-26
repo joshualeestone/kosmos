@@ -27,6 +27,12 @@ thread's floor until the page was nudged down.
 - A 160px floor (round 1): with the keyboard up only about 135px is left, and the newest row sat 25px under the
   composer (measured by the keyboard arm).
 
+## Stated limit (review 2)
+On a short phone (iPhone SE, 375x667) with the keyboard up, the page header above the room takes almost all of the
+331px left, so with the page at its top no thread height clears the composer; the 96px floor leaves the newest row
+under it there. Main is worse (no fit at all). Closing it needs the header to give way while typing, a separate change;
+the design-shot keyboard screen checks phones from 700px tall up and says why below that.
+
 ## Weakest premise
 That the page sits at its top while typing. If iOS scrolls the page when the composer takes focus, the thread's top
 moves up and the fit is slightly smaller than needed, never larger, so the newest row stays clear.
