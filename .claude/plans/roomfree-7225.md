@@ -14,13 +14,13 @@
   NOT fixed here: see "Split out" (#7233).
 
 ## Change
-render-roomfree-6949 dates its project back to just before its claims (four hours) before writing them, as #7185's
+render-roomfree-6949 dates its project back four hours (an hour before its three-hour-old claims) before writing them, as #7185's
 tests date theirs. Only that check: it is what the 0.7.70 cut waits on.
 
 ## Split out (review round 2)
 mobile-shots.js has the same defect (its sample room is seeded 30 minutes back, so room shots come out empty since
 #7185), but its seed is shared by every screen and createdAt also decides a project's "new" state (roomLive, the
-file-created slack). Dating it back changes more than the room, and that needs every shot re-measured. It is a
+file-created slack). Dating it back changes more than the room, and that needs every shot re-measured. It is
 #7233, not this cut's blocker.
 
 ## Rejected
@@ -39,3 +39,8 @@ creation are unaffected.
   readThread compares projectBornAt). Measured: render-roomfree-6949 passes 48/48 with the fix (and again after
   the date was narrowed to four hours). The design-shot comparison made then belongs to the mobile-shots change,
   which is now #7233.
+
+## Deferred in review
+- The date-back is a read-modify-write of projects.json while the sandbox server runs (rounds 2 to 4). The server is
+  idle at that point, the write is atomic (write then rename), and the check passes 48/48; a lost server write would
+  show as a failing arm, not a silent pass.
