@@ -67,6 +67,9 @@ async function post(body, headers) {
 // A room `dana` (the multi-project agent) and `mara` both belong to.
 function room(name) {
   const p = projects.create({ name });
+  // #7185: the rooms are seeded with questions minutes and hours old, and a row from before the project was made
+  // belongs to an earlier project of that name. So the project is dated back first.
+  projects.writeAll(projects.readAll().map((q) => (q.id === p.id ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q)));
   projects.addAgent(p.id, 'dana');
   projects.addAgent(p.id, 'mara');
   return p;
