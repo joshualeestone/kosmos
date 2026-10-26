@@ -107,6 +107,16 @@ test('a second restore of the same member on the same day gets "(2)"; a hidden K
   assert.match(tenth.because, /already 9 restored Kosmoses/);
 });
 
+test('prepare reads a taken name by the id createWorld derives (the two derivations stay one)', (t) => {
+  const base = fresh(t);
+  const name = rw.worldName('Ann Lee', NOW);
+  const w = worlds.createWorld(base, name);
+  assert.equal(w.id, store.safeKey(name), 'createWorld no longer derives its id with store.safeKey: prepare would stop seeing a taken name');
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann Lee', now: NOW });
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.world.name, `${name} (2)`, 'the taken name was tried again instead of moving on');
+});
+
 test('a name taken by someone else between the registry read and createWorld moves on to the next name', (t) => {
   const base = fresh(t);
   let raced = false;

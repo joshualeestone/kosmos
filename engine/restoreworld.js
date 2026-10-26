@@ -191,7 +191,8 @@ function renameRetrying(src, dst) {
    cannot make it, and it has no folder of its own to hold a mark. */
 const certainlyAbsent = (e) => !!(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'));
 /* The opposite direction, for the two gates that move files into a world or offer agents from it: the mark is
-   CERTAINLY there, in a real world folder. Any doubt reads as no, so an ordinary world is never treated as restored. */
+   CERTAINLY there, in a real world folder. Any doubt reads as no, so an ordinary world is never treated as restored.
+   ⚠️ Never the start gate: there doubt must read as Restored (hooks off), which is isRestoredWorld. Not exported. */
 function markCertainlyPresent(base, world) {
   const dir = worldDirOf(base, world);
   if (!dir || !realDir(dir)) return false;
@@ -280,7 +281,8 @@ function finishRestoreWorld(opts = {}) {
       plan.push({ name, src, dst, hold });
     }
     // Between the checks and the renames only this user's own processes can change these folders (the sink assumes the
-    // same: the restore folder is private to the person).
+    // same: the restore folder is private to the person). The held-back folder is made new (mkdir, not recursive), so a
+    // name already there fails rather than being reused.
     const heldName = path.join(restoreDir, HELD_PREFIX + crypto.randomBytes(6).toString('hex'));
     let heldMade = false;
     for (const { name, src, dst, hold } of plan) {
