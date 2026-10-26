@@ -2901,7 +2901,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         DispatchQueue.global(qos: .utility).async {
             let result = startBoard(kosmosHome: home, port: port)
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.boardStartGeneration == generation else { return }
+                guard let self else { return }
+                // kosmos#7205: Welcome's Back makes Run, then Connect possible in one launch, so this start can finish
+                // after switchToConnect, which does not bump boardStartGeneration. Undo it as reclaimStuckBoard does,
+                // before the generation guard, or a board is left running on a connect computer (or its failure
+                // alert lands over Kosmos+ sign-in).
+                if self.computerMode == .connect {
+                    logLine("#7205: the start after the choice finished after Connect; stopping it again")
+                    self.boardStartInFlight = false
+                    self.boardStartGeneration += 1
+                    self.stopsInFlight += 1
+                    DispatchQueue.global(qos: .utility).async { [weak self] in
+                        _ = stopBoard(kosmosHome: home, port: port)
+                        DispatchQueue.main.async { self?.stopsInFlight -= 1 }
+                    }
+                    return
+                }
+                guard self.boardStartGeneration == generation else { return }
                 self.boardStartInFlight = false
                 if case .failed(let why) = result {
                     logLine("#4356: start after the choice failed: \(why)")
@@ -2948,8 +2964,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         boardLoadNavigation = webView.load(URLRequest(url: kosmosPlusSignIn))
     }
 
-    /// The first screen's button. Heard only while no choice is saved (unset or unreadable): once one
-    /// is, no page can change it. An install from before #4356 has no file until its next update
+    /// The first screen's button. Heard while no choice is saved (unset or unreadable), and for the rest of a
+    /// launch that asked (kosmos#7205, Welcome's Back), until this computer switches to connect. An install from before #4356 has no file until its next update
     /// writes `run` (install/setup.sh, when its first run is done); only the board's own page in the
     /// main frame can post here.
     func pageChoseMode(_ body: Any) {

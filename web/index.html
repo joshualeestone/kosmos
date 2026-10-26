@@ -25394,6 +25394,8 @@ function paintRestartScreen(down, deviceIsOffline) {
         FR_CHOICE_HIDDEN_BY_RESTART = false;
         const frc = document.getElementById('fr-choice');
         if (frc && FR_CHOICE_PENDING && typeof frChoiceInert === 'function') { frc.hidden = false; frChoiceInert(true); }
+        // kosmos#7205: the dot loop stopped while both setup screens were hidden; decoration, so never allowed to throw.
+        if (frc && !frc.hidden) { try { frDots.boot(); } catch { /* the screen works without it */ } }
       }
     }
     return;
@@ -83480,7 +83482,7 @@ function frGo(step) {
   const pane = document.getElementById('fr-pane-' + step);
   if (step === 1) {
     // S1 Welcome. kosmos#7205: Back to the setup choice, when it was shown in this load.
-    frActions({ label: 'Get Started', go: () => frGo(frStepAfter(1)) }, FR_CHOSE_HERE && !FR_FORCED ? { label: 'Back', go: frBackToChoice } : null);
+    frActions({ label: 'Get Started', go: () => frGo(frStepAfter(1)) }, frBackOffered() ? { label: 'Back', go: frBackToChoice } : null);
   } else if (step === 2) {
     // S2 Access: the file-access gate. Next is soft-open at entry and the poll
     // (async) only disables it on a positive not-granted reading -- FAIL-SAFE, so
@@ -87410,9 +87412,19 @@ let FR_CHOSE_HERE = false;   // kosmos#7205: the setup choice was shown before f
 /* kosmos#7205 (Josh, 2026-10-26): Welcome's Back goes to the setup choice. First run closes, the choice shows again,
    and what is picked carries on exactly as the first time (the Mac app takes a second answer in the same launch).
    Back from Welcome only: no step after it goes back (Josh 2026-08-17, every later step still holds). */
+/* Only on the Mac app's bridge: the Windows app (KosmosLauncher.cs PageChoseMode) still takes one answer per launch, so
+   a Back there would leave Connect on a dead screen once its FirstRunChoice switch is on. A Reload while the second
+   choice is up opens Welcome without Back (?mode is gone): the app stays on the first answer, which is accepted. */
+function frBackOffered() {
+  const h = window.webkit && window.webkit.messageHandlers;
+  return FR_CHOSE_HERE && !FR_FORCED && !!(h && h.kosmosMode);
+}
 async function frBackToChoice() {
   frClose();
-  const chose = await frChoose();
+  const pick = frChoose();
+  // A keyboard or screen-reader user who pressed Back lands on the choice's first button, not on <body>.
+  try { const b = document.querySelector('#fr-choice .frc-btn'); if (b) b.focus(); } catch { /* focus is a nicety */ }
+  const chose = await pick;
   if (chose === 'connect') return;
   frOpen();
 }
@@ -89323,7 +89335,10 @@ function frChoiceWanted(done) {
 function frChoiceForget(mode) {
   try {
     const u = new URL(location.href);
-    if (!u.searchParams.has('mode')) return;
+    // kosmos#7205: after Welcome's Back, a first Run answer has already taken ?mode off, and a second answer of
+    // both must still put it on, or first run does not end at the Kosmos Plus sign-in (frPlusLast). This is only
+    // ever called from the choice screen, which frChoiceWanted allowed in this load.
+    if (!u.searchParams.has('mode') && mode !== 'both') return;
     if (mode === 'both') u.searchParams.set('mode', 'both'); else u.searchParams.delete('mode');
     history.replaceState(history.state, '', u.pathname + u.search + u.hash);
   } catch { /* the address keeps ?mode=; the app still ignores a second choice */ }

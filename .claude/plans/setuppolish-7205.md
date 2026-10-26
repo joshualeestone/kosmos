@@ -33,8 +33,8 @@ the board it started for Run, which is the path a first-time Connect already tak
   tests 3449/3449; swiftc -typecheck clean.
 
 ## Review
-- Round 1 (findings in full: .claude/plans/setuppolish-7205-review1.md): 2 blockers, 2 warnings, 6 nits. NOT YET FIXED
-  (session restart for account usage, 10:55):
+- Round 1 (findings in full: .claude/plans/setuppolish-7205-review1.md): 2 blockers, 2 warnings, 6 nits. FIXED 11:15 (see Round 1 fixes below);
+  as found:
   - [BLOCKER] Run, Back, Both loses ?mode=both (frChoiceForget returns early once ?mode is gone), so first run does not
     end at the Kosmos Plus sign-in. Fix: write mode=both even when ?mode is gone (or a page flag frPlusLast reads);
     add a C11 assertion that first run ends at the sign-in.
@@ -47,3 +47,17 @@ the board it started for Run, which is the path a first-time Connect already tak
   - Nits: frDots.boot() where the restart screen hands the choice back (~25279); focus after Back (focus the choice's
     heading or first button); Reload after Run then Back (accepted: no Back then); pageChoseMode doc comment now false;
     connector dash pair 0.25 px off centre; the win32 Qwen grayscale rule is redundant.
+
+- Round 1 fixes (11:15):
+  - BLOCKER both: frChoiceForget writes ?mode=both even when ?mode is gone. C11 now asserts the address says both
+    and first run ends at the Kosmos Plus sign-in; perturbed back to the old line, both assertions go red.
+  - BLOCKER gate: render-layer-gutter-4494.js (13 passed) and render-win32-board-copy.js (180/180) run and pass;
+    Browser-check-surface trailers on the fix commit.
+  - WARNING Connect race: ensureBoardRunning's completion undoes a start that lands after Connect, as
+    reclaimStuckBoard does (reasoned from source, not measured: no harness drives the Mac app's start timing).
+  - WARNING Windows: Back only on the Mac bridge (frBackOffered). C11 control: the WebView2 bridge shows the choice
+    and Welcome offers no Back.
+  - Nits taken: frDots.boot when the restart screen gives the choice back; Back focuses the first choice button
+    (C11 asserts it); pageChoseMode doc comment; Reload-after-Back noted beside frBackOffered.
+  - Nits left: connector dash pair 0.25 px off centre (cosmetic), win32 grayscale on the Qwen mark (harmless).
+  - Evidence: root unit set 3551/3551; swiftc -typecheck rc 0; render-firstrun-choice-4356.js 50 passed (3 runs).

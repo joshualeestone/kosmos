@@ -96,9 +96,10 @@ const look = (page) => page.evaluate(() => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });   // real scrollbars: the tab layout's gutter is what CI (a Mac with classic scrollbars) saw
   try {
     const errs = [];
-    const open = async (url, { bridge = true, width = 1280 } = {}) => {
+    const open = async (url, { bridge = true, width = 1280, init = null } = {}) => {
       const ctx = await browser.newContext({ viewport: { width, height: 800 } });
       if (bridge) await ctx.addInitScript(BRIDGE);
+      if (init) await ctx.addInitScript(init);
       const page = await ctx.newPage();
       page.on('pageerror', (e) => errs.push(e.message));
       await page.goto(url, { waitUntil: 'networkidle' });
@@ -153,12 +154,35 @@ const look = (page) => page.evaluate(() => {
     s = await look(p11);
     chk(s.shown && !s.wizard && JSON.stringify(s.lines) === LINES, 'C11 Back shows the setup choice again, first run closed', JSON.stringify([s.shown, s.wizard]));
     chk(await p11.evaluate(() => document.getElementById('fr-dots').parentElement.id === 'fr-choice'), 'C11 and the dot field is back on it');
+    chk(await p11.evaluate(() => document.activeElement === document.querySelector('#fr-choice .frc-btn')), 'C11 Back puts focus on the choice\'s first button');
     await p11.click('text=' + BOTH);
     await p11.waitForTimeout(400);
     s = await look(p11);
     chk(JSON.stringify(s.posted) === '["run","both"]' && !s.shown && s.wizard, 'C11 the second answer reaches the app and first run opens again', JSON.stringify(s.posted));
     chk(await p11.evaluate(() => document.getElementById('fr-dots').parentElement.id === 'firstrun'), 'C11 and the dot field moves back to first run');
+    // Review round 1: Run had already taken ?mode off, so both must put it back, or first run ends without the sign-in.
+    chk(await p11.evaluate(() => new URLSearchParams(location.search).get('mode') === 'both' && frPlusLast()),
+      'C11 after Run, Back, Both the address says both again', await p11.evaluate(() => location.search));
+    await p11.keyboard.press('Escape');
+    await p11.waitForTimeout(1200);
+    chk(await p11.evaluate(() => {
+      const email = document.getElementById('plus-signin-email'), b = email && email.getBoundingClientRect();
+      return document.getElementById('firstrun').hidden && SETTINGS_SEC === 'plus' && !!b && b.height > 0;
+    }), 'C11 and first run ends at the Kosmos Plus sign-in');
     await p11.context().close();
+    fs.rmSync(path.join(store.ROOT, 'first-run.json'), { force: true });   // Escape finished first run; later checks start fresh
+    // The Windows app takes one answer per launch (KosmosLauncher.cs PageChoseMode), so its bridge gets no Back.
+    p11 = await open(base + '?mode=unset', { bridge: false, init: () => {
+      window.__posted = [];
+      window.chrome = { webview: { postMessage: (m) => { window.__posted.push(m); } } };
+    } });
+    chk(await p11.evaluate(() => !document.getElementById('fr-choice').hidden), 'C11 precondition: the WebView2 bridge shows the setup choice');
+    await p11.click('text=' + RUN);
+    await p11.waitForTimeout(400);
+    chk(await p11.evaluate(() => { const b = document.getElementById('fr-alt'); return !document.getElementById('firstrun').hidden && (!b || b.hidden); }),
+      'C11 the Windows bridge offers no Back from Welcome');
+    await p11.context().close();
+    fs.rmSync(path.join(store.ROOT, 'first-run.json'), { force: true });
     p11 = await open(base, { bridge: false });
     chk(await p11.evaluate(() => { const b = document.getElementById('fr-alt'); return !document.getElementById('firstrun').hidden && (!b || b.hidden); }),
       'C11 CONTROL: a first run with no setup choice before it offers no Back');
