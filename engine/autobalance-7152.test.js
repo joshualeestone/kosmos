@@ -8,6 +8,9 @@ const os = require('node:os');
 const path = require('node:path');
 
 const ab = require('./autobalance');
+const fleet = require('../test-support/fleet');
+
+test.after(() => fleet.restore());
 
 const NOW = Date.parse('2026-10-25T22:00:00Z');
 const H = 3600000;
@@ -19,6 +22,12 @@ const row = (dir, o = {}) => {
   return r;
 };
 const all = () => true;
+/* Real board cards (snapshot().agents, wrapped so a field the producer does not emit throws), never hand-built ones
+   (fixture-discipline.test.js). [name, state] pairs; looked up by name, since the board can hold other agents too. */
+const realCards = (...specs) => {
+  const b = fleet.install(specs.map(([name, state = 'idle']) => fleet.agent(name, { state })));
+  return specs.map(([name]) => b.card(name));
+};
 
 test('#7152: agents on an account at 90% that does not reset soon would move to the emptiest measured account', () => {
   const rows = [
@@ -195,12 +204,11 @@ test('#7152 slice 2: the bulk-move target rule moved from the page unchanged (fi
 });
 
 test('#7152 slice 2: movable is the Assigner\'s own free test: idle, commitments free, no open part anywhere', () => {
-  const card = (sessionName, o = {}) => ({ sessionName, isNamedOurs: true, state: 'idle', ...o });
   const task = (who, o = {}) => ({ id: 't1', parts: [{ who, title: 'x' }], ...o });
   const records = [{ id: 'p1', archived: true, tasks: [task('busy')] }];
   const rec = { clear: { state: 'clear' }, list: { state: 'unknown', commitments: ['a release'] } };
   const m = ab.movableFor({
-    cards: [card('free'), card('busy'), card('working', { state: 'working' }), card('promised'), card('unread')],
+    cards: realCards(['free'], ['busy'], ['working', 'working'], ['promised'], ['unread']),
     records,
     readCommitment: (s) => { if (s === 'unread') throw new Error('no'); return s === 'promised' ? rec.list : rec.clear; },
   });
@@ -212,11 +220,13 @@ test('#7152 slice 2: movable is the Assigner\'s own free test: idle, commitments
   assert.equal(m('absent'), false, 'an agent not on the board was movable');
 });
 
-test('#7152 review 2: a guide is never movable, and an agent already being moved is not named again', () => {
-  const m = ab.movableFor({ cards: [{ sessionName: 'guide', isNamedOurs: true, state: 'idle', isGuide: true }, { sessionName: 'ada', isNamedOurs: true, state: 'idle' }],
-    records: [], readCommitment: () => ({ state: 'clear' }) });
-  assert.equal(m('guide'), false, 'the setup guide was movable');
-  assert.equal(m('ada'), true, 'CONTROL: an ordinary idle agent is');
+test('#7152 review 2: the guide is kept out by the walk, not here, and an agent already being moved is not named again', () => {
+  const [ada] = realCards(['ada']);
+  /* movableFor has no guide check because a roster card is never marked isGuide (only the status rows are). If the
+     producer starts emitting it, this goes red: then a check here could fire, and should be written. */
+  assert.equal('isGuide' in ada, false, 'a roster card now carries isGuide: movableFor should check it');
+  const m = ab.movableFor({ cards: [ada], records: [], readCommitment: () => ({ state: 'clear' }) });
+  assert.equal(m('ada'), true, 'CONTROL: an ordinary idle agent is movable');
   const rows = [
     row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + 40 * H }, agentsHere: { names: ['ada', 'bo'], complete: true, moving: ['bo'] } }),
     row('/u/.claude-b'),
@@ -235,7 +245,7 @@ test('#7152 review 3: every at-risk account is named, even with no idle agent, a
   rows[0].weekly.usedPct = 50;
   assert.deepEqual(ab.decide({ rows, movable: () => false, nowMs: NOW }).atRisk, [], 'CONTROL: an account not at risk is not named');
   let reads = 0;
-  const m = ab.movableFor({ cards: [{ sessionName: 'ada', isNamedOurs: true, state: 'idle' }], records: () => { reads += 1; return []; }, readCommitment: () => ({ state: 'clear' }) });
+  const m = ab.movableFor({ cards: realCards(['ada']), records: () => { reads += 1; return []; }, readCommitment: () => ({ state: 'clear' }) });
   assert.equal(reads, 0, 'the projects were read before anyone was asked about');
   assert.equal(m('ada'), true);
   assert.equal(reads, 1, 'CONTROL: asking about an agent reads them');
@@ -268,7 +278,7 @@ test('#7152 review 8: the movable test is built only when an at-risk account has
 });
 
 test('#7152 review 9: one bad entry in the projects file is skipped, not a failed decision; the rest of the moved rule', () => {
-  const m = ab.movableFor({ cards: [{ sessionName: 'ada', isNamedOurs: true, state: 'idle' }], records: [null, { id: 'p1', tasks: [] }], readCommitment: () => ({ state: 'clear' }) });
+  const m = ab.movableFor({ cards: realCards(['ada']), records: [null, { id: 'p1', tasks: [] }], readCommitment: () => ({ state: 'clear' }) });
   assert.equal(m('ada'), true, 'a null project entry failed the movable test');
   const tgt = (o) => row('/u/.claude-t', { connection: { state: 'connected' }, weekly: null, ...o });
   assert.equal(ab.bulkTargetable(tgt({ weekly: { usedPct: 99.5, resetsAt: NOW + H } }), NOW), false, 'a week at 99.5% (shown as 100%) was offered');

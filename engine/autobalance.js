@@ -162,7 +162,8 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
   return (session) => {
     const c = bySession.get(session);
     if (!c || !assigner.idleCard(c)) return false;
-    if (c.isGuide === true) return false;   // a backstop: the route's walk already leaves the guide out (skipGuide), as the bulk move does
+    /* The guide is left out by the route's walk (skipGuide), as the bulk move does. No check here: a roster card carries no
+       isGuide (only the status rows are marked), so one would never fire; the test pins that it still carries none. */
     let rec = null;
     try { rec = readCommitment(session); } catch { rec = null; }
     const all = typeof records === 'function' ? records() : records;

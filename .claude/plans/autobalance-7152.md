@@ -62,8 +62,10 @@ the decision is logged once per change (a line in the board's log), which is the
   read the switch waits for replaces it (the route reads the setting after its live checks, so this is rare).
 - Review 6: a route test now drives one agent built by the real producers (test-support/fleet) on the at-risk
   default account: idle, it is found movable (held, since the sandbox's second account shares no memory and so may
-  not take it, asserted as the control); working, it is not. The guide check in movableFor is a backstop: the walk
-  already leaves the guide out. Slice 3 must re-check that an agent is idle at the moment it moves; this slice reads
+  not take it, asserted as the control); working, it is not. The guide is left out by the walk (skipGuide) and only
+  there: full validation found the engine tests hand-built cards (fixture-discipline.test.js), and with real ones a
+  roster card carries no isGuide, so the old guide check in movableFor could never fire. It is gone; a test pins that
+  the card still carries none, so a producer change that adds it goes red. Slice 3 must re-check that an agent is idle at the moment it moves; this slice reads
   the roster a few seconds before the answer is sent.
 - Review 7: the new browser check is in docs/browser-checks/gated.txt, so the runner runs it (tools.browser-checks-wired
   refused it before: measured, red without the line, green with it). The reset is said with its hours rounded up, so a
