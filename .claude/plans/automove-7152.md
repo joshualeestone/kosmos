@@ -145,3 +145,12 @@ reads idle, and a restart kills the job.
   unmeasured. Settings' own live check is unchanged.
 - Not taken: showing the recent lines while a write is failing (the page says it is not recording, which is true), and
   collapsing repeated moves in "Lately" (review 15's call stands).
+
+## Review 19
+- The gap rule covers every account the last decision named: the accounts at risk and the targets of its would-moves.
+  An unmeasured target would otherwise flip the record to "held" and back, writing the same move twice.
+- Stated: the sweep keeps a target out when its five-hour window is at 90% or more with no reset time; Settings' rows
+  drop such a reading, so at that moment Settings can name a target the record refuses (one more input difference, as
+  review 10 states).
+- Stated: the agents walk on the timer runs unattended; a slow tmux would stall it with nobody looking (review 15's call
+  stands; a timing log is a follow-up if it is ever seen).

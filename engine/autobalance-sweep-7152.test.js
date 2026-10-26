@@ -358,3 +358,19 @@ test('#7152 slice 3 review 17: the account list in another order is not a new de
   assert.equal((await run.tick(deps({ list: [list3[2], list3[1], list3[0]], agentsOn, cards, usage: both }), NOW + 1000)).did, 'nothing',
     'the same decision, from the accounts listed in another order, was written again');
 });
+
+test('#7152 slice 3 review 19: an unmeasured target is a gap too, so the move is not written twice', async () => {
+  const file = fileFor();
+  const run = sweep.create({ file });
+  assert.equal((await run.tick(deps(), NOW)).did, 'recorded');
+  const aged = { at: NOW, measuredAt: NOW - 31 * 60e3, state: 'token-expired', weekly: null, fiveHour: null };
+  assert.equal((await run.tick(deps({ usage: { ...USAGE, '/u/.claude-spare': aged } }), NOW + 1000)).did, 'gap', 'an unmeasured target flipped the decision to held');
+  assert.equal((await run.tick(deps(), NOW + 2000)).did, 'nothing', 'the move was written again once the target was measured');
+  assert.equal(sweep.readLines(file).length, 1);
+});
+
+test('#7152 slice 3 review 19: with no login rule given, a record is used only for an account whose email matches', () => {
+  const rows = ab.rowsFromReadings({ list: [{ dir: '/u/.claude-n', label: 'n' }, LIST[1]], nowMs: NOW,
+    readUsage: (dir) => ({ ...reading(10, 100), email: 'x@example.test' }), agentsOn: () => ({ names: [], complete: true }) });
+  assert.equal(rows[0].weekly, null, 'a record was used for an account with no email to check it against');
+});

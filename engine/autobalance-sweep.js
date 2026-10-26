@@ -117,14 +117,16 @@ function create({ file, nowMs = Date.now() }) {
       decision = ab.decide({ rows, movable, nowMs });
     } catch (err) { return { did: 'unreadable', because: String((err && err.message) || err) }; }   // review 17: the board logs why
     /* Review 14, 16, 18: WHEN IT CANNOT MEASURE, IT WRITES NOTHING. A tick is a gap, and records nothing, when an
-       account that was at risk at the last recorded decision cannot be read now (no figure still fresh, no refused
-       login), or when an account at risk now has an agent list that may be short (the walk failed or is incomplete).
+       account the last recorded decision named (at risk, or the target of a would-move) cannot be read now (no figure
+       still fresh, no refused login), or when an account at risk now has an agent list that may be short (the walk failed or is incomplete).
        Reviews 16 and 17 tried carrying the unmeasured account's last entries instead; that kept old reasons alive past
        their reset and redrew them as new would-moves (review 18), so the simpler rule won. The cost, stated in the
        plan: a real change elsewhere during a gap is recorded only once the gap ends. A missed line, never a false one. */
     const unmeasured = new Set(rows.filter((r) => r.measured === false).map((r) => r.dir));
-    const wasAtRisk = state.last ? state.last.atRisk.map((x) => x.from) : [];
-    if (wasAtRisk.some((dir) => unmeasured.has(dir))) return { did: 'gap', because: 'an account at risk could not be measured' };
+    /* Review 19: every account the last decision named, the target of a would-move included: an unmeasured target is
+       not "no account can take them", so it must not flip the record to held and back. */
+    const named = state.last ? [...state.last.atRisk.map((x) => x.from), ...state.last.moves.map((x) => x.to)] : [];
+    if (named.some((dir) => unmeasured.has(dir))) return { did: 'gap', because: 'an account the last decision named could not be measured' };
     if (decision.short.length) return { did: 'gap', because: 'an account at risk has an agent list that may be short' };
     const key = keyOf(decision);
     /* Review 17: the record already holds this decision, so there is nothing a failed write left unsaid. */

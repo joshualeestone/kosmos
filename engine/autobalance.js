@@ -227,7 +227,7 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
        figures use); without it, the email alone. */
     if (rec && typeof rec.email === 'string') {
       let same = true;
-      try { same = typeof sameLogin === 'function' ? sameLogin(rec, a) === true : (typeof a.email !== 'string' || rec.email.toLowerCase() === a.email.toLowerCase()); }
+      try { same = typeof sameLogin === 'function' ? sameLogin(rec, a) === true : (typeof a.email === 'string' && rec.email.toLowerCase() === a.email.toLowerCase()); }   // review 19: fails closed
       catch { same = false; }
       if (!same) rec = null;
     }
