@@ -21,6 +21,10 @@
  *
  * ⚠️ NOT REQUIRED BY worlds.js, and create.js only lazily, for the same reason as engine/worldimport.js: create freezes
  * store.ROOT at require.
+ *
+ * ⚠️ EVERY CALL IS SYNCHRONOUS. A listing can read up to MAX_BRIEF_TOTAL of briefs and thousands of entries, and a
+ * finish on Windows can wait seconds per rename. The 4c caller runs these off the board's event loop (a worker thread
+ * or a child process), or one large restore stalls every other request.
  */
 
 const crypto = require('node:crypto');
@@ -270,7 +274,8 @@ function finishRestoreWorld(opts = {}) {
           heldMade = true;
         }
         if (hold.length) fs.mkdirSync(path.join(heldName, name), { mode: 0o700 });
-        for (const n of hold) renameRetrying(path.join(src, n), path.join(heldName, name, n));
+        // A beat per entry: on Windows each rename can retry for seconds, and a long hold list must not outlive the lock.
+        for (const n of hold) { beat(); renameRetrying(path.join(src, n), path.join(heldName, name, n)); }
       } catch (e) {
         const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
         return answer(false, `the top of the restored ${name} could not be set aside${code}; finishing again carries on`);
@@ -279,6 +284,7 @@ function finishRestoreWorld(opts = {}) {
         if (!realDir(dst)) throw Object.assign(new Error('the target changed'), { code: 'ECHANGED' });
         for (const n of HARMLESS) { try { fs.unlinkSync(path.join(dst, n)); } catch { /* absent */ } }
         fs.rmdirSync(dst);
+        beat();
         renameRetrying(src, dst);
         moved.push(name);
       } catch (e) {

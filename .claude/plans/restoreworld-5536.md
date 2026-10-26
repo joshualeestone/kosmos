@@ -222,6 +222,14 @@ no profile record, and STARTS the agent: enable then bootstrap).
    with the same default). Deferred as duplicates: the 4c start-path guard (rounds 15, 26) and keeping the person out
    of the world until finish (the contract, round 24).
 
+30. (default model) Nits taken: the finish lock's heartbeat ran only between the two roots, so a long hold list on
+   Windows (seconds per rename retry) could outlive the ten-minute stale mark (now a beat per held-back entry and
+   before each root's move; no test, as for the heartbeat before); the module header now says every call is
+   synchronous and 4c runs them off the board's event loop; the lone-surrogate listing test says it bites only on
+   Windows (the worldName half tests the strip everywhere). Not taken: a tab or newline in a member's name joins the
+   words it separated (a control character in a name is not a real name, and the test pins the strip). Deferred as
+   duplicate: ids that fold together share the nine names a day (round 6, #7181).
+
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
 - On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that
