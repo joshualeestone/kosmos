@@ -13072,8 +13072,11 @@ const server = http.createServer(async (req, res) => {
           } catch { autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, moves: [], held: [], short: [], atRisk: [], unreadable: true }; }
           /* Slice 3: whether the sweep records here at all (its own gate, so the page never says it records where it
              does not), and its newest decisions (no email in them). */
-          autobalance.recording = autobalanceSweepRuns();
-          try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
+          try { autobalance.recording = autobalanceSweepRuns(); } catch { autobalance.recording = false; }   // review 13: never fails the read
+          autobalance.recent = [];
+          if (setting.on === true) {   // review 13: the page shows the record only with the switch on, so read it only then
+            try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
+          }
         }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
           ...(autobalance ? { autobalance } : {}) });

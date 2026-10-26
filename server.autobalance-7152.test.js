@@ -182,6 +182,11 @@ test('#7152 slice 3: Settings is told the sweep does not record under a test, an
   sweep.append(file, { kind: 'decision', at: 2, moves: [{ agent: 'bo', from: '/a', to: '/b', why: 'x' }], held: [], atRisk: [] });
   const recent = (await call('GET', '/api/accounts?agents=1')).json.autobalance.recent;
   assert.deepEqual(recent.map((e) => e.at), [2, 1], 'the record did not reach Settings newest first');
+  /* Review 13: with the switch off the page shows no record, so the route does not read it. */
+  await call('PUT', '/api/autobalance-setting', { on: false }, screen());
+  try {
+    assert.deepEqual((await call('GET', '/api/accounts?agents=1')).json.autobalance.recent, [], 'the record was read with the switch off');
+  } finally { await call('PUT', '/api/autobalance-setting', { on: true }, screen()); }
 });
 test('#7152 slice 3: one real tick through the board wiring records the decision, moves nothing, and names no email', async () => {
   const sweep = require('./engine/autobalance-sweep');
