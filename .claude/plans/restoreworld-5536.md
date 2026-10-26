@@ -200,6 +200,11 @@ no profile record, and STARTS the agent: enable then bootstrap).
    held-back folder whose name collides is taken back out of the record; the three-taker lock race is stated at the
    code.
 
+27. W: plainFolder asked the filesystem for every reserved name once per entry (now once per root, so an entry costs
+   one lstat); labels kept unassigned code points that draw nothing (now stripped). Nit: the comment says the one
+   prefix check covers the sink's record, lock and temp folder. Deferred as duplicates: the unbounded read of the
+   restored tops (round 11) and the 4c start-path guard (rounds 15, 26).
+
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
 - On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that

@@ -72,7 +72,7 @@ const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160, 0x17b4, 0
    left. */
 function cleanText(text, max, fallback) {
   const s = String(text == null ? '' : text).normalize('NFC')
-    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cs}]/gu, '')
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cs}\p{Cn}]/gu, '')
     .replace(BLANKS, '')
     .replace(/(\p{M}{2})\p{M}+/gu, '$1')
     .replace(/\s+/g, ' ').trim();
@@ -218,7 +218,8 @@ function finishRestoreWorld(opts = {}) {
   try { return finishLocked(lock.beat); } finally { lock.release(); }
   function finishLocked(beat) {
     // A stopped restore keeps its record, an open sink holds its lock, and a crashed one leaves its temp folder: any of
-    // the sink's own entries means the restore is not finished, and it continues in this folder (slice 3).
+    // the sink's own entries means the restore is not finished, and it continues in this folder (slice 3). The record
+    // and the lock both start with TEMP_PREFIX, so the one prefix check covers all three.
     let names;
     try { names = fs.readdirSync(restoreDir); } catch { names = null; }
     if (!names) return refuse('the restore folder could not be read');
@@ -243,7 +244,8 @@ function finishRestoreWorld(opts = {}) {
       if (!inside || inside.length) return refuse(`the new Kosmos already has files in its ${name} folder (something was made in it before the restore finished)`);
       let top;
       try { top = fs.readdirSync(src); } catch { return refuse(`the restored ${name} could not be read`); }
-      const hold = top.filter((n) => !plainFolder(src, n));
+      const reserved = reservedIds(src);
+      const hold = top.filter((n) => !plainFolder(src, n, reserved));
       plan.push({ name, src, dst, hold });
     }
     // Between the checks and the renames only this user's own processes can change these folders (the sink assumes the
@@ -377,20 +379,23 @@ const NOT_PLAIN = ['HEAD', 'node_modules'];
 /* Dot-names git or a provider opens at start. Asked by exact name too, since some filesystems (HFS+ ignores
    zero-width characters) open a name that does not start with a dot as one of these. */
 const START_DOT = [GIT, '.claude', '.mcp.json', '.envrc', '.codex', '.gemini', '.opencode'];
-function plainFolder(parent, n) {
+/* The file identities the reserved names open in `parent`, asked once per root: the filesystem may fold names further
+   than toLowerCase does, so an entry that IS one of these is held back too. */
+function reservedIds(parent) {
+  const ids = new Set();
+  for (const x of [...NOT_PLAIN, ...START_DOT]) {
+    try { const o = fs.lstatSync(path.join(parent, x), { bigint: true }); ids.add(`${o.dev}:${o.ino}`); } catch { /* absent */ }
+  }
+  return ids;
+}
+function plainFolder(parent, n, reserved) {
   if (n.startsWith('.') || NOT_PLAIN.some((x) => x.toLowerCase() === n.toLowerCase())) return false;
   let st;
   try { st = fs.lstatSync(path.join(parent, n), { bigint: true }); } catch { return false; }
   if (!st.isDirectory() || st.isSymbolicLink()) return false;
-  // The filesystem may fold names further than toLowerCase does, so ask it: an entry that IS what the exact name
-  // opens is held back too. With no file identity to compare (an inode of 0), only the names above decide.
+  // With no file identity to compare (an inode of 0), only the names above decide.
   if (st.ino === 0n) return true;
-  for (const x of [...NOT_PLAIN, ...START_DOT]) {
-    let other;
-    try { other = fs.lstatSync(path.join(parent, x), { bigint: true }); } catch { continue; }
-    if (other.ino === st.ino && other.dev === st.dev) return false;
-  }
-  return true;
+  return !reserved.has(`${st.dev}:${st.ino}`);
 }
 
 /* The held-back folders finish runs made, from the record in the world folder (a snapshot cannot write there, so a
