@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: setuppolish-7205
-diff_hash: 8ec734403c1cbf726b9a778967fe21e3b75e29f5039a498f29bf60afcc44a758
+diff_hash: 5491603fc23e7f39534bdad6cde817bb89423052a4918d9c8e0b61fd1d11f7d6
 validation: passed at f603e18978 rebased on origin/main (root unit set 3554/3554; swiftc -typecheck exit 0; render-firstrun-choice-4356 50 passed; render-firstrun-s6-2037 OK; render-layer-gutter-4494 13 passed; render-win32-board-copy 180/180; #2518 surface gate and #1720 gate exit 0)
 subdir_audit: passed (no CLAUDE.md in the diff)
 timestamp: 2026-10-26T16:57:43Z
@@ -48,3 +48,7 @@ Fixed mechanically (the asset is the board's mark in black, template, and the te
 CI's browser-checks job sat 70+ minutes on one step (35 is usual), so the branch was rebased onto 35 newer main commits
 and pushed for a fresh run. At the rebased head: web, native-app, ios, browser-checks and tree-guard tests 3614/3614;
 render-firstrun-choice-4356 50 passed; #2518 surface gate exit 0. No issues found.
+
+#### Iteration 8
+CI's browser-checks went red only on render-roomfree-6949, red on main since #7185 and fixed by April's #7225
+(f4b4dd8f84). Rebased onto a main that has it. No change to this branch's code. No issues found.
