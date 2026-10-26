@@ -3045,9 +3045,9 @@ section("native board loop: connecting")
 // MARK: - The app's tab bar (#6846 part b)
 
 section("app tabs: the bar")
-check(AppTabs.visible(tasksTab: true) == [.today, .agents, .projects, .tasks, .settings], "five tabs in Mona Lisa's order once Tasks is earned")
-check(AppTabs.visible(tasksTab: false) == [.today, .agents, .projects, .settings], "four before it, Tasks left out (#3559)")
-check(AppTabs.keep(.tasks, tasksTab: false) == .today, "Tasks leaving the bar while showing goes to Today")
+check(AppTabs.visible(tasksTab: true, todayTab: true) == [.today, .agents, .projects, .tasks, .settings], "five tabs in Mona Lisa's order once Tasks is earned")
+check(AppTabs.visible(tasksTab: false, todayTab: true) == [.today, .agents, .projects, .settings], "four before it, Tasks left out (#3559)")
+check(AppTabs.keep(.tasks, tasksTab: false, todayTab: true) == .today, "Tasks leaving the bar while showing goes to Today")
 check(AppTabs.keep(.projects, tasksTab: false) == .projects, "any other tab stays where it is")
 check(AppTabs.keep(.tasks, tasksTab: true) == .tasks, "Tasks stays while it is in the bar")
 check(AppTabs.Tab.today.boardName == "agents", "Today opens the board's home, its agents tab")
@@ -3097,8 +3097,8 @@ let anyURL = ["?tab=agents", "?tab=detail&agent=a", "?tab=projects", "?tab=tasks
 check(anyURL.allSatisfy { AppTabs.afterAnswer(.refused, pageURL: $0).barTo != .agents }, "no refusal ever puts the bar on Agents, where the box would be out of sight")
 
 section("app tabs: the bar's labels")
-check(AppTabs.visible(tasksTab: true).map(\.title) == ["Today", "Agents", "Projects", "Tasks", "Settings"], "the bar's words, in order")
-check(AppTabs.visible(tasksTab: true).map(\.symbol) == ["sun.max", "person.2", "folder", "checklist", "gearshape"], "the spec's symbols")
+check(AppTabs.visible(tasksTab: true, todayTab: true).map(\.title) == ["Today", "Agents", "Projects", "Tasks", "Settings"], "the bar's words, in order")
+check(AppTabs.visible(tasksTab: true, todayTab: true).map(\.symbol) == ["sun.max", "person.2", "folder", "checklist", "gearshape"], "the spec's symbols")
 
 section("app tabs: press bookkeeping")
 do {
@@ -3657,6 +3657,16 @@ do {
               "#7222 permission \(p) (already answered, or not read yet): not offered")
     }
 }
+
+// MARK: - kosmos#7252: the Today tab switched off (Josh, 2026-10-26: "kill the today tab for now")
+
+check(AppTabs.todayTab == false, "#7252: the shipped app has the Today tab switched off")
+check(AppTabs.visible(tasksTab: true) == [.agents, .projects, .tasks, .settings], "#7252: no Today in the bar, Tasks earned")
+check(AppTabs.visible(tasksTab: false) == [.agents, .projects, .settings], "#7252: no Today in the bar, before Tasks")
+check(AppTabs.keep(.tasks, tasksTab: false) == .agents, "#7252: Tasks leaving the bar goes to Agents, not a hidden Today")
+check(AppTabs.keep(.today, tasksTab: true) == .agents, "#7252: a selection on the hidden Today goes to Agents")
+check(AppTabs.barTab(forPage: .today, tasksTab: true) == .today, "#7252: the board's home page is still the board page (shown over the tabs)")
+check(AppTabs.barTab(forPage: .settings, tasksTab: true) == .today, "#7252: the board's Settings is the board page, not the native Settings")
 
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")

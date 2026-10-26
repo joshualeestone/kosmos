@@ -279,9 +279,19 @@ enum AppTabs {
         }
     }
 
+    // kosmos#7252 (Josh, 2026-10-26 16:18: "i think we kill the 'today' tab for now.. it seems to be overkill and
+    // redundant"): off, the bar has no Today and a signed-in launch opens on Agents. A switch, not a deletion (#7030's
+    // native Today stays, "for now"). The board pages the app used to show under Today open over the tabs instead
+    // (ContentView's board page), so `.today` still names that page in barTab and keep.
+    #if KOSMOS_STORE_SHOTS
+    static let todayTab = true   // the App Store screenshot build photographs board screens under Today, as before
+    #else
+    static let todayTab = false
+    #endif
+
     // In Mona Lisa's order. Tasks is earned, as on the computer (#3559): the bar shows it only once the board says so.
-    static func visible(tasksTab: Bool) -> [Tab] {
-        Tab.allCases.filter { $0 != .tasks || tasksTab }
+    static func visible(tasksTab: Bool, todayTab: Bool = AppTabs.todayTab) -> [Tab] {
+        Tab.allCases.filter { ($0 != .tasks || tasksTab) && ($0 != .today || todayTab) }
     }
 
     // What to show when the bar changes under a selection it no longer has (Tasks on a Mac that has not earned it).
@@ -305,11 +315,13 @@ enum AppTabs {
     // Tasks section (a project's View all, a board link) shows under Today too, whether or not the bar offers Tasks.
     static func barTab(forPage section: Tab, tasksTab: Bool) -> Tab {
         if section == .settings || section == .projects || section == .tasks { return .today }
-        return visible(tasksTab: tasksTab).contains(section) ? section : .today
+        // `.today` here is the board page, whether it shows under the Today tab or over the tabs (kosmos#7252).
+        return section == .today || visible(tasksTab: tasksTab).contains(section) ? section : .today
     }
 
-    static func keep(_ selected: Tab, tasksTab: Bool) -> Tab {
-        visible(tasksTab: tasksTab).contains(selected) ? selected : .today
+    // kosmos#7252: with Today off, a tab leaving the bar goes to Agents, the tab a launch opens on.
+    static func keep(_ selected: Tab, tasksTab: Bool, todayTab: Bool = AppTabs.todayTab) -> Tab {
+        visible(tasksTab: tasksTab, todayTab: todayTab).contains(selected) ? selected : (todayTab ? .today : .agents)
     }
 
     // The call the app makes for a press. It tells apart a page without the door (the sign-in page, an error page,
