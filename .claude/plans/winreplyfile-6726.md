@@ -116,3 +116,8 @@ code would be Homer's; this touches none.
    separator (tested); reply's help has one exact pin. Not taken: `--file -h` prints help (install/kosmos the same,
    nothing is sent).
 
+15. (sonnet) No new findings. Deferred as duplicates: the board-side refusals and teaching kept off until they land
+   (#7221, reviews 6 and 8; a CI pin on a card's state is not something a test can read); a drive path with `..` is
+   sent and refused by the board, which is the design (review 1); "Sent, with X attached" with no `attached`
+   (review 11, parity); `--file -x` (review 7); the sibling help arms (review 12). Not an issue: helpFor keys on
+   `rules.sep`, which every path rules object has. Converged.
