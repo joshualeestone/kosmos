@@ -370,3 +370,53 @@ test('finish refuses when the world folder itself has been swapped for a link', 
   assert.match(r.because, /did not name its Kosmos/);
   assert.ok(fs.existsSync(path.join(`${p.dir}-real`, rw.RESTORE_DIR, 'workers', 'ann')), 'nothing moved');
 });
+
+test('a move that fails part way says which root moved and puts the empty target back; finishing again moves the rest', { skip: process.platform === 'win32' ? 'a read-only folder needs POSIX modes' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  fs.mkdirSync(path.join(p.restoreDir, 'projects', 'site'), { recursive: true });
+  const roots = worlds.envOverridesFor(base, p.world);
+  // Moving a folder to another parent rewrites its '..', which needs write permission on the folder itself.
+  const ro = path.join(p.restoreDir, 'projects');
+  fs.chmodSync(ro, 0o555);
+  let r;
+  try { r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK }); } finally { fs.chmodSync(ro, 0o755); }
+  assert.equal(r.ok, false, 'the read-only projects folder was moved, so this test shows nothing here');
+  assert.deepEqual(r.moved, ['workers']);
+  assert.match(r.because, /restored projects could not be moved into the new Kosmos \((EACCES|EPERM)\)$/);
+  assert.ok(fs.existsSync(path.join(roots.AGENT_WORKFORCE_WORKERS, 'ann')));
+  assert.deepEqual(fs.readdirSync(roots.AGENT_WORKFORCE_PROJECTS), [], 'the empty projects target was put back');
+  const again = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(again.ok, true, again.because);
+  assert.deepEqual(again.moved, ['projects']);
+  assert.ok(fs.existsSync(path.join(roots.AGENT_WORKFORCE_PROJECTS, 'site')));
+});
+
+test('a cut-short list says more, and a git folder at the top of workers blocks agents however many sort before it', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  for (const n of ['!first', 'bob', 'cat']) { fs.mkdirSync(path.join(w, n)); fs.writeFileSync(path.join(w, n, 'CLAUDE.md'), '# x\n'); }
+  let l = rw.listRestoredAgents({ base, world: p.world, nameOk, maxListed: 2 });
+  assert.equal(l.agents.length + l.shared.length, 2);
+  assert.equal(l.more, true);
+  assert.equal(rw.listRestoredAgents({ base, world: p.world, nameOk }).more, false);
+  fs.mkdirSync(path.join(w, '.git'));
+  l = rw.listRestoredAgents({ base, world: p.world, nameOk: () => true, maxListed: 1 });
+  assert.deepEqual(l.agents.map((a) => a.folder), ['!first'], '! sorts before .git, so the cap stops the scan before reaching it');
+  assert.match(l.agents[0].because, /workers folder holds a git folder/);
+});
+
+test('start-time names are matched in any case, and AGENTS.override.md is read as a brief', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(path.join(w, 'cased'));
+  fs.writeFileSync(path.join(w, 'cased', 'CLAUDE.md'), '# c\n');
+  fs.writeFileSync(path.join(w, 'cased', 'claude.local.md'), 'local\n');
+  fs.writeFileSync(path.join(w, 'cased', 'OPENCODE.JSONC'), '{}\n');
+  fs.writeFileSync(path.join(w, 'cased', 'AGENTS.override.md'), 'first read by Codex @../../x\n');
+  const a = rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.find((x) => x.folder === 'cased');
+  assert.deepEqual(a.runs, ['CLAUDE.local.md', 'opencode.jsonc', 'AGENTS.override.md imports']);
+});

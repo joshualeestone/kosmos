@@ -33,12 +33,12 @@ const MOVED = ['workers', 'projects'];           // the roots that become the wo
 const MAX_NAME_TRIES = 9;
 const MAX_MEMBER_CHARS = 60;
 const MAX_LISTED = 1000;
-const BRIEFS = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'];
+const BRIEFS = ['CLAUDE.md', 'AGENTS.md', 'AGENTS.override.md', 'GEMINI.md'];
 const MAX_BRIEF_BYTES = 512 * 1024;
 const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);   // Windows: a scanner holding a just-written file
 /* What in a folder a provider may read or run when it starts there: every dot-entry at its top (settings, hooks,
    skills, MCP servers, an environment file, any provider's own folder, git) except HARMLESS, and these plain names. */
-const PLAIN_AT_START = ['CLAUDE.local.md', 'opencode.json'];
+const PLAIN_AT_START = ['CLAUDE.local.md', 'opencode.json', 'opencode.jsonc'];   // compared folded, as APFS and NTFS open them
 /* A git folder's config (core.fsmonitor, core.hooksPath) runs commands when git runs there, which a provider does as
    soon as an agent starts. So an agent folder holding one is not offered, and one in the workers folder blocks all. */
 const GIT = '.git';
@@ -89,8 +89,8 @@ function prepareRestoreWorld(base, opts = {}) {
       if (takenIds(base).has(store.safeKey(name))) continue;
       return { ok: false, because: 'the Kosmos for the restore could not be made' };
     }
-    // createWorld reuses a world folder already on disk (its mkdirs are recursive), so one left behind would hand its
-    // store and agents to this restore. Only a world whose folders are all new and empty is used.
+    // createWorld reuses a world folder already on disk (its mkdirs are recursive). One left behind keeps its files
+    // under the hidden row and is never handed to this restore: only a world whose folders are all new and empty is.
     if (!freshWorld(worlds.worldBaseDir(base, world))) {
       // Set aside before the next name is tried: left on the list, its unreviewed folders would be one switch away.
       try { hide(base, world.id); } catch { return { ok: false, because: 'a Kosmos folder already on this computer under that name could not be set aside' }; }
@@ -229,7 +229,8 @@ function runsIn(folder) {
   let names = [];
   try { names = fs.readdirSync(folder); } catch { return ['(the folder could not be read)']; }
   for (const n of names.filter((x) => x.startsWith('.') && !HARMLESS.has(x)).sort()) out.push(labelOf(n));
-  for (const n of PLAIN_AT_START) if (names.includes(n)) out.push(n);
+  const folded = new Set(names.map((x) => x.toLowerCase()));
+  for (const n of PLAIN_AT_START) if (folded.has(n.toLowerCase())) out.push(n);
   const briefs = briefsIn(folder);
   for (const b of briefs.linked) out.push(`${b} is a link`);
   for (const brief of briefs.plain) {
@@ -254,16 +255,20 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    it (create.installJob on that name, under this world's roots); otherwise it is the plain reason it cannot be.
    `runs` lists what would run or load at start. `shared` is what every agent below it would read: entries at the top
    of the workers and projects folders other than plain-named folders, and each project with something in its `runs`.
-   Contract for the screen (slice 4c): show `label`, never `folder`; show `runs` and `shared`; and enable an agent whose
+   Contract for the screen (slice 4c): show `label`, never `folder`; show `runs` and `shared`; enable an agent whose
    `runs` is not empty, or while `shared` is not empty, only after the person acknowledges them, since a hook or an MCP
-   server there runs the moment the agent starts. Nothing is registered, started or written. */
+   server there runs the moment the agent starts; and enable nothing while `more` is true, since the list is then cut
+   short. A git folder in a project is shared, not refused (projects are usually repositories); one in an agent folder
+   or at the top of workers refuses. Nothing is registered, started or written.
+   opts.maxListed lowers MAX_LISTED (tests). */
 function listRestoredAgents(opts = {}) {
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
   const worldDir = worldDirOf(opts.base, opts.world);
-  const roots = worldDir ? worlds.envOverridesFor(opts.base, opts.world) : {};
+  const roots = worldDir && realDir(worldDir) ? worlds.envOverridesFor(opts.base, opts.world) : {};
+  const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;
   const agents = [], shared = [];
-  let more = false, gitAbove = false;
-  const full = () => { if (agents.length + shared.length >= MAX_LISTED) { more = true; return true; } return false; };
+  let more = false;
+  const full = () => { if (agents.length + shared.length >= cap) { more = true; return true; } return false; };
   const entriesOf = (parent) => {
     if (!parent || !realDir(parent)) return [];
     try { return fs.readdirSync(parent).sort(); } catch { return []; }
@@ -272,6 +277,8 @@ function listRestoredAgents(opts = {}) {
     if (n.startsWith('.')) return false;
     try { const st = fs.lstatSync(path.join(parent, n)); return st.isDirectory() || st.isSymbolicLink(); } catch { return false; }
   };
+  // Read before any capped loop, so no number of entries can hide it.
+  const gitAbove = entriesOf(roots.AGENT_WORKFORCE_WORKERS).some((n) => n.toLowerCase() === GIT);
   const scan = (parent, from) => {
     for (const folder of entriesOf(parent)) {
       if (full()) return;
@@ -279,7 +286,6 @@ function listRestoredAgents(opts = {}) {
       const label = labelOf(folder);
       if (from === 'workers' && !isTopFolder(parent, folder)) {
         if (HARMLESS.has(folder)) continue;
-        if (folder.toLowerCase() === GIT) gitAbove = true;   // folded: APFS and NTFS read .GIT as .git
         shared.push({ where: 'workers', label, runs: [] });
         continue;
       }
@@ -306,7 +312,7 @@ function listRestoredAgents(opts = {}) {
     const runs = realDir(path.join(roots.AGENT_WORKFORCE_PROJECTS, n)) ? runsIn(path.join(roots.AGENT_WORKFORCE_PROJECTS, n)) : ['it is a link'];
     if (runs.length) shared.push({ where: 'projects', label: labelOf(n), runs });
   }
-  if (gitAbove) {
+  if (gitAbove) {   // folded: APFS and NTFS read .GIT as .git
     for (const a of agents) if (!a.because) a.because = 'the restored workers folder holds a git folder, whose settings can run commands for every agent in it';
   }
   return { agents, shared, more };
