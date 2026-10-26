@@ -180,7 +180,8 @@ test('#5536 slice 4a review 2: a plain name is written into the baseline as Kosm
 });
 
 test('#5536 slice 4a review 2: the whole review is bounded: files past the budget are unreviewed, not read', () => {
-  const big = 'a\n'.repeat(256 * 1024);
+  // Long lines, so this is the byte budget and not the line budget (review 5's line cap would also catch short ones).
+  const big = `${'b'.repeat(3000)}\n`.repeat(170);
   const files = Array.from({ length: 12 }, (_, i) => ({ name: `notes/${i}.md`, text: big }));
   const t0 = process.hrtime.bigint();
   const x = rv.reviewAgent({ name: 'Ada', files });
@@ -288,4 +289,31 @@ test('#5536 slice 4a review 4: many marker lines stay cheap', () => {
   rv.reviewAgent({ name: 'Ada', files });
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.ok(ms < 3000, `${ms} ms`);
+});
+
+test('#5536 slice 4a review 5: any tag-like line hides what follows: everything after it counts as removed and it is flagged', () => {
+  const lines = base.split('\n');
+  const after = lines.slice(2).find((l) => l.trim().length > 20).replace(/[ \t]+$/, '').replace(/(\S)[ \t]+/g, '$1 ');
+  for (const marker of ['<div hidden>', '<div style="display:none">', '<span hidden>', '<?', '<![CDATA[', '<!x', '<svg>', '[x]: # "']) {
+    const x = review([...lines.slice(0, 2), marker, ...lines.slice(2)].join('\n'));
+    assert.ok(x.files[0].removed.includes(after), marker);
+    assert.ok(x.flags.some((f) => f.kind === 'hides' && f.line === 3), marker);
+    assert.equal(x.flagged, true, marker);
+  }
+});
+
+test('#5536 slice 4a review 5: cost follows lines, so very short lines are bounded too', () => {
+  const files = Array.from({ length: 8 }, (_, i) => ({ name: `notes/${i}.md`, text: 'a\n'.repeat(256 * 1024) }));
+  const t0 = process.hrtime.bigint();
+  const x = rv.reviewAgent({ name: 'Ada', files });
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 2500, `${ms} ms`);
+  assert.ok(x.unreviewed.some((u) => /more lines than the review tests/.test(u.why)), 'past the line budget it says so');
+  assert.equal(x.flagged, true);
+});
+
+test('#5536 slice 4a review 5: CLAUDE.local.md is an instruction file too', () => {
+  const x = rv.reviewAgent({ name: 'Ada', files: [{ name: 'CLAUDE.local.md', text: base }] });
+  assert.equal(x.files[0].instructions, true);
+  assert.deepEqual(x.files[0].added, []);
 });
