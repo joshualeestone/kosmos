@@ -132,6 +132,10 @@ at 0%, had no reading at all (the card's opening).
   the refusal still within its hour beats a newer copy that has expired. Two older tests had passed through the hold
   rather than the code they name (their failures were 429s); they now fail with a 5xx, and deleting the line each
   guards turns it red.
+- Review 24: an answer that says `"seven_day": null` is a reading of an account with no weekly limit (weekly null,
+  the five-hour figure kept), not a refusal; without the field, or with a window that cannot be read, it is still
+  one. A reading with another token keeps a live refusal in the record as well as in memory, so a restart keeps it,
+  and a test now restarts the module (a fresh copy, nothing in memory) and finds the refused token still held.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -184,7 +188,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 55 tests (counted from a run after review 23), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 57 tests (counted from a run after review 24), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

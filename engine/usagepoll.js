@@ -227,8 +227,12 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (
   if (r.code !== 200) return { at: now, state: r.code ? `http-${r.code}` : 'unreachable' };
   let j;
   try { j = JSON.parse(r.body); } catch { return { at: now, state: 'unreadable-response' }; }
-  const weekly = windowOf(j && j.seven_day, { nowMs: now, maxAheadSeconds: WEEK_MAX_AHEAD_SECONDS });
-  if (!weekly) return { at: now, state: 'unreadable-response' };
+  /* Review 24: an answer that says `"seven_day": null` is a reading of an account with no weekly limit (weekly null),
+     not a refusal. An answer without the field, or with a weekly window that cannot be read, is the endpoint changing
+     shape, and is one. */
+  const noWeekly = j && typeof j === 'object' && Object.prototype.hasOwnProperty.call(j, 'seven_day') && j.seven_day === null;
+  const weekly = noWeekly ? null : windowOf(j && j.seven_day, { nowMs: now, maxAheadSeconds: WEEK_MAX_AHEAD_SECONDS });
+  if (!noWeekly && !weekly) return { at: now, state: 'unreadable-response' };
   /* Review 6: the credential carries no account, and the one an account's agents read can belong to another login
      (measured on a build Mac: the bare entry and the default folder's entry were two different accounts). So the
      profile behind the same token is checked against the account Kosmos lists: a clear mismatch is not this account's
@@ -323,6 +327,7 @@ async function pollAll(list, deps = {}) {
     let org = null;
     try { const who = identityOf(a.dir); org = who && who.organizationUuid; } catch { org = null; }
     if (rec.state === 'ok') {
+      if (ref && withinHour(ref, nowMs)) Object.assign(rec, ref);   // review 24: a reading with another token keeps a live refusal in the record too
       rec.measuredAt = rec.at;
       rec.email = a.email;   // review 9: whose figures these are, so a later failed read keeps them only for the same login
       if (!rec.org && typeof org === 'string' && org) rec.org = org;   // review 11: and in which organization (review 13: the profile's first)

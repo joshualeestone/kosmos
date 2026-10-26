@@ -779,3 +779,37 @@ test('#7152 review 23: a refusal still within its hour beats a newer copy that h
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 0, 'an expired copy that looked newer released a refusal still within its hour');
 });
+
+test('#7152 review 24: a restarted board keeps a refusal for a token that is still usable', async (t) => {
+  const d = tmpDir(t);
+  const seen = {};
+  let token = cred({ expiresAt: NOW + 10 * 3600000 });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => token, request: fakeRequest(answer, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
+  token = cred({ expiresAt: NOW + 20 * 3600000 });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 5 * 60000, { code: 200, body: BODY }));
+  assert.equal(usagepoll.readUsage(d, NOW + 5 * 60000).state, 'ok', 'CONTROL: another token was read');
+  /* A restart: a fresh copy of the module, with nothing in memory. */
+  const key = require.resolve('./usagepoll');
+  const kept = require.cache[key];
+  delete require.cache[key];
+  const restarted = require('./usagepoll');
+  require.cache[key] = kept;
+  token = cred({ expiresAt: NOW + 10 * 3600000 });   // the refused token comes back
+  await restarted.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'after a restart the refused token was sent again inside its hour');
+});
+
+test('#7152 review 24: an answer with no weekly window is a reading, not a refusal', async () => {
+  const body = JSON.stringify({ five_hour: { utilization: 4.0, resets_at: '2026-10-26T01:20:00.447680+00:00' }, seven_day: null });
+  const r = await usagepoll.readOne({ dir: '/u/x', email: EMAIL }, { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
+  assert.equal(r.state, 'ok', 'an account with no weekly limit was refused');
+  assert.equal(r.weekly, null);
+  assert.equal(r.fiveHour.usedPct, 4);
+  const bad = await usagepoll.readOne({ dir: '/u/x', email: EMAIL }, { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(),
+    request: fakeRequest({ code: 200, body: JSON.stringify({ seven_day: { utilization: 'x' } }) }, {}) });
+  assert.equal(bad.state, 'unreadable-response', 'CONTROL: a weekly window that cannot be read is still refused');
+  const missing = await usagepoll.readOne({ dir: '/u/x', email: EMAIL }, { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(),
+    request: fakeRequest({ code: 200, body: JSON.stringify({ five_hour: { utilization: 4.0, resets_at: '2026-10-26T01:20:00Z' } }) }, {}) });
+  assert.equal(missing.state, 'unreadable-response', 'CONTROL: an answer without the weekly field is the endpoint changing shape');
+});
