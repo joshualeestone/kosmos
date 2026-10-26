@@ -28,6 +28,11 @@ function lift(name) {
   return script.slice(start, end);
 }
 // eslint-disable-next-line no-new-func
+test('the page script still parses as a whole (a duplicate declaration in the press handler broke it once)', () => {
+  // eslint-disable-next-line no-new-func
+  assert.doesNotThrow(() => new Function(script), 'the page script does not parse');
+});
+
 const verdict = new Function(lift('unansweredPressVerdict') + '\nreturn unansweredPressVerdict;')();
 
 const MIN = 60 * 1000;
@@ -72,9 +77,9 @@ test('the dialog waits instead of offering the button again (wiring, text only)'
   assert.match(afterPost, /const stale = gen !== UPD_WAIT_GEN \|\| [^\n]*\.hidden;/, 'the press does not compare its dialog generation after the POST');
   const noAnswer = press.slice(press.indexOf('if (!res) {'), press.indexOf('if (!res.ok)'));
   assert.match(noAnswer, /if \(stale\) return;/, 'a press with no answer writes into a dialog closed or reopened since it was pressed');
-  assert.match(noAnswer, /waitForUnansweredPress\(rollingBack, gen, hadFocus, before\);/, 'a press with no answer does not go to the wait');
+  assert.match(noAnswer, /waitForUnansweredPress\(rollingBack, gen, hadFocus, pressedOn\);/, 'a press with no answer does not go to the wait');
   // The version and boot from before are the press's, read before its POST (the page's poll can move them meanwhile).
-  assert.match(head, /const before = \{ version: LAST_VERSION \|\| SERVED_VERSION \|\| null, boot: LAST_BOOTED_AT \|\| null \};/,
+  assert.match(head, /const pressedOn = \{ version: LAST_VERSION \|\| SERVED_VERSION \|\| null, boot: LAST_BOOTED_AT \|\| null \};/,
     'the press does not take the version and boot from before its POST');
   assert.doesNotMatch(lift('waitForUnansweredPress'), /LAST_VERSION|LAST_BOOTED_AT/, 'the wait reads the version or boot from before at wait time, after the POST');
   const refused = press.slice(press.indexOf('if (!res.ok) {'));
