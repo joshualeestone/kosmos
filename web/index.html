@@ -14834,7 +14834,7 @@ window.kosmosMeasureScrollbarWidth();
       <div class="frow">
         <input type="password" id="acct-compat-key" autocomplete="new-password" spellcheck="false" aria-label="DeepSeek API key" placeholder="sk-…">
       </div>
-      <p class="dhint" style="margin:6px 0 0;">Make one at <a id="acct-compat-keypage" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a>.</p>
+      <p class="dhint" style="margin:6px 0 0;">Make one at <a class="xlink" id="acct-compat-keypage" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a>.</p>
       <label class="flabel" for="acct-compat-name" style="margin-top:8px;">Name (optional)</label>
       <div class="frow">
         <input type="text" id="acct-compat-name" autocomplete="off" maxlength="40" aria-label="A name for this account (optional)" placeholder="A name, if you want one">
@@ -28065,7 +28065,8 @@ function vendorPicksModel(p) { return keyOnlyProvider(p) || p === 'antigravity' 
    coming-soon providers follow the four that work. `claude` is the Add-a-provider
    picker's value for Anthropic. Pinned by docs/browser-checks/render-provider-order-3651.js. */
 // #3568: Gemini by subscription ('antigravity') sits beside Gemini.
-const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'moonshot', 'mistral']);
+/* #7206: DeepSeek after Qwen. (No comment after the semicolon: tests lift this one-line const up to its first ';\n'.) */
+const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'deepseek', 'moonshot', 'mistral']);
 const PROVIDER_ORDER_ALIAS = Object.freeze({ claude: 'anthropic' });
 function providerRank(value) {
   const v = String(value == null ? '' : value).toLowerCase();
@@ -58871,7 +58872,7 @@ function fillSwitchAccounts() {
 const PROVIDER_MARK_KEY = {
   anthropic: 'claude', openai: 'openai', google: 'gemini', meta: 'meta',
   antigravity: 'gemini',   // #3568: Gemini on a Google subscription wears Gemini's mark
-  xai: 'xai', alibaba: 'qwen', moonshot: 'kimi', mistral: 'mistral',
+  xai: 'xai', alibaba: 'qwen', deepseek: 'deepseek', moonshot: 'kimi', mistral: 'mistral',   // #7206: the setup guide's own DeepSeek mark
   /* #1040 2b: #acct-provider-pick (the Add-a-provider screen) uses the value 'claude'
      where #d-provider uses 'anthropic'; both name the same provider and get the same
      'claude' mark. Additive: #d-provider never looks up 'claude', so this does not touch it. */
