@@ -82,7 +82,7 @@ struct SettingsView: View {
                     Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
                 }
             case .signedOut:
-                Text("Sign in on the Today tab, then your computer's phone settings show here.")
+                Text("Sign in to Kosmos+ first, then your computer's phone settings show here.")
                     .font(.subheadline).foregroundColor(Palette.secondary)
             case .noComputer:
                 Text("Open the Agents tab to connect to your computer, then its phone settings show here.")

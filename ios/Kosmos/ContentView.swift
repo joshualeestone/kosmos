@@ -57,7 +57,8 @@ struct ContentView: View {
             }
         }
         #endif
-        return .today
+        // kosmos#7252: with Today off, a launch opens on Agents (signed out, the native sign-in shows first anyway).
+        return AppTabs.todayTab ? .today : .agents
     }()
     @State private var tab = ContentView.startTab
     #endif
@@ -130,12 +131,16 @@ struct ContentView: View {
                             .tabItem { Label(which.title, systemImage: which.symbol) }
                             // kosmos#7030: Today's badge is the board's one number, the Dock's (counts.waiting); none at 0 or off.
                             // kosmos#7032: Projects' is the board's unread room posts (counts.projectsUnread).
-                            .badge(which == .today ? (board.waitingCount ?? 0) : which == .projects ? (board.projectsUnread ?? 0) : 0)
+                            // kosmos#7252: with Today off, its number (agents waiting on you) is on Agents.
+                            .badge(which == (AppTabs.todayTab ? .today : .agents) ? (board.waitingCount ?? 0) : which == .projects ? (board.projectsUnread ?? 0) : 0)
                             .tag(which)
                     }
                 }
                 // Mona Lisa's spec: the app's tint is the board's ink, so the selected tab is not system blue.
                 .tint(Palette.primary)
+                // kosmos#7252: with Today off, a board page (a tapped notification, an agent's info button, the board's
+                // own Settings or sign-in) opens over the tabs, with Close back to the tab underneath.
+                .overlay { if !AppTabs.todayTab && todayBoard { boardPage } }
             } else {
                 LockView(onUnlock: unlock)
             }
@@ -143,7 +148,7 @@ struct ContentView: View {
         // A tapped notification, or an agent tapped on the Agents tab, opens on Today (the chat shows there until it is
         // native).
         .onChange(of: pushManager.boardToOpen) { request in
-            if request != nil { todayBoard = true; tab = .today }
+            if request != nil { showBoardPage() }
         }
         // kosmos#7032: a room notification from the computer this app keeps opens the room natively; from any other
         // computer it opens the board's room page under Today, as a tap always did.
@@ -172,7 +177,7 @@ struct ContentView: View {
             if let token = signIn.lastAbandoned { web.forget(token) }
         }
         .onChange(of: signIn.step) { step in
-            if step == .done { nativeSignIn = false; todayBoard = false; tab = .today }
+            if step == .done { nativeSignIn = false; todayBoard = false; tab = AppTabs.todayTab ? .today : .agents }
         }
         // A press was answered: opened, the bar is on the tab pressed; refused (a box was up), it goes to the tab the
         // page really shows, so pressing the same tab again later is a real press.
@@ -183,8 +188,7 @@ struct ContentView: View {
             // (Projects is native, kosmos#7032), and the page stays.
             let shown = AppTabs.barTab(forPage: back, tasksTab: web.tasksTab)
             // kosmos#7030: a board page that lights Today shows under it, not behind the native screen.
-            if shown == .today { todayBoard = true }
-            tab = shown
+            if shown == .today { showBoardPage() } else { tab = shown }
         }
         // The page moved section by itself (a link in it, a swipe back): the bar follows, without pressing.
         .onChange(of: web.pageMove) { move in
@@ -193,8 +197,7 @@ struct ContentView: View {
             // was pressed and the person went back to Today) does not move the bar off it.
             if tab == .today && !todayBoard { return }
             if let next = AppTabs.follow(from: move.from, to: move.to, selected: tab, barHeld: web.barHeld, tasksTab: web.tasksTab) {
-                if next == .today { todayBoard = true }   // kosmos#7030, as above
-                tab = next
+                if next == .today { showBoardPage() } else { tab = next }   // kosmos#7030, as above; #7252
             }
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing. Only a real change of tab
@@ -209,7 +212,7 @@ struct ContentView: View {
         }
         .onAppear {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
-            if pushManager.boardToOpen != nil { todayBoard = true; tab = .today }
+            if pushManager.boardToOpen != nil { showBoardPage() }
             if let target = pushManager.roomToOpen { openRoom(target) }
             // Cold launch: onChange does not fire for scenePhase's initial value,
             // so prompt here when we start locked.
@@ -282,9 +285,33 @@ struct ContentView: View {
     }
 
     private func showBoardToday() {
-        todayBoard = true
-        tab = .today
+        showBoardPage()
         web.pressBoardSection(.today)
+    }
+
+    // kosmos#7252: the board page, under the Today tab while it is on, or over the tabs while it is off.
+    private func showBoardPage() {
+        todayBoard = true
+        if AppTabs.todayTab { tab = .today }
+    }
+
+    // kosmos#7252: the board page over the tabs, with Close back to the tab underneath. The same shared web view, drawn
+    // here only, since no Today tab draws it while Today is off.
+    private var boardPage: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button { todayBoard = false } label: {
+                    Label("Close", systemImage: "chevron.down").labelStyle(.titleAndIcon)
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 16).frame(minHeight: 44)
+                .accessibilityLabel("Close this page")
+                Spacer()
+            }
+            .background(Color(UIColor.kosmosNavy).ignoresSafeArea(edges: .top))
+            webBoard(.today, active: true)
+        }
+        .background(Color(UIColor.kosmosNavy).ignoresSafeArea())
     }
 
     // Agents, Projects (kosmos#7032), Tasks (kosmos#7031) and Settings are native, and Today when nothing was sent
@@ -317,7 +344,7 @@ struct ContentView: View {
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoardSettings: {
                 // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
-                todayBoard = true; tab = .today
+                showBoardPage()
                 web.pressBoardSection(.settings)
             })
         } else {
@@ -325,7 +352,7 @@ struct ContentView: View {
         }
     }
 
-    private func webBoard(_ which: Tab) -> some View {
+    private func webBoard(_ which: Tab, active: Bool? = nil) -> some View {
         ZStack {
             // Navy behind the tab bar too, so the space below the page is the page's own colour, not a white band.
             Color(UIColor.kosmosNavy).ignoresSafeArea()
@@ -333,7 +360,7 @@ struct ContentView: View {
             // of the notch is set in makeWebView (safe areas). The keyboard is left to the web view, as before.
             WebView(
                 web: web,
-                active: tab == which,
+                active: active ?? (tab == which),
                 url: KosmosConfig.boardURL,
                 pushManager: pushManager,
                 boardToOpen: pushManager.boardToOpen,
