@@ -21,11 +21,11 @@ const DAY = 86400000;
 const NOW = 1_000_000_000_000;
 const paneOf = (spec) => status.parsePanes(fleet.line(spec))[0];
 
-function run(readDetail, logState, lines, expiresIn = 1) {
+function run(readDetail, logState, lines, expiresIn = 1, progOf = () => null) {
   const panes = [paneOf({ session: 'casey-discord', pane: '0.0' }), paneOf({ session: 'donnie-discord', pane: '0.1' })];
   const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: NOW + expiresIn * DAY } });
   return status.computeLoginAdvisories(panes, NOW, {
-    readDetail, readCred, cache: { at: 0, value: [] }, log: (l) => lines.push(l), logState,
+    readDetail, readCred, cache: { at: 0, value: [] }, log: (l) => lines.push(l), logState, progOf,
     displayName: (n) => n, emailOf: () => 'old@example.com',
   });
 }
@@ -88,11 +88,39 @@ test('#7194 review 1: the line names the program read, says "today" at 0 days, a
 });
 
 test('#7194 review 2: the program is the base name of `ps -o comm=`, a path with a space in it included', () => {
-  const real = require('node:child_process').execFileSync('ps', ['-o', 'comm=', '-p', String(process.pid)], { encoding: 'utf8' });
-  assert.equal(status.cmdFromPsComm(real), nodePath.basename(process.execPath).replace(/[^\w.@+-]/g, ''), 'not this process: ' + JSON.stringify(real));
+  if (process.platform !== 'win32') {   // no ps on Windows; Linux cuts comm to 15 characters, so only its shape is pinned
+    const real = require('node:child_process').execFileSync('ps', ['-o', 'comm=', '-p', String(process.pid)], { encoding: 'utf8' });
+    assert.match(String(status.cmdFromPsComm(real)), /^[\w.@+-]{1,64}$/, 'a real capture of this process: ' + JSON.stringify(real));
+  }
   assert.equal(status.cmdFromPsComm('/Users/a/Library/Application Support/Kosmos/bin/claude\n'), 'claude');
   assert.equal(status.cmdFromPsComm('/opt/x/evil;name$(id)\n'), 'evilnameid', 'characters outside the name set are dropped');
   assert.equal(status.cmdFromPsComm('/x/' + 'a'.repeat(100)).length, 64);
   assert.equal(status.cmdFromPsComm(''), null);
   assert.equal(status.cmdFromPsComm(undefined), null);
+});
+
+test('#7194 review 3: the same notice writes again when what was read changed (a folder, or a restart)', () => {
+  const lines = [];
+  const state = { sig: '' };
+  run(() => ({ ccd: '/Users/agent1/.claude', pid: '1' }), state, lines);
+  const first = lines.length;
+  assert.ok(first >= 1, 'CONTROL: the first read wrote');
+  run(() => ({ ccd: '/Users/agent1/.claude', pid: '1' }), state, lines);
+  assert.equal(lines.length, first, 'CONTROL: an unchanged read wrote again');
+  run(() => ({ ccd: '/Users/agent1/.claude', pid: '2' }), state, lines);
+  assert.equal(lines.length, first * 2, 'a restart (new pid) under the same notice wrote nothing');
+});
+
+test('#7194 review 3: the program is looked up only for the lines written, and an email cannot split a line', () => {
+  const lines = [];
+  const state = { sig: '' };
+  const asked = [];
+  const reads = new Map([['casey', { ccd: '/x', pid: '7', target: 'casey-discord:0.0' }]]);
+  const adv = [{ service: 's', email: 'a@example.com\n[loginadv] forged', daysLeft: 3, expired: false, agents: ['casey'] }];
+  status.logLoginAdvReads(adv, reads, (l) => lines.push(l), state, (pid) => { asked.push(pid); return 'claude'; });
+  assert.deepEqual(asked, ['7'], 'the program was not looked up for the line written');
+  assert.equal(lines.length, 1);
+  assert.ok(!/\n/.test(lines[0]) && / \(claude\) /.test(lines[0]), 'the line: ' + JSON.stringify(lines[0]));
+  status.logLoginAdvReads(adv, reads, (l) => lines.push(l), state, (pid) => { asked.push(pid); return 'claude'; });
+  assert.deepEqual(asked, ['7'], 'the program was looked up for a notice that wrote nothing');
 });
