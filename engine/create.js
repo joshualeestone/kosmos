@@ -910,6 +910,8 @@ function providerRunner(provider) {
   if (provider === 'antigravity') return 'antigravity'; // #3568
   if (provider === 'meta') return 'muse'; // #3939: Meta Muse, run one turn at a time by engine/musefront.js
   if (provider === 'alibaba') return 'codex'; // #5977: Qwen, codex pointed at its account's endpoint
+  // #7206: a vendor whose endpoint speaks Claude Code's API (DeepSeek) runs on claude, pointed at the vendor.
+  if (require('./anthropiccompat').vendorOf(provider)) return 'claude';
   return 'claude';
 }
 /* #3519: the INVERSE of providerRunner -- the ONE runner -> provider map. The
@@ -937,6 +939,12 @@ function runnerProvider(runner) {
 function jobProvider(job) {
   const runner = job && job.runner ? job.runner : 'claude';
   if (runner === 'codex' && job && job.configDir && require('./qwenaccounts').isQwenHome(job.configDir)) return 'alibaba';
+  // #7206: a claude job whose account home is a vendor account runs on that vendor, read from the folder's name (the
+  // one every vendor decision goes by), so a folder whose file went missing is still the vendor's and fails closed.
+  if (runner === 'claude' && job && job.configDir) {
+    const v = require('./anthropiccompat').vendorOfName(job.configDir);
+    if (v) return v;
+  }
   return runnerProvider(runner);
 }
 /* #5977 review 2: the provider of a NAMED agent, for a caller that holds its runner and its name but not its job
@@ -947,7 +955,7 @@ function jobProvider(job) {
    agent's entry, so a switch is seen at once and the cache only collapses the reads within one tick. */
 const AGENT_PROVIDER_MS = 2000;
 const agentProviderMemo = new Map();
-function forgetAgentProvider(name) { if (name) agentProviderMemo.delete(String(name)); }
+function forgetAgentProvider(name) { if (name) { agentProviderMemo.delete(String(name)); agentProviderMemo.delete('claude\u0000' + String(name)); } }   // #7206: both runners' entries
 /* Review 6: the provider a codex agent's JOB names ('alibaba' or 'openai'), or null when there is no job to read, so
    a caller with its own fallback (the profile) can tell "the job says OpenAI" from "there is no job". Same memo. */
 function codexJobProvider(sessionName) {
@@ -962,9 +970,26 @@ function codexJobProvider(sessionName) {
   agentProviderMemo.set(key, { at: now, provider });
   return provider;
 }
+/* #7206: the provider a CLAUDE agent's job names (a vendor such as 'deepseek', or 'anthropic'), or null with no job.
+   Same memo as codexJobProvider, kept under its own key so the two runners' answers cannot be confused. A job read
+   costs about 0.023 ms (measured 10-26 on 3 real jobs), so reading one per claude agent per tick is cheap. */
+function claudeJobProvider(sessionName) {
+  if (!sessionName) return null;
+  const key = 'claude\u0000' + String(sessionName);
+  const hit = agentProviderMemo.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at >= 0 && now - hit.at < AGENT_PROVIDER_MS) return hit.provider;
+  let job = null;
+  try { job = readJob(sessionName); } catch { job = null; }
+  const provider = job ? jobProvider({ ...job, runner: 'claude' }) : null;
+  agentProviderMemo.set(key, { at: now, provider });
+  return provider;
+}
 function agentProvider(sessionName, runner) {
   const r = runner || 'claude';
-  if (r !== 'codex' || !sessionName) return runnerProvider(r);
+  if (!sessionName) return runnerProvider(r);
+  if (r === 'claude') return claudeJobProvider(sessionName) || runnerProvider(r);   // #7206
+  if (r !== 'codex') return runnerProvider(r);
   return codexJobProvider(sessionName) || runnerProvider(r);
 }
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
@@ -993,6 +1018,7 @@ function providerLabel(provider) {
   if (provider === 'antigravity') return 'Gemini (Google subscription)';
   if (provider === 'meta') return 'Meta Muse'; // #3939
   if (provider === 'alibaba') return 'Qwen'; // #5977
+  { const v = require('./anthropiccompat').vendorOf(provider); if (v) return v.name; }   // #7206
   return 'Anthropic';
 }
 /* #3568: the Antigravity runner (Google's agy): Gemini on a Google subscription. ON by default
@@ -6877,6 +6903,7 @@ module.exports = {
   jobProvider,   // #5977
   agentProvider,   // #5977 review 2
   codexJobProvider,   // #5977 review 6
+  claudeJobProvider,   // #7206
   providerLabel,
   isNonClaudeRunner,
   antigravityEnabled,

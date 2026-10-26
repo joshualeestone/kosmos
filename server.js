@@ -3383,6 +3383,8 @@ function handleCompatAccountStore(req, res) {
       /* Review 3: only the Mac launch points an agent at a vendor (bin/agent-supervisor.sh); a Windows agent on this
          account would start against Anthropic with no sign-in. Refused until the Windows launch does the same. */
       if (process.platform === 'win32') { sendJson(res, 400, { error: `${v.name} agents run on a Mac for now; this computer cannot run them yet` }); return; }
+      /* Slice 1b: off by default (engine/anthropiccompat.js enabled): nothing unproven reaches a person. */
+      if (!compatAccounts.enabled()) { sendJson(res, 400, { error: compatAccounts.notYet(v.id), notYet: true }); return; }
       if (!runners.resolveBin('claude').present || runners.installing('claude')) {   // filed under 'claude' (engine/runners.js)
         sendJson(res, 400, { error: `we could not find Claude Code, the runner ${v.name} agents use, on this computer`, needsRunner: true, provider: 'claude' });
         return;
@@ -13583,6 +13585,13 @@ const server = http.createServer(async (req, res) => {
   }
   /* #7206: vendor accounts (DeepSeek) on the claude runner: add, disconnect or delete (the same fail-closed agents
      guard, on the claude runner), and check one live with the vendor. */
+  /* #7206 slice 1b: whether the page offers vendor providers at all (off by default), and which; read on every ask, as
+     /api/muse is, so turning the switch on needs no restart. */
+  if (pathname === '/api/accounts/compat' && req.method === 'GET') {
+    const on = compatAccounts.enabled();
+    sendJson(res, 200, { enabled: on, vendors: on ? Object.values(compatAccounts.VENDORS).map((v) => ({ id: v.id, name: v.name, models: v.models.slice(), keyPage: v.keyPage })) : [] });
+    return;
+  }
   if (pathname === '/api/accounts/compat' && req.method === 'POST') {
     handleCompatAccountStore(req, res);
     return;

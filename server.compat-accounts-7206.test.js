@@ -27,6 +27,9 @@ process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-compat-launch-');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(SANDBOX, '.gemini');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
+// Slice 1b: vendor providers are off by default; these tests exercise the routes with the switch ON, and the switch's
+// own test below turns it off.
+process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
 
 const compat = require('./engine/anthropiccompat');
 const runners = require('./engine/runners');
@@ -61,6 +64,27 @@ function vendorAnswers(reply) {
   return urls;
 }
 const hasModels = { status: 200, body: { data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }] } };
+
+test('slice 1b: with the switch OFF (the default) the add route refuses and GET offers nothing; ON is the control', async () => {
+  const urls = vendorAnswers(hasModels);
+  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  try {
+    const status = await (await fetch(base + '/api/accounts/compat')).json();
+    assert.deepEqual(status, { enabled: false, vendors: [] }, 'the page is offered a vendor while the switch is off');
+    const r = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'offswitch' });
+    assert.equal(r.status, 400);
+    const b = await r.json();
+    assert.equal(b.notYet, true);
+    assert.equal(b.error, 'DeepSeek is not available in Kosmos yet');
+    assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-deepseek-offswitch')), false);
+    assert.deepEqual(urls, [], 'the key was sent to the vendor while the switch is off');
+  } finally { process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev; }
+  // CONTROL: on, the page is told which vendors exist.
+  const on = await (await fetch(base + '/api/accounts/compat')).json();
+  assert.equal(on.enabled, true);
+  assert.deepEqual(on.vendors.map((v) => v.id), ['deepseek']);
+});
 
 test('add: with no Claude Code on the computer, nothing is stored and the person is told why', async () => {
   vendorAnswers(hasModels);
