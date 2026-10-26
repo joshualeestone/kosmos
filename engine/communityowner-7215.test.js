@@ -487,3 +487,12 @@ test('a coordinator 400 for a second agent in one pass is about the request: the
   await cs.sweep();
   assert.equal(R.mints.length, 2, 'and the pass waits');
 });
+
+test('a site refusal for a second agent in one pass means the site no longer takes passes: the whole pass waits', async () => {
+  for (const a of ['a1', 'a2', 'a3']) await registered(a);
+  be.st.mode.status = 403;
+  await cs.sweep();
+  assert.equal(ownerCalls().length, 2, 'the first refusal skips one agent; the second stops the pass');
+  await cs.sweep();
+  assert.equal(ownerCalls().length, 2, 'and the pass waits');
+});

@@ -1499,6 +1499,7 @@ const OWNER_LINK_MINTS_PER_PASS = 5;
 const ownerLinkPassAt = new Map();    // endpointDir -> ms: the whole pass is paused until then
 const ownerLinkAgentAt = new Map();   // endpointDir + agentKey -> ms: this one agent is skipped until then
 const ownerLinkFrom = new Map();      // endpointDir -> index into the keys where the next pass starts
+const ownerLinkPassLogged = new Map(); // endpointDir -> the pass-wide reason last logged (once per reason)
 const ownerLinkLogged = new Map();    // endpointDir + agentKey -> the reason last logged for it (once per reason)
 // #6488's own test for "Kosmos+ is live here" (signed in AND switched on), shared with phone notifications.
 function ownerLinkLive() {
@@ -1524,6 +1525,13 @@ function ownerLinkSkipAgent(ep, agentKey, why) {
   ownerLinkAgentAt.set(id, Date.now() + OWNER_LINK_RETRY_MS);
   if (ownerLinkLogged.get(id) !== why) { ownerLinkLogged.set(id, why); log(`owner link for ${agentKey}: ${why}; trying again in ${ownerLinkWait(OWNER_LINK_RETRY_MS)}, until it lands`); }
 }
+// A pass-wide reason is logged once until it changes or an agent is linked, so a board waiting for the route to
+// ship does not log it every hour.
+function ownerLinkPassLog(ep, why) {
+  if (ownerLinkPassLogged.get(ep) === why) return;
+  ownerLinkPassLogged.set(ep, why);
+  log(`owner link: ${why}`);
+}
 async function sweepOwnerLink(keys, on) {
   if (!on || !switchOn() || !ownerLinkLive()) return;
   const mac = ownerLinkMac();
@@ -1536,6 +1544,7 @@ async function sweepOwnerLink(keys, on) {
   let marks = false;
   let mints = 0;
   let coord400 = 0;
+  let siteRefused = 0;
   try {
     // Each pass starts just after the agent a pass-wide failure last stopped on, so no one agent's failure keeps the
     // agents after it from ever being reached (as the install-group pass, #4922 review 8).
@@ -1564,7 +1573,7 @@ async function sweepOwnerLink(keys, on) {
       if (ownerLinkMac() !== mac) return;
       // The person switched Community or Kosmos+ off during the mint, or the agent's delete began: nothing is sent.
       if (!switchOn() || !ownerLinkLive() || retireListUnreadable() || retiring(agentKey)) return;
-      if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string') {
+      if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string' || !minted.data.pass) {
         const st = minted.refusal ? minted.refusal.status : 0;
         // The coordinator's only refusal about one agent is its 400 (the name); its 403s are about this computer (not
         // allowed on the account, or the account lapsed), so they pause the whole pass below.
@@ -1576,7 +1585,7 @@ async function sweepOwnerLink(keys, on) {
         const what = unknown ? 'Kosmos+ cannot vouch for agents yet'
           : st === 400 ? 'Kosmos+ refused the request for two agents in a row (400), so the request itself is likely wrong'
             : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '');
-        log(`owner link: ${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
+        ownerLinkPassLog(ep, `${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
         break;
       }
       const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
@@ -1584,28 +1593,32 @@ async function sweepOwnerLink(keys, on) {
       if (r.status >= 200 && r.status < 300) {
         k.ownerLinked = marker;
         ownerLinkLogged.delete(ep + '\n' + agentKey);
+        ownerLinkPassLogged.delete(ep);
         marks = true;
         continue;
       }
-      if (r.status === 400 || r.status === 403) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
+      // A second agent refused by the site in one pass means the site no longer takes these passes at all, not two
+      // bad agents: the whole pass waits (as for the coordinator's 400).
+      const siteRefusal = r.status >= 400 && r.status < 500 && ![401, 404, 405, 429].includes(r.status);
+      if (siteRefusal && ++siteRefused < 2) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
       if (r.status === 404 || r.status === 405) {   // no stopHere: the missing route is the same for every agent
         ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_UNKNOWN_MS);
-        log(`owner link: the community has no owner route yet (${r.status}); trying again in an hour`);
+        ownerLinkPassLog(ep, `the community has no owner route yet (${r.status}); trying again in an hour`);
         break;
       }
       if (r.status === 429) {
         const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600));
         ownerLinkPassAt.set(ep, Date.now() + waitS * 1000);
         stopHere();
-        log(`owner link: the service asked to slow down (429); the pass waits ${waitS} s`);
+        ownerLinkPassLog(ep, `the service asked to slow down (429); the pass waits ${waitS} s`);
         break;
       }
-      // Any other 4xx (a 409 or 422, say) is about this agent too, so it does not hold the rest.
-      if (r.status >= 400 && r.status < 500 && r.status !== 401) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
-      // No answer, a 5xx (the site's 503 while it is not ready), a 401 logging in again could not clear: the service.
+      // No answer, a 5xx (the site's 503 while it is not ready), a 401 logging in again could not clear, or a second
+      // site refusal: the service.
       ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
       stopHere();
-      log(`owner link: the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
+      ownerLinkPassLog(ep, siteRefusal ? `the community refused the passes of two agents in a row (${r.status}), so it likely no longer takes them; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`
+        : `the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
       break;
     }
   } finally {
@@ -3199,6 +3212,6 @@ module.exports = {
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
   _ownerLinkBudget: (ms) => { OWNER_LINK_PASS_MS = ms; },   // #7215: for its budget test
-  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkFrom.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
+  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkPassLogged.clear(); ownerLinkFrom.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };
