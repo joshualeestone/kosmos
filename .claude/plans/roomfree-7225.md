@@ -9,8 +9,9 @@
   predate its project); the fixture became impossible. #7185 fixed seven tests the same way ("date the project
   back"); its sweep missed the browser checks.
 - Same class, silent: docs/browser-checks/mobile-shots.js seeds the sample room with rows 30 minutes old after making
-  the project, so every room design shot since #7185 showed an empty room ("Nothing here yet"). Measured: the
-  project-room shot from origin/main is empty; from this branch it shows the posts and reactions.
+  the project, so every room design shot since #7185 shows an empty room ("Nothing here yet"). Measured: the
+  project-room shot from origin/main is empty, and with the project dated back it shows the posts and reactions.
+  NOT fixed here: see "Split out" (#7233).
 
 ## Change
 render-roomfree-6949 dates its project back to just before its claims (four hours) before writing them, as #7185's
@@ -20,7 +21,7 @@ tests date theirs. Only that check: it is what the 0.7.70 cut waits on.
 mobile-shots.js has the same defect (its sample room is seeded 30 minutes back, so room shots come out empty since
 #7185), but its seed is shared by every screen and createdAt also decides a project's "new" state (roomLive, the
 file-created slack). Dating it back changes more than the room, and that needs every shot re-measured. It is a
-follow-up card, not this cut's blocker.
+#7233, not this cut's blocker.
 
 ## Rejected
 - Dating the rows to now: the check's age arm needs "claimed 3 hours ago", and the shots' sample room needs its times.
@@ -28,13 +29,13 @@ follow-up card, not this cut's blocker.
 
 ## Weakest premise
 That no other check writes room rows stamped BEFORE their project's createdAt. Writers that append to the message log
-directly, checked in review round 1 (14:02): render-roomfree-6949 (fixed here), mobile-shots' sample room (fixed
-here), mobile-shots' refused line and held lines (stamped after the seed, so later than createdAt), and
+directly, checked in review round 1 (14:02): render-roomfree-6949 (fixed here); mobile-shots' sample room, refused line and held lines (#7233, not fixed here);
+and
 render-projects.js:516-527 (stamped with new Date() after the project exists). Rows stamped at or after project
 creation are unaffected.
 
 ## Review round 1 (sonnet) points, measured rather than reasoned
 - Dating the project back after its threads exist could make a thread stamped with the old createdAt refuse (chat
-  readThread compares projectBornAt). Measured: render-roomfree-6949 passes 48/48 with the fix; the agent-chat and
-  tasks-subproject-picked design shots read the same on origin/main and on this branch (the task shot is byte
-  identical; the chat shot differs only in live parts such as the working dots).
+  readThread compares projectBornAt). Measured: render-roomfree-6949 passes 48/48 with the fix (and again after
+  the date was narrowed to four hours). The design-shot comparison made then belongs to the mobile-shots change,
+  which is now #7233.
