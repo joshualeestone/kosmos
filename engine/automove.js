@@ -24,6 +24,7 @@ const KEEP_LINES = 500;
 const RECENT = 10;
 const WATCH_MS = 24 * 60 * 60 * 1000;      // a moved agent is watched for its first real call this long
 const FAILED_HOLD_MS = 6 * 60 * 60 * 1000; // a target where an automatic move did not work is not used again this long
+const REFUSED_HOLD_MS = 60 * 60 * 1000;    // review 1: an agent whose move was refused is passed over this long, so it cannot block the rest
 
 /* Moves are the operator's to switch on for now (the plan's call): without AGENT_WORKFORCE_AUTOMOVE=1 every tick
    records "would move" only. AGENT_WORKFORCE_AUTOMOVE_OFF=1 is the brake on the whole sweep. */
@@ -73,7 +74,7 @@ function keyOf(d) {
  * record keeps 'not-yet'; observed is in memory too, so a restarted board could not tell anyway).
  */
 function create({ file }) {
-  const state = { lastKey: null, watching: [], failed: new Map() };
+  const state = { lastKey: null, watching: [], failed: new Map(), refused: new Map() };
 
   /* The works-again check: the first real call each moved agent makes after its move. */
   function check(deps, nowMs) {
@@ -98,7 +99,8 @@ function create({ file }) {
 
   /**
    * deps: list() (accounts.list), readUsage(dir, nowMs), isRefusal(state), agentsOn(dir, isDefault), roster() (a NEW
-   * board roster read, or null when it cannot be read), records() (every project), readCommitment(session),
+   * board roster read, or null when it cannot be read), records() (every project; may be cached for the tick),
+   * freshRecords() (optional: a new read, for the re-check just before a move), readCommitment(session),
    * settingOn() (true only when the switch reads on), movesOn() (moves switched on), accountBusy(), boardRestarting(),
    * startMove({ dir, names }) (accountmove.start with the board's deps), lastSeen(agent) ({ outcome, at } or null),
    * tell(agent, text), labelOf(dir); optional isGuide/guideName (movableFor's).
@@ -116,7 +118,8 @@ function create({ file }) {
         ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) });
       const movable = ab.movableOnDemand(() => ab.movableFor(movableArgs(deps.roster())));
       decision = ab.decide({ rows, movable, nowMs });
-      decision.recheck = () => ab.movableFor(movableArgs(deps.roster()));
+      /* Review 1: the re-check reads the projects again too (the tick's own read is cached for the decision). */
+      decision.recheck = () => ab.movableFor({ ...movableArgs(deps.roster()), ...(deps.freshRecords ? { records: deps.freshRecords } : {}) });
     } catch { return { did: 'unreadable' }; }
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const live = deps.movesOn() === true;
@@ -135,13 +138,17 @@ function create({ file }) {
     if (!live) return { did: recorded ? 'recorded' : 'nothing' };
     if (deps.accountBusy() || deps.boardRestarting()) return { did: 'nothing', because: 'busy' };
     const held = (dir) => state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS;
-    const m = decision.moves.find((x) => !held(x.to));
+    const passedOver = (agent) => state.refused.has(agent) && nowMs - state.refused.get(agent) < REFUSED_HOLD_MS;
+    const m = decision.moves.find((x) => !held(x.to) && !passedOver(x.agent));
     if (!m) return { did: recorded ? 'recorded' : 'nothing' };
     const fromLabel = label(m.from);
     const toLabel = label(m.to);
     /* Idle again, from a roster read now: an agent that took a turn since the decision is not moved. */
+    /* Review 1: a roster that cannot be read now is not "no longer idle": nothing is moved and nothing recorded. */
+    let freeNow;
+    try { freeNow = decision.recheck(); } catch { return { did: 'unreadable' }; }
     let stillFree = false;
-    try { stillFree = decision.recheck()(m.agent) === true; } catch { stillFree = false; }
+    try { stillFree = freeNow(m.agent) === true; } catch { stillFree = false; }
     if (!stillFree) {
       append(file, { kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel, toLabel, because: 'it was no longer idle' });
       return { did: 'skipped', agent: m.agent };
@@ -150,6 +157,7 @@ function create({ file }) {
     try { started = deps.startMove({ dir: m.to, names: [m.agent] }); } catch { started = null; }
     const first = started && started.body && Array.isArray(started.body.agents) ? started.body.agents[0] : null;
     if (!started || started.status !== 202 || !first || first.outcome === 'refused') {
+      state.refused.set(m.agent, nowMs);
       append(file, { kind: 'move', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel, toLabel, why: m.why, outcome: 'refused' });
       return { did: 'refused', agent: m.agent };
     }
@@ -174,4 +182,4 @@ function create({ file }) {
   return { tick, check, state };
 }
 
-module.exports = { create, recent, append, readLines, movesOn, sweepOn, FILE, KEEP_LINES, RECENT, WATCH_MS, FAILED_HOLD_MS };
+module.exports = { create, recent, append, readLines, movesOn, sweepOn, FILE, KEEP_LINES, RECENT, WATCH_MS, FAILED_HOLD_MS, REFUSED_HOLD_MS };

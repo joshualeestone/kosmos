@@ -221,3 +221,43 @@ test('#7152 slice 3: the guide fails closed: a guide check that throws, or the s
   assert.equal(ab.movableFor({ ...base, isGuide: () => false, guideName: () => 'Ada ' })('ada'), false, 'the seeded guide name was movable');
   assert.equal(ab.movableFor({ ...base, isGuide: () => false, guideName: () => { throw new Error('x'); } })('ada'), false, 'a guide name that could not be read let the agent move');
 });
+
+test('#7152 slice 3 review 1: an agent whose move is refused is passed over for an hour, so the next idle agent moves', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const cards = realCards(['ada'], ['bo']);
+  const { d, calls } = deps({ movesOn: true, cards,
+    start: (body) => (body.names[0] === 'ada' ? { status: 202, body: { id: 'm', agents: [{ name: 'ada', outcome: 'refused' }] }, done: Promise.resolve() }
+      : { status: 202, body: { id: 'm2', agents: [{ name: body.names[0], outcome: 'pending' }] }, done: Promise.resolve() }) });
+  d.agentsOn = (dir) => ({ names: dir === '/u/.claude-work' ? ['ada', 'bo'] : [], complete: true, moving: [] });
+  assert.equal((await run.tick(d, NOW)).did, 'refused');
+  const second = await run.tick(d, NOW + 1000);
+  assert.deepEqual([second.did, second.agent], ['moved', 'bo'], 'a refused agent kept every other agent from moving');
+  assert.equal(automove.readLines(file).filter((l) => l.kind === 'move' && l.outcome === 'refused').length, 1, 'the refusal was recorded again inside its hour');
+  d.agentsOn = (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true, moving: [] });   // bo has gone
+  await run.tick(d, NOW + 2000);
+  assert.deepEqual(calls.starts.map((b) => b.names[0]), ['ada', 'bo'], 'the refused agent was tried again inside its hour');
+  await run.tick(d, NOW + automove.REFUSED_HOLD_MS + 3000);
+  assert.deepEqual(calls.starts.map((b) => b.names[0]), ['ada', 'bo', 'ada'], 'CONTROL: after the hour it is tried again');
+});
+
+test('#7152 slice 3 review 1: a roster that cannot be read just before the move is not "no longer idle"', async () => {
+  const file = fileFor();
+  const [ada] = realCards(['ada']);
+  let reads = 0;
+  const { d, calls } = deps({ movesOn: true, roster: () => (++reads === 1 ? [ada] : null) });
+  assert.equal((await automove.create({ file }).tick(d, NOW)).did, 'unreadable');
+  assert.deepEqual(calls.starts, []);
+  assert.equal(automove.readLines(file).some((l) => l.kind === 'skipped'), false, 'an unreadable roster was recorded as the agent taking a turn');
+});
+
+test('#7152 slice 3 review 1: the re-check just before a move reads the projects again', async () => {
+  const [ada] = realCards(['ada']);
+  let fresh = 0;
+  const { d, calls } = deps({ movesOn: true, cards: [ada] });
+  d.freshRecords = () => { fresh += 1; return [{ id: 'p1', tasks: [{ id: 't1', parts: [{ who: 'ada', title: 'x' }] }] }]; };
+  const r = await automove.create({ file: fileFor() }).tick(d, NOW);
+  assert.equal(fresh, 1, 'the re-check did not read the projects again');
+  assert.equal(r.did, 'skipped', 'an agent given a task part since the decision was moved');
+  assert.deepEqual(calls.starts, []);
+});

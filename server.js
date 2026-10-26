@@ -2880,18 +2880,6 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
   return { usedBy, complete };
 }
 
-/* #6174, for the account-move route: the restart, with the agent's tmux session start read before it and the note
-   written once the outcome is known. Only a PARTIAL outcome with the SAME session still running (same start) is noted:
-   the window could not be closed, so the agent runs on the account it was moved from until it restarts. Any other
-   outcome clears a note an earlier move wrote, including a REFUSED restart (nothing confirmed as ours, or tmux could
-   not be read: the mark goes early, the safe direction). Not marked, by decision: launchd or systemd refusing to stop
-   the old job after the window closed. The session running right after cannot be told apart from a genuine relaunch
-   onto the new account, which would then be marked wrongly with nothing to clear it, so that case stays unmarked.
-   The session is found as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so
-   a legacy session (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. Both
-   session-start reads are fresh (no cache), so a session restarted moments ago is read as it is. The note keeps the account the
-   agent ran on before its FIRST partial move (`from`), so moving it back there is not marked. `deps` (restart,
-   sessionOf, roster, startedAt) is for tests. Never throws: the note is not the move. */
 /* #6173 / kosmos#7152 slice 3: what an account move needs from the board, for the bulk-move route and the automatic
    move alike, so the two cannot drift. A fresh object per move: the maps hold that move's own facts. */
 function accountMoveDeps() {
@@ -2947,6 +2935,18 @@ function accountMoveDeps() {
   };
 }
 
+/* #6174, for the account-move route: the restart, with the agent's tmux session start read before it and the note
+   written once the outcome is known. Only a PARTIAL outcome with the SAME session still running (same start) is noted:
+   the window could not be closed, so the agent runs on the account it was moved from until it restarts. Any other
+   outcome clears a note an earlier move wrote, including a REFUSED restart (nothing confirmed as ours, or tmux could
+   not be read: the mark goes early, the safe direction). Not marked, by decision: launchd or systemd refusing to stop
+   the old job after the window closed. The session running right after cannot be told apart from a genuine relaunch
+   onto the new account, which would then be marked wrongly with nothing to clear it, so that case stays unmarked.
+   The session is found as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so
+   a legacy session (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. Both
+   session-start reads are fresh (no cache), so a session restarted moments ago is read as it is. The note keeps the account the
+   agent ran on before its FIRST partial move (`from`), so moving it back there is not marked. `deps` (restart,
+   sessionOf, roster, startedAt) is for tests. Never throws: the note is not the move. */
 function moveFromDir(rawName) {   // the account folder the agent is on before the move (null: the default account)
   try { return create.readJob(create.cleanName(rawName)).configDir || null; } catch { return null; }
 }
@@ -26162,6 +26162,7 @@ function start(port = PORT) {
           agentsOn,
           roster: () => safeRoster(),   // a NEW read each time it is asked: the move re-checks idleness from it
           records: () => (records || (records = projects.readAll())),
+          freshRecords: () => projects.readAll(),   // the re-check just before a move (review 1)
           readCommitment: (session) => commitments.read(session),
           settingOn: () => { try { return autobalanceSetting.read().on === true; } catch { return false; } },
           movesOn: () => automove.movesOn(),

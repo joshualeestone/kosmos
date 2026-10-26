@@ -14,7 +14,7 @@
  *  - switched off: the switch reads off and no line is drawn; an unreadable decision says so;
  *  - pressing the switch sends { on: false } once and draws the next read's answer; a failed read takes earlier lines away;
  *  - at 390 px nothing scrolls sideways.
- * Slice 3, in its own box under the decision (#ab-recent): with moves not switched on it says so; the record's entries
+ * Slice 3, in its own box under the decision (#ab-recent): it says whether Kosmos moves agents itself; the record's entries
  * are drawn newest first, one line each, a name with markup in it as text, an account gone from the list by the
  * record's own label; switched off, or with one account, the box is empty.
  *
@@ -211,6 +211,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.recentOff && r.recentOff.lines.length === 1 && r.recentOff.lines[0] === 'Nothing to move right now.', tag + ' CONTROL: the decision lines are unchanged beside the record', JSON.stringify(r.recentOff && r.recentOff.lines));
       const rn = r.recentOn && r.recentOn.recent;
       const want = [
+        /^Kosmos moves them itself, one agent at a time, and says each move here\.$/,
         /^Lately$/,
         /^At 11:59\sAM, Ada was seen working on Spare\.$/,
         new RegExp('^At 11:58\\sAM, Kosmos moved <b>Bo</b> from Work to Old, because ' + WHY + '\\.$'),
@@ -219,7 +220,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /^At 11:55\sAM, Kosmos tried to move Ada to Spare, and the move was refused\.$/,
         /^At 11:54\sAM, Ada has not been seen working on Spare in the day since it moved\.$/,
       ];
-      say(rn && rn.length === want.length && want.every((re, i) => re.test(rn[i])), tag + ' moves on: no "not switched on" line, every entry said, a live decision not repeated as a would-have', JSON.stringify(rn));
+      say(rn && rn.length === want.length && want.every((re, i) => re.test(rn[i])), tag + ' moves on: it says Kosmos moves them, every entry said, a live decision not repeated as a would-have', JSON.stringify(rn));
       say(r.recentOn && !r.recentOn.recentMarkup, tag + ' a name with markup in the record is shown as text', '');
       say(r.off && r.off.recent.length === 0 && r.one && r.one.recent.length === 0, tag + ' switched off, or one account: no record drawn', JSON.stringify([r.off && r.off.recent, r.one && r.one.recent]));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
