@@ -120,6 +120,34 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         acctReadOpen = 0;
         await new Promise((res) => setTimeout(res, 900));
         out.afterRead = { extra: reads - before };
+        /* Review 4: a wait whose list goes off screen (Settings closed) starts no read; twice pressed, one wait. */
+        current = { ...cases.moves, autobalance: { ...cases.moves.autobalance, on: true } };
+        await paintAccounts();
+        acctReadOpen = 999999;
+        const hid = reads;
+        document.getElementById('ab-toggle').click();
+        await new Promise((res) => setTimeout(res, 300));
+        const shownBox = document.getElementById('set-accounts');
+        const keep = shownBox.style.display;
+        shownBox.style.display = 'none';
+        acctReadOpen = 0;
+        await new Promise((res) => setTimeout(res, 900));
+        out.hidden = { extra: reads - hid };
+        shownBox.style.display = keep;
+        current = { ...cases.moves, autobalance: { ...cases.moves.autobalance, on: true } };
+        await paintAccounts();
+        acctReadOpen = 999999;
+        const twice = reads;
+        document.getElementById('ab-toggle').click();
+        await new Promise((res) => setTimeout(res, 300));
+        current = { ...cases.moves, autobalance: { ...cases.moves.autobalance, on: false } };
+        await paintAccounts();   // a repaint while waiting (counts as one read)
+        acctReadOpen = 999999;
+        document.getElementById('ab-toggle').click();
+        await new Promise((res) => setTimeout(res, 300));
+        acctReadOpen = 0;
+        await new Promise((res) => setTimeout(res, 1200));
+        out.twice = { extra: reads - twice };
         current = { ...cases.moves, autobalance: { ...cases.moves.autobalance, on: true } };
         await paintAccounts();
         document.getElementById('ab-toggle').click();
@@ -143,6 +171,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.busy && r.busy.lines.length === 1 && r.busy.lines[0] === 'Work is running out, because ' + WHY + ', but none of its agents is idle, so there is nothing to move yet.', tag + ' an account running out with no idle agent is said, not silent', JSON.stringify(r.busy && r.busy.lines));
       say(r.overRead && r.overRead.extra === 0 && r.overRead.lines.length === 0 && r.overRead.checked === 'false', tag + ' pressed while a read is out: no read over it, and the lines go at once', JSON.stringify(r.overRead));
       say(r.afterRead && r.afterRead.extra === 1, tag + ' once that read is over, exactly one read follows', JSON.stringify(r.afterRead));
+      say(r.hidden && r.hidden.extra === 0, tag + ' a wait whose list went off screen starts no read', JSON.stringify(r.hidden));
+      say(r.twice && r.twice.extra === 2, tag + ' pressed twice while waiting: one wait, so one read after (the repaint between is the other)', JSON.stringify(r.twice));
       say(r.pressed && r.pressed.puts.length >= 1 && r.pressed.puts[r.pressed.puts.length - 1] === '{"on":false}' && r.pressed.checked === 'false' && r.pressed.lines.length === 0,
         tag + ' pressing the switch sends off once and draws the next read', JSON.stringify(r.pressed));
       say(r.beforeFail && r.beforeFail.lines.length === 2 && r.failed && !r.failed.shown && r.failed.lines.length === 0, tag + ' a failed read takes the earlier lines away (shown before it: the control)', JSON.stringify(r.failed));

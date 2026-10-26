@@ -50,6 +50,10 @@ the decision is logged once per change (a line in the board's log), which is the
   waits for it, bounded, then reads once), switching off clears the lines at once, and a switch that could not be read
   says so. The route test now has two accounts, one at 95%, so the real route works out a decision. The earlier "lazy
   reads, not taken" line is withdrawn: the reads were not cheap (a pane capture).
+- Review 4: the switch's wait-then-read stops once the list is off screen, as the list's other timers do, so a wait
+  that outlives the page starts no live-check read; and there is one wait at a time. Accepted, stated: a target whose
+  limit resets between two reads stays off the bulk-move menu until the next read (the old page rule re-checked the
+  clock at each paint); that errs toward not offering, and the reset timers already re-read any row with a reset line.
 - engine/autobalance-setting.js: the assigner-setting pattern. Missing reads ON; a corrupt file reads off. Effective
   only with two or more eligible accounts; with one it does nothing and says nothing.
 - GET /api/accounts?agents=1: `autobalance: { on, eligible, moves, held, short, unreadable? }`; every Claude row also

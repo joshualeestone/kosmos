@@ -28887,12 +28887,17 @@ async function abToggleClick() {
        never over a read that is already out: a follow-up raises the epoch and would throw that read away, leaving the
        list on "Checking". That read may also have read the switch before this save, so wait for it to finish (bounded,
        about ten seconds) and read once after it. */
-    if (saved) abRepaintAfterReads(0);
+    if (saved && !AB_REPAINT_WAITING) { AB_REPAINT_WAITING = true; abRepaintAfterReads(0); }   // review 4: one wait at a time
   }
 }
+/* Review 4: as the list's other timers, it stops once the list is off screen (a section switch, Settings closed), so a
+   wait that outlives the page it was for never starts a read (each one checks every account's login live). */
+let AB_REPAINT_WAITING = false;
 function abRepaintAfterReads(tries) {
-  if (!acctReadOpen) { paintAccounts({ followUp: ACCT_FOLLOWUP.max }); return; }
+  if (!acctListShown()) { AB_REPAINT_WAITING = false; return; }
+  if (!acctReadOpen) { AB_REPAINT_WAITING = false; paintAccounts({ followUp: ACCT_FOLLOWUP.max }); return; }
   if (tries < 20) setTimeout(() => abRepaintAfterReads(tries + 1), 500);
+  else AB_REPAINT_WAITING = false;
 }
 document.getElementById('ab-toggle') && document.getElementById('ab-toggle').addEventListener('click', abToggleClick);
 async function paintAccounts(opts) {
