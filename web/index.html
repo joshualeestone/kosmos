@@ -2813,12 +2813,15 @@ body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
 .pj-paused-line { margin: 4px 0 0; color: var(--k-ink-2); }
 /* kosmos#7210: a project not on All says so beside its title, in the pause button's shape, so a quiet room does not
    look broken. Pressing it opens the project's settings, where the choice is made. */
-.linkish.pj-head-notify { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; flex: none;
+.linkish.pj-head-notify { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; flex: none; position: relative;
                  height: 22px; padding: 0 8px; border-radius: 7px; font: 600 .75rem/1 var(--font-ui); color: var(--k-ink-2);
                  border: 1px solid var(--k-rule); background: var(--k-surface); }
 .linkish.pj-head-notify:hover { color: var(--k-ink); background: var(--k-sunk); }
 .pjs-notify-seg { margin: 6px 0 0; }
-#pjs-notify-msg:empty { display: none; }   /* an empty .fmsg still takes a line (#5391 review 1) */
+#pjs-notify-msg:empty { display: none; }
+/* On touch, the label takes the pause button's 36px-tall tap (an invisible ring) and the choice a full 44px row. */
+@media (hover: none) { .pj-head-notify::after { content: ""; position: absolute; inset: -7px -2px; }
+                       .pjs-notify-seg button { min-height: 44px; } }   /* an empty .fmsg still takes a line (#5391 review 1) */
 #pj-head-pause-msg:empty { display: none; }   /* review 1: an empty .fmsg still takes ~23px under every title */
 /* On touch it still LOOKS 22px, as Josh asked, but takes a 36px-tall tap, as the cog beside it does (an invisible ring). */
 @media (hover: none) { .pj-head-pause::after { content: ""; position: absolute; inset: -7px -2px; } }
