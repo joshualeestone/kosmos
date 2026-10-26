@@ -122,7 +122,7 @@ test('#7152 slice 3: with moves on, a move goes through the account move, is rec
   const r = await twoTicks(run, d);
   assert.deepEqual([r.did, r.outcome], ['moved', 'changed']);
   assert.deepEqual(calls.starts, [{ dir: '/u/.claude-spare', names: ['ada'] }]);
-  const move = automove.readLines(file).find((l) => l.kind === 'move');
+  const move = automove.readLines(file).find((l) => l.kind === 'move' && l.outcome !== 'started');   // the line that ends the move
   assert.deepEqual([move.agent, move.fromLabel, move.toLabel, move.outcome], ['ada', 'work', 'spare', 'changed']);
   assert.equal(calls.tells.length, 1);
   assert.match(calls.tells[0][1], /^Kosmos moved this agent from work to spare, because it is at 93% of its weekly limit/);
@@ -386,7 +386,8 @@ test('#7152 slice 3 review 4: a move says it started before its restarts run, so
   let lines = null;
   const { d } = deps({ movesOn: true,
     start: (body) => ({ status: 202, body: { id: 'm', agents: [{ name: body.names[0], outcome: 'pending' }] },
-      done: new Promise((res) => { lines = automove.readLines(file).map((l) => l.kind + ':' + (l.outcome || '')); res(); }) }) });
+      /* Read once the restarts would be running (a turn later), not when the promise is made. */
+      done: new Promise((res) => { setTimeout(() => { lines = automove.readLines(file).map((l) => l.kind + ':' + (l.outcome || '')); res(); }, 0); }) }) });
   await twoTicks(automove.create({ file }), d);
   assert.ok(lines && lines.includes('move:started'), 'nothing was recorded before the restarts ran: ' + JSON.stringify(lines));
   assert.equal(automove.recent(file).some((l) => l.outcome === 'started'), false, 'Settings was handed a started line it draws as nothing');
