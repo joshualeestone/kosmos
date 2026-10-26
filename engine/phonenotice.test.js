@@ -138,4 +138,6 @@ test('#6487 logName blanks controls, separators, zero-width and direction marks,
   assert.equal(pn.logName('Roo Pixel'), 'Roo Pixel', 'CONTROL: a plain name is untouched');
   assert.equal(pn.logName('z'.repeat(100)).length, 80);
   assert.equal(pn.logName(null), '');
+  assert.equal(pn.logName('a\u061cb\u2060c'), 'a b c');
+  assert.equal(pn.logName('z'.repeat(79) + '\u{1F600}x'), 'z'.repeat(79) + '\u{1F600}', 'the 80th character is a whole emoji');
 });

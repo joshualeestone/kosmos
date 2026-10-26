@@ -40,3 +40,7 @@ Never the words, never the id's time; the agent's session name, control characte
   ask with its send; the older "posts are not asked about" sentence fixed (#7032 made them asked); the route test now
   covers malformed-id and the stranger's-pane test reads the borrowed-name line; logName blanks zero-width and
   direction marks too.
+- Round 4 (noticelog-6487-review4.md): 0 blockers, 0 warnings, 3 nits. CONVERGED. Fixed: logName blanks U+061C and
+  U+2060 too, and cuts by character (no half emoji). KEPT: the refusal lines (`answered <status>`, `could not reach`)
+  carry no ref (defaultSend sees only the body; refusals are rare and pair by time); no route test of logName (it is
+  unit-tested and the route calls the same function); "answered them" before the 200 (the code after it is wrapped).

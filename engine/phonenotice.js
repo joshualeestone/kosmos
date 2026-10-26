@@ -110,7 +110,8 @@ function idKind(id) {
  *  (a terminal tailing the log acts on them), and the zero-width and direction marks (they reorder a shown line), at
  *  most 80 characters. */
 function logName(v) {
-  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, ' ').slice(0, 80);
+  const clean = String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, ' ');
+  return Array.from(clean).slice(0, 80).join('');   // by character, so a cut never leaves half an emoji
 }
 
 /** Six hex characters of the id's hash, so a board-log "asked" line pairs with its "sent" line without logging the id
