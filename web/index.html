@@ -1358,6 +1358,12 @@ body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display:
    neutral tone of .login-adv.notice, restated in each theme block below as that one is (Mona Lisa). */
 .utoast.reboot { --utone: var(--label-2); }
 .utoast.reboot .utxt b { color: var(--label); }
+/* kosmos#7248: one row per damaged file, its put-back button inline at the button size the notices use. */
+.utoast.dmg .utxt small.dmgrow { display: block; margin-top: 4px; }
+.utoast.dmg .dmgput { font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; margin-left: 4px;
+  border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }   /* as .uacts buttons */
+.utoast.dmg .dmgput:disabled { opacity: .5; cursor: default; }
+@media (pointer: coarse) { .utoast.dmg .dmgput { min-height: 44px; } }
 /* #6160: the streak's daily note. A celebration, so its edge and dot are gold; restated in each theme block below. */
 .utoast.streak { --utone: var(--gold-edge); }
 .utoast.streak .utxt b { color: var(--label); }
@@ -2237,7 +2243,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#cwnote-slot:empty, #sknote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #sknote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #reboot-slot:empty, #damaged-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -12808,6 +12814,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
     <div id="reboot-slot"></div>
+    <!-- kosmos#7248: a file of Kosmos's own that a crash left empty or unreadable, found at start. A fact Kosmos did not
+         act on, with the one action it offers (put a good copy back); its own slot. -->
+    <div id="damaged-slot"></div>
     <!-- #6160: the once-a-day streak note. A celebration, so it sits below the facts; its own slot so it co-occurs. -->
     <div id="streak-slot"></div>
     <!-- ⚠️ ITS OWN SLOT, and the reason is a state that really happens: a person
@@ -23903,6 +23912,70 @@ function paintRebootNote(note) {
     rebootFocusAway();
   });
 }
+/* kosmos#7248: the files of Kosmos's own that this start found damaged (engine/storecheck.js). Each says what it holds
+   and that Kosmos has not changed it; a good copy goes back only on its button; the X hides the note until the next
+   start. Every action says when it did not work, as the restart note's X does. */
+const DAMAGED_PROBLEM = { empty: 'is empty', nul: 'holds only empty bytes', unreadable: 'cannot be read' };
+function paintDamagedFiles(files) {
+  const slot = document.getElementById('damaged-slot');
+  if (!slot) return;
+  const list = Array.isArray(files) ? files : [];
+  const held = slot.contains(document.activeElement);
+  if (!list.length) { slot.innerHTML = ''; if (held) rebootFocusAway(); return; }
+  const head = list.length === 1 ? 'Kosmos found a damaged file' : 'Kosmos found ' + list.length + ' damaged files';
+  const rows = list.map((f, i) => {
+    const when = f.backup ? rebootWhen(f.backup.at) : '';
+    return '<small class="dmgrow">' + esc(asSentence(String(f.holds || 'a record Kosmos keeps') + ' (' + f.file + ') '
+      + (DAMAGED_PROBLEM[f.problem] || 'cannot be read'))) + ' Kosmos has not changed it.'
+      + (f.backup
+        ? ' <button type="button" class="dmgput" data-i="' + i + '">Put back the copy from ' + esc(when.replace(/^at /, '') || 'before') + '</button>'
+        : ' There is no good copy to put back.')
+      + '</small>';
+  }).join('');
+  slot.innerHTML = '<div class="utoast reboot dmg">'
+    + '<span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b>' + esc(head) + '</b>' + rows + '</div>'
+    + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
+    + '</div>';
+  const say = (row, words) => {
+    const old = row.querySelector('.rerr');
+    if (old) old.remove();
+    row.insertAdjacentHTML('beforeend', ' <span class="rerr">' + esc(words) + '</span>');
+  };
+  slot.querySelectorAll('.dmgput').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const f = list[Number(btn.dataset.i)];
+      const row = btn.closest('.dmgrow');
+      btn.disabled = true;
+      let ok = false;
+      let why = '';
+      try {
+        const r = await fetch('/api/board/damaged-files/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: f.file }) });
+        const got = await r.json().catch(() => null);
+        ok = r.ok;
+        why = (got && got.error) || '';
+      } catch { ok = false; }
+      if (!ok) { btn.disabled = false; say(row, why || 'Kosmos could not put it back just now. Try again in a moment.'); return; }
+      row.innerHTML = esc(f.file) + ': put back. The damaged one is kept beside it. If anything still looks missing, restart Kosmos.';
+    });
+  });
+  const x = slot.querySelector('.ux');
+  if (held) x.focus();
+  x.addEventListener('click', async () => {
+    let ok = false;
+    try { const r = await fetch('/api/board/damaged-files/dismiss', { method: 'POST' }); await r.text(); ok = r.ok; } catch { ok = false; }
+    if (!ok) { say(slot.querySelector('.utxt'), 'Kosmos could not record that just now. Try again in a moment.'); return; }
+    slot.innerHTML = '';
+    rebootFocusAway();
+  });
+}
+async function damagedFilesCheck() {
+  try {
+    const res = await fetch('/api/board/damaged-files', { cache: 'no-store' });
+    const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
+    if (res.ok && got) paintDamagedFiles(got.files);
+  } catch { /* a courtesy: the board log has it too */ }
+}
 let REBOOT_SEEN_START = null;
 async function rebootNoteCheck() {
   try {
@@ -26329,7 +26402,7 @@ async function tick() {
     /* #5359: a board that started again under an open page may have a restart note: ask again when its start time
        moves (a page that watched the outage is the one most likely to want the note). */
     if (data.engine && data.engine.startedAt) {
-      if (REBOOT_SEEN_START && REBOOT_SEEN_START !== data.engine.startedAt) rebootNoteCheck();
+      if (REBOOT_SEEN_START && REBOOT_SEEN_START !== data.engine.startedAt) { rebootNoteCheck(); damagedFilesCheck(); }   // kosmos#7248 too
       REBOOT_SEEN_START = data.engine.startedAt;
     }
     paintBuildLine(data.version);
@@ -46294,6 +46367,7 @@ async function whatsNewCheck() {
 }
 whatsNewCheck();
 rebootNoteCheck();   // #5359
+damagedFilesCheck();   // kosmos#7248
 /* Asked again every ten minutes, so its time words stay true across midnight ("at 11:30 PM" becomes "yesterday at"),
    and a note gone stale or dismissed elsewhere goes. */
 setInterval(rebootNoteCheck, 10 * 60 * 1000);
