@@ -7573,6 +7573,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   .pjcol.pjmid { padding: 12px 8px 8px; }
   /* The avatar's size and its gap, said once: the far-side margin mirrors the avatar's side. */
   #pj-room.thread { padding: 12px 6px; gap: 12px; --room-av: 28px; --room-av-gap: 14px; }
+  /* kosmos#7196: the thread fits the screen above the composer (pjFitRoomPhone writes --pj-room-fit). Both bounds move:
+     the base 26rem floor would otherwise win over a smaller cap. The safe area at the bottom is cleared. */
+  body:not(.consolidated) #pj-room.thread { min-height: min(26rem, calc(var(--pj-room-fit, 26rem) - env(safe-area-inset-bottom, 0px)));
+    max-height: min(62vh, 44rem, calc(var(--pj-room-fit, 100vh) - env(safe-area-inset-bottom, 0px))); }
   #pj-room .msg-av { width: var(--room-av); height: var(--room-av); flex-basis: var(--room-av); font-size: .8125rem; }
   #pj-room .msg:not(.you) .msg-b { margin-right: calc(var(--room-av) + var(--room-av-gap)); }
   #pj-room .msg.you .msg-b { margin-left: calc(var(--room-av) + var(--room-av-gap)); }
@@ -77512,7 +77516,32 @@ function paintRoom(body) {
   if (!filtering && body.ok !== false) unreadEdgeApply(box, 'pj:' + PJ_CURRENT);
   if (!filtering && body.ok !== false) convFollow(box, 'pj:' + PJ_CURRENT);   // #5624
   else if (filtering) convPause();   // #5624 review 1, as in the direct thread
+  pjFitRoomPhone();   // kosmos#7196
 }
+/* kosmos#7196 (Mona Lisa's read, option 1): on a phone the room column ran about 85px past the screen, so the sticky
+   composer covered the thread's newest rows until the page was nudged down. The thread is capped (--pj-room-fit, read by
+   the phone CSS) to what fits between its top, with the page at its top as the room opens, and the composer above the
+   visible bottom. The visible height shrinks with the on-screen keyboard, so the keyboard shrinks the thread, never the
+   composer. A cap only: a short room keeps its natural height. A reader at the newest row stays at it. Phone tab layout
+   only (the consolidated layout already sizes its column to the screen). */
+const PJ_ROOM_PHONE = window.matchMedia('(max-width: 30rem)');   // the phone room block's query; change both together
+function pjFitRoomPhone() {
+  const room = document.getElementById('pj-room');
+  if (!room) return;
+  if (!PJ_ROOM_PHONE.matches || document.body.classList.contains('consolidated')) { room.style.removeProperty('--pj-room-fit'); return; }
+  const comp = document.querySelector('.pjmid .composer');
+  const r = room.getBoundingClientRect();
+  if (!comp || r.height === 0) return;   // not on screen
+  const compH = comp.getBoundingClientRect().height + (parseFloat(getComputedStyle(comp).marginTop) || 0);
+  const visible = window.visualViewport ? Math.round(window.visualViewport.height * window.visualViewport.scale) : window.innerHeight;
+  const fit = Math.max(160, Math.floor(visible - (r.top + window.scrollY) - compH));
+  if (room.style.getPropertyValue('--pj-room-fit') === fit + 'px') return;
+  const atFloor = room.scrollHeight - room.scrollTop - room.clientHeight <= 8;
+  room.style.setProperty('--pj-room-fit', fit + 'px');
+  if (atFloor) room.scrollTop = room.scrollHeight;
+}
+if (window.visualViewport) window.visualViewport.addEventListener('resize', pjFitRoomPhone);
+window.addEventListener('resize', pjFitRoomPhone);
 /* The search input repaints from the cached body (loadRoom keeps it on
    the box) so typing filters instantly between polls; the query resets
    on project switch (a reading posture, not project state -- carried
