@@ -116,6 +116,20 @@ test('add: a vendor that cannot be reached stores the account and says so; a sec
   assert.match((await again.json()).error, /already a DeepSeek account called offline/);
 });
 
+test('add: an empty folder left by an add that died is reclaimed after a minute; a fresh one is still taken', async () => {
+  vendorAnswers(hasModels);
+  const old = nodePath.join(SANDBOX, '.kosmos-deepseek-leftover');
+  fs.mkdirSync(old, { mode: 0o700 });
+  const past = (Date.now() - 5 * 60 * 1000) / 1000;
+  fs.utimesSync(old, past, past);
+  const r = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'leftover' });
+  assert.equal(r.status, 200, 'an abandoned claim kept the name taken: ' + (await r.clone().text()));
+  const fresh = nodePath.join(SANDBOX, '.kosmos-deepseek-racing');
+  fs.mkdirSync(fresh, { mode: 0o700 });
+  const r2 = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'racing' });
+  assert.equal(r2.status, 409, 'a claim under a minute old (another add in flight) was taken over');
+});
+
 test('add: an unknown vendor, a missing key, or a model the vendor lacks is refused before anything is asked', async () => {
   const urls = vendorAnswers(hasModels);
   for (const [body, want] of [
@@ -138,7 +152,11 @@ test('check: asks the vendor for a listed account; an unknown folder is 404', as
   const r = await post('/api/accounts/compat/check', { dir: nodePath.join(SANDBOX, '.kosmos-deepseek-checked') });
   assert.equal(r.status, 200);
   assert.equal((await r.json()).state, compat.STATE.NONE);
-  const missing = await post('/api/accounts/compat/check', { dir: nodePath.join(SANDBOX, '.claude-work') });
+  // A real Claude folder (it exists, with a sign-in file) is not a vendor account, so the check refuses it.
+  const claudeDir = nodePath.join(SANDBOX, '.claude-work');
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.writeFileSync(nodePath.join(claudeDir, '.claude.json'), '{}');
+  const missing = await post('/api/accounts/compat/check', { dir: claudeDir });
   assert.equal(missing.status, 404);
 });
 
