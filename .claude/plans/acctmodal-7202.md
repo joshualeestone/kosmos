@@ -76,3 +76,8 @@
    order between two shown dialogs (no opener sits in a modal today); the auto-update overlay sets no inert or
    aria-modal (pre-existing, outside this dialog); openAcctReauthOpenai leaves focus on its opener (pre-existing; Tab
    now brings it in).
+6. (sonnet) W: a dialog left visible (opacity, off-screen) would switch the trap off silently (now every opener arm
+   asserts no other dialog reads as showing). Nit taken: `:disabled`, so a disabled fieldset's controls are not stops.
+   Not taken, measured: "the other-dialog arm passes with the stand-down deleted" is false; with it deleted the arm
+   reds in both engines (focus pulled to the provider picker). Not taken: positive tabindex order (none in the
+   dialog); the radio arm guards the every-radio-is-a-stop rule only, as its comment says.

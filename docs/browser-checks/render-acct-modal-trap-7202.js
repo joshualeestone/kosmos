@@ -138,6 +138,12 @@ async function walk(p) {
             await open(p, i);
             await p.waitForTimeout(400);
             say(await p.isVisible('#acct-add-modal'), tag + ': the dialog is open');
+            /* The trap stands down while another dialog shows: on an ordinary page nothing else may read as showing,
+               or the trap would be off for the whole visit and look like it never worked. */
+            const others = await p.evaluate(() => [...document.querySelectorAll('[aria-modal="true"]')]
+              .filter((m) => !document.getElementById('acct-add-modal').contains(m) && m.getClientRects().length && getComputedStyle(m).visibility !== 'hidden' && !m.closest('[inert]'))
+              .map((m) => m.getAttribute('aria-labelledby') || m.className));
+            say(others.length === 0, tag + ': no other dialog reads as showing', JSON.stringify(others));
             // Whatever the opener did with focus, start from the page: the Tab that brings it in is the case under test.
             await focusPage(p);
             await p.keyboard.press('Tab');
