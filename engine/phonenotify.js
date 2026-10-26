@@ -473,7 +473,10 @@ const lastSent = new Map();   // "<cooldownClass>:<key>" -> when it last buzzed
 function routeFor(event) {
   const agentKey = String(event.session || event.agent || '');
   switch (event.kind) {
-    case 'needs_you': return { sw: 'needsYou', cls: 'needs_you', key: agentKey, ms: NEEDS_YOU_COOLDOWN_MS };
+    /* kosmos#7212: messages held behind an agent's input box (`held: true`, engine/heldinput.js) keep a window of their
+       own, so a real question and a held-messages notice never swallow each other: the held one is sent once per
+       stretch and never retried, so losing it to a question's window would lose it for good. Same switch. */
+    case 'needs_you': return { sw: 'needsYou', cls: event.held === true ? 'needs_you_held' : 'needs_you', key: agentKey, ms: NEEDS_YOU_COOLDOWN_MS };
     case 'replied': return { sw: 'replied', cls: null };
     case 'ready': return { sw: 'ready', cls: 'ready', key: agentKey, ms: READY_COOLDOWN_MS };
     case 'posted': return event.namesPerson
@@ -536,4 +539,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, routeFor /* for the tests */, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };

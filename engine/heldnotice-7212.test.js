@@ -269,3 +269,24 @@ test('#7212 s2b review 1: the tasks page re-reads when an agent becomes held, as
   assert.notEqual(sig([row({ heldInput: { count: 2, box: 'unread' } })]), sig([row({})]), 'a newly held agent did not change the signature');
   assert.equal(sig([row({ heldInput: { count: 0 } })]), sig([row({})]), 'CONTROL: nothing held changes nothing');
 });
+
+test('#7212 s2c: the held-messages push has its own cooldown window, so it and a real question never swallow each other', () => {
+  const phonenotify = require('./phonenotify');
+  const held = phonenotify.routeFor({ kind: 'needs_you', held: true, session: 'ada' });
+  const asked = phonenotify.routeFor({ kind: 'needs_you', session: 'ada' });
+  assert.equal(held.sw, asked.sw, 'the held push left the needs-you switch');
+  assert.equal(held.key, asked.key);
+  assert.notEqual(held.cls, asked.cls, 'one window for both: a question inside it swallows the held push, which is never retried');
+  assert.equal(phonenotify.routeFor({ kind: 'needs_you', held: 'yes', session: 'ada' }).cls, asked.cls, 'only held: true is the held class');
+  // The sweep marks its push as held.
+  heldinput.resetForTests();
+  const at = ago(40);
+  assert.ok(limitqueue.add('heldcls', { id: 'hc1', from: 'x', envelope: 'e', at, reset: at, input: true }));
+  const pushes = [];
+  heldinput.sweep({ said: new Map(), pushed: new Map(), readBox: () => 'unread', cardKey: (n) => n, log: () => {}, counts: () => true, push: (e) => pushes.push(e) });
+  const mine = pushes.filter((e) => e.session === 'heldcls');
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].held, true, 'the held push did not say it was the held kind');
+  // The flag is routing only: the coordinator payload keeps its fixed fields.
+  assert.equal('held' in phonenotify.payload('n', mine[0]), false);
+});

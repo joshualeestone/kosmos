@@ -95,7 +95,8 @@ function sweep({ said, pushed = new Map(), readBox, cardKey, log, counts = () =>
       try { yes = counts(h.name) === true; } catch { yes = false; }
       if (!yes) continue;
       pushed.set(h.name, now);
-      try { push({ kind: 'needs_you', id: 'heldinput:' + h.key + ':' + now, session: h.key, project: null }); } catch { /* best effort */ }
+      // held: its own cooldown window in phonenotify (#7212 slice 2c), so a question does not swallow it, nor it a question.
+      try { push({ kind: 'needs_you', held: true, id: 'heldinput:' + h.key + ':' + now, session: h.key, project: null }); } catch { /* best effort */ }
     }
     if (JSON.stringify([...pushed]) !== pushedBefore) savePushed(pushed);
     for (const h of toSay) {
