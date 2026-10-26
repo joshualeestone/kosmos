@@ -40,12 +40,25 @@ test('#6774: a row kept for the box says so, and one behind such messages says w
   const words = lift('dmHeldWords', { quotaResetWords: undefined });
   // kosmos#7208: plain words, no "Held:".
   assert.equal(words('casey', { state: 'held', heldFor: 'input' }), "Waiting to deliver: casey's message box has unsent text in it. Yours goes through as soon as that is cleared.");
-  assert.equal(words('casey', { state: 'held', behind: true, behindFor: 'input' }), 'Queued behind your earlier message to casey.');
+  assert.equal(words('casey', { state: 'held', behind: true, behindFor: 'input' }), 'Queued behind earlier messages to casey.');
   // CONTROLS: the usage-limit words.
-  assert.equal(words('casey', { state: 'held', behind: true }), 'Queued behind your earlier message to casey.');
+  assert.equal(words('casey', { state: 'held', behind: true }), 'Queued behind earlier messages to casey.');
   assert.equal(words('casey', { state: 'held', heldUntil: null }), 'casey is out of usage. This delivers when casey is back.');
   // kosmos#7208: the REAL reason wins: a box-held message to an agent out of usage, or not running, says that.
-  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'rate_limited' }), 'casey is out of usage. This delivers when casey is back.');
+  // Review 1: the box still blocks it once casey is back, so the row does not promise more than that.
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'rate_limited' }), 'casey is out of usage. This delivers once casey is back and its message box is clear.');
+  // Review 1: a queued row leads with the real reason too, and never claims the messages ahead are the person's.
+  assert.equal(words('casey', { state: 'held', behind: true }, { state: 'rate_limited' }), 'casey is out of usage. This delivers after the messages ahead of it, when casey is back.');
+  assert.equal(words('casey', { state: 'held', behind: true }, { running: false, state: 'stopped' }), 'casey is not running. This delivers after the messages ahead of it, when casey is running again.');
+  // Review 1: a usage hold past its reset, casey running on the card: not "out of usage".
+  assert.equal(words('casey', { state: 'held', heldUntil: new Date(Date.now() - 60e3).toISOString() }, { running: true, state: 'idle' }), 'casey is back. This goes through in a minute or so.');
+  assert.match(words('casey', { state: 'held', heldUntil: new Date(Date.now() - 60e3).toISOString() }), /^casey is out of usage/, 'CONTROL: with no card, the hold says it');
+  // Review 1: restarting is not "not running"; signed out on the card wins over the box and over a scraped limit.
+  assert.match(words('casey', { state: 'held', heldFor: 'input' }, { running: false, state: 'restarting' }), /^Waiting to deliver/);
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'auth_failed' }), 'casey is signed out. This delivers once casey is signed in again.');
+  assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'rate_limited' }), 'casey is signed out. This delivers once casey is signed in again.');
+  // Review 1: a limit the card only read off the screen is said as the card says it, a guess.
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'rate_limited', stateConfidence: 'scraped' }), 'casey looks to be out of usage. This delivers once casey is back and its message box is clear.');
   assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { running: false, state: 'stopped' }), 'casey is not running. This delivers when casey is running again.');
   assert.match(words('casey', { state: 'held', heldFor: 'input' }, { running: true, state: 'idle' }), /^Waiting to deliver/, 'CONTROL: a running agent with room is the box');
   assert.ok(!/Held:/.test(words('casey', { state: 'held', heldFor: 'input' })), 'no "Held:" left');
@@ -58,7 +71,10 @@ test('#6774: Send now anyway is not offered on a row kept for the box, and the l
   assert.match(button[1], /m\.delivery\.heldFor !== 'input'/, 'the button is offered on a row kept for the box');
   assert.match(button[1], /m\.delivery\.behindFor !== 'input'/, 'the button is offered on a row kept behind messages kept for the box');
   // kosmos#7208: nothing is said under the box for a held message: the row says it once.
-  assert.match(PAGE, /said ONCE, on the message's own row; nothing more under the box[^\n]*\n\s+clearSent\(\);\n\s+line = '';/, 'the held line under the box is not empty');
+  // Anchored on the code, not its comment (review 1): the held arm clears the box and says nothing under it.
+  const heldArm = PAGE.slice(PAGE.indexOf("if (d.state === 'held' && inThread) {"));
+  assert.notEqual(PAGE.indexOf("if (d.state === 'held' && inThread) {"), -1, 'CONTROL: the held arm of sendTalk was not found');
+  assert.match(heldArm.slice(0, 600), /clearSent\(\);\n\s+line = '';/, 'the held line under the box is not empty');
   assert.doesNotMatch(PAGE, /line = dmHeldWords\(/, 'a held message is still repeated under the box');
 });
 

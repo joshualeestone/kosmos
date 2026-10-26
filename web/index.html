@@ -78237,34 +78237,53 @@ function placedWords(d) {
    reason first. `a` is the agent's card when the page has it: out of usage or not running says that, even when the
    message was kept for its message box, because then the box is not why it waits. */
 function dmHeldWords(name, d, a) {
+  d = d || {};
+  const now = Date.now();
   // Kosmos tried to send it and could not (the sweep recorded why): said after the reason it waits.
-  const stuck = d && d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
+  const stuck = d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
     ? ' Kosmos tried to send it and could not: ' + d.stuck.because.replace(/[.\s]+$/, '') + '.' : '';
-  const soon = (t) => (t > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(t, Date.now()) : '');
+  const soon = (t) => (t > now && typeof quotaResetWords === 'function' ? quotaResetWords(t, now) : '');
   const cardAt = a && typeof a.limitUntil === 'string' ? Date.parse(a.limitUntil) : NaN;
-  const outNow = !!a && (a.state === 'rate_limited' || cardAt > Date.now());
-  const stopped = !!a && !outNow && (a.running === false || a.state === 'stopped');
-  if (d && d.behind === true) return 'Queued behind your earlier message to ' + name + '.' + stuck;
-  if (outNow || (d && d.heldFor !== 'input' && d.heldFor !== 'signin')) {
-    const heldAt = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
-    const when = soon(cardAt > Date.now() ? cardAt : heldAt);
-    return name + ' is out of usage' + (when ? ' until ' + when : '') + '. This delivers when ' + name + ' is back.' + stuck;
-  }
-  if (stopped) return name + ' is not running. This delivers when ' + name + ' is running again.' + stuck;
-  // #5948: its sign-in stopped working; there is no reset to name, only signing in again.
-  if (d && d.heldFor === 'signin') return name + ' is signed out. This delivers once ' + name + ' is signed in again.' + stuck;
+  const heldAt = typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
+  const restarting = !!a && a.state === 'restarting';
+  // Review 1: one order of reasons. Signed out (the hold's or the card's) beats a scraped usage limit; restarting is
+  // not "not running"; a usage hold whose reset has passed, with the agent's card running, is not "out of usage".
+  const signedOut = d.heldFor === 'signin' || (!!a && a.state === 'auth_failed');
+  const cardOut = !!a && !signedOut && (a.state === 'rate_limited' || cardAt > now);
+  const stopped = !!a && !signedOut && !cardOut && !restarting && (a.running === false || a.state === 'stopped');
+  const back = !!a && !cardOut && !stopped && !restarting && !signedOut && !(heldAt > now);
+  const usageHold = !d.behind && d.heldFor !== 'input' && d.heldFor !== 'signin';
+  const out = !signedOut && (cardOut || (usageHold && !back));
+  // The message box blocks it too: kept for the box, or queued behind something kept for the box.
+  const box = d.heldFor === 'input' || (d.behind === true && d.behindFor === 'input');
+  // When it goes: after the messages ahead of it when it is queued, and once the box is clear when that blocks it too.
+  const after = (when) => (d.behind === true ? ' This delivers after the messages ahead of it, ' + when + '.' : ' This delivers ' + when + '.');
+  let said;
+  if (signedOut) said = name + ' is signed out.' + after('once ' + name + ' is signed in again');
+  else if (out) {
+    const until = soon(cardAt > now ? cardAt : heldAt);
+    // The card can only guess at a limit it read off the screen (stateConfidence 'scraped'); the row hedges as it does.
+    const guess = cardOut && !usageHold && a.stateConfidence === 'scraped';
+    said = name + (guess ? ' looks to be out of usage' : ' is out of usage') + (until ? ' until ' + until : '') + '.'
+      + after(box ? 'once ' + name + ' is back and its message box is clear' : 'when ' + name + ' is back');
+  } else if (stopped) said = name + ' is not running.' + after('when ' + name + ' is running again');
+  // Ahead of it are other messages to this agent, from anyone (other agents, task notices), not only the person's.
+  else if (d.behind === true) said = 'Queued behind earlier messages to ' + name + '.';
   // #6774: its message box holds text not yet sent; the minute sweep sends this once the box reads empty.
-  return 'Waiting to deliver: ' + name + "'s message box has unsent text in it. Yours goes through as soon as that is cleared." + stuck;
+  else if (box) said = 'Waiting to deliver: ' + name + "'s message box has unsent text in it. Yours goes through as soon as that is cleared.";
+  // A usage hold past its reset, with the agent running again: the sweep sends it within the minute.
+  else said = name + ' is back. This goes through in a minute or so.';
+  return said + stuck;
 }
-/* kosmos#7208: the card of the agent a held message waits for: by the message's own `to`, else the chat that is open.
-   Guarded: tests lift dmHeldWords and pjVerdict without the page's globals. */
+/* kosmos#7208: the card of the agent a held message waits for, from the board's list by the name the thread shows
+   (the open chat's card first). Guarded: tests lift dmHeldWords and pjVerdict without the page's globals. */
 function dmHeldAgent(m, name) {
   try {
-    const list = typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : [];
-    const byTo = m && typeof m.to === 'string' ? list.find((a) => a && a.sessionName === m.to) : null;
-    if (byTo) return byTo;
+    const is = (a) => !!a && (a.name === name || a.displayName === name || a.agentName === name || a.sessionName === name);
     const cur = typeof CURRENT !== 'undefined' ? CURRENT : null;
-    return cur && (cur.name === name || cur.displayName === name) ? cur : null;
+    if (is(cur)) return cur;
+    const list = typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : [];
+    return list.find(is) || null;
   } catch { return null; }
 }
 function pjVerdict(m, name) {
@@ -78278,7 +78297,7 @@ function pjVerdict(m, name) {
   const whenLive = pjWhenLive(m.at);
   const when = whenLive ? ' ' + whenLive : '';
   if (d.state === 'held') {
-    // #5805 slice 2b: kept while the agent is out of usage; dmRow puts Send now anyway beside it.
+    // #5805 slice 2b: a held message (out of usage, signed out, not running, its box, or queued); dmRow puts Send now anyway beside it.
     mark = ' held';
     said = esc(dmHeldWords(name, d, typeof dmHeldAgent === 'function' ? dmHeldAgent(m, name) : null));
   } else if (d.state === 'placed') {

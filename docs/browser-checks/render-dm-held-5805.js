@@ -132,11 +132,11 @@ function readRow(page, words) {
     let w = await wordsFor({ state: 'held', heldFor: 'input' });
     chk(w === BOX, 'held for the message box: says so, and that nothing is wrong', w);
     w = await wordsFor({ state: 'held', heldFor: 'input' }, { state: 'rate_limited', limitUntil: UNTIL });
-    chk(/^April is out of usage until .+\. This delivers when April is back\.$/.test(w), 'held for the box but April is out of usage: the usage is the reason said', w);
+    chk(/^April is out of usage until .+\. This delivers once April is back and its message box is clear\.$/.test(w), 'held for the box but April is out of usage: the usage is said first, and the box still counts', w);
     w = await wordsFor({ state: 'held', heldFor: 'input' }, { running: false, state: 'stopped' });
     chk(w === 'April is not running. This delivers when April is running again.', 'held for the box but April is stopped: says she is not running', w);
     w = await wordsFor({ state: 'held', behind: true, behindFor: 'input' });
-    chk(w === 'Queued behind your earlier message to April.', 'a later message: queued behind the earlier one', w);
+    chk(w === 'Queued behind earlier messages to April.', 'a later message: queued behind the earlier one', w);
     w = await wordsFor({ state: 'held', heldFor: 'signin' });
     chk(w === 'April is signed out. This delivers once April is signed in again.', 'signed out: says so', w);
     chk(!/Held:|input box/.test(BOX + w), 'CONTROL: none of the old words', w);

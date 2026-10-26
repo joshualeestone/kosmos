@@ -42,7 +42,7 @@ test('#5805 2b review 3: a held row the sweep could not type says why, after why
   assert.doesNotMatch(plain, /tried/, 'CONTROL: a row never tried says it was tried');
   const stuck = words('casey', { state: 'held', stuck: { because: 'its screen waits on a question.', at: 'x' } });
   assert.match(stuck, /out of usage\. This delivers when casey is back\. Kosmos tried to send it and could not: its screen waits on a question\.$/);
-  assert.match(words('casey', { behind: true, stuck: { because: 'no window' } }), /^Queued behind your earlier message to casey\. Kosmos tried to send it and could not: no window\.$/);
+  assert.match(words('casey', { behind: true, stuck: { because: 'no window' } }), /^Queued behind earlier messages to casey\. Kosmos tried to send it and could not: no window\.$/);
 });
 
 test('#5805 2b review 3: Send now anyway says the route\'s refusal under the box instead of silently re-enabling', async (t) => {

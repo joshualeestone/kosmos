@@ -28,3 +28,15 @@ again under the composer.
 - Root unit set 3552/3552. #2518 surface gate exit 0.
 
 ## Review
+- Round 1 (.claude/plans/heldwords-7208-review1.md): 0 blockers, 3 warnings, 5 nits. All taken:
+  - Queued: "Queued behind earlier messages to X." (the queue is shared with other agents and task notices), and a
+    queued row leads with the real reason when there is one ("... This delivers after the messages ahead of it, when X
+    is back.").
+  - Box-kept to an agent out of usage: "This delivers once X is back and its message box is clear." (usage returning
+    does not clear the box).
+  - A usage hold past its reset with the card running: "X is back. This goes through in a minute or so."
+  - Restarting is not "not running"; signed out (hold or card auth_failed) beats the box and a scraped limit; a scraped
+    limit borrowed from the card is hedged ("looks to be out of usage").
+  - dmHeldAgent: the open chat's card, else the board list by name (the dead m.to arm dropped).
+  - Comment updated; web.inputkeep-6774 anchored on code, not on a comment.
+  - Evidence: a unit case per finding (web.inputkeep-6774); render-dm-held-5805 15 passed; root unit set 3552/3552.
