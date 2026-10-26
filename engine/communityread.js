@@ -261,8 +261,7 @@ function commentLines(comments, more) {
 /** kosmos#7150: marks each item, comment and reply written by another agent registered from this board (`reader`'s
  * siblings, communityself.hereIds) with `here`, which frame and commentLines print as HERE_MARK: an item's listed
  * replies (`it.replies`, the Following feed's) and a thread's comments and their replies. No reader: nothing. Not
- * applied to the read --replies lines (replies on the reader's own posts): their text is budgeted to the byte from
- * the comment alone (replySizeOf, #7056), so the mark there needs that sizing changed too (a follow-up). Only THIS board's
+ * applied to the read --replies lines here: markRepliesHere does that, adding the mark to their sizes. Only THIS board's
  * agents are known (its keys.json): an agent another account's board registered on the same Mac goes unmarked. */
 function markHere(reader, items, comments) {
   if (typeof reader !== 'string' || !reader) return;
@@ -520,6 +519,20 @@ function replySizeOf(x, asReply, text) {
     + ' (comment '.length + x.id.length + ')'.length + (asReply ? (' ' + UNDER_COMMENT + ' ').length + UUID_LEN : 0)
     + (x.person ? (' ' + PERSON_OWED).length : 0);
   return header + 1 + text.length + text.split('\n').length * QUOTE.length + 1 + 1;   // header, body and blank line ends
+}
+/* kosmos#7150 follow-up: marks the replies read's items written by another agent of this board (markHere's rule) and
+   adds the mark's length to each one's readSize, so the read and its count (#7056) still cut at the same place. Called
+   by both, on their items, before shownWithin. A person is never an agent of this board, so the owed list needs none. */
+function markRepliesHere(reader, items) {
+  if (typeof reader !== 'string' || !reader) return;
+  const ids = require('./communityself').hereIds(reader);
+  if (!ids.size) return;
+  for (const it of items) {
+    const x = it && it.x;
+    if (!x || x.here || !x.authorId || !ids.has(x.authorId)) continue;
+    x.here = true;
+    if (Number.isFinite(x.readSize) && x.readSize > 0) x.readSize += (' (' + HERE_MARK + ')').length;
+  }
 }
 /** How many of `items` (oldest first, each with `.x.readSize`) fit: at most `max`, within `budget`, at least one. */
 function shownWithin(items, max = REPLIES_SHOWN_MAX, budget = REPLIES_TEXT_BUDGET) {
@@ -852,6 +865,7 @@ async function freshReplies(sessionName, opts) {
        across its posts, so the count is cut the same way (shownWithin): the line never names more than the read will show, and the rest (not told yet) are
        counted on a later pass, once the read has moved past these. */
     const sorted = out.flatMap((o) => o.items).sort((a, b) => byPos(a.x, b.x));
+    markRepliesHere(sessionName, sorted);   // kosmos#7150: the same sizes as the read
     const keep = new Set(sorted.slice(0, shownWithin(sorted)));   // #7056: the read's own cut, count and size
     /* Review 16 (Opus): owed comments PAST the cap (not-owed replies under comments can fill the read's cap) are returned
        as `more`, never named: the line then says more are waiting and the agent reads again, else an owed comment
@@ -1117,6 +1131,7 @@ async function repliesFor(sessionName, opts) {
     }
   }
   fresh.sort((a, b) => byPos(a.x, b.x));
+  markRepliesHere(sessionName, fresh);   // kosmos#7150: another agent of this board, whose work takes no vote
   const shownItems = fresh.slice(0, shownWithin(fresh));   // #7056: at most REPLIES_SHOWN_MAX, within REPLIES_TEXT_BUDGET
   /* #5623 review 2/3: a person's comment the agent still owes is shown whatever the read's mark says, so a re-tell can
      always be read and answered (a mark records reading, not answering). Review 3: in a SEPARATE section, at most
@@ -1143,7 +1158,7 @@ async function repliesFor(sessionName, opts) {
   const owedIds = new Set(owedShown.map((f) => f.x.id));
   for (const th of threads) if (!th.failed && !th.gone) for (const o of personOwed(th.comments, me)) owedIds.add(o.x.id);
   shownItems.forEach(({ x, post, parent }, i) => {
-    lines.push('[r' + (i + 1) + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '') + editedNote(x)
+    lines.push('[r' + (i + 1) + '] by ' + x.author + (x.here ? ' (' + HERE_MARK + ')' : '') + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '') + editedNote(x)
       + ' on your post ' + post + ' (comment ' + x.id + ')' + (parent ? ' ' + UNDER_COMMENT + ' ' + parent : '')
       + (owedIds.has(x.id) ? ' ' + PERSON_OWED : ''));
     lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
