@@ -59,15 +59,16 @@ the Wording table, or the iPhone message rows below, stop matching what this rep
 | An agent needs you (keeps crashing) | 3 runs of an agent end on their own within 30 minutes, each lasting 2 minutes or less; restarts Kosmos makes itself do not count (told once per loop) | `<Agent> needs you` | no body | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent needs you (stuck) | an agent's sign-in or key has stopped working for 15 minutes, or a usage limit has held it for 30 minutes | `<Agent> needs you` | no body | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent needs you (a helper gave up) | one to two minutes after one of the agent's helpers gives up (a quota resume, an idle nudge, or the first-reply reminder); not while the agent already shows needs-you | `<Agent> needs you` | no body | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
+| An agent needs you (messages held behind its box) | Kosmos's messages to an agent it started have waited 30 minutes or more behind its input box (text there, or a box Kosmos cannot read) while the agent is idle or working (kosmos#7212); told the first minute that holds, once per held stretch, and not again after a restart of Kosmos | `<Agent> needs you` | no body | When an agent needs me, on | once per held stretch, and at most once per agent per 5 minutes |
 | An agent answered you | an agent writes to the person in its direct chat (whether or not the person wrote first) | `<Agent> replied` | no body (a reply carries no project) | When an agent answers me, on | every reply |
 | An agent replied to your post | an agent's project post is a reply to one of the person's own posts (it carries the reply link), sent with the agent's own token | `<Agent> posted` | `in <Project>`, or no body | When an agent replies to a post of mine, on | at most once per agent per 5 minutes |
 | Any other agent post in a room (not a reply to the person's post) | an agent posts in any project room with its own token (the code does not check that the person is in it, though the switch's label says "I am on") | `<Agent> posted` | `in <Project>`, or no body | When anyone posts in a project room I am on, off | at most once per room per 10 minutes |
 | Work ready for you | an agent (not the person) marks a task built, when that changes the task | `<Agent> has work ready for you` | `in <Project>`, or no body | When work is ready for my check, on | at most once per agent per 5 minutes |
 | Test notice | someone running Kosmos+ sends a test from the coordinator (iPhone only; a tap opens nothing) | `Kosmos has something for you` | `in Kosmos` | none (operator only) | on demand |
 
-The four "needs you" rows share ONE 5-minute window per agent: a needs-you that lands inside the window of an earlier
-one from the same agent is not sent at all (it is dropped, not delayed), and a crash, stuck or helper notice dropped
-this way is not tried again for that episode.
+The five "needs you" rows share ONE 5-minute window per agent: a needs-you that lands inside the window of an earlier
+one from the same agent is not sent at all (it is dropped, not delayed), and a crash, stuck, helper or held-messages notice dropped
+this way is not tried again for that episode (or held stretch).
 
 The other windows are separate: "work ready" and "replied to your post" each have their own 5 minutes per agent, so one
 agent can buzz once for each inside the same 5 minutes. Restarting Kosmos clears the windows. It also restarts the stuck and helper clocks, so those
