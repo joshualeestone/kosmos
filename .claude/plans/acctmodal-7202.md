@@ -68,3 +68,11 @@
    Nits taken: a dialog hidden by visibility no longer counts as showing; summary and contenteditable are stops; the
    defaultPrevented comment no longer overstates. Not taken: the other-dialog arm passes for a trap that stands down
    for any reason (it does discriminate the trap that does not, which is the failure it is for).
+5. (default model) B: the check named ids it makes itself (`#trap7202-radios`, `getElementById('trap7202-tail')`),
+   which browser-checks-selectors.test.js requires web/index.html to carry, so CI would red (confirmed with the guard's
+   own idsAskedFor: two MISS on the old check, none now; the made elements are held on window). Nits taken: Tab from
+   the page now must enter at the first stop (was any stop); a Tab another handler already prevented has an arm; the
+   header no longer says "every" Sign in again (four openers driven, the rest share the trap). Not taken: stacking
+   order between two shown dialogs (no opener sits in a modal today); the auto-update overlay sets no inert or
+   aria-modal (pre-existing, outside this dialog); openAcctReauthOpenai leaves focus on its opener (pre-existing; Tab
+   now brings it in).
