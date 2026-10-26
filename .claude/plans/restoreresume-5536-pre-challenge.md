@@ -1,8 +1,8 @@
 ---
 method: challenge-loop
 branch: restoreresume-5536
-diff_hash: d67987a2d8c6d1f220e83a775127039941e240aec0a2fbd92c60237b17143190
-timestamp: 2026-10-26T03:49:39Z
+diff_hash: 31521b9c44e10014be43998ed2548caeecae0341be46c3a4a00a726681172734
+timestamp: 2026-10-26T04:36:24Z
 iterations: 8
 converged: false
 ---
@@ -53,8 +53,12 @@ of another start time is stale.
 - Mutation arms: 50+ across the rounds, each applied, checked applied, run and restored byte for byte; every arm red
   at the final code except three stated: the NFC two-names arm (disk-dependent), a failed ps on a live pid (needs a ps
   that fails for a live process), and the created-only record cleanup (the lock now stops a second sink first).
-- Full validation at 42f2698f1d through queued-heavy: 24084 tests, 0 fail, validation-log PASSED hash d67987a2d8c6,
-  matching this proof's diff_hash. Run 1 found two repo guards red (#1732 inventory, #1777 Windows list), both fixed
+- Full validation at 42f2698f1d through queued-heavy: 24084 tests, 0 fail, validation-log PASSED hash d67987a2d8c6
+  (the proof's hash at that commit). Run 1 found two repo guards red (#1732 inventory, #1777 Windows list), both fixed
   in 42f2698f1d. Run 2 was green on every node test, but shell shard 2 failed test-queued-heavy-4977.sh, one timing
   check (#5923); it is 142 of 142 alone on the same tree, and this branch does not touch queued-heavy. Run 3 is the
   clean one.
+- After the PR: CI's Windows job (the first time restoreresume-5536.test.js ran on Windows) failed three resume
+  tests: Windows refuses ftruncate on an O_APPEND file. Fixed in c2b6ee4294 (positioned writes, no O_APPEND; an arm
+  without the position reds 4 tests). Full validation again at c2b6ee4294: 24084 tests, 0 fail, validation-log
+  PASSED hash 31521b9c44e1, matching this proof's diff_hash. Windows itself is checked by PR CI, not here.
