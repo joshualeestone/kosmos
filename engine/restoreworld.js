@@ -38,6 +38,9 @@ const HELD_PREFIX = 'held-back-';
    the lock one finish holds while it runs. */
 const HELD_RECORD = 'restore-held-back.json';
 const FINISH_LOCK = 'restore-finishing';
+/* Also in the world folder: the mark that this world was made by a restore. Agents started in it later must run git
+   with hooks and fsmonitor off (projects keep their own .git), and isRestoredWorld is how any start path asks. */
+const RESTORED_MARK = 'restored-world.json';
 const MOVED = ['workers', 'projects'];           // the roots that become the world's own
 const MAX_NAME_TRIES = 9;
 const MAX_MEMBER_CHARS = 60;
@@ -130,6 +133,7 @@ function prepareRestoreWorld(base, opts = {}) {
   const dir = worlds.worldBaseDir(base, world);
   const restoreDir = path.join(dir, RESTORE_DIR);
   try {
+    fs.writeFileSync(path.join(dir, RESTORED_MARK), JSON.stringify({ restoredAt: new Date(Number.isFinite(opts.now) ? opts.now : Date.now()).toISOString() }), { mode: 0o600, flag: 'wx' });
     fs.mkdirSync(restoreDir, { mode: 0o700 });   // not recursive: it must be new, and the sink refuses a non-empty root
   } catch {
     let hidden = true;
@@ -166,6 +170,14 @@ function renameRetrying(src, dst) {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100 * attempt);
     }
   }
+}
+
+/* Whether `world` was made by prepareRestoreWorld: the mark it writes in the world folder, which a snapshot never
+   writes. What an agent start path checks before starting an agent in that world (git hooks and fsmonitor off). */
+function isRestoredWorld(base, world) {
+  const dir = worldDirOf(base, world);
+  if (!dir || !realDir(dir)) return false;
+  try { return fs.lstatSync(path.join(dir, RESTORED_MARK)).isFile(); } catch { return false; }
 }
 
 /* After a restore that SUCCEEDED, and after its sink is closed. opts: { base, world, restoreDir, result } where
@@ -245,7 +257,10 @@ function finishRestoreWorld(opts = {}) {
           // Recorded before the folder is made, so no held-back folder of this run is ever unrecorded (a later run
           // would list it as kept); heldIn lists only what is actually in it.
           recordHeld(dir, path.basename(heldName));
-          fs.mkdirSync(heldName, { mode: 0o700 });   // new: refuses one already there
+          try { fs.mkdirSync(heldName, { mode: 0o700 }); } catch (e) {   // new: refuses one already there
+            unrecordHeld(dir, path.basename(heldName));   // never leave the record naming a folder this run did not make
+            throw e;
+          }
           heldMade = true;
         }
         if (hold.length) fs.mkdirSync(path.join(heldName, name), { mode: 0o700 });
@@ -331,7 +346,9 @@ function takeFinishLock(dir) {
     let movedPid = NaN;
     try { movedPid = Number(fs.readFileSync(path.join(aside, 'pid'), 'utf8')); } catch { /* no pid */ }
     if (!(movedPid === pid || (Number.isNaN(movedPid) && Number.isNaN(pid)))) {
-      try { fs.renameSync(aside, at); } catch { /* the new owner's lock stays aside; it releases nothing of ours */ }
+      // If a third taker filled the place meanwhile, the put-back fails and two finishes can overlap: a residual
+      // that needs three finishes of one world within the same instant.
+      try { fs.renameSync(aside, at); } catch { /* the new owner's lock stays aside */ }
       return { busy: true };
     }
     try { fs.rmSync(aside, { recursive: true, force: true }); } catch { /* aside, harmless */ }
@@ -390,6 +407,13 @@ function recordHeld(dir, folder) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({ folders }), { mode: 0o600 });
   renameRetrying(tmp, file);
+}
+
+function unrecordHeld(dir, folder) {
+  const folders = recordedHeld(dir).filter((f) => f !== folder);
+  const file = path.join(dir, HELD_RECORD);
+  const tmp = `${file}.${process.pid}.tmp`;
+  try { fs.writeFileSync(tmp, JSON.stringify({ folders }), { mode: 0o600 }); renameRetrying(tmp, file); } catch { /* best effort */ }
 }
 
 /* What the finish runs held back, as `<root>/<label>`, for the screen. */
@@ -531,7 +555,7 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    (projects are usually repositories; one at the top reaches every project without its own); one in an agent folder
    or at the top of workers refuses. Projects keep their own .git (restoring a repository whole is the point), so an
    agent made in this world later meets it without this review: start agents in a Restored world with git's hooks
-   and fsmonitor switched off (4c). Agents kept elsewhere sit under the restore folder, whose top a snapshot chooses,
+   and fsmonitor switched off (4c); isRestoredWorld is the check every start path makes. Agents kept elsewhere sit under the restore folder, whose top a snapshot chooses,
    so never run git or open a terminal there. A backup can force `more` with enough empty folders, so the screen should let the
    person review past the cap rather than stop. Keep the person out of a Restored world until its finish has run: an
    agent or project made there first fills the folders finish needs empty. An empty `runs` also says nothing about
@@ -626,4 +650,4 @@ function listRestoredAgents(opts = {}) {
   return { agents, shared, more };
 }
 
-module.exports = { prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, worldName, RESTORE_DIR };
+module.exports = { prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, isRestoredWorld, worldName, RESTORE_DIR };

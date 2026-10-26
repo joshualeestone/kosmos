@@ -194,7 +194,14 @@ no profile record, and STARTS the agent: enable then bootstrap).
    carries on. Nits: temporary lock and record files a crash left are swept when a lock is taken, once older than the
    stale line; the plan names the inode-0 fallback; round 15's superseded sentence is marked.
 
+26. W: nothing marked a world as Restored, so the ordinary start path for an agent made there later had no way to
+   know to start git with hooks and fsmonitor off; prepare now writes `restored-world.json` in the world folder
+   (which a snapshot never writes) and `isRestoredWorld` reads it, named in the contract as the check. Nits: a
+   held-back folder whose name collides is taken back out of the record; the three-taker lock race is stated at the
+   code.
+
 ## Residuals, stated
+- Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
 - On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that
   catches further folding cannot run there.
 - A Restored world opened and used before its finish cannot be finished (its folders are no longer empty); the 4c
