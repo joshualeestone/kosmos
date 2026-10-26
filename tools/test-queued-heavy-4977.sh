@@ -71,6 +71,7 @@ printf '#!/bin/sh\nexit 1\n' > $S/quiet; printf '#!/bin/sh\necho "2.0 10"\n' > $
 # The guards are this tree's own (tools/lib/cut-guard.sh beside this file), so the test pins the pair as committed.
 export KOSMOS_RUN_MARKER_DIR=$S/m QUEUED_HEAVY_LIB=$ROOT KOSMOS_CUT_PROBE=$S/quiet KOSMOS_HARNESS_PROBE=$S/quiet \
   KOSMOS_BC_PROBE=$S/quiet KOSMOS_SUITE_PROBE=$S/quiet KOSMOS_PW_PROBE=$S/quiet KOSMOS_LOAD_PROBE=$S/load KOSMOS_WAIT_EVERY_S=1
+export KOSMOS_PREPUSH_MACHINE_LOCK=$S/no-prepush-lock   # kosmos#6756: never the real build lock, however this file is run
 oks=0; bads=0
 sleep $((U+9)) & H=$!; NOW=$(date +%s)   # the fake heavy holder: lives as long as this test (review 1: was a 15-min fuse)
 hold() { printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > $S/m/machine-claim; }

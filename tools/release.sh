@@ -474,6 +474,27 @@ if [ "${KOSMOS_CUT_IGNORE_SIDE:-0}" != 1 ] && command -v kosmos_refuse_if_light_
   _rel_side() { kosmos_refuse_if_light_side_live "this cut"; }
   kosmos_wait_until_clear "this cut" _rel_side || exit 1
 fi
+# kosmos#6756: a relay pre-push build running here (kosmos_refuse_if_prepush_build_live in tools/lib/cut-guard.sh). The
+# claim above stops it starting another step (the card: it reads the claim before each one); the step running ends on
+# its own, so wait for it rather than cut beside it. Bounded at 100 minutes, past the card's longest step, then the wait
+# says it gave up and the cut stops. The claim lasts 30 minutes and step() is what renews it, so each poll of this wait
+# (every 30 s) renews it first: a claim that lapsed mid-wait would let the build start its next step beside the cut. Only
+# a claim that is still ours, or none (ours lapsed), is renewed, as the cut's renewer does (#5134); one with another
+# cookie belongs to whoever took the box and is left alone.
+# KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway; KOSMOS_CUT_PREPUSH_WAIT_S sets the bound.
+if [ "${KOSMOS_CUT_IGNORE_PREPUSH:-0}" != 1 ] && command -v kosmos_refuse_if_prepush_build_live >/dev/null 2>&1; then
+  _rel_prepush() {
+    local cur
+    cur="$(_kosmos_machine_claim_active 2>/dev/null || true)"
+    if [ -z "$cur" ] || [ "$(printf '%s' "$cur" | awk '{print $1}')" = "${KOSMOS_MACHINE_CLAIM_COOKIE:-}" ]; then
+      KOSMOS_CLAIM_KEEP_LABEL=1 kosmos_claim_machine >/dev/null 2>&1 || true
+    else
+      echo "   (#6756: the machine claim is held by someone else now, so this cut is not renewing it: $cur)" >&2
+    fi
+    kosmos_refuse_if_prepush_build_live "this cut" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway"
+  }
+  KOSMOS_WAIT_MAX_S="${KOSMOS_CUT_PREPUSH_WAIT_S:-6000}" kosmos_wait_until_clear "this cut" _rel_prepush || exit 1
+fi
 
 # #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the operator's STORE
 # and ACCOUNTS.

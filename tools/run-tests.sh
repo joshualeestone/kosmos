@@ -438,6 +438,10 @@ export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env
 # #4632: the roles and teams catalogue a board downloads when asked (the picker, `kosmos agent
 # roles`, a create for a role it does not hold). A test that needs it serves its own.
 export KOSMOS_CATALOGUE_BASE=http://127.0.0.1:9/
+# kosmos#6756: no test waits behind a real relay pre-push build. A test that runs queued-heavy.sh or release.sh would
+# otherwise read this machine's real build lock (~/.cache/prepush/machine.lock) and wait out a live cargo step until its
+# own deadline. A path under /dev/null can never exist, so the probe answers "no build"; a test of the wait sets its own.
+export KOSMOS_PREPUSH_MACHINE_LOCK=/dev/null/kosmos-tests-no-prepush-lock
 
 # #4326: no test may run the operator's real gh or vercel. A board a test boots probes them
 # for /api/connections, and an unauthenticated `vercel whoami` waits forever (one ran 2h39m at

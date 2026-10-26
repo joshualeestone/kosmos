@@ -179,6 +179,10 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   namingKey = nk;
   if (manifest.files.length > maxFiles) return { overBound: 'maxFiles' };
   const restored = [], failed = [];
+  let alreadyHeld = 0;
+  // slice 3: a resumed sink (engine/restoresink.js resume) proves what it already holds; such a file is skipped, its
+  // chunks never fetched. Optional: a sink without has() restores every file, as before.
+  const holds = typeof sink.has === 'function' ? sink.has.bind(sink) : null;
   const wellFormed = [];
   for (const f of manifest.files) {
     const shown = f && typeof f.path === 'string' ? forReport(f.path) : '(unnamed)';
@@ -197,6 +201,8 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const work = { left: 2 * maxTotalBytes + WORK_PER_ENTRY * wellFormed.filter((f) => !clash.has(f.path) && f.size <= maxTotalBytes).length };
   for (const f of wellFormed) {
     if (clash.has(f.path)) { failed.push({ path: forReport(f.path), why: 'another entry lands on the same file or folder' }); continue; }
+    // Already on disk, so it costs no budget: maxTotalBytes is the room NEW files may take.
+    if (holds && await holds(toSinkPath(f.path), f.sha256, f.size) === true) { restored.push(f.path); alreadyHeld += 1; continue; }
     if (f.size > budget) { failed.push({ path: forReport(f.path), why: 'the restore is over its byte budget' }); continue; }
     if (f.size > work.left) { failed.push({ path: forReport(f.path), why: 'the store sent more data than the restore could use' }); continue; }
     const why = await restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject, work });
@@ -206,7 +212,9 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const skippedAtBackup = (Array.isArray(manifest.skipped) ? manifest.skipped : [])
     .filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').slice(0, MAX_SKIPPED_REPORTED)
     .map(({ path, why }) => ({ path: forReport(path), why: forReport(why) }));
-  return { restored, failed: failed.slice(0, MAX_FAILED_REPORTED), failedNotListed: Math.max(0, failed.length - MAX_FAILED_REPORTED), skippedAtBackup };
+  // alreadyHeld only for a sink with has() (engine/restoresink.js has one, holding nothing unless resumed), so a sink
+  // without it sees the shape it always did.
+  return Object.assign({ restored }, holds ? { alreadyHeld } : {}, { failed: failed.slice(0, MAX_FAILED_REPORTED), failedNotListed: Math.max(0, failed.length - MAX_FAILED_REPORTED), skippedAtBackup });
 }
 
 /* One file: null when committed, otherwise why it was not. Never leaves a file committed that did not verify. */
@@ -274,4 +282,5 @@ module.exports = {
   collisionKey,   // likewise, for two paths restore would refuse as colliding
   collidingPaths, // likewise: the walker checks what it keeps against restore's own rule
   shrinkWarning,
+  toSinkPath,     // slice 3: engine/restorerun.js asks a resumed sink by the path the sink was handed
 };

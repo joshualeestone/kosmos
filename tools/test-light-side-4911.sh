@@ -27,6 +27,7 @@ perl -e 'select(undef, undef, undef, 600)' </dev/null >/dev/null 2>&1 & OTHER=$!
 ORPHAN="$(sh -c 'perl -e "select(undef, undef, undef, 600)" </dev/null >/dev/null 2>&1 & echo $!')"
 trap 'kill "$HOLDER" "$OTHER" "$ORPHAN" 2>/dev/null; rm -rf "$T"' EXIT   # now also kill the holders; bash runs this EXIT trap on signals too
 export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$KOSMOS_RUN_MARKER_DIR"
+export KOSMOS_PREPUSH_MACHINE_LOCK="$T/no-prepush-lock"   # kosmos#6756: never the real build lock, however this file is run
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
