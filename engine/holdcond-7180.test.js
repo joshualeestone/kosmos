@@ -232,7 +232,10 @@ test('#7180 task activity says what a hold waits for, and that it was met', () =
   const fn = typeof phrase.phrase === 'function' ? phrase.phrase : phrase.phraseEvent;
   assert.equal(typeof fn, 'function', 'taskactphrase exports no phrasing function');
   assert.match(fn({ kind: 'hold-set', via: 'agent', until: 'task #5' }), /^Put on hold by an agent until .*task #5 is closed/);
-  assert.match(fn({ kind: 'hold-set', via: 'screen', until: '2026-11-02T09:00:00.000Z' }), /^Put on hold until .*2026-11-02T09:00:00\.000Z/);
+  // kosmos#7184: on the page a time reads in the person's clock; an agent gets the exact instant.
+  assert.match(fn({ kind: 'hold-set', via: 'screen', until: '2026-11-02T09:00:00.000Z' }, () => null, { forAgent: true }), /^Put on hold until .*2026-11-02T09:00:00\.000Z/);
+  assert.equal(fn({ kind: 'hold-set', via: 'screen', until: '2026-11-02T09:00:00.000Z' }),
+    'Put on hold until ' + new Date('2026-11-02T09:00:00.000Z').toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }));
   assert.equal(fn({ kind: 'hold-set', via: 'agent' }), 'Put on hold by an agent', 'CONTROL: a bare hold');
   assert.match(fn({ kind: 'hold-stale', told: 'rex', met: 'task #5 is closed', reached: true }), /What its hold waited for happened .*task #5 is closed.*was told it can come off hold/);
   assert.match(fn({ kind: 'hold-stale', told: 'rex', posts: 4, reached: true }), /worked in its project room/, 'CONTROL: a posts line');

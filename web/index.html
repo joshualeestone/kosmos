@@ -6687,8 +6687,9 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
-#tk-repeat-every, #tk-repeat-day, #tk-review-who { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too) */
-@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who { min-height: 44px; } }   /* review 1: one touch size */
+#tk-repeat-every, #tk-repeat-day, #tk-review-who, #tk-hold-for, #tk-hold-task { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too; kosmos#7184: the hold choices) */
+#tk-hold-task, #tk-hold-for-when .tk-repeat-when { max-width: 100%; min-width: 0; }   /* kosmos#7184 round 6: a long task sentence never widens the page on a phone */
+@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who, #tk-hold-for, #tk-hold-task, #tk-hold-save { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -17708,6 +17709,22 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tmeta" id="tk-hold-row"><span>On hold</span>
           <button class="btn" id="tk-hold" type="button">Put on hold</button>
         </div>
+        <!-- kosmos#7184: what a held task waits for (another task to close, or a time), in the board's own reading (the
+             task's holdUntil), and the person's way to set it. Shown only while the task is held. -->
+        <p class="dhint" id="tk-hold-until" style="margin:4px 0 0;" hidden></p>
+        <div class="tmeta" id="tk-hold-for-row" hidden><span>Wait for</span>
+          <select id="tk-hold-for" class="tsk-sel" aria-label="Wait for: what this hold waits for">
+            <option value="">Nothing in particular</option><option value="task">Another task to close</option><option value="at">A date and time</option>
+          </select>
+        </div>
+        <div class="tmeta" id="tk-hold-for-when" hidden><span>Until</span>
+          <span class="tk-repeat-when">
+            <select id="tk-hold-task" class="tsk-sel" aria-label="Until: the task this hold waits for" hidden></select>
+            <input type="datetime-local" id="tk-hold-at" class="tk-repeat-in" aria-label="Until: the date and time this hold waits for" hidden>
+          </span>
+        </div>
+        <p class="dhint" id="tk-hold-takeover" style="margin:4px 0 0;" hidden>Saving makes this hold yours, so only you can take it off.</p>
+        <div class="tk-repeat-actions" id="tk-hold-for-actions" hidden><button class="btn" id="tk-hold-save" type="button" aria-label="Save what this hold waits for" disabled>Save</button></div>
         <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-hold-hint" style="margin:4px 0 0;">Kosmos does not nudge anyone about a task on hold, or hand it out.</p>
         <!-- kosmos#4787 slice 1b: a task that repeats (a morning report, an hourly check). The person sets the rule here; the
@@ -68854,6 +68871,7 @@ function paintTaskPage() {
       : t.onHoldByPerson === true
         ? 'You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.'
         : 'This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out.';
+  tkPaintHoldUntil(p, t);
 
   /**
    * Who is on it: the task's PARTS, one row each (#206 step 2).
@@ -68997,6 +69015,12 @@ function tkPaintSubtasks(p, t, closed) {
    event added to the engine later shows up as its bare name instead of vanishing. */
 function tkActPhrase(ev, p) {
   const nameOf = (sn) => (sn ? tkMemberName(p, sn) : null);
+  /* kosmos#7184: a hold's time (an ISO instant) in the person's own clock; anything else as it is. Kept inside this
+     function, which taskactphrase.test.js lifts alone (engine/taskactphrase.js when(), the same rule). */
+  const when = (v) => {
+    const t = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? Date.parse(v) : NaN;
+    return Number.isFinite(t) ? new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : v;
+  };
   switch (ev.kind) {
     case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : '') + (ev.doneWhen ? '. Done when: ' + ev.doneWhen : ''); }
     case 'assigned': { const who = nameOf(ev.who); return who ? who + ' put on a part' : 'A part left with nobody on it'; }
@@ -69008,7 +69032,10 @@ function tkActPhrase(ev, p) {
     // #5152: what finished means for the task, set or taken off (by an agent, named, or from the screen).
     case 'done-when-set': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + ev.doneWhen : ''); }
     case 'done-when-cleared': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
-    case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
+    // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
+    case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')
+      + (typeof ev.until === 'string' && ev.until ? ' until ' + (/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : when(ev.until))
+        : ev.untilCleared === true ? ', no longer waiting for anything' : '');
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
@@ -69022,6 +69049,10 @@ function tkActPhrase(ev, p) {
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
     case 'hold-stale': {   // #6209 part 3: an owner still working a held task in its room was asked about the hold
       const who = nameOf(ev.told) || 'its owner';
+      // kosmos#7180: told because what the hold waited for happened, not because of the room's posts.
+      if (typeof ev.met === 'string' && ev.met) {
+        return 'What its hold waited for happened (' + when(ev.met) + '); ' + (ev.reached === false ? 'Kosmos could not reach ' + who : who + ' was told it can come off hold');
+      }
       return ev.reached === false ? 'Still on hold while ' + who + ' worked in its project room; Kosmos could not reach ' + who
         : 'Still on hold while ' + who + ' worked in its project room; ' + who + ' was asked whether the hold still stands';
     }
@@ -70071,6 +70102,176 @@ document.getElementById('tk-repeat-save').addEventListener('click', async () => 
   }
 });
 
+/* kosmos#7184: what a held task waits for, on its page. The line is the board's own reading (t.holdUntil, which
+   projects.js takes from tasks.holdUntilState: { words, met }, a task that is gone counting as met), so the page never
+   works out "met" itself. The form shows the stored condition (t.onHoldUntil) unless the person has an unsaved change,
+   as the Repeats controls do, and Save sends exactly what it shows: a screen hold sets exactly what it is sent. Times
+   are compared to the minute, the picker's precision. */
+function tkHoldMinute(ms) { return Math.floor(ms / 60000) * 60000; }
+/* Review 1: the task as the board has it NOW, read for this click alone (a failed poll keeps the old list and an
+   overtaken one returns early, so the cached list cannot say whether an agent has just held or lifted it). null when it
+   could not be read, { gone: true } when it was read and the task is no longer there (round 2: two different answers). */
+async function tkHoldFresh(projectId, n) {
+  try {
+    const res = await fetch('/api/projects');
+    if (!res.ok) return null;
+    const all = await res.json();
+    const q = (all && Array.isArray(all.projects) ? all.projects : []).find((x) => x && x.id === projectId);
+    return (q && (q.tasks || []).find((x) => x && String(x.number) === String(n))) || { gone: true };
+  } catch { return null; }
+}
+/* Round 2: a line is written only while its task is still the one on screen (the Repeats Save's still()). */
+function tkHoldSay(key, words) {
+  const msg = document.getElementById('tk-hold-msg');
+  if (msg && msg.dataset.task === key && PJ_CURRENT + '#' + TK_OPEN === key) msg.textContent = words;
+}
+function tkHoldStoredChoice(t) {
+  const u = t && t.onHoldUntil;
+  if (u && Number.isInteger(u.task)) return { kind: 'task', task: u.task };
+  const at = u && typeof u.at === 'string' ? Date.parse(u.at) : NaN;
+  if (Number.isFinite(at)) return { kind: 'at', at: tkHoldMinute(at) };
+  return { kind: '' };
+}
+function tkHoldChoice() {
+  const kind = document.getElementById('tk-hold-for').value;
+  if (kind === 'task') { const n = Number(document.getElementById('tk-hold-task').value); return { kind, task: Number.isInteger(n) && n > 0 ? n : null }; }
+  if (kind === 'at') {
+    const v = document.getElementById('tk-hold-at').value;   // the picker's local time, read in the person's own zone
+    const at = v ? Date.parse(v) : NaN;
+    return { kind, at: Number.isFinite(at) ? tkHoldMinute(at) : null };
+  }
+  return { kind: '' };
+}
+function tkHoldLocalValue(ms) {
+  const d = new Date(ms); const z = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + 'T' + z(d.getHours()) + ':' + z(d.getMinutes());
+}
+function tkHoldWhen(ms) { return new Date(ms).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); }
+function tkHoldShowChoice(c) {
+  document.getElementById('tk-hold-for').value = c.kind;
+  if (c.kind === 'task') document.getElementById('tk-hold-task').value = String(c.task);
+  if (c.kind === 'at') document.getElementById('tk-hold-at').value = tkHoldLocalValue(c.at);
+}
+function tkHoldShowWhen() {
+  const kind = document.getElementById('tk-hold-for').value;
+  document.getElementById('tk-hold-for-when').hidden = !kind || document.getElementById('tk-hold-for-row').hidden;
+  document.getElementById('tk-hold-task').hidden = kind !== 'task';
+  document.getElementById('tk-hold-at').hidden = kind !== 'at';
+}
+function tkHoldDirty() {
+  const c = tkHoldChoice();
+  const ready = c.kind === '' || (c.kind === 'task' && c.task) || (c.kind === 'at' && c.at && document.getElementById('tk-hold-at').validity.valid);   // round 7: not a time already passed
+  const save = document.getElementById('tk-hold-save');
+  save.disabled = save.dataset.busy === '1' || !ready || JSON.stringify(c) === document.getElementById('tk-hold-for').dataset.stored;   // round 2: not while saving
+}
+/* The tasks a hold can wait for: this project's open tasks but this one, and the stored one even once it is closed, so
+   the choice never shows something that is not stored. Rebuilt only when it changes, keeping what is chosen. */
+function tkHoldTaskOptions(p, t) {
+  const sel = document.getElementById('tk-hold-task');
+  const waits = t.onHoldUntil && Number.isInteger(t.onHoldUntil.task) ? t.onHoldUntil.task : null;
+  const chosen = Number(sel.value) || null;   // round 3: an unsaved choice whose task has closed stays a choice too
+  const list = (p.tasks || []).filter((x) => x && x.number !== t.number && (!(x.progress && x.progress.closed) || x.number === waits || x.number === chosen)
+    && !(x.onHold === true && x.onHoldUntil && x.onHoldUntil.task === t.number && x.number !== waits));   // round 7: one waiting for this task would never be met
+  /* Review 1: a stored task no longer on the project stays a choice too, said as gone, so the select never goes blank
+     (a blank would read as an unsaved change and stop following the stored condition). */
+  const gone = waits !== null && !list.some((x) => x.number === waits) ? '<option value="' + waits + '">' + esc('#' + waits + ' (no longer on this project)') + '</option>' : '';
+  const html = '<option value="">Choose a task</option>' + list.map((x) => {
+    const words = String(x.sentence || '').replace(/\s+/g, ' ').trim();
+    return '<option value="' + Number(x.number) + '">' + esc('#' + x.number + (words ? ' ' + (words.length > 60 ? words.slice(0, 59) + '\u2026' : words) : '')) + '</option>';
+  }).join('') + gone;
+  if (sel.tkPainted !== html) { const v = sel.value; sel.innerHTML = html; sel.tkPainted = html; sel.value = v; }
+}
+function tkPaintHoldUntil(p, t) {
+  const held = t.onHold === true && TK_ACT !== 'reopen';
+  for (const id of ['tk-hold-for-row', 'tk-hold-for-actions']) document.getElementById(id).hidden = !held;
+  document.getElementById('tk-hold-takeover').hidden = !held || t.onHoldByPerson === true;
+  const line = document.getElementById('tk-hold-until');
+  const u = held ? t.holdUntil : null;
+  const m = u && typeof u.words === 'string' ? /^task #(\d+) is closed$/.exec(u.words) : null;
+  const at = u && !m && typeof u.words === 'string' ? Date.parse(u.words) : NaN;
+  const n = m ? Number(m[1]) : 0;
+  const gone = m && !(p.tasks || []).some((x) => x && x.number === n);
+  const html = !u ? ''
+    : m ? (gone ? 'Task ' + n + ' is no longer on this project, so this can come off hold.'
+      : u.met === true ? 'Task ' + n + ' is closed, so this can come off hold.' : 'Waiting for task ' + n + ' to close.')
+    : Number.isFinite(at) ? (u.met === true ? 'That time has passed, so this can come off hold.' : 'Waiting until ' + esc(tkHoldWhen(at)) + '.')
+    : '';
+  if (line.tkPainted !== html) { line.innerHTML = html; line.tkPainted = html; }
+  line.hidden = !html;
+  if (!held) { document.getElementById('tk-hold-for-when').hidden = true; delete document.getElementById('tk-hold-for').dataset.task; return; }   // round 3: a new hold starts from what is stored
+  const sel = document.getElementById('tk-hold-for');
+  const key = p.id + '#' + t.number;
+  const stored = JSON.stringify(tkHoldStoredChoice(t));
+  const newTask = sel.dataset.task !== key;
+  const choiceNow = JSON.stringify(tkHoldChoice());
+  if (choiceNow === stored) sel.dataset.stored = stored;   // choosing what is stored is nothing unsaved
+  const edited = !newTask && choiceNow !== sel.dataset.stored;
+  if (newTask) { document.getElementById('tk-hold-task').value = ''; document.getElementById('tk-hold-at').value = ''; }   // round 4: nothing carries over from another task
+  tkHoldTaskOptions(p, t);
+  if (newTask || (sel.dataset.stored !== stored && !edited)) {
+    tkHoldShowChoice(tkHoldStoredChoice(t));
+    sel.dataset.task = key;
+    sel.dataset.stored = stored;
+  }
+  const atIn = document.getElementById('tk-hold-at');
+  const lo = tkHoldLocalValue(Date.now() + 60000); const hi = tkHoldLocalValue(Date.now() + 365 * 86400000);
+  if (atIn.min !== lo) atIn.min = lo;
+  if (atIn.max !== hi) atIn.max = hi;
+  tkHoldShowWhen();
+  tkHoldDirty();
+}
+document.getElementById('tk-hold-for').addEventListener('change', () => { tkHoldShowWhen(); tkHoldDirty(); });
+document.getElementById('tk-hold-task').addEventListener('change', tkHoldDirty);
+document.getElementById('tk-hold-at').addEventListener('input', tkHoldDirty);
+document.getElementById('tk-hold-save').addEventListener('click', async () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p || TK_OPEN === null) return;
+  const t = (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN));
+  if (!t || t.onHold !== true) return;
+  const c = tkHoldChoice();
+  const until = c.kind === 'task' && c.task ? { task: c.task } : c.kind === 'at' && c.at ? { at: new Date(c.at).toISOString() } : null;
+  if (c.kind && !until) return;
+  const btn = document.getElementById('tk-hold-save');
+  const msg = document.getElementById('tk-hold-msg');
+  const key = p.id + '#' + t.number;
+  const holdBtn = document.getElementById('tk-hold');
+  btn.disabled = true;
+  btn.dataset.busy = '1';
+  holdBtn.disabled = true;   // round 5: never both in flight (a take-off between Save's read and its POST would be undone)
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }
+  try {
+    /* Review 1: Save is a screen hold, which would put back on hold (as the person's) a task an agent has just taken off.
+       Read it again first; change nothing unless it is still on hold. */
+    const now = await tkHoldFresh(p.id, t.number);
+    if (!now) { tkHoldSay(key, 'We could not check that task just now, so nothing changed.'); return; }
+    if (now.gone) { await pjReload(); tkHoldSay(key, 'That task is no longer on this project, so nothing changed.'); return; }
+    if (now.onHold !== true) {
+      await pjReload();
+      paintTaskActivity(TK_OPEN);
+      tkHoldSay(key, 'This was taken off hold, so nothing changed.');
+      return;
+    }
+    // Round 3: the task this click was about, never TK_OPEN, which a person can move during the read above.
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + Number(t.number) + '/hold', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(until ? { onHold: true, until } : { onHold: true }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'We could not change what that hold waits for.'); return; }
+    await pjReload();
+    paintTaskActivity(TK_OPEN);
+    tkHoldSay(key, 'Saved.');
+    // Round 3: Save goes off under focus, so focus returns to the choice; round 4: only if it is still on Save (or lost).
+    if (PJ_CURRENT + '#' + TK_OPEN === key && (document.activeElement === btn || document.activeElement === document.body || !document.activeElement)) document.getElementById('tk-hold-for').focus();
+  } catch {
+    tkHoldSay(key, 'We could not reach Kosmos to change that task.');
+  } finally {
+    delete btn.dataset.busy;
+    holdBtn.disabled = false;
+    tkHoldDirty();
+  }
+});
+
 document.getElementById('tk-hold').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return;
@@ -70078,21 +70279,40 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
   if (!t) return;
   const btn = document.getElementById('tk-hold');
   const msg = document.getElementById('tk-hold-msg');
+  const key = p.id + '#' + t.number;
+  const save = document.getElementById('tk-hold-save');
   btn.disabled = true;
-  if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }   // whose message it is (the page repaint clears another's)
+  save.dataset.busy = '1'; save.disabled = true;   // round 5: Save waits while this is in flight
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }   // whose message it is (the page repaint clears another's)
   try {
-    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/hold', {
+    /* kosmos#7184: a screen hold sets exactly what it sends, so a page that has not yet seen an agent's hold would
+       replace what it waits for. Read the task again first; if it is already on hold, change nothing and show it. */
+    if (t.onHold !== true) {
+      const now = await tkHoldFresh(p.id, t.number);
+      if (!now) { tkHoldSay(key, 'We could not check that task just now, so nothing changed.'); return; }
+      if (now.gone) { await pjReload(); tkHoldSay(key, 'That task is no longer on this project, so nothing changed.'); return; }
+      if (now.onHold === true) {
+        await pjReload();
+        paintTaskActivity(TK_OPEN);
+        tkHoldSay(key, 'This is already on hold, so nothing changed.');
+        return;
+      }
+    }
+    // Round 3: the task this click was about (the read above awaits; TK_OPEN can move meanwhile).
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + Number(t.number) + '/hold', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ onHold: t.onHold !== true }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not change that task'; return; }
+    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'We could not change that task.'); return; }   // round 4: only on its own task
     await pjReload();
     paintTaskActivity(TK_OPEN);
   } catch {
-    if (msg) msg.textContent = 'we could not reach Kosmos to change that task';
+    tkHoldSay(key, 'We could not reach Kosmos to change that task.');
   } finally {
     btn.disabled = false;
+    delete save.dataset.busy;
+    tkHoldDirty();
   }
 });
 

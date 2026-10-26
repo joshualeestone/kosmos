@@ -109,13 +109,15 @@ test('the two Save buttons on the agent panel say which they are', () => {
      time-zone Save is GONE too -- the zone is auto-detected and shown read-only, so
      there are 3 visible Save buttons left. kosmos#4787 slice 1b: a fourth, the task page's Repeats Save, named below.
      #6722: a fifth, the picture editor's (#crop-go). It is the only Save in its own modal dialog, so it needs no name
-     to tell it from a sibling; in the new-agent flow it reads "Use picture" instead. */
-  assert.equal((PAGE.match(/>Save</g) || []).length, 5,
+     to tell it from a sibling; in the new-agent flow it reads "Use picture" instead.
+     kosmos#7184: a sixth, the task page's hold Save (what a hold waits for), named below beside the Repeats one. */
+  assert.equal((PAGE.match(/>Save</g) || []).length, 6,
     'the number of buttons visibly reading Save changed, so this pairing needs re-checking');
   /* The third (settings-nav, 2026-08-23) is the Your name field's, on the Settings
      page; named for the same reason, pinned here so the count stays explained. */
   assert.match(PAGE, /id="you-name-save" aria-label="Save your name"/, 'the Settings Save button announces as a bare Save');
   assert.match(PAGE, /id="tk-repeat-save" [^>]*aria-label="Save how this task repeats"/, 'the task page Repeats Save announces as a bare Save');
+  assert.match(PAGE, /id="tk-hold-save" [^>]*aria-label="Save what this hold waits for"/, 'kosmos#7184: the task page hold Save announces as a bare Save');
   assert.ok(!PAGE.includes('id="you-tz-save"'), '#3338: the time-zone Save button is gone (auto-detected, read-only)');
   // #2054: the auto-handoff and Prompter Save buttons are gone (sliders commit on flip).
   assert.ok(!PAGE.includes('id="ah-save"'), 'the auto-handoff Save button should be gone');
