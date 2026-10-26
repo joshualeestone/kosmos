@@ -518,7 +518,8 @@ function runsIn(folder, budget) {
     try { fs.lstatSync(path.join(folder, x)); out.push(x); } catch { /* absent */ }
   }
   if (listed.cut) out.push(CUT);
-  for (const g of gitIn(folder)) if (!out.includes(g)) out.push(g);
+  // Folded: on a case-insensitive filesystem a listed .GIT is the .git gitIn finds, and one folder gets one row.
+  for (const g of gitIn(folder)) if (!out.some((r) => r.toLowerCase() === g.toLowerCase())) out.push(g);
   const folded = new Set(listed.names.map((x) => x.toLowerCase()));
   // Folded names, and the exact name asked of the filesystem, which may fold further than toLowerCase.
   for (const n of PLAIN_AT_START) {

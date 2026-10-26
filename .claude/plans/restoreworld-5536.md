@@ -4,16 +4,19 @@ Design: #5536 comment 6407859949. Enable path measured on comment 6408905798 (cr
 no profile record, and STARTS the agent: enable then bootstrap).
 
 ## The call
-- `engine/restoreworld.js`, three calls, nothing wired (the restore screen is slice 4c):
+- `engine/restoreworld.js`, four calls, nothing wired (the restore screen is slice 4c):
   - `prepareRestoreWorld(base, { member, now })`: `worlds.createWorld(base, "Restored: <member>, <YYYY-MM-DD>")`, with
     " (2)" to " (9)" when the id is taken (hidden worlds included, read from the registry), then a new, empty folder
-    `restored` (0700) inside the world folder for engine/restoresink.js. If that folder cannot be made the world is
-    hidden again and the call says so.
+    `restored` (0700) inside the world folder for engine/restoresink.js, and the mark `restored-world.json` in the
+    world folder (which a snapshot never writes). If either cannot be made the world is hidden again and the call says
+    so.
   - `finishRestoreWorld({ base, world, restoreDir, result })`: only after runRestore answered ok and the sink is
     closed, into a world on the list (registry row, not hidden), from the exact `restored` folder, with none of the
-    sink's own entries left (record, lock, temp folder), one finish at a time (a lock in the world folder). At the top
+    sink's own entries left (record, lock, temp folder), only into a world carrying the mark, one finish at a time (a
+    lock in the world folder, built whole and renamed into place, taken over when stale). At the top
     of each root only plain-named folders move; dot entries, HEAD, node_modules, files and links are held back in `restored/held-back-<random>/<root>/` (new each run) and named in `heldBack`, since the
-    top of workers or projects sits above every agent and project made in this world later. Each root then moves by
+    top of workers or projects sits above every agent and project made in this world later; the held-back folder's
+    name is recorded in the world folder, so a lookalike from the snapshot is never reported. Each root then moves by
     one rename into the world's empty folder. Every check runs before anything moves; one answer shape on every path,
     with `failedFiles` and `fetchProblems` from the restore.
   - `listRestoredAgents({ base, world, restoreDir })`: each folder in the world's workers and in `restored/agents`,
@@ -24,6 +27,8 @@ no profile record, and STARTS the agent: enable then bootstrap).
     including AGENTS.override.md). `shared` carries the tops of workers and projects and any project with `runs`.
     `more` says the list is incomplete. A world not on the list answers with a `because`. Registers, starts and
     writes nothing; reads are bounded per folder and in total.
+  - `isRestoredWorld(base, world)`: whether the world carries prepare's mark. Every agent start path in 4c checks it
+    and starts git with hooks and fsmonitor off there.
 - The member's name loses control, format and bidi characters and is cut at 60 code points before it names a world.
 
 ## Rejected
@@ -210,6 +215,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    moved into any listed world with a `restored` folder (now only one carrying prepare's mark, so the hooks-off start
    path applies to what it moves); a contract comment line ran past 120 columns (reflowed). Deferred as duplicate: ids
    that fold together share the nine names a day (round 6, #7181).
+
+29. (sonnet) Nits taken: on a case-insensitive filesystem a listed `.GIT` and the `.git` gitIn finds made two rows for
+   one folder (now compared folded); "The call" did not name the mark, isRestoredWorld, the finish lock or the
+   held-back record (now it does). Not taken: the put-back target folder uses the default mode (createWorld makes it
+   with the same default). Deferred as duplicates: the 4c start-path guard (rounds 15, 26) and keeping the person out
+   of the world until finish (the contract, round 24).
 
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
