@@ -208,6 +208,10 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
 - Review 9: up to 4000 folders are made until two DIFFERENT folders share a number id (skipped if none); with one as
   the agent's project folder, a file in the other is refused. Against iteration 8's code (8313e21) it failed by
   attaching that file (`ok: true`): the fail-open, shown.
+- Review 10: `isNetworkSpelling` no longer counts a local volume (`\\?\Volume{GUID}\`) as another computer (it still
+  counts an unplaceable namespace such as `\\.\pipe\` as not local, the safe reading), so a Files link to a local
+  volume is refused unresolved as an unfollowable link, not as "on the network". Against iteration 9's code
+  (1e8153e): fails. winpath exports only what other modules or the tests use.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -216,7 +220,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 30/30 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 31/31 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

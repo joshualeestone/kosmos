@@ -288,6 +288,15 @@ test('#7221 review 2-1: a link in Files aimed at a share through \\\\?\\GLOBALRO
   try { refusedUnresolved(link, replyfile.ON_NETWORK, 'a GLOBALROOT link to a share'); } finally { fs.rmSync(link, { force: true }); }
 });
 
+test('#7221 review 10: a link in Files to a local volume path is refused unresolved, and not as a network path', linkOnly, () => {
+  const volume = '\\\\?\\Volume{0b1c2d3e-0000-0000-0000-100000000000}\\x';
+  assert.equal(winpath.isNetworkSpelling(volume), false, 'a local volume is not another computer');
+  assert.equal(winpath.isNetworkSpelling('\\\\.\\pipe\\x'), true, 'a namespace that cannot be placed is still not local');
+  const link = path.join(FILES, 'volume-link.txt');
+  fs.symlinkSync(volume, link, 'file');
+  try { refusedUnresolved(link, replyfile.UNREADABLE_LINK, 'a link to a local volume'); } finally { fs.rmSync(link, { force: true }); }
+});
+
 test('#7221 review 2-2: with Files and a project on the same drive, a Files file that resolves to a share is still refused; a project file is not', winOnly, () => {
   const proj = path.join(SANDBOX, 'sameproj');
   fs.mkdirSync(proj, { recursive: true });

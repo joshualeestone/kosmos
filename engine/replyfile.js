@@ -352,7 +352,9 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    agent's project folders the open is not refused either (a project's files may be share paths by design);
    everywhere else the open is refused; (b) the OTHER folders an attach resolves to judge containment: a project
    folder on a drive letter that is mapped to a share (telling a mapped letter apart needs a call Node does not
-   have; the lstat walk of that folder touches the share too, before its realpath does), and the folders Kosmos
+   have; the lstat walk of that folder touches the share too, before its realpath does; every registered project
+   folder's links are walked on each Windows attach of a project file, cheap on local disks, growing with the
+   number of projects), and the folders Kosmos
    itself made (the Files folder and its parent, each agent's folder, ~/.ssh, ~/.config), which a person or a
    process of this user would have to replace with a link to a share; (c) a share is matched by how it is WRITTEN
    (review 4 finding 2): a project written \\fileserver\x whose real path reads \\10.0.0.5\x (or a DFS path, or

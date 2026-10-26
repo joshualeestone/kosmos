@@ -18,8 +18,12 @@ const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|l
 function isDevicePart(part) {
   return WINDOWS_DEVICE_NAME.test(String(part).replace(/[ .]+$/, ''));   // Windows drops trailing dots and spaces: "NUL. " is NUL
 }
+/* A \\ or // spelling that is not this computer's own drive or volume: a share, or a namespace that cannot be placed
+   (\\.\pipe\..., another device), which every caller treats as not local, the safe reading. A local drive's \\?\C:\
+   and \\.\C:\ spellings and a local volume's \\?\Volume{GUID}\ are not (review 10 finding 1: a link to a local volume
+   had been refused as "on another computer"). */
 function isNetworkSpelling(p) {
-  return NAMESPACE.test(p) && !LOCAL_LONG.test(p);
+  return NAMESPACE.test(p) && !LOCAL_LONG.test(p) && !isLocalVolumeSpelling(p);
 }
 function driveOf(p) {
   const m = /^([A-Za-z]):/.exec(asDrivePath(p));   // C:\, and its \\?\C:\ and \??\C:\ spellings
@@ -81,9 +85,9 @@ function shareTail(p) {
    answers yes (review 8 finding 1): unknown is treated as "may hold", so it refuses rather than lets through. */
 function mayHold(folder, given, real) {
   if (writtenInside(given, folder) || writtenInside(real, folder)) return true;
-  if (isNetworkSpelling(folder) && !shareOf(folder) && !isLocalVolumeSpelling(folder)) return true;
+  if (isNetworkSpelling(folder) && !shareOf(folder)) return true;
   const ft = shareTail(folder);
   return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && t.startsWith(ft + '\\'); });
 }
 
-module.exports = { NAMESPACE, LOCAL_LONG, NT_LOCAL, WINDOWS_DEVICE_NAME, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, shareTail, mayHold };
+module.exports = { NAMESPACE, WINDOWS_DEVICE_NAME, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, mayHold };
