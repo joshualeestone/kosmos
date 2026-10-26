@@ -76,6 +76,11 @@ test('#7246 s2 review 1: the hint follows the member count by poll, without touc
   els['pjs-notices'].value = 'named';   // the person is choosing
   hint({ roomNotices: 'auto', roomNoticesNow: 'digest' });
   assert.equal(els['pjs-notices'].value, 'named', 'a poll repaint reset a choice in progress');
+  // Review 2: another tab stored 'each' while this select still reads Automatic: no "for this project now" claim.
+  els['pjs-notices'].value = 'auto';
+  hint({ roomNotices: 'each', roomNoticesNow: 'each' });
+  assert.doesNotMatch(els['pjs-notices-hint'].textContent, /For this project now/, 'the hint described a stored mode the select does not show');
+  assert.match(els['pjs-notices-hint'].textContent, /^Automatic means one summary an hour/);
   // The poll calls it, so the hint follows: pinned on the source, as paintSettingsFacts needs the whole page to run.
   const facts = page.lift(SCRIPT, 'paintSettingsFacts');
   assert.match(facts, /pjPaintNoticesHint\(p\)/, 'the poll repaint does not repaint the hint');

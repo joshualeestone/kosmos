@@ -70921,7 +70921,10 @@ function pjPaintNoticesHint(p) {
   if (!hint) return;
   const v = sel ? sel.value : 'auto';
   const now = p.roomNoticesNow === 'digest' ? 'one summary an hour' : p.roomNoticesNow === 'named' ? 'only when an agent is named' : 'each agent is told at the end of its next turn';
-  hint.textContent = (v === 'auto' ? 'Automatic means one summary an hour on a project of more than 8 agents. For this project now: ' + now + '. ' : '')
+  /* Review 2: "for this project now" only while the STORED setting is Automatic (roomNoticesNow describes the stored
+     one), so another tab's choice cannot make the sentence contradict the select. */
+  hint.textContent = (v === 'auto' ? 'Automatic means one summary an hour on a project of more than 8 agents. '
+    + (p.roomNotices === 'auto' || p.roomNotices === undefined ? 'For this project now: ' + now + '. ' : '') : '')
     + 'A post that names an agent always reaches it at once. Telling every idle agent about every other post costs them a turn each, which adds up on a busy project.';
 }
 function pjPaintParentSelect(p) {
