@@ -31,3 +31,19 @@ the board it started for Run, which is the path a first-time Connect already tak
   the dots call it goes red. All 45 checks pass; render-firstrun-s6-2037.js passes with Josh's copy.
 - web.firstrun-choice-4356.test.js and web.firstrun-consent-prc2.test.js pin the new words. Root web.* and native-app
   tests 3449/3449; swiftc -typecheck clean.
+
+## Review
+- Round 1 (findings in full: .claude/plans/setuppolish-7205-review1.md): 2 blockers, 2 warnings, 6 nits. NOT YET FIXED
+  (session restart for account usage, 10:55):
+  - [BLOCKER] Run, Back, Both loses ?mode=both (frChoiceForget returns early once ?mode is gone), so first run does not
+    end at the Kosmos Plus sign-in. Fix: write mode=both even when ?mode is gone (or a page flag frPlusLast reads);
+    add a C11 assertion that first run ends at the sign-in.
+  - [BLOCKER] #2518 surface gate: render-layer-gutter-4494.js (firstrun) and render-win32-board-copy.js
+    (data-win-hide) need Browser-check-surface trailers; both pass on this branch (reviewer ran them).
+  - [WARNING] Run, Back, Connect overlaps the first answer's kosmos start (switchToConnect does not bump
+    boardStartGeneration): bump it in switchToConnect, as the reclaim path guards.
+  - [WARNING] tools/windows/KosmosLauncher.cs:4463 ignores a second answer; offer Back only on the Mac bridge (or teach
+    the Windows twin), FirstRunChoice is off there today.
+  - Nits: frDots.boot() where the restart screen hands the choice back (~25279); focus after Back (focus the choice's
+    heading or first button); Reload after Run then Back (accepted: no Back then); pageChoseMode doc comment now false;
+    connector dash pair 0.25 px off centre; the win32 Qwen grayscale rule is redundant.
