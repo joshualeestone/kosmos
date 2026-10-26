@@ -111,7 +111,9 @@ function onTheList(base, id) {
 }
 
 /* opts: { member, now?, createWorld?, hideWorld? } (the two world calls injectable for tests).
-   { ok: true, world, dir, restoreDir } or { ok: false, because }. */
+   { ok: true, world, dir, restoreDir } or { ok: false, because }.
+   ⚠️ 4c builds opts by hand ({ member, now }), never by forwarding a request's object: createWorld and hideWorld
+   replace the calls whose freshness and hide-again guarantees this function gives. */
 function prepareRestoreWorld(base, opts = {}) {
   const create = opts.createWorld || worlds.createWorld;
   const hide = opts.hideWorld || worlds.hideWorld;
@@ -184,11 +186,12 @@ function renameRetrying(src, dst) {
    writes. What an agent start path checks before starting an agent in that world (git hooks and fsmonitor off).
    Fails closed: only a world folder or a mark that is certainly absent (ENOENT, ENOTDIR) reads as not Restored.
    A folder swapped for a link or a file, a mark of any kind, and any other error (EACCES, EMFILE, ELOOP) read as
-   Restored, so agents there start with hooks off (finish refuses a linked folder before it asks this). */
+   Restored, so agents there start with hooks off (finish refuses a linked folder before it asks this). A world it
+   cannot place at all (no world, a relative base) cannot be vouched for either, so it reads as Restored too. */
 const certainlyAbsent = (e) => !!(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'));
 function isRestoredWorld(base, world) {
   const dir = worldDirOf(base, world);
-  if (!dir) return false;
+  if (!dir) return true;
   let st;
   try { st = fs.lstatSync(dir); } catch (e) { return !certainlyAbsent(e); }
   if (!st.isDirectory()) return true;

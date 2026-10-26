@@ -704,6 +704,9 @@ test('isRestoredWorld reads Restored for anything but a certainly absent mark', 
   fs.chmodSync(p.dir, 0o600);
   assert.equal(rw.isRestoredWorld(base, p.world), true, 'even with no mark, a folder that cannot be searched cannot be vouched for');
   fs.chmodSync(p.dir, 0o700);
+  assert.equal(rw.isRestoredWorld(base, p.world), false, 'control: with the folder searchable again and no mark, not Restored');
+  assert.equal(rw.isRestoredWorld(base, null), true, 'no world to place cannot be vouched for');
+  assert.equal(rw.isRestoredWorld('relative/base', p.world), true, 'nor can a world under a relative base');
 });
 
 test('the listing offers nothing in a world prepare did not make', (t) => {
