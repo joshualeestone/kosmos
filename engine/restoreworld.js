@@ -200,10 +200,12 @@ function finishRestoreWorld(opts = {}) {
     return Object.assign({ ok, moved, kept: keptIn(restoreDir, base, world).filter((n) => !recorded.includes(n)),
       heldBack: heldIn(restoreDir, recorded), failedFiles, fetchProblems }, because ? { because } : {});
   };
-  const refuse = (because) => ({ ok: false, moved: [], kept: [], heldBack: [], failedFiles: 0, fetchProblems: [], because });
+  let refuse = (because) => ({ ok: false, moved: [], kept: [], heldBack: [], failedFiles: 0, fetchProblems: [], because });
   if (!dir || !realDir(dir)) return refuse('the restore did not name its Kosmos');
   if (!opts.result || opts.result.ok !== true) return refuse('the restore did not succeed, so its files stay where it can continue');
   if (!onTheList(base, world.id)) return refuse('this is not a Kosmos on your list, so nothing is moved into it');
+  // Only into a world prepare made: its mark is what tells every agent start path there to start git with hooks off.
+  if (!isRestoredWorld(base, world)) return refuse('this Kosmos was not made for a restore, so nothing is moved into it');
   const inner = opts.result.result;
   const notListed = inner && Number.isSafeInteger(inner.failedNotListed) && inner.failedNotListed > 0 ? inner.failedNotListed : 0;
   failedFiles = (inner && Array.isArray(inner.failed) ? inner.failed.length : 0) + notListed;
@@ -212,6 +214,8 @@ function finishRestoreWorld(opts = {}) {
   fetchProblems = problems.slice(0, 20).map((x) => cleanText(x, 300, '')).filter(Boolean);
   if (problems.length > 20) fetchProblems.push('(more not listed)');
   if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) return refuse('the restore folder is not the one made for this Kosmos');
+  // From here the folders are known, so a refusal says what an earlier finish already held back, counted and moved.
+  refuse = (because) => answer(false, because);
   const lock = takeFinishLock(dir);
   if (lock.busy) return refuse('a finish of this restore is already under way (a finish that stopped frees it within ten minutes)');
   if (!lock.release) return refuse(`the new Kosmos's folder could not be locked for the finish (${lock.code})`);
@@ -560,9 +564,9 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    (projects are usually repositories; one at the top reaches every project without its own); one in an agent folder
    or at the top of workers refuses. Projects keep their own .git (restoring a repository whole is the point), so an
    agent made in this world later meets it without this review: start agents in a Restored world with git's hooks
-   and fsmonitor switched off (4c); isRestoredWorld is the check every start path makes. Agents kept elsewhere sit under the restore folder, whose top a snapshot chooses,
-   so never run git or open a terminal there. A backup can force `more` with enough empty folders, so the screen should let the
-   person review past the cap rather than stop. Keep the person out of a Restored world until its finish has run: an
+   and fsmonitor switched off (4c); isRestoredWorld is the check every start path makes. Agents kept elsewhere sit
+   under the restore folder, whose top a snapshot chooses, so never run git or open a terminal there. A backup can
+   force `more` with enough empty folders, so the screen should let the person review past the cap rather than stop. Keep the person out of a Restored world until its finish has run: an
    agent or project made there first fills the folders finish needs empty. An empty `runs` also says nothing about
    files a shell hook (direnv, mise) would run on entering a folder. Nothing is registered, started or written.
    A world not on the list (no registry row, hidden, or its folder swapped for a link) answers with no rows and a
