@@ -201,3 +201,14 @@ and modelLine name DeepSeek (modelLine pinned by a test, red-checked). NOT separ
 and move list (page wiring), and the import refusal in worldstarts (a vendor entry is not started while the switch is
 off, its provider and account recorded for Repair); both mirror Qwen's arms. Existing import and move tests pass.
 The reviewer's "inverted message" nit was a misread: assert messages state the failure, which is what that one says.
+
+## Slice 1b review 4 (2026-10-26 16:0x)
+No blockers; with the switch off the reviewer found no route to DeepSeek and no key sent. FIXED: the test helper refuses
+any data folder outside the temp folder (a missing argument would have resolved to the REAL data folder; pinned); the
+"o3" comment back on its line; providerRunner's dead branch.
+OPEN, REQUIRED BEFORE THE SWITCH IS TURNED ON (display and reporting only, unreachable while off): a DeepSeek agent is
+mis-named in the world view's member word (web/index.html ~66151, only Qwen is special-cased), possibly in the project
+tally (PJ_TALLY ~67252, depends on the card's provider field), and drops out of the org rollup's provider breakdown
+(engine/orgrollup.js KNOWN_PROVIDERS lacks 'deepseek'; adding it reaches the coordinator's rollup, so check what the
+relay accepts first). Also: the account-row qualifier map has no deepseek entry (cosmetic); worldstarts' enabled() reads
+the real platform, not its argument.

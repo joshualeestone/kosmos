@@ -22449,9 +22449,9 @@ function modelLine(a) {
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
   // #5977 (UI review): a Qwen agent runs on codex too, and is never "OpenAI": its model, or Qwen while none is known.
   if (a.runner === 'codex' && a.account && a.account.provider === 'alibaba') return name ? (/qwen/i.test(name) ? name : 'Qwen ' + name) : 'Qwen';
-  if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';
+  if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
   // #7206 (1b review 3): a claude agent on a DeepSeek account is never "Claude": its model, or DeepSeek while none is known.
-  if (a.account && a.account.provider === 'deepseek') return name ? (/deepseek/i.test(name) ? name : 'DeepSeek ' + name) : 'DeepSeek';   // "o3" alone is less recognisable than "OpenAI o3"
+  if (a.account && a.account.provider === 'deepseek') return name ? (/deepseek/i.test(name) ? name : 'DeepSeek ' + name) : 'DeepSeek';
   /* #5804: a running Gemini agent whose reply came from a model other than the one it is set to (the CLI's own
      fallback) says so. The board decides (engine/geminimodelswitch.js) and sends settingModelName only then; kept
      inside modelLine so every caller and test that lifts it from the page gets the same words. */
