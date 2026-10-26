@@ -17718,8 +17718,8 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div class="tmeta" id="tk-hold-for-when" hidden><span>Until</span>
           <span class="tk-repeat-when">
-            <select id="tk-hold-task" class="tsk-sel" aria-label="The task this hold waits for" hidden></select>
-            <input type="datetime-local" id="tk-hold-at" class="tk-repeat-in" aria-label="The date and time this hold waits for" hidden>
+            <select id="tk-hold-task" class="tsk-sel" aria-label="Until: the task this hold waits for" hidden></select>
+            <input type="datetime-local" id="tk-hold-at" class="tk-repeat-in" aria-label="Until: the date and time this hold waits for" hidden>
           </span>
         </div>
         <p class="dhint" id="tk-hold-takeover" style="margin:4px 0 0;" hidden>Saving makes this hold yours, so only you can take it off.</p>
@@ -70109,15 +70109,20 @@ document.getElementById('tk-repeat-save').addEventListener('click', async () => 
 function tkHoldMinute(ms) { return Math.floor(ms / 60000) * 60000; }
 /* Review 1: the task as the board has it NOW, read for this click alone (a failed poll keeps the old list and an
    overtaken one returns early, so the cached list cannot say whether an agent has just held or lifted it). null when it
-   could not be read. */
+   could not be read, { gone: true } when it was read and the task is no longer there (round 2: two different answers). */
 async function tkHoldFresh(projectId, n) {
   try {
     const res = await fetch('/api/projects');
     if (!res.ok) return null;
     const all = await res.json();
     const q = (all && Array.isArray(all.projects) ? all.projects : []).find((x) => x && x.id === projectId);
-    return (q && (q.tasks || []).find((x) => x && String(x.number) === String(n))) || null;
+    return (q && (q.tasks || []).find((x) => x && String(x.number) === String(n))) || { gone: true };
   } catch { return null; }
+}
+/* Round 2: a line is written only while its task is still the one on screen (the Repeats Save's still()). */
+function tkHoldSay(key, words) {
+  const msg = document.getElementById('tk-hold-msg');
+  if (msg && msg.dataset.task === key && PJ_CURRENT + '#' + TK_OPEN === key) msg.textContent = words;
 }
 function tkHoldStoredChoice(t) {
   const u = t && t.onHoldUntil;
@@ -70155,7 +70160,8 @@ function tkHoldShowWhen() {
 function tkHoldDirty() {
   const c = tkHoldChoice();
   const ready = c.kind === '' || (c.kind === 'task' && c.task) || (c.kind === 'at' && c.at);
-  document.getElementById('tk-hold-save').disabled = !ready || JSON.stringify(c) === document.getElementById('tk-hold-for').dataset.stored;
+  const save = document.getElementById('tk-hold-save');
+  save.disabled = save.dataset.busy === '1' || !ready || JSON.stringify(c) === document.getElementById('tk-hold-for').dataset.stored;   // round 2: not while saving
 }
 /* The tasks a hold can wait for: this project's open tasks but this one, and the stored one even once it is closed, so
    the choice never shows something that is not stored. Rebuilt only when it changes, keeping what is chosen. */
@@ -70223,17 +70229,20 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
   if (c.kind && !until) return;
   const btn = document.getElementById('tk-hold-save');
   const msg = document.getElementById('tk-hold-msg');
+  const key = p.id + '#' + t.number;
   btn.disabled = true;
-  if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }
+  btn.dataset.busy = '1';
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }
   try {
     /* Review 1: Save is a screen hold, which would put back on hold (as the person's) a task an agent has just taken off.
        Read it again first; change nothing unless it is still on hold. */
     const now = await tkHoldFresh(p.id, t.number);
-    if (!now) { if (msg) msg.textContent = 'we could not check that task just now, so nothing changed'; return; }
+    if (!now) { tkHoldSay(key, 'we could not check that task just now, so nothing changed'); return; }
+    if (now.gone) { await pjReload(); tkHoldSay(key, 'That task is no longer on this project, so nothing changed.'); return; }
     if (now.onHold !== true) {
       await pjReload();
       paintTaskActivity(TK_OPEN);
-      if (msg) msg.textContent = 'This was taken off hold, so nothing changed.';
+      tkHoldSay(key, 'This was taken off hold, so nothing changed.');
       return;
     }
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/hold', {
@@ -70241,13 +70250,14 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
       body: JSON.stringify(until ? { onHold: true, until } : { onHold: true }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not change what that hold waits for'; return; }
+    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'we could not change what that hold waits for'); return; }
     await pjReload();
     paintTaskActivity(TK_OPEN);
-    if (msg && msg.dataset.task === p.id + '#' + t.number) msg.textContent = 'Saved.';
+    tkHoldSay(key, 'Saved.');
   } catch {
-    if (msg) msg.textContent = 'we could not reach Kosmos to change that task';
+    tkHoldSay(key, 'we could not reach Kosmos to change that task');
   } finally {
+    delete btn.dataset.busy;
     tkHoldDirty();
   }
 });
@@ -70265,12 +70275,14 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
     /* kosmos#7184: a screen hold sets exactly what it sends, so a page that has not yet seen an agent's hold would
        replace what it waits for. Read the task again first; if it is already on hold, change nothing and show it. */
     if (t.onHold !== true) {
+      const key = p.id + '#' + t.number;
       const now = await tkHoldFresh(p.id, t.number);
-      if (!now) { if (msg) msg.textContent = 'we could not check that task just now, so nothing changed'; return; }
+      if (!now) { tkHoldSay(key, 'we could not check that task just now, so nothing changed'); return; }
+      if (now.gone) { await pjReload(); tkHoldSay(key, 'That task is no longer on this project, so nothing changed.'); return; }
       if (now.onHold === true) {
         await pjReload();
         paintTaskActivity(TK_OPEN);
-        if (msg) msg.textContent = 'This is already on hold, so nothing changed.';
+        tkHoldSay(key, 'This is already on hold, so nothing changed.');
         return;
       }
     }

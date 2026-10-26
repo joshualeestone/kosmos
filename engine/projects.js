@@ -729,6 +729,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
      project column and the task page never count children themselves. Built once per call. */
   const tree = tasksModEarly.treeOf({ tasks });
   const taskrepeatMod = require('./taskrepeat');   // review 1: once per call, not per task
+  const holdTasks = { tasks: tasks.filter(Boolean) };   // kosmos#7184 round 2: once per call too
   const withParts = (t) => (t ? {
     ...t,
     parts: tasksModEarly.partsOf(t),
@@ -740,7 +741,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     ...taskrepeatMod.fieldsOf(tasksModEarly.progressOf(t).closed ? Object.assign({}, t, { isClosed: true }) : t),
     // kosmos#7184: what a held task waits for and whether it has happened, from the engine's own reading (holdUntilState
     // counts a task that is gone as met), so the task page draws it and never works it out itself. null when none.
-    holdUntil: (() => { try { return tasksModEarly.holdUntilState({ tasks: tasks.filter(Boolean) }, t); } catch { return null; } })(),   // review 1: one bad row never fails the read
+    holdUntil: (() => { try { return tasksModEarly.holdUntilState(holdTasks, t); } catch { return null; } })(),   // review 1: one bad row never fails the read
   } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
   /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole
