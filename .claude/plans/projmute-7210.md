@@ -70,3 +70,7 @@ after trying it. Design shots before merge. The call is written on the card (com
   Mutations red: route guard, mute gate, mentions gate, gate removed.
 - web.projmute-7210.test.js: the shipped choose/paint functions (mutations red: sequence guard, refusal revert).
 - docs/browser-checks/render-projmute-7210.js (new) and render-bubblepop-2407.js (level arm).
+- Iteration 3 (sonnet): CONVERGED, no BLOCKER or WARNING. N1 the in-flight counter would stay up only if
+  #pjs-notify-msg were missing from the page (it ships) -> accepted. N2 another device changing the level while this
+  page is on the Agents tab can under-report the nav badge by the open room's unread (about 0 there) until the next
+  projects poll -> accepted, self-heals. N3 tally and nav badge use different feeds (pre-existing).
