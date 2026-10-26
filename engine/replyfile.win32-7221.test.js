@@ -86,6 +86,7 @@ test('#7221: the spelling rules refuse shares, device namespaces, streams, devic
   assert.equal(replyfile.winSpellingRefusalForTests('\\\\?\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM, 'a local file in the \\\\?\\ form is refused, said as what it is (review 13)');
   assert.equal(replyfile.winSpellingRefusalForTests('\\\\.\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM);
   assert.equal(replyfile.winSpellingRefusalForTests('\\??\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM, 'the NT spelling too, not a stream (review 18)');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\?\\Volume{8567e582-9e23-4c72-a97e-1fbdfc2f255f}\\Users\\a\\f.txt', drives), replyfile.LONG_FORM, 'a local volume: asked for its drive letter, not called a network path (review 24)');
   assert.equal(replyfile.winSpellingRefusalForTests('C:\\Users\\a\\Files\\f.txt:hidden', drives), replyfile.STREAM, 'an alternate data stream');
   assert.equal(replyfile.winSpellingRefusalForTests('C:\\Users\\a\\Files\\COM1:', drives), replyfile.STREAM);
   assert.equal(replyfile.winSpellingRefusalForTests('C:\\Users\\a\\Files\\NUL', drives), replyfile.DEVICE_NAME);
@@ -410,7 +411,15 @@ test('#7221 review 4-1: a project written on C: that lives on another local driv
     fs.symlinkSync(letter + ':\\', view, 'dir');
     const proj = path.join(view, 'proj');
     PROJECTS = [{ id: 'p-other-drive', name: 'Other drive', folder: proj, agents: [WHO] }];
-    const r = replyfile.attach(WHO, path.join(proj, 'f.txt'), { platform: 'win32' });
+    /* Review 24: the roots' links are walked once per attach, readOwn's recheck included: the Files folder (a root,
+       walked to learn the drives it reaches) is lstat'd once by that walk, plus once by filesRoot's own check: 2 in
+       all, where walking the roots again in the recheck made it 3. */
+    const realLstat = fs.lstatSync;
+    let filesLstats = 0;
+    fs.lstatSync = (p, ...rest) => { if (String(p).toLowerCase() === FILES.toLowerCase()) filesLstats++; return realLstat(p, ...rest); };
+    let r;
+    try { r = replyfile.attach(WHO, path.join(proj, 'f.txt'), { platform: 'win32' }); } finally { fs.lstatSync = realLstat; }
+    assert.equal(filesLstats, 2, 'the roots were walked once (plus the lstat of filesRoot)');
     assert.equal(r.ok, true, 'attaches as on main: ' + JSON.stringify(r));
     replyfile.discard(r.rec);
     // CONTROL: once no root reaches that drive (the project gone), a link from Files onto it is refused unresolved

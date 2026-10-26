@@ -463,7 +463,9 @@ function agentRoots(sessionName, filesDir, projectList) {
     else if (shareOf(p.folder)) projectFolders.push(asShareSpelling(p.folder));
   }
   folders.push(...projectFolders);
-  return { drives, folders, projectFolders, filesFolder, walkFrom, reached: null };
+  /* `cache` is an object every copy of these roots shares (winLinkRefusal works on a copy), so the roots' links are
+     walked once per attach, the readOwn recheck included (review 24 finding 1). */
+  return { drives, folders, projectFolders, filesFolder, walkFrom, cache: { reached: null } };
 }
 /* Whether a root is on drive `d`, as written or through its own links. A root written on C: may live on D: through a
    junction or link on its way (C:\Users\me\work -> D:\work), and a path the walk follows onto D: is then judged on D:,
@@ -474,11 +476,12 @@ function agentRoots(sessionName, filesDir, projectList) {
    drive whose server is down stalls that attach, as any attach of a file in that project already would. */
 function rootReaches(roots, d) {
   if (roots.drives.has(d)) return true;
-  if (!roots.reached) {
-    roots.reached = new Set();
-    for (const f of roots.walkFrom || []) drivesReached(f, roots.reached);
+  const cache = roots.cache || (roots.cache = { reached: null });
+  if (!cache.reached) {
+    cache.reached = new Set();
+    for (const f of roots.walkFrom || []) drivesReached(f, cache.reached);
   }
-  return roots.reached.has(d);
+  return cache.reached.has(d);
 }
 /* Add to `out` the drive `p` is written on and every drive its links lead to, followed as winLinkRefusal follows
    them (lstat and readlink, the allow-list of targets, at most MAX_HOPS links). Stops quietly where the walk would
@@ -508,7 +511,7 @@ function winSpellingRefusal(given, roots) {
   /* A local drive path written in its long form (\\?\C:\, \\.\C:\, \??\C:\) is refused too, as main never had to: the
      rules below compare spellings (a hidden folder of home, a project folder), and it does not start the way they do.
      It is said as what it is, not as a network path or a stream (review 13 NIT, review 18 NIT). */
-  if (roots && isLongDrivePath(given)) return LONG_FORM;
+  if (roots && (isLongDrivePath(given) || isLocalVolumeSpelling(given))) return LONG_FORM;   // a local volume too (review 24 NIT)
   /* Every \\ or // start is refused (a share, the \\?\ and \\.\ namespaces), but a plain \\host\share path written
      inside one of the agent's own share-written folders. */
   if (share && !inOwnShareFolder(given, roots)) return ON_NETWORK;

@@ -337,6 +337,10 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   drive path they are. Against fec39ec both new arms fail, the live one by attaching. Named, not changed (review 23
   NIT): a link whose target is a local volume is not walked INTO, so a link below that volume path to a share is
   resolved by realpath; local volumes reached that way are rare, and the cost is the stall residual (b) names.
+- Review 24 (no security or correctness finding): the roots' link-walk cache is now an object every copy of the
+  roots shares, so readOwn's recheck does not walk them again (the review 4-1 arm counts lstats of the Files folder:
+  2, one by the walk and one by filesRoot's own check, where the old code made 3); a local-volume path given to attach
+  is asked for its drive letter (LONG_FORM) rather than called a network path.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
