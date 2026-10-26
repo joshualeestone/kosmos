@@ -736,7 +736,7 @@ for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {
     let start = boardPage.range(of: "data-pmark=\"\(key)\" role=\"img\"").flatMap { boardPage.range(of: "<svg", range: $0.upperBound..<boardPage.endIndex) }
     let end = start.flatMap { boardPage.range(of: "</svg>", range: $0.lowerBound..<boardPage.endIndex) }
     let theirs = start.flatMap { s in end.map { String(boardPage[s.lowerBound..<$0.upperBound]) } } ?? "missing"
-    check(!ours.isEmpty && ours == (key == "qwen" ? theirs : theirs.replacingOccurrences(of: "currentColor", with: "#000000")),
+    check(!ours.isEmpty && ours == theirs.replacingOccurrences(of: "currentColor", with: "#000000"),
           "\(asset) is the board's \(key) mark")
 }
 check(Set(Board.providerMarkAsset.values) == Set(markKeys.keys), "every mark the tally names is in the asset catalog")
