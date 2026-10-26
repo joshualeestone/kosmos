@@ -71,7 +71,7 @@ function isLocalVolumeSpelling(p) {
 }
 /* A path written as a plain share, \\host\share\... or //host/share/..., not the \\?\ or \\.\ namespaces. */
 function isPlainShare(p) {
-  return !/^[\\/]{2}[?.][\\/]/.test(String(p)) && shareOf(p) !== null;
+  return !/^[\\/]{2}[?.][\\/]/.test(String(p)) && !NT_PREFIX.test(String(p)) && shareOf(p) !== null;
 }
 /* A drive path's long (\\?\C:\) or NT (\??\C:\) spelling read as the plain drive path it is. */
 function asDrivePath(p) {

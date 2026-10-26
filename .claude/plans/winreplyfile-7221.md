@@ -311,6 +311,15 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   string. winpath's NT constants sit above their first use. Not changed: "the Windows arms run only on win32" is
   covered by CI: `.github/workflows/windows.yml` runs `tools/windows-tests.js` on windows-latest, which runs every
   `win32`-named test file (why this file was renamed in review 1).
+- Review 21: readOwn runs the link walk again just before it resolves the given path a second time (a recheck that
+  refuses stops the read with zero realpaths; one that passes lets it go on); an NT `\??\UNC\...` path given to attach
+  is refused as a network path and is not a "plain share". `winSpellingRefusal` is exported as the test seam
+  `winSpellingRefusalForTests`, excused by name in engine.reachable.test.js as the repo does for its seams; the walk
+  stops at `hops >= MAX_HOPS`. **Named, not closed (review 21 finding 1):** an AGENT can register a project at
+  `\\host\share` and attach from it, since a share project is the one place a share path is allowed. Project create
+  already resolves the folder, so the contact happens there first; refusing here would close nothing. Closing it
+  belongs at project create: added to #7229. Named in the code header as residual (e). The header's residuals now
+  read (a) to (e) in order.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -319,7 +328,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 49/49 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 51/51 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

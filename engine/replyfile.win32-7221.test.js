@@ -79,22 +79,22 @@ test('#7221 review 7: a drive letter is read from every spelling of a drive path
 test('#7221: the spelling rules refuse shares, device namespaces, streams, device names and drives outside the roots', () => {
   const drives = { drives: new Set(['C']), folders: [] };   // the agent's roots: Files on C:, no projects
   const net = replyfile.ON_NETWORK;
-  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\f.txt', drives), net);
-  assert.equal(replyfile.winSpellingRefusal('//host/share/f.txt', drives), net);
-  assert.equal(replyfile.winSpellingRefusal('\\\\?\\UNC\\host\\share\\f.txt', drives), net);
-  assert.equal(replyfile.winSpellingRefusal('\\\\.\\NUL', drives), net);
-  assert.equal(replyfile.winSpellingRefusal('\\\\?\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM, 'a local file in the \\\\?\\ form is refused, said as what it is (review 13)');
-  assert.equal(replyfile.winSpellingRefusal('\\\\.\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM);
-  assert.equal(replyfile.winSpellingRefusal('\\??\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM, 'the NT spelling too, not a stream (review 18)');
-  assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\f.txt:hidden', drives), replyfile.STREAM, 'an alternate data stream');
-  assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\COM1:', drives), replyfile.STREAM);
-  assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\NUL', drives), replyfile.DEVICE_NAME);
-  assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\com1.txt', drives), replyfile.DEVICE_NAME);
-  assert.equal(replyfile.winSpellingRefusal('Z:\\Files\\f.txt', drives), replyfile.NOT_YOURS, 'a drive no root is on (a mapped drive is a share)');
-  assert.equal(replyfile.winSpellingRefusal('\\Users\\a\\Files\\f.txt', drives), replyfile.NOT_YOURS, 'a path with no drive');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\host\\share\\f.txt', drives), net);
+  assert.equal(replyfile.winSpellingRefusalForTests('//host/share/f.txt', drives), net);
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\?\\UNC\\host\\share\\f.txt', drives), net);
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\.\\NUL', drives), net);
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\?\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM, 'a local file in the \\\\?\\ form is refused, said as what it is (review 13)');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\.\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM);
+  assert.equal(replyfile.winSpellingRefusalForTests('\\??\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM, 'the NT spelling too, not a stream (review 18)');
+  assert.equal(replyfile.winSpellingRefusalForTests('C:\\Users\\a\\Files\\f.txt:hidden', drives), replyfile.STREAM, 'an alternate data stream');
+  assert.equal(replyfile.winSpellingRefusalForTests('C:\\Users\\a\\Files\\COM1:', drives), replyfile.STREAM);
+  assert.equal(replyfile.winSpellingRefusalForTests('C:\\Users\\a\\Files\\NUL', drives), replyfile.DEVICE_NAME);
+  assert.equal(replyfile.winSpellingRefusalForTests('C:\\Users\\a\\Files\\com1.txt', drives), replyfile.DEVICE_NAME);
+  assert.equal(replyfile.winSpellingRefusalForTests('Z:\\Files\\f.txt', drives), replyfile.NOT_YOURS, 'a drive no root is on (a mapped drive is a share)');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\Users\\a\\Files\\f.txt', drives), replyfile.NOT_YOURS, 'a path with no drive');
   // CONTROL: an ordinary file on the roots' drive passes the spelling rules, in either case of the letter
-  assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\report.pdf', drives), null);
-  assert.equal(replyfile.winSpellingRefusal('c:/Users/a/Files/null.txt', drives), null);
+  assert.equal(replyfile.winSpellingRefusalForTests('C:\\Users\\a\\Files\\report.pdf', drives), null);
+  assert.equal(replyfile.winSpellingRefusalForTests('c:/Users/a/Files/null.txt', drives), null);
 });
 
 /* ---------- attach on a Windows board ---------- */
@@ -344,14 +344,14 @@ test('#7221 review 2-3: a file on a share resolves only the share-written projec
 
 test('#7221 review 3-2: a plain share path passes the spelling rule only inside one of the agent\'s own share-written project folders', () => {
   const roots = { drives: new Set(['C']), folders: ['\\\\host\\share\\proj', 'C:\\work\\local'] };
-  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\proj\\f.txt', roots), null);
-  assert.equal(replyfile.winSpellingRefusal('//HOST/Share/proj/sub/f.txt', roots), null, 'either slash, any case');
-  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\other\\f.txt', roots), replyfile.ON_NETWORK, 'outside the project');
-  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\projx\\f.txt', roots), replyfile.ON_NETWORK, 'a sibling whose name starts the same');
-  assert.equal(replyfile.winSpellingRefusal('\\\\elsewhere\\share\\proj\\f.txt', roots), replyfile.ON_NETWORK, 'another host');
-  assert.equal(replyfile.winSpellingRefusal('\\\\?\\UNC\\host\\share\\proj\\f.txt', roots), replyfile.ON_NETWORK, 'the \\\\?\\ namespace stays refused');
-  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\proj\\NUL', roots), replyfile.DEVICE_NAME, 'a device name stays refused inside');
-  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\proj\\f.txt', { drives: new Set(['C']), folders: ['C:\\work\\local'] }), replyfile.ON_NETWORK, 'no share project: refused');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\host\\share\\proj\\f.txt', roots), null);
+  assert.equal(replyfile.winSpellingRefusalForTests('//HOST/Share/proj/sub/f.txt', roots), null, 'either slash, any case');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\host\\share\\other\\f.txt', roots), replyfile.ON_NETWORK, 'outside the project');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\host\\share\\projx\\f.txt', roots), replyfile.ON_NETWORK, 'a sibling whose name starts the same');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\elsewhere\\share\\proj\\f.txt', roots), replyfile.ON_NETWORK, 'another host');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\?\\UNC\\host\\share\\proj\\f.txt', roots), replyfile.ON_NETWORK, 'the \\\\?\\ namespace stays refused');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\host\\share\\proj\\NUL', roots), replyfile.DEVICE_NAME, 'a device name stays refused inside');
+  assert.equal(replyfile.winSpellingRefusalForTests('\\\\host\\share\\proj\\f.txt', { drives: new Set(['C']), folders: ['C:\\work\\local'] }), replyfile.ON_NETWORK, 'no share project: refused');
 });
 
 test('#7221 review 3-2: a file in one of the agent\'s own share-written projects attaches by its share path; one beside it is refused unresolved', winOnly, (t) => {
@@ -914,4 +914,35 @@ test('#7221 review 19-1: another agent\'s folder written as a local volume, with
     assert.deepEqual(resolved, [mine], 'the volume folder whose link leads to a share was not resolved');
     assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
   } finally { fs.rmSync(path.join(under, 'lnk'), { force: true }); }
+});
+
+/* ---------- review 21 ---------- */
+
+test('#7221 review 21-2: readOwn walks the links again before it resolves the given path a second time', () => {
+  /* A recheck that refuses (as the walk does when a link has been swapped onto a share since the first one) stops the
+     read before that second realpath: no resolution is attempted, and the read says the file changed. */
+  const dir = path.join(SANDBOX, 'readown-recheck');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'f.txt');
+  fs.writeFileSync(file, 'x');
+  counting();
+  let rechecked = 0;
+  const out = fs.openSync(path.join(dir, 'out.bin'), 'w');
+  let got;
+  try { got = replyfile.readOwn(file, fs.statSync(file, { bigint: true }), file, out, { recheck: () => { rechecked++; return replyfile.ON_NETWORK; } }); }
+  finally { fs.closeSync(out); replyfile.setRealpathForTests(null); }
+  assert.equal(rechecked, 1);
+  assert.equal(got.ok, false);
+  assert.equal(realpathCalls, 0, 'the second realpath was not reached');
+  // CONTROL: a recheck that passes lets the read go on
+  const out2 = fs.openSync(path.join(dir, 'out2.bin'), 'w');
+  try { got = replyfile.readOwn(file, fs.statSync(file, { bigint: true }), file, out2, { recheck: () => null }); } finally { fs.closeSync(out2); }
+  assert.deepEqual(got, { ok: true, size: 1 });
+});
+
+test('#7221 review 21 NIT: an NT \\??\\UNC\\ path given to attach is refused as a network path; it is not a plain share', () => {
+  const roots = { drives: new Set(['C']), folders: ['\\\\host\\share\\proj'], projectFolders: ['\\\\host\\share\\proj'], filesFolder: null };
+  assert.equal(replyfile.winSpellingRefusalForTests('\\??\\UNC\\host\\share\\proj\\f.txt', roots), replyfile.ON_NETWORK);
+  assert.equal(winpath.isPlainShare('\\??\\UNC\\host\\share\\x'), false);
+  assert.equal(winpath.isPlainShare('\\\\host\\share\\x'), true);
 });

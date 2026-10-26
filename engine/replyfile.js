@@ -401,10 +401,11 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    And allowedRoot, which resolves every project folder to judge containment, resolves a folder written as a share
    only for a file on that same share (review 1 finding 3, review 2 finding 3), and walks a folder written on a
    drive by rule 2 first, skipping one whose links leave for a share (review 3 finding 1).
-   ⚠️ What this does not close (review 1 finding 3, named): (a) a link swapped to point at a share between the walk
-   and the realpath: the realpath may already have made the contact, and for a file written inside one of the
-   agent's project folders the open is not refused either (a project's files may be share paths by design);
-   everywhere else the open is refused; (b) the OTHER folders an attach resolves to judge containment: a project
+   ⚠️ What this does not close (review 1 finding 3, named): (a) a link swapped to point at a share between a walk
+   and the realpath after it (the first one, and readOwn's second, which runs the walk again just before it): the
+   realpath may already have made the contact, and for a file written inside one of the agent's project folders the
+   open is not refused either (a project's files may be share paths by design); everywhere else the open is
+   refused; (b) the OTHER folders an attach resolves to judge containment: a project
    folder on a drive letter that is mapped to a share (telling a mapped letter apart needs a call Node does not
    have; the lstat walk of that folder touches the share too, before its realpath does; every registered project
    folder's links are walked on each Windows attach of a project file, cheap on local disks, growing with the
@@ -412,15 +413,17 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    itself made (the Files folder and its parent, each agent's folder, ~/.ssh, ~/.config), which a person or a
    process of this user would have to replace with a link to a share; and every agent's RECORDED folder, which for
    a connected agent is its own working folder and may simply be written as a share or a mapped drive: keptRoots
-   stats it and instructions.fileFor lstats it on each project-file attach, as on main (#7232); (d) a link that IS
-   one of the agent's project folders is followed onto a share only when the walk reaches it as written: a project
-   written C:\work\proj where C:\work is itself a link (to D:\work) is met as D:\work\proj, does not match, and
-   its share files are refused, where main attached them (the safe direction; write the project folder as it
-   resolves); (c) a share is
-   matched by how it is WRITTEN
-   (review 4 finding 2): a project written \\fileserver\x whose real path reads \\10.0.0.5\x (or a DFS path, or
-   another name for the server) is not matched to its files, which are then refused, where main matched by identity.
-   Write the project folder as Windows resolves it. */
+   stats it and instructions.fileFor lstats it on each project-file attach, as on main (#7232); (c) a share is
+   matched by how it is WRITTEN (review 4 finding 2): a project written \\fileserver\x whose real path reads
+   \\10.0.0.5\x (or a DFS path, or another name for the server) is not matched to its files, which are then refused,
+   where main matched by identity. Write the project folder as Windows resolves it; (d) a link that IS one of the
+   agent's project folders is followed onto a share only when the walk reaches it as written: a project written
+   C:\work\proj where C:\work is itself a link (to D:\work) is met as D:\work\proj, does not match, and its share
+   files are refused, where main attached them (the safe direction; write the project folder as it resolves);
+   (e) an AGENT can make the board contact a share it names: register a project at \\host\share (kosmos project
+   create), then attach from it, since a share project is the one place a share path is allowed. Project create
+   resolves the folder already, so the contact happens there first; refusing it here would close nothing. Closing it
+   belongs at project create (#7229). */
 /* The agent's roots: `drives`, the letters every root is written on or reaches through its own links, and `folders`, the
    agent's own project folders (on a drive letter, or a plain share). A project may live on a share, written as a
    mapped drive (projects.js opens "a Z:\ record whose realpath is \\server\share") or as \\server\share itself; that
@@ -492,7 +495,7 @@ function inOwnShareFolder(given, roots) {
 /* The refusal for a Windows path by its spelling alone, or null. Called before anything touches the path. `roots`
    is the agent's (agentRoots); null when the path is a project folder being checked, with no owner to compare. */
 function winSpellingRefusal(given, roots) {
-  const share = isNamespaceSpelling(given);
+  const share = isNamespaceSpelling(given) || isNetworkSpelling(given);   // \\..., and an NT \??\UNC\... too (review 21 NIT)
   /* A local drive path written in its long form (\\?\C:\, \\.\C:\, \??\C:\) is refused too, as main never had to: the
      rules below compare spellings (a hidden folder of home, a project folder), and it does not start the way they do.
      It is said as what it is, not as a network path or a stream (review 13 NIT, review 18 NIT). */
@@ -549,7 +552,7 @@ function winLinkRefusal(p, roots) {
    then each followed link's resolved path, is shown to `onPath` before its parts are read; a sentence from onPath, or
    from the walk itself, stops it and is returned. Null: the walk reached the end with nothing refused. */
 function walkLinks(p, onPath, hops = 0, acceptLink = null) {
-  if (hops > MAX_HOPS) return TOO_MANY_LINKS;
+  if (hops >= MAX_HOPS) return TOO_MANY_LINKS;
   const why = onPath(p);
   if (why) return why;
   const root = path.win32.parse(p).root;
@@ -650,7 +653,7 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
   const name = path.basename(real);   // review r2 finding 5: the file's own name, not a link's (report.pdf -> notes.txt is notes.txt)
   try {
     /* #6734: copied across in chunks into the stored file, never held whole; a refused read leaves nothing stored. */
-    const kept = attachments.saveFilled('agent', sessionName, { name, type: typeOf(name), by: 'agent' }, (out) => readOwn(real, st, given, out));
+    const kept = attachments.saveFilled('agent', sessionName, { name, type: typeOf(name), by: 'agent' }, (out) => readOwn(real, st, given, out, { recheck: win ? () => winLinkRefusal(given, roots) : null }));
     if (!kept.ok) return kept;
     const rec = kept.rec;
     ledgerAdd(sessionName, rec.id, Date.parse(rec.at), rec.size);
@@ -686,7 +689,10 @@ function sameFile(a, b) {
   if (typeof a.ino === 'bigint' && typeof b.ino === 'bigint') return a.dev === b.dev && a.ino === b.ino;
   return Number(a.dev) === Number(b.dev) && Number(a.ino) === Number(b.ino);
 }
-function readOwn(real, st, given, out) {
+/* `recheck` (#7221 review 21 finding 2): on Windows, the link walk again, run just before the given path is resolved a
+   second time below, so a link swapped onto a share since the first walk is refused before that realpath, not after
+   it. The window this leaves is only the walk-to-realpath gap the header names as (a). */
+function readOwn(real, st, given, out, { recheck = null } = {}) {
   if (typeof given !== 'string' || !given) return { ok: false, because: CHANGED };   // required (review r6 finding 3)
   let fd = null;
   try {
@@ -699,6 +705,7 @@ function readOwn(real, st, given, out) {
     const open = fs.fstatSync(fd, { bigint: true });
     const openSize = Number(open.size);
     let again = null;
+    if (recheck && recheck()) return { ok: false, because: CHANGED };
     try { again = realOf(given); } catch { again = null; }
     if (again !== real) return { ok: false, because: CHANGED };
     /* Review r3 finding 4: and the file at `real` now must be the one the descriptor holds. This narrows the
@@ -797,4 +804,5 @@ function discard(rec) {
 
 /* winSpellingRefusal is exported for engine/replyfile.win32-7221.test.js only; nothing else should call it (review 4
    NIT). The pure path rules it builds on are engine/winpath.js. */
-module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, LONG_FORM, TOO_MANY_LINKS, DEAD_LINK, winSpellingRefusal };
+module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, LONG_FORM, TOO_MANY_LINKS, DEAD_LINK,
+  winSpellingRefusalForTests: winSpellingRefusal };
