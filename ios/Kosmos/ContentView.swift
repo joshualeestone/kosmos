@@ -128,7 +128,10 @@ struct ContentView: View {
                     // front, never on each poll.
                     ForEach(AppTabs.visible(tasksTab: web.tasksTab), id: \.self) { which in
                         tabPage(which)
-                            .tabItem { Label(which.title, systemImage: which.symbol) }
+                            .tabItem {
+                                // kosmos#7266: Agents draws its own icon (Font Awesome Free's user-tie, a template image).
+                                if let asset = which.asset { Label(which.title, image: asset) } else { Label(which.title, systemImage: which.symbol) }
+                            }
                             // kosmos#7030: Today's badge is the board's one number, the Dock's (counts.waiting); none at 0 or off.
                             // kosmos#7032: Projects' is the board's unread room posts (counts.projectsUnread).
                             // kosmos#7252: with Today off, its number (agents waiting on you) is on Agents.
@@ -291,6 +294,12 @@ struct ContentView: View {
         web.pressBoardSection(.today)
     }
 
+    // kosmos#7266: a + button: the board's own create form, over the tabs, opened through the board's door.
+    private func openCreate(_ what: AppTabs.Create) {
+        showBoardPage()
+        web.pressBoardSection(what == .agent ? .agents : .projects, door: what.rawValue)
+    }
+
     // kosmos#7252: the board page, under the Today tab while it is on, or over the tabs while it is off.
     private func showBoardPage() {
         todayBoard = true
@@ -324,20 +333,18 @@ struct ContentView: View {
     // Agents, Projects (kosmos#7032), Tasks (kosmos#7031) and Settings are native, and Today when nothing was sent
     // under it (kosmos#7030); the rest show the board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
-        if which == .today && !todayBoard {
-            TodayView(client: board, openPage: { url in
-                pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { showBoardToday() })
-        } else if which == .agents {
+        // kosmos#7266: Today is removed from the bar (Josh, 10-26: "kill the today section altogether"); TodayView stays
+        // in the target unused until the project file drops it.
+        if which == .agents {
             AgentsView(client: board, push: pushManager, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { showBoardToday() })
+            }, openBoard: { showBoardToday() }, create: { openCreate(.agent) })
         } else if which == .projects {
             // kosmos#7032: the native Projects list and a project's room; the board's own project page (the room's info
             // button) opens under Today, as an agent's chat does from Agents.
             ProjectsView(client: board, roomRequest: $roomRequest, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            })
+            }, create: { openCreate(.project) })
         } else if which == .tasks {
             // kosmos#7031: native Tasks. A task's page is native too (kosmos#7074, TaskPageView); its info button opens
             // the board's page under Today in the board view; a press on Tasks brings the list back.
@@ -551,10 +558,10 @@ final class BoardWeb: ObservableObject {
     }
 
     // `ready` is given by a finished load (didFinish says the page is ready, whatever isLoading still reads).
-    func press(_ tab: AppTabs.Tab, ready: Bool = false, section: Bool = false) {
+    func press(_ tab: AppTabs.Tab, ready: Bool = false, section: Bool = false, door: String? = nil) {
         // The tracker decides from what the page is (PressTracker.Page); a press with no web view yet waits.
         let page: PressTracker.Page = webView.map { ready || !$0.isLoading ? .ready : .loading } ?? .noView
-        guard let run = tracker.press(tab, page: page, section: section), let webView = webView else { return }
+        guard let run = tracker.press(tab, page: page, section: section, door: door), let webView = webView else { return }
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
@@ -568,13 +575,14 @@ final class BoardWeb: ObservableObject {
     // kosmos#7010: the board's own section for a native tab, pressed on purpose (the Settings screen's row). When the
     // shared page is a Kosmos+ page (the account page that screen opens), there is no board to press, so the board is
     // loaded first and the press waits for it (it waits on the sign-in host, then runs once the board has loaded).
-    func pressBoardSection(_ tab: AppTabs.Tab) {
+    // kosmos#7266: `door`, a create name the board's door takes instead of the section's (the + buttons).
+    func pressBoardSection(_ tab: AppTabs.Tab, door: String? = nil) {
         if let webView = webView, webView.url?.host == AppTabs.signInHost {
             webView.load(URLRequest(url: KosmosConfig.boardURL))
-            _ = tracker.press(tab, page: .loading, section: true)
+            _ = tracker.press(tab, page: .loading, section: true, door: door)
             return
         }
-        press(tab, section: true)
+        press(tab, section: true, door: door)
     }
 
 
@@ -583,7 +591,7 @@ final class BoardWeb: ObservableObject {
     func loaded() {
         // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
         // replays as a section press.
-        if let tab = tracker.pending { press(tab, ready: true, section: true) }
+        if let tab = tracker.pending { press(tab, ready: true, section: true, door: tracker.pendingDoor) }
         if let round = tracker.loaded(host: webView?.url?.host) { schedule(round, at: PressTracker.launchReads) }
     }
 

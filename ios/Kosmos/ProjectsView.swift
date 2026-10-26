@@ -440,6 +440,8 @@ struct ProjectsView: View {
     @StateObject private var store: RoomStore
     @Binding var roomRequest: PushBridge.RoomTarget?
     let openPage: (URL) -> Void
+    // kosmos#7266: the + at the top right, the board's own new-project form (ContentView.openCreate).
+    var create: () -> Void = {}
     @AppStorage("kosmos.projects.sort") private var sortRaw = Board.ProjectSort.newest.rawValue
     @State private var openProject: Board.ProjectRow?
     // A notification's room was not in the list: it has had its one fresh read.
@@ -460,7 +462,15 @@ struct ProjectsView: View {
         NavigationView {
             content
                 .navigationTitle("Projects")
-                .toolbar { ToolbarItem(placement: .navigationBarTrailing) { sortMenu } }
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        HStack(spacing: 4) {
+                            sortMenu
+                            Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
+                                .accessibilityLabel("New project")
+                        }
+                    }
+                }
                 .background(Palette.ground.ignoresSafeArea())
                 .background(
                     NavigationLink(isActive: Binding(get: { openProject != nil }, set: { if !$0 { openProject = nil } })) {

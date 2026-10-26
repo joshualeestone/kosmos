@@ -48,6 +48,7 @@ struct SettingsView: View {
                     if KosmosConfig.requireBiometricUnlock { security }
                     account
                     board
+                    about
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
@@ -207,6 +208,16 @@ struct SettingsView: View {
         } footer: {
             Text("Agents, AI models, connections and the rest of your computer's settings are there.")
                 .font(.footnote).foregroundColor(Palette.secondary)
+        }
+    }
+
+    // kosmos#7266: the credit the Agents tab's icon needs (Font Awesome Free's icons are CC BY 4.0).
+    private var about: some View {
+        Section {
+            Text("The Agents icon is from Font Awesome Free, used under the CC BY 4.0 licence.")
+                .font(.footnote).foregroundColor(Palette.secondary)
+        } header: {
+            Text("About")
         }
     }
 

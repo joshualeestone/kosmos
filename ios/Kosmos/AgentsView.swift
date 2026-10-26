@@ -11,6 +11,8 @@ struct AgentsView: View {
     @ObservedObject var push: PushNotificationManager
     let openChat: (URL) -> Void
     let openBoard: () -> Void
+    // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
+    var create: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
@@ -25,6 +27,12 @@ struct AgentsView: View {
         NavigationView {
             content
                 .navigationTitle("Agents")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
+                            .accessibilityLabel("New agent")
+                    }
+                }
                 .background(Palette.ground.ignoresSafeArea())
                 // The link sits on the page, not on a row: a row (or the whole list) that stops being drawn, as when the
                 // Mac asks for Allow again, would otherwise close the chat under the person.

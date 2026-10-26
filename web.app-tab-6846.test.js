@@ -19,7 +19,7 @@ const SCRIPT = page.scriptOf(PAGE);
 const BACKDROPS = '.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])';
 const BLOCK = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosAppTab = \(name\) => \{\n[\s\S]*?\n\};$/m);
 
-function run(name, { tabs = ['agents', 'projects', 'tasks'], profile = true, inert = false, menuOpen = false, noTabs = false, backdrop = false } = {}) {
+function run(name, { tabs = ['agents', 'projects', 'tasks'], profile = true, inert = false, menuOpen = false, noTabs = false, backdrop = false, makers = ['new-agent', 'pj-new'] } = {}) {
   assert.ok(BLOCK, 'the page no longer publishes kosmosAppTab for the iPhone app');
   const calls = [];
   const win = {};
@@ -37,6 +37,7 @@ function run(name, { tabs = ['agents', 'projects', 'tasks'], profile = true, ine
       if (id === 'tabs') return noTabs ? null : tabsEl;
       if (id === 'userpop-go-you') return profile ? { click: () => calls.push('press your profile') } : null;
       if (id === 'pnav') return { hidden: !menuOpen };
+      if (id === 'new-agent' || id === 'pj-new') return makers.includes(id) ? { click: () => calls.push('make ' + id) } : null;
       throw new Error('unexpected id ' + id);
     },
   };
@@ -119,4 +120,40 @@ test('#6846: an open header menu is not a refusal: the press closes it, as a per
   // The user menu closes on a click anywhere outside it, which the press is.
   assert.match(SCRIPT, /document\.addEventListener\('click', \(e\) => \{\n\s*if \(menu\.hidden\) return;\n\s*if \(e\.target\.closest && e\.target\.closest\('#userpop'\)\) \{/,
     'the user menu no longer closes on a click elsewhere; kosmosAppTab relies on that');
+});
+
+/* kosmos#7266: the phone's + buttons ask the door for a create: the section's tab, then its create button. */
+test('#7266: new-agent presses Agents, then the board\'s own New agent button', () => {
+  const { answer, calls } = run('new-agent');
+  assert.equal(answer, true);
+  assert.deepEqual(calls, ['press agents', 'make new-agent']);
+});
+
+test('#7266: new-project presses Projects, then the board\'s own add-project button', () => {
+  const { answer, calls } = run('new-project');
+  assert.equal(answer, true);
+  assert.deepEqual(calls, ['press projects', 'make pj-new']);
+});
+
+test('#7266: a create whose button is missing answers false and presses nothing', () => {
+  const { answer, calls } = run('new-project', { makers: ['new-agent'] });
+  assert.equal(answer, false);
+  assert.deepEqual(calls, []);
+});
+
+test('#7266: a create waits behind a box or a covered board, as a section press does', () => {
+  assert.equal(run('new-agent', { backdrop: true }).answer, false);
+  assert.equal(run('new-agent', { inert: true }).answer, false);
+  assert.deepEqual(run('new-agent', { backdrop: true }).calls, []);
+});
+
+test('#7266: the open phone menu closes before a create, as before a section press', () => {
+  assert.deepEqual(run('new-agent', { menuOpen: true }).calls, ['pnavClose true', 'press agents', 'make new-agent']);
+});
+
+test('#7266: the buttons the door presses are on the page, and the app asks for exactly these names', () => {
+  assert.match(PAGE, /id="new-agent"/);
+  assert.match(PAGE, /id="pj-new"/);
+  const swift = fs.readFileSync(nodePath.join(__dirname, 'ios', 'Kosmos', 'ShellLogic.swift'), 'utf8');
+  assert.match(swift, /enum Create: String \{ case agent = "new-agent", project = "new-project" \}/);
 });
