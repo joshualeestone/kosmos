@@ -35,3 +35,32 @@ Validation (6j), stated as it happened:
   local pass.
 
 Per-iteration findings and decisions: .claude/plans/anthrocompat-7206.md, "Slice 1a review 1" to "review 5".
+
+### Per-Iteration Breakdown
+
+#### Iteration 1
+- [WARNING] an abandoned add claim was never reclaimed --> FIXED (ported from the Qwen add)
+- [WARNING] a key with a character a header cannot carry was accepted --> FIXED (refused)
+- [WARNING] the launch left CLAUDE_CODE_USE_BEDROCK/VERTEX/FOUNDRY and CLAUDE_CODE_OAUTH_TOKEN reachable --> FIXED (removed; nonessential traffic off)
+- [WARNING] the key's temp file outlived a cut-short launch --> FIXED (EXIT trap)
+- [NIT] redirect:'manual' has no test --> ACCEPTED (fetch drops Authorization cross-origin anyway)
+
+#### Iteration 2
+- [BLOCKER] a vendor file naming "constructor" took GET /api/accounts down for every provider --> FIXED (own-key lookups; red-checked)
+- [WARNING] the reclaim could race --> FIXED (rename aside, one winner)
+- [WARNING] a launch whose key handoff cannot be built still started --> FIXED (refused; red-checked)
+
+#### Iteration 3
+- [WARNING] DeepSeek rows reached GET /api/accounts, where the page names them Claude --> FIXED (kept out in 1a; 1b lists them)
+- [WARNING] the supervisor did not check the key itself was queued as a launch secret --> FIXED
+- [WARNING] the add route accepted on Windows, which cannot launch it --> FIXED (refused)
+
+#### Iteration 4
+- [WARNING] GET /api/accounts ran the hidden DeepSeek live check, sending keys for rows nobody sees --> FIXED (pinned that the vendor is not asked)
+- [WARNING] the env scrub was proven only against a fake tmux --> FIXED (real-tmux test on a private server; red with env -u removed)
+
+#### Iteration 5
+No blockers, no warnings. Two items taken (the live cache keys on a hash; the real-tmux test removes its own socket).
+
+### Final ledger
+Converged at iteration 5. Deferred to slice 1b, by name in the plan: listing vendor rows with the page learning the vendor, and knownsecrets masking .kosmos-<vendor>- folders.
