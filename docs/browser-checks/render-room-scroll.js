@@ -522,8 +522,29 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         await ph.setViewportSize({ width: 393, height: 852 - 336 });
         await ph.waitForTimeout(500);
         const kb = await floor();
-        if (kb.composerBottom <= kb.viewport && kb.roomH < post.roomH) ok('#7196 with the keyboard up the thread shrinks and the composer stays on screen');
-        else bad('#7196 with the keyboard up the thread shrinks and the composer stays on screen', JSON.stringify({ before: post, kb }));
+        // Review 1: the newest row itself, not only the boxes (the old cap alone also shrinks the room, and a sticky
+        // composer is always on screen), with a lifted-fit control at this size.
+        if (kb.lastBottom <= kb.composerTop && kb.composerBottom <= kb.viewport) ok('#7196 with the keyboard up the newest row stays above the composer');
+        else bad('#7196 with the keyboard up the newest row stays above the composer', JSON.stringify({ before: post, kb }));
+        const kbLifted = await ph.evaluate(() => { document.getElementById('pj-room').style.setProperty('--pj-room-fit', '2000px'); return true; }) && await floor();
+        if (kbLifted.lastBottom > kbLifted.composerTop) ok('#7196 CONTROL: with the keyboard up and no fit, the measurement sees the newest row hidden');
+        else bad('#7196 CONTROL: with the keyboard up and no fit, the measurement sees the newest row hidden', 'it cannot fail: ' + JSON.stringify(kbLifted));
+        await ph.setViewportSize({ width: 393, height: 852 });
+        await ph.evaluate(() => pjFitRoomPhone());
+        // Review 1: typing a long message grows the composer with no repaint or resize; the thread must give way.
+        const typed = await ph.evaluate(async () => {
+          const box = document.getElementById('pj-post'), comp = document.querySelector('.pjmid .composer');
+          const h0 = comp.getBoundingClientRect().height;
+          box.value = 'line one\nline two\nline three\nline four\nline five'; box.dispatchEvent(new Event('input', { bubbles: true }));
+          if (typeof pjGrowComposer === 'function') pjGrowComposer(box);
+          await new Promise((r) => setTimeout(r, 400));
+          return { grew: comp.getBoundingClientRect().height - h0 };
+        });
+        const afterType = await floor();
+        if (typed.grew < 20) bad('#7196 CONTROL: typing really grew the composer', JSON.stringify(typed));
+        else if (afterType.lastBottom <= afterType.composerTop) ok('#7196 typing a long message (composer +' + Math.round(typed.grew) + 'px) leaves the newest row above it');
+        else bad('#7196 typing a long message leaves the newest row above the composer', JSON.stringify({ typed, afterType }));
+        await ph.evaluate(() => { const box = document.getElementById('pj-post'); box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); });
       } catch (e) {
         bad('#7196 the phone arms ran', String((e && e.message) || e));
       } finally {
