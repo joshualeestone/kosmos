@@ -75,8 +75,11 @@ function recent(file, n = RECENT) {
 /* What a decision is, for "has it changed": the moves, the held accounts and the accounts at risk. Built from the
    decision or from its record line alike, so a restart does not record the same decision again. */
 function keyOf(d) {
-  return JSON.stringify({ m: objects(d.moves).map((x) => [x.agent, x.from, x.to]), h: objects(d.held).map((x) => x.from),
-    r: objects(d.atRisk).map((x) => [x.from, x.kind]) });
+  /* Review 17: each list sorted, so the order entries arrive in (an account carried through a gap is appended) never
+     makes one decision look like two. */
+  const sorted = (xs) => xs.map((x) => JSON.stringify(x)).sort();
+  return JSON.stringify({ m: sorted(objects(d.moves).map((x) => [x.agent, x.from, x.to])), h: sorted(objects(d.held).map((x) => x.from)),
+    r: sorted(objects(d.atRisk).map((x) => [x.from, x.kind])) });
 }
 
 /**
@@ -113,7 +116,7 @@ function create({ file, nowMs = Date.now() }) {
       const movable = ab.movableOnDemand(() => ab.movableFor({ cards: deps.roster(), records: deps.records, readCommitment: deps.readCommitment,
         ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) }));
       decision = ab.decide({ rows, movable, nowMs });
-    } catch { return { did: 'unreadable' }; }
+    } catch (err) { return { did: 'unreadable', because: String((err && err.message) || err) }; }   // review 17: the board logs why
     /* Review 14, 16: an account that was at risk and now cannot be read (no figure still fresh, no refused or signed-out
        login) is a gap in the measuring, not the end of the risk. It keeps its entries from the last decision, so its
        risk does not "end" in the record, while changes on every other account are still written. Its line says so. */
@@ -128,7 +131,8 @@ function create({ file, nowMs = Date.now() }) {
         atRisk: decision.atRisk.filter(away).concat(last.atRisk.filter((x) => carried.includes(x.from)).map((x) => ({ from: x.from, why: x.why, kind: x.kind }))) };
     }
     const key = keyOf(decision);
-    if (key === state.lastKey) return { did: 'nothing' };
+    /* Review 17: the record already holds this decision, so there is nothing a failed write left unsaid. */
+    if (key === state.lastKey) { state.writeFailed = false; return { did: 'nothing' }; }
     /* Review 10: the end of a risk is written too (an empty decision), so a board restart rebuilds "nothing at risk"
        and a risk that comes back is recorded again. Only a first tick with nothing at risk writes nothing. */
     const empty = !(decision.moves.length || decision.held.length || decision.atRisk.length);

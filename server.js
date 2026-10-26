@@ -26188,6 +26188,7 @@ function start(port = PORT) {
       catch (err) { process.stdout.write(`autobalance-sweep: off, its record could not be read (${String((err && err.message) || err)})\n`); }
       const abSweep = autobalanceSweepRun;
       let abSweepWriteSaid = false;
+      let abSweepUnreadableSaid = null;   // review 17: the last "could not work out" reason logged, so it is said once
       let abSweepBusy = 0;   // when the running tick started, or 0
       const abSweepTick = () => {
         /* Review 9: nothing here may throw out of a timer into the board, and a throw must not leave the busy flag set. */
@@ -26203,8 +26204,11 @@ function start(port = PORT) {
           ticking
             .then((r) => {
               if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n');
+              const why = r && r.did === 'unreadable' ? (r.because || 'unknown') : null;
+              if (why && why !== abSweepUnreadableSaid) process.stdout.write(`autobalance-sweep: could not work out the decision (${why})\n`);
+              abSweepUnreadableSaid = why;
               const failed = !!(r && r.because === 'write-failed');
-              if (failed && !abSweepWriteSaid) process.stdout.write('autobalance-sweep: its record could not be written; Settings says it is not recording\n');
+              if (failed && !abSweepWriteSaid) process.stdout.write('autobalance-sweep: its record could not be written; Settings says it is not recording\n');   // said once per run of failures
               abSweepWriteSaid = failed;
             })
             .catch(() => { /* best-effort, like the sweeps above */ })
