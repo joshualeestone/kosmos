@@ -13556,6 +13556,7 @@ window.kosmosMeasureScrollbarWidth();
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
           <option value="meta" disabled>Meta Muse &middot; coming soon</option>
           <option value="alibaba" disabled data-off="Checking your accounts">Alibaba Qwen</option>
+          <option value="deepseek" disabled>DeepSeek &middot; coming soon</option>
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
         </select>
@@ -14640,6 +14641,8 @@ window.kosmosMeasureScrollbarWidth();
         <option value="xai">xAI Grok</option>
         <option value="meta" disabled>Meta Muse &middot; coming soon</option>
         <option value="alibaba">Alibaba Qwen</option>
+        <!-- #7206: offered only while this Kosmos's switch for it is on (compatAsk); otherwise coming soon. -->
+        <option value="deepseek" disabled>DeepSeek &middot; coming soon</option>
         <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
       </select>
@@ -14821,6 +14824,25 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="acct-qwen-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       <p class="dhint" style="margin:8px 0 0;">Qwen answers questions and runs commands well; check the files it edits.</p>
+    </div>
+
+    <!-- #7206: DeepSeek, a key only. Kosmos checks the key with DeepSeek before it saves it; its agents run on Claude Code,
+         pointed at DeepSeek. -->
+    <div id="acct-compat-flow" hidden style="margin-top: var(--space-5);">
+      <p class="dwarn" style="margin:0 0 8px;"><b>DeepSeek agents run on Claude Code, pointed at DeepSeek with your key.</b> Kosmos checks the key with DeepSeek before it saves it, and DeepSeek bills you for what your agents use.</p>
+      <label class="flabel" for="acct-compat-key">DeepSeek API key</label>
+      <div class="frow">
+        <input type="password" id="acct-compat-key" autocomplete="new-password" spellcheck="false" aria-label="DeepSeek API key" placeholder="sk-…">
+      </div>
+      <p class="dhint" style="margin:6px 0 0;">Make one at <a id="acct-compat-keypage" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a>.</p>
+      <label class="flabel" for="acct-compat-name" style="margin-top:8px;">Name (optional)</label>
+      <div class="frow">
+        <input type="text" id="acct-compat-name" autocomplete="off" maxlength="40" aria-label="A name for this account (optional)" placeholder="A name, if you want one">
+      </div>
+      <div class="frow" style="margin-top:12px;">
+        <button class="btn uprime" id="acct-compat-go" type="button">Add</button>
+      </div>
+      <p class="dhint" id="acct-compat-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
 
     <div id="acct-claude-flow" hidden style="margin-top: var(--space-5);">
@@ -16777,6 +16799,7 @@ window.kosmosMeasureScrollbarWidth();
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
             <option value="meta" disabled>Meta Muse &middot; coming soon</option>
             <option value="alibaba" disabled data-off="Checking your accounts">Alibaba Qwen</option>
+            <option value="deepseek" disabled>DeepSeek &middot; coming soon</option>
             <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
             <option value="mistral" disabled>Mistral &middot; coming soon</option>
           </select>
@@ -28022,7 +28045,8 @@ function acctChosenName(a) {
    ChatGPT sign-in), mapped to the engine's route word (/api/accounts/<route>).
    Everything not listed is a Claude account. */
 // #5977: Qwen, an endpoint account on the codex runner.
-const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen' };
+/* #7206: DeepSeek's routes are /api/accounts/compat (engine/anthropiccompat.js, one module for every such vendor). */
+const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen', deepseek: 'compat' };
 /* #3566: a keyed provider other than OpenAI (Gemini, Grok), whose sign-in and model picker
    are its own. (#3391: a Grok account may also be a subscription sign-in; that is started from
    Settings, AI Models or first run, not from the screens that use this.) Read from the route table. */
@@ -28077,6 +28101,7 @@ function switchKeyedWord(p) {
   if (p === 'antigravity') return 'Gemini (Google subscription)';   // #3568
   if (p === 'meta') return 'Meta Muse';   // #3939 slice 3c-2: never the OpenAI fallback below
   if (p === 'alibaba') return 'Qwen';   // #5977
+  if (p === 'deepseek') return 'DeepSeek';   // #7206
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
 /* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
@@ -28210,6 +28235,8 @@ function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
     if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // Gemini and Grok
     // #5977 UI review 2: Kosmos cannot start a Qwen agent on Windows yet (the engine refuses), so it is not offered.
     if (opt.value === 'alibaba' && typeof onWindows === 'function' && onWindows()) { opt.disabled = true; opt.dataset.off = 'Not on Windows yet'; continue; }
+    // #7206: DeepSeek likewise, and only while this Kosmos offers it at all (its switch, read by compatAsk).
+    if (opt.value === 'deepseek' && (!COMPAT_ON || (typeof onWindows === 'function' && onWindows()))) { opt.disabled = true; opt.dataset.off = 'Coming soon'; continue; }
     /* "Usable" is BOTH rules: the create list's (acctOfferableTarget) and the switch list's
        (a live check that is not 'none', not marked unofferable). Offering the provider when
        either list would come up empty would post with no account. */
@@ -28236,7 +28263,7 @@ function acctPrimaryName(a) {
   }
   /* #3566: any keyed provider (OpenAI, Gemini, Grok) is named by its key tail. Spelled
      inline rather than through acctProvider so this helper stays self-contained. */
-  const isKeyed = !!(a && /^(openai|google|xai|alibaba)$/i.test(String(a.provider || '')));
+  const isKeyed = !!(a && /^(openai|google|xai|alibaba|deepseek)$/i.test(String(a.provider || '')));
   return String((a && (a.email
     || (isKeyed && a.keyTail ? 'API key ending ' + a.keyTail : '')
     || a.label || a.dir)) || '');
@@ -28245,7 +28272,7 @@ function acctPrimaryName(a) {
    SECONDARY detail rather than the primary label). Only keyed accounts (OpenAI, Gemini,
    Grok) have a name AND a keyTail; empty for everyone else. */
 function acctHasChosenName(a) {
-  return !!(a && /^(openai|google|xai|alibaba)$/i.test(String(a.provider || '')) && acctChosenName(a));
+  return !!(a && /^(openai|google|xai|alibaba|deepseek)$/i.test(String(a.provider || '')) && acctChosenName(a));
 }
 
 function accountQualifiers(list) {
@@ -29388,7 +29415,8 @@ async function paintAccounts(opts) {
     /* #3997: a ChatGPT sign-in and a Grok subscription each have a FREE live check, so they get Check now too. */
     /* A Grok sign-in that has lapsed, or that could not be read, has nothing a check could confirm: no button there. */
     const signInCheck = isOpenai && a.authMode === 'chatgpt' ? 'openai'
-      : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected') ? 'grok' : '';
+      : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected') ? 'grok'
+        : acctProvider(a) === 'deepseek' ? 'compat' : '';   // #7206: asks DeepSeek's own model list with the key, free
     const canCheckSignIn = !!signInCheck;
     /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
     const who = esc(acctPrimaryName(a));
@@ -30280,7 +30308,7 @@ async function paintAccounts(opts) {
          press is what the plan documented, and a decision recorded in the plan that
          the code does not implement is a stale comment with extra steps. */
       const marked = btn.dataset.forgetProvider;
-      if (marked !== 'claude' && marked !== 'openai' && marked !== 'gemini' && marked !== 'grok' && marked !== 'qwen') {   // #5977
+      if (marked !== 'claude' && marked !== 'openai' && marked !== 'gemini' && marked !== 'grok' && marked !== 'qwen' && marked !== 'compat') {   // #5977, #7206
         /* `acctCancelSay()` because this is a WRITER to #set-accounts-msg, and the
            module comment above claims EVERY writer cancels the timer. It was the
            one that did not, so a deferred announcement could land on top of this
@@ -31080,6 +31108,8 @@ function acctPick(which, opts) {
   ACCT_KEYED_FOCUS = !(opts && opts.focus === false);
   acctApikeyShow(ACCT_APIKEY_PROVIDERS[which] ? which : null);
   acctQwenShow(which === 'alibaba');   // #5977
+  acctCompatShow(which === 'deepseek');   // #7206
+  if (which === 'deepseek') { acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; if (!(opts && opts.focus === false)) document.getElementById('acct-compat-key').focus(); return; }
   if (which === 'alibaba') { acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; if (!(opts && opts.focus === false)) document.getElementById('acct-qwen-url').focus(); return; }
   if (which !== 'openai') {
     acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
@@ -31157,6 +31187,7 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
   acctMuseShow(false);
   if (which === 'claude' || which === 'openai' || which === 'alibaba' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }   // #5977: alibaba
+  if (which === 'deepseek' && COMPAT_ON) { acctPick(which); return; }   // #7206: only while offered
   // Cleared, or (defensively) a disabled "coming" option somehow reached
   // change: no flow is a live provider, so none shows.
   document.getElementById('acct-claude-flow').hidden = true;
@@ -33595,9 +33626,11 @@ function openAcctAdd(ev) {
   ACCT_GROK_REAUTH_DIR = null;   // #3391 part 2: a fresh add is never a sign-in again
   acctApikeyShow(null);  /* #3566: the key step never outlives a visit (it holds a pasted key) */
   acctQwenShow(false);   // #5977: nor does the Qwen step (its key, and its download poll)
+  acctCompatShow(false);   // #7206: nor the DeepSeek step (it holds a pasted key)
   ACCT_ADD_VISIT += 1;
   acctAddPickSay('');
   acctMuseShow(false); ACCT_MUSE_ASKING = museAsk();   // #3939: Meta Muse is offered only when this Kosmos says so
+  compatAsk();   // #7206: DeepSeek is offered only while this Kosmos's switch for it is on
   ACCT_REAUTH_DIR = null;
   ACCT_OPENAI_REAUTH_DIR = null;
   acctReauthChrome(false);
@@ -33970,6 +34003,41 @@ document.getElementById('acct-apikey-show').addEventListener('click', () => {
 /* #5977: the Qwen step of Add a provider. Its own flow, not ACCT_APIKEY_PROVIDERS: that path downloads a provider's
    own runner, and Qwen runs on codex. Bumped on every show, so an answer that returns after the step was left is
    ignored (the same rule as ACCT_APIKEY_GEN). */
+/* #7206: DeepSeek (a vendor whose endpoint speaks Claude Code's API). OFF unless the board says its switch is on
+   (GET /api/accounts/compat, read on every visit, as Meta Muse's /api/muse is): while off the option stays
+   "coming soon" and nothing here can be reached. */
+let COMPAT_ON = false;
+let ACCT_COMPAT_GEN = 0;
+async function compatAsk() {
+  let on = false;
+  try {
+    const r = await fetch('/api/accounts/compat', { cache: 'no-store' });
+    const out = r.ok ? await r.json().catch(() => null) : null;
+    on = !!(out && out.enabled === true && Array.isArray(out.vendors) && out.vendors.some((v) => v && v.id === 'deepseek'));
+  } catch { on = false; }
+  COMPAT_ON = on && !(typeof onWindows === 'function' && onWindows());
+  /* Every menu's DeepSeek row says the same thing (web.provider-menus): "coming soon" while off. Add a provider's row is
+     enabled here; the create and switch menus enable theirs by account (paintKeyedProviderOptions reads COMPAT_ON). */
+  for (const o of document.querySelectorAll('option[value="deepseek"]')) {
+    o.textContent = COMPAT_ON ? 'DeepSeek' : 'DeepSeek \u00b7 coming soon';
+    if (!COMPAT_ON) o.disabled = true;
+  }
+  const opt = document.querySelector('#acct-provider-pick option[value="deepseek"]');
+  if (opt) opt.disabled = !COMPAT_ON;
+  if (!COMPAT_ON) acctCompatShow(false);
+  return COMPAT_ON;
+}
+function acctCompatShow(on) {
+  ACCT_COMPAT_GEN += 1;
+  const flow = document.getElementById('acct-compat-flow');
+  if (!flow) return;
+  flow.hidden = !(on && COMPAT_ON);
+  const m = document.getElementById('acct-compat-msg'); if (m) m.textContent = '';
+  if (flow.hidden) {   // put away means put away: a pasted key does not stay in a hidden field
+    const k = document.getElementById('acct-compat-key'); if (k) k.value = '';
+    const n = document.getElementById('acct-compat-name'); if (n) n.value = '';
+  }
+}
 let ACCT_QWEN_GEN = 0;
 function acctQwenShow(on) {
   ACCT_QWEN_GEN += 1;
@@ -34181,6 +34249,49 @@ document.getElementById('acct-qwen-go').addEventListener('click', async () => {
     if (stillHere()) msg.textContent = String((err && err.message) || 'We could not add that account.');
   } finally {
     if (ACCT_QWEN_GEN === mine) go.disabled = ACCT_QWEN_ADD_BLOCKED;   // #5977: never opens an Add the setup still holds
+  }
+});
+
+/* #7206: add a DeepSeek account. The key is checked with DeepSeek by the board before anything is saved (never with
+   Anthropic); a refused key saves nothing and says so. */
+document.getElementById('acct-compat-go').addEventListener('click', async () => {
+  const keyField = document.getElementById('acct-compat-key');
+  const nameField = document.getElementById('acct-compat-name');
+  const go = document.getElementById('acct-compat-go');
+  const msg = document.getElementById('acct-compat-msg');
+  if (!COMPAT_ON) return;
+  const key = keyField.value.trim();
+  if (!key) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  const entered = nameField.value.trim();
+  const mine = ACCT_COMPAT_GEN;
+  const stillHere = () => ACCT_COMPAT_GEN === mine && !document.getElementById('acct-compat-flow').hidden;
+  go.disabled = true;
+  msg.textContent = 'Checking the key with DeepSeek\u2026';
+  try {
+    const res = await fetch('/api/accounts/compat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ vendor: 'deepseek', key, label: entered || undefined }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!stillHere()) { if (res.ok) paintAccounts(); return; }
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not add that account.');
+    keyField.value = '';
+    nameField.value = '';
+    const unknown = !!(out && out.connection && out.connection.state === 'unknown');
+    const goldBox = frCheckRow({ state: unknown ? 'unknown' : 'ok', title: unknown ? 'DeepSeek account saved' : 'DeepSeek is connected',
+      detail: unknown
+        ? 'It is saved, but DeepSeek did not answer just now. It is checked again when an agent uses it.'
+        : 'DeepSeek accepted the key.' });
+    msg.textContent = 'Checking the connection\u2026';
+    await paintAccounts();
+    if (!stillHere()) return;
+    msg.textContent = '';
+    acctShowSuccess(entered || 'your DeepSeek account', goldBox);
+  } catch (err) {
+    if (stillHere()) msg.textContent = String((err && err.message) || 'We could not add that account.');
+  } finally {
+    if (ACCT_COMPAT_GEN === mine) go.disabled = false;
   }
 });
 
@@ -58229,6 +58340,8 @@ function paintProviderPicker(a) {
     if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = false;
   }
   paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE);
+  // #7206: DeepSeek is offered only while this Kosmos's switch is on; the menu is painted again once that is known.
+  (typeof compatAsk === 'function' ? compatAsk() : Promise.resolve(false)).then(() => paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE));
   paintAgyOption(sel, current); agyAsk();   // #3568: Gemini by subscription is gated on agy, not an account
   paintMuseOption(sel, current);   // #3939 3c-3b: Meta shows as the current provider of an agent on Muse
   /* An unrecognised provider leaves the select alone rather than silently
@@ -59832,6 +59945,7 @@ function fillCreateAccounts(given) {
   const provSel = document.getElementById(ids.prov);
   /* #3566: Gemini and Grok are offered only once an account for them is connected. */
   paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED);
+  (typeof compatAsk === 'function' ? compatAsk() : Promise.resolve(false)).then(() => paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED));   // #7206
   paintAgyOption(provSel, ''); agyAsk();   // #3568
   paintMuseOption(provSel, ''); museCreateAsk();   // #3939 3c-3b
   /* #3568: Gemini on a Google subscription signs in inside the agent's own window and has no

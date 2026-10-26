@@ -12652,8 +12652,10 @@ const server = http.createServer(async (req, res) => {
     const grokSubStarted = new Map(grokAccounts.list()
       .filter((a) => a && a.dir && a.authMode === 'subscription')
       .map((a) => [a.dir, grokAccounts.subscriptionLive(a.dir).catch(() => ({ verdict: 'unknown', because: 'we could not check this sign-in just now' }))]));
-    Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive()])
-      .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows]) => {
+    Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive(),
+      /* #7206 slice 1b: vendor rows, listed and checked ONLY while their switch is on (off: no row, and no key sent). */
+      compatAccounts.enabled() ? compatAccounts.listLive() : Promise.resolve([])])
+      .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows, compatRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
            accountForAgent the status route uses -- NOT a second copy of the
@@ -13153,10 +13155,9 @@ const server = http.createServer(async (req, res) => {
         /* #5977: Qwen accounts, badged from their live check alone (the endpoint lists the model, or says no): an
            endpoint reached with its model is signed_in_unverified until an agent is seen using it. */
         const qwen = (qwenRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
-        /* #7206 slice 1a review 3: vendor accounts (DeepSeek) are NOT listed yet, and not checked here either (review 4:
-           a check whose answer is thrown away still sends every key to the vendor and holds this list up). The page names
-           any provider it does not know as Claude (acctProvider), so a listed DeepSeek row would be shown, and acted on,
-           as a Claude account. Slice 1b lists and checks them together with the page that knows them. */
+        /* #7206: vendor accounts (DeepSeek), badged from the vendor's own key check, as Qwen's are from their endpoint.
+           Listed only while the switch is on (above), and the page knows the provider (acctProvider, ACCT_KEYED_ROUTE). */
+        const compat = (compatRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
         /* kosmos#7152 slice 2: whether a whole set of agents may be moved onto each Claude row, from the ONE rule the
            decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
         const ab = require('./engine/autobalance');
@@ -13202,7 +13203,7 @@ const server = http.createServer(async (req, res) => {
             try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
           }
         }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...compat, ...museSub], unlistedAccounts, unlistedComplete,
           ...(autobalance ? { autobalance } : {}) });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
