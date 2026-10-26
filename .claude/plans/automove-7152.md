@@ -72,3 +72,20 @@ restarted on the target (round 7, 8); holds and watches rebuilt from the record;
 refusal, after it unknown (round 8); "no longer idle" said only when it is idle-ness that changed (round 8).
 The background-shell gap stays the weakest premise for any move: an agent at its prompt with a background shell job
 reads idle, and a restart kills the job.
+
+## Review 10
+- The end of a risk is written too (an empty decision), so a restart rebuilds "nothing at risk" and a risk that
+  returns is recorded again; only a first tick with nothing at risk writes nothing.
+- A write that starts failing is said once in the board's log and reported to Settings as not recording (the sweep's
+  own tick still tries again each period).
+- The login check is the board's own rule (usagepoll.sameLogin with the account's organization, as Settings' figures
+  use), so one email signed in to two organizations is not mixed up.
+- The guide's seeded name is read once per decision, so a guide record that cannot be read makes the decision
+  unreadable ("could not work out"), not every agent "not idle".
+- Where the sweep does not record, Settings says only that ("Kosmos is not keeping a record of what it would move on
+  this computer"), not a reason it cannot know.
+- Stated, so nobody reads the record as Settings' twin: it runs the same decide() on the cheap inputs 3b would use (no
+  status-line readings, badges from the usage record rather than listLive), so at one moment the record and Settings
+  can differ (Settings names a move while the record says held). The record is the 3b evidence, by design.
+- Second weakest premise: slice 1 never measures an idle account whose access token has expired (token-expired), so
+  overnight an idle spare account mostly reads unmeasured, and the record shows "held" more than a mover would see.

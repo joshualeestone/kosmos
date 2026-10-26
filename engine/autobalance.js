@@ -1,7 +1,7 @@
 'use strict';
 /**
  * kosmos#7152 slice 2: which agents WOULD move off a Claude account that is running out, and where to. Nothing here
- * moves anything (slice 3 does, through engine/accountmove.js); this is the decision, so a person can read it first.
+ * moves anything (moving is slice 3b, through engine/accountmove.js); this is the decision, so a person can read it first.
  *
  * PURE: no file, no network, no clock but `nowMs`. The caller (GET /api/accounts) hands it the rows it already builds
  * and the agents' idle state, so the page, this decision and slice 3's sweep read one rule.
@@ -169,13 +169,18 @@ function markTargets(rows, nowMs) {
    whose record cannot be read, is not movable.
    Slice 3 (slice 2's review 11): the guide FAILS CLOSED here. The route's walk leaves it out too (skipGuide), but that
    test reads a check that throws as "not the guide", which is wrong for a move. `isGuide(session)` throws when it
-   cannot tell; `guideName()` is the name the guide was seeded under, and throws when its record cannot be read. */
+   cannot tell; `guideName()` is the name the guide was seeded under, and throws (from movableFor itself, review 10)
+   when its record cannot be read. */
 function movableFor({ cards, records, readCommitment, assigner = require('./assigner'),
   isGuide = (s) => require('./setup-assistant').isGuideFolderStrict(s),
   guideName = () => require('./setup-assistant').guideNameStrict() }) {
   /* Review 3: a roster that could not be read is not an empty one: the caller says "could not work out". */
   if (!Array.isArray(cards)) throw new Error('the roster could not be read');
   const bySession = new Map(cards.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
+  /* Review 10 (slice 3): read once, here, so a guide record that cannot be read makes the whole decision unreadable
+     ("could not work out"), not every agent "not idle". */
+  const g = guideName();
+  const guide = typeof g === 'string' && g ? g.trim().toLowerCase() : null;
   return (session) => {
     const c = bySession.get(session);
     if (!c || !assigner.idleCard(c)) return false;
@@ -187,8 +192,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
     /* Not from the card: a roster card carries no isGuide (only the status rows are marked); a test pins that. */
     try {
       if (isGuide(session) !== false) return false;
-      const g = guideName();
-      if (typeof g === 'string' && g && g.trim().toLowerCase() === String(session).trim().toLowerCase()) return false;
+      if (guide && guide === String(session).trim().toLowerCase()) return false;
     } catch { return false; }
     let rec = null;
     try { rec = readCommitment(session); } catch { rec = null; }
@@ -209,15 +213,22 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
    login: none of them says the agents' login has stopped. `agentsOn(dir, isDefault)` gives { names, complete, moving }.
    The record's resets are seconds; rows carry ms, as /api/accounts does. */
 const LOGIN_REFUSED = /^(profile-)?http-40[13]$/;
-function rowsFromReadings({ list, readUsage, agentsOn, nowMs }) {
+function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
   const ms = (w) => (w && Number.isFinite(w.usedPct) ? { usedPct: w.usedPct, resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null } : null);
   const out = [];
   for (const a of Array.isArray(list) ? list : []) {
     if (!a || typeof a.dir !== 'string' || !a.dir || a.apiKey) continue;
     let rec = null;
     try { rec = readUsage(a.dir, nowMs); } catch { rec = null; }
-    /* Review 9: a record written for another login (the folder signed in again since) says nothing about this one. */
-    if (rec && typeof rec.email === 'string' && typeof a.email === 'string' && rec.email.toLowerCase() !== a.email.toLowerCase()) rec = null;
+    /* Review 9, 10: a record written for another login (the folder signed in again since) says nothing about this one.
+       `sameLogin(rec, a)` is the board's own rule (usagepoll.sameLogin with the account's organization, as Settings'
+       figures use); without it, the email alone. */
+    if (rec && typeof rec.email === 'string') {
+      let same = true;
+      try { same = typeof sameLogin === 'function' ? sameLogin(rec, a) === true : (typeof a.email !== 'string' || rec.email.toLowerCase() === a.email.toLowerCase()); }
+      catch { same = false; }
+      if (!same) rec = null;
+    }
     const badge = rec && rec.state === 'ok' ? 'working' : (rec && LOGIN_REFUSED.test(String(rec.state)) ? 'rejected' : null);
     let here = { names: [], complete: false };
     try { here = agentsOn(a.dir, a.isDefault === true) || here; } catch { here = { names: [], complete: false }; }

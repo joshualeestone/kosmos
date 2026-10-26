@@ -86,17 +86,44 @@ test('#7152 slice 3: with the setting off nothing is recorded; with one account 
   assert.equal(walks, 0, 'the agents were walked with one account');
 });
 
-test('#7152 slice 3: a decision whose line could not be written is written on a later tick', async () => {
-  const blocker = path.join(TMP, `blocker-${++n}`);
-  fs.writeFileSync(blocker, 'a file, so nothing can be written under it');
-  const file = path.join(blocker, 'record.jsonl');
-  const run = sweep.create({ file });
-  assert.equal((await run.tick(deps(), NOW)).did, 'nothing', 'CONTROL: the write failed');
-  fs.rmSync(blocker);
-  assert.equal((await run.tick(deps(), NOW + 1000)).did, 'recorded', 'a decision whose write failed was never written');
+test('#7152 slice 3: a decision whose line could not be written is written on a later tick, and the sweep says it failed', async () => {
+  const dir = path.join(TMP, `readonly-${++n}`);
+  fs.mkdirSync(dir);
+  const file = path.join(dir, 'record.jsonl');
+  const run = sweep.create({ file });   // review 10: reading finds nothing yet (ENOENT), which is an empty record
+  fs.chmodSync(dir, 0o555);   // now only the write fails
+  try {
+    const r = await run.tick(deps(), NOW);
+    assert.deepEqual([r.did, r.because, run.state.writeFailed], ['nothing', 'write-failed', true], 'a failed write was not said');
+  } finally { fs.chmodSync(dir, 0o755); }
+  const again = await run.tick(deps(), NOW + 1000);
+  assert.deepEqual([again.did, run.state.writeFailed], ['recorded', false], 'a decision whose write failed was never written');
   assert.equal(sweep.readLines(file).length, 1);
 });
 
+test('#7152 slice 3 review 10: the end of a risk is written, so a risk that comes back after a restart is recorded again', async () => {
+  const file = fileFor();
+  const risky = deps();
+  const calm = deps({ usage: { ...USAGE, '/u/.claude-work': reading(40, 35) } });
+  assert.equal((await sweep.create({ file }).tick(calm, NOW)).did, 'nothing', 'CONTROL: a first tick with nothing at risk writes nothing');
+  assert.equal(sweep.readLines(file).length, 0);
+  const run = sweep.create({ file });
+  await run.tick(risky, NOW);
+  assert.equal((await run.tick(calm, NOW + 1000)).did, 'cleared', 'the end of the risk was not written');
+  await sweep.create({ file, nowMs: NOW + 2000 }).tick(risky, NOW + 2000);   // a restart, then the risk is back
+  assert.equal(sweep.recent(file).length, 2, 'a risk that came back after a restart was not recorded');
+});
+
+test('#7152 slice 3 review 10: the sweep uses the board\'s own login rule when it is given one', () => {
+  const asked = [];
+  const rows = ab.rowsFromReadings({ list: LIST, nowMs: NOW, readUsage: (dir) => ({ ...USAGE[dir], email: 'w@example.test', org: 'org-b' }),
+    agentsOn: () => ({ names: [], complete: true }), sameLogin: (rec, a) => { asked.push(a.dir); return rec.org === 'org-a'; } });
+  assert.deepEqual(asked, LIST.map((a) => a.dir), 'the login rule was not asked');
+  assert.equal(rows[0].weekly, null, 'a record the login rule refused was used');
+  const rows2 = ab.rowsFromReadings({ list: LIST, nowMs: NOW, readUsage: (dir) => ({ ...USAGE[dir], email: 'x@example.test' }),
+    agentsOn: () => ({ names: [], complete: true }), sameLogin: () => { throw new Error('unreadable'); } });
+  assert.equal(rows2[0].weekly, null, 'a login rule that could not answer let the record through');
+});
 test('#7152 slice 3: a restart does not record the same decision again; a line from the future and odd lines are not trusted', async () => {
   const file = fileFor();
   const d = deps();
@@ -174,7 +201,8 @@ test('#7152 slice 3: the guide fails closed, and words left unsent in an agent\'
   assert.equal(ab.movableFor({ ...base, isGuide: () => true, guideName: () => null })('ada'), false, 'the guide was movable');
   assert.equal(ab.movableFor({ ...base, isGuide: () => { throw new Error('unreadable'); }, guideName: () => null })('ada'), false, 'a guide check that could not tell let the agent move');
   assert.equal(ab.movableFor({ ...base, isGuide: () => false, guideName: () => 'Ada ' })('ada'), false, 'the seeded guide name was movable');
-  assert.equal(ab.movableFor({ ...base, isGuide: () => false, guideName: () => { throw new Error('x'); } })('ada'), false, 'a guide name that could not be read let the agent move');
+  /* Review 10: read once, so a guide record that cannot be read makes the decision unreadable, not every agent "not idle". */
+  assert.throws(() => ab.movableFor({ ...base, isGuide: () => false, guideName: () => { throw new Error('x'); } }), /x/, 'a guide name that could not be read was swallowed');
   assert.equal('unsentInput' in ada, true, 'CONTROL: a real card carries unsentInput');
   const waiting = { ...ada, unsentInput: { since: new Date(NOW).toISOString() } };
   assert.equal(ab.movableFor({ ...base, cards: [waiting], isGuide: () => false, guideName: () => null })('ada'), false, 'an agent with unsent words in its box was movable');
