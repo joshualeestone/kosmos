@@ -1502,7 +1502,14 @@ if [ -z "$adopt" ]; then
         _cx_unset=(ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_BETAS CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_OAUTH_TOKEN)
         for _cx_pair in "${_cx_set[@]}"; do
           case "$_cx_pair" in
-            ANTHROPIC_AUTH_TOKEN=*) add_launch_secret ANTHROPIC_AUTH_TOKEN "${_cx_pair#ANTHROPIC_AUTH_TOKEN=}"; COMPAT_KEYED=1 ;;
+            ANTHROPIC_AUTH_TOKEN=*)
+              add_launch_secret ANTHROPIC_AUTH_TOKEN "${_cx_pair#ANTHROPIC_AUTH_TOKEN=}"
+              # Review 3: add_launch_secret can decline a value and still return 0; the key itself must be queued.
+              case " ${SECRET_ENV[*]-} " in *" ANTHROPIC_AUTH_TOKEN="*) ;; *)
+                say "$SESSION: its provider key could not be handed to the agent privately; the agent was not started"
+                exit 1 ;;
+              esac
+              COMPAT_KEYED=1 ;;
             ANTHROPIC_MODEL=*) MODEL="${_cx_pair#ANTHROPIC_MODEL=}"; PANE_ENV+=(-e "$_cx_pair") ;;
             ANTHROPIC_*=*|CLAUDE_CODE_*=*) PANE_ENV+=(-e "$_cx_pair") ;;
           esac

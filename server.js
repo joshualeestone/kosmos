@@ -3372,6 +3372,9 @@ function handleCompatAccountStore(req, res) {
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       const v = compatAccounts.vendorOf(body.vendor);   // review 2: own keys only, never an inherited name
       if (!v) { sendJson(res, 400, { error: 'Kosmos does not know that provider' }); return; }
+      /* Review 3: only the Mac launch points an agent at a vendor (bin/agent-supervisor.sh); a Windows agent on this
+         account would start against Anthropic with no sign-in. Refused until the Windows launch does the same. */
+      if (process.platform === 'win32') { sendJson(res, 400, { error: `${v.name} agents run on a Mac for now; this computer cannot run them yet` }); return; }
       if (!runners.resolveBin('claude').present || runners.installing('claude')) {   // filed under 'claude' (engine/runners.js)
         sendJson(res, 400, { error: `we could not find Claude Code, the runner ${v.name} agents use, on this computer`, needsRunner: true, provider: 'claude' });
         return;
@@ -3405,12 +3408,21 @@ function handleCompatAccountStore(req, res) {
              in place let the second remove the first's fresh claim and both believe they owned the name. The aside
              name is a removed-account name, which the list never shows. */
           const aside = path.join(path.dirname(named.dir),
-            `${compatAccounts.forgottenPrefix(v.id)}${named.label}.reclaimed-${process.pid}-${Date.now()}`);
+            `${compatAccounts.forgottenPrefix(v.id)}${named.label}.reclaimed-${process.pid}-${Date.now()}-${require('node:crypto').randomBytes(4).toString('hex')}`);
           let moved = false;
           try { fs.renameSync(named.dir, aside); moved = true; } catch { moved = false; }
           if (moved) {
-            try { fs.rmdirSync(aside); } catch { /* best effort: an empty, hidden folder */ }
-            claimErr = claim();
+            /* Review 3: a rename moves whatever is at the PATH now. If another add reclaimed the leftover first and
+               claimed the name afresh, this moved ITS claim, which is new (a rename keeps a folder's own mtime). Put
+               it back and lose, rather than take it. */
+            let stillOld = false;
+            try { const st2 = fs.lstatSync(aside); stillOld = st2.isDirectory() && Date.now() - st2.mtimeMs > 60000; } catch { stillOld = false; }
+            if (stillOld) {
+              try { fs.rmdirSync(aside); } catch { /* best effort: an empty, hidden folder */ }
+              claimErr = claim();
+            } else {
+              try { fs.renameSync(aside, named.dir); } catch { /* the other add re-creates its claim on its own store */ }
+            }
           }
         }
       }
@@ -13122,8 +13134,10 @@ const server = http.createServer(async (req, res) => {
         /* #5977: Qwen accounts, badged from their live check alone (the endpoint lists the model, or says no): an
            endpoint reached with its model is signed_in_unverified until an agent is seen using it. */
         const qwen = (qwenRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
-        /* #7206: vendor accounts (DeepSeek), badged the same way from the vendor's own key check. */
-        const compat = (compatRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
+        /* #7206 slice 1a review 3: vendor accounts (DeepSeek) are NOT listed yet. The page names any provider it does not
+           know as Claude (acctProvider), so a listed DeepSeek row would be shown, and acted on, as a Claude account.
+           Slice 1b lists them together with the page that knows them. Their own routes (add, check, delete) work. */
+        void compatRows;
         /* kosmos#7152 slice 2: whether a whole set of agents may be moved onto each Claude row, from the ONE rule the
            decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
         const ab = require('./engine/autobalance');
@@ -13169,7 +13183,7 @@ const server = http.createServer(async (req, res) => {
             try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
           }
         }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...compat, ...museSub], unlistedAccounts, unlistedComplete,
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
           ...(autobalance ? { autobalance } : {}) });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));

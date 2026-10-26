@@ -11,8 +11,9 @@
  * sees this one, by construction. A Claude KEY account pointed at another address was rejected: adding its key asks
  * api.anthropic.com, which would refuse a DeepSeek key and receive it (#7206 survey, 22 such paths).
  *
- * The vendor's address is the table's, never the file's: a person picks a vendor, not an address, so a hand-edited
- * file cannot point an agent's key at somewhere else.
+ * The vendor's address is the table's, never the account file's: a person picks a vendor, not an address, so a
+ * hand-edited ACCOUNT file cannot point an agent's key somewhere else. (The agent's own work-folder settings can set
+ * Claude Code's environment, as they can for any agent; the agent already holds its key, so that is no new exposure.)
  */
 const fs = require('node:fs');
 const os = require('node:os');
