@@ -23834,8 +23834,10 @@ function paintLoginAdvisories(advs) {
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
   /* #5164 (review): the stop time's words are in the signature too, so a notice painted before midnight as "tomorrow at
      about 1:10 AM" repaints as "at about 1:10 AM" after it, rather than telling the person they have a day. */
+  /* kosmos#7198 review 8: the folder Refresh login opens Sign in again for is in it too, so a folder the board stops
+     naming (its row removed from another device) leaves the button at the next poll, not at the notice's end. */
   const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')
-    + ':' + (a.expired && loginAdvWorksUntil(a) ? loginAdvWhen(loginAdvWorksUntil(a)) : '')).join('|');   // repaint on a new name or email too
+    + ':' + (a.expired && loginAdvWorksUntil(a) ? loginAdvWhen(loginAdvWorksUntil(a)) : '') + ':' + (a.dir || '')).join('|');   // repaint on a new name, email or folder too
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
