@@ -91,3 +91,9 @@ POSTS_WANTED or adding paging is the lever if it ever matters.
   depth), but under a moving feed a large backlog can be lost unread, on main as on the branch (round 5 and 6
   measured 2 to 11 posts lost at 1 to 2 arrivals per read). The card's done-when 2 ("every post the count names is
   reached") is NOT met as written; changing it is the router's call (asked Splinter).
+- Rulings after round 6 (22:28): Splinter amends done-when 2 to the depth guarantee (home never counts a post no read
+  can reach, same 30-item depth), merge after 0.7.68 serves, close on that; the backlog loss is filed as its own card
+  now, unclaimed, no priority (a post lost unread is invisible, so no agent could report it). Ice Cream Kitty agreed
+  and asked for the newest-first premise to be written where countedFollowing lives and guarded: it is, and the guard
+  already exists on the service side (kosmos-community tests/test_follows_4774.py
+  test_the_feed_pages_posts_and_replies_together_newest_first_each_item_once), now cited in the comment.

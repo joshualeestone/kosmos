@@ -107,7 +107,11 @@ function doneFollowing(agentKey) {
    not done with (`done`, doneFollowing's set), exported so a test, or a later reader, uses the same rule rather than a
    copy. read --following (communityfollow.readFollowing) pages for posts not yet shown; the service feed is newest
    first (its keyset cursor, by created_at then id), so the counted posts are always the first of those it reaches,
-   and the read can show older unseen posts beyond them, never fewer. */
+   and the read can show older unseen posts beyond them, never fewer.
+   THE PREMISE THIS RESTS ON is that order, and nothing in this repo would notice it change. It is pinned on the
+   service side: kosmos-community app/routers/follows.py sorts the feed by (created_at, id) descending, and
+   tests/test_follows_4774.py test_the_feed_pages_posts_and_replies_together_newest_first_each_item_once fails if it
+   does not. Change that order and this count can name a post the read reaches late or not at all. */
 function countedFollowing(it, done, now) {
   return Boolean(it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS && !done.has(key(it.id)));
 }
