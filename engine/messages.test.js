@@ -3063,7 +3063,8 @@ test('#3564: the room valve charges only the members a post is sent to: an Off s
   const seed = () => {
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
     fs.writeFileSync(messages.LOG, '');
-    const at = new Date(Date.now() - 60000).toISOString();
+    // #7185: inside the window, but not before the project was made (an older row belongs to an earlier project of the name).
+    const at = new Date(Math.max(Date.now() - 60000, Date.parse(made.createdAt))).toISOString();
     // One arrival short of the budget: a post that charges 2 trips it, one that charges 1 does not.
     for (let i = 0; i < ROOM_BUDGET - 1; i += 1) {
       fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'v' + (i + 1), project: pid, from: 'mara', to: ['leo'], text: 'r' + i, at, outcomes: {} }) + '\n');
