@@ -72,6 +72,7 @@ function chk(ok, label, extra) {
       tasks.create(p.id, { sentence: 'Get the price approved', who: 'ada' });  // 2: what 1 waits for
       tasks.create(p.id, { sentence: 'Book the courier', who: 'ada' });        // 3: held by an agent under a stale page
       tasks.create(p.id, { sentence: 'Pack the boxes', who: 'ada' });          // 4: open, the page a person moves to mid-Save
+      tasks.create(p.id, { sentence: 'Send the invoice', who: 'ada' });        // 5: open, an unsaved choice on another task's page
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
@@ -92,7 +93,7 @@ function chk(ok, label, extra) {
       chk(fills[0] === fills[2] && fills[1] === fills[2], `${tag} Wait for and its task choice wear the Repeats select's field fill`, JSON.stringify(fills));
       await page.selectOption('#tk-hold-for', 'task');
       const opts =await page.evaluate(() => [...document.querySelectorAll('#tk-hold-task option')].map((o) => o.value));
-      chk(await page.isVisible('#tk-hold-task') && JSON.stringify(opts) === JSON.stringify(['', '2', '3', '4']) && await page.isDisabled('#tk-hold-save'),
+      chk(await page.isVisible('#tk-hold-task') && JSON.stringify(opts) === JSON.stringify(['', '2', '3', '4', '5']) && await page.isDisabled('#tk-hold-save'),
         `${tag} Another task to close offers the project's other open tasks, Save still off until one is chosen`, JSON.stringify(opts));
       await page.selectOption('#tk-hold-task', '2');
       chk(await page.isEnabled('#tk-hold-save'), `${tag} choosing task 2 turns Save on`);
@@ -162,7 +163,7 @@ function chk(ok, label, extra) {
       await page.route('**/api/projects', (route) => (refuse && route.request().method() === 'GET' ? route.fulfill({ status: 500, body: '{}' }) : route.fallback()));
       await page.click('#tk-hold');
       await waitText(page, '#tk-hold-msg', /could not check/);
-      chk(await text(page, '#tk-hold-msg') === 'we could not check that task just now, so nothing changed' && stored(p.id, 3).onHold !== true,
+      chk(await text(page, '#tk-hold-msg') === 'We could not check that task just now, so nothing changed.' && stored(p.id, 3).onHold !== true,
         `${tag} a failed read: Put on hold says so and changes nothing`, await text(page, '#tk-hold-msg'));
       refuse = false;
       await page.unroute('**/api/projects');
@@ -191,6 +192,17 @@ function chk(ok, label, extra) {
       await page.unroute('**/api/projects');
       chk(stored(p.id, 1).onHoldUntil && stored(p.id, 1).onHoldUntil.at === wantAt && stored(p.id, 4).onHold !== true,
         `${tag} a Save whose task was left mid-read holds that task, never the one now open`, JSON.stringify([stored(p.id, 1).onHoldUntil, stored(p.id, 4).onHold]));
+
+      /* Round 4: an unsaved choice on one task never carries over to the next task's form. */
+      await openTask(page, p.id, 1);
+      await page.selectOption('#tk-hold-for', 'task');
+      await page.selectOption('#tk-hold-task', '5');   // chosen, not saved
+      tasks.setOnHold(p.id, 4, true, { viaScreen: true });
+      await page.evaluate(async () => { await pjReload(); openTaskPage(4); });
+      await page.waitForFunction(() => !document.getElementById('tk-hold-for-row').hidden, null, { timeout: 5000 }).catch(() => {});
+      await page.selectOption('#tk-hold-for', 'task');
+      chk(await page.inputValue('#tk-hold-task') === '' && await page.isDisabled('#tk-hold-save'),
+        `${tag} another task's unsaved choice does not carry over: the task choice starts empty, Save off`, await page.inputValue('#tk-hold-task'));
 
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
       chk(!sideways, `${tag} no sideways scroll`);

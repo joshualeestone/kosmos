@@ -70204,6 +70204,7 @@ function tkPaintHoldUntil(p, t) {
   const choiceNow = JSON.stringify(tkHoldChoice());
   if (choiceNow === stored) sel.dataset.stored = stored;   // choosing what is stored is nothing unsaved
   const edited = !newTask && choiceNow !== sel.dataset.stored;
+  if (newTask) { document.getElementById('tk-hold-task').value = ''; document.getElementById('tk-hold-at').value = ''; }   // round 4: nothing carries over from another task
   tkHoldTaskOptions(p, t);
   if (newTask || (sel.dataset.stored !== stored && !edited)) {
     tkHoldShowChoice(tkHoldStoredChoice(t));
@@ -70238,7 +70239,7 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
     /* Review 1: Save is a screen hold, which would put back on hold (as the person's) a task an agent has just taken off.
        Read it again first; change nothing unless it is still on hold. */
     const now = await tkHoldFresh(p.id, t.number);
-    if (!now) { tkHoldSay(key, 'we could not check that task just now, so nothing changed'); return; }
+    if (!now) { tkHoldSay(key, 'We could not check that task just now, so nothing changed.'); return; }
     if (now.gone) { await pjReload(); tkHoldSay(key, 'That task is no longer on this project, so nothing changed.'); return; }
     if (now.onHold !== true) {
       await pjReload();
@@ -70256,7 +70257,8 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
     await pjReload();
     paintTaskActivity(TK_OPEN);
     tkHoldSay(key, 'Saved.');
-    if (PJ_CURRENT + '#' + TK_OPEN === key) document.getElementById('tk-hold-for').focus();   // round 3: Save goes off under focus
+    // Round 3: Save goes off under focus, so focus returns to the choice; round 4: only if it is still on Save (or lost).
+    if (PJ_CURRENT + '#' + TK_OPEN === key && (document.activeElement === btn || document.activeElement === document.body || !document.activeElement)) document.getElementById('tk-hold-for').focus();
   } catch {
     tkHoldSay(key, 'we could not reach Kosmos to change that task');
   } finally {
@@ -70272,15 +70274,15 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
   if (!t) return;
   const btn = document.getElementById('tk-hold');
   const msg = document.getElementById('tk-hold-msg');
+  const key = p.id + '#' + t.number;
   btn.disabled = true;
-  if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }   // whose message it is (the page repaint clears another's)
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }   // whose message it is (the page repaint clears another's)
   try {
     /* kosmos#7184: a screen hold sets exactly what it sends, so a page that has not yet seen an agent's hold would
        replace what it waits for. Read the task again first; if it is already on hold, change nothing and show it. */
     if (t.onHold !== true) {
-      const key = p.id + '#' + t.number;
       const now = await tkHoldFresh(p.id, t.number);
-      if (!now) { tkHoldSay(key, 'we could not check that task just now, so nothing changed'); return; }
+      if (!now) { tkHoldSay(key, 'We could not check that task just now, so nothing changed.'); return; }
       if (now.gone) { await pjReload(); tkHoldSay(key, 'That task is no longer on this project, so nothing changed.'); return; }
       if (now.onHold === true) {
         await pjReload();
@@ -70295,11 +70297,11 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
       body: JSON.stringify({ onHold: t.onHold !== true }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not change that task'; return; }
+    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'we could not change that task'); return; }   // round 4: only on its own task
     await pjReload();
     paintTaskActivity(TK_OPEN);
   } catch {
-    if (msg) msg.textContent = 'we could not reach Kosmos to change that task';
+    tkHoldSay(key, 'we could not reach Kosmos to change that task');
   } finally {
     btn.disabled = false;
   }

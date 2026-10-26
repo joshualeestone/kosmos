@@ -88,3 +88,12 @@ what fires, wherever the board runs.
   - Nits taken: focus returns to Wait for after a Save (Save goes off under focus); taking the hold off forgets an unsaved
     choice, so a new hold starts from what is stored; an unsaved choice whose task has closed stays a choice; the
     render-onhold-4771 surface trailer's reason is corrected (Put on hold now reads the task first; the check passes).
+- Round 4: 0 blockers, 2 warnings, 2 nits. The reviewer ran every root web test (3296/3296), 96 server and engine files
+  (1348 pass, 0 fail), both gates (rc 0), render-onhold-4771 at HEAD (all pass) and the merge with main (clean, still
+  six visible Saves).
+  - [WARNING] Save's focus return could pull focus out of the message box a person had moved to: it moves only if focus
+    is still on Save or lost.
+  - [WARNING] one task's unsaved task or time choice stayed in the hidden fields and showed on the next task's form: a
+    new task starts both fields empty (tested with a fifth task; without the reset the check goes red, showing "5").
+  - Nits taken: "We could not check that task just now, so nothing changed." matches its sibling lines; Put on hold's
+    refusal lines go through tkHoldSay too.
