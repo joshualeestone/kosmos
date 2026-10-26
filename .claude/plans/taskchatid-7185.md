@@ -74,11 +74,13 @@ old task 1's conversation (a person's words included), and its room showed the o
   without its guard). Each guard reverted on its own reds its own tests: the old
   messages.js reds the room test and the room half of the unreadable test; the old taskchat.js reds the task, progress
   and unreadable tests; a fail-OPEN projectborn reds the unreadable test; the old taskseen.js reds the seen test.
-- Existing tests that wrote rows dated before the project they had just made now date the project first, in six
+- Existing tests that wrote rows dated before the project they had just made now date the project first, in seven
   files: engine/messages.test.js (the #3564 seed); server.room-held-5800.test.js (a madeLongAgo helper for three route
   tests, folder files included so they do not read as fresh work); server.projects.test.js (#1895);
   server.room-paged-7032.test.js (three projects, found by review 3); server.roomread-seen-4926.test.js (one before
-  hook, two projects, review 3); cli.task-activity-5874.test.js (#6947, found by the sweep). No real row can predate
+  hook, two projects, review 3); cli.task-activity-5874.test.js (#6947, found by the sweep);
+  server.post-whichroom-3224.test.js (its room() helper; found only by the full suite: it reaches the room through an
+  HTTP route the sweep's patterns did not match). No real row can predate
   its project: createdAt is written only by projects.create, and external rows are stamped on arrival. The final
   check is a sweep of every test file that touches the room log, task chats or seen marks.
 
