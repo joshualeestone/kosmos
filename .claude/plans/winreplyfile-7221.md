@@ -64,7 +64,11 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    itself a link to a plain share (`C:\x\proj -> \\host\share\proj`), the person's choice of folder as a mapped drive
    is (review 11 finding 2, **decided**: it attached on main); the share it names then counts as one of the agent's
    project folders for the rest of the walk, which goes on down it and still refuses a link there that leaves for
-   another server (review 12 finding 1). Anything else is refused unfollowed: review 2 finding 1 measured a
+   another server (review 12 finding 1). Anything else is refused unfollowed, and counted as "may reach another
+   computer" unless it names a local volume (an allow-list for the local side too, review 14 finding 1: the object
+   manager reaches the share redirector many ways, `\??\Global\UNC\...`, `\??\GLOBALROOT\GLOBAL??\UNC\...`,
+   `\Device\LanmanRedirector\...`, and a deny-list of share spellings let another agent's project folder linked that
+   way be resolved, which is the contact). Review 2 finding 1 measured a
    target written `\\?\GLOBALROOT\Device\Mup\<host>\<share>` reading back as `\??\GLOBALROOT\...` (one backslash, past
    a `\\` deny rule) whose realpath stalled 21 s. A followed target is resolved and walked the same way (rule 1
    applied to each, so a link to another drive is refused too). More than 32 links: refused (and another agent's
@@ -245,6 +249,9 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
 - Review 13: another agent's project folder at the end of a 34-link chain to an unroutable share is never resolved
   while this agent's project file attaches (against f2e3208: fails); `\\?\C:\` and `\\.\C:\` local paths are refused
   with the long-form sentence. `sameWrittenPath` now lives in winpath beside `writtenInside`, one normalizer for both.
+- Review 14: a Files link to `\??\Global\UNC\<unroutable>\share` is refused unresolved as a network path, and the same
+  link as another agent's project folder is never resolved while this agent's project file attaches. Against
+  iteration 13's code (07f1a94): both fail, the second by resolving that folder (the contact, shown).
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -253,7 +260,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 40/40 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 42/42 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

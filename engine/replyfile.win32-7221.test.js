@@ -722,3 +722,36 @@ test('#7221 review 13-1: another agent\'s project folder behind more links than 
     assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
   } finally { fs.rmSync(chain, { recursive: true, force: true }); }
 });
+
+/* ---------- review 14 ---------- */
+
+test('#7221 review 14-1: a link in Files to the share redirector through \\??\\Global\\UNC is refused unresolved as a network path', linkOnly, () => {
+  const globalUnc = '\\\\?\\Global\\UNC\\10.255.255.1\\share\\proj';   // read back as \??\Global\UNC\...
+  // in Files: refused before anything is resolved, as a network path
+  const link = path.join(FILES, 'global-unc.txt');
+  fs.symlinkSync(globalUnc + '\\f.txt', link, 'file');
+  try { refusedUnresolved(link, replyfile.ON_NETWORK, 'a \\??\\Global\\UNC link'); } finally { fs.rmSync(link, { force: true }); }
+});
+
+test('#7221 review 14-1: another agent\'s project folder linked through \\??\\Global\\UNC is never resolved', linkOnly, () => {
+  const globalUnc = '\\\\?\\Global\\UNC\\10.255.255.1\\share\\proj';
+  const theirs = path.join(SANDBOX, 'global-unc-project');
+  fs.symlinkSync(globalUnc, theirs, 'dir');
+  const mine = path.join(SANDBOX, 'mine-beside-global');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'notes.txt'), 'mine\n');
+  PROJECTS = [
+    { id: 'p-global', name: 'Global', folder: theirs, agents: ['someone-else'] },
+    { id: 'p-mine-global', name: 'Mine', folder: mine, agents: [WHO] },
+  ];
+  const resolved = [];
+  projects.folderState = (folder) => { resolved.push(folder); return realFolderState(folder); };
+  const started = Date.now();
+  try {
+    const r = replyfile.attach(WHO, path.join(mine, 'notes.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    replyfile.discard(r.rec);
+    assert.deepEqual(resolved, [mine], 'the Global\\UNC project folder was not resolved');
+    assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
+  } finally { fs.rmSync(theirs, { force: true }); }
+});

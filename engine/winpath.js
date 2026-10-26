@@ -58,9 +58,10 @@ function shareOf(p) {
   const m = /^[\\/]{2}([^\\/?.][^\\/]*)[\\/]+([^\\/]+)/.exec(asShareSpelling(p));
   return m ? (m[1] + '\\' + m[2]).toLowerCase() : null;
 }
-/* A local volume named without a drive letter: \\?\Volume{GUID}\ or \\?\GLOBALROOT\Device\HarddiskVolumeN\. Local, so
-   resolving it reaches no other computer; but its spelling cannot be compared with a drive path. */
-const LOCAL_VOLUME = /^[\\/]{2}[?.][\\/](?:Volume\{[0-9a-f-]+\}|GLOBALROOT[\\/]Device[\\/]HarddiskVolume\d+)[\\/]/i;
+/* A local volume named without a drive letter: \\?\Volume{GUID}\ or \\?\GLOBALROOT\Device\HarddiskVolumeN\, and the
+   same in the NT spelling a link target reads back in (\??\Volume{GUID}\, \??\GLOBALROOT\Device\HarddiskVolumeN\).
+   Local, so resolving it reaches no other computer; but its spelling cannot be compared with a drive path. */
+const LOCAL_VOLUME = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)(?:Volume\{[0-9a-f-]+\}|GLOBALROOT[\\/]Device[\\/]HarddiskVolume\d+)[\\/]/i;
 function isLocalVolumeSpelling(p) {
   return LOCAL_VOLUME.test(String(p));
 }

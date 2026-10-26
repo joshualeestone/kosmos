@@ -448,11 +448,13 @@ function winSpellingRefusal(given, roots) {
   }
   return null;
 }
-/* Why a link target that is not followed is refused: a share (\\host, \??\UNC, the Mup device that serves shares) is
-   said as a network path, anything else (a volume GUID, a root-relative path) as a link that cannot be followed. */
+/* Why a link target that is not followed is refused. Local only when it names a local volume (an allow-list, as for
+   the targets that are followed): anything else is said as "may reach another computer", ON_NETWORK, so allowedRoot
+   leaves such another agent's folder unresolved and fails closed. A deny-list of share spellings missed the many ways
+   the object manager reaches the share redirector (\??\Global\UNC\..., \??\GLOBALROOT\GLOBAL??\UNC\...,
+   \Device\LanmanRedirector\..., WebDAV), whose realpath is the contact (review 14 finding 1). */
 function unfollowedLinkRefusal(to) {
-  const t = String(to);
-  return (isNetworkSpelling(t) || /^\\\?\?\\UNC\\/i.test(t) || /\\Device\\Mup\\/i.test(t)) ? ON_NETWORK : UNREADABLE_LINK;
+  return isLocalVolumeSpelling(String(to)) ? UNREADABLE_LINK : ON_NETWORK;
 }
 /* Follow the links in `p` by lstat and readlink only, and say why not if any of them leaves for the network, a
    device or a drive outside the roots. Null when the path may be resolved. A chain of more than 32 links is refused. */
