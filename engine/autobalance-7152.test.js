@@ -244,3 +244,10 @@ test('#7152 review 3: a roster that could not be read is refused, not taken as a
   assert.throws(() => ab.movableFor({ cards: null, records: [], readCommitment: () => null }), /roster could not be read/, 'an unreadable roster read as nobody to move');
   assert.doesNotThrow(() => ab.movableFor({ cards: [], records: [], readCommitment: () => null }), 'CONTROL: an empty roster is fine');
 });
+
+test('#7152 review 7: the reset is never said as 6 h or less beside the 6-hour rule, and a far one is said in days', () => {
+  const at = (h) => ab.decide({ rows: [row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + h * H }, agentsHere: { names: ['raph'] } }), row('/u/.claude-b')], movable: all, nowMs: NOW }).atRisk;
+  assert.match(at(6.3)[0].why, /resets in 7 h$/, 'a reset 6.3 h away read as 6 h');
+  assert.match(at(150)[0].why, /resets in 6 days$/, 'a reset 150 h away was said in hours');
+  assert.match(at(48)[0].why, /resets in 48 h$/, 'CONTROL: two days is still said in hours');
+});

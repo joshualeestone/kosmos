@@ -64,6 +64,11 @@ the decision is logged once per change (a line in the board's log), which is the
   not take it, asserted as the control); working, it is not. The guide check in movableFor is a backstop: the walk
   already leaves the guide out. Slice 3 must re-check that an agent is idle at the moment it moves; this slice reads
   the roster a few seconds before the answer is sent.
+- Review 7: the new browser check is in docs/browser-checks/gated.txt, so the runner runs it (tools.browser-checks-wired
+  refused it before: measured, red without the line, green with it). The reset is said with its hours rounded up, so a
+  reset just past 6 h never reads "6 h" beside the 6-hour rule, and past two days in days. A held and short account
+  says its reason once. Accepted, stated: a failed follow-up read (the switch's re-read) keeps the lines, as every
+  follow-up keeps the list; only a read the person started clears them.
 - engine/autobalance-setting.js: the assigner-setting pattern. Missing reads ON; a corrupt file reads off. Effective
   only with two or more eligible accounts; with one it does nothing and says nothing.
 - GET /api/accounts?agents=1: `autobalance: { on, ok, eligible, moves, held, short, atRisk, unreadable? }`; every Claude row also

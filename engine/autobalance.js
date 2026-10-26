@@ -65,7 +65,11 @@ function riskOf(row, nowMs) {
   if (loginStopped(row)) return 'its login has stopped working';
   const w = weeklyNow(row, nowMs);
   if (!w || w.usedPct < AT_RISK_PCT || w.resetsAt - nowMs <= RESET_SOON_MS) return null;
-  return `it is at ${Math.round(w.usedPct)}% of its weekly limit, which resets in ${Math.round((w.resetsAt - nowMs) / 3600000)} h`;
+  /* Review 7: hours rounded UP, so a reset just past 6 h never reads as "6 h" beside a rule that says "within 6 hours";
+     past two days, in days. */
+  const hours = Math.ceil((w.resetsAt - nowMs) / 3600000);
+  const when = hours > 48 ? `${Math.round(hours / 24)} days` : `${hours} h`;
+  return `it is at ${Math.round(w.usedPct)}% of its weekly limit, which resets in ${when}`;
 }
 
 /* Two rows are the same account when both name the same login (email and organization): one account can be signed in

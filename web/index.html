@@ -28854,8 +28854,9 @@ function paintAutobalance(ab, list) {
     html = moves.map((m) => line('Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.')).join('')
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
       + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
-      /* Review 5: with the reason, so an account whose list is short still says why it is running out. */
-      + short.map((d) => { const r = (Array.isArray(ab.atRisk) ? ab.atRisk : []).find((x) => x.from === d);
+      /* Review 5: with the reason, so an account whose list is short still says why it is running out (review 7: unless
+         a move or held line above already said it). */
+      + short.map((d) => { const r = moves.some((m) => m.from === d) || held.some((h) => h.from === d) ? null : (Array.isArray(ab.atRisk) ? ab.atRisk : []).find((x) => x.from === d);
         return line((r ? esc(label(d)) + ' is running out, because ' + esc(r.why) + '. ' : '') + 'Kosmos could not read every agent on ' + esc(label(d)) + ', so there may be more to move.'); }).join('');
     /* Review 3: an account at risk with no idle agent on it (its agents are working, or it has none) is said, not silent. */
     const said = new Set([...moves.map((m) => m.from), ...held.map((h) => h.from), ...short]);
@@ -28888,7 +28889,8 @@ async function abToggleClick() {
     if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
   } finally {
     AB_SAVING = false;
-    /* Read the list again in place (no "Checking" flash, no follow-up chain), so the lines match the switch. Review 3:
+    /* Read the list again in place (no "Checking" flash; a pending sign-in can still ask for one bounded follow-up), so the
+       lines match the switch. A failed re-read of this kind keeps the list and its lines, as every follow-up does. Review 3:
        never over a read that is already out: a follow-up raises the epoch and would throw that read away, leaving the
        list on "Checking". That read may also have read the switch before this save, so wait for it to finish (bounded,
        about ten seconds) and read once after it. */
