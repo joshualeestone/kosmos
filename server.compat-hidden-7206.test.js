@@ -76,7 +76,10 @@ async function everyRoute() {
   const createBody = await bodyText(create);
   const sw = await post('/api/agent/ds-hidden-switch/provider', { provider: 'deepseek', account: DIR });
   const swBody = await bodyText(sw);
-  return { asked, status, add, addBody, list, create, createBody, sw, swBody };
+  compat.resetLiveCacheForTest();
+  const check = await post('/api/accounts/compat/check', { dir: DIR });   // 1b review 1: a stored key's own check
+  const checkBody = await bodyText(check);
+  return { asked, status, add, addBody, list, create, createBody, sw, swBody, check, checkBody };
 }
 const says = (b) => JSON.stringify(b);
 
@@ -91,6 +94,8 @@ test('switch OFF: every route refuses or shows nothing, and no key is sent to De
   assert.ok(says(r.createBody).includes(NOT_YET), 'create did not refuse in the switch\'s words: ' + says(r.createBody));
   assert.ok(r.sw.status >= 400, 'switch: ' + r.sw.status + ' ' + says(r.swBody));
   assert.ok(says(r.swBody).includes(NOT_YET), 'switch did not refuse in the switch\'s words: ' + says(r.swBody));
+  assert.equal(r.check.status, 400, 'check: ' + says(r.checkBody));
+  assert.equal(r.checkBody.error, NOT_YET);
   assert.deepEqual(r.asked, [], 'a key was sent to DeepSeek while the switch is off');
   assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-deepseek-route-add')), false, 'add stored an account');
 });
@@ -104,6 +109,7 @@ test('CONTROL, switch ON: the same routes answer (so the OFF test is not a gate 
     assert.equal(r.list.accounts.some((a) => a.dir === DIR && a.provider === 'deepseek'), true, 'list: the existing account is not shown');
     assert.equal(says(r.createBody).includes(NOT_YET), false, 'create still refuses as off: ' + says(r.createBody));
     assert.equal(says(r.swBody).includes(NOT_YET), false, 'switch still refuses as off: ' + says(r.swBody));
+    assert.equal(r.check.status, 200, 'check: ' + says(r.checkBody));
   } finally { withSwitch(false); }
 });
 
@@ -117,17 +123,20 @@ test('the page: every provider menu lists DeepSeek as a disabled "coming soon" r
   }
   // compatAsk, run against a board that says OFF, then ON (the control), on a stand-in document.
   const script = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const at = script.indexOf('async function compatAsk(');
-  assert.ok(at > -1, 'compatAsk is gone from the page');
-  const src = script.slice(at, script.indexOf('\n}', at) + 2);
+  const at = script.indexOf('const COMPAT_ASK_MS');
+  assert.ok(at > -1 && script.indexOf('function compatAsk(', at) > at, 'compatAsk (and its cache) moved in the page');
+  const src = script.slice(at, script.indexOf('\n}\n', script.indexOf('function compatAsk(', at)) + 2);
   const opts = [1, 2, 3].map(() => ({ disabled: true, textContent: 'DeepSeek · coming soon', value: 'deepseek' }));
   const pick = opts[0];
   const doc = { querySelectorAll: () => opts, querySelector: (q) => (q.includes('acct-provider-pick') ? pick : null) };
-  const run = async (enabled) => {
+  const run = async (enabled, startOn = false) => {
+    let shown = null;
     // eslint-disable-next-line no-new-func
-    const fn = new Function('document', 'fetch', 'onWindows', 'acctCompatShow', 'let COMPAT_ON = false;\n' + src + '\nreturn async () => { const r = await compatAsk(); return [r, COMPAT_ON]; };')(
-      doc, async () => ({ ok: true, json: async () => ({ enabled, vendors: enabled ? [{ id: 'deepseek' }] : [] }) }), () => false, () => {});
-    return fn();
+    const fn = new Function('document', 'fetch', 'onWindows', 'acctCompatShow', 'let COMPAT_ON = ' + (startOn ? 'true' : 'false') + ';\n' + src + '\nreturn async () => { const r = await compatAsk(); return [r, COMPAT_ON]; };')(
+      doc, async () => { if (enabled === 'fail') throw new Error('network'); return { ok: true, json: async () => ({ enabled, vendors: enabled ? [{ id: 'deepseek' }] : [] }) }; },
+      () => false, (on) => { shown = on; });
+    const out = await fn();
+    return [...out, shown];
   };
   const [offAnswer] = await run(false);
   assert.equal(offAnswer, false);
@@ -136,4 +145,10 @@ test('the page: every provider menu lists DeepSeek as a disabled "coming soon" r
   assert.equal(onAnswer, true, 'CONTROL: compatAsk never turns it on');
   assert.equal(pick.disabled, false, 'CONTROL: Add a provider is not offered when the switch is on');
   assert.equal(pick.textContent, 'DeepSeek');
+  // 1b review 1: a failed ask keeps what was known and never puts the form away (it would clear a pasted key).
+  const [failKept, , failShown] = await run('fail', true);
+  assert.equal(failKept, true, 'one failed ask turned DeepSeek off');
+  assert.equal(failShown, null, 'one failed ask put the form (and a pasted key) away');
+  const [, , offShown] = await run(false, true);
+  assert.equal(offShown, false, 'CONTROL: a definite off from the board does put it away');
 });

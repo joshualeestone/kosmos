@@ -151,6 +151,8 @@ test('a DeepSeek agent\'s model is its account\'s: a model change is refused', (
 test('Repair rebuilds a lost DeepSeek job on its recorded account, and refuses one whose account it does not know', () => {
   const register = require('./register');
   create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
+  const prevSwitch = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
   try {
     for (const [n, prof] of [['c7206-rep-known', { provider: 'deepseek', vendorAccount: DS_HOME }], ['c7206-rep-unknown', { provider: 'deepseek' }]]) {
       fs.mkdirSync(create.workerDir(n), { recursive: true });
@@ -169,7 +171,53 @@ test('Repair rebuilds a lost DeepSeek job on its recorded account, and refuses o
     assert.equal(u.ok, false);
     assert.match(String(u.because), /runs on DeepSeek and Kosmos does not know which DeepSeek account/);
     assert.equal(create.readJob('c7206-rep-unknown'), null, 'an agent with no recorded account was rebuilt anyway');
+  } finally {
+    create.setRunner(null);
+    if (prevSwitch === undefined) delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; else process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prevSwitch;
+  }
+});
+
+test('1b review 1: with the switch OFF, Repair does not rebuild a DeepSeek agent (it would launch with the key)', () => {
+  const register = require('./register');
+  create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
+  try {
+    const n = 'c7206-rep-off';
+    fs.mkdirSync(create.workerDir(n), { recursive: true });
+    fs.writeFileSync(nodePath.join(create.workerDir(n), 'CLAUDE.md'), '# brief\n');
+    store.writeProfile(n, { provider: 'deepseek', vendorAccount: DS_HOME });
+    require('./liveness').seen(n);
+    const out = withSwitch(false, () => register.repair({ platform: 'darwin' }));
+    const r = (out.results || []).find((x) => x.name === n);
+    assert.ok(r, 'repair did not see it: ' + JSON.stringify(out));
+    assert.equal(r.ok, false);
+    assert.match(String(r.because), /DeepSeek is not available in Kosmos yet/);
+    assert.equal(create.readJob(n), null, 'a DeepSeek agent was rebuilt with the switch off');
   } finally { create.setRunner(null); }
+});
+
+test('1b review 1: an account move keeps the provider: DeepSeek between DeepSeek accounts only, never Claude onto one', () => {
+  const DS2 = nodePath.join(HOME, '.kosmos-deepseek-two');
+  compat.storeAccount(DS2, { vendor: 'deepseek', model: 'deepseek-reasoner', key: 'sk-deepseek-second-0123456789' });
+  const ds = born('c7206-move-ds', DS_HOME, 'deepseek');
+  store.writeProfile(ds, { provider: 'deepseek', vendorAccount: DS_HOME });
+  const cl = born('c7206-move-cl', null, 'anthropic');
+  withSwitch(true, () => {
+    const moved = create.setAccount(ds, DS2, { ...BINS, platform: 'darwin' });
+    assert.equal(moved.outcome, 'created', moved.because);
+    assert.equal(create.readJob(ds).configDir, DS2);
+    assert.equal(store.readProfile(ds).vendorAccount, DS2, 'Repair would rebuild it on the old account');
+    const toClaude = create.setAccount(ds, CLAUDE_HOME, { ...BINS, platform: 'darwin' });
+    assert.equal(toClaude.outcome, 'refused');
+    assert.match(toClaude.because, /runs on DeepSeek; to move it to another provider, switch its provider/);
+    const toDefault = create.setAccount(ds, '', { ...BINS, platform: 'darwin' });
+    assert.equal(toDefault.outcome, 'refused', 'the default (Claude) account is another provider too');
+    const claudeOnto = create.setAccount(cl, DS2, { ...BINS, platform: 'darwin' });
+    assert.equal(claudeOnto.outcome, 'refused');
+    assert.match(claudeOnto.because, /runs on Claude; to move it to DeepSeek, switch its provider/);
+  });
+  assert.equal(create.readJob(ds).configDir, DS2, 'a refused move changed the job');
+  const off = withSwitch(false, () => create.setAccount(ds, DS_HOME, { ...BINS, platform: 'darwin' }));
+  assert.equal(off.because, 'DeepSeek is not available in Kosmos yet', 'a move between DeepSeek accounts with the switch off');
 });
 
 test('a DeepSeek agent\'s problems name DeepSeek and its key, never a Claude sign-in; a Claude agent is unchanged', () => {

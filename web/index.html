@@ -34013,24 +34013,37 @@ document.getElementById('acct-apikey-show').addEventListener('click', () => {
    "coming soon" and nothing here can be reached. */
 let COMPAT_ON = false;
 let ACCT_COMPAT_GEN = 0;
-async function compatAsk() {
-  let on = false;
-  try {
-    const r = await fetch('/api/accounts/compat', { cache: 'no-store' });
-    const out = r.ok ? await r.json().catch(() => null) : null;
-    on = !!(out && out.enabled === true && Array.isArray(out.vendors) && out.vendors.some((v) => v && v.id === 'deepseek'));
-  } catch { on = false; }
-  COMPAT_ON = on && !(typeof onWindows === 'function' && onWindows());
-  /* Every menu's DeepSeek row says the same thing (web.provider-menus): "coming soon" while off. Add a provider's row is
-     enabled here; the create and switch menus enable theirs by account (paintKeyedProviderOptions reads COMPAT_ON). */
-  for (const o of document.querySelectorAll('option[value="deepseek"]')) {
-    o.textContent = COMPAT_ON ? 'DeepSeek' : 'DeepSeek \u00b7 coming soon';
-    if (!COMPAT_ON) o.disabled = true;
-  }
-  const opt = document.querySelector('#acct-provider-pick option[value="deepseek"]');
-  if (opt) opt.disabled = !COMPAT_ON;
-  if (!COMPAT_ON) acctCompatShow(false);
-  return COMPAT_ON;
+/* 1b review 1: every picker paint asks, so concurrent asks share one request and an answer is reused for COMPAT_ASK_MS;
+   a failed ask keeps the last known answer (it never turns DeepSeek off mid-paste), and the form is put away (clearing a
+   pasted key) only on a definite "off" from the board. */
+const COMPAT_ASK_MS = 5000;
+let COMPAT_ASK = null;   // { at, promise }
+function compatAsk() {
+  const now = Date.now();
+  if (COMPAT_ASK && now - COMPAT_ASK.at >= 0 && now - COMPAT_ASK.at < COMPAT_ASK_MS) return COMPAT_ASK.promise;
+  const promise = (async () => {
+    let answer = null;   // true, false, or null when the board could not be asked
+    try {
+      const r = await fetch('/api/accounts/compat', { cache: 'no-store' });
+      const out = r.ok ? await r.json().catch(() => null) : null;
+      if (out && typeof out.enabled === 'boolean') {
+        answer = out.enabled === true && Array.isArray(out.vendors) && out.vendors.some((v) => v && v.id === 'deepseek');
+      }
+    } catch { answer = null; }
+    if (answer !== null) COMPAT_ON = answer && !(typeof onWindows === 'function' && onWindows());
+    /* Every menu's DeepSeek row says the same thing (web.provider-menus): "coming soon" while off. Add a provider's row is
+       enabled here; the create and switch menus enable theirs by account (paintKeyedProviderOptions reads COMPAT_ON). */
+    for (const o of document.querySelectorAll('option[value="deepseek"]')) {
+      o.textContent = COMPAT_ON ? 'DeepSeek' : 'DeepSeek \u00b7 coming soon';
+      if (!COMPAT_ON) o.disabled = true;
+    }
+    const opt = document.querySelector('#acct-provider-pick option[value="deepseek"]');
+    if (opt) opt.disabled = !COMPAT_ON;
+    if (answer === false) acctCompatShow(false);
+    return COMPAT_ON;
+  })();
+  COMPAT_ASK = { at: now, promise };
+  return promise;
 }
 function acctCompatShow(on) {
   ACCT_COMPAT_GEN += 1;

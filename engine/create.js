@@ -1663,6 +1663,18 @@ function setAccount(name, dir, opts) {
     return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI; to move it to Qwen, switch its provider to Qwen` };
   }
   if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job, platform);
+  /* #7206 (1b review 1): a vendor agent (claude on a DeepSeek account) moves between that vendor's accounts only, and a
+     Claude agent never lands on a vendor folder here: either would leave the job and the profile (provider,
+     vendorAccount) disagreeing. Changing the provider is a provider switch (setProvider), which checks the switch,
+     policy and records the provider. */
+  if (job.runner === 'claude') {
+    const compat = require('./anthropiccompat');
+    const v = compat.vendorOf(jobProvider(job));
+    if (v) return setVendorAccount(clean, spoken, dir, job, platform, v);
+    if (dir && compat.vendorOfName(path.resolve(String(dir)))) {
+      return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on Claude; to move it to ${compat.vendorOf(compat.vendorOfName(path.resolve(String(dir)))).name}, switch its provider` };
+    }
+  }
   /* #3296 accounts slice: gemini accounts now exist (engine/geminiaccounts.js), so a
      gemini agent's account swap is resolved in ITS OWN world (~/.gemini* dirs), not
      the CLAUDE accounts path below (which scans ~/.claude* and would misconfigure a
@@ -2039,6 +2051,36 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
     return unwritten;
   }
   // #6231 item 8: report the configDir written (acct.dir; Qwen has no default) so account-move can cache the `to` read.
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: acct.dir };
+}
+
+/* #7206 (1b review 1): move a vendor agent between that vendor's accounts, the way setQwenAccount moves a Qwen agent:
+   behind the switch, a named usable account of the SAME vendor, policy checked, the account Repair rebuilds on recorded
+   before the job moves (and put back if the job cannot be rewritten). */
+function setVendorAccount(clean, spoken, dir, job, platform, v) {
+  const compat = require('./anthropiccompat');
+  if (!compat.enabled(platform)) return { outcome: OUTCOME.REFUSED, because: compat.notYet(v.id) };
+  if (dir === '' || dir == null) return { outcome: OUTCOME.REFUSED, because: `pick which ${v.name} account it should run on, so nothing was changed` };
+  const wanted = path.resolve(String(dir));
+  if (compat.vendorOfName(wanted) !== v.id) {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on ${v.name}; to move it to another provider, switch its provider` };
+  }
+  const acct = compat.list(v.id).find((a) => a.dir === wanted);
+  if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal(v.name) };
+  if (acct.accountProblem) return { outcome: OUTCOME.REFUSED, because: `that ${v.name} account cannot be used: ${acct.accountProblem}` };
+  const allowed = policyAllows(v.id, '', acct.dir);
+  if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
+  let before = null;
+  try { before = store.readProfile(clean).vendorAccount || null; } catch { before = null; }
+  try { store.writeProfile(clean, { vendorAccount: acct.dir }); }
+  catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which ${v.name} account ${spoken} is on, so nothing was changed` }; }
+  const unwritten = rewriteAgentJob(clean, spoken, {
+    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'claude',
+  }, platform);
+  if (unwritten) {
+    try { store.writeProfile(clean, { vendorAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
+    return unwritten;
+  }
   return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: acct.dir };
 }
 
