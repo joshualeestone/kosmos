@@ -1402,6 +1402,8 @@ const recommender = require('./engine/recommender'); // #3595: the Recommender's
 const assignerSetting = require('./engine/assigner-setting'); // #2619
 const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's idle-assign behaviour (pure step; the runner is below)
 const autobalanceSetting = require('./engine/autobalance-setting'); // kosmos#7152 slice 2
+const automove = require('./engine/automove'); // kosmos#7152 slice 3
+const AUTOMOVE_FILE = path.join(path.dirname(autobalanceSetting.FILE), automove.FILE);
 const brief = require('./engine/brief'); // #3595 phase 3: a project's goal, read safely from its BRIEF.md
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
@@ -2890,6 +2892,61 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    session-start reads are fresh (no cache), so a session restarted moments ago is read as it is. The note keeps the account the
    agent ran on before its FIRST partial move (`from`), so moving it back there is not marked. `deps` (restart,
    sessionOf, roster, startedAt) is for tests. Never throws: the note is not the move. */
+/* #6173 / kosmos#7152 slice 3: what an account move needs from the board, for the bulk-move route and the automatic
+   move alike, so the two cannot drift. A fresh object per move: the maps hold that move's own facts. */
+function accountMoveDeps() {
+  const fromDirs = new Map();   // #6174: name -> the account folder it ran on before this move
+  const savedAt = new Map();    // #6231: name -> when this move saved its new account (taken just before the write)
+  return {
+    /* #6174: each agent's account folder is read BEFORE its account is written, as the one-agent route does. */
+    setAccount: (n, dir) => { fromDirs.set(n, moveFromDir(n)); savedAt.set(n, Date.now()); return create.setAccount(n, dir); },
+    moveRefusal: (n) => removal.moveRefusal(n),   // #6190: a held agent is refused before its account is written
+    REFUSED: create.OUTCOME.REFUSED,
+    forget: (n) => observed.forgetAgent(n),
+    restartAsync: (n) => restartForMoveAsync(n, fromDirs.has(n) ? fromDirs.get(n) : null),   // #6174's note too
+    RESTARTED: removal.OUTCOME.RESTARTED,
+    boardRestarting: () => boardRestartingSoon(),
+    hold: (names) => removal.holdForMove(names),
+    release: (n) => removal.releaseFromMove(n),
+    /* #6214: what a stop puts back. Read strictly (moveFromDir folds an unreadable job into the default account,
+       which the put-back must never take for "it was on the default account"). */
+    readAccount: (n) => {
+      const job = create.readJob(create.cleanName(n));
+      if (!job) throw new Error('its launch job could not be read');
+      return job.configDir || null;
+    },
+    putBack: (n, dir) => create.restoreAccount(n, dir),   // the job only: not setAccount's destination checks
+    /* #6231: #6174's note, as a partial restart writes it, for an agent left saved on another account while it still
+       runs on its old one (a failed or thrown put-back, a hand change to a third account, the move's time cap, its
+       hold failing). Its session's start is read without blocking.
+       Only a session that started before the move saved the new account can be the one still on the old account: the
+       agent is released by now, so a restart since (its page's) would come up on the new one. tmux reads whole
+       seconds, so a full second of margin; anything else, or nothing read, clears an earlier note (the safe side). */
+    leftOnOld: (n) => {
+      const name = create.cleanName(n) || n;
+      const at = savedAt.get(n);
+      const accountmoving = require('./engine/accountmoving');
+      const noteBefore = JSON.stringify(accountmoving.notes()[name] || null);
+      sessionStartForAsync(name)
+        .then((s) => {
+          /* A note written while the session was read (a later move's own restart) is newer than this one: keep it. */
+          if (JSON.stringify(accountmoving.notes()[name] || null) !== noteBefore) return;
+          if (!(Number.isFinite(s) && Number.isFinite(at) && s + 1000 <= at)) { accountmoving.clear(name); return; }
+          noteMoveOutcome(name, removal.OUTCOME.PARTIAL, s, fromDirs.has(n) ? fromDirs.get(n) : null, {}, { after: s });
+        })
+        .catch(() => {});
+    },
+    // #6231 item 7: the put-back's WRITE off the board's thread. win32 is the case this targets: it drives
+    // restoreAccountSteps via driveAsync so a large move's schtasks /Create WRITES no longer hold the board.
+    // The per-agent staleness re-read (the /Query) stays SYNC by contract 3, so a cold-cache read can still
+    // block the thread briefly per agent -- it is the serialized WRITES that were the #6183 freeze, not the
+    // reads. linux/mac run the sync restoreAccount inline (a local job-file write, never the freeze).
+    putBackAsync: (n, dir) => (process.platform === 'win32'
+      ? removal.putBackAsync(n, dir)
+      : Promise.resolve(create.restoreAccount(n, dir))),
+  };
+}
+
 function moveFromDir(rawName) {   // the account folder the agent is on before the move (null: the default account)
   try { return create.readJob(create.cleanName(rawName)).configDir || null; } catch { return null; }
 }
@@ -13027,6 +13084,9 @@ const server = http.createServer(async (req, res) => {
             }
             autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, ...decision };   // review 5: ok, so a corrupt file is not a confident Off
           } catch { autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, moves: [], held: [], short: [], atRisk: [], unreadable: true }; }
+          /* Slice 3: whether the sweep moves agents or only records, and its newest entries (no email in them). */
+          autobalance.movesOn = automove.movesOn();
+          try { autobalance.recent = automove.recent(AUTOMOVE_FILE); } catch { autobalance.recent = []; }
         }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
           ...(autobalance ? { autobalance } : {}) });
@@ -15135,56 +15195,7 @@ const server = http.createServer(async (req, res) => {
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-        const fromDirs = new Map();   // #6174: name -> the account folder it ran on before this move
-        const savedAt = new Map();    // #6231: name -> when this move saved its new account (taken just before the write)
-        const started = accountmove.start(body, {
-          /* #6174: each agent's account folder is read BEFORE its account is written, as the one-agent route does. */
-          setAccount: (n, dir) => { fromDirs.set(n, moveFromDir(n)); savedAt.set(n, Date.now()); return create.setAccount(n, dir); },
-          moveRefusal: (n) => removal.moveRefusal(n),   // #6190: a held agent is refused before its account is written
-          REFUSED: create.OUTCOME.REFUSED,
-          forget: (n) => observed.forgetAgent(n),
-          restartAsync: (n) => restartForMoveAsync(n, fromDirs.has(n) ? fromDirs.get(n) : null),   // #6174's note too
-          RESTARTED: removal.OUTCOME.RESTARTED,
-          boardRestarting: () => boardRestartingSoon(),
-          hold: (names) => removal.holdForMove(names),
-          release: (n) => removal.releaseFromMove(n),
-          /* #6214: what a stop puts back. Read strictly (moveFromDir folds an unreadable job into the default account,
-             which the put-back must never take for "it was on the default account"). */
-          readAccount: (n) => {
-            const job = create.readJob(create.cleanName(n));
-            if (!job) throw new Error('its launch job could not be read');
-            return job.configDir || null;
-          },
-          putBack: (n, dir) => create.restoreAccount(n, dir),   // the job only: not setAccount's destination checks
-          /* #6231: #6174's note, as a partial restart writes it, for an agent left saved on another account while it still
-             runs on its old one (a failed or thrown put-back, a hand change to a third account, the move's time cap, its
-             hold failing). Its session's start is read without blocking.
-             Only a session that started before the move saved the new account can be the one still on the old account: the
-             agent is released by now, so a restart since (its page's) would come up on the new one. tmux reads whole
-             seconds, so a full second of margin; anything else, or nothing read, clears an earlier note (the safe side). */
-          leftOnOld: (n) => {
-            const name = create.cleanName(n) || n;
-            const at = savedAt.get(n);
-            const accountmoving = require('./engine/accountmoving');
-            const noteBefore = JSON.stringify(accountmoving.notes()[name] || null);
-            sessionStartForAsync(name)
-              .then((s) => {
-                /* A note written while the session was read (a later move's own restart) is newer than this one: keep it. */
-                if (JSON.stringify(accountmoving.notes()[name] || null) !== noteBefore) return;
-                if (!(Number.isFinite(s) && Number.isFinite(at) && s + 1000 <= at)) { accountmoving.clear(name); return; }
-                noteMoveOutcome(name, removal.OUTCOME.PARTIAL, s, fromDirs.has(n) ? fromDirs.get(n) : null, {}, { after: s });
-              })
-              .catch(() => {});
-          },
-          // #6231 item 7: the put-back's WRITE off the board's thread. win32 is the case this targets: it drives
-          // restoreAccountSteps via driveAsync so a large move's schtasks /Create WRITES no longer hold the board.
-          // The per-agent staleness re-read (the /Query) stays SYNC by contract 3, so a cold-cache read can still
-          // block the thread briefly per agent -- it is the serialized WRITES that were the #6183 freeze, not the
-          // reads. linux/mac run the sync restoreAccount inline (a local job-file write, never the freeze).
-          putBackAsync: (n, dir) => (process.platform === 'win32'
-            ? removal.putBackAsync(n, dir)
-            : Promise.resolve(create.restoreAccount(n, dir))),
-        });
+        const started = accountmove.start(body, accountMoveDeps());   // kosmos#7152 slice 3: shared with the automatic move
         sendJson(res, started.status, started.body);
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
@@ -26118,6 +26129,55 @@ function start(port = PORT) {
          for an idle account. Same gating, inside the tick. */
       const usagePollFirst = setTimeout(usagePollTick, 30 * 1000);
       if (usagePollFirst && typeof usagePollFirst.unref === 'function') usagePollFirst.unref();
+      /* kosmos#7152 slice 3: usage auto-balance on a timer (engine/automove.js; plan .claude/plans/automove-7152.md). It
+         needs slice 1's readings (an idle account is unmeasured otherwise), so it runs only where the usage poll runs, with
+         the same gating, on its own timer just after each poll period. It records the decision when it changes; it MOVES
+         only with AGENT_WORKFORCE_AUTOMOVE=1 (off until a day of decisions has been read), one agent per tick, through the
+         bulk move's own deps. AGENT_WORKFORCE_AUTOMOVE_OFF=1 stops the whole sweep. Cheap inputs only: accounts.list(),
+         the usage records, the agents walk; never listLive(). */
+      const automoveRun = automove.create({ file: AUTOMOVE_FILE });
+      let automoveBusy = 0;   // when the running tick started, or 0
+      const automoveTick = () => {
+        if (automoveBusy && Date.now() - automoveBusy < 3 * usagePoll.POLL_MS) return;   // a move can take minutes; see slice 1's review 12
+        if (!liveExecution.liveExecutionAllowed() || !usagePoll.liveAllowed() || !usagePoll.enabled() || !automove.sweepOn()) return;
+        const started = Date.now();
+        automoveBusy = started;
+        let walk = null;
+        const agentsOn = (dir, isDefault) => {
+          if (!walk) walk = claudeAgentsByAccount();
+          let moving = [];
+          try { moving = walk.moving(dir, isDefault); } catch { moving = []; }
+          return { names: walk.on(dir, isDefault), complete: walk.complete === true, moving };
+        };
+        const labelOf = (dir) => {
+          const a = (accounts.list() || []).find((x) => x && x.dir === dir);
+          return a ? (a.isDefault ? 'the main account' : (a.label || path.basename(dir))) : null;
+        };
+        let records;
+        automoveRun.tick({
+          list: () => accounts.list(),
+          readUsage: (dir, nowMs) => usagePoll.readUsage(dir, nowMs),
+          isRefusal: (st) => usagePoll.isRefusal(st),
+          agentsOn,
+          roster: () => safeRoster(),   // a NEW read each time it is asked: the move re-checks idleness from it
+          records: () => (records || (records = projects.readAll())),
+          readCommitment: (session) => commitments.read(session),
+          settingOn: () => { try { return autobalanceSetting.read().on === true; } catch { return false; } },
+          movesOn: () => automove.movesOn(),
+          accountBusy: () => accountmove.busy(),
+          boardRestarting: () => boardRestartingSoon(),
+          startMove: (body) => accountmove.start(body, accountMoveDeps()),
+          readMove: (id) => accountmove.read(id),
+          lastSeen: (agent) => observed.read(observed.PROVIDER.ANTHROPIC, agent),
+          tell: (agent, text) => keepAgentReply(agent, text, undefined, { kosmos: true }),
+          labelOf,
+        })
+          .then((r) => { if (r && r.did !== 'off' && r.did !== 'nothing') process.stdout.write(`automove: ${r.did}${r.agent ? ' ' + r.agent : ''}${r.outcome ? ' ' + r.outcome : ''}\n`); })
+          .catch(() => { /* best-effort, like the sweeps above */ })
+          .finally(() => { if (automoveBusy === started) automoveBusy = 0; });
+      };
+      const automoveSweep = setInterval(automoveTick, Number(process.env.AGENT_WORKFORCE_AUTOMOVE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOMOVE_MS) : usagePoll.POLL_MS); // the env is the test seam only
+      if (automoveSweep && typeof automoveSweep.unref === 'function') automoveSweep.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
          stuck on a project past the grace period it convenes help ONCE: a room note, an ask

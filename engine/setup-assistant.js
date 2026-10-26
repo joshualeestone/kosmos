@@ -2936,6 +2936,16 @@ function isGuideFolder(agentName) {
   try { return fs.lstatSync(path.join(dir, GUIDE_MARKER)).isFile(); } catch { return false; }
 }
 
+/* kosmos#7152 slice 3: isGuideFolder for a caller that must fail CLOSED (an automatic account move). Only "the marker is
+   not there" is an answer of no; a folder that cannot be found, or a marker that cannot be read, THROWS, where
+   isGuideFolder reads both as "not the guide". */
+function isGuideFolderStrict(agentName) {
+  const file = require('./instructions').fileFor(agentName);
+  if (typeof file !== 'string' || !file) throw new Error('the agent folder could not be found');
+  try { return fs.lstatSync(path.join(path.dirname(file), GUIDE_MARKER)).isFile(); }
+  catch (err) { if (err && err.code === 'ENOENT') return false; throw err; }
+}
+
 /* The guide's agent name as recorded when it was seeded, or null (never seeded,
  * or a flag we cannot read). The page-context route writes only for this agent. */
 function guideName() {
@@ -3402,6 +3412,7 @@ module.exports = {
   GUIDE_TAG,
   GUIDE_MARKER,
   isGuideFolder,
+  isGuideFolderStrict,
   GUIDE_AVATAR_BASE,
   guideAvatarPath,
   refreshGuideAvatar,

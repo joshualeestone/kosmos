@@ -18570,6 +18570,7 @@ window.kosmosMeasureScrollbarWidth();
         <div><b>Move agents off an account that is running out</b>
           <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 90% of its weekly limit and does not reset within 6 hours, or its login stops working, Kosmos picks the idle agents on it to move to the account with the most room (one Kosmos has measured, under 70%). For now it only says what it would do. Nothing is moved.</p>
           <div id="ab-lines"></div>
+          <div id="ab-recent"></div>
           <p class="dhint" id="ab-msg" role="status" style="margin:8px 0 0;"></p></div>
         <button class="toggle" id="ab-toggle" role="switch" aria-label="Move agents off an account that is running out" hidden><i></i></button>
       </div>
@@ -28830,6 +28831,8 @@ function paintAutobalance(ab, list) {
   const row = document.getElementById('ab-row');
   if (!row) return;
   const lines = document.getElementById('ab-lines');
+  const recentBox = document.getElementById('ab-recent');   // slice 3: kept apart from the decision's own lines
+  if (recentBox) recentBox.innerHTML = '';
   if (!ab || !(ab.eligible >= 2)) {
     row.hidden = true;
     paintSwitch('ab-toggle', null);
@@ -28865,8 +28868,36 @@ function paintAutobalance(ab, list) {
     html += (Array.isArray(ab.atRisk) ? ab.atRisk : []).filter((x) => !said.has(x.from))
       .map((x) => line(opening(x) + ', but none of its agents is idle, so there is nothing to move yet.')).join('');
     if (!html) html = line('Nothing to move right now.');
+    /* Slice 3: whether Kosmos moves them itself on this computer, and what it did or would have done lately. */
+    if (recentBox) {
+      recentBox.innerHTML = (ab.movesOn !== true ? line('Moving agents on its own is not switched on for this computer yet, so Kosmos keeps a record of what it would move.') : '')
+        + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
+    }
   }
   if (lines) lines.innerHTML = html;
+}
+/* Slice 3: the newest record entries (engine/automove.js), newest first, one line each. Accounts by the name the list
+   shows, or the record's own label when the account is gone from the list. */
+function abRecentHtml(recent, label, who, line) {
+  const name = (dir, kept) => { const l = label(dir); return l === 'another account' && kept ? kept : l; };
+  const at = (ms) => { const d = new Date(ms); return isNaN(d) ? '' : 'At ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ', '; };
+  const out = [];
+  for (const e of recent) {
+    if (!e || typeof e !== 'object') continue;
+    const agent = esc(who(e.agent));
+    const from = esc(name(e.from, e.fromLabel));
+    const to = esc(name(e.to, e.toLabel));
+    if (e.kind === 'decision' && !e.live) {
+      for (const m of Array.isArray(e.moves) ? e.moves : []) out.push(at(e.at) + 'it would have moved ' + esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel)) + '.');
+    } else if (e.kind === 'move' && e.outcome === 'changed') out.push(at(e.at) + 'Kosmos moved ' + agent + ' from ' + from + ' to ' + to + ', because ' + esc(e.why || 'its account was running out') + '.');
+    else if (e.kind === 'move' && e.outcome === 'partial') out.push(at(e.at) + 'Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.');
+    else if (e.kind === 'move') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused.');
+    else if (e.kind === 'skipped') out.push(at(e.at) + 'Kosmos did not move ' + agent + ', because it was no longer idle.');
+    else if (e.kind === 'works' && e.works === 'yes') out.push(at(e.at) + agent + ' was seen working on ' + to + '.');
+    else if (e.kind === 'works' && e.works === 'no') out.push(at(e.at) + agent + '\u2019s first request on ' + to + ' was refused, so Kosmos will not move agents there for a while.');
+    else if (e.kind === 'works') out.push(at(e.at) + agent + ' has not been seen working on ' + to + ' in the day since it moved.');
+  }
+  return out.length ? '<p class="dhint" style="margin:12px 0 0;font-weight:600;">Lately</p>' + out.map(line).join('') : '';
 }
 async function abToggleClick() {
   const tog = document.getElementById('ab-toggle');
