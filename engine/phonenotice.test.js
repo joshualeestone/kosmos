@@ -119,6 +119,7 @@ test('#6487 explain says why there are no words, and idKind names only the id\'s
   const messages = { record: () => ({ rows: [] }) };
   assert.deepEqual(pn.explain('crashloop:leo:' + at, {}), { got: null, why: 'unaskable' });
   assert.deepEqual(pn.explain('nonsense', {}), { got: null, why: 'unaskable' });
+  for (const bad of ['report:not-a-time:leo', 'reply:' + at + ':', 'post:x42']) assert.deepEqual(pn.explain(bad, {}), { got: null, why: 'malformed-id' }, bad);
   assert.deepEqual(pn.explain('report:' + at + ':leo', { selfreport }), { got: null, why: 'no-report-words' });
   assert.deepEqual(pn.explain('reply:2020-01-01T00:00:00.000Z:leo', { chat }), { got: null, why: 'no-reply' });
   assert.deepEqual(pn.explain('post:m42', { messages }), { got: null, why: 'no-post' });

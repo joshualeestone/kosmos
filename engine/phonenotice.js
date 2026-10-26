@@ -107,11 +107,12 @@ function idKind(id) {
 }
 
 /** kosmos#6487: wordsFor, and why it answered nothing: { got, why }. `why` is null when there are words, else
- *  'unaskable' (not an id this board answers, such as crashloop:), 'no-report-words' (no needs_you report with words
+ *  'unaskable' (a kind this board never answers, such as crashloop:), 'malformed-id' (a report:, reply: or post: id
+ *  that does not parse, such as one cut short), 'no-report-words' (no needs_you report with words
  *  at that time), 'no-reply', 'no-post', or 'mask-failed'. The board logs `why` so a plain notice explains itself. */
 function explain(id, deps = {}) {
   const p = parseId(id);
-  if (!p) return { got: null, why: 'unaskable' };
+  if (!p) return { got: null, why: ['report', 'reply', 'post'].includes(idKind(id)) ? 'malformed-id' : 'unaskable' };
   let raw;
   if (p.kind === 'post') {
     const w = postWords(p.postId, deps);

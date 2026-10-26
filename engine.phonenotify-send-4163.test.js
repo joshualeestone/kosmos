@@ -133,6 +133,23 @@ test('#6487 a needs-you the phone cannot ask about says so in the log, with the 
   } finally { c.srv.close(); }
 });
 
+test('#6487 an id cut to fit says the phone will find no words; a send with no session names nobody', async () => {
+  const c = await coordinator(204);
+  try {
+    // 95 characters of name: the id (report:<at>:<name>) is cut at 120 bytes, still parses, and names an agent that is not there.
+    const long = 'r'.repeat(95);
+    const r = await runChild(`http://127.0.0.1:${c.port}`, { ...EVENT, id: 'report:2026-09-27T11:00:00Z:' + long, session: long });
+    assert.equal(c.seen.length, 1);
+    assert.notEqual(JSON.parse(c.seen[0].body).id, 'report:2026-09-27T11:00:00Z:' + long, 'CONTROL: the id was not cut, so this proves nothing');
+    assert.match(r.stderr, /phonenotify: sent needs_you \(report\) for r+; its id was cut to fit, so the phone's ask finds no words and it shows plain\n/);
+  } finally { c.srv.close(); }
+  const d = await coordinator(204);
+  try {
+    const r = await runChild(`http://127.0.0.1:${d.port}`, { ...EVENT, session: null });
+    assert.match(r.stderr, /phonenotify: sent needs_you \(report\); the phone can ask for its words\n/);
+  } finally { d.srv.close(); }
+});
+
 test('a refused send is logged with its status, never the token', async () => {
   for (const status of [401, 500]) {
     const c = await coordinator(status);

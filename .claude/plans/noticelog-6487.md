@@ -22,3 +22,9 @@ Never the words, never the id's time; the agent's session name, control characte
   review. They touch the same file (phonenotice.js) in different functions.
 - Logs to stderr, as defaultSend's refusals already do; logstamp stamps the time, so the two lines pair by time.
 - Weakest premise: that the person's board.log is what gets read. Josh's own board is; Jonah's is on another computer.
+
+## Review
+- Round 1 (.claude/plans/noticelog-6487-review1.md): 0 blockers, 2 warnings, 3 nits, all fixed. The sent line now
+  judges the id AS SENT (cut to 120 bytes; a cut id that still parses says the phone's ask finds no words); the doc no
+  longer claims a missing ask always means the phone never reached the computer; a report:/reply:/post: id that does
+  not parse answers `malformed-id`, not `unaskable`; no "for" with an empty session; the unused setLog seam is gone.
