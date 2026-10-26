@@ -105,6 +105,16 @@ test('an account that cannot be used stops the launch, saying why, and never sta
   assert.match(r.out, /it has no key set up; the agent was not started/);
 });
 
+test('review 2: when the key cannot be handed over privately, the launch is refused, never run without it', () => {
+  const data = nodePath.join(SANDBOX, `data-blocked-${++n}`);
+  fs.mkdirSync(data, { recursive: true });
+  fs.writeFileSync(nodePath.join(data, 'launch-secrets'), 'a file where the secrets folder would go');
+  const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) }), '', { AGENT_WORKFORCE_DATA: data });
+  assert.notEqual(r.code, 0);
+  assert.equal(/new-session/.test(r.argv), false, 'the agent was launched without its key: ' + r.argv);
+  assert.match(r.out, /provider key could not be handed to the agent privately; the agent was not started/);
+});
+
 test('CONTROL: a Claude home launches exactly as before: its own model, no vendor address, no env prefix', () => {
   const r = run(home({ '.claude.json': '{}' }, '.claude-h'), 'claude-sonnet-5');
   assert.match(r.argv, /new-session/, r.out);

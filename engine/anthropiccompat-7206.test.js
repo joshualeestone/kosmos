@@ -75,6 +75,27 @@ test('accountProblem accepts a good account and refuses what cannot work, in wor
   assert.match(compat.accountProblem(null), /no provider/);
 });
 
+test('review 2: an inherited name is never a vendor, and one bad folder never takes the list down', () => {
+  for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    assert.equal(compat.vendorOf(name), null, name);
+    assert.match(compat.accountProblem({ ...GOOD, vendor: name }), /no provider Kosmos knows/, name);
+    assert.equal(compat.dirForLabel(name, 'x').ok, false, name);
+  }
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-compat-7206-proto-'));
+  const prev = process.env.AGENT_WORKFORCE_HOME;
+  process.env.AGENT_WORKFORCE_HOME = home;
+  try {
+    compat.storeAccount(nodePath.join(home, '.kosmos-deepseek-good'), GOOD);
+    const bad = nodePath.join(home, '.kosmos-deepseek-bad');
+    fs.mkdirSync(bad);
+    fs.writeFileSync(compat.endpointFile(bad), JSON.stringify({ vendor: 'constructor', model: 'x', key: KEY }));
+    let rows;
+    assert.doesNotThrow(() => { rows = compat.list(); }, 'a hand-edited file threw inside list()');
+    assert.deepEqual(rows.map((r) => r.label).sort(), ['bad', 'good']);
+    assert.match(rows.find((r) => r.label === 'bad').accountProblem, /no provider Kosmos knows/);
+  } finally { process.env.AGENT_WORKFORCE_HOME = prev; fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('storeAccount writes mode 600 under a mode 700 folder, and reads back exactly what was stored', () => {
   const dir = account();
   assert.equal(fs.statSync(compat.endpointFile(dir)).mode & 0o777, 0o600);

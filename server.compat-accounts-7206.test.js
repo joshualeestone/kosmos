@@ -124,6 +124,9 @@ test('add: an empty folder left by an add that died is reclaimed after a minute;
   fs.utimesSync(old, past, past);
   const r = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'leftover' });
   assert.equal(r.status, 200, 'an abandoned claim kept the name taken: ' + (await r.clone().text()));
+  // Review 2: the leftover is renamed aside (atomic, one winner), and nothing it leaves is listed as an account.
+  assert.equal(fs.readdirSync(SANDBOX).filter((n) => n.includes('leftover') && n !== '.kosmos-deepseek-leftover' && !n.startsWith('.removed-kosmos-deepseek-')).length, 0);
+  assert.equal(compat.list().filter((a) => a.label.includes('leftover')).length, 1);
   const fresh = nodePath.join(SANDBOX, '.kosmos-deepseek-racing');
   fs.mkdirSync(fresh, { mode: 0o700 });
   const r2 = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'racing' });
@@ -134,6 +137,7 @@ test('add: an unknown vendor, a missing key, or a model the vendor lacks is refu
   const urls = vendorAnswers(hasModels);
   for (const [body, want] of [
     [{ vendor: 'anthropic', key: KEY }, /does not know that provider/],
+    [{ vendor: 'constructor', key: KEY }, /does not know that provider/],   // review 2: an inherited name
     [{ vendor: 'deepseek', key: '' }, /no DeepSeek key/],
     [{ vendor: 'deepseek', key: KEY, model: 'claude-sonnet-5' }, /DeepSeek has no model called claude-sonnet-5/],
   ]) {
