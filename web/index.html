@@ -2824,13 +2824,15 @@ body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
                  height: 22px; padding: 0 4px; border-radius: 7px; font: 600 .75rem/1 var(--font-ui); color: var(--k-ink-2);
                  border: 0; background: none; }
 .linkish.pj-head-notify:hover { color: var(--k-ink); background: var(--k-sunk); }
-/* On a phone the title keeps its room: the bell alone, its words in the aria-label (design review). */
-@media (max-width: 40rem) { #pj-head-notify-t { display: none; } }
+/* On a phone the title keeps its room: the bell alone, its words in the aria-label (design review). At least 36px wide
+   there (review 4: the bell alone measured about 20px), so with the ring below it is a 40x36 tap. */
+@media (max-width: 40rem) { #pj-head-notify-t { display: none; }
+                            .linkish.pj-head-notify { min-width: 36px; justify-content: center; } }
 /* The sound switch while the project is quiet: its saved value kept, dimmed and not pressable (design review). */
 #pjs-sound-toggle:disabled { opacity: .45; cursor: default; }
 .pjs-notify-seg { margin: 6px 0 0; }
 #pjs-notify-msg:empty { display: none; }
-/* On touch, the label takes the pause button's 36px-tall tap (an invisible ring) and the choice a full 44px row. */
+/* On touch, the label takes a 36px-tall tap like Pause's (an invisible ring) and the choice a full 44px row. */
 @media (hover: none) { .pj-head-notify::after { content: ""; position: absolute; inset: -7px -2px; }
                        .pjs-notify-seg button { min-height: 44px; } }   /* an empty .fmsg still takes a line (#5391 review 1) */
 #pj-head-pause-msg:empty { display: none; }   /* review 1: an empty .fmsg still takes ~23px under every title */
@@ -71623,6 +71625,8 @@ document.getElementById('pj-settings-back').addEventListener('click', () => {
 document.getElementById('pjs-sound-toggle').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
+  // kosmos#7210 review 4: quiet while the project is not on All; a scripted click must not flip the saved choice either.
+  if (document.getElementById('pjs-sound-toggle').disabled) return;
   const on = !projectSoundOn(p.id);
   setProjectSoundOn(p.id, on);
   paintSwitch('pjs-sound-toggle', on);
