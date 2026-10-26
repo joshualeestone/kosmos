@@ -133,13 +133,15 @@ test('a restore folder that cannot be made hides the new Kosmos again and says s
   const base = fresh(t);
   const hidden = [];
   let dir = null;
-  t.after(() => { if (dir) fs.chmodSync(dir, 0o755); });
-  const r = rw.prepareRestoreWorld(base, {
-    member: 'Ann', now: NOW,
-    // A fresh world whose folder cannot be written: the restore folder inside it cannot be made.
-    createWorld: (b, n) => { const w = worlds.createWorld(b, n); dir = worlds.worldBaseDir(b, w); fs.chmodSync(dir, 0o555); return w; },
-    hideWorld: (b, id) => { hidden.push(id); return worlds.hideWorld(b, id); },
-  });
+  let r;
+  try {
+    r = rw.prepareRestoreWorld(base, {
+      member: 'Ann', now: NOW,
+      // A fresh world whose folder cannot be written: the restore folder inside it cannot be made.
+      createWorld: (b, n) => { const w = worlds.createWorld(b, n); dir = worlds.worldBaseDir(b, w); fs.chmodSync(dir, 0o555); return w; },
+      hideWorld: (b, id) => { hidden.push(id); return worlds.hideWorld(b, id); },
+    });
+  } finally { if (dir) fs.chmodSync(dir, 0o755); }   // before the temp folder is removed
   assert.equal(r.ok, false);
   assert.match(r.because, /hidden again/);
   assert.equal(hidden.length, 1);
