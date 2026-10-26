@@ -41466,7 +41466,7 @@ function dmRow(m, name, replyAdjacent) {
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
-  const v = pjVerdict(m, name);
+  const v = pjVerdict(m, name, typeof DM_ROWS_OF !== 'undefined' ? DM_ROWS_OF : null);   // kosmos#7208: the card by session
   /* ⚠️ WHAT WAS TYPED, when it is not what the bubble shows. A numbered answer
      sends the digit the agent's prompt is waiting for and shows the option's
      own words; the record keeps both, so the screen says both. Without this the
@@ -41835,6 +41835,7 @@ function talkFilterRows(rows, name, q) {
     || String(m.text || '').toLowerCase().includes(needle));
 }
 let TALK_QUERY = '';
+const DM_KEPT_HIDDEN = 'Your message is kept to send later. Clear the search to see it.';   // kosmos#7208 review 4
 /* #5406 part 2 slice C: the choices of the question an agent's screen shows, as buttons in that question's bubble.
    Josh's #3419 ruling: no prompt box and no banner; the question is an ordinary message, and these sit inside it, to
    press or to ignore (typing still works). Only what the server could be sure of (options and the question's identity,
@@ -43305,9 +43306,14 @@ async function sendTalk(text, attachment) {
          something actually went wrong. */
       line = placedWords(d);
     } else if (d.state === 'held' && inThread) {
-      /* #5805 slice 2b: kept for after the agent's usage resets; the row above says so and offers Send now anyway. */
+      /* #5805 slice 2b: kept for after the agent's usage resets; the row above says so and offers Send now anyway.
+         kosmos#7208: said ONCE, on the message's own row; nothing more under the box (Josh read the repeat as errors). */
       clearSent();
-      line = dmHeldWords(name, d) + (d.heldFor === 'input' || d.behindFor === 'input' ? '' : ' To send it now, use Send now anyway on the message.');   // #6774
+      /* Review 3: the row is not announced, and a search can hide it. Heard once (the quiet region, after "Sending…"),
+         and under the box only when a search keeps the row out of sight. */
+      // Review 4: only when the search really hides it, tested on the row's own shape (the person's row has no `from`).
+      line = TALK_QUERY.trim() && !talkFilterRows([{ text }], name, TALK_QUERY).length ? DM_KEPT_HIDDEN : '';
+      if (!flightMoved()) dmReplyAnnounce(dmHeldWords(name, d, typeof dmHeldAgent === 'function' ? dmHeldAgent(null, name, sentName) : null));
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
       /* #4944: not kept, so the box is its only sure copy again: the words go back into it. */
@@ -76985,7 +76991,7 @@ function paintRoom(body) {
 document.getElementById('d-talk-search').addEventListener('input', () => {
   TALK_QUERY = document.getElementById('d-talk-search').value;
   const said = document.getElementById('d-say-msg');   // #4256: "hidden by your search" is stale once the search changes
-  if (said && said.textContent === 'That message is hidden by your search.') said.textContent = '';
+  if (said && (said.textContent === 'That message is hidden by your search.' || said.textContent === DM_KEPT_HIDDEN)) said.textContent = '';
   const th = document.getElementById('d-dmthread');
   // #5624 review 3: only the agent on screen's own thread (as talkPaintPending checks), never the last agent's.
   if (!th.__lastBody || th.__lastSession !== (CURRENT && CURRENT.sessionName)) return;
@@ -78231,22 +78237,74 @@ function pjWhen(at) {
 function placedWords(d) {
   return '';
 }
-/* #5805 slice 2b: what a person's held message says, on its row and under the box: why it is held and when it goes. */
-function dmHeldWords(name, d) {
-  // Kosmos tried to send it and could not (the sweep recorded why): said after the reason it is held.
-  const stuck = d && d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
+/* #5805 slice 2b: what a person's held message says, on its row: why it waits and when it goes.
+   kosmos#7208 (Josh read the old "Held: ..." lines as errors): plain words that say nothing is wrong, and the REAL
+   reason first. `a` is the agent's card when the page has it: out of usage or not running says that, even when the
+   message was kept for its message box, because then the box is not why it waits. */
+function dmHeldWords(name, d, a) {
+  d = d || {};
+  const now = Date.now();
+  // Kosmos tried to send it and could not (the sweep recorded why): said after the reason it waits.
+  const stuck = d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
     ? ' Kosmos tried to send it and could not: ' + d.stuck.because.replace(/[.\s]+$/, '') + '.' : '';
-  if (d && d.behind === true && d.behindFor === 'input') return 'Held: Kosmos sends this after the messages kept for ' + name + ' while its input box held text not yet sent.' + stuck;   // #6774
-  if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.' + stuck;
-  // #6774: held because its input box holds text not yet sent; sent by the minute sweep once the box reads empty.
-  if (d && d.heldFor === 'input') return 'Held: ' + name + "'s input box holds text not yet sent. Kosmos sends it once the box is clear." + stuck;
-  // #5948: held because its sign-in stopped working; there is no reset to name, only signing in again.
-  if (d && d.heldFor === 'signin') return 'Held: ' + name + ' is signed out. Kosmos sends it once it is signed in again.' + stuck;
-  const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
-  const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
-  return 'Held: ' + name + ' is out of usage' + (when ? ' until ' + when : '') + '. Kosmos sends it after the reset.' + stuck;
+  const soon = (t) => (t > now && typeof quotaResetWords === 'function' ? quotaResetWords(t, now) : '');
+  const cardAt = a && typeof a.limitUntil === 'string' ? Date.parse(a.limitUntil) : NaN;
+  const heldAt = typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
+  const st = a ? a.state : null;
+  /* One order of reasons, read off the card as the server reads it before it types (reviews 1 and 2). The sweep types
+     a held message once the card is idle (engine/chat.js limitReleased), so "back" is that, never a guess; a card that
+     does not know (unknown, stale, a lost connection) leaves the hold's own words. */
+  const released = !!a && (st === 'idle' || (st === 'blocked' && a.screenState === 'idle')) && a.screenRead !== 'remembered';   // #5949: a remembered screen waits for a fresh look
+  const cardOut = !!a && (st === 'rate_limited' || cardAt > now);
+  /* Review 3: a card that knows decides. The server keeps a sign-in or usage hold only while the card reads signed out
+     or out of usage (signinHeldVerdict, limitHeldVerdict); any other known state has released it. The hold's own words
+     stand only when there is no card, or it cannot say (unknown, stale, a lost connection, restarting, remembered). */
+  const unsure = !a || !st || a.screenRead === 'remembered' || ['unknown', 'restarting'].includes(st);   // the board's states that cannot say (engine/status.js STATE)
+  const signedOut = st === 'auth_failed' || (d.heldFor === 'signin' && unsure);
+  const stopped = !!a && !signedOut && !cardOut && st !== 'restarting' && (a.running === false || st === 'stopped');
+  const usageHold = !d.behind && d.heldFor !== 'input' && d.heldFor !== 'signin';
+  const out = !signedOut && (cardOut || (usageHold && unsure));
+  // The message box blocks it too: kept for the box, or queued behind something kept for the box.
+  const box = d.heldFor === 'input' || (d.behind === true && d.behindFor === 'input');
+  // When it goes: after the messages ahead of it when it is queued, and once the box is clear when that blocks it too.
+  const after = (when) => (d.behind === true ? ' This delivers after the messages ahead of it, ' + when + '.' : ' This delivers ' + when + '.');
+  let said;
+  if (signedOut) said = name + ' is signed out.' + after('once ' + name + ' is signed in again');
+  else if (out) {
+    // A sign-in hold's heldUntil is the sign-in's one-minute relook, not a reset: never said as one (review 4).
+    const until = soon(cardAt > now ? cardAt : (d.heldFor === 'signin' ? NaN : heldAt));
+    // The card can only guess at a limit it read off the screen (stateConfidence 'scraped'); the row hedges as it does.
+    const guess = cardOut && !usageHold && a.stateConfidence === 'scraped';
+    said = name + (guess ? ' looks to be out of usage' : ' is out of usage') + (until ? ' until ' + until : '') + '.'
+      + after(box ? 'once ' + name + ' is back and its message box is clear' : 'when ' + name + ' is back');
+  } else if (stopped) said = name + ' is not running.' + after('when ' + name + ' is running again');
+  // Review 4: both holds are released then; the connection coming back is what delivers it.
+  else if (st === 'connection_lost') said = name + ' lost its connection.' + after('when ' + name + ' is connected again' + (box ? ' and its message box is clear' : ''));
+  // Ahead of it are other messages to this agent, from anyone (other agents, task notices), not only the person's.
+  else if (d.behind === true) said = 'Queued behind earlier messages to ' + name + '.';
+  // #6774: held until its message box reads empty. That includes a box Kosmos cannot read (chat.inputBoxEmpty is false
+  // for unread, #6256), so the words never claim there is text in it (PigeonPete, m459): only that Kosmos waits.
+  else if (box) said = 'Waiting for ' + name + "'s message box to be clear. Yours goes through as soon as it is.";
+  // Released on the card and not failing: the minute sweep types it. Otherwise no time is promised (a question or
+  // permission menu on its screen also keeps the sweep waiting: engine/chat.js menuHeldVerdict).
+  else if (released && !stuck) said = name + ' is back. This goes through in a minute or so.';
+  else said = name + ' is back. This goes through when Kosmos can type it.';
+  return said + stuck;
 }
-function pjVerdict(m, name) {
+/* kosmos#7208: the card of the agent a held message waits for: by its session when the caller knows it (two agents can
+   share a name), else by the name the thread shows. Guarded: tests lift dmHeldWords and pjVerdict without the page. */
+function dmHeldAgent(m, name, session) {
+  try {
+    const cur = typeof CURRENT !== 'undefined' ? CURRENT : null;
+    const list = typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : [];
+    // A card carries the name a person sees as `name` and its session as `sessionName`; nothing else names it.
+    const is = session ? (a) => !!a && a.sessionName === session : (a) => !!a && a.name === name;
+    // Review 3: the poll's card first. CURRENT is the card as it was when the agent was opened (the poll never
+    // reassigns it), so it is only the fallback when the poll has no card for this agent.
+    return list.find(is) || (is(cur) ? cur : null);
+  } catch { return null; }
+}
+function pjVerdict(m, name, session) {
   const d = (m && m.delivery) || {};
   // The pane's state when we typed, and what it means for what happens next.
   const note = d.paneNote ? esc(d.paneNote) : '';
@@ -78257,9 +78315,9 @@ function pjVerdict(m, name) {
   const whenLive = pjWhenLive(m.at);
   const when = whenLive ? ' ' + whenLive : '';
   if (d.state === 'held') {
-    // #5805 slice 2b: kept while the agent is out of usage; dmRow puts Send now anyway beside it.
+    // #5805 slice 2b: a held message (out of usage, signed out, not running, its box, or queued); dmRow puts Send now anyway beside it.
     mark = ' held';
-    said = esc(dmHeldWords(name, d));
+    said = esc(dmHeldWords(name, d, typeof dmHeldAgent === 'function' ? dmHeldAgent(m, name, session) : null));
   } else if (d.state === 'placed') {
     mark = '';
     /* #3419: a placed message's thread row carries NO delivery-status copy --
@@ -78309,8 +78367,8 @@ function pjVerdict(m, name) {
   return { mark, said, when };
 }
 
-function pjMsg(m, name) {
-  const { mark, said, when } = pjVerdict(m, name);
+function pjMsg(m, name, session) {
+  const { mark, said, when } = pjVerdict(m, name, session);
   /* 🔑 THE SAME ROW FURNITURE AS THE ROOM'S: the time in its own element, the
      receipt in its own, and the receipt free to say nothing. This panel and the
      agent page's thread are the same conversation kind and share one verdict,
@@ -78639,7 +78697,7 @@ function paintThread(body) {
     // rather than implying the visible list is the whole record.
     setLive(msgs, (body.olderCount
       ? '<p class="fhint">The first ' + body.olderCount + ' messages of this conversation are kept on this computer and not shown here.</p>'
-      : '') + body.messages.map((m) => pjMsg(m, name)).join(''));
+      : '') + body.messages.map((m) => pjMsg(m, name, body.agent && body.agent.sessionName)).join(''));
   }
 
   /* Its screen. ⚠️ The HEADING follows the read (round 30, measured): set

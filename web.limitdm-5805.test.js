@@ -41,8 +41,8 @@ test('#5805 2b review 3: a held row the sweep could not type says why, after why
   const plain = words('casey', { state: 'held', heldUntil: null });
   assert.doesNotMatch(plain, /tried/, 'CONTROL: a row never tried says it was tried');
   const stuck = words('casey', { state: 'held', stuck: { because: 'its screen waits on a question.', at: 'x' } });
-  assert.match(stuck, /out of usage\. Kosmos sends it after the reset\. Kosmos tried to send it and could not: its screen waits on a question\.$/);
-  assert.match(words('casey', { behind: true, stuck: { because: 'no window' } }), /while it was out of usage\. Kosmos tried to send it and could not: no window\.$/);
+  assert.match(stuck, /out of usage\. This delivers when casey is back\. Kosmos tried to send it and could not: its screen waits on a question\.$/);
+  assert.match(words('casey', { behind: true, stuck: { because: 'no window' } }), /^Queued behind earlier messages to casey\. Kosmos tried to send it and could not: no window\.$/);
 });
 
 test('#5805 2b review 3: Send now anyway says the route\'s refusal under the box instead of silently re-enabling', async (t) => {
@@ -86,7 +86,7 @@ test('#5805 2b review 3: Send now anyway says the route\'s refusal under the box
 test('#5948: a row held because the agent is signed out says so, with no usage limit or reset named', () => {
   const words = lift('dmHeldWords', { quotaResetWords: () => 'later today' });
   const signin = words('casey', { state: 'held', heldFor: 'signin', heldUntil: new Date(Date.now() + 60e3).toISOString() });
-  assert.equal(signin, 'Held: casey is signed out. Kosmos sends it once it is signed in again.');
+  assert.equal(signin, 'casey is signed out. This delivers once casey is signed in again.');   // kosmos#7208
   assert.match(words('casey', { state: 'held', heldFor: 'signin', stuck: { because: 'no window' } }), /signed in again\. Kosmos tried to send it and could not: no window\.$/);
   // CONTROL: the same row without heldFor is still the usage-limit sentence, so the assertion above can fail.
   assert.match(words('casey', { state: 'held', heldUntil: null }), /out of usage/);
