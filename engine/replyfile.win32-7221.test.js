@@ -836,3 +836,22 @@ test('#7221 review 16: another agent\'s folder behind more links than Windows fo
     assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
   } finally { fs.rmSync(chain, { recursive: true, force: true }); }
 });
+
+/* ---------- review 17 ---------- */
+
+test('#7221 review 17-1: a connected agent whose Files folder is on a share attaches a file from it, as on main', winOnly, (t) => {
+  const cfiles = path.join(SANDBOX, 'connected', 'Files');
+  fs.mkdirSync(cfiles, { recursive: true });
+  fs.writeFileSync(path.join(cfiles, 'r.txt'), 'from a Files folder on a share\n');
+  const cfilesUnc = adminShareOf(cfiles);
+  if (!cfilesUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  const realFiles = dmfiles.filesDir;
+  dmfiles.filesDir = (name) => (name === WHO ? cfilesUnc : null);
+  try {
+    const r = replyfile.attach(WHO, path.join(cfilesUnc, 'r.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, 'attaches as on main: ' + JSON.stringify(r));
+    replyfile.discard(r.rec);
+    // CONTROL: another share path, outside the Files folder, is still refused before it is resolved
+    refusedUnresolved(path.join(adminShareOf(SANDBOX), 'connected', 'r.txt'), replyfile.ON_NETWORK, 'a share path beside Files');
+  } finally { dmfiles.filesDir = realFiles; }
+});

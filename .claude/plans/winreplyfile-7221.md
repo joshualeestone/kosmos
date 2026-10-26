@@ -83,8 +83,11 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    network path, EXCEPT for a file written inside one of the agent's own project folders (review 1 finding 2, narrowed
    by review 2 finding 2 from "on a project drive", which on the usual box with Files and projects all on C: exempted
    every attach): projects.js supports a project on a mapped drive ("a Z:\ record whose realpath is \\server\share
-   opens"), and those files attached on main. A Files folder Kosmos made is never on a share, so a file named there
-   that resolves to one is refused. `\\?\C:\` (realpath's long local spelling) is local and passes.
+   opens"), and those files attached on main. A file written inside the agent's Files folder is let through only when
+   that folder ITSELF resolves to a share: a connected agent's Files sits beside its own working folder, which may be
+   on a mapped drive or a share (review 17 finding 1: "Kosmos's Files is never on a share" was wrong for them, and
+   their files attached on main); a Files folder on this computer keeps the guard. The Files folder also counts as one
+   of the agent's folders for rule 1's share exception. `\\?\C:\` (realpath's long local spelling) is local and passes.
 4. **allowedRoot resolves a project folder written as a share only for a file on that same share** (review 1 finding
    3, review 2 finding 3): any agent can register such a project (`kosmos project create`), and allowedRoot resolves
    every project folder to judge containment. A share's real path cannot be a folder above a local file or a file on
@@ -166,7 +169,11 @@ compare `ino` as numbers too; they are #7229 (filed), not this branch, with refu
    skipped; telling a mapped letter apart needs a call Node does not have; the lstat walk of such a folder touches the
    share too, before its realpath does), and so are the folders Kosmos itself made (the Files folder and its parent,
    each agent's folder, `~/.ssh`, `~/.config`), which a person or a process of this user would have to replace with a
-   link to a share. Named in the code comment too.
+   link to a share; and (review 17 finding 2, stated more exactly) every agent's RECORDED folder, which for a
+   connected agent is its own working folder and may simply be written as a share or a mapped drive: `keptRoots` stats
+   it, and `instructions.fileFor` lstats it, on every project-file attach. No swap is needed for that contact. Main
+   does the same; closing it means checking those folders before create.js/instructions.js touch them, added to #7232.
+   Named in the code comment too.
 3. A share is matched by how it is WRITTEN, not by identity (review 4 finding 2): a project written `\\fileserver\x`
    whose files' real paths read `\\10.0.0.5\x` (or a DFS path, or another name for the server) is not matched to them,
    and they are refused where main matched by identity. Narrow; the remedy is to write the project folder as Windows
@@ -277,6 +284,10 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   a local link into it): the nested file is refused, this agent's own file attaches (against 1929bc4: fails, by
   attaching the nested file, `ok: true`); a 70-link chain of another agent's is never resolved and does not block this
   agent's project file. The 34-link arm of review 13 now follows the whole chain (to the share at its end).
+- Review 17: a connected agent whose Files folder is on a share (the admin share) attaches a file from it, and a share
+  path beside Files is still refused unresolved (against 528edf1: fails, refused as a network path); review 2-2's arm
+  (a LOCAL Files folder whose file resolves to a share is refused) still passes, so the local guard is intact. Another
+  agent's folder whose link cannot be read is resolved as on main, by decision (comment in `otherFolderSkip`).
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -285,7 +296,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 45/45 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 46/46 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

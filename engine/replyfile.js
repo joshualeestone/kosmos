@@ -343,6 +343,10 @@ function otherFolderSkip(folder, fileShare) {
   const walked = walkLinks(asDrivePath(folder), (reached) => winSpellingRefusal(reached, null), 0, noteShare);
   if (walked === ON_NETWORK) return { folder, kind: 'share', leadsTo };
   if (walked === DEAD_LINK || walked === TOO_MANY_LINKS) return { folder, kind: 'nowhere', leadsTo: null };
+  /* Anything else is resolved as on main, CANNOT_READ included (review 17 finding 3, kept on purpose): lstat refusing
+     (EACCES) makes realpath refuse too; readlink fails only for a reparse point Node does not read as a link (a cloud
+     placeholder, deduplication, a WSL link), and Win32 does not follow those to another path, so the realpath stays
+     on this computer. Leaving such a folder unresolved instead would judge a nested project by spelling alone. */
   return null;
 }
 /* Whether a project folder of another agent left unresolved may hold the file, erring toward yes. By its own spelling
@@ -401,7 +405,10 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    folder's links are walked on each Windows attach of a project file, cheap on local disks, growing with the
    number of projects), and the folders Kosmos
    itself made (the Files folder and its parent, each agent's folder, ~/.ssh, ~/.config), which a person or a
-   process of this user would have to replace with a link to a share; (c) a share is matched by how it is WRITTEN
+   process of this user would have to replace with a link to a share; and every agent's RECORDED folder, which for
+   a connected agent is its own working folder and may simply be written as a share or a mapped drive: keptRoots
+   stats it and instructions.fileFor lstats it on each project-file attach, as on main (#7232); (c) a share is
+   matched by how it is WRITTEN
    (review 4 finding 2): a project written \\fileserver\x whose real path reads \\10.0.0.5\x (or a DFS path, or
    another name for the server) is not matched to its files, which are then refused, where main matched by identity.
    Write the project folder as Windows resolves it. */
@@ -411,14 +418,18 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    is the person's own choice of folder, and those files attached on main. So a file written inside one of these
    folders may be on a share: winSpellingRefusal lets a \\host\share spelling through only there (review 3 finding 2),
    and winRealRefusal a share real path only there (review 1 finding 2, narrowed in review 2 finding 2 from the bare
-   drive letter, which on a box with Files and projects all on C: let every attach through). A Files folder Kosmos
-   made is never on a share. */
+   drive letter, which on a box with Files and projects all on C: let every attach through). The agent's Files folder
+   is one of these folders too: a CONNECTED agent's Files sits beside its own working folder, which may be on a
+   mapped drive or a share, and those files attached on main (review 17 finding 1). */
 function agentRoots(sessionName, filesDir, projectList) {
   const drives = new Set();
   const folders = [];
   const walkFrom = [];
   const addDrivePath = (p) => { drives.add(driveOf(p)); walkFrom.push(asDrivePath(p)); };
-  if (typeof filesDir === 'string' && driveOf(filesDir)) addDrivePath(filesDir);
+  let filesFolder = null;
+  if (typeof filesDir === 'string' && driveOf(filesDir)) { addDrivePath(filesDir); filesFolder = filesDir; }
+  else if (typeof filesDir === 'string' && shareOf(filesDir)) filesFolder = asShareSpelling(filesDir);
+  if (filesFolder) folders.push(filesFolder);
   for (const p of projectList) {
     if (!p || typeof p.folder !== 'string' || !(p.agents || []).includes(sessionName)) continue;
     const d = driveOf(p.folder);
@@ -429,7 +440,7 @@ function agentRoots(sessionName, filesDir, projectList) {
     if (d) folders.push(p.folder);
     else if (shareOf(p.folder)) folders.push(asShareSpelling(p.folder));
   }
-  return { drives, folders, walkFrom, reached: null };
+  return { drives, folders, filesFolder, walkFrom, reached: null };
 }
 /* Whether a root is on drive `d`, as written or through its own links. A root written on C: may live on D: through a
    junction or link on its way (C:\Users\me\work -> D:\work), and a path the walk follows onto D: is then judged on D:,
@@ -491,7 +502,8 @@ function unfollowedLinkRefusal(to) {
   return isLocalVolumeSpelling(String(to)) ? UNREADABLE_LINK : ON_NETWORK;
 }
 /* Follow the links in `p` by lstat and readlink only, and say why not if any of them leaves for the network, a
-   device or a drive outside the roots. Null when the path may be resolved. A chain of more than 32 links is refused. */
+   device or a drive outside the roots. Null when the path may be resolved. A chain of more than MAX_HOPS links is
+   refused. */
 /* More than Windows itself follows (63 reparse points in one resolution): a path the walk gives up on, Windows cannot
    resolve either, so it holds no file and its realpath reaches no other computer (review 16). */
 const MAX_HOPS = 64;
@@ -554,8 +566,22 @@ function walkLinks(p, onPath, hops = 0, acceptLink = null) {
   }
   return null;
 }
-function winRealRefusal(real, given, projectFolders) {
-  if (isNetworkSpelling(real) && !projectFolders.some((f) => writtenInside(given, f))) return ON_NETWORK;
+/* Where the agent's Files folder really is. Read with the real realpath, never the test seam, which stands in for the
+   FILE's resolution: the folder's own location is a fact about the agent, not part of the swap a test simulates. */
+function filesFolderReal(filesFolder) {
+  try { return fs.realpathSync.native(filesFolder); } catch { return ''; }
+}
+/* The second guard. A share real path is let through for a file written inside one of the agent's project folders,
+   and for one written inside its Files folder only when that folder ITSELF resolves to a share (a connected agent
+   working on a mapped drive or a share, review 17 finding 1): a Files folder on this computer keeps the guard, so a
+   path swapped onto a share between the walk and the realpath is still refused before the open. */
+function winRealRefusal(real, given, roots) {
+  if (isNetworkSpelling(real)) {
+    const inProject = roots.folders.some((f) => f !== roots.filesFolder && writtenInside(given, f));
+    const inSharedFiles = !inProject && !!roots.filesFolder && writtenInside(given, roots.filesFolder)
+      && isNetworkSpelling(filesFolderReal(roots.filesFolder));
+    if (!inProject && !inSharedFiles) return ON_NETWORK;
+  }
   if (isDevicePart(path.win32.basename(real))) return DEVICE_NAME;
   return null;
 }
@@ -583,7 +609,7 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
     return { ok: false, because: err && err.code === 'ENOENT' ? 'there is no file at ' + given : CANNOT_READ };
   }
   if (win) {
-    const why = winRealRefusal(real, given, roots.folders);
+    const why = winRealRefusal(real, given, roots);
     if (why) return { ok: false, because: why };
   }
   let st;
