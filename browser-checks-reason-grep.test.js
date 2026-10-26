@@ -333,6 +333,7 @@ const SITE_COUNTS = {
   'render-account-name-2095.js': [1, 1],
   'render-account-problem-3723.js': [2, 1],
   'render-accounts-openai.js': [1, 1],
+  'render-acct-modal-trap-7202.js': [1, 1],
   'render-acct-stop-focus-4271.js': [1, 1],
   'render-addmem-flash-2429.js': [1, 0],
   'render-adopt-1531.js': [1, 0],
