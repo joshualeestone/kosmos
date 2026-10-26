@@ -28872,14 +28872,15 @@ function paintAutobalance(ab, list) {
     html += (Array.isArray(ab.atRisk) ? ab.atRisk : []).filter((x) => !said.has(x.from))
       .map((x) => line(opening(x) + ', but none of its agents is idle, so there is nothing to move yet.')).join('');
     if (!html) html = line('Nothing to move right now.');
-    /* Slice 3: whether Kosmos moves them itself on this computer, and what it did or would have done lately. */
-    if (recentBox) {
-      /* Review 2: from the sweep's own gate (recording), so the page never says it moves or records where it cannot. */
-      recentBox.innerHTML = (ab.recording !== true ? line('Kosmos does not check these accounts on a schedule on this computer, so it does not move agents or keep a record of what it would move.')
-        : ab.movesOn !== true ? line('Moving agents on its own is not switched on for this computer yet, so Kosmos keeps a record of what it would move.')
-        : line('Kosmos moves them itself, one agent at a time, and says each move here.'))
-        + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
-    }
+  }
+  /* Slice 3: whether Kosmos moves them itself on this computer, and what it did or would have done lately. Review 6:
+     also when the current decision could not be worked out, since the history is what a person needs then. */
+  if (recentBox && known && ab.on === true) {
+    /* Review 2: from the sweep's own gate (recording), so the page never says it moves or records where it cannot. */
+    recentBox.innerHTML = (ab.recording !== true ? line('Kosmos does not check these accounts on a schedule on this computer, so it does not move agents or keep a record of what it would move.')
+      : ab.movesOn !== true ? line('Moving agents on its own is not switched on for this computer yet, so Kosmos keeps a record of what it would move.')
+      : line('Kosmos moves them itself, one agent at a time, and says each move here.'))
+      + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
   }
   if (lines) lines.innerHTML = html;
 }
@@ -28912,10 +28913,11 @@ function abRecentHtml(recent, label, who, line) {
     else if (e.kind === 'move' && e.outcome === 'unknown') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ' and could not tell whether it went through. Check which account it is on above.');
     else if (e.kind === 'move' && e.outcome === 'partial') out.push(at(e.at) + 'Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.');
     else if (e.kind === 'move') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused.');
+    else if (e.kind === 'released') out.push(at(e.at) + agent + ' is no longer on ' + to + ', so someone moved it; Kosmos leaves it where it is for a day.');
     else if (e.kind === 'skipped') out.push(at(e.at) + 'Kosmos did not move ' + agent + ', because it was no longer idle.');
     else if (e.kind === 'works' && e.works === 'yes') out.push(at(e.at) + agent + ' was seen working on ' + to + '.');
     else if (e.kind === 'works' && e.works === 'no') out.push(at(e.at) + agent + '\u2019s first request on ' + to + ' was refused. Move it back here if it needs to work now; Kosmos will not move agents to ' + to + ' for a day.');
-    else if (e.kind === 'works') out.push(at(e.at) + agent + ' has not been seen working on ' + to + ' in the day since it moved.');
+    else if (e.kind === 'works') out.push(at(e.at) + agent + ' has not been seen working on ' + to + ' in the day since it moved, so Kosmos waits a day before moving another agent there.');
   }
   return out.length ? '<p class="dhint" style="margin:12px 0 0;font-weight:600;">Lately</p>' + out.map(line).join('') : '';
 }
