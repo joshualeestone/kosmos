@@ -69,6 +69,7 @@ test('#6774: a row kept for the box says so, and one behind such messages says w
   // Review 4: a sign-in hold's heldUntil is a one-minute relook, never said as a reset; a lost connection says so.
   assert.equal(words('casey', { state: 'held', heldFor: 'signin', heldUntil: new Date(Date.now() + 50e3).toISOString() }, { state: 'rate_limited' }), 'casey is out of usage. This delivers when casey is back.');
   assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'connection_lost' }), 'casey lost its connection. This delivers when casey is connected again.');
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'connection_lost' }), 'casey lost its connection. This delivers when casey is connected again and its message box is clear.');
   assert.equal(words('casey', { state: 'held', heldUntil: ago, stuck: { because: 'no window' } }, { state: 'idle', running: true }), 'casey is back. This goes through when Kosmos can type it. Kosmos tried to send it and could not: no window.');
   assert.match(words('casey', { state: 'held', heldUntil: ago }, { state: 'unknown', running: true }), /^casey is out of usage/, 'a card that does not know leaves the hold its words');
   assert.equal(words('casey', { state: 'held', heldUntil: ahead }, { state: 'idle', running: true }), 'casey is back. This goes through in a minute or so.', 'released on the card, whatever heldUntil says');
@@ -95,7 +96,7 @@ test('#6774: Send now anyway is not offered on a row kept for the box, and the l
   const heldArm = PAGE.slice(PAGE.indexOf("if (d.state === 'held' && inThread) {"));
   assert.notEqual(PAGE.indexOf("if (d.state === 'held' && inThread) {"), -1, 'CONTROL: the held arm of sendTalk was not found');
   // Review 3: nothing under the box unless a search hides the row; the reason is announced once, in the quiet region.
-  assert.match(heldArm.slice(0, 900), /clearSent\(\);[\s\S]*?line = TALK_QUERY\.trim\(\) && !talkFilterRows\(\[\{ from: 'you', text \}\], name, TALK_QUERY\)\.length \? DM_KEPT_HIDDEN : '';/, 'the held line under the box is not empty');
+  assert.match(heldArm.slice(0, 900), /clearSent\(\);[\s\S]*?line = TALK_QUERY\.trim\(\) && !talkFilterRows\(\[\{ text \}\], name, TALK_QUERY\)\.length \? DM_KEPT_HIDDEN : '';/, 'the held line under the box is not empty');
   assert.match(heldArm.slice(0, 900), /if \(!flightMoved\(\)\) dmReplyAnnounce\(dmHeldWords\(/, 'a held send tells a screen reader nothing');
   assert.doesNotMatch(PAGE, /line = dmHeldWords\(/, 'a held message is still repeated under the box');
 });

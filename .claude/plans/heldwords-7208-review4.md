@@ -95,7 +95,7 @@ state is transient.
   role=status and #d-say-msg role=alert are). The finally's 40 ms timer clears #d-reply-say only while it reads
   "Sending…", so it does not wipe the held words; a POST faster than 30 ms still ends on the held words (both
   dmReplyAnnounce timers fire in order).
-- Measured: em dash sweep over added lines (literal, &mdash;, &#8212;, &#x2014;, —, \u{2014}): 0 hits; a planted
+- Measured: em dash sweep over added lines (literal, &mdash;, &#8212;, &#x2014;, u2014, \u{2014}): 0 hits; a planted
   control line hits 1.
 - Measured: `git merge-tree --write-tree origin/main HEAD` rc=0 (origin/main is 20 commits ahead); none of those
   commits touch dmHeldWords, the sendTalk held arm, TALK_QUERY, #d-reply-say, or the chat.js/limitqueue.js verdicts

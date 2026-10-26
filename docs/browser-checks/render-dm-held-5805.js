@@ -134,7 +134,16 @@ function readRow(page, words) {
     await page.waitForTimeout(400);
     const matching = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
     chk(matching === '', 'a search the message matches says nothing under the box', JSON.stringify(matching));
-    await page.evaluate(() => { TALK_QUERY = ''; document.getElementById('d-say-msg').textContent = ''; window.__fx = Object.assign({}, window.__fx, { messages: window.__fx.messages.filter((m) => m.text !== 'one more' && m.text !== 'send the invoice tonight') }); paintTalk('april', 'April'); });
+    // Review 5: a search for "you" hides the person's own row (it has no sender), so the line is said.
+    await page.evaluate((u) => {
+      TALK_QUERY = 'you';
+      window.__sendAnswer = { delivery: { state: 'held', heldUntil: u, because: 'held: out of usage', at: new Date().toISOString() }, recorded: true, recordedBecause: null };
+      const s = document.getElementById('d-say'); s.value = 'ship it'; sendTalk('ship it');
+    }, UNTIL);
+    await page.waitForTimeout(400);
+    const byYou = await page.evaluate(() => ({ line: document.getElementById('d-say-msg').textContent, shown: [...document.querySelectorAll('#d-dmthread .msg')].some((x) => /ship it/.test(x.textContent)) }));
+    chk(byYou.shown === false && byYou.line === 'Your message is kept to send later. Clear the search to see it.', 'a search that hides the person\'s own row says where it went', JSON.stringify(byYou));
+    await page.evaluate(() => { TALK_QUERY = ''; document.getElementById('d-say-msg').textContent = ''; window.__fx = Object.assign({}, window.__fx, { messages: window.__fx.messages.filter((m) => m.text !== 'one more' && m.text !== 'send the invoice tonight' && m.text !== 'ship it') }); paintTalk('april', 'April'); });
     await page.waitForTimeout(300);
 
     /* 3. Send now anyway: the row's at is posted, and the row repaints as sent. */

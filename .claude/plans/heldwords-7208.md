@@ -70,3 +70,9 @@ again under the composer.
   - A sign-in hold never takes its time from heldUntil (that is the one-minute relook, not a reset).
   - "unsure" is the board's own states that cannot say (unknown, restarting); connection_lost has its own line ("X lost
     its connection. This delivers when X is connected again."), since both holds are released then.
+- Round 5 (.claude/plans/heldwords-7208-review5.md): 0 blockers, 1 warning, 2 nits. All taken:
+  - The "does the search hide it" test used a made-up row from "you"; the person's row has no sender, so a search for
+    "you" hid the real row while the test said it was in sight. Now tested on the row's own shape ({ text }). Browser
+    case: a "you" search hides the row and the line is said; red with the old shape.
+  - A lost connection with the message box also blocking says "... connected again and its message box is clear".
+  - The em dash in review4 removed.

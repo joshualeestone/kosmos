@@ -43311,8 +43311,8 @@ async function sendTalk(text, attachment) {
       clearSent();
       /* Review 3: the row is not announced, and a search can hide it. Heard once (the quiet region, after "Sending…"),
          and under the box only when a search keeps the row out of sight. */
-      // Review 4: only when the search really hides it (the row's own words, as the thread filters them).
-      line = TALK_QUERY.trim() && !talkFilterRows([{ from: 'you', text }], name, TALK_QUERY).length ? DM_KEPT_HIDDEN : '';
+      // Review 4: only when the search really hides it, tested on the row's own shape (the person's row has no `from`).
+      line = TALK_QUERY.trim() && !talkFilterRows([{ text }], name, TALK_QUERY).length ? DM_KEPT_HIDDEN : '';
       if (!flightMoved()) dmReplyAnnounce(dmHeldWords(name, d, typeof dmHeldAgent === 'function' ? dmHeldAgent(null, name, sentName) : null));
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
@@ -78279,7 +78279,7 @@ function dmHeldWords(name, d, a) {
       + after(box ? 'once ' + name + ' is back and its message box is clear' : 'when ' + name + ' is back');
   } else if (stopped) said = name + ' is not running.' + after('when ' + name + ' is running again');
   // Review 4: both holds are released then; the connection coming back is what delivers it.
-  else if (st === 'connection_lost') said = name + ' lost its connection.' + after('when ' + name + ' is connected again');
+  else if (st === 'connection_lost') said = name + ' lost its connection.' + after('when ' + name + ' is connected again' + (box ? ' and its message box is clear' : ''));
   // Ahead of it are other messages to this agent, from anyone (other agents, task notices), not only the person's.
   else if (d.behind === true) said = 'Queued behind earlier messages to ' + name + '.';
   // #6774: its message box holds text not yet sent; the minute sweep sends this once the box reads empty.
