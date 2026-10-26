@@ -158,9 +158,9 @@ function windowOf(w, { nowMs = Date.now(), maxAheadSeconds = null } = {}) {
 }
 
 /* The record for one account: { at (ms), state, weekly?, fiveHour? }, or null for an API-key account (no weekly limit). */
-async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (dir) => require('./accounts').identityOf(dir), ...deps } = {}) {
+async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (dir) => require('./accounts').identityOf(dir), tokenState, ...deps } = {}) {
   if (!a || typeof a.dir !== 'string' || !a.dir || a.apiKey) return null;
-  const t = await tokenStateFor(a, { now, ...deps });
+  const t = tokenState || await tokenStateFor(a, { now, ...deps });   // review 17: pollAll reads it once and passes it
   if (t.state !== 'ok') return { at: now, state: t.state };
   /* Review 8: with no email listed there is nothing to check the token's login against (see review 6 below), so a
      credential holding another login would put that login's figure here. Not measured, and no request is sent. */
@@ -232,7 +232,7 @@ function readRaw(dir) {
    reading that is still fresh. Resolves the number of accounts MEASURED this time (state ok). */
 /* Review 11: whether a record was written for the login an account has now. The email must match, and so must the
    organization when both name one, since one email can sign in to two organizations (review 9). */
-function sameLogin(prev, a, org) {
+function sameLogin(prev, a, org) {   // exported for accountsweekly, which shows a record only for the same login
   if (!prev || typeof prev.email !== 'string' || typeof a.email !== 'string') return false;
   if (prev.email.toLowerCase() !== a.email.toLowerCase()) return false;
   return !(typeof prev.org === 'string' && prev.org && typeof org === 'string' && org && prev.org !== org);
@@ -248,17 +248,20 @@ async function pollAll(list, deps = {}) {
        to the token, identified by its expiry time (not a secret), so a token renewed for the same login is read at
        once. While it waits, the record's `at` moves on so its state stays shown; its figures still age out by
        measuredAt as any kept figures do. */
-    if (before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number' && nowMs - before.refusedAt < BACKOFF_MS
-      && typeof before.refusedEmail === 'string' && before.refusedEmail === a.email) {
-      let t = null;
-      try { t = await tokenStateFor(a, deps); } catch { t = null; }
-      if (t && t.state === 'ok' && t.expiresAt === before.refusedExpiresAt) {
-        write(a.dir, { ...before, at: nowMs });
-        continue;
-      }
+    /* Review 17: the token is read once per account per sweep, and that one read decides the backoff, is the token
+       sent, and is the expiry recorded on a refusal, so the backoff is always keyed to the token actually refused. */
+    let t = null;
+    if (a && typeof a.dir === 'string' && a.dir && !a.apiKey) {
+      try { t = await tokenStateFor(a, deps); } catch { t = { state: 'no-credential' }; }
+    }
+    if (t && before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number' && nowMs - before.refusedAt < BACKOFF_MS
+      && typeof before.refusedEmail === 'string' && before.refusedEmail === a.email
+      && t.state === 'ok' && t.expiresAt === before.refusedExpiresAt) {   // a token that is not usable sends nothing anyway
+      write(a.dir, { ...before, at: nowMs });
+      continue;
     }
     let rec = null;
-    try { rec = await readOne(a, deps); } catch { rec = null; }
+    try { rec = await readOne(a, { ...deps, ...(t ? { tokenState: t } : {}) }); } catch { rec = null; }
     if (!rec) continue;
     let org = null;
     try { const who = identityOf(a.dir); org = who && who.organizationUuid; } catch { org = null; }
@@ -275,7 +278,7 @@ async function pollAll(list, deps = {}) {
         if (!w) continue;
         const p = prev && prev[key];
         const same = p && p.usedPct === w.usedPct && typeof p.changedAt === 'number'
-          && sameLogin(prev, a, org)
+          && sameLogin(prev, a, rec.org || org)   // review 17: the organization this read answered for
           && (p.resetsAt === w.resetsAt || (typeof p.resetsAt === 'number' && typeof w.resetsAt === 'number'
             && Math.abs(p.resetsAt - w.resetsAt) <= SAME_RESET_SECONDS));
         w.changedAt = same ? p.changedAt : rec.at;
@@ -285,8 +288,6 @@ async function pollAll(list, deps = {}) {
       if (BACKOFF_STATES.has(rec.state)) {   // review 14: the hour runs from the refusal
         rec.refusedAt = rec.at;
         rec.refusedEmail = a.email;
-        let t = null;
-        try { t = await tokenStateFor(a, deps); } catch { t = null; }
         rec.refusedExpiresAt = t && t.state === 'ok' ? t.expiresAt : null;
       }
       const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
@@ -323,10 +324,11 @@ function readUsage(dir, nowMs = Date.now()) {
     if (w.resetsAt === null) return { usedPct: w.usedPct, resetsAt: null, changedAt };
     return typeof w.resetsAt === 'number' && w.resetsAt * 1000 > nowMs ? { usedPct: w.usedPct, resetsAt: w.resetsAt, changedAt } : null;
   };
-  return { at: j.at, measuredAt, state: typeof j.state === 'string' ? j.state : 'unknown', weekly: live(j.weekly), fiveHour: live(j.fiveHour) };
+  return { at: j.at, measuredAt, state: typeof j.state === 'string' ? j.state : 'unknown', weekly: live(j.weekly), fiveHour: live(j.fiveHour),
+    email: typeof j.email === 'string' ? j.email : null, org: typeof j.org === 'string' ? j.org : null };
 }
 
 module.exports = {
-  liveAllowed, readOne, pollAll, readUsage, tokenStateFor, getUsage, windowOf, write, ccdFor,
+  liveAllowed, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
   FILE, POLL_MS, FRESH_MS, HOST, USAGE_PATH, BETA,
 };

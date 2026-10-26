@@ -45,8 +45,16 @@ const SAME_WINDOW_MS = 3600 * 1000;
 /* The endpoint's figure for one window, dated when it last CHANGED (usagepoll's changedAt), which is what the status
    line's `at` means and what the page shows as "last saw it change". A window with no reset time yet is left to the
    status line: the /api/status shape carries a reset time. */
+function accountOrg(a) {
+  try { const who = require('./accounts').identityOf(a.dir); return who && who.organizationUuid; } catch { return null; }
+}
+
 function polledOf(a, nowMs, key) {
-  const r = require('./usagepoll').readUsage(a.dir, nowMs);
+  const usagepoll = require('./usagepoll');
+  const r = usagepoll.readUsage(a.dir, nowMs);
+  /* Review 17: a record names the login it was measured for, and is shown only for that login, so a folder signed in
+     again (or copied) does not show the old login's figure until the next read replaces it. */
+  if (r && r.email && !usagepoll.sameLogin(r, a, accountOrg(a))) return null;
   const w = r && r[key];
   return w && typeof w.resetsAt === 'number' && typeof w.changedAt === 'number'
     ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.changedAt, measuredAt: r.measuredAt } : null;

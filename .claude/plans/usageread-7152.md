@@ -88,6 +88,10 @@ at 0%, had no reading at all (the card's opening).
   once an hour, not every ten minutes. While an account waits its record's `at` moves on, so its state (why it is
   not measured) stays shown; kept figures still age out 30 minutes after they were measured, which is intended: a
   figure nobody re-measured for half an hour is not shown as current.
+- Review 17: the display checks the login too. accountsweekly shows a record only for the login (and organization,
+  when both name one) it was measured for, so a folder signed in again shows nothing from the old login, even in the
+  minutes before the next read. The credential is read once per account per sweep, and that one read decides the
+  backoff, is the token sent, and keys a refusal, so a token renewed mid-request is never the one held back.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -140,7 +144,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 39 tests (counted from a run after review 16), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 42 tests (counted from a run after review 17), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

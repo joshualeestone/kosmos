@@ -143,14 +143,14 @@ test('#7152: within one window accountsweekly takes the higher of the status lin
   const resetsAt = Math.floor((NOW + 3 * 86400000) / 1000);
   const statusAt = NOW - 2 * 3600000;
   fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 30, resetsAt, at: statusAt, history: [] }));
-  assert.deepEqual(accountsweekly.weeklyOf({ dir: d }, NOW), { usedPct: 30, resetsAt: resetsAt * 1000, at: statusAt }, 'CONTROL: the status line alone');
+  assert.deepEqual(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), { usedPct: 30, resetsAt: resetsAt * 1000, at: statusAt }, 'CONTROL: the status line alone');
   usagepoll.write(d, { at: NOW - 60000, state: 'ok', weekly: { usedPct: 41, resetsAt }, fiveHour: null });
-  assert.deepEqual(accountsweekly.weeklyOf({ dir: d }, NOW), { usedPct: 41, resetsAt: resetsAt * 1000, at: NOW - 60000 }, 'the higher endpoint figure was not used');
+  assert.deepEqual(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), { usedPct: 41, resetsAt: resetsAt * 1000, at: NOW - 60000 }, 'the higher endpoint figure was not used');
   fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 45, resetsAt, at: NOW - 1000, history: [] }));
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).usedPct, 45, 'a lower endpoint figure beat a higher status line');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).usedPct, 45, 'a lower endpoint figure beat a higher status line');
   usagepoll.write(d, { at: NOW - 60000, state: 'token-expired' });
   assert.equal(usagepoll.readUsage(d, NOW).state, 'token-expired', 'CONTROL: the unmeasured read was recorded');
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).usedPct, 45, 'an unmeasured read hid the status line\'s reading');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).usedPct, 45, 'an unmeasured read hid the status line\'s reading');
 });
 
 test('#7152 review 1: a window with usage but no reset yet is still a reading; a five-hour reset too far out is not', async () => {
@@ -178,7 +178,7 @@ test('#7152 review 1: a failed read keeps the last good figures, dated when they
   assert.equal(r.state, 'http-429', 'the failure was not recorded');
   assert.equal(r.weekly.usedPct, 56, 'the last good figure was thrown away');
   assert.equal(r.measuredAt, NOW);
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, later + 1000).at, NOW, 'the kept figure was dated by the failed read');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, later + 1000).at, NOW, 'the kept figure was dated by the failed read');
   const staleFigures = usagepoll.readUsage(d, NOW + usagepoll.FRESH_MS + 60000);
   assert.equal(staleFigures.state, 'http-429', 'CONTROL: the last read is still fresh then');
   assert.equal(staleFigures.weekly, null, 'kept figures outlived the moment they were measured');
@@ -198,11 +198,11 @@ test('#7152 review 3: a reading is dated when its figure last changed, as the st
   const at = (now, body) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body }, {}) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, BODY));
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, BODY));
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 11 * 60000).at, NOW, 'an unchanged figure claimed a new change');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW + 11 * 60000).at, NOW, 'an unchanged figure claimed a new change');
   const moved = BODY.replace('"utilization":56', '"utilization":57');
   assert.notEqual(moved, BODY, 'CONTROL: the moved body differs');
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 20 * 60000, moved));
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 21 * 60000).at, NOW + 20 * 60000, 'a changed figure kept the old time');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW + 21 * 60000).at, NOW + 20 * 60000, 'a changed figure kept the old time');
 });
 
 test('#7152 review 4: a reset that moves by under a minute between reads is the same window, so nothing changed', async (t) => {
@@ -212,10 +212,10 @@ test('#7152 review 4: a reset that moves by under a minute between reads is the 
   const jitter = BODY.replace('2026-10-30T14:00:00.447704', '2026-10-30T13:59:59.569985');
   assert.notEqual(jitter, BODY, 'CONTROL: the jittered body differs');
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, jitter));
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 11 * 60000).at, NOW, 'a reset that moved by a second claimed a change');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW + 11 * 60000).at, NOW, 'a reset that moved by a second claimed a change');
   const nextWeek = BODY.replace('2026-10-30T14:00:00.447704', '2026-10-31T14:00:00.447704');
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 20 * 60000, nextWeek));
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 21 * 60000).at, NOW + 20 * 60000, 'CONTROL: a new week is a change');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW + 21 * 60000).at, NOW + 20 * 60000, 'CONTROL: a new week is a change');
 });
 
 test('#7152 review 4: within one window the higher figure wins, whichever source saw it first', (t) => {
@@ -223,9 +223,9 @@ test('#7152 review 4: within one window the higher figure wins, whichever source
   const resetsAt = Math.floor((NOW + 3 * 86400000) / 1000);
   fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 52, resetsAt, at: NOW - 30000, history: [] }));
   usagepoll.write(d, { at: NOW, state: 'ok', weekly: { usedPct: 51, resetsAt: resetsAt + 1, changedAt: NOW }, fiveHour: null });
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 1000).usedPct, 52, 'a lagging endpoint figure beat the status line\'s higher one');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW + 1000).usedPct, 52, 'a lagging endpoint figure beat the status line\'s higher one');
   usagepoll.write(d, { at: NOW, state: 'ok', weekly: { usedPct: 55, resetsAt, changedAt: NOW }, fiveHour: null });
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW + 1000).usedPct, 55, 'CONTROL: a higher endpoint figure wins');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW + 1000).usedPct, 55, 'CONTROL: a higher endpoint figure wins');
 });
 
 test('#7152 review 4: a token about to run out is expired, and a weekly reset years away is not a reading', async () => {
@@ -249,12 +249,12 @@ test('#7152 review 5: across windows the reading measured more recently is curre
   const resetsPolled = Math.floor((NOW + 5 * 86400000) / 1000);
   fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 80, resetsAt: resetsStatus, at: NOW - 3600000, history: [] }));
   usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', weekly: { usedPct: 10, resetsAt: resetsPolled, changedAt: NOW - 3 * 86400000 }, fiveHour: null });
-  const w = accountsweekly.weeklyOf({ dir: d }, NOW);
+  const w = accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW);
   assert.equal(w.usedPct, 10, 'a stale-looking change time beat a reading measured a minute ago');
   assert.equal(w.at, NOW - 3 * 86400000, 'the shown time must stay the last change');
   assert.deepEqual(Object.keys(w).sort(), ['at', 'resetsAt', 'usedPct'], 'the /api/status shape grew a field');
   fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 80, resetsAt: resetsStatus, at: NOW - 1000, history: [] }));
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).usedPct, 80, 'CONTROL: a status line measured later wins');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).usedPct, 80, 'CONTROL: a status line measured later wins');
 });
 
 test('#7152 review 6: a token whose profile is another account gives no reading for this one', async () => {
@@ -310,16 +310,16 @@ test('#7152 review 6: once the endpoint stops answering, "will not update" comes
   const d = tmpDir(t);
   usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 120000, state: 'http-401',
     weekly: { usedPct: 12, resetsAt: Math.floor((NOW + 86400000) / 1000), changedAt: NOW - 120000 }, fiveHour: null });
-  assert.notEqual(accountsweekly.weeklyOf({ dir: d }, NOW), null, 'CONTROL: the kept figure is still shown');
-  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW), 'not-wired', 'a failing endpoint still hid the reason');
+  assert.notEqual(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), null, 'CONTROL: the kept figure is still shown');
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d, email: EMAIL }, 'darwin', NOW), 'not-wired', 'a failing endpoint still hid the reason');
 });
 
 test('#7152 review 3: a fresh endpoint reading clears "will not update", since the endpoint keeps it updating', (t) => {
   const d = tmpDir(t);
-  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW), 'not-wired', 'CONTROL: no settings, no reading');
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d, email: EMAIL }, 'darwin', NOW), 'not-wired', 'CONTROL: no settings, no reading');
   usagepoll.write(d, { at: NOW - 60000, state: 'ok', weekly: { usedPct: 12, resetsAt: Math.floor((NOW + 86400000) / 1000) }, fiveHour: null });
-  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW), null, 'a fresh endpoint reading still said it would not update');
-  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW + usagepoll.FRESH_MS + 120000), 'not-wired', 'CONTROL: a stale one does not count');
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d, email: EMAIL }, 'darwin', NOW), null, 'a fresh endpoint reading still said it would not update');
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d, email: EMAIL }, 'darwin', NOW + usagepoll.FRESH_MS + 120000), 'not-wired', 'CONTROL: a stale one does not count');
 });
 
 test('#7152: accounts are read one at a time, so a slow read never stacks requests', async (t) => {
@@ -453,9 +453,9 @@ test('#7152 review 13: the same figure in the same window shows the later change
   const resetsAt = Math.floor((NOW + 3 * 86400000) / 1000);
   fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 56, resetsAt, at: NOW - 2 * 3600000, history: [] }));
   usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', weekly: { usedPct: 56, resetsAt: resetsAt + 30, changedAt: NOW - 3600000 }, fiveHour: null });
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).at, NOW - 3600000, 'the status line\'s older change was shown over the endpoint\'s later one');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).at, NOW - 3600000, 'the status line\'s older change was shown over the endpoint\'s later one');
   fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 56, resetsAt, at: NOW - 600000, history: [] }));
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).at, NOW - 600000, 'CONTROL: a later status-line change is the one shown');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).at, NOW - 600000, 'CONTROL: a later status-line change is the one shown');
 });
 
 test('#7152 review 13: a record names the organization the profile answered for', async (t) => {
@@ -546,4 +546,45 @@ test('#7152 review 16: a renewed token ends the backoff, another login\'s token 
   assert.equal(usagepoll.readUsage(e, NOW).state, 'other-account');
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 10 * 60000, other));
   assert.equal(seen.calls.length, 0, 'another login\'s token was sent again ten minutes later');
+});
+
+test('#7152 review 17: a fresh record is shown only for the login it was measured for', (t) => {
+  const d = tmpDir(t);
+  const resets = Math.floor((NOW + 86400000) / 1000);
+  usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: 'old@example.test', org: 'org-a',
+    weekly: { usedPct: 70, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null });
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: 'new@example.test' }, NOW), null, 'the old login\'s figure was shown under the new login');
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d, email: 'new@example.test' }, 'darwin', NOW), 'not-wired', 'the old login\'s reading said the new one was updating');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: 'OLD@example.test' }, NOW).usedPct, 70, 'CONTROL: the same login is shown');
+  fs.writeFileSync(path.join(d, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'old@example.test', organizationUuid: 'org-b' } }));
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: 'old@example.test' }, NOW), null, 'another organization\'s figure was shown');
+});
+
+test('#7152 review 17: the backoff is keyed to the token that was refused, read once', async (t) => {
+  const d = tmpDir(t);
+  const reads = [];
+  let expiresAt = NOW + 10 * 3600000;
+  const readCred = async (svc) => { reads.push(svc); return cred({ expiresAt }); };
+  const seen = {};
+  /* The login is renewed between the token being sent and the answer arriving: the refusal belongs to the old one. */
+  const renewing = () => { expiresAt = NOW + 20 * 3600000; return { code: 401, body: '' }; };
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW, platform: 'darwin', realHome: '/', readCred, request: fakeRequest(renewing, seen) });
+  assert.equal(reads.length, 1, 'the credential was read more than once in one sweep');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(d, usagepoll.FILE), 'utf8')).refusedExpiresAt, NOW + 10 * 3600000, 'the backoff was keyed to a token that was never sent');
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW + 10 * 60000, platform: 'darwin', realHome: '/', readCred, request: fakeRequest({ code: 200, body: BODY }, seen) });
+  assert.equal(seen.calls.length, 2, 'the renewed, good token was held back for the old one\'s hour');
+});
+
+test('#7152 review 17: the same figure under another organization the profile names is a change', async (t) => {
+  const d = tmpDir(t);
+  const read = (now, org) => usagepoll.pollAll([{ dir: d, email: EMAIL }], {
+    now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), identityOf: () => ({ email: EMAIL, organizationUuid: null }),
+    request: fakeRequest((opts) => (opts.path === '/api/oauth/profile'
+      ? { code: 200, body: JSON.stringify({ account: { email: EMAIL }, organization: { uuid: org } }) } : { code: 200, body: BODY }), {}),
+  });
+  await read(NOW, 'org-x');
+  await read(NOW + 10 * 60000, 'org-x');
+  assert.equal(usagepoll.readUsage(d, NOW + 10 * 60000).weekly.changedAt, NOW, 'CONTROL: the same organization keeps its change time');
+  await read(NOW + 20 * 60000, 'org-y');
+  assert.equal(usagepoll.readUsage(d, NOW + 20 * 60000).weekly.changedAt, NOW + 20 * 60000, 'another organization inherited the old one\'s change time');
 });
