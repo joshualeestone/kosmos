@@ -69,8 +69,11 @@ function read(pg) {
       foldShown: shown(fold),
       foldOpen: fold ? fold.open : null,
       rowCount: rows.length,
-      rowsVisible: rows.filter((li) => li.getClientRects().length > 0).length,
-      deleteVisible: [...document.querySelectorAll('#community-mine-list .community-mine-start')].filter((b) => b.getClientRects().length > 0).length,
+      /* checkVisibility, not getClientRects: a closed <details> hides its content with content-visibility, and
+         getClientRects still lays such content out and returns boxes for it (measured 10:59: 3 "visible" rows in a
+         closed fold). checkVisibility answers whether it is drawn. */
+      rowsVisible: rows.filter((li) => li.checkVisibility()).length,
+      deleteVisible: [...document.querySelectorAll('#community-mine-list .community-mine-start')].filter((b) => b.checkVisibility()).length,
       summary: shown($('community-mine-summary')) ? $('community-mine-summary').textContent : null,
       links: shown($('community-mine-links')) ? $('community-mine-links').textContent : null,
       anchors: [...document.querySelectorAll('#community-mine-links a')].map((a) => ({ text: a.textContent, href: a.href, target: a.target, rel: a.rel, label: a.getAttribute('aria-label') })),
