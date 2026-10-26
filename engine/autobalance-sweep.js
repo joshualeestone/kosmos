@@ -90,7 +90,7 @@ function keyOf(d) {
 function create({ file, nowMs = Date.now() }) {
   /* last: the newest decision line (moves, held, atRisk, unmeasured). gapTicks: ticks in a row that were a gap.
      lastDid: what the last tick did, for Settings (review 20). */
-  const state = { lastKey: null, last: null, writeFailed: false, gapTicks: 0, lastDid: null };
+  const state = { lastKey: null, last: null, writeFailed: false, gapTicks: 0, lastDid: null, unmeasuredNow: [] };
   for (const l of readLines(file)) {
     if (l.kind === 'decision' && Number.isFinite(l.at) && l.at <= nowMs + CLOCK_SLACK_MS) {
       state.lastKey = keyOf(l);
@@ -137,6 +137,7 @@ function create({ file, nowMs = Date.now() }) {
        stay unmeasured, and the next line, once they are measured again, says what changed. Reviews 16 and 17 tried
        carrying the unmeasured account's old entries instead; that kept old reasons alive past their reset. */
     const unmeasured = new Set(rows.filter((r) => r.measured === false).map((r) => r.dir));
+    state.unmeasuredNow = [...unmeasured].sort();   // review 22: every account not measured this tick, named or not
     const named = state.last ? [...state.last.atRisk.map((x) => x.from), ...state.last.moves.map((x) => x.to), ...(state.last.unmeasured || [])] : [];
     const gapDirs = [...new Set(named.filter((dir) => unmeasured.has(dir)))];
     if (gapDirs.length || decision.short.length) {
@@ -157,6 +158,9 @@ function create({ file, nowMs = Date.now() }) {
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;
     const written = append(file, { kind: 'decision', at: nowMs,
       ...(decision.unmeasured.length ? { unmeasured: decision.unmeasured } : {}), ...(decision.short.length ? { short: decision.short } : {}),
+      /* Review 22: every account not measured when this was decided, outside the key (a held line then says that an
+         account that could have taken the agents was not measured, rather than reading as "none could"). */
+      ...(state.unmeasuredNow.length ? { notMeasured: state.unmeasuredNow } : {}),
       moves: decision.moves.map((m) => ({ agent: m.agent, from: m.from, to: m.to, fromLabel: label(m.from), toLabel: label(m.to), why: m.why, kind: kindOf(m.from) })),
       held: decision.held.map((h) => ({ from: h.from, fromLabel: label(h.from), why: h.why })),
       atRisk: decision.atRisk.map((x) => ({ from: x.from, fromLabel: label(x.from), why: x.why, kind: x.kind })) });

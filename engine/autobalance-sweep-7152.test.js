@@ -404,3 +404,15 @@ test('#7152 slice 3 review 20: a Keychain failure on the target, with the figure
   assert.equal((await run.tick(deps({ usage: { ...USAGE, '/u/.claude-spare': hiccup } }), NOW + 1000)).did, 'gap', 'a Keychain hiccup wrote a held line');
   assert.equal((await run.tick(deps(), NOW + 2000)).did, 'nothing', 'the move was written again after a Keychain hiccup');
 });
+
+test('#7152 slice 3 review 22: a line names every account not measured when it was decided, named by a decision or not', async () => {
+  const file = fileFor();
+  const run = sweep.create({ file });
+  const aged = { at: NOW, measuredAt: NOW - 31 * 60e3, state: 'token-expired', weekly: null, fiveHour: null, email: 's@example.test' };
+  const r = await run.tick(deps({ usage: { ...USAGE, '/u/.claude-spare': aged } }), NOW);   // spare idle and unmeasured, never named before
+  assert.equal(r.did, 'recorded', 'CONTROL: work at risk is recorded (spare was never named, so it is no gap)');
+  const line = sweep.readLines(file).pop();
+  assert.deepEqual(line.held.map((h) => h.from), ['/u/.claude-work'], 'CONTROL: with spare unmeasured, nothing can take the agents');
+  assert.deepEqual(line.notMeasured, ['/u/.claude-spare'], 'a held line did not say an account that could have taken them was not measured');
+  assert.deepEqual(run.state.unmeasuredNow, ['/u/.claude-spare']);
+});
