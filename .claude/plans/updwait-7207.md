@@ -1,0 +1,44 @@
+# updwait-7207: an Update press with no answer waits for Kosmos
+
+Card: kosmos#7207 (Josh, 2026-10-26 10:28, board 10102026, staging 0.7.68 to 0.7.69): after Update the dialog said
+"Kosmos did not answer, so this page cannot tell whether the update started ..." and offered Update again; he pressed
+it "like a million times".
+
+## Measured (from the code)
+- The dialog's no-answer branch (`!res`, the POST threw) re-enabled Update with that sentence. No answer is exactly
+  what a press gets when the board restarts, very often to install the update a press already started.
+- Repeated presses do not start a second install: server.js /api/update answers `already: true` and joins while
+  updates.alreadyInstalling() is true (it stays single-flight). A press while the board is down gets no answer at all,
+  so the "million" presses hit a board that could not hear them.
+
+## Decided
+- On no answer the dialog waits: it says so, turns the button off ("Waiting..."), and asks /api/status every two
+  seconds until the board answers or the dialog is closed. One pure function (unansweredPressVerdict) decides:
+  - a new version answers: reload into it (the update happened);
+  - a new boot on the same version: "Kosmos restarted and is still on X. Press Update to update it now.";
+  - the same boot answers: "Kosmos is answering again. Press Update to update: if it already started, this joins it."
+    (/api/status does not say whether an install is running, so this never claims it did not start);
+  - three minutes with no answer: say so and offer Reload.
+- Roll back gets the same wait with its own words.
+
+## Rejected
+- Reusing the full-screen "Updating" overlay for no-answer: it would claim an update is under way when the page does
+  not know one started.
+- Reading "same boot answering" as "the update did not start": not knowable from the status the board gives.
+
+## Proven
+- web.update-unanswered-7207.test.js: every branch of the verdict, its precedence (a new version wins over a new
+  boot; nothing known from before is never "done"), and the wiring (no answer goes to the wait; the button is off; a
+  closed dialog stops asking).
+- docs/browser-checks/render-update-toast.js: a stubbed no-answer press shows the waiting sentence with the button
+  off, then (the real board answering) the "answering again" sentence with Update back; the same for Roll back. Red
+  against the old page ("a press with no answer offered the button again at once").
+
+## Weakest premise
+That the board reports a stable `bootedAt` per process (the same field the update overlay's verdict already uses), so
+"same boot" means it never went away.
+
+## Not changed
+- The server route and its idempotence.
+- The relay path: the dialog asks /api/status through the same fetch the page uses, so it waits the same way when the
+  board is reached through the relay ("Reconnecting...").
