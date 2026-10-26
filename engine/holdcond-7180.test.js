@@ -284,6 +284,10 @@ test('#7180 the person\'s hold: an agent\'s bare re-hold keeps it whole; the per
   const t = tasks.setOnHold(f.id, f.a, true);   // an agent, no condition
   assert.deepEqual(t.onHoldUntil, { task: f.b }, 'an agent\'s bare re-hold cleared the person\'s condition');
   assert.equal(t.onHoldByPerson, true, 'an agent\'s bare re-hold dropped the person\'s mark');
+  // The same condition again from an agent is no change at all: accepted, the person's mark kept.
+  const same = tasks.setOnHold(f.id, f.a, true, { until: { task: f.b } });
+  assert.deepEqual(same.onHoldUntil, { task: f.b });
+  assert.equal(same.onHoldByPerson, true, 'an agent repeating the person\'s condition dropped the person\'s mark');
   // An agent's own conditioned hold, taken over on the screen with no condition: the person's hold is theirs, as given.
   const g = fixture();
   tasks.setOnHold(g.id, g.a, true, { until: { task: g.b } });
