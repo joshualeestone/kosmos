@@ -8414,7 +8414,7 @@ test('the check route is POST-only, and Check now clears the Later note before a
   };
   // eslint-disable-next-line no-new-func
   const run = new Function('localStorage', 'fetch', 'document', 'renderUpdateToast', 'LAST_VERSION',
-    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
+    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false; let UPD_WAIT_GEN = 0;\n'
     + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + src + '\nreturn updCheckNowClick();');
   await run(sandbox.localStorage, sandbox.fetch, sandbox.document, sandbox.renderUpdateToast, '0.1.9');
   assert.ok(calls.indexOf('clear:kosmos-update-later') > -1, 'Check now never cleared the Later note');
@@ -8435,7 +8435,7 @@ test('the check route is POST-only, and Check now clears the Later note before a
     'upd-btn': { textContent: '', hidden: false, disabled: false, dataset: { act: 'check' }, focus: () => { calls2.push('focus'); } },
   };
   const run2 = new Function('localStorage', 'fetch', 'document', 'renderUpdateToast', 'LAST_VERSION',
-    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
+    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false; let UPD_WAIT_GEN = 0;\n'
     + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick') + '\nreturn updCheckNowClick();');
   await run2(
     { removeItem: () => { calls2.push('clear'); } },
@@ -8471,6 +8471,7 @@ test('the card standoff, the confirm focus fallback, and the identical-write gua
   global.document = { getElementById: (id) => els[id], contains: () => false, querySelectorAll: () => [] };   // #6214
   const close = new Function('document',
     "let UPD_CONFIRM_OPENER = { focus: () => { throw new Error('focused a removed node'); } };\n"
+    + 'let UPD_WAIT_GEN = 0;\n'   // #7207: open and close end a wait still writing into the dialog
     /* closeUpdConfirm now resets the shared confirm to update mode (setUpdConfirmMode), so its subset
        must resolve that helper and the mode/wording bindings it reads. */
     + confirmModeDeps()
@@ -8513,7 +8514,7 @@ test("the card's Update arm opens the one shared confirm and records itself as o
   const doc = { getElementById: (id) => els[id], querySelectorAll: () => [] };   // #6214: the confirm clears stop offers
   // eslint-disable-next-line no-new-func
   const opener = await new Function('document', 'localStorage', 'fetch', 'renderUpdateToast', 'LAST_VERSION',
-    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
+    'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false; let UPD_WAIT_GEN = 0;\n'
     /* The Update arm now opens the shared confirm via openUpdConfirm (which calls setUpdConfirmMode). */
     + updateCardDeps() + confirmModeDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
     + '\nreturn updCheckNowClick().then(() => UPD_CONFIRM_OPENER);')(
@@ -15207,7 +15208,7 @@ test('with a newer version installed than the open page, the footer says Reload,
       pressed['upd-btn'].hidden = false; pressed['upd-btn'].dataset.act = 'check';
       // eslint-disable-next-line no-new-func
       const run = new Function('localStorage', 'fetch', 'document', 'renderUpdateToast', 'LAST_VERSION',
-        'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
+        'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false; let UPD_WAIT_GEN = 0;\n'
         + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
         + '\nreturn updCheckNowClick();');
       await run({ removeItem: () => {} },

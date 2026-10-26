@@ -22,7 +22,7 @@ function slice(name) {
 }
 
 function el(id) {
-  return { id, textContent: '', hidden: false, disabled: false, style: {}, focus() {}, setAttribute() {}, removeAttribute() {} };
+  return { id, textContent: '', hidden: false, disabled: false, style: {}, dataset: {}, focus() {}, setAttribute() {}, removeAttribute() {} };
 }
 
 const answer = (status, body) => async () => ({ ok: status < 300, status, json: async () => body });
@@ -73,9 +73,11 @@ async function runUpdate(mode, status, body) {
   const order = [];
   const fetch = async (url) => { posted.push(url); order.push('fetch'); return answer(status, body)(); };
   // eslint-disable-next-line no-new-func
-  new Function('document', 'fetch', 'window', 'UPD_CONFIRM_MODE', 'SERVED_VERSION', 'clearStopMoveOffers', 'offerStopMove', UC)(
-    { getElementById: (id) => els[id] }, fetch, { location: { reload() {} } }, mode, '0.7.50', () => order.push('clear'),
-    (after, say) => offers.push([after.id, say.id]),
+  /* #7207: the press reads its dialog generation and the version and boot it was pressed on before its POST. */
+  new Function('document', 'fetch', 'window', 'UPD_CONFIRM_MODE', 'SERVED_VERSION', 'clearStopMoveOffers', 'offerStopMove',
+    'UPD_WAIT_GEN', 'LAST_VERSION', 'LAST_BOOTED_AT', UC)(
+    { getElementById: (id) => els[id], activeElement: null }, fetch, { location: { reload() {} } }, mode, '0.7.50',
+    () => order.push('clear'), (after, say) => offers.push([after.id, say.id]), 0, '0.7.50', 'boot-A',
   );
   assert.ok(click, 'the Update dialog\'s button listener was not lifted');
   await click();
