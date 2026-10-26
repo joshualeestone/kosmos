@@ -3,8 +3,8 @@
  * kosmos#7152 slice 2: which agents WOULD move off a Claude account that is running out, and where to. Nothing here
  * moves anything (moving is slice 3b, through engine/accountmove.js); this is the decision, so a person can read it first.
  *
- * PURE: no file, no network, no clock but `nowMs`. The caller (GET /api/accounts) hands it the rows it already builds
- * and the agents' idle state, so the page, this decision and slice 3's sweep read one rule.
+ * PURE: no file, no network, no clock but `nowMs`. Two callers hand it rows: GET /api/accounts (the rows it already
+ * builds, with live login checks) and slice 3's sweep (rowsFromReadings, cheap reads only), so both read one rule.
  *
  * THE RULE (the card, slice 2):
  * - AT RISK: weekly usage at or above AT_RISK_PCT that does not reset within RESET_SOON_MS, or a login that has stopped
@@ -207,12 +207,14 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
 /* Slice 3: the Claude rows a timer may build, with no live check (listLive must never run on a timer). From
    accounts.list() (`list`) and slice 1's usage record (`readUsage(dir, nowMs)`, fresh only): a fresh record whose
    state is 'ok' is a real usage call that worked for this login, so it stands for signed in; a fresh 401 or 403 (on the
-   usage or the profile call) stands for a login that stopped working. Anything else says nothing (no badge: not a
-   target, and not at risk by login). Review 2: that includes usagepoll's other refusals, a 429 above all (the usage
+   usage or the profile call) stands for a login that stopped working. A blip after a fresh measurement keeps it signed
+   in (review 12, 14: BLIP_STATES only); anything else says nothing (no badge: not a target, and not at risk by login).
+   Review 2: that includes usagepoll's other refusals, a 429 above all (the usage
    endpoint's own rate limit, held for an hour), an answer it could not read, and a token that belongs to another
    login: none of them says the agents' login has stopped. `agentsOn(dir, isDefault)` gives { names, complete, moving }.
    The record's resets are seconds; rows carry ms, as /api/accounts does. */
 const LOGIN_REFUSED = /^(profile-)?http-40[13]$/;
+const BLIP_STATES = /^(http-429|(profile-)?http-5\d\d|unreachable|profile-unreachable|token-expired)$/;
 function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
   const ms = (w) => (w && Number.isFinite(w.usedPct) ? { usedPct: w.usedPct, resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null } : null);
   const out = [];
@@ -229,12 +231,14 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
       catch { same = false; }
       if (!same) rec = null;
     }
-    /* Review 12: signed in when the latest read worked, or when a fresh measurement stands and the latest read was not
-       a refused login (a 429, an unreachable endpoint, an expired access token): one blip on a target must not flip
-       the decision to held and back, writing the same would-move again. */
+    /* Review 12, 14: signed in when the latest read worked, or when a fresh measurement stands and the latest read was a
+       BLIP (BLIP_STATES: a rate limit, a server error, no answer, an expired access token), so one blip on a target does
+       not flip the decision to held and back. Any other failed read (signed out, another login's credential, an answer
+       that could not be read) is not signed in, whatever figures survive from before it. */
     const refused = !!rec && LOGIN_REFUSED.test(String(rec.state));
     const measured = !!rec && !!(rec.weekly || rec.fiveHour);
-    const badge = refused ? 'rejected' : (rec && (rec.state === 'ok' || measured) ? 'working' : null);
+    const blip = !!rec && BLIP_STATES.test(String(rec.state));
+    const badge = refused ? 'rejected' : (rec && (rec.state === 'ok' || (measured && blip)) ? 'working' : null);
     let here = { names: [], complete: false };
     try { here = agentsOn(a.dir, a.isDefault === true) || here; } catch { here = { names: [], complete: false }; }
     out.push({ provider: 'anthropic', dir: a.dir, label: a.label || null, isDefault: a.isDefault === true,
@@ -242,7 +246,8 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
       /* Review 9: the figures whatever the latest state. readUsage has already aged them out (30 minutes), and slice 1
          keeps the last good ones through a failed read on purpose, so one network blip does not empty the decision. The
          badge alone says whether the latest read worked, and only a 'working' one is ever a target. */
-      connection: { badge }, weekly: rec ? ms(rec.weekly) : null, fiveHour: rec ? ms(rec.fiveHour) : null, agentsHere: here });
+      connection: { badge }, weekly: rec ? ms(rec.weekly) : null, fiveHour: rec ? ms(rec.fiveHour) : null, agentsHere: here,
+      measured: !!rec });   // review 14: whether a fresh record exists at all, so the sweep can tell a gap from a change
   }
   return out;
 }

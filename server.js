@@ -2891,12 +2891,21 @@ function autobalanceSweepRuns() {
 }
 
 /* kosmos#7152 slice 3: what the auto-balance sweep reads, built fresh for each tick (the agents walk and the account
-   list at most once). A function, not inline in the sweep, so a test can drive a real tick against the real wiring. */
+   list at most once). A function, not inline in the sweep, so a test can drive a real tick against the real wiring.
+   It reads only, with one exception it shares with the route: walk.moving() may prune an accountmoving note that has
+   ended (review 14), the same cleanup Settings' own read does. */
 function autobalanceSweepDeps() {
   const usagePoll = require('./engine/usagepoll');
   let walk = null;
+  let walkFailed = null;   // review 14: a walk that threw is not tried again for every account in the same tick
+  const walkNow = () => {
+    if (walk) return walk;
+    if (walkFailed) throw walkFailed;
+    try { walk = claudeAgentsByAccount(); } catch (err) { walkFailed = err; throw err; }
+    return walk;
+  };
   const agentsOn = (dir, isDefault) => {
-    if (!walk) walk = claudeAgentsByAccount();
+    walkNow();
     let moving = [];
     try { moving = walk.moving(dir, isDefault); } catch { moving = []; }
     return { names: walk.on(dir, isDefault), complete: walk.complete === true, moving };
@@ -2913,7 +2922,7 @@ function autobalanceSweepDeps() {
     readUsage: (dir, nowMs) => usagePoll.readUsage(dir, nowMs),
     sameLogin: (rec, a) => usagePoll.sameLogin(rec, a, require('./engine/accountsweekly').accountOrg(a)),   // review 10: Settings' own rule
     agentsOn,
-    roster: () => (walk ? walk.roster : (walk = claudeAgentsByAccount()).roster),   // the walk's own roster (no second capture)
+    roster: () => walkNow().roster,   // the walk's own roster (no second capture)
     records: () => (records || (records = projects.readAll())),
     readCommitment: (session) => commitments.read(session),
     settingOn: () => { try { return autobalanceSetting.read().on === true; } catch { return false; } },

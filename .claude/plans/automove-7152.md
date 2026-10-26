@@ -28,7 +28,8 @@ its rows from cheap reads instead (engine/autobalance.js rowsFromReadings):
   slice 1 keeps the last good figures through a failed read on purpose, and readUsage ages them out), and ignored when
   the record names another login than the account's. A fresh record whose state is 'ok' is a real
   usage call that worked for this login, so it stands for "signed in" (badge 'working'). A fresh 401 or 403 (usage or
-  profile call) stands for 'rejected'. Anything else gives no badge: not a target, and not at risk by login. A 429 is
+  profile call) stands for 'rejected'. A blip after a fresh measurement (a 429, a server error, no answer, an expired
+  access token) keeps it signed in (review 12, 14); anything else gives no badge: not a target, and not at risk by login. A 429 is
   the usage endpoint's own rate limit, not a stopped login; an unreadable answer or another login's token says
   nothing about the agents' own login.
 - agentsHere and the roster: claudeAgentsByAccount() (the walk, which leaves the guide out), once per tick.
@@ -99,3 +100,9 @@ reads idle, and a restart kills the job.
 - Stated, not changed: the "not recording under a test" assert is satisfied by several gate arms at once (each arm is
   tested where it lives, in usagepoll); and a time the sweep was not watching (setting off, poll off) writes nothing,
   so a gap reads as "no change". A reader of a day's record should know the setting and the poll were on that day.
+
+## Review 14
+- Only those blip states keep a target signed in through a failed read. A signed-out account, another login's
+  credential, or an answer that could not be read is not signed in, whatever figures survive from before it.
+- An account that was at risk and now has no fresh reading at all is a gap in measuring, not the end of the risk: the
+  tick writes nothing until it is measured again, so the record never shows a risk ending that only went unmeasured.

@@ -68,7 +68,7 @@ const objects = (x) => (Array.isArray(x) ? x : []).filter((y) => y && typeof y =
    show a move that will never happen. Throws when the record cannot be read (the route answers it as empty). */
 function recent(file, n = RECENT) {
   const now = Date.now();
-  return readLines(file).filter((l) => l.kind === 'decision' && objects(l.moves).some((m) => m.kind !== 'login') && !(Number.isFinite(l.at) && l.at > now + CLOCK_SLACK_MS))   // review 10: as create() distrusts it
+  return readLines(file).filter((l) => l.kind === 'decision' && objects(l.moves).some((m) => m.kind !== 'login') && Number.isFinite(l.at) && l.at <= now + CLOCK_SLACK_MS)   // review 10: as create() distrusts it
     .slice(-n).reverse();
 }
 
@@ -84,16 +84,19 @@ function keyOf(d) {
  * is not trusted). Reads only; nothing is written until a tick has something new to say.
  */
 function create({ file, nowMs = Date.now() }) {
-  const state = { lastKey: null, writeFailed: false };
+  const state = { lastKey: null, lastAtRisk: [], writeFailed: false };
   for (const l of readLines(file)) {
-    if (l.kind === 'decision' && Number.isFinite(l.at) && l.at <= nowMs + CLOCK_SLACK_MS) state.lastKey = keyOf(l);
+    if (l.kind === 'decision' && Number.isFinite(l.at) && l.at <= nowMs + CLOCK_SLACK_MS) {
+      state.lastKey = keyOf(l);
+      state.lastAtRisk = objects(l.atRisk).map((x) => x.from);
+    }
   }
 
   /**
    * deps: list() (accounts.list), readUsage(dir, nowMs), agentsOn(dir, isDefault), roster() (the board roster, or null
    * when it cannot be read), records() (every project), readCommitment(session), settingOn() (true only when the switch
    * reads on), labelOf(dir); optional sameLogin(rec, account) (rowsFromReadings'), isGuide/guideName (movableFor's).
-   * Resolves to { did: 'off' | 'nothing' | 'recorded' | 'cleared' | 'unreadable' }. state.writeFailed says the last write failed.
+   * Resolves to { did: 'off' | 'nothing' | 'recorded' | 'cleared' | 'unmeasured' | 'unreadable' }. state.writeFailed says the last write failed.
    */
   async function tick(deps, nowMs = Date.now()) {
     if (deps.settingOn() !== true) return { did: 'off' };
@@ -108,6 +111,10 @@ function create({ file, nowMs = Date.now() }) {
       const rows = ab.rowsFromReadings({ list, readUsage: deps.readUsage, agentsOn: deps.agentsOn, nowMs, ...(deps.sameLogin ? { sameLogin: deps.sameLogin } : {}) });
       const movable = ab.movableOnDemand(() => ab.movableFor({ cards: deps.roster(), records: deps.records, readCommitment: deps.readCommitment,
         ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) }));
+      /* Review 14: an account that was at risk and now has no fresh reading at all is a gap in the measuring, not the
+         end of the risk: nothing is written until it is measured again. */
+      const unmeasured = rows.filter((r) => r.measured === false).map((r) => r.dir);
+      if (state.lastAtRisk.some((dir) => unmeasured.includes(dir))) return { did: 'unmeasured' };
       decision = ab.decide({ rows, movable, nowMs });
     } catch { return { did: 'unreadable' }; }
     const key = keyOf(decision);
@@ -115,7 +122,7 @@ function create({ file, nowMs = Date.now() }) {
     /* Review 10: the end of a risk is written too (an empty decision), so a board restart rebuilds "nothing at risk"
        and a risk that comes back is recorded again. Only a first tick with nothing at risk writes nothing. */
     const empty = !(decision.moves.length || decision.held.length || decision.atRisk.length);
-    if (empty && state.lastKey === null) { state.lastKey = key; return { did: 'nothing' }; }
+    if (empty && state.lastKey === null) { state.lastKey = key; state.lastAtRisk = []; return { did: 'nothing' }; }
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;
     const written = append(file, { kind: 'decision', at: nowMs,
@@ -125,6 +132,7 @@ function create({ file, nowMs = Date.now() }) {
     state.writeFailed = !written;   // review 10: the board says so (once) and stops saying it records
     if (!written) return { did: 'nothing', because: 'write-failed' };   // tried again next tick
     state.lastKey = key;
+    state.lastAtRisk = decision.atRisk.map((x) => x.from);
     return { did: empty ? 'cleared' : 'recorded' };
   }
 
