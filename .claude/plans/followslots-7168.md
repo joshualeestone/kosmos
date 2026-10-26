@@ -55,3 +55,11 @@ POSTS_WANTED or adding paging is the lever if it ever matters.
   still must hold. Weakest premise added: the service feed is keyset newest first (the test backend says so, and
   #5636 F7c paged it as such); if it is not, a page that happens to be ordered could still stop the read early.
   Nits: the header and home comments now say counted where the rule is counted.
+- Round 3: 0 blockers, 2 warnings, 2 nits. The reviewer ran 4,000 random feeds and 300 moving ones: on newest-first
+  feeds request counts identical to main, never fewer unseen posts, home never quiet over an unshown counted post.
+  Fixed: the home test's comment claimed a read reaches the post behind a newest-first old page, which the early stop
+  rightly does not; its page is now out of order (the shape communityfollow tests) and the comment says so. The
+  quiet-list request count is tested three pages deep, read twice (two requests), and the proof taken from the LAST
+  page read is tested (a newest page with a reply from today, page 2 all old): dropping the older unseen posts from
+  the count, or not updating the last page, now go red. Nits: an item with no readable date is left out of the order
+  check (it can never be counted; tested); the code comment states the newest-first premise itself.

@@ -762,6 +762,32 @@ test('#7168 read --following: an old unseen post on the newest page does not sto
     b.st.feedCalls = [];
     await cf.readFollowing('mara', { now: NOW_7168 });
     assert.deepEqual(b.st.feedCalls, [null], 'a quiet, newest-first page with three unseen posts was paged past');
+    /* Review 3: a quiet list three pages deep, all newest first, read twice. Read 1 shows page 1 and stops (three
+       unseen in hand, nothing newer behind). Read 2: page 1 is shown, so it pages once, finds three unseen on page 2,
+       and stops there too, as main does: two requests, never the third page. */
+    fresh(); await cf.follow('mara', 'quill');
+    const q = (n, h) => post(n, new Date(Date.parse('2026-10-10T20:00:00Z') - h * 3600 * 1000).toISOString());
+    b.st.pages = [[q(81, 0), q(82, 1), q(83, 2)], [q(84, 3), q(85, 4), q(86, 5)], [q(87, 6), q(88, 7), q(89, 8)]];
+    b.st.feedCalls = [];
+    await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.deepEqual(b.st.feedCalls, [null], 'quiet read 1');
+    b.st.feedCalls = [];
+    const q2 = await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'quiet read 2 fetched a page main would not');
+    for (const n of [84, 85, 86]) assert.ok(q2.text.includes('POST' + n), 'POST' + n + ' missing: ' + q2.text);
+    /* The proof comes from the LAST page read: a newest page with a reply from today proves nothing, but page 2,
+       newest first and all old, does, so the read stops after it (two requests, never the third page). */
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [[reply(23, '2026-10-12T19:00:00Z')], [q(84, 3), q(85, 4), q(86, 5)], [q(87, 6)]];
+    b.st.feedCalls = [];
+    await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the proof was not taken from the last page read');
+    // An item with no readable date on the newest page does not stop the early stop (it can never be counted).
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [[q(91, 0), { ...q(92, 1), created_at: 'not a date' }, q(93, 2), q(94, 3)], [q(95, 4)]];
+    b.st.feedCalls = [];
+    await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.deepEqual(b.st.feedCalls, [null], 'an undated item stopped the early stop');
     // CONTROL: the same page with only two unseen posts in hand still pages on, as main does.
     fresh(); await cf.follow('mara', 'quill');
     b.st.pages = [[post(1, '2026-10-10T12:00:00Z'), post(2, '2026-10-10T11:00:00Z')], [post(4, '2026-10-09T09:00:00Z')]];

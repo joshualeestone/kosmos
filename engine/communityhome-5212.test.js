@@ -342,9 +342,11 @@ test('#7168: home and read --following share one rule for a counted post; an old
     assert.equal(home.countedFollowing(post(1, 30), none, now), false, 'older than 24 hours');
     assert.equal(home.countedFollowing(post(1, 1), new Set([id(751)]), now), false, 'done (shown or commented on)');
     assert.equal(home.countedFollowing({ ...post(1, 1), kind: 'reply' }, none, now), false, 'a reply');
-    // Ten OLD unseen posts fill the newest page (MAX_ITEMS); a counted one sits behind them. Home counts only the one
-    // behind, and the read-again line stays quiet: one read pages past the old ones and shows it (communityfollow #7168).
-    const olds = Array.from({ length: 10 }, (_, i) => post(10 + i, 30 + i));
+    // Ten OLD unseen posts fill the newest page (MAX_ITEMS), NOT newest first (a newest-first feed cannot put a newer
+    // post behind them); a counted one sits behind them. Home counts only the one behind, and the read-again line stays
+    // quiet: the read cannot prove nothing counted is behind an unordered page, so it pages past it and shows the
+    // counted one (communityfollow.test.js #7168, the same shape).
+    const olds = Array.from({ length: 10 }, (_, i) => post(10 + i, 39 - i));
     be.st.feed = { next_cursor: null, items: [...olds, post(4, 2)] };
     const h = await home.homeFor('mara', { now });
     assert.equal(h.following.count, 1, 'the old unseen posts were counted');

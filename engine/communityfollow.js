@@ -306,15 +306,17 @@ async function readFollowing(agentKey, { now = Date.now() } = {}) {
   const olderUncounted = [];
   /* Review 1: the read pages while it lacks POSTS_WANTED counted posts (every counted post is unseen, so this also
      covers #7150's "POSTS_WANTED unseen"). Review 2: it also stops once POSTS_WANTED unseen posts are in hand and the
-     last page read proves no counted post lies further back: that page is newest first and its last item is older
-     than 24 hours, so everything behind it is older still. That keeps a quiet follow list at main's request count.
+     last page read shows no counted post can lie further back: that page is newest first and its last item is older
+     than 24 hours, so, ON A FEED THAT IS NEWEST FIRST ACROSS PAGES (the service's keyset cursor; the premise this
+     rests on), everything behind it is older still. That keeps a quiet follow list at main's request count.
      A page that is not newest first proves nothing, so the read pages on (at most FEED_PAGES_MAX - 1 more requests than
      main, each bounded as below), rather than assume the order and miss a counted post (groupByPost re-sorts the feed
      itself, so this code never relied on it). */
   const ms = (it) => Date.parse(it && it.created_at);
   const nothingCountedBehind = (items) => {
-    const t = items.map(ms);
-    if (!t.length || t.some((x) => !Number.isFinite(x))) return false;
+    // An item with no readable date can never be counted, so it is left out of the order check (review 3).
+    const t = items.map(ms).filter((x) => Number.isFinite(x));
+    if (!t.length) return false;
     for (let i = 1; i < t.length; i += 1) if (t[i] > t[i - 1]) return false;
     return t[t.length - 1] <= now - DAY_MS_OF();
   };
