@@ -256,16 +256,20 @@ enum AppTabs {
             }
         }
 
-        // Mona Lisa's slice 1 spec.
+        // Mona Lisa's slice 1 spec. kosmos#7266 (Josh, 10-26): a briefcase for Projects; Agents draws `asset` instead.
         var symbol: String {
             switch self {
             case .today: return "sun.max"
             case .agents: return "person.2"
-            case .projects: return "folder"
+            case .projects: return "briefcase"
             case .tasks: return "checklist"
             case .settings: return "gearshape"
             }
         }
+
+        // kosmos#7266: the bar's own drawing where it is not an SF Symbol. Agents: Font Awesome Free's user-tie
+        // (CC BY 4.0, credited on the Settings page), Assets.xcassets/TabAgent.
+        var asset: String? { self == .agents ? "TabAgent" : nil }
 
         // The name the board's door takes; nil for the native tab. Today is the board's home, its agents tab.
         var boardName: String? {
@@ -290,9 +294,15 @@ enum AppTabs {
     #endif
 
     // In Mona Lisa's order. Tasks is earned, as on the computer (#3559): the bar shows it only once the board says so.
+    // kosmos#7266 (Josh, 10-26: "four tabs only, like the desktop app"): with Today gone the bar is always Agents,
+    // Projects, Tasks, Settings; the earned Tasks applies only to the old five-tab bar (the screenshot build).
     static func visible(tasksTab: Bool, todayTab: Bool = AppTabs.todayTab) -> [Tab] {
-        Tab.allCases.filter { ($0 != .tasks || tasksTab) && ($0 != .today || todayTab) }
+        Tab.allCases.filter { ($0 != .tasks || tasksTab || !todayTab) && ($0 != .today || todayTab) }
     }
+
+    // kosmos#7266: the + on Agents and on Projects open the board's own create form (the phone cannot make either
+    // natively yet): the board's door takes these names as well as its sections.
+    enum Create: String { case agent = "new-agent", project = "new-project" }
 
     // What to show when the bar changes under a selection it no longer has (Tasks on a Mac that has not earned it).
     // The tab that lights for a section the PAGE is on. A Tasks section the bar does not offer (a project's View all,
@@ -330,6 +340,12 @@ enum AppTabs {
     // broken press ends instead of waiting to fire on some later load.
     static func pressScript(_ tab: Tab) -> String? {
         guard let name = tab.boardName else { return nil }
+        return pressScript(door: name)
+    }
+
+    // The door call for any name it takes: a section, or a create (kosmos#7266). An older board that does not know a
+    // create name refuses it, and the press ends with the page on its own section.
+    static func pressScript(door name: String) -> String {
         return "(function () { if (typeof window.kosmosAppTab !== 'function') return 'absent'; try { return window.kosmosAppTab('\(name)') === true ? 'opened' : 'refused'; } catch (e) { return 'refused'; } })()"
     }
 
@@ -452,6 +468,8 @@ struct PressTracker {
     // sign-in page before the hand-off to the Mac). Tried again at every load until the door opens the section or
     // refuses; a new press, the native tab, or a page the app loads itself (an agent tap) replaces it.
     private(set) var pending: AppTabs.Tab?
+    // kosmos#7266: the door name a waiting press uses instead of its tab's section (a create), replayed with it.
+    private(set) var pendingDoor: String?
     // Whether the latest press's script is running (sent, no answer yet). Only then does the bar not follow the page:
     // a press waiting for a load does not hold the bar, since the page can move many times before that load.
     private(set) var running = false
@@ -482,10 +500,12 @@ struct PressTracker {
     // (the native tab, which also ends a waiting press; or a page not ready, when the press waits for its load).
     // `section`: press the board's own section for a native tab on purpose (#7010, the Settings tab's row to the
     // board's Settings); the bar is on Today by then.
-    mutating func press(_ tab: AppTabs.Tab, page: Page, section: Bool = false) -> (script: String, serial: Int)? {
+    mutating func press(_ tab: AppTabs.Tab, page: Page, section: Bool = false, door: String? = nil) -> (script: String, serial: Int)? {
         serial += 1
-        guard section || !AppTabs.isNative(tab), let script = AppTabs.pressScript(tab) else { pending = nil; running = false; return nil }
+        guard section || !AppTabs.isNative(tab), let script = door.map({ AppTabs.pressScript(door: $0) }) ?? AppTabs.pressScript(tab)
+        else { pending = nil; pendingDoor = nil; running = false; return nil }
         pending = tab
+        pendingDoor = door
         running = page == .ready
         return running ? (script, serial) : nil
     }
@@ -498,7 +518,7 @@ struct PressTracker {
         running = false
         let pressed = pending
         let next = AppTabs.afterAnswer(answer, pageURL: pageURL)
-        if next.over { pending = nil }
+        if next.over { pending = nil; pendingDoor = nil }
         return answer == .opened ? pressed : next.barTo
     }
 
@@ -508,6 +528,7 @@ struct PressTracker {
         serial += 1
         running = false
         pending = nil
+        pendingDoor = nil
     }
 
     // A launch's reads: every 2 s for 20 s from the load, ending at the first answer (on a fresh install the board
