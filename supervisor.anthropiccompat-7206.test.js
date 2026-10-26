@@ -58,7 +58,7 @@ function run(configDir, model, extraEnv) {
 const ACCT = { vendor: 'deepseek', model: 'deepseek-chat', key: KEY };
 
 test('a DeepSeek home launches claude against DeepSeek, with its model in place of the agent\'s Claude model', () => {
-  const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) }), 'claude-sonnet-5');
+  const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), 'claude-sonnet-5');
   assert.match(r.argv, /new-session/, r.out);
   assert.match(r.argv, /-e ANTHROPIC_BASE_URL=https:\/\/api\.deepseek\.com\/anthropic/);
   assert.match(r.argv, /-e ANTHROPIC_MODEL=deepseek-chat/);
@@ -68,7 +68,7 @@ test('a DeepSeek home launches claude against DeepSeek, with its model in place 
 });
 
 test('the key reaches the pane only as a launch secret, never in the argv or the supervisor output', () => {
-  const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) }));
+  const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }));
   assert.match(r.secrets, new RegExp('^ANTHROPIC_AUTH_TOKEN=' + KEY + '$', 'm'));
   assert.equal(r.argv.includes(KEY), false, 'the key is in the tmux argv');
   assert.equal(r.out.includes(KEY), false, 'the key is in the supervisor output');
@@ -78,12 +78,12 @@ test('the key reaches the pane only as a launch secret, never in the argv or the
    reaches a pane. So it pins the two mechanisms that defeat one there instead: every variable the account sets is a
    -e pair (a -e pair beats tmux's global value), and every other launch variable is removed with env -u. */
 test('every launch variable is either a -e pair from the account or removed with env -u; a value in the supervisor\'s own env reaches nothing', () => {
-  const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) }), '', {
+  const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), '', {
     ANTHROPIC_BASE_URL: 'https://elsewhere.example', ANTHROPIC_API_KEY: 'sk-ant-inherited', ANTHROPIC_MODEL: 'claude-opus-5',
   });
   assert.match(r.argv, /new-session/, r.out);
   assert.equal(/elsewhere\.example|sk-ant-inherited|claude-opus-5/.test(r.argv + r.secrets), false, 'an inherited value reached the pane');
-  const set = compat.launchEnv(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) })).env;
+  const set = compat.launchEnv(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) })).env;
   for (const [k, val] of Object.entries(set)) {
     if (k === 'ANTHROPIC_AUTH_TOKEN') continue;   // the key: a launch secret, asserted above
     assert.ok(r.argv.includes(`-e ${k}=${val}`), `${k} is not set as a -e pair, so tmux's global value would win`);
@@ -93,7 +93,7 @@ test('every launch variable is either a -e pair from the account or removed with
 
 test('an account that cannot be used stops the launch, saying why, and never starts claude against Anthropic', () => {
   for (const bad of [JSON.stringify({ ...ACCT, key: '' }), JSON.stringify({ ...ACCT, model: 'claude-sonnet-5' }), '{not json']) {
-    const r = run(home({ 'kosmos-endpoint.json': bad }));
+    const r = run(home({ 'kosmos-vendor.json': bad }));
     assert.notEqual(r.code, 0);
     assert.equal(/new-session/.test(r.argv), false, 'something was launched: ' + r.argv);
     assert.match(r.out, /DeepSeek account cannot be used: .*the agent was not started/);
@@ -110,7 +110,7 @@ test('review 2: when the key cannot be handed over privately, the launch is refu
   const data = nodePath.join(SANDBOX, `data-blocked-${++n}`);
   fs.mkdirSync(data, { recursive: true });
   fs.writeFileSync(nodePath.join(data, 'launch-secrets'), 'a file where the secrets folder would go');
-  const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) }), '', { AGENT_WORKFORCE_DATA: data });
+  const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), '', { AGENT_WORKFORCE_DATA: data });
   assert.notEqual(r.code, 0);
   assert.equal(/new-session/.test(r.argv), false, 'the agent was launched without its key: ' + r.argv);
   assert.match(r.out, /provider key could not be handed to the agent privately; the agent was not started/);
@@ -133,7 +133,7 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
       ['ANTHROPIC_MODEL', 'claude-opus-5'], ['CLAUDE_CODE_USE_BEDROCK', '1'], ['ANTHROPIC_AUTH_TOKEN', 'tok-global-leak']]) {
       tm('set-environment', '-g', k, v);
     }
-    const dir = home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) });
+    const dir = home({ 'kosmos-vendor.json': JSON.stringify(ACCT) });
     const env = { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: dir };
     const r = spawnSync('/bin/bash', [SUP, `agent-t${n}`, SANDBOX, fake, wrap, '', 'claude-sonnet-5', 'claude'], { env, encoding: 'utf8', timeout: 30000 });
     for (let i = 0; i < 100 && !fs.existsSync(out); i += 1) await new Promise((res) => setTimeout(res, 100));
@@ -173,7 +173,7 @@ test('the supervisor\'s lists match the module: every vendor is recognised, ever
   }
   // Every launch variable is either set by the account (a -e pair beats tmux's global value) or removed outright with
   // env -u: the removed ones are exactly the launch variables the account does not set.
-  const set = Object.keys(compat.launchEnv(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) })).env);
+  const set = Object.keys(compat.launchEnv(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) })).env);
   const unset = compat.LAUNCH_VARS.filter((v) => !set.includes(v));
   const declared = (block.match(/_cx_unset=\(([^)]*)\)/) || [])[1];
   assert.deepEqual(String(declared).trim().split(/\s+/).sort(), unset.slice().sort());

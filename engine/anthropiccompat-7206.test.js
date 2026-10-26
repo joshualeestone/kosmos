@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #7206: accounts for providers whose endpoint speaks Claude Code's API (DeepSeek first). An account is
- * ~/.kosmos-<vendor>-<label> holding kosmos-endpoint.json (mode 600), never a Claude account. These pin what is
+ * ~/.kosmos-<vendor>-<label> holding kosmos-vendor.json (mode 600), never a Claude account. These pin what is
  * stored and refused, that the key is only ever sent to the vendor (never api.anthropic.com), the live check's
  * verdicts, and the launch environment the supervisor applies.
  *
@@ -242,4 +242,12 @@ test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal
   try { execFileSync(process.execPath, [script, 'launch-env', empty], { encoding: 'utf8' }); } catch (e) { rc = e.status; said = String(e.stdout); }
   assert.equal(rc, 2);
   assert.equal(said, 'this DeepSeek account cannot be used: it has no key set up');
+});
+
+test('a vendor account folder is never a Qwen home (the two keep different account files)', () => {
+  const qwen = require('./qwenaccounts');
+  assert.notEqual(compat.ENDPOINT_BASENAME, qwen.ENDPOINT_BASENAME);
+  const dir = account();
+  assert.equal(qwen.isEndpointHome(dir), false, 'Qwen reads a DeepSeek folder as its own endpoint home');
+  assert.equal(qwen.isQwenHome(dir), false);
 });
