@@ -143,3 +143,21 @@ test('#7180 Mac CLI: task list says what a hold waits for', async () => {
     assert.match(r.stdout, /\[3\] \[on hold\] a bare hold/, 'CONTROL: a bare hold');
   } finally { await new Promise((r) => b.server.close(r)); }
 });
+
+test('#7180 Mac CLI: each wrong hold shape gets its own message; the time said back is the board\'s stored one', async () => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body.until && w.body.until.at ? { onHoldUntil: { at: '2026-11-02T00:00:00.000Z' } } : {}) } }], async (env, writes) => {
+    const noValue = await runCli(['task', 'hold', 'p1', '3', '--until-task'], env);
+    assert.equal(noValue.code, 2);
+    assert.match(noValue.stdout + noValue.stderr, /--until-task needs a value/);
+    const stray = await runCli(['task', 'hold', 'p1', '3', 'now'], env);
+    assert.equal(stray.code, 2);
+    assert.match(stray.stdout + stray.stderr, /takes no more words than its usage shows/);
+    const two = await runCli(['task', 'hold', 'p1', '3', '--until', '2026-11-02', 'extra'], env);
+    assert.equal(two.code, 2);
+    assert.match(two.stdout + two.stderr, /at most one condition/);
+    assert.equal(writes.length, 0, 'a wrong shape was sent');
+    const ok = await runCli(['task', 'hold', 'p1', '3', '--until', '2026-11-02'], env);
+    assert.equal(ok.code, 0, ok.stdout + ok.stderr);
+    assert.match(ok.stdout, /It waits until 2026-11-02T00:00:00\.000Z/, 'the typed date, not the stored time, was said back');
+  });
+});

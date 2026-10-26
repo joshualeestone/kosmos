@@ -1346,7 +1346,7 @@ function holdUntilWords(x) {
 }
 
 /* #4771, as install/kosmos cmd_task hold|unhold: put a task on hold, or take it off. A board write, like close. */
-const HOLD_USAGE = 'Usage: kosmos task hold <project-id> <task-number> [--until-task <task-number> | --until <date or time, like 2026-11-02 or 2026-11-02T09:00Z>]';
+const HOLD_USAGE = 'Usage: kosmos task hold <project-id> <task-number> [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]';
 function taskHoldAs(want) {
   return async function taskHold(ctx, args) {
     const [project, num, flag, value] = args;
@@ -1355,7 +1355,8 @@ function taskHoldAs(want) {
     if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
     /* kosmos#7180: hold takes one checkable reopening condition, --until-task <n> or --until <date or time>. */
     let until = null;
-    if (want && args.length > 2) {
+    if (want && args.length > 2 && (flag === '--until-task' || flag === '--until')) {
+      if (args.length < 4 || !value) { ctx.err(flag + ' needs a value, so nothing was done.'); ctx.err(usage); return 2; }
       if (args.length !== 4) { ctx.err('kosmos task hold takes at most one condition, so nothing was done.'); ctx.err(usage); return 2; }
       if (flag === '--until-task') {
         if (!/^[1-9][0-9]*$/.test(value || '')) { ctx.err('--until-task needs a task number, from: kosmos task list <project-id>.'); return 2; }
@@ -1363,7 +1364,7 @@ function taskHoldAs(want) {
       } else if (flag === '--until') {
         if (!/^[0-9TZ:.+-]+$/.test(value || '')) { ctx.err('--until needs a date or time, like 2026-11-02 or 2026-11-02T09:00Z.'); return 2; }
         until = { at: value };
-      } else if (tooManyWords(ctx, 'task hold', 2, usage, args)) return 2;
+      }
     } else if (tooManyWords(ctx, 'task ' + (want ? 'hold' : 'unhold'), 2, usage, args)) return 2;   // kosmos#4889 review 6
     const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/hold', until ? { onHold: want, until } : { onHold: want }, { agent: false });
     if (!r.reached) {
@@ -1374,7 +1375,11 @@ function taskHoldAs(want) {
       ctx.out(want ? 'Put task ' + num + ' on ' + project + ' on hold. Kosmos will not nudge anyone about it or hand it out.'
         : 'Took task ' + num + ' on ' + project + ' off hold.');
       if (until && until.task) ctx.out('It waits for task ' + value + ' to be closed; Kosmos tells its owner when it is.');
-      else if (until) ctx.out('It waits until ' + value + '; Kosmos tells its owner when that time has passed.');
+      else if (until) {
+        // The time as the board stored it (UTC), not as typed: a bare date is midnight UTC.
+        const at = r.json.task.onHoldUntil && typeof r.json.task.onHoldUntil.at === 'string' ? r.json.task.onHoldUntil.at : value;
+        ctx.out('It waits until ' + at + '; Kosmos tells its owner when that time has passed.');
+      }
       return 0;
     }
     if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }

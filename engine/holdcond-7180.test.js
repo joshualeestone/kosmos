@@ -70,6 +70,7 @@ test('#7180 setOnHold: a hold can wait for another task or a time; the condition
     [{ at: new Date(Date.now() - HOUR).toISOString() }, 409, /already passed/],
     [{ at: new Date(Date.now() + 400 * 24 * HOUR).toISOString() }, 400, /a year ahead/],
     [{ task: f.b, at: later }, 400, /one thing/],
+    [{ at: new Date(Date.now() + 48 * HOUR).toISOString().slice(0, 10) + 'T09:00' }, 400, /must say its zone/],
     ['task 3', 400, /waits for a task/],
   ];
   for (const [until, code, why] of cases) {
@@ -81,6 +82,14 @@ test('#7180 setOnHold: a hold can wait for another task or a time; the condition
   assert.deepEqual(stored(f.id, f.a).onHoldUntil, { at: later }, 'a refused condition changed the stored one');
   const off = status(() => tasks.setOnHold(f.id, f.a, false, { until: { task: f.b } }));
   assert.equal(off && off.status, 400, 'a condition was accepted with taking a hold off');
+});
+
+test('#7180 setOnHold: a date or a zoned time is accepted; a bare date is midnight UTC', () => {
+  const f = fixture();
+  const d = new Date(Date.now() + 48 * HOUR).toISOString().slice(0, 10);   // two days out
+  assert.deepEqual(tasks.setOnHold(f.id, f.a, true, { until: { at: d } }).onHoldUntil, { at: d + 'T00:00:00.000Z' });
+  assert.deepEqual(tasks.setOnHold(f.id, f.a, true, { until: { at: d + 'T09:00-05:00' } }).onHoldUntil, { at: d + 'T14:00:00.000Z' });
+  assert.deepEqual(tasks.setOnHold(f.id, f.a, true, { until: { at: d + 'T09:00Z' } }).onHoldUntil, { at: d + 'T09:00:00.000Z' });
 });
 
 test('#7180 setOnHold: a bare hold clears the condition, as do taking it off and closing the task; a change is a new hold', () => {

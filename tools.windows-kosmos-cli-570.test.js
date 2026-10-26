@@ -585,9 +585,15 @@ test('#7180 Windows task hold --until-task / --until send the condition; bad val
   assert.equal(t.code, 0, t.err);
   assert.deepEqual(t.calls[0].body, { onHold: true, until: { task: 5 } });
   assert.match(t.out, /It waits for task 5 to be closed/);
-  const at = await run(['task', 'hold', 'p1', '3', '--until', '2026-11-02'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  const at = await run(['task', 'hold', 'p1', '3', '--until', '2026-11-02'], () => ({ body: { task: { number: 3, onHold: true, onHoldUntil: { at: '2026-11-02T00:00:00.000Z' } } } }));
   assert.equal(at.code, 0, at.err);
   assert.deepEqual(at.calls[0].body, { onHold: true, until: { at: '2026-11-02' } });
+  assert.match(at.out, /It waits until 2026-11-02T00:00:00\.000Z/, 'the typed date, not the stored time, was said back');
+  const noValue = await run(['task', 'hold', 'p1', '3', '--until-task']);
+  assert.match(noValue.err, /--until-task needs a value/);
+  const stray = await run(['task', 'hold', 'p1', '3', 'now']);
+  assert.match(stray.err, /takes no more words than its usage shows/);
+  assert.equal(noValue.calls.length + stray.calls.length, 0, 'a wrong shape was sent');
   for (const args of [['--until-task', 'five'], ['--until-task', '05'], ['--until', 'friday'], ['--until-task', '5', '--until', '2026-11-02'], ['--until-task']]) {
     const r = await run(['task', 'hold', 'p1', '3', ...args]);
     assert.equal(r.code, 2, args.join(' ') + ': ' + r.err);
