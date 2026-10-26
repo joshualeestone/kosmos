@@ -42,6 +42,9 @@ code would be Homer's; this touches none.
 - The JSON-escape fallback install/kosmos needs for `attached` is not copied: the Windows CLI parses JSON.
 
 ## For the one real Windows run (asked of Homer on the card when the PR opens)
+- FIRST, #7221 (review 6): the board resolves a network or device path, and a link or junction out to a share,
+  before refusing it (engine/replyfile.js realpath before allowedRoot). The CLI's refusal is spelling only. A run with
+  a normal file would pass with that open, so #7221 lands before teaching turns on. Specced for Homer, not built here.
 - `kosmos reply --file <absolute path in Files> "x"` attaches, and downloads from the conversation.
 - Git Bash: `kosmos reply --file /c/Users/<you>/.../Files/x.txt` (the shim's conversion, real cygpath).
 - engine/replyfile.js compares the hidden-in-home check by spelling (`given.startsWith(home + sep)`), so on
@@ -55,3 +58,10 @@ code would be Homer's; this touches none.
   ignoring the injected path rules. All tools.windows-kosmos-cli*.test.js, tools.windows-kosmos-shims-570,
   cli.reply-*.test.js and cli.help-flag-*.test.js (after iteration 4): 432 tests, 411 pass, 21 skip (Windows-only),
   0 fail. comment-deferral (from the worktree), dmfiles, windows-coupling-audit-1732: green.
+
+## Review rounds after the rebase onto main (2026-10-26)
+6. (default model) W: the board-side gap above (#7221, Homer's). W: three test arms read the real working folder, so a
+   suite run from a network folder on Windows would red (now an injected literal; `/` no longer joins as `//`). Nits
+   taken: C1 controls refused, as bash's [[:cntrl:]] does in UTF-8; a relative path refused for its folder now names
+   that folder (arm added); the dmfiles comment rewrapped.
+
