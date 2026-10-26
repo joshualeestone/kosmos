@@ -134,11 +134,19 @@ test('#6726 review 3: under the Windows path rules, reply refuses a path with no
 });
 
 test('#6726 review 1: kosmos reply --help names --file, as install/kosmos\'s help does', async () => {
-  const r = await run(['reply', '--help'], kept);
+  const r = await run(['reply', '--help'], kept, undefined, { pathRules: path.posix });
   assert.equal(r.code, 0, r.err);
   assert.equal(r.calls.length, 0, '--help sent something');
   assert.match(r.out, /Usage: kosmos reply \[--stdin\]/);
   assert.ok(r.out.includes(cli.USAGE_REPLY_FILE), 'reply --help does not show the --file line');
+  /* Review 8: on Windows it is not named until the board's checks have run there (#7221); the flag still works. */
+  const w = await run(['reply', '--help'], kept, undefined, { pathRules: path.win32 });
+  assert.equal(w.code, 0, w.err);
+  assert.match(w.out, /Usage: kosmos reply \[--stdin\]/, 'control: the Windows help still prints reply\'s usage');
+  assert.ok(!w.out.includes('--file'), 'Windows help names --file before #7221');
+  const bare = await run(['reply'], kept, undefined, { pathRules: path.win32 });
+  assert.equal(bare.code, 2);
+  assert.ok(!bare.err.includes('--file'), 'the Windows usage names --file before #7221');
 });
 
 test('#6726: --file after the words is still the flag; past -- it is words', async () => {
@@ -165,7 +173,7 @@ test('#6726: --file goes with --stdin, the words from the pipe', async () => {
 });
 
 test('#6726 CONTROL: with no file and no words it is still the usage, which now names --file', async () => {
-  const r = await run(['reply'], kept);
+  const r = await run(['reply'], kept, undefined, { pathRules: path.posix });
   assert.equal(r.code, 2);
   assert.equal(r.calls.length, 0);
   assert.match(r.err, /Usage: kosmos reply \[--stdin\]/);
@@ -244,6 +252,8 @@ test('#6726 r4-5: a saved name with a double quote arrives whole (the JSON is pa
    it converts --file's value for reply itself, as it does --body-file's: /c/Users/... typed in Git Bash would
    otherwise reach Windows node unconverted and be refused. Run on any machine with a stand-in cygpath (marks what it
    converted) and a stand-in node (prints the arguments it got). */
+/* A stand-in cygpath, so this is the shim's logic, not Windows coverage: the real cygpath -w output is checked in the
+   one real Windows run (plan, "For the one real Windows run"). */
 test('#6726 review 3: the Git Bash shim converts reply --file\'s value, and nothing else', { skip: ON_WINDOWS && 'needs /bin/sh and a shebang node stand-in' }, () => {
   const cp = require('node:child_process');
   const os = require('node:os');
