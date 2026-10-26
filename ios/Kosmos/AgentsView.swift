@@ -154,7 +154,7 @@ struct AgentsView: View {
     }
 
     private var notUpdatingWords: String {
-        if case .unreachable = client.phase { return "Not updating. Your Mac isn't answering." }
+        if case .unreachable(let mac) = client.phase { return Shell.notUpdatingLine(mac) }   // kosmos#7197: named
         return "Checking for updates."
     }
 

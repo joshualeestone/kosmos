@@ -21,6 +21,15 @@ screen could not say which Mac.
 - `BoardClient.openSession`: a no-answer is retried up to three in a row before `.unreachable`, as the waiting path
   already did.
 
+- Review 1: the banner over a list (the common case: a Mac lost mid-session) is named too: AgentsView, TodayView and
+  both ChatView lines use `Shell.notUpdatingLine` and `Phase.macName`. A session request waits 8 s (`timeoutInterval`),
+  so three tries take about 30 s, not 51 s. A test pins "not answering" after exactly three session requests.
+- Not an issue (review 1): the native and web names cannot differ in practice: the coordinator lists a Mac with
+  `name` = its address label (`coordinator/src/second.rs` account_macs: `m.name.split('#')`), the same label the web
+  path takes from the host. Accepted (review 1): a retry after a lost ANSWER can mint a second Mac session (handoff
+  tokens are reusable); bounded by the gate's per-device list, and the waiting path already did it. Noted: VoiceOver
+  reads an all-digit name as a number; the failed-send line in BoardClient (`.refused`) is still unnamed.
+
 ## Rejected
 - Offering "Choose another computer" from the native screen in this slice: the native client has no way yet to switch
   Macs (it opens the remembered one); a follow-up on the card.

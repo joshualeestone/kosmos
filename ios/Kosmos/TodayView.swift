@@ -194,7 +194,7 @@ struct TodayView: View {
     }
 
     private var notUpdating: some View {
-        Text((client.phase.isUnreachable ? "Not updating. Your Mac isn't answering." : "Checking for updates.")
+        Text((client.phase.isUnreachable ? Shell.notUpdatingLine(client.phase.macName) : "Checking for updates.")
              + (client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""))
             .font(.footnote)
             .foregroundColor(Palette.secondary)

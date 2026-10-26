@@ -261,6 +261,11 @@ check(Shell.macUnreachableTitle(nil) == "Your Mac isn't answering" && Shell.macU
       "CONTROL: no name keeps the old wording")
 check(Shell.macUnreachableMessage(nil) == "Your phone is online, but your Mac didn't reply. It may be asleep or turned off. Wake it, then try again.",
       "CONTROL: the unnamed message is the old one, word for word")
+check(Shell.notUpdatingLine("tmnt") == "Not updating. tmnt isn't answering." && Shell.notUpdatingLine(nil) == "Not updating. Your Mac isn't answering.",
+      "the banner over a list names the Mac, and keeps the old words with no name")
+check(BoardClient.Phase.unreachable(mac: "10102026").macName == "10102026" && BoardClient.Phase.live(mac: Board.Mac(name: "tmnt", address: "tmnt.kosmosplus.com", usable: true)).macName == "tmnt"
+      && BoardClient.Phase.starting.macName == nil, "a phase names its Mac, or none")
+check(Board.sessionRequest(mac: URL(string: "https://studio.kosmosplus.com")!, handoffToken: "t").timeoutInterval == 8, "a session request waits 8 s, so three tries take about 30 s")
 check(!Shell.offersOtherComputer(.other), "any other failure: no computer was at fault")
 check(Shell.otherComputerURL(coordinator: URL(string: "https://login.kosmosplus.com")!).absoluteString == "https://login.kosmosplus.com/account", "Choose another computer opens /account, which never opens a computer by itself")
 check(Shell.otherComputerURL(coordinator: URL(string: "https://login.kosmosplus.com/")!).absoluteString == "https://login.kosmosplus.com/account", "a coordinator with a trailing slash gives the same address")
@@ -2838,6 +2843,7 @@ section("native board loop: connecting")
         c2.start()
         let said = await settle { c2.phase == .unreachable(mac: "Studio") }
         check(said, "CONTROL: three misses in a row say the Mac (Studio) is not answering")
+        check(w2.count("/_kosmos/session") == 3, "after exactly three session requests, not one: \(w2.count("/_kosmos/session"))")
         c2.stop()
     }
 

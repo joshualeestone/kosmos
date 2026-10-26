@@ -149,6 +149,11 @@ enum Shell {
         return "\(n) isn't answering"
     }
 
+    // The line over a list that is no longer updating.
+    static func notUpdatingLine(_ name: String?) -> String {
+        "Not updating. " + macUnreachableTitle(name) + "."
+    }
+
     static func macUnreachableMessage(_ name: String?) -> String {
         guard let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty else {
             return "Your phone is online, but your Mac didn't reply. It may be asleep or turned off. Wake it, then try again."
