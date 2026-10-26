@@ -110,8 +110,7 @@ function inside(root, real) {
  * Files pointing at ~/.ssh would send the key (review r1, finding 2). Kosmos makes the folder
  * itself, as a real folder beside the agent's instructions, so a link there is never ours.
  */
-function filesRoot(sessionName) {
-  const filesDir = dmfiles.filesDir(sessionName);
+function filesRoot(sessionName, filesDir = dmfiles.filesDir(sessionName)) {
   if (!filesDir) return null;
   let lst;
   try { lst = fs.lstatSync(filesDir); } catch { return null; }
@@ -230,9 +229,9 @@ function libraryOpen(chain, k, rootDepth) {
   return false;
 }
 
-function allowedRoot(sessionName, real, roster, given) {
+function allowedRoot(sessionName, real, roster, given, filesDir = dmfiles.filesDir(sessionName)) {
   const chain = chainOf(real);
-  const filesReal = filesRoot(sessionName);
+  const filesReal = filesRoot(sessionName, filesDir);
   if (filesReal && chain[1] && chain[1].id && chain[1].id === idOf(filesReal)) return { root: filesReal };
   let all = [];
   try { all = projects.readAll(); } catch { all = []; }
@@ -304,24 +303,124 @@ function hiddenRefusal(given, chain, rootDepth, k) {
   return null;
 }
 
+/* #7221: on a Windows board, a path is refused by how it is spelled and where its links point BEFORE the first
+   realpath, because resolving is itself the contact. Measured on the Windows box (2026-10-26): realpathSync.native
+   on a symlink to \\<unroutable host>\share stalled 21 s on an SMB attempt (the board's event loop with it), while
+   lstat and readlink on the same link answered in 0 ms and touch nothing past the link itself. So:
+   1. The spelling: a \\ or // start (a share, or the \\?\ and \\.\ device namespaces), a colon past the drive
+      (an alternate data stream, or COM1:), a last part that is a DOS device name (NUL, COM1.txt), and a drive
+      letter that none of the agent's roots (its Files folder, its projects) is on, since a mapped drive is a share
+      under a letter. None of these is a file the agent was asked to hand over, so each is refused without a look.
+   2. The links: each part of the path is lstat'd; a link's target is read (readlink), refused when it is a network
+      or device path or on a drive outside the roots, and otherwise followed the same way, part by part. Only then is
+      the path resolved.
+   3. The real path, once resolved: a network path or a device name there is refused too (a second guard).
+   ⚠️ What this does not close: a link swapped to point at a share between the walk and the realpath. The open is
+   still refused (the real path is checked before it), but the realpath may already have made the contact. */
+const ON_NETWORK = 'that path is on another computer on the network, or names a device, so it cannot be attached; copy the file into your Files folder and attach it from there';
+const DEVICE_NAME = 'that name belongs to a Windows device, not a file, so it cannot be attached';
+const NAMESPACE = /^[\\/]{2}/;                                   // \\host\share, //host/share, \\?\..., \\.\...
+const LOCAL_LONG = /^[\\/]{2}\?[\\/](?=[A-Za-z]:[\\/])/;         // \\?\C:\..., the long-path spelling of a local drive
+const DEVICE_PART = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])\s*(\..*)?$/i;
+function isDevicePart(part) {
+  return DEVICE_PART.test(String(part).replace(/[ .]+$/, ''));   // Windows drops trailing dots and spaces: "NUL. " is NUL
+}
+function isNetworkSpelling(p) {
+  return NAMESPACE.test(p) && !LOCAL_LONG.test(p);
+}
+function driveOf(p) {
+  const m = /^([A-Za-z]):/.exec(String(p).replace(LOCAL_LONG, ''));
+  return m ? m[1].toUpperCase() : null;
+}
+/* The drive letters the agent's roots are on, read from how they are written, with no filesystem call. */
+function rootDrives(sessionName, filesDir) {
+  const out = new Set();
+  const add = (p) => { const d = typeof p === 'string' ? driveOf(p) : null; if (d) out.add(d); };
+  add(filesDir);
+  let all = [];
+  try { all = projects.readAll(); } catch { all = []; }
+  for (const p of all) if (p && (p.agents || []).includes(sessionName)) add(p.folder);
+  return out;
+}
+/* The refusal for a Windows path by its spelling alone, or null. Called before anything touches the path. */
+function winSpellingRefusal(given, drives) {
+  if (NAMESPACE.test(given)) return ON_NETWORK;   // every \\ or // start, the local \\?\C:\ spelling too: none is how a file is named to us
+  if (given.indexOf(':', 2) >= 0) return ON_NETWORK;
+  const parts = given.split(/[\\/]+/).filter(Boolean);
+  if (parts.length && isDevicePart(parts[parts.length - 1])) return DEVICE_NAME;
+  const d = driveOf(given);
+  if (!d || !drives.has(d)) return NOT_YOURS;
+  return null;
+}
+/* Follow the links in `p` by lstat and readlink only, and say why not if any of them leaves for the network, a
+   device or a drive outside the roots. Null when the path may be resolved. A chain of more than 32 links is refused. */
+const MAX_HOPS = 32;
+const UNREADABLE_LINK = 'that path goes through a link that cannot be followed, so it cannot be attached';
+function listed(p) {
+  const name = path.win32.basename(p).toLowerCase();
+  try { return fs.readdirSync(path.win32.dirname(p)).some((n) => n.toLowerCase() === name); } catch { return false; }
+}
+function winLinkRefusal(p, drives, hops = 0) {
+  if (hops > MAX_HOPS) return 'that path goes through too many links to follow, so it cannot be attached';
+  const why = winSpellingRefusal(p, drives);
+  if (why) return why;
+  const root = path.win32.parse(p).root;
+  const parts = p.slice(root.length).split(/[\\/]+/).filter(Boolean);
+  let cur = root;
+  for (let i = 0; i < parts.length; i++) {
+    cur = path.win32.join(cur, parts[i]);
+    let lst;
+    try { lst = fs.lstatSync(cur); } catch {
+      /* Missing, or there but unreadable. A junction aimed at a share (Windows lets a junction name only a local
+         volume) lstats ENOENT and readlinks EINVAL, yet its folder lists it as a link (measured 2026-10-26). So the
+         folder is asked, a local read: an entry under that name is a link this walk cannot follow, and is refused
+         rather than handed to realpath. No entry: really missing, and the realpath that follows says so. */
+      return listed(cur) ? UNREADABLE_LINK : null;
+    }
+    if (!lst.isSymbolicLink()) continue;
+    let to;
+    try { to = fs.readlinkSync(cur); } catch { return 'that file could not be read'; }
+    if (isNetworkSpelling(to)) return ON_NETWORK;
+    const next = path.win32.resolve(path.win32.dirname(cur), to.replace(LOCAL_LONG, ''), ...parts.slice(i + 1));
+    return winLinkRefusal(next, drives, hops + 1);
+  }
+  return null;
+}
+function winRealRefusal(real) {
+  if (isNetworkSpelling(real)) return ON_NETWORK;
+  if (isDevicePart(path.win32.basename(real))) return DEVICE_NAME;
+  return null;
+}
+
 /**
  * Copy one of the agent's own files into the attachment store.
  * Returns { ok: true, rec } (rec as attachments.save returns it) or { ok: false, because }.
  */
-function attach(sessionName, given, { roster } = {}) {
+function attach(sessionName, given, { roster, platform = process.platform } = {}) {
   if (typeof given !== 'string' || !given || given.includes('\0')) return { ok: false, because: 'name the file to attach by its path' };
   if (!path.isAbsolute(given)) return { ok: false, because: 'give the full path of the file to attach' };
   if (given.split(/[\\/]/).includes('..')) return { ok: false, because: 'a path with .. in it cannot be attached; give the file\'s own full path' };
+  const win = platform === 'win32';
+  /* Read once on Windows and handed on, so an attach still reads each agent's instructions path once (r5-3). */
+  const filesDir = win ? dmfiles.filesDir(sessionName) : undefined;
+  if (win) {
+    const why = winLinkRefusal(given, rootDrives(sessionName, filesDir));
+    if (why) return { ok: false, because: why };
+  }
   let real;
   try { real = realOf(given); } catch (err) {
     return { ok: false, because: err && err.code === 'ENOENT' ? 'there is no file at ' + given : 'that file could not be read' };
+  }
+  if (win) {
+    const why = winRealRefusal(real);
+    if (why) return { ok: false, because: why };
   }
   let st;
   try { st = fs.statSync(real); } catch { return { ok: false, because: 'that file could not be read' }; }
   if (st.isDirectory()) return { ok: false, because: 'that is a folder; attach one file at a time' };
   if (!st.isFile()) return { ok: false, because: 'that is not an ordinary file, so it cannot be attached' };
   if (st.nlink > 1) return { ok: false, because: HARD_LINK };
-  const where = allowedRoot(sessionName, real, roster, given);
+  const where = allowedRoot(sessionName, real, roster, given, filesDir);
   if (!where) return { ok: false, because: NOT_YOURS };
   if (where.refused) return { ok: false, because: where.refused };
   if (st.size > attachments.MAX_BYTES) {
@@ -472,4 +571,4 @@ function discard(rec) {
   if (ledger && key && ledger.has(key)) ledger.get(key).delete(rec.id);
 }
 
-module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY };
+module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, isDevicePart, winSpellingRefusal };
