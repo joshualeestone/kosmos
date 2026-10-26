@@ -139,6 +139,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    the header's "one volume" now says what a mount inside the world would do. Deferred: the check-then-rename window
    (the residual below).
 
+17. W: on a filesystem that ignores zero-width characters (HFS+), a name with no leading dot can open as .git or a
+   provider's dot-name, passing both the hold-back and `runs`; both now ask the filesystem for those exact names
+   (no test: APFS keeps such names apart, so this Mac cannot make one). Nits: readBrief refuses a non-file before it
+   opens (a FIFO would block); fetchProblems past twenty say so; with no file identity (inode 0) plainFolder decides
+   by name only rather than holding back everything; a link at the top of workers has a test.
+
 ## Residuals, stated
 - A restored project keeps its own .git, so a hostile repository config there reaches any agent made in this world
   later, which never passes this review. 4c must start agents in a Restored world with git's hooks and fsmonitor off.
