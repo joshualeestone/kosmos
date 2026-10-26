@@ -461,3 +461,16 @@ test('a 401 whose fresh login gets no good answer pauses the pass, does not mark
   assert.ok(agentNamed('bo').owner, 'the next pass starts after ava');
   cs._ownerLinkRetry(15 * 60 * 1000);
 });
+
+test('the pass budget: an exhausted pass stops before the agent and the next pass starts at it', async () => {
+  await registered('ava');
+  await registered('bo');
+  cs._ownerLinkBudget(-1);   // spent before the first agent
+  try {
+    await cs.sweep();
+    assert.equal(R.mints.length, 0, 'no agent started once the budget is spent');
+  } finally { cs._ownerLinkBudget(30 * 1000); }
+  await cs.sweep();
+  assert.equal(R.mints[0].body.agent, keyName('ava'), 'the next pass starts at the agent not yet tried');
+  assert.ok(agentNamed('ava').owner && agentNamed('bo').owner);
+});
