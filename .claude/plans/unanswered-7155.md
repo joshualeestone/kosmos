@@ -1,0 +1,65 @@
+# kosmos#7155: list the messages an agent never answered
+
+## The card
+After a long gap (out of usage, a crash, a restart) an agent has no safe way to list the inbound messages it never
+answered. Ask: a one-line command, for example `kosmos inbox --unanswered --since <time>`, oldest first; ideally a
+board line after a usage reset.
+
+## Measured before building (18:25 CDT 10-25)
+- `kosmos inbox [--limit N]` exists (#4784): the agent's own DIRECT thread with the person, last N, oldest first.
+  It has no way to say "only what I have not answered" or "only since <time>".
+- The board already decides "owes" from the same rows (`chat.dmOwes`, #4340): a person row that REACHED the agent,
+  not a menu answer, newer than the agent's newest row. Kosmos's own daily-limit notice (`kosmos: true`) is not an
+  answer once the pause is over (#4354).
+- #5805 slice 2b already holds a person DM sent during an out-of-usage pause and types it after the reset.
+
+## The call
+Extend `kosmos inbox` (no new verb) with two flags, on the Mac CLI, the Windows CLI and the board route:
+- `--unanswered`: the person's messages newer than your newest reply, oldest first. Unlike dmOwes it ALSO lists a
+  message that did not reach you (marked, as inbox already marks it): that is the message this exists to recover.
+  Menu answers are left out (they owe nothing, as in dmOwes). Kosmos's own notice never counts as your reply here
+  (inbox already drops those rows): after a gap, the notice is not an answer.
+- `--since <time>`: only messages at or after an ISO time (`2026-10-25T05:22:00Z`, `2026-10-25T05:22-05:00`, or a
+  local `2026-10-25 05:22`). A time without a clock time, or with a field out of range (2026-02-30, 24:00), is
+  refused (400); the CLIs refuse a missing value or one starting with `-` before any request (exit 2).
+- With either flag the limit keeps the OLDEST matches (after a gap the first to answer must never be the one cut),
+  and a last line says how many later ones were left out and the `--since <time>` that shows them. Without a flag
+  inbox keeps the newest, as before. (Challenge iteration 1 changed this from newest-kept.)
+- Unanswered is timed as dmOwes times it (newest reply BY TIME, `from` equal to the agent), not by row position; a
+  row with no readable time is kept by both filters rather than dropped. With a filter the rows are sorted by time
+  (no-time rows last) before the limit, since a held DM can be stored after a newer one (iteration 6).
+- Two deliberate differences from dmOwes: a message that did not reach you is listed, and Kosmos's daily-limit notice
+  never counts as your reply, even during its own pause (dmOwes counts it then). This is read to catch up AFTER a
+  gap, when the notice answered nothing. During a pause the board can say "clear" while this lists the message.
+- The person/agent test is the route's own (`from` a non-empty string is you), the one #4784 renders rows with, so a
+  row is filtered and printed by the same rule.
+- An empty answer says what was asked: "Nothing unanswered ..." / "No messages ... since ...".
+- The query string only gains `&unanswered=1` / `&since=` when the flag is given, so existing callers are unchanged.
+
+## Rejected
+- A new verb (`kosmos missed`): a second way to read the same thread.
+- Room posts and `kosmos msg` from other agents: a room has no "answered" fact (a post is not addressed), and the
+  msg log's `owesReply` is a different rule. Recorded as the known limit; a follow-up card if wanted.
+- The board line "N messages arrived while you were out": #5805 already replays a held DM after a reset, and the
+  person's DMs are what this lists. Left for a follow-up rather than built blind.
+
+## Accepted: the paging hint can repeat, never skip
+`--since <nextAt>` is inclusive, so a shown message sharing nextAt's timestamp, and any row with no readable time, can
+appear again on the next page. Paging strictly after the last shown time would instead SKIP an unshown row that shares
+it. For a catch-up read a repeat is harmless and a skip is the failure this card exists to stop. (Challenge iteration 3.)
+When every shown row would pass the --since it would hand out (rows sharing one time, or stored out of order), that
+--since shows the same page again, so the hint names --limit 50 instead (iteration 5); past 50 rows at one millisecond nothing pages them, a limit accepted as unreal. (Iteration 4.)
+
+## Weakest premise
+That "unanswered" means "after your newest reply" rather than per message. One reply after three questions clears
+all three. That is dmOwes's rule too, so the CLI and the board's "Nothing back yet." agree.
+
+## Steps
+1. server.js /api/inbox: parse `unanswered`, `since`; filter before the limit; `later` count and `nextAt`;
+   empty texts. JSON gains `later` and `nextAt`.
+2. install/kosmos cmd_inbox + help; tools/windows/kosmos-cli.js verbInbox + USAGE.
+3. Tests: server.inbox-unanswered-7155.test.js, cli + windows arms in a new test file.
+4. Challenge loop (cap 8), validation, PR, merge on green.
+
+## Progress
+- [x] 1  - [x] 2  - [x] 3 (10 tests; focused 88 + audits 1561 green; 3 mutants killed)  - [ ] 4
