@@ -47,6 +47,12 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const TEMP_PREFIX = '.kosmos-restore-';
+// slice 3: the resume record, a fixed name in the root. It starts with TEMP_PREFIX, so begin() refuses it as a
+// manifest path and no restored file can take or replace it.
+const RECORD_NAME = `${TEMP_PREFIX}record`;
+const RECORD_MAX_BYTES = 64 * 1024 * 1024;
+const RESUME_MAX_ENTRIES = 1000000;   // files and folders walked when a root is resumed
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 // The shape of an NTFS 8.3 short name, the same rule backuprestore.js's pathProblem uses: on Windows such a name can
 // alias another folder, the temp folder included (.kosmos-restore-... answers to KOSMOS~1).
 const { SHORT_NAME_RE } = require('./backuprestore');
@@ -109,13 +115,124 @@ function ignoresOwnershipDarwin(dir) {
   return line.slice(line.lastIndexOf(' (') + 2, -1).split(', ').map((f) => f.trim()).includes('noowners');
 }
 
-/** A sink over the empty folder at root. Throws unless root is a fresh folder. Call close() when the restore ends. */
-function createRestoreSink(root) {
+/* The plain-relative shape begin() accepts, as a function so the resume record is held to the same rule. */
+function plainSegments(rel) {
+  const segs = typeof rel === 'string' ? rel.split('/') : [];
+  // The plain-relative shape, plus a backstop for a caller that skipped pathProblem: no ':' (a drive or an NTFS
+  // stream), no control characters, no trailing dot or space (which Windows would trim to another name).
+  if (!segs.length || segs.some((s) => s === '' || s === '.' || s === '..' || s.includes('\\') || /[\x00-\x1f:]/.test(s) || /[. ]$/.test(s) || SHORT_NAME_RE.test(s))) {
+    return null;
+  }
+  return segs;
+}
+
+/* sha256 of a file, read through one descriptor opened without following a symlink; null when it is not a plain
+   file this user owns. */
+function hashFile(file) {
+  let fd;
+  try { fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)); } catch { return null; }
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || (process.platform !== 'win32' && st.uid !== process.getuid())) return null;
+    const h = crypto.createHash('sha256');
+    const buf = Buffer.alloc(1024 * 1024);
+    let size = 0;
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, buf.length, null);
+      if (n <= 0) break;
+      h.update(buf.subarray(0, n));
+      size += n;
+    }
+    return { sha256: h.digest('hex'), size };
+  } finally { fs.closeSync(fd); }
+}
+
+/* The record's lines: { path, size, sha256 } each, as path -> every { size, sha256 } written for it. A line is written
+   before its link, so a path can carry lines that never became the file (a link refused because the name was taken,
+   or a crash before it); the file on disk must match one of them. Throws on anything else. */
+function readRecord(rootReal) {
+  const file = path.join(rootReal, RECORD_NAME);
+  let fd;
+  try { fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)); } catch (e) {
+    throw new Error(`restoresink: this folder holds no restore record to continue from (${e.code || e.message})`);
+  }
+  let text;
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || (process.platform !== 'win32' && (st.uid !== process.getuid() || (st.mode & 0o077)))) throw new Error('restoresink: the restore record is not a private file of yours');
+    if (st.size > RECORD_MAX_BYTES) throw new Error('restoresink: the restore record is larger than any restore writes');
+    text = fs.readFileSync(fd, 'utf8');
+  } finally { fs.closeSync(fd); }
+  const held = new Map();
+  for (const line of text.split('\n')) {
+    if (line === '') continue;
+    let e;
+    try { e = JSON.parse(line); } catch { throw new Error('restoresink: the restore record is damaged'); }
+    if (!e || typeof e !== 'object' || !plainSegments(e.path) || e.path.split('/')[0].toLowerCase().startsWith(TEMP_PREFIX)
+      || !Number.isSafeInteger(e.size) || e.size < 0 || typeof e.sha256 !== 'string' || !SHA256_HEX_RE.test(e.sha256)) {
+      throw new Error('restoresink: the restore record is damaged');
+    }
+    if (!held.has(e.path)) held.set(e.path, []);
+    held.get(e.path).push({ size: e.size, sha256: e.sha256 });
+  }
+  return held;
+}
+
+/* Resume (slice 3): the root must hold only what the record says this restore put there. Every entry is walked
+   without following a link: the record; old temp folders (removed, a stopped run leaves one); folders on the way to
+   a recorded file; and recorded files, each re-hashed to its line. A recorded file that is absent is dropped (its line
+   was written before a link that never happened). Anything else refuses. Returns path -> { size, sha256 } held. */
+function verifyResumable(rootReal, held) {
+  const kept = new Map();
+  const folders = new Set();
+  for (const [rel] of held) {
+    const segs = rel.split('/');
+    for (let i = 1; i < segs.length; i += 1) folders.add(segs.slice(0, i).join('/'));
+  }
+  let seen = 0;
+  const walk = (dirRel) => {
+    const dirAbs = dirRel ? path.join(rootReal, ...dirRel.split('/')) : rootReal;
+    for (const name of fs.readdirSync(dirAbs)) {
+      if ((seen += 1) > RESUME_MAX_ENTRIES) throw new Error('restoresink: this folder holds more than a restore makes');
+      const rel = dirRel ? `${dirRel}/${name}` : name;
+      const abs = path.join(dirAbs, name);
+      const at = fs.lstatSync(abs);
+      if (!dirRel && name === RECORD_NAME) continue;
+      if (process.platform !== 'win32' && at.uid !== process.getuid()) throw new Error(`restoresink: something in this folder belongs to another user, so it cannot be continued (${rel})`);
+      if (!dirRel && name.startsWith(TEMP_PREFIX) && at.isDirectory() && !at.isSymbolicLink()) { removeTree(abs); continue; }
+      if (at.isSymbolicLink()) throw new Error(`restoresink: this folder has a link the restore did not make, so it cannot be continued (${rel})`);
+      if (at.isDirectory()) {
+        if (!folders.has(rel)) throw new Error(`restoresink: this folder holds something the restore did not put there, so it cannot be continued (${rel})`);
+        walk(rel);
+        continue;
+      }
+      const lines = held.get(rel);
+      if (!at.isFile() || !lines) throw new Error(`restoresink: this folder holds something the restore did not put there, so it cannot be continued (${rel})`);
+      const got = hashFile(abs);
+      const match = got && lines.find((w) => w.size === got.size && w.sha256 === got.sha256);
+      if (!match) throw new Error(`restoresink: a restored file has changed since the restore stopped, so it cannot be continued (${rel})`);
+      kept.set(rel, match);
+    }
+  };
+  walk('');
+  return kept;
+}
+
+/** A sink over the empty folder at root. Throws unless root is a fresh folder. Call close() when the restore ends.
+    opts (slice 3, both off by default, so a sink made without them behaves exactly as before):
+      record: keep a resume record in the root, a line per file written (and fsynced) before the file is published
+      resume: continue a restore that stopped: root must be a folder an earlier record: true sink wrote, holding only
+              what its record names (verifyResumable); implies record. has(rel, sha256, size) then says whether a file
+              is already there, so restore skips it.
+    close({ keepRecord }) removes the record unless keepRecord: keep it when the restore stopped part way. */
+function createRestoreSink(root, opts = {}) {
+  const resume = !!(opts && opts.resume);
+  const keepRecordOn = resume || !!(opts && opts.record);
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new Error('restoresink: the root must be an absolute path');
   root = path.resolve(root);  // a trailing separator would make lstat follow a symlinked root
   const st = fs.lstatSync(root, { bigint: true });  // bigint: an NTFS file id can exceed 2^53
   if (!st.isDirectory()) throw new Error('restoresink: the root must be a real folder, not a file or a symlink');
-  if (fs.readdirSync(root).length) throw new Error('restoresink: the root must be empty (restore into a fresh folder)');
+  if (!resume && fs.readdirSync(root).length) throw new Error('restoresink: the root must be empty (restore into a fresh folder)');
   // POSIX: the person's own folder, before anything is made in it (a group member's folder could be written by its
   // owner, and its mode could not be tightened below).
   if (process.platform !== 'win32' && st.uid !== BigInt(process.getuid())) throw new Error('restoresink: the root must be a folder you own');
@@ -163,8 +280,11 @@ function createRestoreSink(root) {
     if (st3.dev !== st.dev || st3.ino !== st.ino) throw new Error('restoresink: the root changed after it was made private');
     if (st3.mode & 0o077n) throw new Error("restoresink: the root could not be made private (the drive ignored the permission change); choose a folder on this computer's own disk");
     if (process.platform === 'darwin') stripAclDarwin(rootReal);
-    if (fs.readdirSync(rootReal).length) throw new Error('restoresink: something appeared in the root while it was being made private');
+    if (!resume && fs.readdirSync(rootReal).length) throw new Error('restoresink: something appeared in the root while it was being made private');
   }
+  // slice 3: a resumed root is proved by its record, after the root itself passed every check above.
+  const held = resume ? verifyResumable(rootReal, readRecord(rootReal)) : new Map();
+
   const tempName = TEMP_PREFIX + crypto.randomBytes(8).toString('hex');
   const tempDir = path.join(rootReal, tempName);
   fs.mkdirSync(tempDir, { mode: 0o700 });
@@ -184,6 +304,18 @@ function createRestoreSink(root) {
   try { removeTree(`${probe}-link`); removeTree(probe); } catch (e) {
     try { removeTree(tempDir); } catch { /* reported below */ }
     throw new Error(`restoresink: could not clean up the probe (${e.code || e.message})`);
+  }
+  // slice 3: opened only now, after every check passed, so a refused fresh root is left as empty as it was given.
+  let recordFd = null;
+  if (keepRecordOn) {
+    const file = path.join(rootReal, RECORD_NAME);
+    // A fresh restore creates it (never over an existing one); a resumed one appends to the one it just read.
+    const flags = resume ? fs.constants.O_WRONLY | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0)
+      : fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_APPEND;
+    try { recordFd = fs.openSync(file, flags, 0o600); } catch (e) {
+      try { removeTree(tempDir); } catch { /* reported below */ }
+      throw new Error(`restoresink: could not open the restore record (${e.code || e.message})`);
+    }
   }
 
   /* Make each folder on the way, one segment at a time, proving each is a real folder inside the root before
@@ -214,13 +346,14 @@ function createRestoreSink(root) {
 
   return {
     root: rootReal,
+    /** slice 3: true when a resumed root already holds rel with exactly this content (proved when the sink opened). */
+    has(rel, sha256, size) {
+      const h = held.get(rel);
+      return !!h && h.sha256 === sha256 && h.size === size;
+    },
     begin(rel) {
-      const segs = typeof rel === 'string' ? rel.split('/') : [];
-      // The plain-relative shape, plus a backstop for a caller that skipped pathProblem: no ':' (a drive or an NTFS
-      // stream), no control characters, no trailing dot or space (which Windows would trim to another name).
-      if (!segs.length || segs.some((s) => s === '' || s === '.' || s === '..' || s.includes('\\') || /[\x00-\x1f:]/.test(s) || /[. ]$/.test(s) || SHORT_NAME_RE.test(s))) {
-        throw new Error('restoresink: not a plain relative path');
-      }
+      const segs = plainSegments(rel);
+      if (!segs) throw new Error('restoresink: not a plain relative path');
       // A file committed into the temp folder would be deleted by close() while reported restored. The temp name's
       // 64 random bits keep a manifest from naming it; this prefix refusal (first segment only, where the temp folder
       // sits; lower case, not APFS or NTFS folding) is a second, weaker line. A Mac file with that prefix does not
@@ -229,6 +362,9 @@ function createRestoreSink(root) {
       const tmp = path.join(tempDir, crypto.randomBytes(12).toString('hex'));
       let fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
       const closeFd = () => { if (fd !== null) { const f = fd; fd = null; fs.closeSync(f); } };
+      // slice 3: the record's hash is of the bytes this sink wrote, never a caller's claim about them.
+      const digest = crypto.createHash('sha256');
+      let written = 0;
       return {
         write(buf) {
           if (fd === null) throw new Error('restoresink: this file was already committed or aborted');
@@ -237,11 +373,19 @@ function createRestoreSink(root) {
             if (n <= 0) throw new Error('restoresink: the write made no progress');
             off += n;
           }
+          digest.update(buf);
+          written += buf.length;
         },
         commit() {
           if (fd === null) throw new Error('restoresink: this file was already committed or aborted');
           fs.fsyncSync(fd);
           closeFd();
+          // slice 3: the record line goes first and is fsynced, so a file that is published is always recorded (a
+          // line whose link then fails names an absent file, which a resume drops).
+          if (recordFd !== null) {
+            fs.writeSync(recordFd, `${JSON.stringify({ path: segs.join('/'), size: written, sha256: digest.digest('hex') })}\n`);
+            fs.fsyncSync(recordFd);
+          }
           const { dir, made } = makeParents(segs);
           try {
             fs.linkSync(tmp, path.join(dir, segs[segs.length - 1]));  // EEXIST when anything holds the name
@@ -256,12 +400,16 @@ function createRestoreSink(root) {
         },
       };
     },
-    /** Removes the temp folder. Files already committed stay. */
-    close() { removeTree(tempDir); },
+    /** Removes the temp folder, and the record unless keepRecord. Files already committed stay. */
+    close(o = {}) {
+      if (recordFd !== null) { const f = recordFd; recordFd = null; fs.closeSync(f); if (!(o && o.keepRecord)) fs.rmSync(path.join(rootReal, RECORD_NAME), { force: true }); }
+      removeTree(tempDir);
+    },
   };
 }
 
 module.exports = {
   createRestoreSink,
+  RECORD_NAME,
   isPrivateGroup,  // exported for its test only
 };

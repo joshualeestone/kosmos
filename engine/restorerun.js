@@ -25,7 +25,7 @@
 const crypto = require('crypto');
 const { unwrapMemberKey } = require('./backupkeys');
 const { openManifest } = require('./backupformat');
-const { restoreSnapshot } = require('./backuprestore');
+const { restoreSnapshot, toSinkPath } = require('./backuprestore');
 const devkeyhist = require('./devkeyhist');
 
 // How far before its grant a snapshot's own time may be (a consistency bound, not a security one; see the header). A
@@ -191,6 +191,9 @@ async function runRestore(opts) {
   if (typeof opts.plan === 'function') {
     const inOrder = [];
     for (const f of Array.isArray(opened.files) ? opened.files : []) {
+      // slice 3: a file a resumed sink already holds is skipped by backuprestore, so its chunks are not planned.
+      if (f && typeof f.path === 'string' && opts.sink && typeof opts.sink.has === 'function'
+        && opts.sink.has(toSinkPath(f.path), f.sha256, f.size) === true) continue;
       for (const name of (f && Array.isArray(f.chunks) ? f.chunks : [])) {
         const k = typeof name === 'string' && Object.prototype.hasOwnProperty.call(objects, name) ? objects[name] : null;
         if (keyOk(k, org, member)) inOrder.push(k);
