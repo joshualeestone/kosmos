@@ -738,6 +738,9 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     subtasks: tree.progress(t.number),
     // kosmos#4787 slice 1b: the task page's repeat line, in the board's words; a task its parts closed has no next run (review 1).
     ...taskrepeatMod.fieldsOf(tasksModEarly.progressOf(t).closed ? Object.assign({}, t, { isClosed: true }) : t),
+    // kosmos#7184: what a held task waits for and whether it has happened, from the engine's own reading (holdUntilState
+    // counts a task that is gone as met), so the task page draws it and never works it out itself. null when none.
+    holdUntil: tasksModEarly.holdUntilState({ tasks }, t),
   } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
   /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole
