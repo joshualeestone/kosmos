@@ -33706,8 +33706,8 @@ function acctAddTabStops() {
   const sel = 'button, [href], input, select, textarea, summary, [contenteditable]:not([contenteditable="false"]), [tabindex]';
   const stops = Array.from(dlg.querySelectorAll(sel))
     .concat(ask && !ask.hidden ? Array.from(ask.querySelectorAll('button')) : [])
-    .filter((el) => el.tabIndex >= 0 && !el.disabled && !el.closest('[hidden]') && el.getClientRects().length
-      && getComputedStyle(el).visibility !== 'hidden' && !acctAddInert(el));
+    .filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[hidden]') && el.getClientRects().length
+      && getComputedStyle(el).visibility !== 'hidden' && !acctAddInert(el));   // :disabled sees a disabled fieldset too
   // A radio group is one stop, as the browser tabs it: the checked radio, or the first when none is checked (the
   // browser enters an unchecked group backwards at its last; there is no radio in the dialog today).
   return stops.filter((el) => {
