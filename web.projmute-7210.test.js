@@ -104,3 +104,15 @@ test('#7210: the new-message sound rings only for a project on All (the unread c
   assert.equal(api.pjNotifyLevel({ notify: 'mentions' }), 'mentions');
   for (const odd of [{}, { notify: 'loud' }, null]) assert.equal(api.pjNotifyLevel(odd), 'all', JSON.stringify(odd));
 });
+
+test('#7210 review 1: a save answered after a later choice is still kept, so a later refusal puts back the saved level', async () => {
+  const t = load({ id: 'p6', name: 'P' });
+  const first = t.api.pjNotifyChoose('muted');
+  const second = t.api.pjNotifyChoose('mentions');
+  t.answer(0, true, { project: { notify: 'muted' } });
+  await first;
+  t.answer(1, false, { error: 'refused' });
+  await second;
+  assert.equal(t.project.notify, 'muted', 'the board saved muted, but the page forgot it');
+  assert.equal(t.checked(), 'muted', 'the refusal put back an older level than the board holds');
+});
