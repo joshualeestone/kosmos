@@ -74,3 +74,12 @@ after trying it. Design shots before merge. The call is written on the card (com
   #pjs-notify-msg were missing from the page (it ships) -> accepted. N2 another device changing the level while this
   page is on the Agents tab can under-report the nav badge by the open room's unread (about 0 there) until the next
   projects poll -> accepted, self-heals. N3 tally and nav badge use different feeds (pre-existing).
+- Design review (Mona Lisa, m428): approved with one should-fix -> FIXED 980dddf2e0: the sound switch is dimmed and not
+  pressable while the project is not on All, with the reason under it; on a phone the title label is the bell alone;
+  the label looks like a state (no outline, muted ink); All's words end on the sound. Round 2 (m430): approved; one
+  light phone shot caught the room before its first read painted (two re-runs showed it painted) -> the shot screen
+  now waits for the room's words (be491a20a7).
+- Review 4 (opus, on 980dddf2e0): W1 the bell-only label was about 24px wide on a phone -> FIXED (36px min-width, a
+  40x36 tap with its ring). W2 the sound switch's handler relied only on the browser skipping a disabled button's click
+  -> FIXED (it refuses itself; test). N3 a disabled switch's description is not reached by Tab (the note is visible
+  above it in reading order) -> accepted. N4 hover tint on the quiet label -> kept for mouse users.
