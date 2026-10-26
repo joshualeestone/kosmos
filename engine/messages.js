@@ -968,7 +968,7 @@ function record() {
     const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at)));
     FILTERED = { cache, key, stamp: born.stamp, rows };
   }
-  return { ok: born.ok, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
+  return { ok: born.ok, stampsUnknown: !born.ok, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
 }
 
 /* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms; null when
@@ -1113,7 +1113,8 @@ function rowShaped(m) {
 /* The send path keeps the old contract on purpose: an unreadable log
    fails OPEN there (the valve cannot count; ids restart only on a board that has minted none since it started) rather than
    blocking every send on a read error -- a RECORDED trade, revisit when
-   retention lands. */
+   retention lands. #7185 keeps it: a room post, a reaction and a freed claim refuse only when the PROJECTS file
+   cannot be read (record()'s stampsUnknown), because then the room's own rows are hidden, not merely unread. */
 function readLog() {
   return record().rows;
 }
@@ -2316,9 +2317,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* #4580: the fold runs BEFORE the which-room ask below: a retry of a post that was already delivered must not be
      held back to ask which room it meant, which would read as "not posted". */
   const rec = record();
-  /* #7185: with the projects file unreadable the room's rows are left out (record() says ok:false), so the fold, the
-     reply check and the valve below would all read an empty room. Say so rather than post on that. */
-  if (!rec.ok) return { state: chat.DELIVERY.COULD_NOT, because: 'we could not read this room right now, so nothing was posted; try again in a moment', id: null, at, outcomes: null };
+  /* #7185: with the projects file unreadable the room's rows are left out, so the fold, the reply check and the valve
+     below would all read an empty room. Say so rather than post on that. Only for that case (stampsUnknown): an
+     unreadable LOG still fails open here, the recorded trade above readLog. */
+  if (rec.stampsUnknown) return { state: chat.DELIVERY.COULD_NOT, because: 'we could not read this room right now, so nothing was posted; try again in a moment', id: null, at, outcomes: null };
   const log = rec.rows;
   /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
      refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
@@ -3645,7 +3647,9 @@ function freeClaim({ project, of, by, members }) {
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
   if (!postId) return { ok: false, because: 'we could not tell which post to free' };
   if (!shown) return { ok: false, because: 'we could not tell whose claim to free' };
-  const rows = record().rows;
+  const rec = record();
+  if (rec.stampsUnknown) return { ok: false, because: 'we could not read this room right now, so the claim was not changed' };   // #7185
+  const rows = rec.rows;
   const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };
   const room = claimMembers(members);
@@ -3824,7 +3828,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     }
   }
   const rec = record();
-  if (!rec.ok) return { ok: false, because: 'we could not read this room right now, so the reaction was not changed' };   // #7185
+  if (rec.stampsUnknown) return { ok: false, because: 'we could not read this room right now, so the reaction was not changed' };   // #7185
   const rows = rec.rows;
   const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };

@@ -3114,6 +3114,29 @@ test('#7185: with the projects file unreadable a room post is refused as could-n
   });
 });
 
+test('#7185: with the projects file unreadable a reaction and a freed claim say could-not-read, not "no such post"', () => {
+  const projects = require('./projects');
+  const pid = projects.create({ name: 'Unreadable React Room' }).id;
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm718599', project: pid, from: 'mara', to: ['leo'], text: 'a real post', at: new Date().toISOString(), outcomes: {} }) + '\n');
+  assert.ok(messages.record().rows.some((m) => m && m.id === 'm718599'), 'CONTROL: the post is in the room');
+  const f = projects.file();
+  const good = fs.readFileSync(f);
+  fs.writeFileSync(f, good.toString('utf8') + ' not json');
+  let reacted, freed;
+  try {
+    assert.equal(messages.record().stampsUnknown, true, 'CONTROL: the stamps are unknown');
+    reacted = messages.react({ project: pid, of: 'm718599', emoji: '\u{1F44D}', operator: true, members: ['mara', 'leo'] });
+    freed = messages.freeClaim({ project: pid, of: 'm718599', by: 'leo', members: ['mara', 'leo'] });
+  } finally {
+    fs.writeFileSync(f, good);
+  }
+  assert.equal(reacted.ok, false);
+  assert.match(reacted.because, /could not read this room/, 'react: ' + reacted.because);
+  assert.equal(freed.ok, false);
+  assert.match(freed.because, /could not read this room/, 'freeClaim: ' + freed.because);
+});
+
 test('#3564: a swarm switched OFF in a project is not woken by the room, unless the post @-names it', () => {
   const projects = require('./projects');
   const made = projects.create({ name: 'Swarm Off Room' });
