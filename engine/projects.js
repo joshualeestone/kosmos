@@ -909,7 +909,7 @@ function needsYouReason(m, projectId) {
   if (m.state === 'connection_lost' && m.reconnect && m.reconnect.phase === 'gave_up') return 'gave_up';
   // #7212 slice 2b: messages held half an hour behind its input box; after the agent's own conditions, before a
   // Kosmos give-up (pjAlsoWhy orders them the same).
-  if (m.heldInput && Number(m.heldInput.count) > 0) return 'held_input';
+  if (m.heldInput && Number(m.heldInput.count) > 0 && (m.state === 'idle' || m.state === 'working')) return 'held_input';   // the gate every copy has (review 1)
   // #5154 slice B: a Kosmos give-up is the LOWEST-priority specific reason -- the agent's own question, trust,
   // crash loop, stuck error and connection-gave-up all win the wording first (aligned with pjAlsoWhy ordering).
   if (m.ownBound && m.ownBound.raised === true) return 'own_bound';

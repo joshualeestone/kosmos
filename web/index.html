@@ -67968,7 +67968,9 @@ function tskRepeatStale(rows, readAt, now) {
    cards' data-attn uses on this page. A case added to needsPerson belongs here and in data-attn too. */
 function tskNeedsSig() {
   return (Array.isArray(LAST) ? LAST : []).filter((a) => a && a.isNamedOurs === true && (a.state === 'needs_you' || a.state === 'needs_trust'
-    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')))
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')
+    // kosmos#7212 slice 2b: messages held behind its input box (as agentNeedsAttention), so a newly held agent re-reads.
+    || (a.heldInput && Number(a.heldInput.count) > 0 && (a.state === 'idle' || a.state === 'working'))))
     .map((a) => a.sessionName + ':' + a.state + ':' + (a.stateProject || '')).sort().join('|');
 }
 function tskNamesSig() {

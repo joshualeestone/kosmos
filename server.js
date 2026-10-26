@@ -7040,7 +7040,7 @@ const server = http.createServer(async (req, res) => {
         stuckError: a.isNamedOurs ? stuckterminal.peek(a.sessionName, a.state, Date.now()) : null,
         /* kosmos#7212 slice 2: Kosmos's messages to it have waited half an hour or more behind its input box (the minute
            sweep's last reading, heldinput.peek; READ-ONLY, so polling never reads a pane). Null when none are. */
-        heldInput: heldinput.peek(a.sessionName),
+        heldInput: a.isNamedOurs ? heldinput.peek(a.sessionName) : null,   // gated as safeRoster's is, so the board and the project agree (review 1 of 2b)
         /* #5154 slice B: whether a Kosmos helper (quota resume / idle nudge / first-reply nudge) has given up
            on this agent and said so only in a log. READ-ONLY (ownbounds.peek); the 60s sweep is the only writer,
            so the board cannot advance or clear an episode by polling. Only for an agent we started. */
@@ -25880,6 +25880,7 @@ function start(port = PORT) {
          unanswered line is the person-facing surface either way. */
       /* #7212: agents whose current held stretch was already said, and when (limitqueue.heldInputToSay keeps it). */
       const heldInputSaid = heldinput.loadSaid();   // slice 2a: from disk, so a restart does not say it again
+      const heldInputPushed = heldinput.loadPushed();   // slice 2b: likewise for the phone
       /* #7212: messages held behind an agent's input box for half an hour are said once per held stretch, with what
          the box reads now (text, or nothing Kosmos can read), so a hold that lasts days is never silent. Run after the
          minute's flush has settled, and not while an older run is still typing (flush skips a minute that finds one),
@@ -25891,10 +25892,12 @@ function start(port = PORT) {
         const cardOf = (name) => { if (roster === null) roster = safeRoster(); return chat.resolveCard(roster, name); };
         heldinput.sweep({
           said: heldInputSaid,
+          pushed: heldInputPushed,
           readBox: (name) => chat.inputBoxReads(cardOf(name)),
           cardKey: (name) => { const c = cardOf(name); return c && c.sessionName; },
           log: (line) => process.stdout.write(line),
-          // Slice 2b: the phone, once per stretch, named as the card is.
+          // Slice 2b: what the card counts by (an agent Kosmos started, in a state where the stretch counts), and the phone.
+          counts: (name) => { const c = cardOf(name); return Boolean(c && c.isNamedOurs && (c.state === 'idle' || c.state === 'working')); },
           push: (event) => { const c = cardOf(event.session); phonenotify.happened({ ...event, agent: (c && c.name) || event.session }); },
         });
       };

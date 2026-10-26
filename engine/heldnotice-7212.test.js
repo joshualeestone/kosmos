@@ -91,6 +91,8 @@ test('#7212 s2b: the project and Today name it as held_input, after the agent\'s
   assert.equal(projects.needsYouReason(member({ ownBound: { raised: true } }), 'p1'), 'held_input', 'a give-up took the wording');
   assert.equal(projects.needsYouReason(member({ crashLoop: { looping: true } }), 'p1'), 'crash_loop', 'a crash loop lost the wording');
   assert.equal(projects.needsYouReason(member({ state: 'rate_limited' }), 'p1'), null, 'a limited agent was counted');
+  // Review 1 of 2b: a limited agent that counts for ANOTHER reason keeps that reason, not held_input.
+  assert.equal(projects.needsYouReason(member({ state: 'rate_limited', ownBound: { raised: true } }), 'p1'), 'own_bound', 'the held reason skipped its state gate');
   assert.equal(cardlabel.reasonOf({ state: 'idle', running: true, heldInput: held }, true), 'held_input');
   // The page's own words for it, and the project row's reason.
   const PJ = new Function(sliceConst('PJ_NEEDS_WHY') + '\nreturn PJ_NEEDS_WHY;')();
@@ -175,7 +177,7 @@ test('#7212 s2a: the minute sweep records under the card\'s key, says once, and 
   assert.ok(limitqueue.add('swept', { id: 'sw2', from: 'x', envelope: 'e', at: ago(5), reset: ago(5), input: true }));
   const lines = []; const pushes = [];
   // The queue is named as the send route spelled it; the card's session name is what its row is looked up by.
-  const deps = (said, box = () => 'text') => ({ said, readBox: box, cardKey: (n) => (n === 'swept' ? 'swept-session' : n), log: (l) => lines.push(l), push: (e) => pushes.push(e) });
+  const deps = (said, box = () => 'text') => ({ said, pushed: heldinput.loadPushed(), readBox: box, cardKey: (n) => (n === 'swept' ? 'swept-session' : n), log: (l) => lines.push(l), counts: () => true, push: (e) => pushes.push(e) });
   const myPushes = () => pushes.filter((e) => e.session === 'swept-session');
   const mine = (xs) => xs.filter((x) => x.includes('swept'));
   heldinput.sweep(deps(heldinput.loadSaid()));
@@ -229,4 +231,41 @@ test('#7212 s2a: while a flush run is typing, the sweep reads no box and keeps t
   assert.deepEqual(said, []);
   assert.equal(reads, 0, 'a box was read while a delivery was typing');
   assert.deepEqual(heldinput.peek('kept'), kept, 'the last reading was dropped or changed');
+});
+
+test('#7212 s2b review 1: the phone is told once, the first minute the stretch counts, never while it does not', () => {
+  heldinput.resetForTests();
+  const at = ago(40);
+  assert.ok(limitqueue.add('later', { id: 'lt1', from: 'x', envelope: 'e', at, reset: at, input: true }));
+  const pushes = [];
+  let counting = false;
+  const run = (extra = {}) => heldinput.sweep({ said: heldinput.loadSaid(), pushed: heldinput.loadPushed(), readBox: () => 'unread',
+    cardKey: (n) => n, log: () => {}, counts: () => counting, push: (e) => pushes.push(e), ...extra });
+  const mine = () => pushes.filter((e) => e.session === 'later');
+  run();   // said in the log, but the agent is (say) out of usage: no push
+  assert.equal(mine().length, 0, 'the phone was told while the board does not count it');
+  counting = true;
+  run();   // it goes idle: now it counts, and the phone is told
+  assert.equal(mine().length, 1, 'the phone was never told once it counted');
+  run();
+  run();   // a board restart reads both maps back from disk
+  assert.equal(mine().length, 1, 'the phone was told again');
+  // The stretch ends; a new one is told again once it counts.
+  assert.ok(limitqueue.remove('later', 'lt1'));
+  run();
+  assert.equal(heldinput.loadPushed().has('later'), false, 'an ended stretch stayed marked as told');
+  assert.ok(limitqueue.add('later', { id: 'lt2', from: 'x', envelope: 'e', at: ago(35), reset: ago(35), input: true }));
+  run();
+  assert.equal(mine().length, 2, 'a new stretch was never told');
+});
+
+test('#7212 s2b review 1: the tasks page re-reads when an agent becomes held, as for any needs-the-person case', () => {
+  const sig = (rows) => new Function('LAST', page.lift(SCRIPT, 'tskNeedsSig') + '\nreturn tskNeedsSig();')(rows);
+  const fleet = require('../test-support/fleet');
+  const board = fleet.install([fleet.agent('tk1', { state: 'idle' })]);
+  const card = { ...board.agents[0] };
+  board.restore();
+  const row = (extra) => ({ ...card, isNamedOurs: true, state: 'idle', ...extra });
+  assert.notEqual(sig([row({ heldInput: { count: 2, box: 'unread' } })]), sig([row({})]), 'a newly held agent did not change the signature');
+  assert.equal(sig([row({ heldInput: { count: 0 } })]), sig([row({})]), 'CONTROL: nothing held changes nothing');
 });
