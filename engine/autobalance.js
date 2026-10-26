@@ -158,7 +158,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
   return (session) => {
     const c = bySession.get(session);
     if (!c || !assigner.idleCard(c)) return false;
-    if (c.isGuide === true) return false;   // review 2: the page's bulk move never moves a guide, so neither would this
+    if (c.isGuide === true) return false;   // a backstop: the route's walk already leaves the guide out (skipGuide), as the bulk move does
     let rec = null;
     try { rec = readCommitment(session); } catch { rec = null; }
     const all = typeof records === 'function' ? records() : records;

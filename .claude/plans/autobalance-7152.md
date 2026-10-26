@@ -59,6 +59,11 @@ the decision is logged once per change (a line in the board's log), which is the
   account whose agent list is short still says why it is running out. Accepted, stated: a read that was already out
   when the switch was pressed, and that read the setting before the save, can paint the old switch position until the
   read the switch waits for replaces it (the route reads the setting after its live checks, so this is rare).
+- Review 6: a route test now drives one agent built by the real producers (test-support/fleet) on the at-risk
+  default account: idle, it is found movable (held, since the sandbox's second account shares no memory and so may
+  not take it, asserted as the control); working, it is not. The guide check in movableFor is a backstop: the walk
+  already leaves the guide out. Slice 3 must re-check that an agent is idle at the moment it moves; this slice reads
+  the roster a few seconds before the answer is sent.
 - engine/autobalance-setting.js: the assigner-setting pattern. Missing reads ON; a corrupt file reads off. Effective
   only with two or more eligible accounts; with one it does nothing and says nothing.
 - GET /api/accounts?agents=1: `autobalance: { on, ok, eligible, moves, held, short, atRisk, unreadable? }`; every Claude row also

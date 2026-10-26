@@ -28,6 +28,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const statusline = require('./engine/kosmos-statusline');
+const jobfix = require('./test-support/jobfixture');
+const fleet = require('./test-support/fleet');
 
 let port = 0;
 test.before(async () => { await start(0); port = server.address().port; });
@@ -120,4 +122,45 @@ test('#7152 review 5: a setting file that could not be read reaches the page as 
     assert.equal(ab.ok, false, 'a corrupt setting reached the page as a good reading');
     assert.equal(ab.on, false, 'CONTROL: the engine reads it off');
   } finally { fs.rmSync(file, { force: true }); }
+});
+
+test('#7152 review 6: an idle agent the real board lists, on an account running out, is found movable through the real route', async (t) => {
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.test' } }));
+  const spare = path.join(home, '.claude-spare');
+  fs.mkdirSync(spare, { recursive: true });
+  fs.writeFileSync(path.join(spare, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'other@example.test' } }));
+  const weekly = (dir, usedPct) => fs.writeFileSync(path.join(dir, statusline.FILE),
+    JSON.stringify({ usedPct, resetsAt: Math.floor((Date.now() + 40 * 3600e3) / 1000), at: Date.now() - 60e3, history: [] }));
+  weekly(path.join(home, '.claude'), 95);
+  weekly(spare, 10);
+  /* One agent, built by the real producers (test-support/fleet), on the default account by its launch job. */
+  const pp = jobfix.jobPath('ada');
+  fs.mkdirSync(path.dirname(pp), { recursive: true });
+  fs.writeFileSync(pp, jobfix.jobFor('ada', '/bin/claude', '/bin/tmux', 'opus', null, 'claude'));
+  const read = async (state) => {
+    const board = fleet.install([fleet.agent('ada', { state })], { strict: false });
+    try { return (await call('GET', '/api/accounts?agents=1')).json; } finally { board.restore(); }
+  };
+  const idle = await read('idle');
+  const row = (idle.accounts || []).find((a) => a.provider === 'anthropic' && a.isDefault);
+  assert.ok(row && row.agentsHere && row.agentsHere.names.includes('ada'), 'CONTROL: the board lists ada on the default account: ' + JSON.stringify(row && row.agentsHere));
+  const ab = idle.autobalance;
+  assert.equal(ab.unreadable, undefined, 'the decision failed through the real route');
+  assert.deepEqual(ab.atRisk.map((x) => x.from), [path.join(home, '.claude')]);
+  /* `held` is filled only when the account has MOVABLE agents and no target, so it proves the real roster card went
+     through movableFor (idle, commitments free, no open work) and decide. No target here: the sandbox's second
+     account shares no memory with the default (no projects link), which the bulk move also refuses. */
+  assert.deepEqual(ab.held.map((h) => h.from), [path.join(home, '.claude')],
+    'an idle agent the real board lists was not found movable (moves ' + JSON.stringify(ab.moves) + ', held ' + JSON.stringify(ab.held) + ')');
+  const spareRow = (idle.accounts || []).find((a) => a.dir === spare);
+  assert.ok(spareRow && spareRow.weekly && spareRow.weekly.usedPct === 10, 'CONTROL: the spare account is measured at 10%');
+  assert.equal(spareRow.memoryShared, false, 'CONTROL: the spare account shares no memory here, which is why nothing may take them');
+  assert.equal(spareRow.bulkTargetable, false);
+  const busy = (await read('working')).autobalance;
+  assert.deepEqual(busy.held, [], 'CONTROL: a working agent is not found movable');
+  assert.deepEqual(busy.moves, []);
+  assert.deepEqual(busy.atRisk.map((x) => x.from), [path.join(home, '.claude')], 'CONTROL: the account is still named as running out');
+  fs.rmSync(pp, { force: true });
 });
