@@ -26,6 +26,11 @@ The first real user (the 07:00 email digest, 10-26) arrived as one run-on line: 
   an unref'd 60 s timer and the test board exits in seconds; the same for every server test.
 - Noted for design, not built (review 1): the phone centres Kosmos lines, so a list shows centred there.
 
+- Review 2: none new. Accepted: the Mac CLI turns a lone CR into a space while the server makes it a break (CRLF is
+  the same either way; mapping CR to LF in the CLI would double every CRLF into a blank line). Deferred, predates this
+  card: a raw VT or FF piped through the Mac CLI makes invalid JSON and is refused. Its gap note was already covered:
+  the control-character test sends U+0085 and U+2028. Converged.
+
 ## Rejected
 - Markdown in notices: rendering it would run other people's words (an email digest) through the rich renderer that
   draws links, a phishing surface; stripping it would mangle real underscores and asterisks in names. Left literal;
@@ -44,4 +49,5 @@ and the recommender's own `rec` notes; no pane delivery quotes a note.
 
 ## Status
 - [x] code + tests
-- [ ] controls, focused guards, challenge-loop, PR
+- [x] controls, focused guards (1311 then 610 pass), challenge-loop (converged at 2)
+- [ ] PR, merge on green, verify on main by content
