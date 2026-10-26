@@ -82,6 +82,15 @@ const focusPage = (p) => p.evaluate(() => {
   return !!c && document.activeElement === c;
 });
 
+/* Choose a provider the way a person does: the picker's visible button, then its option (the native select under it
+   is a hidden source). */
+async function pickProvider(p, value) {
+  await p.click('#acct-provider-field .pcombo-trigger');
+  await p.waitForTimeout(150);
+  await p.click('#acct-provider-field .pcombo-opt[data-value="' + value + '"]');
+  await p.waitForTimeout(250);
+}
+
 /* Tab and Shift+Tab from every stop: each lands on its neighbour, wrapping. Returns the first miss, or null. */
 async function walk(p) {
   const n = await p.evaluate(() => window.__stops7202().length);
@@ -173,8 +182,7 @@ async function walk(p) {
         await p.evaluate(() => document.getElementById('trap7202-tail').remove());
 
         /* The note: focusable, not a stop. It sits in Claude's sign-in step. */
-        await p.selectOption('#acct-provider-pick', 'claude');
-        await p.waitForTimeout(200);
+        await pickProvider(p, 'claude');
         if (await p.isVisible('#acct-claude-pick-sub').catch(() => false)) { await p.click('#acct-claude-pick-sub'); await p.waitForTimeout(200); }
         const noted = await p.evaluate(() => {
           const n = document.getElementById('acct-add-note');
@@ -188,6 +196,42 @@ async function walk(p) {
         const fn = await focusNow(p);
         say(fn.at === noted.want, eng + ', the note: Shift+Tab from it lands on the stop just before it', JSON.stringify(fn));
         await p.keyboard.press('Escape');
+
+        /* Steps with text fields, where WebKit's default Tab would leave for a field behind the dialog: the OpenAI key
+           step and the Grok key step, each walked from every stop, the password field included. */
+        for (const [prov, keyBtn, field] of [['openai', '#acct-openai-pick-key', '#acct-openai-key'], ['xai', '#acct-grok-pick-key', '#acct-apikey-key']]) {
+          await open(p, 0);
+          await p.waitForTimeout(400);
+          await pickProvider(p, prov);
+          if (await p.isVisible(keyBtn).catch(() => false)) { await p.click(keyBtn); await p.waitForTimeout(250); }
+          const hasField = await p.evaluate((sel) => { const f = document.querySelector(sel); return !!f && window.__stops7202().includes(f); }, field);
+          say(hasField, eng + ', the ' + prov + ' key step: its key field is a stop');
+          const missK = await walk(p);
+          say(!missK, eng + ', the ' + prov + ' key step: from every stop, the field included, Tab and Shift+Tab land on the neighbour', missK ? JSON.stringify(missK) : '');
+          await p.keyboard.press('Escape');
+          await p.waitForTimeout(300);
+        }
+
+        /* The two stand-downs a real key press cannot reach: an input method composing, and the dialog made inert by
+           a screen over it. A key event is sent to the focused stop and its defaultPrevented read: the trap must not
+           take it. A plain Tab sent the same way is the control (the trap takes it). */
+        await open(p, 0);
+        await p.waitForTimeout(400);
+        const taken = await p.evaluate(() => {
+          const send = (init) => { const s = window.__stops7202(); s[0].focus(); const ev = new KeyboardEvent('keydown', Object.assign({ key: 'Tab', bubbles: true, cancelable: true }, init)); s[0].dispatchEvent(ev); return ev.defaultPrevented; };
+          const plain = send({});
+          const composing = send({ isComposing: true });
+          const modal = document.getElementById('acct-add-modal');
+          modal.inert = true;
+          const inert = send({});
+          modal.inert = false;
+          return { plain, composing, inert };
+        });
+        say(taken.plain === true, eng + ', the control: a plain Tab sent to a stop is taken by the trap', JSON.stringify(taken));
+        say(taken.composing === false, eng + ', composing: a Tab while an input method composes is left alone', JSON.stringify(taken));
+        say(taken.inert === false, eng + ', inert: a Tab while the dialog is inert under another screen is left alone', JSON.stringify(taken));
+        await p.keyboard.press('Escape');
+        await p.waitForTimeout(300);
 
         /* Option+Tab is how WebKit moves between buttons: it must not walk out either. From the last stop, forward. */
         await open(p, 0);
@@ -228,7 +272,9 @@ async function walk(p) {
         say(fr2 === 'b', eng + ', a radio group: Shift+Tab back lands on the checked radio, not the last of the group', fr2);
         await p.evaluate(() => document.getElementById('trap7202-radios').remove());
 
-        /* Another dialog shown over this one has the keyboard: its own trap moves Tab, this one stands down. */
+        /* Another dialog shown over this one: Tab is left to it. This runs on the first step, which has no text field;
+           on a step with one, WebKit's default Tab from the other dialog's middle button would reach that field (the
+           other dialog's own trap acts only at its ends), which is that dialog's to fix, not this one's. */
         await p.evaluate(() => { document.getElementById('updconfirm').hidden = false; document.getElementById('uc-no').focus(); });
         await p.keyboard.press('Tab');
         // Where that dialog's own trap sends focus is its business (in WebKit it acts only at its last button); what this
