@@ -65,7 +65,8 @@ test('#7152 slice 3: a decision is recorded once per change, with labels, reason
   /* CONTROL: a changed decision is recorded again, and a return to the first one too. */
   await run.tick(deps({ usage: { ...USAGE, '/u/.claude-work': reading(50, 35) } }), NOW + 2000);
   await run.tick(d, NOW + 3000);
-  assert.equal(sweep.readLines(file).length, 2, 'a decision that came back after a change was not recorded');
+  /* risk, the risk ending (review 10: written, as an empty decision), the risk again */
+  assert.deepEqual(sweep.readLines(file).map((l) => l.moves.length), [1, 0, 1], 'a decision that came back after a change was not recorded');
 });
 
 test('#7152 slice 3: the sweep moves nothing: its module has no way to', () => {
