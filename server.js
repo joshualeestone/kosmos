@@ -2880,6 +2880,13 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
   return { usedBy, complete };
 }
 
+/* kosmos#7152 slice 3: whether the auto-balance sweep runs on this board: live execution, slice 1's usage reading
+   switched on and allowed (never under a test or a dry run), and no brake. The sweep and the page both ask this. */
+function automoveRuns() {
+  const usagePoll = require('./engine/usagepoll');
+  return liveExecution.liveExecutionAllowed() && usagePoll.liveAllowed() && usagePoll.enabled() && automove.sweepOn();
+}
+
 /* kosmos#7152 slice 3: what the auto-balance sweep reads and does, built fresh for each tick (the agents walk and the
    projects are read at most once per tick). A function, not inline in the sweep, so a test can drive a real tick
    against the real board's wiring. */
@@ -2900,7 +2907,6 @@ function automoveDeps() {
   return {
     list: () => accounts.list(),
     readUsage: (dir, nowMs) => usagePoll.readUsage(dir, nowMs),
-    isRefusal: (st) => usagePoll.isRefusal(st),
     agentsOn,
     roster: () => safeRoster(),   // a NEW read each time it is asked: the move re-checks idleness from it
     records: () => (records || (records = projects.readAll())),
@@ -13122,8 +13128,11 @@ const server = http.createServer(async (req, res) => {
             }
             autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, ...decision };   // review 5: ok, so a corrupt file is not a confident Off
           } catch { autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, moves: [], held: [], short: [], atRisk: [], unreadable: true }; }
-          /* Slice 3: whether the sweep moves agents or only records, and its newest entries (no email in them). */
-          autobalance.movesOn = automove.movesOn();
+          /* Slice 3: whether the sweep runs here at all, whether it moves agents or only records, and its newest entries
+             (no email in them). Review 2: from the sweep's own gate, so the page never says moves happen where the
+             sweep cannot run. */
+          autobalance.recording = automoveRuns();
+          autobalance.movesOn = autobalance.recording && automove.movesOn();
           try { autobalance.recent = automove.recent(AUTOMOVE_FILE); } catch { autobalance.recent = []; }
         }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
@@ -26169,7 +26178,8 @@ function start(port = PORT) {
       if (usagePollFirst && typeof usagePollFirst.unref === 'function') usagePollFirst.unref();
       /* kosmos#7152 slice 3: usage auto-balance on a timer (engine/automove.js; plan .claude/plans/automove-7152.md). It
          needs slice 1's readings (an idle account is unmeasured otherwise), so it runs only where the usage poll runs, with
-         the same gating, on its own timer just after each poll period. It records the decision when it changes; it MOVES
+         the same gating (automoveRuns), on its own timer of the same period, reading the newest records the poll has
+         written (review 2: at most one period old; the two timers are not chained). It records the decision when it changes; it MOVES
          only with AGENT_WORKFORCE_AUTOMOVE=1 (off until a day of decisions has been read), one agent per tick, through the
          bulk move's own deps. AGENT_WORKFORCE_AUTOMOVE_OFF=1 stops the whole sweep. Cheap inputs only: accounts.list(),
          the usage records, the agents walk; never listLive(). */
@@ -26177,7 +26187,7 @@ function start(port = PORT) {
       let automoveBusy = 0;   // when the running tick started, or 0
       const automoveTick = () => {
         if (automoveBusy && Date.now() - automoveBusy < 3 * usagePoll.POLL_MS) return;   // a move can take minutes; see slice 1's review 12
-        if (!liveExecution.liveExecutionAllowed() || !usagePoll.liveAllowed() || !usagePoll.enabled() || !automove.sweepOn()) return;
+        if (!automoveRuns()) return;
         const started = Date.now();
         automoveBusy = started;
         automoveRun.tick(automoveDeps())

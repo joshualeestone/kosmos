@@ -28870,7 +28870,9 @@ function paintAutobalance(ab, list) {
     if (!html) html = line('Nothing to move right now.');
     /* Slice 3: whether Kosmos moves them itself on this computer, and what it did or would have done lately. */
     if (recentBox) {
-      recentBox.innerHTML = (ab.movesOn !== true ? line('Moving agents on its own is not switched on for this computer yet, so Kosmos keeps a record of what it would move.')
+      /* Review 2: from the sweep's own gate (recording), so the page never says it moves or records where it cannot. */
+      recentBox.innerHTML = (ab.recording !== true ? line('Kosmos does not check these accounts on a schedule on this computer, so it does not move agents or keep a record of what it would move.')
+        : ab.movesOn !== true ? line('Moving agents on its own is not switched on for this computer yet, so Kosmos keeps a record of what it would move.')
         : line('Kosmos moves them itself, one agent at a time, and says each move here.'))
         + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
     }
@@ -28881,7 +28883,13 @@ function paintAutobalance(ab, list) {
    shows, or the record's own label when the account is gone from the list. */
 function abRecentHtml(recent, label, who, line) {
   const name = (dir, kept) => { const l = label(dir); return l === 'another account' && kept ? kept : l; };
-  const at = (ms) => { const d = new Date(ms); return isNaN(d) ? '' : 'At ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ', '; };
+  /* Review 2: an entry from another day says which day, so an old one does not read as today's. */
+  const at = (ms) => {
+    const d = new Date(ms);
+    if (isNaN(d)) return '';
+    const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return (d.toDateString() === new Date().toDateString() ? 'At ' + t : 'On ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' at ' + t) + ', ';
+  };
   const out = [];
   for (const e of recent) {
     if (!e || typeof e !== 'object') continue;
@@ -28890,7 +28898,9 @@ function abRecentHtml(recent, label, who, line) {
     const to = esc(name(e.to, e.toLabel));
     if (e.kind === 'decision' && !e.live) {
       for (const m of Array.isArray(e.moves) ? e.moves : []) out.push(at(e.at) + 'it would have moved ' + esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel)) + '.');
-    } else if (e.kind === 'move' && e.outcome === 'changed') out.push(at(e.at) + 'Kosmos moved ' + agent + ' from ' + from + ' to ' + to + ', because ' + esc(e.why || 'its account was running out') + '.');
+    } else if (e.kind === 'move' && e.outcome === 'changed' && e.back) out.push(at(e.at) + 'Kosmos moved ' + agent + ' back to ' + to + ', because its first request on ' + from + ' was refused.');
+    else if (e.kind === 'move' && e.outcome === 'stopped') out.push(at(e.at) + 'the move of ' + agent + ' to ' + to + ' was stopped, so it stays on ' + from + '.');
+    else if (e.kind === 'move' && e.outcome === 'changed') out.push(at(e.at) + 'Kosmos moved ' + agent + ' from ' + from + ' to ' + to + ', because ' + esc(e.why || 'its account was running out') + '.');
     else if (e.kind === 'move' && e.outcome === 'partial') out.push(at(e.at) + 'Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.');
     else if (e.kind === 'move') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused.');
     else if (e.kind === 'skipped') out.push(at(e.at) + 'Kosmos did not move ' + agent + ', because it was no longer idle.');

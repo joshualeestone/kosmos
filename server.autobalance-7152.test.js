@@ -176,6 +176,7 @@ test('#7152 slice 3: Settings is told that moves are off, and gets the record ne
   assert.ok(file.startsWith(SANDBOX), 'CONTROL: the record would be written inside the sandbox');
   const first = (await call('GET', '/api/accounts?agents=1')).json.autobalance;
   assert.equal(first.movesOn, false, 'moves read as on with AGENT_WORKFORCE_AUTOMOVE unset');
+  assert.equal(first.recording, false, 'a board under a test said its sweep records (the sweep cannot run here)');
   assert.deepEqual(first.recent, [], 'a record was shown before anything was recorded');
   automove.append(file, { kind: 'decision', at: 1, live: false, moves: [], held: [], atRisk: [] });
   automove.append(file, { kind: 'skipped', at: 2, agent: 'ada', because: 'it was no longer idle' });
@@ -227,4 +228,40 @@ test('#7152 slice 3: one real tick through the board wiring records the decision
   assert.deepEqual(automove.readLines(file + '.2')[0].held.map((h) => h.from), [main], 'an unmeasured account was taken as a target');
   fs.rmSync(path.join(main, usagepoll.FILE), { force: true });
   fs.rmSync(pp, { force: true });
+});
+
+test('#7152 slice 3 review 2: the real guide check: a guide folder with its marker is never movable, nor the seeded guide name', () => {
+  const ab = require('./engine/autobalance');
+  const sa = require('./engine/setup-assistant');
+  const instructions = require('./engine/instructions');
+  const board = fleet.install([fleet.agent('gd'), fleet.agent('ada')], { strict: false });
+  try {
+    const cards = [board.card('gd'), board.card('ada')];
+    const file = instructions.fileFor('gd');
+    assert.ok(file && file.startsWith(SANDBOX), 'CONTROL: the guide folder is inside the sandbox: ' + file);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const marker = path.join(path.dirname(file), sa.GUIDE_MARKER);
+    const m = () => ab.movableFor({ cards, records: [], readCommitment: () => ({ state: 'clear' }) });   // the real isGuide and guideName
+    assert.equal(m()('gd'), true, 'CONTROL: with no marker, an ordinary idle agent is movable through the real checks');
+    fs.writeFileSync(marker, '');
+    assert.equal(sa.isGuideFolderStrict('gd'), true);
+    assert.equal(m()('gd'), false, 'the guide, by its folder marker, was movable');
+    assert.equal(m()('ada'), true, 'CONTROL: another agent is still movable');
+    fs.rmSync(marker);
+    fs.mkdirSync(marker);   // a marker that is not a file: not the guide (lstat answers), so still movable
+    assert.equal(m()('gd'), true);
+    fs.rmSync(marker, { recursive: true });
+    /* The seeded name, read strictly: the guide's record names it; an unreadable record refuses everyone. */
+    const flag = path.join(require('./engine/store').ROOT, 'setup-assistant.json');   // setup-assistant's flagPath()
+    assert.ok(flag.startsWith(SANDBOX), 'CONTROL: the guide record is inside the sandbox: ' + flag);
+    const had = fs.existsSync(flag) ? fs.readFileSync(flag) : null;
+    try {
+      fs.writeFileSync(flag, JSON.stringify({ name: 'ada' }));
+      assert.equal(m()('ada'), false, 'the seeded guide name was movable');
+      fs.writeFileSync(flag, '{ not json');
+      assert.throws(() => sa.guideNameStrict());
+      assert.equal(sa.guideName(), null, 'CONTROL: the lenient read takes a broken record as never seeded');
+      assert.equal(m()('gd'), false, 'a guide record that could not be read let an agent move');
+    } finally { if (had) fs.writeFileSync(flag, had); else fs.rmSync(flag, { force: true }); }
+  } finally { board.restore(); }
 });
