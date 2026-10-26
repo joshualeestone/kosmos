@@ -857,6 +857,9 @@ test('a lone surrogate never reaches a label or the world name', (t) => {
   let made = true;
   try { fs.mkdirSync(path.join(w, `ann${lone}x`)); } catch { made = false; }
   if (!made) { t.skip('this filesystem refuses a lone surrogate in a name'); return; }
+  // On macOS and Linux node writes the name as UTF-8 with U+FFFD in its place, so readdir never hands back a surrogate
+  // and this half passes with or without the strip. Windows (UTF-16 names, in tools/windows-tests.js) is where it bites;
+  // the worldName half above tests the strip on every platform.
   const labels = rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => a.label);
   assert.ok(labels.every((l) => !/[\uD800-\uDFFF]/.test(l)), labels.join(','));
 });
