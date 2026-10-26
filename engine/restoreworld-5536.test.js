@@ -789,14 +789,24 @@ test('a lock with no pid blocks only while young, and one that cannot be made do
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
   fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
-  const pidless = path.join(p.dir, 'restore-finishing');
-  fs.mkdirSync(pidless);   // no pid in it, as an older writer's crash could leave
-  const young = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
-  assert.equal(young.ok, false, 'a young lock with no pid may be one still being made: busy');
+  const lock = path.join(p.dir, 'restore-finishing');
+  // An empty lock folder: no finish makes one (a lock is renamed into place with its pid), and renaming onto an
+  // empty folder replaces it, so it is taken at once.
+  fs.mkdirSync(lock);
+  const empty = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(empty.ok, true, empty.because);
+  // A lock holding something but no readable pid is busy while young and stale once old.
+  const q0 = rw.prepareRestoreWorld(base, { member: 'Cy', now: NOW });
+  fs.mkdirSync(path.join(q0.restoreDir, 'workers', 'cy'), { recursive: true });
+  const odd = path.join(q0.dir, 'restore-finishing');
+  fs.mkdirSync(odd);
+  fs.writeFileSync(path.join(odd, 'note'), 'x');
+  const young = rw.finishRestoreWorld({ base, world: q0.world, restoreDir: q0.restoreDir, result: OK });
+  assert.equal(young.ok, false);
   assert.match(young.because, /already under way/);
   const old = (Date.now() - 60 * 1000) / 1000;
-  fs.utimesSync(pidless, old, old);
-  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  fs.utimesSync(odd, old, old);
+  const r = rw.finishRestoreWorld({ base, world: q0.world, restoreDir: q0.restoreDir, result: OK });
   assert.equal(r.ok, true, r.because);
   const q = rw.prepareRestoreWorld(base, { member: 'Bo', now: NOW });
   fs.chmodSync(q.dir, 0o555);
