@@ -56,6 +56,12 @@ agentProvider / codexJobProvider read a job only for codex agents today. Extendi
 read per claude agent per tick (memoized 2 s), which is most agents, not a few: measure the cost, or carry the
 provider on the card from the launch, before choosing. Its 10 callers' provider tables (providerLabel, modelsFor,
 failover families) must each learn the vendor or be shown not to need it.
+MEASURED 13:3x: create.readJob costs 0.023 ms per call on this Mac (400 reads over 3 real agent jobs), and the board
+already reads a job per agent on the five-second poll (accountForAgent). So agentProvider reads the job for claude
+agents too (memoized as for codex); the cost is not a reason to carry the provider on the card.
+DECIDED: jobProvider learns the vendor in step 4, together with the switch and move flows. Most of its callers
+(create.js 2174 "already runs on", 2523/2673 the switch, worldstarts 531, server 3605) are those flows, and returning
+'deepseek' before switching to it exists would send a provider those flows cannot handle.
 
 ## Windows launch: not in slice 1
 engine/win32launch.js copies the board's whole environment into a Windows agent, and this slice changes only the Mac
