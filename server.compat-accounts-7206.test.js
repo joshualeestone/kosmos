@@ -96,13 +96,14 @@ test('add: a good key is stored, and is not yet in /api/accounts (slice 1b), nev
   // The request's address is ignored: the stored account names the vendor, whose address is the table's.
   assert.equal(JSON.stringify(compat.readAccount(nodePath.join(SANDBOX, '.kosmos-deepseek-work'))).includes('elsewhere'), false);
   assert.equal(urls.every((u) => u === 'https://api.deepseek.com/models'), true);
-  vendorAnswers(hasModels);
+  const asked = vendorAnswers(hasModels);
   // Review 3: NOT listed in slice 1a. The page names a provider it does not know as Claude, so a listed DeepSeek row
   // would be shown, and acted on, as a Claude account. Slice 1b lists it with a page that knows it.
   const list = await (await fetch(base + '/api/accounts')).json();
   assert.equal(list.accounts.some((a) => a.dir === nodePath.join(SANDBOX, '.kosmos-deepseek-work') || a.provider === 'deepseek'), false,
     'a DeepSeek row is listed before the page knows the provider');
   assert.equal(JSON.stringify(list).includes(KEY), false, 'the list carries the key');
+  assert.deepEqual(asked, [], 'review 4: the account list sent a key to the vendor for a row nobody sees');
   // Its own route still finds it.
   assert.equal(compat.list('deepseek').some((a) => a.label === 'work'), true);
 });

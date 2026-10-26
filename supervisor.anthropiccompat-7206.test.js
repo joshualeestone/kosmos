@@ -17,6 +17,7 @@ const nodePath = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const SUP = nodePath.join(__dirname, 'bin', 'agent-supervisor.sh');
+const TMUX_REAL = ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux', '/usr/bin/tmux'].find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }) || null;
 const compat = require('./engine/anthropiccompat');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-compat-7206-'));
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -113,6 +114,45 @@ test('review 2: when the key cannot be handed over privately, the launch is refu
   assert.notEqual(r.code, 0);
   assert.equal(/new-session/.test(r.argv), false, 'the agent was launched without its key: ' + r.argv);
   assert.match(r.out, /provider key could not be handed to the agent privately; the agent was not started/);
+});
+
+/* Review 4: the REAL leak path, end to end. A private tmux server (its own socket, killed after) carries stray values in
+   its GLOBAL environment, the way a pane inherits them in life; the supervisor launches through it, and a stand-in
+   "claude" writes out exactly the environment and arguments it was started with. */
+test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek pane; the vendor\'s settings and key do', { skip: !TMUX_REAL && 'no tmux on this computer' }, async () => {
+  const sock = `kosmos-7206-${process.pid}-${++n}`;
+  const wrap = nodePath.join(SANDBOX, `tmux-${sock}.sh`);
+  fs.writeFileSync(wrap, `#!/bin/bash\nexec ${TMUX_REAL} -L ${sock} -f /dev/null "$@"\n`, { mode: 0o755 });
+  const out = nodePath.join(SANDBOX, `seen-${sock}.txt`);
+  const fake = nodePath.join(SANDBOX, `fake-claude-${sock}.sh`);
+  fs.writeFileSync(fake, `#!/bin/bash\n{ printf 'ARGS %s\\n' "$*"; env; } > "${out}.part" && mv "${out}.part" "${out}"\nsleep 2\n`, { mode: 0o755 });
+  const tm = (...a) => spawnSync(wrap, a, { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: SANDBOX } });
+  try {
+    tm('new-session', '-d', '-s', 'keepalive', 'sleep 60');
+    for (const [k, v] of [['ANTHROPIC_API_KEY', 'sk-ant-global-leak'], ['ANTHROPIC_BASE_URL', 'https://global.example'],
+      ['ANTHROPIC_MODEL', 'claude-opus-5'], ['CLAUDE_CODE_USE_BEDROCK', '1'], ['ANTHROPIC_AUTH_TOKEN', 'tok-global-leak']]) {
+      tm('set-environment', '-g', k, v);
+    }
+    const dir = home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) });
+    const env = { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: dir };
+    const r = spawnSync('/bin/bash', [SUP, `agent-t${n}`, SANDBOX, fake, wrap, '', 'claude-sonnet-5', 'claude'], { env, encoding: 'utf8', timeout: 30000 });
+    for (let i = 0; i < 100 && !fs.existsSync(out); i += 1) await new Promise((res) => setTimeout(res, 100));
+    assert.ok(fs.existsSync(out), 'the pane never ran: ' + (r.stdout || '') + (r.stderr || ''));
+    const seen = fs.readFileSync(out, 'utf8');
+    const has = (k) => new RegExp('^' + k + '=', 'm').test(seen);
+    const val = (k) => ((seen.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1]);
+    assert.equal(val('ANTHROPIC_BASE_URL'), 'https://api.deepseek.com/anthropic');
+    assert.equal(val('ANTHROPIC_AUTH_TOKEN'), KEY, 'the account\'s key did not reach the pane (or the global one won)');
+    assert.equal(val('ANTHROPIC_MODEL'), 'deepseek-chat');
+    assert.equal(has('ANTHROPIC_API_KEY'), false, 'tmux\'s global ANTHROPIC_API_KEY reached the pane');
+    assert.equal(has('CLAUDE_CODE_USE_BEDROCK'), false, 'tmux\'s global Bedrock switch reached the pane');
+    assert.equal(/sk-ant-global-leak|global\.example|tok-global-leak|claude-opus-5|claude-sonnet-5/.test(seen), false, 'a global or Claude value reached the pane');
+    assert.match(seen, /^ARGS .*--model deepseek-chat/m);
+  } finally {
+    tm('kill-server');
+    // kill-server leaves its socket file; remove this test's own (its unique name), never anything else there.
+    try { fs.rmSync(nodePath.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`, sock), { force: true }); } catch { /* best effort */ }
+  }
 });
 
 test('CONTROL: a Claude home launches exactly as before: its own model, no vendor address, no env prefix', () => {
