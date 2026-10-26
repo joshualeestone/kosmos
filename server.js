@@ -1275,6 +1275,50 @@ const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
+const communitytaskdone = require('./engine/communitytaskdone'); // #5313: one community prompt at the moment an agent marks a task built or closed (reaches busy agents the idle sweep misses)
+/* #5313 / #4947 slice 2: is this agent in the community (its instructions carry the community block,
+   and not the stopped section)? One definition, shared by the idle sweep (the community turn) and the
+   #5313 task-done prompt, so the two cannot drift. A `function` declaration (hoisted) so it may sit
+   beside its require; its body reads the module-scope `instructions`/`projects`, which are
+   initialised long before any request or timer calls it. Never throws (an unreadable read is "no"). */
+function agentInCommunity(session) {
+  try {
+    const cb = require('./engine/communityblock');
+    const cur = instructions.read(session);
+    if (!cur || !cur.exists) return false;
+    const f = projects.findBlock(cur.text || '', cb.START, cb.END);
+    return Boolean(f) && f.ambiguous !== true && !cb.isStoppedSection(cur.text || '');
+  } catch { return false; }
+}
+/* #5313: fire ONE community prompt for a just-finished task, reusing the idle sweep's gates
+   (engine/communityturn's live-exec + agent-nudge brake, the operator brake, the global community
+   switch, the Prompter's switch, the per-agent community membership) and the same chat.deliverAutomatic
+   the sweep uses, so a busy pane holds it as Queued (#5216). Reads and writes the per-task dedup book.
+   Synchronous and best-effort: it NEVER throws, and every caller runs it AFTER the mark is already
+   recorded, so a prompt can never fail a task mark. Shared by the built route and the close route. */
+function promptCommunityOnTaskDone({ projectId, taskNumber, session, name, trigger, roster }) {
+  try {
+    const communitystore = require('./engine/communitystore');
+    const book = communitytaskdone.readBook();
+    const r = communitytaskdone.promptOnTaskDone({
+      projectId, taskNumber, session, name, trigger,
+      now: Date.now(), book,
+      liveAllowed: () => agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
+      brakeOn: () => communityturn.brakeOn(process.env),
+      switchOn: () => communitysend.switchOn(),
+      prompterOn: () => heartbeatSetting.read().on === true,
+      inCommunity: agentInCommunity,
+      postTimes: (s) => { const all = communitystore.postTimesAll(); return all === null ? null : (all.get(String(s).trim().toLowerCase()) || []); },
+      deliver: (s, text) => chat.deliverAutomatic(s, text, roster),
+      DELIVERY: chat.DELIVERY,
+    });
+    if (r && r.recorded) communitytaskdone.writeBook(book);
+    if (r && r.act && r.act !== 'deduped' && r.act !== 'off' && r.act !== 'not-in-community') {
+      process.stdout.write(`community-task-done: ${r.name} (${r.session}) ${trigger} ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`);
+    }
+    return r;
+  } catch { return null; }   // a prompt is never a reason to fail a mark
+}
 const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the ask over the last 24 hours, through its board
 const communityendorse = require('./engine/communityendorse'); // #4913: an agent endorses another agent (stars + a review), or takes it back, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
@@ -23426,12 +23470,14 @@ const server = http.createServer(async (req, res) => {
        Nothing in this block may throw (it is outside the try below): processCaller and notOnProjectRefusal catch
        their own, and safeRoster answers null. */
     let actor = null;   // #6157: the agent its token named, recorded on a reopen as who put it back
+    let actorCard = null;   // #5313: its card too, for the community prompt's display name
     if (presentedAgentToken(req, {})) {
       const notDone = 'the task was not ' + (taskAct[3] === 'close' ? 'closed' : 'reopened');
       const who = processCaller(req, {}, safeRoster(), false, notDone);
       const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone, taskAct[3] + ' a task');
       if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
       actor = who.card ? who.card.sessionName : null;
+      actorCard = who.card || null;
     }
     /* kosmos#4787 review 3: closing ends a recurring job's rule, so a process cannot close a task whose rule the person
        set (as it cannot change the rule itself); it records each run with ran instead. */
@@ -23457,6 +23503,12 @@ const server = http.createServer(async (req, res) => {
         // a task it had already finished.
         let told = tellEveryoneOn(t);
         sendJson(res, 200, { task: t, told });
+        // #5313: an agent CLOSING its own task gets one community prompt too (not a reopen, not the
+        // person from the screen). After the response; the per-task dedup book means a task already
+        // prompted on its built mark, or re-closed, sends none. Best-effort, never fails the close.
+        if (taskAct[3] === 'close' && actor && !isViaScreen(req, {})) {
+          promptCommunityOnTaskDone({ projectId: id, taskNumber: taskAct[2], session: actor, name: (actorCard && actorCard.name) || actor, trigger: 'closed', roster: safeRoster() });
+        }
       } catch (err) {
         const msg = String((err && err.message) || '');
         const code = (err && err.code === 'UNREADABLE') ? 500
@@ -24126,6 +24178,13 @@ const server = http.createServer(async (req, res) => {
         } catch { /* a notification is never a reason to fail the mark */ }
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
+      // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle
+      // sweep never sees). After the response so the synchronous keystroke never delays the 200; the
+      // mark is already recorded, and the per-task dedup book makes a second built mark on the same
+      // task send none.
+      if (!viaScreen && body.clear !== true && out.changed && card) {
+        promptCommunityOnTaskDone({ projectId: id, taskNumber: taskBuilt[2], session: card.sessionName, name: card.name || card.sessionName, trigger: 'built', roster });
+      }
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });
@@ -26700,16 +26759,11 @@ function start(port = PORT) {
       const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
       const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
       const communityTurnTick = setInterval(() => {
-        const cb = require('./engine/communityblock');
         let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
         const allPosts = () => (postsNow === undefined ? (postsNow = require('./engine/communitystore').postTimesAll()) : postsNow);
         // One check of "is this agent in the community" (its instructions carry the block), for the turn and the read-ahead.
-        const inCommunity = (session) => {
-          const cur = instructions.read(session);
-          if (!cur || !cur.exists) return false;
-          const f = projects.findBlock(cur.text || '', cb.START, cb.END);
-          return Boolean(f) && f.ambiguous !== true && !cb.isStoppedSection(cur.text || '');   // kosmos#6239: not the stopped lines
-        };
+        // #5313: the shared module-scope agentInCommunity (same check the task-done prompt uses), so the two cannot drift.
+        const inCommunity = agentInCommunity;
         const done = communityturn.tickOnce({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
           switchOn: () => communitysend.switchOn(),

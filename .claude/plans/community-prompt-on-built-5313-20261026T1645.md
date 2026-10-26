@@ -99,24 +99,30 @@ best material it has and it is between tasks anyway — so send it exactly one p
 
 ## Checklist
 
-- [ ] 1. `engine/communitytaskdone.js`: `taskDoneText(trigger)` + `promptOnTaskDone(o)` pure core
+- [x] 1. `engine/communitytaskdone.js`: `taskDoneText(trigger)` + `promptOnTaskDone(o)` pure core
       (gates, per-task dedup, daily-post-max + per-agent daily cap, deliver, book update; never throws)
-      + `readBook`/`writeBook`/`bookFile` for `communitytaskdone.json`.
-- [ ] 2. `engine/communitytaskdone.test.js`: built→one prompt; **second built mark on same task → none**
-      (the card's named test); built-then-close → one prompt; close triggers; **reopen never triggers**;
-      each gate off (live-exec / brake / global switch / inCommunity / prompter) → no send;
-      daily-post-max reached → no send; per-agent daily cap reached → no send; busy/input-held pane ⇒
-      HOLD still books the dedup (so it isn't re-sent); unreadable book ⇒ empty; bad input never throws.
-- [ ] 3. `server.js`: extract module-scope `agentInCommunity(session)`; repoint the sweep closure at it.
-- [ ] 4. `server.js` built route (~24121): after the #6254 `ready` buzz, synchronously read book →
-      `communitytaskdone.promptOnTaskDone({... trigger:'built'})` → write book. Guarded by the existing
-      `!viaScreen && body.clear !== true && out.changed && card`.
-- [ ] 5. `server.js` close route (`act`, ~23451): on `taskAct[3]==='close'` with `actor` present and not
-      viaScreen, after `sendJson`, synchronously prompt with `trigger:'closed'` (resolve the agent's
-      display name from the roster). Reopen path untouched.
-- [ ] 6. Run `engine/communitytaskdone.test.js` green, then the full gated suite
-      (`unset KOSMOS_AGENT_TOKEN; bash tools/run-tests.sh`) via the queued-heavy path; confirm no
-      regression in `communityturn`, `chat`, `server` task-route tests.
+      + `readBook`/`writeBook`/`bookFile` for `communitytaskdone.json`. DONE.
+- [x] 2. `engine/communitytaskdone.test.js` (16 tests, all pass): built→one prompt; **second built mark
+      on same task → none** (the card's named test); built-then-close → one prompt; close triggers with
+      the `closed` wording; each gate off (live-exec / brake / global switch / inCommunity / prompter) →
+      no send + no book; a gated-off first mark does NOT burn the task; daily-post-max reached → no send;
+      per-agent daily cap reached → no send; HELD/queued pane ⇒ booked (so a second mark is deduped);
+      busy collision ⇒ NOT booked; bare COULD_NOT ⇒ NOT booked; deliver throw ⇒ UNCONFIRMED+booked;
+      unreadable book ⇒ empty; bad input / throwing gate never throws; readBook/writeBook round-trip +
+      retention prune. NOTE: "reopen never triggers" is a server-wiring property (the close route guards
+      on `taskAct[3]==='close'`), verified by code + the reopen route tests, not an engine unit.
+- [x] 3. `server.js`: added module-scope `agentInCommunity(session)`; repointed the sweep closure at it
+      and removed the now-unused `cb` require in the sweep. DONE.
+- [x] 4. `server.js` built route: after `sendJson` (so the synchronous keystroke never delays the 200),
+      guarded by the existing `!viaScreen && body.clear !== true && out.changed && card`, calls the shared
+      `promptCommunityOnTaskDone({... trigger:'built'})`. DONE.
+- [x] 5. `server.js` close route (`act`): on `taskAct[3]==='close'` with `actor` present and not viaScreen,
+      after `sendJson`, calls `promptCommunityOnTaskDone({... trigger:'closed'})` with the actor's display
+      name (captured as `actorCard`). Reopen path untouched. DONE.
+- [x] 5a. Shared `promptCommunityOnTaskDone` server helper wires the sweep's gates + `chat.deliverAutomatic`
+      + the dedup-book read/write; never throws (a prompt never fails a mark). DONE.
+- [ ] 6. Focused tests green (engine 16/16, communityturn 45/45, built/close route tests 131/131). Full
+      gated suite (`unset KOSMOS_AGENT_TOKEN; bash tools/run-tests.sh`) via the queued-heavy path: PENDING.
 - [ ] 7. `/challenge-loop` to convergence (writes the pre-challenge proof) → `/create-pr`
       (PR body: `Addresses #5313`, never Closes; reviewer = Sonya/Liu Kang, **not** joshualeestone on
       this box).
