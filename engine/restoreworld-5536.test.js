@@ -480,8 +480,11 @@ test('failedFiles counts the failures past the listed ones; a busy Kosmos list a
   const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
   fs.writeFileSync(path.join(w, 'ann', 'CLAUDE.md'), '# ann\n');
   for (let i = 0; i < 4001; i++) fs.writeFileSync(path.join(w, 'ann', `f${i}`), '');
-  const a = rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.find((x) => x.folder === 'ann');
+  const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  const a = l.agents.find((x) => x.folder === 'ann');
   assert.ok(a.runs.includes('(the folder holds more entries than were checked)'));
+  assert.match(a.because, /more entries than were checked/, 'a padded folder could hide its start-time files past the cut');
+  assert.equal(l.more, true);
 });
 
 test('listing refuses a world that is not in the registry', (t) => {
@@ -491,4 +494,34 @@ test('listing refuses a world that is not in the registry', (t) => {
   fs.mkdirSync(path.join(dir, 'workers', 'ann'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'workers', 'ann', 'CLAUDE.md'), '# ann\n');
   assert.deepEqual(rw.listRestoredAgents({ base, world: ghost, nameOk }).agents, []);
+});
+
+test('a hidden world is neither finished nor listed', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(path.join(w, 'bob'));
+  fs.writeFileSync(path.join(w, 'bob', 'CLAUDE.md'), '# bob\n');
+  assert.equal(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.length, 1, 'control: listed while on the list');
+  worlds.hideWorld(base, p.world.id);
+  assert.deepEqual(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents, []);
+  fs.rmSync(path.join(w, 'bob'), { recursive: true });
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /did not name its Kosmos/);
+  assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), 'nothing moved');
+});
+
+test('a restored root that cannot be checked is refused, not read as absent', { skip: process.platform === 'win32' ? 'POSIX modes' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  // Readable but not searchable: the folder lists, and lstat of anything in it fails with EACCES.
+  fs.chmodSync(p.restoreDir, 0o600);
+  let r;
+  try { r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK }); } finally { fs.chmodSync(p.restoreDir, 0o700); }
+  assert.equal(r.ok, false, 'an unreadable root must not finish as an empty restore');
+  assert.match(r.because, /restored workers could not be checked/);
+  assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), 'nothing moved');
 });

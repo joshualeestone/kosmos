@@ -44,10 +44,11 @@ const PLAIN_AT_START = ['CLAUDE.local.md', 'opencode.json', 'opencode.jsonc'];  
 /* A git folder's config (core.fsmonitor, core.hooksPath) runs commands when git runs there, which a provider does as
    soon as an agent starts. So an agent folder holding one is not offered, and one in the workers folder blocks all. */
 const GIT = '.git';
-const HARMLESS = new Set(['.DS_Store']);
+const HARMLESS = new Set(['.DS_Store']);   // Finder's own metadata, which no provider reads
 /* Git also reads a folder holding HEAD, objects and refs as a repository (a bare layout, accepted by default), with no
    .git at all. */
-const BARE = 'HEAD, objects and refs (git reads a folder holding them as a repository)';   // Finder's own metadata, which no provider reads
+const BARE = 'HEAD, objects and refs (git reads a folder holding them as a repository)';
+const CUT = '(the folder holds more entries than were checked)';
 /* Fillers and blanks that draw nothing, beside the Cc/Cf/Zl/Zp and private-use classes: braille blank, Hangul fillers. */
 const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
 
@@ -78,6 +79,12 @@ function worldName(member, now, attempt = 1) {
 
 function takenIds(base) {
   try { return new Set(worlds.readRegistry(base).worlds.map((w) => w.id)); } catch { return new Set(); }
+}
+
+/* The world's registry row is there and not hidden: a hidden Kosmos is off the list and cannot be switched to, so
+   nothing is moved into it or offered from it. */
+function onTheList(base, id) {
+  try { return worlds.readRegistry(base).worlds.some((w) => w.id === id && !w.hiddenAt); } catch { return false; }
 }
 
 /* opts: { member, now?, createWorld?, hideWorld? } (the two world calls injectable for tests).
@@ -153,7 +160,7 @@ function finishRestoreWorld(opts = {}) {
   const dir = worldDirOf(base, world);
   if (!dir || !realDir(dir)) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
   if (!opts.result || opts.result.ok !== true) return { ok: false, moved: [], kept: [], because: 'the restore did not succeed, so its files stay where it can continue' };
-  if (!takenIds(base).has(world.id)) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
+  if (!onTheList(base, world.id)) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
   const inner = opts.result.result;
   const notListed = inner && Number.isSafeInteger(inner.failedNotListed) && inner.failedNotListed > 0 ? inner.failedNotListed : 0;
   const failedFiles = (inner && Array.isArray(inner.failed) ? inner.failed.length : 0) + notListed;
@@ -174,7 +181,10 @@ function finishRestoreWorld(opts = {}) {
   for (const name of MOVED) {
     const src = path.join(restoreDir, name);
     let st = null;
-    try { st = fs.lstatSync(src); } catch { continue; }   // a snapshot without projects has nothing to move
+    try { st = fs.lstatSync(src); } catch (e) {
+      if (e && e.code === 'ENOENT') continue;   // a snapshot without projects has nothing to move
+      return { ok: false, moved: [], kept: [], because: `the restored ${name} could not be checked` };
+    }
     if (!st.isDirectory()) return { ok: false, moved: [], kept: [], because: `the restored ${name} is not a folder` };
     const dst = target[name];
     if (!realDir(dst)) return { ok: false, moved: [], kept: [], because: `the new Kosmos has no ${name} folder to receive it` };
@@ -267,7 +277,7 @@ function runsIn(folder, budget) {
   if (!listed) return ['(the folder could not be read)'];
   const out = [];
   for (const n of listed.names.filter((x) => x.startsWith('.') && !HARMLESS.has(x))) out.push(labelOf(n));
-  if (listed.cut) out.push('(the folder holds more entries than were checked)');
+  if (listed.cut) out.push(CUT);
   for (const g of gitIn(folder)) if (!out.includes(g)) out.push(g);
   const folded = new Set(listed.names.map((x) => x.toLowerCase()));
   for (const n of PLAIN_AT_START) if (folded.has(n.toLowerCase())) out.push(n);
@@ -310,7 +320,7 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
 function listRestoredAgents(opts = {}) {
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
   const worldDir = worldDirOf(opts.base, opts.world);
-  const listable = worldDir && realDir(worldDir) && takenIds(opts.base).has(opts.world.id);
+  const listable = worldDir && realDir(worldDir) && onTheList(opts.base, opts.world.id);
   const roots = listable ? worlds.envOverridesFor(opts.base, opts.world) : {};
   const budget = { left: MAX_BRIEF_TOTAL };
   const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;
@@ -358,6 +368,10 @@ function listRestoredAgents(opts = {}) {
       // NTFS aliases of .git (a trailing dot or space, an 8.3 short name) never get this far: restoresink.js
       // plainSegments refuses them.
       if (!because && isGit(runs)) because = 'it holds a git folder, whose settings can run commands as soon as it starts';
+      if (runs.includes(CUT)) {
+        more = true;
+        if (!because) because = 'it holds more entries than were checked, so what it loads at start could not all be seen';
+      }
       agents.push({ folder, label, from, name, dir: at, brief, runs, because });
     }
   };
@@ -373,6 +387,7 @@ function listRestoredAgents(opts = {}) {
     if (full() || HARMLESS.has(n)) continue;
     if (!isTopFolder(pr, n)) { shared.push({ where: 'projects', label: labelOf(n), runs: gitRow(n) }); continue; }
     const runs = realDir(path.join(pr, n)) ? runsIn(path.join(pr, n), budget) : ['it is a link'];
+    if (runs.includes(CUT)) more = true;
     if (runs.length) shared.push({ where: 'projects', label: labelOf(n), runs });
   }
   if (gitAbove) {   // folded: APFS and NTFS read .GIT as .git
