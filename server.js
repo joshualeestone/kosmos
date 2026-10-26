@@ -26188,11 +26188,14 @@ function start(port = PORT) {
          only with AGENT_WORKFORCE_AUTOMOVE=1 (off until a day of decisions has been read), one agent per tick, through the
          bulk move's own deps. AGENT_WORKFORCE_AUTOMOVE_OFF=1 stops the whole sweep. Cheap inputs only: accounts.list(),
          the usage records, the agents walk; never listLive(). */
-      const automoveRun = automove.create({ file: AUTOMOVE_FILE });
+      /* Review 7: a record that cannot be read must not stop the board: the sweep is then off, and says so in the log. */
+      let automoveRun = null;
+      try { automoveRun = automove.create({ file: AUTOMOVE_FILE }); }
+      catch (err) { process.stdout.write(`automove: off, the record could not be read (${String((err && err.message) || err)})\n`); }
       let automoveBusy = 0;   // when the running tick started, or 0
       const automoveTick = () => {
         if (automoveBusy && Date.now() - automoveBusy < 3 * usagePoll.POLL_MS) return;   // a move can take minutes; see slice 1's review 12
-        if (!automoveRuns()) return;
+        if (!automoveRun || !automoveRuns()) return;
         const started = Date.now();
         automoveBusy = started;
         automoveRun.tick(automoveDeps())
