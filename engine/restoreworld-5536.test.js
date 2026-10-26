@@ -402,7 +402,9 @@ test('finish and listing refuse a world folder swapped for a link', { skip: proc
   assert.equal(r.ok, false);
   assert.match(r.because, /did not name its Kosmos/);
   assert.ok(fs.existsSync(path.join(`${p.dir}-real`, rw.RESTORE_DIR, 'workers', 'ann')), 'nothing moved');
-  assert.deepEqual(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents, [], 'nothing is listed through the link');
+  const linked = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  assert.deepEqual(linked.agents, [], 'nothing is listed through the link');
+  assert.match(linked.because, /not a Kosmos on your list/, 'a linked world folder is refused as off the list, as the contract says');
 });
 
 test('a move that fails part way says which root moved and puts the empty target back; finishing again moves the rest', { skip: process.platform === 'win32' ? 'a read-only folder needs POSIX modes' : false }, (t) => {
