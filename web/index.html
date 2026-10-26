@@ -72812,6 +72812,54 @@ function pjBody(text, names, agentNames) {
   return out;
 }
 
+/* kosmos#7239 (Josh): an agent writes a web address bare, without https:// (meridianworks.kosmosplus.com), and it
+   should be a link too. A bare address is host labels ending in a known web ending, with an optional port, path,
+   query or fragment; it opens as https://. Endings that are also everyday file extensions (notes.md, Kosmos.app,
+   setup.sh, main.py) are left out, and so is anything with a letter case that is not a host's (store.ROOT), a version
+   (0.7.70: no ending is all digits), an email (the @ is not a host character) and code (held before this runs). The
+   ending must be lowercase (GitHub.com links, store.ROOT does not).
+   Returns the https:// address, or '' when the token is not a bare web address. */
+function pjBareWeb(tok) {
+  // Not info, store, page, link, live, news, in: they are also code properties or file names (logger.info,
+  // requirements.in). Built once, kept on the function.
+  const endings = pjBareWeb.endings || (pjBareWeb.endings = new Set(['com', 'net', 'org', 'io', 'ai', 'dev', 'co', 'me',
+    'us', 'uk', 'ca', 'au', 'nz', 'ie', 'de', 'fr', 'nl', 'es', 'it', 'se', 'no', 'dk', 'fi', 'ch', 'at', 'be', 'eu', 'jp',
+    'br', 'mx', 'biz', 'xyz', 'tech', 'online', 'cloud', 'gg', 'tv', 'fm', 'studio', 'agency', 'software', 'world', 'gov',
+    'edu']));
+  // Endings that are also a file extension or a code member (logo.ai, settings.dev, self.me, done.it): a bare
+  // one-dot name with one of these links only with a stronger sign, www., a subdomain, a path or a port. So
+  // claude.ai/settings and docs.example.dev link, and bare claude.ai does not (review 1, the trade recorded on the card).
+  const ambiguous = pjBareWeb.ambiguous || (pjBareWeb.ambiguous = new Set(['ai', 'dev', 'me', 'at', 'it', 'no', 'co']));
+  const t = String(tok || '');
+  if (t.length > 2048) return '';   // no real address is this long, and the pattern below is not linear on a dot run
+  const m = /^((?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+([a-z]{2,24}))(:\d{1,5})?([/?#][^\s￼]*)?$/.exec(t);
+  if (!m || !endings.has(m[2])) return '';
+  if (ambiguous.has(m[2]) && !m[3] && !m[4] && m[1].split('.').length === 2) return '';
+  return 'https://' + m[0];
+}
+/* kosmos#7239: one word of RAW text, split into what goes before a bare address, the address, and what goes after:
+   quotes, angle brackets, an opening paren, emphasis marks, a possessive 's and sentence punctuation stay outside.
+   A ")" stays in the address when the address opened one (en.wikipedia.org/wiki/Foo_(bar)). The tail is found by a
+   backwards scan, so a long run of punctuation costs a single pass. Returns null when the middle is not an address. */
+function pjBareSplit(tok) {
+  const t = String(tok || '');
+  if (t.length > 512 || t.indexOf('.') === -1) return null;   // no real address is this long
+  let a = 0;
+  while (a < t.length && '"\'<(*~_“‘'.indexOf(t[a]) !== -1) a += 1;
+  let b = t.length;
+  for (;;) {
+    if (b - 2 > a && (t.slice(b - 2, b) === "'s" || t.slice(b - 2, b) === '’s')) { b -= 2; continue; }
+    if (b > a && '"\'>.,;:!?])*~_”’'.indexOf(t[b - 1]) !== -1) { b -= 1; continue; }
+    break;
+  }
+  let core = t.slice(a, b);
+  let opens = 0, closes = 0;
+  for (const c of core) { if (c === '(') opens += 1; else if (c === ')') closes += 1; }
+  while (b < t.length && t[b] === ')' && opens > closes) { core += ')'; b += 1; closes += 1; }
+  const web = typeof pjBareWeb === 'function' ? pjBareWeb(core) : '';
+  return web ? { lead: t.slice(0, a), core, tail: t.slice(b), web } : null;
+}
+
 /* 🔑 EVERY PLACE A PERSON'S MESSAGE IS DRAWN GOES THROUGH THIS (#355). It was
    written for the project room and the other rows kept `esc(text)`, so the
    same pasted URL was a link in one box and dead characters in the next box
@@ -72928,12 +72976,18 @@ function pjRichSpans(seg, names, agentNames) {
      url is escaped text, the same form the bare-URL autolink below puts in its href. */
   s = s.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (mm, label, url) => {
     const u = url.trim();
-    const shown = /^https?:\/\/[^\s\uFFFC]+$/.test(u)
-      ? hold('<a class="xlink" href="' + u + '" target="_blank" rel="noreferrer noopener">' + u + '</a>')
+    // kosmos#7239 review 1: a bare address as the target ([site](example.com)) is a link too, to https://.
+    const bareTarget = !/^https?:/.test(u) && typeof pjBareWeb === 'function' ? pjBareWeb(u) : '';
+    const shown = /^https?:\/\/[^\s\uFFFC]+$/.test(u) || bareTarget
+      ? hold('<a class="xlink" href="' + (bareTarget || u) + '" target="_blank" rel="noreferrer noopener">' + u + '</a>')
       /* Held so the emphasis pass leaves it alone, unless it already carries a held span (inline code
          inside the address): restoring is one pass, so a placeholder held inside another would leak. */
       : (u.includes('\uFFFC') ? u : hold(u));
-    return label + ' (' + shown + ')';
+    // Reviews 2 and 3: a label with an address in it ([example.com](https://e.com), [see **x.com**](...)) stays plain
+    // text, or it becomes a second link, possibly to somewhere else.
+    const rawLabel = label.replace(/&(amp|lt|gt|quot);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e]));
+    const labelHasWeb = typeof pjBareSplit === 'function' && rawLabel.split(/\s+/).some((w) => pjBareSplit(w));
+    return (labelHasWeb ? hold(label) : label) + ' (' + shown + ')';
   });
   /* A URL (or, with `names`, a cited file) is a whole whitespace-delimited
      token. Trailing sentence punctuation and trailing emphasis stars
@@ -72998,6 +73052,24 @@ function pjRichSpans(seg, names, agentNames) {
           + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>') + mm[2];
       }
     }
+    /* kosmos#7239: a bare web address, AFTER the cited-file chip, so a project file named like a host (brand.ai) keeps
+       its Show me (review 1). The token is already escaped; a host, port and path carry nothing esc changes except &
+       in a query, which stays escaped in the href as the https arm above leaves it. Guarded: tests lift pjRich alone. */
+    if (!tok.includes('\uFFFC')) {
+      // Split the RAW word (review 2: so an entity is never cut), then escape each piece on the way out.
+      const rawTok = tok.replace(/&(amp|lt|gt|quot);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e]));
+      const bare = typeof pjBareSplit === 'function' ? pjBareSplit(rawTok) : null;
+      if (bare) {
+        // Review 2: a cited project file dressed in bold, quotes, parens or 's is still the file, with its Show me.
+        // Only a bare name, no path and no "..": an address with a path is a website, even if it ends in a file name (review 3).
+        const key = hasNames && !/[/?#]/.test(bare.core) && !bare.core.includes('..') ? pjCiteKey(bare.core, names) : null;
+        const mid = key !== null
+          ? '<span class="ref">' + esc(bare.core) + '<button class="refgo" type="button" data-ref="' + esc(key)
+            + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>'
+          : '<a class="xlink" href="' + esc(bare.web) + '" target="_blank" rel="noreferrer noopener">' + esc(bare.core) + '</a>';
+        return esc(bare.lead) + hold(mid) + esc(bare.tail);
+      }
+    }
     return tok;
   }).join('');
   s = s.replace(/\*\*([^\n*]+)\*\*/g, '<strong>$1</strong>');
@@ -73048,7 +73120,9 @@ function pjRich(text) {
          message stays byte-identical (pjRichSpans escapes it the same); a
          multi-line one renders its breaks as <br> under the same pre-wrap. */
       && raw.indexOf('|') === -1
-      && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) {
+      && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1
+      // kosmos#7239: a bare web address (example.com) takes the slow path, where it becomes a link.
+      && !(typeof pjBareSplit === 'function' && raw.indexOf('.') !== -1 && raw.split(/\s+/).some((t) => pjBareSplit(t)))) {
     return esc(raw);
   }
   const src = raw.split(/\r?\n/);   // #3679: a CRLF text (a task's detail) still closes its fences
