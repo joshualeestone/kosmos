@@ -686,3 +686,28 @@ test('node_modules at the top of workers is held back; a lookalike held-back fol
   assert.ok(r.kept.includes('held-back-snapshot'), 'the snapshot\'s own root is kept, as any other');
   assert.ok(!r.kept.some((n) => n.startsWith('held-back-') && n !== 'held-back-snapshot'), 'this run\'s held-back folder is itemised, not listed as kept');
 });
+
+test('an entry the filesystem opens as node_modules is held back, whatever its spelling', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const longS = String.fromCodePoint(0x17f);   // folds to s under full Unicode case folding
+  const odd = `node_module${longS}`;
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', odd), { recursive: true });
+  let folds = false;
+  try { fs.lstatSync(path.join(p.restoreDir, 'workers', 'node_modules')); folds = true; } catch { /* this filesystem keeps them apart */ }
+  if (!folds) { t.skip('this filesystem does not open the long s as s, so there is nothing to hold back'); return; }
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'));
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  assert.deepEqual(fs.readdirSync(worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS), ['ann']);
+});
+
+test('kept is capped and says so when the restore folder holds more than it lists', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  for (let i = 0; i < 1001; i++) fs.mkdirSync(path.join(p.restoreDir, `r${String(i).padStart(4, '0')}`));
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.kept.length, 1001);
+  assert.equal(r.kept[1000], '(more not listed)');
+});

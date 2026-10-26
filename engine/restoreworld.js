@@ -14,7 +14,8 @@
  *                         inside it for engine/restoresink.js (createWorld pre-makes store, projects and workers, and
  *                         the sink needs an empty root)
  *   finishRestoreWorld    after a restore that succeeded and whose sink is closed: moves the restored `workers` and
- *                         `projects` into the world's own (a rename inside one folder, so one volume)
+ *                         `projects` into the world's own (a rename within the world folder, so one volume
+ *                         unless something is mounted inside it, which then shows as a failed move)
  *   listRestoredAgents    the agent folders the review screen offers, each with why it cannot be enabled if it cannot,
  *                         and the files in it that run or load something when the agent starts
  *
@@ -255,10 +256,20 @@ function finishRestoreWorld(opts = {}) {
 /* A plain-named folder at the top of a root: what becomes the world's. Not a dot-entry, not HEAD (git), not
    node_modules (npm resolves packages up the tree, so npx in any agent folder below would run its scripts), not a
    file, not a link. */
-const NOT_PLAIN = new Set(['head', 'node_modules']);
+const NOT_PLAIN = ['HEAD', 'node_modules'];
 function plainFolder(parent, n) {
-  if (n.startsWith('.') || NOT_PLAIN.has(n.toLowerCase())) return false;
-  try { const st = fs.lstatSync(path.join(parent, n)); return st.isDirectory() && !st.isSymbolicLink(); } catch { return false; }
+  if (n.startsWith('.') || NOT_PLAIN.some((x) => x.toLowerCase() === n.toLowerCase())) return false;
+  let st;
+  try { st = fs.lstatSync(path.join(parent, n), { bigint: true }); } catch { return false; }
+  if (!st.isDirectory() || st.isSymbolicLink()) return false;
+  // The filesystem may fold names further than toLowerCase does, so ask it: an entry that IS what the exact name
+  // opens is held back too.
+  for (const x of NOT_PLAIN) {
+    let other;
+    try { other = fs.lstatSync(path.join(parent, x), { bigint: true }); } catch { continue; }
+    if (other.ino === st.ino && other.dev === st.dev) return false;
+  }
+  return true;
 }
 
 /* What this run held back, as `<root>/<label>`, for the screen. Only the folder this run made is read: a snapshot
@@ -277,9 +288,11 @@ function heldIn(held) {
 function keptIn(restoreDir, base, world) {
   const dir = worldDirOf(base, world);
   if (!dir || restoreDir !== path.join(dir, RESTORE_DIR)) return [];
-  let names = [];
-  try { names = fs.readdirSync(restoreDir); } catch { return []; }
-  return names.sort().map((n) => cleanText(n, MAX_MEMBER_CHARS, '(a name that cannot be shown)'));
+  const listed = namesIn(restoreDir, MAX_LISTED);
+  if (!listed) return [];
+  const out = listed.names.map((n) => cleanText(n, MAX_MEMBER_CHARS, '(a name that cannot be shown)'));
+  if (listed.cut) out.push('(more not listed)');
+  return out;
 }
 
 /* The briefs in a folder, in BRIEFS order: `plain` are files (read), `linked` are links (never opened, but a provider
@@ -346,7 +359,12 @@ function runsIn(folder, budget) {
   if (listed.cut) out.push(CUT);
   for (const g of gitIn(folder)) if (!out.includes(g)) out.push(g);
   const folded = new Set(listed.names.map((x) => x.toLowerCase()));
-  for (const n of PLAIN_AT_START) if (folded.has(n.toLowerCase())) out.push(n);
+  // Folded names, and the exact name asked of the filesystem, which may fold further than toLowerCase.
+  for (const n of PLAIN_AT_START) {
+    let there = folded.has(n.toLowerCase());
+    if (!there) { try { fs.lstatSync(path.join(folder, n)); there = true; } catch { /* absent */ } }
+    if (there) out.push(n);
+  }
   const briefs = briefsIn(folder);
   for (const b of briefs.linked) out.push(`${b} is a link`);
   for (const brief of briefs.plain) {

@@ -133,6 +133,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    lookalike); kept no longer lists this run's held-back folder; agents kept elsewhere are named in the contract as
    never to run git; two dead checks removed.
 
+16. W: HEAD, node_modules and the plain start-time names were matched by toLowerCase, but a case-insensitive
+   filesystem may fold further (the long s, U+017F); each is now also asked of the filesystem by exact name, with
+   file identity compared (the test runs only where the filesystem folds it); `kept` is capped with a marker. Nit:
+   the header's "one volume" now says what a mount inside the world would do. Deferred: the check-then-rename window
+   (the residual below).
+
 ## Residuals, stated
 - A restored project keeps its own .git, so a hostile repository config there reaches any agent made in this world
   later, which never passes this review. 4c must start agents in a Restored world with git's hooks and fsmonitor off.
