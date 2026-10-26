@@ -74,9 +74,17 @@ function asDrivePath(p) {
 }
 /* Whether `given` is written inside `folder` (a drive path or a plain share), case-insensitively as Windows does. */
 function writtenInside(given, folder) {
-  const norm = (p) => path.win32.normalize(asDrivePath(p)).toLowerCase().replace(/\\+$/, '');
-  const f = norm(folder);
-  return (!!driveOf(f) || isPlainShare(f)) && norm(given).startsWith(f + '\\');
+  const f = asWritten(folder);
+  return (!!driveOf(f) || isPlainShare(f)) && asWritten(given).startsWith(f + '\\');
+}
+/* A path as Windows compares spellings: its drive spellings read as the drive path, normalized, lower-cased, with no
+   trailing separator. The one normalizer writtenInside and sameWrittenPath share (review 13). */
+function asWritten(p) {
+  return path.win32.normalize(asDrivePath(p)).toLowerCase().replace(/\\+$/, '');
+}
+/* Whether two paths are written the same, as Windows compares them (case-insensitively, either slash). */
+function sameWrittenPath(a, b) {
+  return asWritten(a) === asWritten(b);
 }
 /* A share path with its host dropped: \share\rest, lower-cased, or null. Two spellings of one server (a name and its
    address) give the same tail, so a check that must fail closed can match on it. */
@@ -99,4 +107,4 @@ function mayHold(folder, given, real) {
   return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && t.startsWith(ft + '\\'); });
 }
 
-module.exports = { NAMESPACE, WINDOWS_DEVICE_NAME, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, mayHold };
+module.exports = { NAMESPACE, LOCAL_LONG, WINDOWS_DEVICE_NAME, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold };

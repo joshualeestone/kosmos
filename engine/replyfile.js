@@ -51,7 +51,7 @@ const dmfiles = require('./dmfiles');
 const projects = require('./projects');
 const store = require('./store');
 /* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
-const { NAMESPACE, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, mayHold } = require('./winpath');
+const { NAMESPACE, LOCAL_LONG, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold } = require('./winpath');
 
 /* The type a stored file is described by, from its extension. The page words the
    card from it (pjFileWord) and the download carries it with nosniff, an attachment
@@ -265,7 +265,10 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
        written without a letter (\\?\Volume{GUID}\) is resolved too: it is on this computer. */
     if (win && !(p.agents || []).includes(sessionName) && !isLocalVolumeSpelling(p.folder)) {
       const otherShare = isNetworkSpelling(p.folder) && (!fileShare || shareOf(p.folder) !== fileShare);
-      if (otherShare || (!isNetworkSpelling(p.folder) && winLinkRefusal(asDrivePath(p.folder), null) === ON_NETWORK)) {
+      /* A walk that gave up after MAX_HOPS links is skipped too: Windows follows more (63), so the realpath could still
+         reach a share at the end of a longer chain (review 13 finding 1). */
+      const walked = !isNetworkSpelling(p.folder) && winLinkRefusal(asDrivePath(p.folder), null);
+      if (otherShare || walked === ON_NETWORK || walked === TOO_MANY_LINKS) {
         skippedOthers.push(p.folder);
         continue;
       }
@@ -431,6 +434,10 @@ function winSpellingRefusal(given, roots) {
   const share = NAMESPACE.test(given);
   /* Every \\ or // start is refused (a share, the \\?\ and \\.\ namespaces, the local \\?\C:\ spelling too), but a
      plain \\host\share path written inside one of the agent's own share-written project folders. */
+  /* A local drive path written in its long form (\\?\C:\, \\.\C:\) is refused too, as main never had to: the rules
+     below compare spellings (a hidden folder of home, a project folder), and it does not start the way they do. It
+     is said as what it is, not as a network path (review 13 NIT). */
+  if (roots && LOCAL_LONG.test(given)) return LONG_FORM;
   if (share && !(roots && isPlainShare(given) && roots.folders.some((f) => isPlainShare(f) && writtenInside(given, f)))) return ON_NETWORK;
   if (given.indexOf(':', 2) >= 0) return STREAM;
   const parts = given.split(/[\\/]+/).filter(Boolean);
@@ -450,6 +457,8 @@ function unfollowedLinkRefusal(to) {
 /* Follow the links in `p` by lstat and readlink only, and say why not if any of them leaves for the network, a
    device or a drive outside the roots. Null when the path may be resolved. A chain of more than 32 links is refused. */
 const MAX_HOPS = 32;
+const TOO_MANY_LINKS = 'that path goes through too many links to follow, so it cannot be attached';
+const LONG_FORM = 'write the file\'s path with its drive letter (C:\\...), not in the \\\\?\\ form, to attach it';
 const UNREADABLE_LINK = 'that path goes through a link that cannot be followed, so it cannot be attached';
 /* Reads the folder's names, so it is asked only after an lstat ENOENT (a missing part, usually a mistyped name). The
    name is matched in any case: a junction aimed at a share lstats ENOENT in EVERY case, so an exact match would let
@@ -473,16 +482,11 @@ function winLinkRefusal(p, roots) {
   };
   return walkLinks(p, (reached) => winSpellingRefusal(reached, view), 0, ownShareProject);
 }
-/* Whether two drive paths are written the same, as Windows compares them (case-insensitively, either slash). */
-function sameWrittenPath(a, b) {
-  const norm = (p) => path.win32.normalize(asDrivePath(p)).toLowerCase().replace(/\\+$/, '');
-  return norm(a) === norm(b);
-}
 /* The one link walk (review 9 finding 2: drivesReached had its own copy). Each path the walk reaches, the given one and
    then each followed link's resolved path, is shown to `onPath` before its parts are read; a sentence from onPath, or
    from the walk itself, stops it and is returned. Null: the walk reached the end with nothing refused. */
 function walkLinks(p, onPath, hops = 0, acceptLink = null) {
-  if (hops > MAX_HOPS) return 'that path goes through too many links to follow, so it cannot be attached';
+  if (hops > MAX_HOPS) return TOO_MANY_LINKS;
   const why = onPath(p);
   if (why) return why;
   const root = path.win32.parse(p).root;
@@ -714,4 +718,4 @@ function discard(rec) {
 
 /* winSpellingRefusal is exported for engine/replyfile.win32-7221.test.js only; nothing else should call it (review 4
    NIT). The pure path rules it builds on are engine/winpath.js. */
-module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, winSpellingRefusal };
+module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, LONG_FORM, TOO_MANY_LINKS, winSpellingRefusal };

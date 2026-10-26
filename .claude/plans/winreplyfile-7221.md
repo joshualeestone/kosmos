@@ -67,7 +67,10 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    another server (review 12 finding 1). Anything else is refused unfollowed: review 2 finding 1 measured a
    target written `\\?\GLOBALROOT\Device\Mup\<host>\<share>` reading back as `\??\GLOBALROOT\...` (one backslash, past
    a `\\` deny rule) whose realpath stalled 21 s. A followed target is resolved and walked the same way (rule 1
-   applied to each, so a link to another drive is refused too). More than 32 links: refused. A part that lstats
+   applied to each, so a link to another drive is refused too). More than 32 links: refused (and another agent's
+   project folder behind that many is left unresolved, since Windows follows up to 63: review 13 finding 1). A local
+   file written in its long form (`\\?\C:\...`) is refused with its own sentence, not as a network path (review 13
+   NIT): the rules that compare spellings against home and project folders do not see it. A part that lstats
    ENOENT but its folder lists (the junction above): refused, never handed to realpath. Any other lstat error: "could
    not be read".
 3. **The real path, once resolved** (`winRealRefusal`): a device name there is refused before the open, and so is a
@@ -239,6 +242,9 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   pipe namespace no longer makes this agent's project files refuse; the agent's own project written
   `\\?\UNC\host\share` attaches a file named by its plain share path; `mayHold` answers no for a pipe and yes for
   `GLOBALROOT`. Against iteration 11's code (11d4bec): all 4 fail.
+- Review 13: another agent's project folder at the end of a 34-link chain to an unroutable share is never resolved
+  while this agent's project file attaches (against f2e3208: fails); `\\?\C:\` and `\\.\C:\` local paths are refused
+  with the long-form sentence. `sameWrittenPath` now lives in winpath beside `writtenInside`, one normalizer for both.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -247,7 +253,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 39/39 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 40/40 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

@@ -83,7 +83,8 @@ test('#7221: the spelling rules refuse shares, device namespaces, streams, devic
   assert.equal(replyfile.winSpellingRefusal('//host/share/f.txt', drives), net);
   assert.equal(replyfile.winSpellingRefusal('\\\\?\\UNC\\host\\share\\f.txt', drives), net);
   assert.equal(replyfile.winSpellingRefusal('\\\\.\\NUL', drives), net);
-  assert.equal(replyfile.winSpellingRefusal('\\\\?\\C:\\Users\\a\\Files\\f.txt', drives), net, 'the \\\\?\\ namespace is refused as typed, local or not');
+  assert.equal(replyfile.winSpellingRefusal('\\\\?\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM, 'a local file in the \\\\?\\ form is refused, said as what it is (review 13)');
+  assert.equal(replyfile.winSpellingRefusal('\\\\.\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM);
   assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\f.txt:hidden', drives), replyfile.STREAM, 'an alternate data stream');
   assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\COM1:', drives), replyfile.STREAM);
   assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\NUL', drives), replyfile.DEVICE_NAME);
@@ -162,7 +163,7 @@ test('#7221: a share, a device namespace and a long-path spelling are refused be
   refusedUnresolved('//10.255.255.1/share/x', replyfile.ON_NETWORK, 'a //host/share path');
   refusedUnresolved('\\\\?\\UNC\\10.255.255.1\\share\\x', replyfile.ON_NETWORK, 'a \\\\?\\UNC path');
   refusedUnresolved('\\\\.\\NUL', replyfile.ON_NETWORK, 'the \\\\.\\ device namespace');
-  refusedUnresolved('\\\\?\\' + path.join(FILES, 'report.txt'), replyfile.ON_NETWORK, 'the \\\\?\\ spelling of a local file');
+  refusedUnresolved('\\\\?\\' + path.join(FILES, 'report.txt'), replyfile.LONG_FORM, 'the \\\\?\\ spelling of a local file');
 });
 
 test('#7221: a symbolic link in Files that points at a share is refused without resolving it (no SMB contact)', linkOnly, () => {
@@ -688,4 +689,36 @@ test('#7221 review 12 NIT: the agent\'s own project written \\\\?\\UNC\\host\\sh
   const r = replyfile.attach(WHO, path.join(projUnc, 'f.txt'), { platform: 'win32' });
   assert.equal(r.ok, true, 'attaches as on main: ' + JSON.stringify(r));
   replyfile.discard(r.rec);
+});
+
+/* ---------- review 13 ---------- */
+
+test('#7221 review 13-1: another agent\'s project folder behind more links than the walk follows is never resolved', linkOnly, () => {
+  /* A chain of 34 directory links ending at an unroutable share: Windows would follow it (up to 63), the walk gives
+     up at 32, and that folder must be left unresolved, not handed to folderState's realpath. */
+  const chain = path.join(SANDBOX, 'longchain');
+  fs.mkdirSync(chain, { recursive: true });
+  let prev = '\\\\10.255.255.1\\share\\proj';
+  for (let i = 0; i < 34; i++) {
+    const link = path.join(chain, 'l' + i);
+    fs.symlinkSync(prev, link, 'dir');
+    prev = link;
+  }
+  const proj = path.join(SANDBOX, 'mine-beside-chain');
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'notes.txt'), 'mine\n');
+  PROJECTS = [
+    { id: 'p-chain', name: 'Chain', folder: prev, agents: ['someone-else'] },
+    { id: 'p-mine-chain', name: 'Mine', folder: proj, agents: [WHO] },
+  ];
+  const resolved = [];
+  projects.folderState = (folder) => { resolved.push(folder); return realFolderState(folder); };
+  const started = Date.now();
+  try {
+    const r = replyfile.attach(WHO, path.join(proj, 'notes.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    replyfile.discard(r.rec);
+    assert.deepEqual(resolved, [proj], 'the long chain was not resolved');
+    assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
+  } finally { fs.rmSync(chain, { recursive: true, force: true }); }
 });
