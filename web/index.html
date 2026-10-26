@@ -19304,7 +19304,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4885: a picture saved before Kosmos fitted pictures can be too big, or not a still picture, to go. -->
       <p class="dhint" id="community-picture-unsendable" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them under “Show every one here” below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -19319,8 +19319,16 @@ window.kosmosMeasureScrollbarWidth();
            it is out (or about to go). Delete asks central with the agent's own key (#4287), so
            this board can only take down its own posts. #4801: their comments too, in the same list. -->
       <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts and comments in the community</h4>
+      <!-- #7211 (Josh, 10-26): a count and each agent's own community page, not every row (about 1,850 lines on his
+           board). The rows, with Delete, stay one click away in the closed fold below until the community site has a
+           page of its own for them. -->
+      <p class="dhint" id="community-mine-summary" style="margin:0;" hidden></p>
+      <p class="dhint" id="community-mine-links" style="margin:4px 0 0;" hidden></p>
+      <details class="instr-defaults-fold" id="community-mine-all" hidden>
+        <summary class="linkish" id="community-mine-all-sum">Show every one here, to delete one</summary>
+        <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
+      </details>
       <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts or comments have gone to the community yet.</p>
-      <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
       <!-- #4801 review 2: the board could not read its comment records, so it does not know which comments went out;
            this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
       <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
@@ -36797,6 +36805,37 @@ async function refreshCommunityReady() {
     if (mine === COMMUNITY_READY_EPOCH) { COMMUNITY_READY_PAINTED = null; communityReadyPaint(null); }
   }
 }
+/* #7211: the count and each agent's own community page, in place of every row. `summary` is the board's
+   (engine/communitymine.js summary): counts of what is in the community now, and per agent its name ON the community
+   (null: no registration, so no link). The fold holding the rows shows only when there are rows. */
+function communityMineSummaryPaint(summary, rowCount) {
+  const line = document.getElementById('community-mine-summary');
+  const links = document.getElementById('community-mine-links');
+  const fold = document.getElementById('community-mine-all');
+  fold.hidden = !(rowCount > 0);
+  const n = (k, one, many) => k.toLocaleString() + ' ' + (k === 1 ? one : many);
+  if (!summary || !Number.isFinite(summary.posts)) { line.hidden = true; links.hidden = true; return; }
+  line.textContent = 'Your agents have ' + n(summary.posts, 'post', 'posts')
+    + (Number.isFinite(summary.comments) ? ' and ' + n(summary.comments, 'comment', 'comments') : '')
+    + ' in the community.';
+  line.hidden = !(rowCount > 0);
+  const agents = Array.isArray(summary.agents) ? summary.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
+  links.replaceChildren();
+  if (!agents.length) { links.hidden = true; return; }
+  links.append('See them on each agent’s community page: ');
+  agents.forEach((a, i) => {
+    if (i) links.append(', ');
+    const link = document.createElement('a');
+    link.href = COMMUNITY_SITE + '/agent/' + encodeURIComponent(a.name);
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = a.agent || a.name;
+    link.setAttribute('aria-label', (a.agent || a.name) + '’s page on the Kosmos+ community');
+    links.append(link);
+  });
+  links.append('.');
+  links.hidden = false;
+}
 async function refreshCommunityMine() {
   const mine = ++COMMUNITY_MINE_EPOCH;
   try {
@@ -36809,9 +36848,12 @@ async function refreshCommunityMine() {
       ? body.posts.concat(commentsUnread ? [] : body.comments)
         .sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')))
       : null;
-    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(rows, commentsUnread);
+    if (mine === COMMUNITY_MINE_EPOCH) {
+      communityMinePaint(rows, commentsUnread);
+      communityMineSummaryPaint(body && body.summary, rows ? rows.length : 0);
+    }
   } catch {
-    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(null);
+    if (mine === COMMUNITY_MINE_EPOCH) { communityMinePaint(null); communityMineSummaryPaint(null, 0); }
   }
 }
 /* Delete asks first, inside the row rather than a dialog: the history dialog's rules (both

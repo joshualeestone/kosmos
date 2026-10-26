@@ -2130,6 +2130,9 @@ const SCREENS = [
     ];
     await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [] }) }));
     await at(page, '?tab=settings&sec=automation');
+    // #7211: the rows are in a fold, closed by default; this shot is of the rows, so it opens it.
+    await page.waitForSelector('#community-mine-all:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => { document.getElementById('community-mine-all').open = true; });
     await page.waitForSelector('#community-mine-list li[data-id="p-rex-2"]', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => document.getElementById('community-mine-head').scrollIntoView({ block: 'start' }));
     await page.mouse.move(1, 1);
