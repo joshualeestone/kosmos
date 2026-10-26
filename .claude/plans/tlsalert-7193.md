@@ -16,10 +16,12 @@ Owner: Mona Lisa. Routed by Splinter 2026-10-26 07:53, from Josh's report (Mac a
 
 ## Change
 native-app/main.swift `tlsPinRefused`:
-- `tlsPinAlertShowing` (one Bool, every computer) returns early while a refusal alert is on screen;
-- both ways the alert is shown (sheet and runModal) clear the mark and restart the minute when it is dismissed;
-- the could-not-check wording adds "If it keeps happening, check that the other computer is on and connected to the
-  internet." The other computer's statement is what could not be fetched.
+- `tlsPinAlertShowing` (one Bool, every computer) holds a new alert back while one is on screen, judged by the window
+  (a sheet really attached, or a runModal one up), so a dropped sheet cannot leave it set; held back is logged;
+- both ways the alert is shown (sheet and runModal) clear the mark and restart the minute, for every computer
+  (tlsPinDismissedAt), when it is dismissed;
+- the could-not-check wording adds "If it keeps happening, check that both computers are on and connected to the
+  internet." (either side being offline, or this computer's board not answering, gives this answer).
 The unified-log line still comes first, so every refusal is recorded even when no alert is shown (pinlog-6589).
 
 - engine/remote.js (added after Kitty's relay reading): a "required" tls-pin answer says why in the board log,
@@ -33,14 +35,10 @@ The unified-log line still comes first, so every refusal is recorded even when n
   (12:49:38 retire, 12:49:40 authenticated): two seconds, not an outage. What failed for the six-plus minutes seven
   alerts need is not recorded on this Mac or at the relay; on Josh's Mac only the app's split (board did not answer vs
   answered required) is. Hence the board-log line above.
-- Its tunnel's status file was last written at 07:49:40 CDT with state "up". The tunnel writes that file only on a
-  state change (engine/remote.js, kosmos#6669 review 3), so the tunnel came back up at 07:49:40 after being down or
-  reconnecting. Its board (pid 25889) and tunnel (pid 30187) had both run since 00:49, so this was a reconnect, not a
-  restart.
-- While the tunnel is down, Josh's board cannot fetch its signed statement, so its tls-pin answers "required".
-- Not recorded on this Mac: why the tunnel dropped (board.log keeps no tunnel lines). On Josh's Mac, its unified log
-  holds "tls-pin: refused a computer: its certificate could not be checked" for each refusal; not read (not this
-  machine). The relay side is asked of its owner.
+- What I first read (superseded by the line above): the tunnel's status file, written only on a state change, last
+  written 07:49:40 "up"; board and tunnel both running since 00:49. That was the planned reconnect.
+- On Josh's Mac the app's unified log holds one line per refusal, and which line tells the two causes apart (its own
+  board did not answer, or answered required); not readable from this machine, and the fix does not depend on it.
 
 ## Decided
 - One mark for all computers, not per computer: Josh's ask is one alert on screen, and two different computers
@@ -52,7 +50,10 @@ covers both, since the mark is app-wide.
 
 ## Checks
 - native-app.tlspin-6589.test.js: a new test pins the early return, its place before the minute, the mark set before
-  the alert, both dismiss paths, and the wording. Against main's main.swift it goes red (1 of 4).
+  the alert, both dismiss paths, the window's say, the app-wide minute, and the wording; block comments are stripped
+  before matching. Against main's main.swift it goes red (1 of 4).
+- engine/remote.tlspin-6589.test.js: the required-answer log line (the tunnel's reason, once a minute per address, no
+  computer name; a definite answer logs nothing); without the minute limit it goes red. Remote tests 448/449 (1 skipped).
 - All native-app tests 151/151; swiftc -typecheck clean (no warnings in the changed lines).
 
 ## Review
