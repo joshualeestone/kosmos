@@ -501,3 +501,32 @@ test('#5536 slice 3 review 5: a pending lock a crash left is cleared, and close 
   assert.equal(fs.existsSync(path.join(root, LOCK_NAME)), false, 'released');
   createRestoreSink(root, { resume: true, snapshot: SNAP }).close();
 });
+
+test('#5536 slice 3 review 6: a lock a crash left with its pending second name is taken over; any other second name refuses', (t) => {
+  const root = stoppedRoot(t);
+  const lockFile = path.join(root, LOCK_NAME);
+  const dead = spawnSync(process.execPath, ['-e', '0']).pid;
+  const tok = 'b'.repeat(24);
+  fs.writeFileSync(`${lockFile}.${tok}`, `${dead} 0 ${tok}\n`, { mode: 0o600 });
+  fs.linkSync(`${lockFile}.${tok}`, lockFile);   // the crash: linked, pending not yet removed
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  r.close({ keepRecord: true });
+  assert.deepEqual(fs.readdirSync(root).filter((n) => n.startsWith(LOCK_NAME)), [], 'both names cleared');
+  // A second name that is not its own pending one (a hard link made elsewhere): refused.
+  fs.writeFileSync(lockFile, `${dead} 0 ${tok}\n`, { mode: 0o600 });
+  fs.linkSync(lockFile, path.join(fresh(t), 'elsewhere'));
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /second name the restore did not make/);
+});
+
+test('#5536 slice 3 review 6: a lock written before this computer last started is stale, even if its pid is alive again', (t) => {
+  const root = stoppedRoot(t);
+  const lockFile = path.join(root, LOCK_NAME);
+  // A live pid (this process's parent), but the lock dates from before the boot: the pid is someone else's now.
+  fs.writeFileSync(lockFile, `${process.ppid} 0 ${'c'.repeat(24)}\n`, { mode: 0o600 });
+  const beforeBoot = new Date(Date.now() - os.uptime() * 1000 - 60000);
+  fs.utimesSync(lockFile, beforeBoot, beforeBoot);
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
+  // Control: the same lock written since the boot is busy.
+  fs.writeFileSync(lockFile, `${process.ppid} 0 ${'c'.repeat(24)}\n`, { mode: 0o600 });
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
+});
