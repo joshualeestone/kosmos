@@ -106,3 +106,13 @@ reads idle, and a restart kills the job.
   credential, or an answer that could not be read is not signed in, whatever figures survive from before it.
 - An account that was at risk and now has no fresh reading at all is a gap in measuring, not the end of the risk: the
   tick writes nothing until it is measured again, so the record never shows a risk ending that only went unmeasured.
+
+## Review 15 (two warnings, both decided and stated rather than changed)
+- The agents walk runs every tick once the setting is on with two accounts and the poll on, even when nothing is at
+  risk. Kept: it is the same walk the Settings read already does on every read, once per 10 minutes, and building the
+  rows lazily would split one rule into two paths. What would change it: a board where that walk is measured slow.
+- A decision's key includes the agents' names, so agents going idle and busy on an at-risk account write new lines.
+  Kept on purpose: which agents were free to move, and when, is exactly the evidence slice 3b needs (its two-tick idle
+  rule is tuned from it). Bounded: at most one line a tick, 144 a day, so the 500-line record holds about three days.
+  What would change it: the PM finding the record too noisy to read; then key on accounts only, or require a key to
+  hold for two ticks before it is written.
