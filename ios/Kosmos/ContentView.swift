@@ -277,8 +277,9 @@ struct ContentView: View {
     private func openRoom(_ target: PushBridge.RoomTarget) {
         let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
         switch PushBridge.roomOpening(target, keptAddress: kept?.address) {
-        // kosmos#7252 review 2: the room shows, not under a board page left open over the tabs.
-        case .native(let t)?: roomRequest = t; tab = .projects; todayBoard = false
+        // kosmos#7252 review 2: the room shows, not under a board page left open over the tabs. Review 3: and, as Close
+        // does, the native press ends a board press still waiting, so its late answer cannot reopen the page over the room.
+        case .native(let t)?: roomRequest = t; tab = .projects; todayBoard = false; web.press(.projects)
         case .board(let url)?: pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
         case nil: break
         }
