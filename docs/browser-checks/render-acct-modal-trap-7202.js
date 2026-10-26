@@ -85,7 +85,7 @@ const focusPage = (p) => p.evaluate(() => {
 /* Tab and Shift+Tab from every stop: each lands on its neighbour, wrapping. Returns the first miss, or null. */
 async function walk(p) {
   const n = await p.evaluate(() => window.__stops7202().length);
-  if (n < 2) return { why: 'fewer than two stops', n };
+  if (!n) return { why: 'no stops' };
   for (let k = 0; k < n; k++) {
     for (const [key, step] of [['Tab', 1], ['Shift+Tab', -1]]) {
       await p.evaluate((j) => window.__stops7202()[j].focus(), k);
@@ -187,6 +187,62 @@ async function walk(p) {
         await p.keyboard.press('Shift+Tab');
         const fn = await focusNow(p);
         say(fn.at === noted.want, eng + ', the note: Shift+Tab from it lands on the stop just before it', JSON.stringify(fn));
+        await p.keyboard.press('Escape');
+
+        /* Option+Tab is how WebKit moves between buttons: it must not walk out either. From the last stop, forward. */
+        await open(p, 0);
+        await p.waitForTimeout(400);
+        const nOpt = await p.evaluate(() => { const s = window.__stops7202(); s[s.length - 1].focus(); return s.length; });
+        await p.keyboard.press('Alt+Tab');
+        const fo = await focusNow(p);
+        say(fo.at === 0, eng + ', Option+Tab: from the last stop it wraps to the first', JSON.stringify(fo));
+        await p.evaluate(() => window.__stops7202()[0].focus());
+        await p.keyboard.press('Alt+Shift+Tab');
+        const fob = await focusNow(p);
+        say(fob.at === nOpt - 1, eng + ', Option+Shift+Tab: from the first stop it wraps to the last', JSON.stringify(fob));
+
+        /* The provider picker's list open: Tab closes it (the picker's own handler) and moves on to the next stop. */
+        const trig = await p.evaluate(() => { const s = window.__stops7202(); const t = document.querySelector('#acct-provider-field .pcombo-trigger'); if (t) t.focus(); return t ? s.indexOf(t) : -2; });
+        say(trig >= 0, eng + ', the picker: its trigger is a stop', String(trig));
+        await p.keyboard.press('ArrowDown');
+        await p.waitForTimeout(150);
+        const listOpen = await p.evaluate(() => { const l = document.querySelector('#acct-provider-field .pcombo-list'); return !!(l && !l.hidden && l.getClientRects().length); });
+        say(listOpen, eng + ', the picker: ArrowDown opens its list');
+        await p.keyboard.press('Tab');
+        const fp = await focusNow(p);
+        const listShut = await p.evaluate(() => { const l = document.querySelector('#acct-provider-field .pcombo-list'); return !(l && !l.hidden && l.getClientRects().length); });
+        say(listShut && fp.at === (trig + 1) % nOpt, eng + ', the picker: Tab with its list open closes it and lands on the next stop', JSON.stringify({ listShut, fp, want: (trig + 1) % nOpt }));
+
+        /* A radio group is one stop, as the browser tabs it (none in the dialog today; one is put in to see the rule). */
+        await p.evaluate(() => {
+          const g = document.createElement('div'); g.id = 'trap7202-radios';
+          g.innerHTML = '<label><input type="radio" name="trap7202" value="a">a</label><label><input type="radio" name="trap7202" value="b" checked>b</label><label><input type="radio" name="trap7202" value="c">c</label><button type="button" id="trap7202-after">after</button>';
+          document.getElementById('acct-add-dialog').appendChild(g);
+          document.querySelector('#trap7202-radios input[value="b"]').focus();
+        });
+        await p.keyboard.press('Tab');
+        const fr = await p.evaluate(() => (document.activeElement && (document.activeElement.id || document.activeElement.value)) || '');
+        say(fr === 'trap7202-after', eng + ', a radio group: Tab from its checked radio leaves the group', fr);
+        await p.keyboard.press('Shift+Tab');
+        const fr2 = await p.evaluate(() => (document.activeElement && (document.activeElement.id || document.activeElement.value)) || '');
+        say(fr2 === 'b', eng + ', a radio group: Shift+Tab back lands on the checked radio, not the last of the group', fr2);
+        await p.evaluate(() => document.getElementById('trap7202-radios').remove());
+
+        /* Another dialog shown over this one has the keyboard: its own trap moves Tab, this one stands down. */
+        await p.evaluate(() => { document.getElementById('updconfirm').hidden = false; document.getElementById('uc-no').focus(); });
+        await p.keyboard.press('Tab');
+        // Where that dialog's own trap sends focus is its business (in WebKit it acts only at its last button); what this
+        // one owes is to stay out of it, never pulling focus back into the account dialog underneath.
+        const fu = await p.evaluate(() => { const a = document.activeElement; return { id: (a && a.id) || '', inAcct: !!(a && document.getElementById('acct-add-dialog').contains(a)) }; });
+        say(!fu.inAcct, eng + ', another dialog over it: Tab is left to that dialog, never pulled back into this one', JSON.stringify(fu));
+        await p.evaluate(() => { document.getElementById('updconfirm').hidden = true; });
+
+        /* The success view: one stop. Tab and Shift+Tab stay on it. */
+        await p.evaluate(() => acctShowSuccess('someone@example.com'));
+        await p.waitForTimeout(200);
+        const nS = await p.evaluate(() => window.__stops7202().length);
+        const missS = await walk(p);
+        say(nS === 1 && !missS, eng + ', the success view: its one stop keeps Tab and Shift+Tab', JSON.stringify({ nS, missS }));
         await p.keyboard.press('Escape');
 
         say(errors.length === 0, eng + ': no page errors', errors.join(' | '));
