@@ -22,14 +22,17 @@
  * store.ROOT at require.
  */
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 const worlds = require('./worlds');
 const { TEMP_PREFIX } = require('./restoresink');
 
-const RESTORE_DIR = 'restored';
-const HELD = 'held-back';                         // inside the restore folder: tops of workers and projects not moved                  // inside the world folder; what was not moved stays here, and is shown
+const RESTORE_DIR = 'restored';                  // inside the world folder; what was not moved stays here, and is shown
+/* Inside the restore folder, one per finish run: `held-back-<random>`, made new each time, so a snapshot cannot
+   supply it in advance (its root names are chosen by whoever made the backup). */
+const HELD_PREFIX = 'held-back-';
 const MOVED = ['workers', 'projects'];           // the roots that become the world's own
 const MAX_NAME_TRIES = 9;
 const MAX_MEMBER_CHARS = 60;
@@ -37,7 +40,7 @@ const MAX_LISTED = 1000;
 const BRIEFS = ['CLAUDE.md', 'AGENTS.md', 'AGENTS.override.md', 'GEMINI.md'];
 const MAX_BRIEF_BYTES = 512 * 1024;
 const MAX_ENTRIES_READ = 4 * MAX_LISTED;          // entries read from any one folder; past it the listing says `more`
-const MAX_BRIEF_TOTAL = 32 * 1024 * 1024;         // brief bytes read across one listing, so a hostile backup cannot stall it
+const MAX_BRIEF_TOTAL = 32 * 1024 * 1024;         // brief bytes read across one listing (one brief may run past it)
 const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);   // Windows: a scanner holding a just-written file
 /* What in a folder a provider may read or run when it starts there: every dot-entry at its top (settings, hooks,
    skills, MCP servers, an environment file, any provider's own folder, git) except HARMLESS, and these plain names. */
@@ -53,7 +56,7 @@ const CUT = '(the folder holds more entries than were checked)';
 const UNREADABLE = '(the folder could not be read)';
 const GIT_WHY = 'git runs its settings here (hooks, fsmonitor) when an agent uses git in this folder';
 /* Fillers and blanks that draw nothing, beside the Cc/Cf/Zl/Zp and private-use classes: braille blank, Hangul fillers. */
-const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
+const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x034f].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
 
 /* Attacker-written text made safe to show: control, format, bidi, private-use and blank characters dropped, at most
    two combining marks per character, spaces collapsed, cut at `max` code points; `fallback` when nothing visible is
@@ -165,7 +168,7 @@ function renameRetrying(src, dst) {
    every path. `failedFiles` counts the files runRestore listed as failed (it answers ok with some failed, since one
    damaged file does not fail the rest), and `fetchProblems` carries its reasons why some were not fetched.
    Only plain-named folders at the top of each root become the world's: everything else there (dot-entries, HEAD,
-   files, links) is held back in `restored/held-back/<root>/` and named in `heldBack`, because the top of workers or
+   files, links) is held back in `restored/held-back-<random>/<root>/` and named in `heldBack`, because the top of workers or
    projects is above every agent and project the person makes in this world later, where nothing reviews it.
    Every check runs before anything moves, so a refusal moves nothing; a failure part way says what moved, and
    finishing again carries on. */
@@ -193,10 +196,6 @@ function finishRestoreWorld(opts = {}) {
   if (names.some((n) => n.toLowerCase().startsWith(TEMP_PREFIX))) {   // folded, as the sink reserves them
     return refuse('this restore has not finished, so its files stay where it can continue');
   }
-  const held = path.join(restoreDir, HELD);
-  let heldSt = null;
-  try { heldSt = fs.lstatSync(held); } catch { /* not made yet */ }
-  if (heldSt && !heldSt.isDirectory()) return refuse('the restore folder holds something where held-back files would go');
   const roots = worlds.envOverridesFor(base, world);
   const target = { workers: roots.AGENT_WORKFORCE_WORKERS, projects: roots.AGENT_WORKFORCE_PROJECTS };
   const plan = [];
@@ -216,16 +215,16 @@ function finishRestoreWorld(opts = {}) {
     let top;
     try { top = fs.readdirSync(src); } catch { return refuse(`the restored ${name} could not be read`); }
     const hold = top.filter((n) => !plainFolder(src, n));
-    for (const n of hold) {
-      try { fs.lstatSync(path.join(held, name, n)); return refuse(`held-back files from an earlier try are in the way of ${name}/${labelOf(n)}`); } catch { /* free */ }
-    }
     plan.push({ name, src, dst, hold });
   }
   // Between the checks and the renames only this user's own processes can change these folders (the sink assumes the
   // same: the restore folder is private to the person).
+  const held = path.join(restoreDir, HELD_PREFIX + crypto.randomBytes(6).toString('hex'));
+  let heldMade = false;
   for (const { name, src, dst, hold } of plan) {
     try {
-      if (hold.length) fs.mkdirSync(path.join(held, name), { recursive: true, mode: 0o700 });
+      if (hold.length && !heldMade) { fs.mkdirSync(held, { mode: 0o700 }); heldMade = true; }   // new: refuses one already there
+      if (hold.length) fs.mkdirSync(path.join(held, name), { mode: 0o700 });
       for (const n of hold) renameRetrying(path.join(src, n), path.join(held, name, n));
     } catch (e) {
       const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
@@ -258,15 +257,19 @@ function plainFolder(parent, n) {
   try { const st = fs.lstatSync(path.join(parent, n)); return st.isDirectory() && !st.isSymbolicLink(); } catch { return false; }
 }
 
-/* What was held back, as `<root>/<label>`, for the screen. */
+/* What was held back, as `<root>/<label>`, for the screen, from every held-back folder (one per finish run). */
 function heldIn(restoreDir, base, world) {
   const dir = worldDirOf(base, world);
   if (!dir || restoreDir !== path.join(dir, RESTORE_DIR)) return [];
+  let runs = [];
+  try { runs = fs.readdirSync(restoreDir).filter((n) => n.startsWith(HELD_PREFIX)).sort(); } catch { return []; }
   const out = [];
-  for (const name of MOVED) {
-    let names = [];
-    try { names = fs.readdirSync(path.join(restoreDir, HELD, name)); } catch { continue; }
-    for (const n of names.sort()) out.push(`${name}/${labelOf(n)}`);
+  for (const run of runs) {
+    for (const name of MOVED) {
+      let names = [];
+      try { names = fs.readdirSync(path.join(restoreDir, run, name)); } catch { continue; }
+      for (const n of names.sort()) out.push(`${name}/${labelOf(n)}`);
+    }
   }
   return out;
 }
@@ -356,6 +359,7 @@ function runsIn(folder, budget) {
     if (head.includes(0) || (head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff)) out.push(`${brief} (not plain text, so not checked)`);
     // An @ that starts a word, after a space, a line start or punctuation; not inside an address (a@b) or a word.
     // Or any @ before a path (/, ./, ../, ~/) whatever comes before it, since providers differ on what may precede one.
+    // No m flag is needed: a line start inside the text is a newline, which the first class already accepts.
     else if (/(^|[^\p{L}\p{N}_@.])@[^\s@]|@(\.{1,2}\/|~\/|\/)/u.test(head.toString('utf8'))) out.push(`${brief} imports`);
     if (bytes.length > MAX_BRIEF_BYTES) out.push(`${brief} (too large to check in full)`);
   }
