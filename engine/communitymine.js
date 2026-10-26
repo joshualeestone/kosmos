@@ -165,6 +165,7 @@ function commentEntries() {
  * so the agents' counts can add up to less than the totals. A comment the community's moderators removed still counts:
  * the service has no way for the board to ask about a comment once it is sent, so nothing on the board says so.
  */
+// Called bare, it reads every row itself; the route goes through mineAll, which reads them once for rows and summary.
 function summary(posts = postEntries(), comments = commentEntries()) {
   const names = communitysend.communityNames();
   const byKey = new Map();
