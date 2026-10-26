@@ -60,6 +60,20 @@ test('#7221: DOS device names are recognised with an extension, trailing dots an
   for (const n of ['null.txt', 'console.log', 'nulls', 'COM10', 'lpt', 'com', 'aux_notes.md', 'report.pdf', 'x.nul']) {
     assert.equal(winpath.isDevicePart(n), false, n + ' is an ordinary name');
   }
+  /* Review 7 finding 2: the shared rule is exactly what backuprestore refused before. Only literal spaces before the
+     extension (what Windows trims), so a Mac backup's name with a no-break space stays a name; CLOCK$ is win32zip's
+     own extra, not in the shared rule. */
+  assert.equal(winpath.WINDOWS_DEVICE_NAME.test('con\u00a0.txt'), false, 'a no-break space before the extension');
+  assert.equal(winpath.WINDOWS_DEVICE_NAME.test('nul\u3000.txt'), false, 'an ideographic space before the extension');
+  assert.equal(winpath.WINDOWS_DEVICE_NAME.test('CLOCK$'), false, 'CLOCK$ is not in the shared rule');
+  assert.equal(winpath.WINDOWS_DEVICE_NAME.test('con  .txt'), true, 'literal spaces before the extension');
+});
+
+test('#7221 review 7: a drive letter is read from every spelling of a drive path', () => {
+  assert.equal(winpath.driveOf('c:\\x'), 'C');
+  assert.equal(winpath.driveOf('\\\\?\\D:\\x'), 'D', 'the long spelling');
+  assert.equal(winpath.driveOf('\\??\\E:\\x'), 'E', 'the NT spelling');
+  assert.equal(winpath.driveOf('\\\\host\\share\\x'), null);
 });
 
 test('#7221: the spelling rules refuse shares, device namespaces, streams, device names and drives outside the roots', () => {
@@ -155,7 +169,11 @@ test('#7221: a symbolic link in Files that points at a share is refused without 
 test('#7221: a junction in Files out to a share is refused without resolving it', winOnly, () => {
   const j = path.join(FILES, 'share-junction');
   fs.symlinkSync('\\\\10.255.255.1\\share', j, 'junction');
-  try { refusedUnresolved(path.join(j, 'f.txt'), replyfile.UNREADABLE_LINK, 'a junction to a share'); } finally { fs.rmSync(j, { recursive: true, force: true }); }
+  try {
+    refusedUnresolved(path.join(j, 'f.txt'), replyfile.UNREADABLE_LINK, 'a junction to a share');
+    // review 7 finding 1: the same junction typed in another case lstats ENOENT too, and is refused the same way
+    refusedUnresolved(path.join(FILES, 'SHARE-JUNCTION', 'f.txt'), replyfile.UNREADABLE_LINK, 'the junction typed in upper case');
+  } finally { fs.rmSync(j, { recursive: true, force: true }); }
 });
 
 test('#7221: a chain of links that ends at a share is followed link by link and refused', winOnly, () => {

@@ -91,9 +91,11 @@ each agent's instructions path once (#6726 r5-3) and parses the projects file on
 drive letters, the link-target allow-list, DOS device names, "written inside") are `engine/winpath.js`, functions of a
 string with no disk access. The attachment policy that uses them (the agent's roots, the walk, the refusal sentences)
 stays in `engine/replyfile.js`, since it is about what an agent may send. `winpath.WINDOWS_DEVICE_NAME` is now the one
-device-name rule: `engine/backuprestore.js` and `engine/win32zip.js` import it in place of their own copies, which
-disagreed (`clock$` was in one only); the shared rule is the superset (`clock$`, and any whitespace before an
-extension), so both refuse at least what they did.
+device-name rule: `engine/backuprestore.js` and `engine/win32zip.js` import it in place of their own copies.
+**Decided** (review 7 finding 2): no module's behaviour changes. The shared rule is exactly backuprestore's (the names
+Microsoft documents, literal spaces before an extension, as Windows trims), so a Mac backup's `con<no-break space>.txt`
+stays a name; a first draft used `\s*` and `clock$`, which widened restore on every platform. win32zip keeps refusing
+the DOS-era `CLOCK$` as its own extra, in its own file, as it always has.
 
 ## Rejected
 
@@ -169,9 +171,13 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   the outer project (refused, as on main; the outer project's own file still attaches); through the admin share, a
   nested share project written on `\\localhost` inside an outer one on `\\127.0.0.1` does the same.
 - Review 5-2: an attach of a file directly in Files lstats nothing under the agent's project folder.
-- Review 6: the device-name arm now reads `winpath.isDevicePart` (adds CLOCK$ as reserved via the shared rule); the
-  link-target arm reads `winpath.followableLinkTarget`. Every timing check is one named bound, `SOON_MS` (10 s: the
-  measured stall is 21 s, and a slow CI runner needs room); the realpath count stays the exact guard.
+- Review 6: the device-name arm reads `winpath.isDevicePart`; the link-target arm reads `winpath.followableLinkTarget`.
+  Every timing check is one named bound, `SOON_MS` (10 s: the measured stall is 21 s, and a slow CI runner needs
+  room); the realpath count stays the exact guard.
+- Review 7: the junction arm also types the junction's name in upper case (refused unresolved, as a junction lstats
+  ENOENT in every case, so `listed()` matches names in any case); the shared device rule refuses `con  .txt` but not a
+  no-break or ideographic space before the extension, nor `CLOCK$`; `driveOf` reads `C:\`, `\\?\D:\` and `\??\E:\`.
+  Against iteration 6's code (74f929a): all three fail.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -180,7 +186,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 25/25 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 26/26 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours).

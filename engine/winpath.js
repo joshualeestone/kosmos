@@ -10,9 +10,11 @@ const path = require('node:path');
 const NAMESPACE = /^[\\/]{2}/;                                   // \\host\share, //host/share, \\?\..., \\.\...
 const LOCAL_LONG = /^[\\/]{2}\?[\\/](?=[A-Za-z]:[\\/])/;         // \\?\C:\..., the long-path spelling of a local drive
 /* Names Windows maps to devices whatever folder they are in, with any extension and with spaces before it (CON,
-   nul.txt, COM1.log, `con .txt`), and the superscript digits. One copy for every module that checks a Windows name
-   (#7221 review 6: replyfile, backuprestore and win32zip had three that disagreed on clock$). */
-const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|conin\$|conout\$|clock\$|com[0-9¹²³]|lpt[0-9¹²³])\s*(\..*)?$/i;
+   nul.txt, COM1.log, `con .txt`), and the superscript digits: the names Microsoft documents as reserved. One copy for
+   every module that checks a Windows name (#7221: replyfile, backuprestore and win32zip had three). Exactly what
+   backuprestore refused before; only literal spaces before the extension (what Windows trims), so a Mac backup's
+   `con .txt` stays a name. win32zip also refuses the DOS-era CLOCK$, on top of this, in its own file. */
+const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³]) *(\..*)?$/i;
 function isDevicePart(part) {
   return WINDOWS_DEVICE_NAME.test(String(part).replace(/[ .]+$/, ''));   // Windows drops trailing dots and spaces: "NUL. " is NUL
 }
@@ -20,7 +22,7 @@ function isNetworkSpelling(p) {
   return NAMESPACE.test(p) && !LOCAL_LONG.test(p);
 }
 function driveOf(p) {
-  const m = /^([A-Za-z]):/.exec(String(p).replace(LOCAL_LONG, ''));
+  const m = /^([A-Za-z]):/.exec(asDrivePath(p));   // C:\, and its \\?\C:\ and \??\C:\ spellings
   return m ? m[1].toUpperCase() : null;
 }
 /* A link's target as a drive path or a relative one, or null for anything else. An allow-list, not a list of

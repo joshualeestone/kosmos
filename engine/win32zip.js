@@ -59,9 +59,12 @@ const ZIP64_MARKER_16 = 0xffff;
 const ZIP64_MARKER_32 = 0xffffffff;
 
 /* Names Windows maps to devices whatever folder they are in, with any extension, and with spaces
-   before the extension (`con .txt` is still the console). Checked per path segment. The one shared
-   rule (engine/winpath.js, #7221). */
-const WINDOWS_RESERVED_NAME = require('./winpath').WINDOWS_DEVICE_NAME;
+   before the extension (`con .txt` is still the console). Checked per path segment. The shared
+   rule (engine/winpath.js, #7221), and the DOS-era CLOCK$ too, which this reader has always refused:
+   no Kosmos build carries one. */
+const CLOCK_DEVICE_NAME = /^clock\$ *(\..*)?$/i;
+const WINDOWS_DEVICE_NAME = require('./winpath').WINDOWS_DEVICE_NAME;
+const WINDOWS_RESERVED_NAME = { test: (segment) => WINDOWS_DEVICE_NAME.test(segment) || CLOCK_DEVICE_NAME.test(segment) };
 /* Characters Windows cannot store in a file name. `\` and `:` are refused separately, with their
    own sentences, because each is a known trick rather than a mere impossibility. */
 const WINDOWS_FORBIDDEN_CHARACTERS = /[<>"|?*]/;

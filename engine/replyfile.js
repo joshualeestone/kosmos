@@ -356,7 +356,7 @@ function hiddenRefusal(given, chain, rootDepth, k) {
 const ON_NETWORK = 'that path is on another computer on the network, or names a device, so it cannot be attached; copy the file into your Files folder and attach it from there';
 const DEVICE_NAME = 'that name belongs to a Windows device, not a file, so it cannot be attached';
 /* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
-const { NAMESPACE, LOCAL_LONG, NT_LOCAL, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, asDrivePath, writtenInside, shareTail, mayHold } = require('./winpath');
+const { NAMESPACE, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, asDrivePath, writtenInside, mayHold } = require('./winpath');
 /* The agent's roots: `drives`, the letters every root is written on or reaches through its own links, and `folders`, the
    agent's own project folders (on a drive letter, or a plain share). A project may live on a share, written as a
    mapped drive (projects.js opens "a Z:\ record whose realpath is \\server\share") or as \\server\share itself; that
@@ -451,11 +451,12 @@ function unfollowedLinkRefusal(to) {
 const MAX_HOPS = 32;
 const UNREADABLE_LINK = 'that path goes through a link that cannot be followed, so it cannot be attached';
 /* Reads the folder's names, so it is asked only after an lstat ENOENT (a missing part, usually a mistyped name). The
-   name is matched exactly (review 6 NIT): in an ordinary folder lstat already finds any case, so ENOENT with only a
-   different-case entry means a case-sensitive folder and a mistyped case, which is "no file", not an unreadable link. */
+   name is matched in any case: a junction aimed at a share lstats ENOENT in EVERY case, so an exact match would let
+   the same junction typed in another case through to realpath (review 7 finding 1). In a case-sensitive folder the
+   cost is a mistyped case refused as an unfollowable link rather than "no file": the safe direction. */
 function listed(p) {
-  const name = path.win32.basename(p);
-  try { return fs.readdirSync(path.win32.dirname(p)).includes(name); } catch { return false; }
+  const name = path.win32.basename(p).toLowerCase();
+  try { return fs.readdirSync(path.win32.dirname(p)).some((n) => n.toLowerCase() === name); } catch { return false; }
 }
 function winLinkRefusal(p, roots, hops = 0) {
   if (hops > MAX_HOPS) return 'that path goes through too many links to follow, so it cannot be attached';
