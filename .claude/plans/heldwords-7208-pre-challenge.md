@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: heldwords-7208
-diff_hash: f6aa5782bfcb8402c23addd7a59c50c67e063227318ad0490aa6829befb1ade8
+diff_hash: 69cc535947eed5735a9ad30b3a518b67bb22350d948bab5eecca4c86a18e0c1e
 validation: passed at 63e23560a9 rebased on origin/main (every root *.test.js 10249 pass 0 fail; render-dm-held-5805 all passed; #2518 surface gate and #1720 gate exit 0)
 subdir_audit: passed (no CLAUDE.md in the diff)
 timestamp: 2026-10-26T18:24:38Z
@@ -48,3 +48,8 @@ converged: true
 
 #### Iteration 7
 Full validation once at convergence, rebased on origin/main: all green. No issues found.
+
+#### Iteration 8
+After convergence, a teammate's finding (PigeonPete, m459): the box line claimed unsent text, but a box Kosmos cannot
+read is held the same way. Copy changed to claim nothing about text; the browser check's control refuses "unsent
+text" on every row. render-dm-held-5805 all passed; web/browser-check/tree-guard tests 3437/3437. No issues found.
