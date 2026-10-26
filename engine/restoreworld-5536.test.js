@@ -172,6 +172,11 @@ test('finish moves nothing when any check fails, and only from the folder made f
   assert.equal(r.ok, false);
   assert.match(r.because, /not the one made for this Kosmos/);
   assert.ok(fs.existsSync(path.join(other, 'workers')));
+  // That refusal comes after the restore's counts are read, so it reports them (round 36).
+  const counted = rw.finishRestoreWorld({ base, world: p.world, restoreDir: other, result: { ok: true, fetchProblems: ['the hourly limit was reached'], result: { restored: ['a'], failed: [{ path: 'b' }, { path: 'c' }] } } });
+  assert.equal(counted.ok, false);
+  assert.equal(counted.failedFiles, 2, 'the refusal hid the failed files it had already counted');
+  assert.deepEqual(counted.fetchProblems, ['the hourly limit was reached']);
 
   // A non-empty target refuses before anything moves: workers is checked first, but projects stays put too.
   fs.writeFileSync(path.join(roots.AGENT_WORKFORCE_PROJECTS, 'already.txt'), 'x');
