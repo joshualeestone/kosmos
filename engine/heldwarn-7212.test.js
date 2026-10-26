@@ -76,3 +76,18 @@ test('#7212: the stuck-input sweep says once why it keeps waiting, after half an
   await tick();
   assert.equal(lines.length, 1, 'a text stuck 20 minutes was reported as a long wait');
 });
+
+test('#7212: flush reports why each message it typed was held, so the board log line comes from the real path', async () => {
+  const chat = require('./chat');
+  const now = new Date().toISOString();
+  assert.ok(limitqueue.add('flushpat', { id: 'f1', from: 'x', envelope: 'e1', at: now, reset: now, input: true }));
+  assert.ok(limitqueue.add('flushpat', { id: 'f2', from: 'x', envelope: 'e2', at: now, reset: now }));
+  const roster = [{ name: 'flushpat', sessionName: 'flushpat', state: 'idle' }];
+  const done = await limitqueue.flush(roster, {
+    deliver: async () => ({ state: chat.DELIVERY.PLACED }), isReleased: () => true,
+    resolveCard: (r, k) => r.find((c) => c.sessionName === k) || null, DELIVERY: chat.DELIVERY,
+  });
+  assert.deepEqual(done.map((d) => [d.id, d.why]), [['f1', 'input'], ['f2', 'limit']]);
+  assert.match(limitqueue.deliveredLine(done[0]), /once its input box was empty/);
+  assert.match(limitqueue.deliveredLine(done[1]), /after its usage reset/);
+});

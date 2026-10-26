@@ -150,10 +150,6 @@ function settle(name, id) { if (!remove(name, id)) done.add(id); }
 let flushingSince = 0;
 let runToken = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
-/* The minute sweep. For each agent with kept messages: drop those DROP_AFTER_MS past their reset (onDropped); then,
-   when `isReleased(card, roster, live)` (the card for the agent in `roster`, and the messages still kept), type the
-   rest in order with `deliver`. A message typed (placed or unconfirmed) is removed and reported (onDelivered); the
-   first that is not stops that agent's run and stays. Returns [{ name, id, state }] for what was typed. */
 /* #7212: what a kept message was held for: 'input' (text sat unsent in the agent's input box, or the box could not be
    read), 'signin' (its account was signed out), else 'limit' (its usage limit). */
 function heldWhy(e) {
@@ -181,6 +177,10 @@ const HELD_FOR = { input: 'once its input box was empty', signin: 'once it was s
 function deliveredLine(d) {
   return 'limit-queue: ' + d.name + ' was given held message ' + d.id + ' ' + (HELD_FOR[d.why] || HELD_FOR.limit) + ', delivery=' + d.state + '\n';
 }
+/* The minute sweep. For each agent with kept messages: drop those DROP_AFTER_MS past their reset (onDropped); then,
+   when `isReleased(card, roster, live)` (the card for the agent in `roster`, and the messages still kept), type the
+   rest in order with `deliver`. A message typed (placed or unconfirmed) is removed and reported (onDelivered); the
+   first that is not stops that agent's run and stays. Returns [{ name, id, state, why }] for what was typed. */
 async function flush(roster, opts) {
   // One run at a time: a run still typing a backlog when the next minute starts would type each message twice. A run
   // that has not finished in FLUSH_STUCK_MS (a delivery that never settled) no longer blocks the next one.
