@@ -177,6 +177,29 @@ test('tickOnce: prompts the due agents with the line and books them; a second pa
   assert.deepEqual(ct.tickOnce(o), [], 'prompted twice within the gap');
 });
 
+test('#7230 ask 2: a reminder after an instructions-change notice says any pause it asked for is over; one without it does not', () => {
+  // Posted more than a day ago, so each gets the floor line, which is not gated on work (the notice's own turn is Kosmos's).
+  const { sent, o } = tickArgs({ postTimes: () => [ago(30 * H)], kosmosLines: (s) => (s === 'ann' ? [ago(H / 2)] : []) });
+  ct.tickOnce(o);
+  const by = Object.fromEntries(sent);
+  assert.equal(by.ann, 'Kosmos here: ' + ct.PAUSE_OVER_TEXT + ct.FLOOR_TEXT.slice('Kosmos here: '.length));
+  assert.equal(by.bea, ct.FLOOR_TEXT, 'control: with no notice the line is unchanged');
+});
+
+test('#7230 ask 2: a notice from before the previous reminder adds nothing (that reminder already followed it)', () => {
+  const book = new Map([['ann', [ago(4 * H)]]]);
+  const early = tickArgs({ postTimes: () => [ago(30 * H)], book, kosmosLines: (s) => (s === 'ann' ? [ago(5 * H)] : []) });
+  ct.tickOnce(early.o);
+  assert.equal(Object.fromEntries(early.sent).ann, ct.FLOOR_TEXT);
+  const late = tickArgs({ postTimes: () => [ago(30 * H)], book: new Map([['ann', [ago(4 * H)]]]), kosmosLines: (s) => (s === 'ann' ? [ago(2 * H)] : []) });
+  ct.tickOnce(late.o);
+  assert.ok(Object.fromEntries(late.sent).ann.includes(ct.PAUSE_OVER_TEXT), 'control: a notice after the previous reminder is named');
+  // A record that cannot be read names nothing.
+  const broken = tickArgs({ postTimes: () => [ago(30 * H)], kosmosLines: () => { throw new Error('boom'); } });
+  ct.tickOnce(broken.o);
+  assert.equal(Object.fromEntries(broken.sent).ann, ct.FLOOR_TEXT);
+});
+
 test('tickOnce gates: live execution off, the brake, the community switch off, the Prompter off: nothing is sent', () => {
   for (const over of [{ allowed: () => false }, { env: { AGENT_WORKFORCE_COMMUNITY_TURN_OFF: '1' } }, { switchOn: () => false }, { prompterOn: () => false }]) {
     const { sent, o } = tickArgs(over);
