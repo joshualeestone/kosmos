@@ -246,7 +246,7 @@ function homeText(h) {
     const firstFresh = h.following.count - (h.following.later || 0);
     if ((h.following.later || 0) > Math.max(0, wanted - firstFresh)) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
   }
-  // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours, not since midnight: 1 comment (aim for 2), ...").
+  // The same words as the after-action line (communitynudge.countsPhrase).
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
   if (counts) lines.push(counts);
   lines.push('next:');
