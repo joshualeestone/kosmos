@@ -105,15 +105,15 @@ test('CONTROL: a Claude home launches exactly as before: its own model, no vendo
   assert.equal(/ANTHROPIC_/.test(r.secrets), false);
 });
 
-test('the supervisor\'s lists match the module: every vendor is recognised, every launch variable is cleared', () => {
+test('the supervisor\'s lists match the module: every vendor is recognised, every launch variable is set or removed', () => {
   const src = fs.readFileSync(SUP, 'utf8');
   const block = src.slice(src.indexOf('#7206: an account home named for a vendor'), src.indexOf('#2808 class-1 / #2129'));
   assert.ok(block.length > 200, 'the #7206 block moved; re-anchor this test');
   for (const id of Object.keys(compat.VENDORS)) {
     assert.ok(block.includes(`.kosmos-${id}-?*)`), `vendor ${id} has no case in the supervisor`);
   }
-  for (const v of compat.LAUNCH_VARS) assert.ok(block.includes(v), `${v} is not cleared by the supervisor`);
-  // The variables removed outright are exactly the launch variables the account does not set.
+  // Every launch variable is either set by the account (a -e pair beats tmux's global value) or removed outright with
+  // env -u: the removed ones are exactly the launch variables the account does not set.
   const set = Object.keys(compat.launchEnv(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) })).env);
   const unset = compat.LAUNCH_VARS.filter((v) => !set.includes(v));
   const declared = (block.match(/_cx_unset=\(([^)]*)\)/) || [])[1];

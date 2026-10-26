@@ -47,6 +47,11 @@ This leaves the Claude-account paths (key add, live badge, auth status, machine 
 4. Server routes + Settings/setup Connect row for DeepSeek (key paste), live check against the vendor.
 5. Browser check for the row.
 
+## Windows launch: not in slice 1
+engine/win32launch.js copies the board's whole environment into a Windows agent, and this slice changes only the Mac
+supervisor. Until the Windows launcher applies launchEnv the same way, a vendor account is Mac only (the Settings row
+must say so or be hidden on Windows).
+
 ## Known untested guard
 readAccount refuses a file whose vendor differs from its folder's name. With one vendor in the table no file can reach
 that line (another vendor is refused first as unknown); a mutant removing it survives. Slice 2 (GLM) adds its test.
