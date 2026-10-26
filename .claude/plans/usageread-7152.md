@@ -65,6 +65,12 @@ at 0%, had no reading at all (the card's opening).
   the window ends or a later status line moves.
 - Review 11: a record also names the organization it was measured in, and the kept-figures and change-time rules
   require it to match when both sides name one. A measured time in the future is not fresh.
+- Review 12: a busy flag older than three poll periods is stale, so one sweep that never settled cannot stop every
+  later one. Scope, stated rather than fixed: the real-home rule guards the macOS bare Keychain entry only. Off macOS
+  each account reads its own folder's `.credentials.json`, so a sandboxed board reads only its sandbox's files, and a
+  board started with the real home and no test signals reads the real logins on any platform, as the real board
+  does. Deferred to slice 2, not fixed: the profile is asked on every read (two requests per account per 10 minutes);
+  caching a checked login would halve that, and is worth it only if the first live sweeps show profile failures.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:

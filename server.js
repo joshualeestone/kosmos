@@ -25908,17 +25908,20 @@ function start(port = PORT) {
          asynchronous (one account at a time, never on the board's request path), best-effort. accounts.list() is the
          cheap read: listLive() checks every account live and must not run on a timer. */
       const usagePoll = require('./engine/usagepoll');
-      let usagePollBusy = false;
+      let usagePollBusy = 0;   // when the running sweep started, or 0
       const usagePollTick = () => {
-        if (usagePollBusy) return;
+        /* Review 12: a sweep that somehow never settles must not stop every later one, so a busy flag older than three
+           poll periods is taken as stale. Every await inside has its own deadline, so this is a backstop. */
+        if (usagePollBusy && Date.now() - usagePollBusy < 3 * usagePoll.POLL_MS) return;
         if (!liveExecution.liveExecutionAllowed() || !usagePoll.liveAllowed()) return;   // never under a test (it reads real logins)
-        usagePollBusy = true;
+        const started = Date.now();
+        usagePollBusy = started;
         let list = [];
         try { list = accounts.list(); } catch { list = []; }
         usagePoll.pollAll(list)
           .then((n) => { process.stdout.write(`usage-poll: measured ${n} of ${list.filter((a) => a && !a.apiKey).length} signed-in account(s)\n`); })
           .catch(() => { /* best-effort, like the sweeps above */ })
-          .finally(() => { usagePollBusy = false; });
+          .finally(() => { if (usagePollBusy === started) usagePollBusy = 0; });
       };
       const usagePollSweep = setInterval(usagePollTick, Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.POLL_MS); // the env is the test seam only
       if (usagePollSweep && typeof usagePollSweep.unref === 'function') usagePollSweep.unref();

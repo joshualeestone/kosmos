@@ -351,6 +351,7 @@ test('#7152 review 8: the server\'s sweep asks liveAllowed before it reads any l
   assert.ok(list > 0 && body.includes('usagePoll.pollAll('), 'CONTROL: the sweep body was found whole');
   assert.ok(gate > 0 && gate < list, 'the sweep reads logins without asking liveAllowed first');
   assert.match(body, /\n\s*if \([^\n]*!usagePoll\.liveAllowed\(\)\) return;/, 'liveAllowed is called but does not stop the sweep');
+  assert.match(body, /if \(usagePollBusy && Date\.now\(\) - usagePollBusy < /, 'review 12: a sweep that never settles stops every later one');
 });
 
 test('#7152 review 9: the same email in another organization is another account', async () => {
