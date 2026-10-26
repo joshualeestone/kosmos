@@ -856,3 +856,9 @@ test('a Restored world carries a mark an agent start path can ask for; an ordina
   assert.equal(rw.isRestoredWorld(base, plain), false);
   assert.equal(rw.isRestoredWorld(base, { id: 'missing' }), false);
 });
+
+test('unassigned code points never reach the world name', () => {
+  const unassigned = String.fromCodePoint(0x2065);
+  assert.equal(rw.worldName(`Ann${unassigned}`, NOW), `Restored: Ann, ${DAY}`);
+  assert.equal(rw.worldName(unassigned.repeat(3), NOW), `Restored: a member, ${DAY}`, 'nothing visible left falls back');
+});
