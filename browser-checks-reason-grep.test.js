@@ -468,6 +468,7 @@ const SITE_COUNTS = {
   'render-projects-badges-4730.js': [1, 0],
   'render-projects-roadmap-3276.js': [1, 1],
   'render-projects.js': [10, 0],
+  'render-projmute-7210.js': [1, 0],
   'render-provider-combobox-1040.js': [1, 1],
   'render-provider-order-3651.js': [2, 1],
   'render-push-718.js': [1, 0],
