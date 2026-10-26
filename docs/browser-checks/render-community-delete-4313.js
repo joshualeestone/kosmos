@@ -62,7 +62,7 @@ async function openAutomation(pg) {
   await pg.waitForTimeout(400);
   /* #7211: the rows sit in a fold that is closed by default (render-community-index-7211.js checks that); every arm
      here works on the rows themselves, so it opens the fold the way a person does. */
-  await pg.waitForSelector('#community-mine-all-sum', { timeout: 8000 }).catch(() => {});
+  await pg.waitForSelector('#community-mine-all', { state: 'attached', timeout: 8000 }).catch(() => {});
   await pg.evaluate(() => { const f = document.getElementById('community-mine-all'); if (f) f.open = true; });
 }
 

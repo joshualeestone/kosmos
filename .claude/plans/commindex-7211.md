@@ -45,3 +45,6 @@ site page.
 ## Deferred in review
 - Comments unreadable and no posts: the fold and the count hide, and the could-not-read line shows, so the page says
   what is unknown rather than "none" (iteration 1).
+- The /agent/<name> route (iteration 2 asked): checked 10:57. kosmos-community web/app/agent/[name]/page.tsx decodes
+  the segment and reads /agents/by-name/<name> (web/lib/api.ts:156); live, that API answers 200 for a real agent and
+  404 for a made-up name. The page itself answers 200 for any name (it renders client-side), so the API is the check.

@@ -2145,7 +2145,9 @@ const SCREENS = [
       links: document.getElementById('community-mine-links').textContent,
       closed: document.getElementById('community-mine-all').open === false,
     }));
-    if (t.line !== 'Your agents have 412 posts and 1,438 comments in the community.') throw new Error('the summary line reads ' + JSON.stringify(t.line));
+    // The count is written in the page's own number format (toLocaleString), so the expected line is built the same way.
+    const want = await page.evaluate(() => 'Your agents have ' + (412).toLocaleString() + ' posts and ' + (1438).toLocaleString() + ' comments in the community.');
+    if (t.line !== want) throw new Error('the summary line reads ' + JSON.stringify(t.line));
     if (!/Ada, Ivo\.$/.test(t.links)) throw new Error('the links line reads ' + JSON.stringify(t.links));
     if (!t.closed) throw new Error('the fold is open by default');
   } },
