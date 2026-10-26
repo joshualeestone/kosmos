@@ -7076,6 +7076,44 @@ test('#5977: createAgent on Qwen runs codex with the named Qwen account as its h
   }
 });
 
+/* #7206 slice 1b: creating an agent on DeepSeek (a vendor on the claude runner). Off by default: refused in its own words
+   and nothing written. On: the named account is required and becomes CLAUDE_CONFIG_DIR, recorded for Repair; a model
+   and an unknown account are refused before anything is written. */
+test('#7206: createAgent on DeepSeek is refused while the switch is off, and runs claude on the named account when on', WIN_LAUNCHD, () => {
+  recorder();
+  create.setDryRun(false);
+  const compat = require('./anthropiccompat');
+  const acct = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.kosmos-deepseek-create-test');
+  compat.storeAccount(acct, { vendor: 'deepseek', model: 'deepseek-chat', key: 'sk-deepseek-create-0123456789' });
+  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  try {
+    delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+    const off = create.createAgent({ ...BINS, name: 'ds-create-off', role: 'pm', provider: 'deepseek', account: acct, platform: 'darwin' });
+    assert.equal(off.outcome, create.OUTCOME.REFUSED);
+    assert.equal(off.because, 'DeepSeek is not available in Kosmos yet');
+    assert.equal(create.readJob('ds-create-off'), null, 'the switch is off and a job was written');
+
+    process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
+    const made = create.createAgent({ ...BINS, name: 'ds-create', role: 'pm', provider: 'deepseek', account: acct, platform: 'darwin' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    assert.equal(create.readJob('ds-create').runner, 'claude');
+    assert.equal(jobEnv('ds-create', 'CLAUDE_CONFIG_DIR'), acct, 'the DeepSeek account folder is the claude config dir');
+    assert.equal(store.readProfile('ds-create').provider, 'deepseek');
+    assert.equal(store.readProfile('ds-create').vendorAccount, acct, 'Repair would rebuild it without its account');
+    assert.equal(create.jobProvider(create.readJob('ds-create')), 'deepseek');
+
+    const none = create.createAgent({ ...BINS, name: 'ds-create-none', role: 'pm', provider: 'deepseek', platform: 'darwin' });
+    assert.match(none.because, /pick which DeepSeek account/);
+    const unknown = create.createAgent({ ...BINS, name: 'ds-create-unknown', role: 'pm', provider: 'deepseek', account: nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.kosmos-deepseek-nope'), platform: 'darwin' });
+    assert.match(unknown.because, /do not know that DeepSeek account/);
+    const model = create.createAgent({ ...BINS, name: 'ds-create-model', role: 'pm', provider: 'deepseek', account: acct, model: 'claude-opus-5', platform: 'darwin' });
+    assert.match(model.because, /runs the model its DeepSeek account names/);
+    for (const n of ['ds-create-none', 'ds-create-unknown', 'ds-create-model']) {
+      assert.equal(create.readJob(n), null, `${n}: nothing was written for a refused create`);
+    }
+  } finally { if (prev === undefined) delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; else process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev; }
+});
+
 test('#5977: a Qwen agent moves between Qwen accounts with setAccount, refuses an OpenAI folder there, and refuses a model change', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);

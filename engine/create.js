@@ -4905,7 +4905,13 @@ function createAgentInner(opts) {
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : runner === 'muse' ? museBin : claudeBin;
 
   const steps = [];
+  /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (off by default, never on Windows). */
+  const compatVendor = require('./anthropiccompat').vendorOf(provider);
+  if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform)) {
+    return { outcome: OUTCOME.REFUSED, because: require('./anthropiccompat').notYet(provider), steps };
+  }
   if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
+    && !compatVendor
     && !(provider === 'antigravity' && antigravityEnabled())   // #3568: behind its flag
     && !(provider === 'meta' && museEnabled(opts && opts.platform))) { // #3939: behind its flag, Mac only
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
@@ -5132,7 +5138,11 @@ function createAgentInner(opts) {
   if (provider === 'alibaba' && wantModelKey !== undefined && wantModelKey !== null && String(wantModelKey).trim() !== '') {
     return { outcome: OUTCOME.REFUSED, because: 'a Qwen agent runs the model its Qwen account names; change the model on the account instead', steps };
   }
-  if (wantModelKey !== undefined && provider !== 'meta' && provider !== 'alibaba') {
+  // #7206: a vendor agent the same: the supervisor runs the model its vendor account names.
+  if (compatVendor && wantModelKey !== undefined && wantModelKey !== null && String(wantModelKey).trim() !== '') {
+    return { outcome: OUTCOME.REFUSED, because: `a ${compatVendor.name} agent runs the model its ${compatVendor.name} account names; change the model on the account instead`, steps };
+  }
+  if (wantModelKey !== undefined && provider !== 'meta' && provider !== 'alibaba' && !compatVendor) {
     if (provider === 'openai' || provider === 'google' || provider === 'xai' || provider === 'antigravity') {
       /* #2140/#3296/#3391: OpenAI, Gemini and Grok models are FREE-FORM ids, not
          entries in the static MODELS list `modelFor` reads (OpenAI's are per-account
@@ -5253,6 +5263,16 @@ function createAgentInner(opts) {
     const acct = require('./qwenaccounts').list().find((a) => a.dir === path.resolve(String(wantAccountDir)));
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen'), steps };
     if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used: ${acct.endpointProblem}`, steps };
+    configDir = acct.dir;
+  } else if (compatVendor) {
+    /* #7206: a NAMED vendor account, required and fail-closed like Qwen's. configDir is always the account folder: the
+       agent's CLAUDE_CONFIG_DIR, where the supervisor reads the vendor and the key; there is no default vendor home. */
+    if (wantAccountDir === undefined || wantAccountDir === null || String(wantAccountDir) === '') {
+      return { outcome: OUTCOME.REFUSED, because: `pick which ${compatVendor.name} account it should run on`, steps };
+    }
+    const acct = require('./anthropiccompat').list(provider).find((a) => a.dir === path.resolve(String(wantAccountDir)));
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal(compatVendor.name), steps };
+    if (acct.accountProblem) return { outcome: OUTCOME.REFUSED, because: `that ${compatVendor.name} account cannot be used: ${acct.accountProblem}`, steps };
     configDir = acct.dir;
   } else if (provider === 'meta' && wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_ACCOUNT, steps };   // #3939
@@ -6710,6 +6730,7 @@ function createAgentInner(opts) {
     /* #5977 review 5: which Qwen account, so Repair can rebuild the job on it (the job is the only other record, and
        Repair runs exactly when the job is gone). */
     if (provider === 'alibaba') profile.qwenAccount = configDir;
+    if (compatVendor) profile.vendorAccount = configDir;   // #7206: Repair rebuilds a vendor agent on it
     /* #3564: a swarm's kind and settings, from birth (engine/swarm.js). */
     if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct }));
     /* Which revision of the working rules this agent was born with (#539),
