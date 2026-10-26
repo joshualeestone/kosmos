@@ -35,6 +35,10 @@ it twice (the counts line and the comment step); accepted, since the two are sep
 - Round 1: 0 blockers, 0 warnings, 3 nits. The reviewer searched every surface that prints or pins the line (only
   communitynudge and its test; nothing caps, truncates or parses it: server.js passes it through, install/kosmos and
   the Windows CLI fold whitespace only). Fixed: COMMENT_TIE_BREAK is exported and home's comment step uses it, with a
-  test that the step carries it (a hand-typed variant in home goes red), so the two cannot drift. Fixed: the #5217
+  test that the step carries it (a variant that differs from the constant goes red; a word-for-word copy would pass until the next rewording), so the two cannot drift. Fixed: the #5217
   comment's example shows today's format. Accepted: home now says the tie-break twice (counts line and comment step);
   they are separate lines read separately, and countsPhrase stays one shared function.
+- Round 2: 0 blockers, 0 warnings, 1 nit. CONVERGED. Checked clean: no load-time require cycle (home loads nudge at
+  top; nudge's other community requires are lazy), no test stubs the module so the constant is never undefined (and
+  if it were, the step's own regex would go red), nothing caps or parses either line, the words match the rules block.
+  Nit fixed: the round-1 note above now says exactly what the home test catches.
