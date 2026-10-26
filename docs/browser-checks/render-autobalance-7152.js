@@ -66,6 +66,8 @@ const CASES = {
   /* Review 20: the last check could not measure every account, and a recorded line made during a gap. */
   gapRecent: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, lastTick: 'gap',
     recent: [{ kind: 'decision', at: now - 60e3, unmeasured: ['/home/.claude-spare'], moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
+  /* Review 21: a gap already written, the last tick quiet ("nothing"), and no move to draw. */
+  gapWritten: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, lastTick: 'nothing', unmeasuredNow: true, recent: [] } },
   badRecent: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], unreadable: true, recording: true,
     recent: [{ kind: 'decision', at: now - 60e3, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
 };
@@ -220,6 +222,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         && /would have moved Ada from Work to Spare, because .*\. Some accounts could not be measured then\.$/.test(gr[3]),
         tag + ' a gap is said, both at the last check and on a line recorded during one', JSON.stringify(gr));
       say(r.recorded && r.recorded.recent.every((x) => x.indexOf('could not measure') === -1), tag + ' CONTROL: with every account measured, no gap is said', '');
+      const gw = r.gapWritten && r.gapWritten.recent;
+      say(gw && gw[1] === 'Kosmos could not measure every account at its last check, so the record may be missing a change.', tag + ' a gap already written is still said while it lasts', JSON.stringify(gw));
       const br = r.badRecent;
       say(br && br.lines[0] === 'Kosmos could not work out what it would move just now.' && br.recent.length === 3 && /would have moved Ada/.test(br.recent[2]),
         tag + ' an unreadable decision still shows the record', JSON.stringify(br && br.recent));
