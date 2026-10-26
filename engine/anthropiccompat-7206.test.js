@@ -70,6 +70,8 @@ test('accountProblem accepts a good account and refuses what cannot work, in wor
   assert.match(compat.accountProblem({ ...GOOD, key: 'sk with space' }), /does not look like a key/);
   assert.match(compat.accountProblem({ ...GOOD, key: 'sk\u0007bell' }), /does not look like a key/);
   assert.match(compat.accountProblem({ ...GOOD, key: 'k'.repeat(4097) }), /too long/);
+  // Review 1: a character a header cannot carry (a curly apostrophe pasted from a web page) is refused, not stored.
+  assert.match(compat.accountProblem({ ...GOOD, key: 'sk-abc\u2019def' }), /plain letters, digits and symbols/);
   assert.match(compat.accountProblem(null), /no provider/);
 });
 
@@ -170,6 +172,7 @@ test('launchEnv points Claude Code at the vendor with the key and the model, and
   assert.equal(r.env.ANTHROPIC_BASE_URL, 'https://api.deepseek.com/anthropic');
   assert.equal(r.env.ANTHROPIC_AUTH_TOKEN, KEY);
   assert.equal(r.env.ANTHROPIC_MODEL, 'deepseek-reasoner');
+  assert.equal(r.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1', 'Claude Code\'s own background requests would go to Anthropic');
   // Never ANTHROPIC_API_KEY: Claude Code would also try it against its own sign-in, and the supervisor unsets it.
   assert.equal('ANTHROPIC_API_KEY' in r.env, false);
   // Every variable the launch sets is one the supervisor unsets first.

@@ -63,7 +63,7 @@ test('a DeepSeek home launches claude against DeepSeek, with its model in place 
   assert.match(r.argv, /-e ANTHROPIC_MODEL=deepseek-chat/);
   assert.match(r.argv, /--model deepseek-chat/);
   assert.equal(/claude-sonnet-5/.test(r.argv), false, 'the agent\'s Claude model is not sent to DeepSeek');
-  assert.match(r.argv, /\/usr\/bin\/env -u ANTHROPIC_API_KEY -u ANTHROPIC_CUSTOM_HEADERS \/usr\/bin\/true/);
+  assert.match(r.argv, /\/usr\/bin\/env( -u [A-Z_]+)+ \/usr\/bin\/true/, 'claude does not run behind the env -u prefix');
 });
 
 test('the key reaches the pane only as a launch secret, never in the argv or the supervisor output', () => {
@@ -73,13 +73,21 @@ test('the key reaches the pane only as a launch secret, never in the argv or the
   assert.equal(r.out.includes(KEY), false, 'the key is in the supervisor output');
 });
 
-test('an inherited ANTHROPIC_* value never reaches a DeepSeek pane: set ones are replaced, the rest removed', () => {
+/* What this can and cannot show: the fake tmux has no global environment, which is the real way an inherited value
+   reaches a pane. So it pins the two mechanisms that defeat one there instead: every variable the account sets is a
+   -e pair (a -e pair beats tmux's global value), and every other launch variable is removed with env -u. */
+test('every launch variable is either a -e pair from the account or removed with env -u; a value in the supervisor\'s own env reaches nothing', () => {
   const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) }), '', {
     ANTHROPIC_BASE_URL: 'https://elsewhere.example', ANTHROPIC_API_KEY: 'sk-ant-inherited', ANTHROPIC_MODEL: 'claude-opus-5',
   });
   assert.match(r.argv, /new-session/, r.out);
   assert.equal(/elsewhere\.example|sk-ant-inherited|claude-opus-5/.test(r.argv + r.secrets), false, 'an inherited value reached the pane');
-  assert.match(r.argv, /-u ANTHROPIC_API_KEY/);
+  const set = compat.launchEnv(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) })).env;
+  for (const [k, val] of Object.entries(set)) {
+    if (k === 'ANTHROPIC_AUTH_TOKEN') continue;   // the key: a launch secret, asserted above
+    assert.ok(r.argv.includes(`-e ${k}=${val}`), `${k} is not set as a -e pair, so tmux's global value would win`);
+  }
+  for (const v of compat.LAUNCH_VARS.filter((x) => !(x in set))) assert.ok(r.argv.includes(`-u ${v}`), `${v} is not removed`);
 });
 
 test('an account that cannot be used stops the launch, saying why, and never starts claude against Anthropic', () => {

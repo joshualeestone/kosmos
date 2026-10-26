@@ -3386,9 +3386,25 @@ function handleCompatAccountStore(req, res) {
       const named = compatAccounts.dirForLabel(v.id, typeof body.label === 'string' && body.label.trim() ? body.label : 'main');
       if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
       /* Claimed before the live check, as the Qwen add does: a plain mkdir fails on a folder already there, so of two
-         adds racing for one label exactly one gets it. A claimed folder this add cannot fill is removed. */
-      try { fs.mkdirSync(named.dir, { mode: 0o700 }); } catch (e) {
-        sendJson(res, e && e.code === 'EEXIST' ? 409 : 400, { error: e && e.code === 'EEXIST'
+         adds racing for one label exactly one gets it. A claimed folder this add cannot fill is removed. Review 1 (the
+         Qwen add's review 2): an add that died between the claim and the store (a restart during the check) leaves an
+         empty folder that the list hides and delete refuses; a real, empty folder over a minute old is that leftover,
+         reclaimed once, or the name would be taken forever. */
+      const claim = () => { try { fs.mkdirSync(named.dir, { mode: 0o700 }); return null; } catch (e) { return e || new Error('mkdir'); } };
+      let claimErr = claim();
+      if (claimErr && claimErr.code === 'EEXIST') {
+        let leftover = false;
+        try {
+          const st = fs.lstatSync(named.dir);
+          leftover = st.isDirectory() && !st.isSymbolicLink() && Date.now() - st.mtimeMs > 60000
+            && fs.readdirSync(named.dir).length === 0;
+        } catch { leftover = false; }
+        if (leftover) {
+          try { fs.rmdirSync(named.dir); claimErr = claim(); } catch (e) { claimErr = e || claimErr; }
+        }
+      }
+      if (claimErr) {
+        sendJson(res, claimErr.code === 'EEXIST' ? 409 : 400, { error: claimErr.code === 'EEXIST'
           ? `there is already a ${v.name} account called ${named.label} on this computer; give this one another name`
           : `we could not make a place for this ${v.name} account on this computer` });
         return;

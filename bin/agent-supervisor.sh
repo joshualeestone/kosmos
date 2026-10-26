@@ -726,6 +726,7 @@ if [ -z "$adopt" ]; then
 
   cleanup_launch_secrets() {
     [ -n "${SECRET_FILE:-}" ] && rm -f -- "$SECRET_FILE" 2>/dev/null || true
+    [ -n "${COMPAT_TMP:-}" ] && rm -f -- "$COMPAT_TMP" 2>/dev/null || true   # #7206 review 1
     # #4530: a launch that minted and then never started its session (every `|| exit 1`
     # below, or losing the name to another launch) leaves a token no run holds.
     # ⚠️ RUN_STARTED is set by EVERY path that creates the session: launch_pane, and the
@@ -1472,6 +1473,7 @@ if [ -z "$adopt" ]; then
           exit 1
         fi
         _cx_file="$(mktemp)" || { say "$SESSION: could not read its provider account; the agent was not started"; exit 1; }
+        COMPAT_TMP="$_cx_file"   # review 1: it holds the key until read; the EXIT trap removes it if the launch is cut short
         _cx_rc=0
         "$NODE_BIN" "$_eng/anthropiccompat.js" launch-env "$EFFECTIVE_CCD" > "$_cx_file" 2>/dev/null || _cx_rc=$?
         if [ "$_cx_rc" -ne 0 ]; then
@@ -1483,18 +1485,19 @@ if [ -z "$adopt" ]; then
         _cx_set=()
         while IFS= read -r -d '' _cx_pair; do _cx_set+=("$_cx_pair"); done < "$_cx_file"
         rm -f -- "$_cx_file"
+        COMPAT_TMP=""
         if [ "${#_cx_set[@]}" -eq 0 ]; then
           say "$SESSION: its provider account gave no launch settings; the agent was not started"
           exit 1
         fi
         # Set what the account names: the key as a launch secret, the rest as -e pairs (a -e pair beats tmux's global
         # environment). The model also goes to --model, since $MODEL would otherwise send a claude-* id to the vendor.
-        _cx_unset=(ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS)
+        _cx_unset=(ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_OAUTH_TOKEN)
         for _cx_pair in "${_cx_set[@]}"; do
           case "$_cx_pair" in
             ANTHROPIC_AUTH_TOKEN=*) add_launch_secret ANTHROPIC_AUTH_TOKEN "${_cx_pair#ANTHROPIC_AUTH_TOKEN=}" ;;
             ANTHROPIC_MODEL=*) MODEL="${_cx_pair#ANTHROPIC_MODEL=}"; PANE_ENV+=(-e "$_cx_pair") ;;
-            ANTHROPIC_*=*) PANE_ENV+=(-e "$_cx_pair") ;;
+            ANTHROPIC_*=*|CLAUDE_CODE_*=*) PANE_ENV+=(-e "$_cx_pair") ;;
           esac
         done
         # The variables the account does not set are removed outright, so a server-global value cannot reach the pane.

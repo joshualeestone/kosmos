@@ -68,6 +68,9 @@ function accountProblem(ep) {
   const k = String(e.key == null ? '' : e.key);
   if (!k) return `it has no ${v.name} key`;
   if (/[\s\u0000-\u001f\u007f]/.test(k)) return 'that does not look like a key: a key has no spaces, line breaks or control characters in it';
+  /* Review 1: printable ASCII only. Any other character cannot be sent in a header at all, so the check would read it
+     as "could not reach" and store it, and the agent would fail later inside Claude Code. */
+  if (!/^[\x21-\x7e]+$/.test(k)) return 'that does not look like a key: a key is plain letters, digits and symbols';
   if (k.length > 4096) return 'that key is too long';
   return null;
 }
@@ -306,6 +309,10 @@ const LAUNCH_VARS = Object.freeze([
   'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL',
   'ANTHROPIC_SMALL_FAST_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_CUSTOM_HEADERS',
+  /* Review 1: Claude Code's other provider switches (any one makes it ignore the base URL) and its own sign-in token. */
+  'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_OAUTH_TOKEN',
+  /* Set, not removed: Claude Code's own background requests (updates, error reports) are not sent to Anthropic. */
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
 ]);
 
 /**
@@ -334,6 +341,7 @@ function launchEnv(dir) {
       ANTHROPIC_DEFAULT_SONNET_MODEL: a.model,
       ANTHROPIC_DEFAULT_OPUS_MODEL: a.model,
       ANTHROPIC_DEFAULT_HAIKU_MODEL: a.model,
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     },
   };
 }
