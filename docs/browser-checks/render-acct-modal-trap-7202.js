@@ -7,8 +7,8 @@
  *
  * Hermetic: boots its own sandboxed board with one agent and no sign-in. Real key presses, both
  * directions, in Chromium AND WebKit (the Mac app is a WKWebView, whose default Tab skips buttons, so
- * a trap that acts only at the ends leaks between them there and not in Chromium). On two pages (the
- * board's Agents tab and an agent's own page), for four openers (openAcctAdd, openAcctReauth,
+ * a trap that acts only at the ends leaks between them there and not in Chromium). On three pages (the
+ * board's Agents tab, an agent's own page, Settings > AI Models), for four openers (openAcctAdd, openAcctReauth,
  * openAcctReauthOpenai, openAcctReauthGrok; the trap keys on the dialog being open, so the others, Gemini's and
  * Meta's Sign in again and the Model tab's Connect an API key, share it). Per arm:
  *   - before opening, focus is on a page control outside the dialog (asserted, so the arm cannot pass
@@ -22,7 +22,13 @@
  *     step through dialog and ask lands on the neighbour (the ask sits far from the dialog in the page);
  *   - a focused element that is not a stop and sits after the last stop: Tab from it wraps to the first
  *     stop, Shift+Tab from it goes to the last (a default step would leave the dialog either way);
- *   - the note (focusable, not a stop): Shift+Tab from it lands on the stop just before it.
+ *   - the note (focusable, not a stop): Shift+Tab from it lands on the stop just before it;
+ *   - the OpenAI and Grok key steps (stand-in runners, so hermetic): walked from every stop, and Shift+Tab
+ *     back into a typed key selects it;
+ *   - sent key events: composing, Ctrl+Tab, Cmd+Tab, an inert dialog and an already-prevented press are
+ *     left alone, with a plain Tab as the control;
+ *   - Option+Tab both ways; the picker's list open; a radio group as one stop; another dialog over this
+ *     one (Tab left to it); the one-stop success view.
  * Without the fix the per-stop arms read a page control (the control).
  *
  * Computed-state only, so headless is sound.
@@ -43,6 +49,17 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-acct7202-config-'));
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_RELEASE_BASE = 'http://127.0.0.1:9/dist'; // never the real update server
+/* Stand-in terminal agents, so which provider steps show does not depend on what this computer has installed (the key
+   steps below need Codex and Grok to read as present; a fresh CI runner has neither). Claude reads as signed out. */
+const STUBS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-acct7202-bin-'));
+for (const t of ['codex', 'grok', 'gemini']) { fs.writeFileSync(path.join(STUBS, t), '#!/bin/sh\necho 1.0.0\nexit 0\n'); fs.chmodSync(path.join(STUBS, t), 0o755); }
+fs.writeFileSync(path.join(STUBS, 'claude'), '#!/bin/sh\ncase "$*" in *version*) echo 2.0.0; exit 0;; esac\necho \'{"loggedIn": false, "authMethod": "none"}\'\nexit 1\n');
+fs.chmodSync(path.join(STUBS, 'claude'), 0o755);
+process.env.AGENT_WORKFORCE_CODEX_BIN = path.join(STUBS, 'codex');
+process.env.AGENT_WORKFORCE_GROK_BIN = path.join(STUBS, 'grok');
+process.env.AGENT_WORKFORCE_GEMINI_BIN = path.join(STUBS, 'gemini');
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(STUBS, 'claude');
+process.env.AGENT_WORKFORCE_RUNNERS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-acct7202-runners-'));
 
 const pw = require('playwright');
 const fleet = require('../../test-support/fleet');
@@ -55,7 +72,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
 
 /* The Tab stops in page order, worked out here rather than read from the page's helper, so the check runs (and reds)
    on a page that has no trap at all: the dialog's shown, enabled controls, then the Sign in again ask's buttons when
-   it shows. Installed on every page as window.__stops7202. */
+   it shows. Installed on every page as window.__stops7202. It models today's dialog: if the dialog gains a radio
+   group, a disabled fieldset or inert parts, widen it to the trap's rules (one stop per group, :disabled, inert) or
+   the walks will red on correct code. */
 const INSTALL = () => {
   window.__stops7202 = () => {
     const ok = (el) => el.tabIndex >= 0 && !el.disabled && !el.closest('[hidden]') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
@@ -126,10 +145,12 @@ async function walk(p) {
         for (const [where, url, ready] of [
           ['the board', '/?tab=agents', null],
           ['an agent page', '/?tab=detail&agent=mara', '#panel-detail:not([hidden])'],
+          ['Settings, AI Models', '/?tab=settings', '#panel-settings:not([hidden])'],
         ]) {
           await p.goto(URL + url, { waitUntil: 'load' });
           const up = await (ready ? p.waitForSelector(ready, { timeout: 15000 }) : p.waitForFunction(() => typeof openAcctAdd === 'function', null, { timeout: 15000 })).then(() => true, () => false);
           say(up, eng + ', ' + where + ': the page is showing');
+          if (url.includes('settings')) await p.evaluate(() => { try { settingsGo('accounts'); } catch { const s = document.querySelector('[data-go="accounts"]'); if (s) s.click(); } });
           await p.waitForTimeout(500);
 
           for (let i = 0; i < OPENERS.length; i++) {
@@ -210,9 +231,14 @@ async function walk(p) {
           await open(p, 0);
           await p.waitForTimeout(400);
           await pickProvider(p, prov);
-          if (await p.isVisible(keyBtn).catch(() => false)) { await p.click(keyBtn); await p.waitForTimeout(250); }
+          const keyUp = await p.waitForSelector(keyBtn, { state: 'visible', timeout: 5000 }).then(() => true, () => false);
+          say(keyUp, eng + ', the ' + prov + ' key step: its Use an API key button shows (the stand-in runner reads as present)');
+          if (!keyUp) { await p.keyboard.press('Escape'); continue; }   // a named FAIL above, not a 30 s timeout below
+          await p.click(keyBtn);
+          await p.waitForTimeout(250);
           const hasField = await p.evaluate((sel) => { const f = document.querySelector(sel); return !!f && window.__stops7202().includes(f); }, field);
           say(hasField, eng + ', the ' + prov + ' key step: its key field is a stop');
+          if (!hasField) { await p.keyboard.press('Escape'); continue; }
           const missK = await walk(p);
           say(!missK, eng + ', the ' + prov + ' key step: from every stop, the field included, Tab and Shift+Tab land on the neighbour', missK ? JSON.stringify(missK) : '');
           /* A key typed, Tab away, Shift+Tab back: its text is selected, as a native Tab leaves it, so typing replaces it. */
@@ -236,6 +262,8 @@ async function walk(p) {
           const send = (init) => { const s = window.__stops7202(); s[0].focus(); const ev = new KeyboardEvent('keydown', Object.assign({ key: 'Tab', bubbles: true, cancelable: true }, init)); s[0].dispatchEvent(ev); return ev.defaultPrevented; };
           const plain = send({});
           const composing = send({ isComposing: true });
+          const ctrl = send({ ctrlKey: true });   // the browser's tab switch
+          const cmd = send({ metaKey: true });    // the system's
           // A press a handler that ran first already took: sent already prevented, it must not move focus.
           const s0 = window.__stops7202(); s0[0].focus();
           const pre = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }); pre.preventDefault();
@@ -245,10 +273,11 @@ async function walk(p) {
           modal.inert = true;
           const inert = send({});
           modal.inert = false;
-          return { plain, composing, inert, preLeft };
+          return { plain, composing, ctrl, cmd, inert, preLeft };
         });
         say(taken.plain === true, eng + ', the control: a plain Tab sent to a stop is taken by the trap', JSON.stringify(taken));
         say(taken.composing === false, eng + ', composing: a Tab while an input method composes is left alone', JSON.stringify(taken));
+        say(taken.ctrl === false && taken.cmd === false, eng + ', Ctrl+Tab and Cmd+Tab: left to the browser and the system', JSON.stringify(taken));
         say(taken.preLeft === true, eng + ', taken already: a Tab another handler prevented does not move focus', JSON.stringify(taken));
         say(taken.inert === false, eng + ', inert: a Tab while the dialog is inert under another screen is left alone', JSON.stringify(taken));
         await p.keyboard.press('Escape');
@@ -319,7 +348,7 @@ async function walk(p) {
     }
   } finally {
     server.close();
-    for (const d of [SANDBOX, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS, process.env.AGENT_WORKFORCE_LAUNCH, process.env.AGENT_WORKFORCE_CONFIG_ROOT]) {
+    for (const d of [SANDBOX, STUBS, process.env.AGENT_WORKFORCE_RUNNERS_DIR, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS, process.env.AGENT_WORKFORCE_LAUNCH, process.env.AGENT_WORKFORCE_CONFIG_ROOT]) {
       try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
     }
   }
