@@ -46,6 +46,8 @@ const CASES = {
   /* The two shapes the route sends when the decision fails (review 1): the switch and the count are read first. */
   bad: { accounts: [TWO[0]], autobalance: { on: true, eligible: 1, moves: [], held: [], short: [], unreadable: true } },
   badtwo: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], unreadable: true } },
+  unset: { accounts: TWO, autobalance: { on: null, eligible: 2, moves: [], held: [], short: [], atRisk: [] } },
+  busy: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [{ from: '/home/.claude-full', why: WHY }] } },
 };
 
 const fails = [];
@@ -68,8 +70,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const realFetch = window.fetch;
         let current = null;
         const puts = [];
+        let reads = 0;
         window.fetch = (u, opts) => {
           const url = String(u);
+          if (url.indexOf('/api/accounts') !== -1) reads += 1;
           if (url.indexOf('/api/accounts') !== -1) return current === 'fail' ? Promise.resolve({ ok: false, status: 503, json: async () => ({}) }) : Promise.resolve({ ok: true, json: async () => current });
           if (url.indexOf('/api/autobalance-setting') !== -1) {
             puts.push(opts && opts.body);
@@ -104,7 +108,19 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         out.beforeFail = look();
         current = 'fail'; await paintAccounts();
         out.failed = look();
-        current = cases.moves;
+        /* Review 3: pressing the switch while a list read is out starts no second read over it (the page's own flag
+           stands in for the read), clears the lines at once, and reads once that read is over. */
+        current = cases.moves; await paintAccounts();
+        acctReadOpen = 999999;
+        const before = reads;
+        document.getElementById('ab-toggle').click();
+        for (let i = 0; i < 50 && look().checked !== 'false'; i += 1) await new Promise((res) => setTimeout(res, 20));
+        await new Promise((res) => setTimeout(res, 700));
+        out.overRead = { ...look(), extra: reads - before };
+        acctReadOpen = 0;
+        await new Promise((res) => setTimeout(res, 900));
+        out.afterRead = { extra: reads - before };
+        current = { ...cases.moves, autobalance: { ...cases.moves.autobalance, on: true } };
         await paintAccounts();
         document.getElementById('ab-toggle').click();
         for (let i = 0; i < 50 && look().checked !== 'false'; i += 1) await new Promise((res) => setTimeout(res, 20));
@@ -123,10 +139,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.off && r.off.shown && r.off.checked === 'false' && r.off.lines.length === 0, tag + ' switched off: it reads off and draws no line', JSON.stringify(r.off));
       say(r.bad && !r.bad.shown, tag + ' a failed decision with one account still hides the row', JSON.stringify(r.bad));
       say(r.badtwo && r.badtwo.shown && r.badtwo.lines[0] === 'Kosmos could not work out what it would move just now.', tag + ' an unreadable decision says so', JSON.stringify(r.badtwo && r.badtwo.lines));
-      say(r.pressed && r.pressed.puts.length === 1 && r.pressed.puts[0] === '{"on":false}' && r.pressed.checked === 'false' && r.pressed.lines.length === 0,
+      say(r.unset && r.unset.shown && r.unset.checked === null && r.unset.lines[0] === 'We could not read this setting just now.', tag + ' a switch that could not be read says so (no switch, as every status control)', JSON.stringify(r.unset));
+      say(r.busy && r.busy.lines.length === 1 && r.busy.lines[0] === 'Work is running out, because ' + WHY + ', but none of its agents is idle, so there is nothing to move yet.', tag + ' an account running out with no idle agent is said, not silent', JSON.stringify(r.busy && r.busy.lines));
+      say(r.overRead && r.overRead.extra === 0 && r.overRead.lines.length === 0 && r.overRead.checked === 'false', tag + ' pressed while a read is out: no read over it, and the lines go at once', JSON.stringify(r.overRead));
+      say(r.afterRead && r.afterRead.extra === 1, tag + ' once that read is over, exactly one read follows', JSON.stringify(r.afterRead));
+      say(r.pressed && r.pressed.puts.length >= 1 && r.pressed.puts[r.pressed.puts.length - 1] === '{"on":false}' && r.pressed.checked === 'false' && r.pressed.lines.length === 0,
         tag + ' pressing the switch sends off once and draws the next read', JSON.stringify(r.pressed));
       say(r.beforeFail && r.beforeFail.lines.length === 2 && r.failed && !r.failed.shown && r.failed.lines.length === 0, tag + ' a failed read takes the earlier lines away (shown before it: the control)', JSON.stringify(r.failed));
-      say(Object.values(r).every((x) => !x || x.sideways === false), tag + ' nothing scrolls sideways', '');
+      say(Object.values(r).filter((x) => x && 'sideways' in x).length >= 10 && Object.values(r).every((x) => !x || x.sideways !== true), tag + ' nothing scrolls sideways (in every state drawn)', '');
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
       await page.close();
     }

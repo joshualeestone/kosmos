@@ -143,9 +143,11 @@ test('#7152 review 1: every row the route sends carries the engine\'s answer, an
 
 test('#7152 review 1: the route marks every Claude row and reads the switch before the decision can fail', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const at = src.indexOf('ab.markTargets(claude, Date.now());');   // review 2: the clock as the answer is sent
+  const at = src.indexOf('ab.markTargets(claude, sentAt);');   // review 2: the clock as the answer is sent (review 3: one clock)
   assert.ok(at > 0, 'the route does not mark its Claude rows');
+  assert.match(src.slice(Math.max(0, at - 400), at), /const sentAt = Date\.now\(\);/, 'the marks are not stamped with the clock as the answer is sent');
   const block = src.slice(at, src.indexOf('sendJson(res, 200, { accounts: [...claude', at));
+  assert.match(block, /ab\.decide\(\{ rows: claude, movable, nowMs: sentAt \}\)/, 'the decision does not use the same clock as the marks');
   assert.ok(block.length > 0, 'CONTROL: the block is found whole');
   const read = block.indexOf('setting = autobalanceSetting.read()');
   const guarded = block.indexOf('try {', block.indexOf('const eligibleCount'));
@@ -159,8 +161,8 @@ test('#7152: only movable agents would move, and nothing with fewer than two acc
   ];
   const d = ab.decide({ rows, movable: (n) => n === 'leo', nowMs: NOW });
   assert.deepEqual(d.moves.map((m) => m.agent), ['leo'], 'a busy agent was named to move');
-  assert.deepEqual(ab.decide({ rows: [rows[0]], movable: all, nowMs: NOW }), { moves: [], held: [], short: [] }, 'one account did something');
-  assert.deepEqual(ab.decide({ rows: [rows[0], row('/u/.claude-k', { apiKey: true })], movable: all, nowMs: NOW }), { moves: [], held: [], short: [] },
+  assert.deepEqual(ab.decide({ rows: [rows[0]], movable: all, nowMs: NOW }), { moves: [], held: [], short: [], atRisk: [] }, 'one account did something');
+  assert.deepEqual(ab.decide({ rows: [rows[0], row('/u/.claude-k', { apiKey: true })], movable: all, nowMs: NOW }), { moves: [], held: [], short: [], atRisk: [] },
     'an API key counted as a second account (the decision ran, and said nothing could take them)');
 });
 
@@ -219,4 +221,26 @@ test('#7152 review 2: a guide is never movable, and an agent already being moved
     row('/u/.claude-b'),
   ];
   assert.deepEqual(ab.decide({ rows, movable: all, nowMs: NOW }).moves.map((x) => x.agent), ['ada'], 'an agent mid-move was named again');
+});
+
+test('#7152 review 3: every at-risk account is named, even with no idle agent, and the projects are read only when needed', () => {
+  const rows = [
+    row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + 40 * H }, agentsHere: { names: ['ada'], complete: true } }),
+    row('/u/.claude-b'),
+  ];
+  const d = ab.decide({ rows, movable: () => false, nowMs: NOW });
+  assert.deepEqual(d.atRisk.map((x) => x.from), ['/u/.claude-a'], 'an at-risk account with no idle agent was silent');
+  assert.deepEqual(d.moves, []);
+  rows[0].weekly.usedPct = 50;
+  assert.deepEqual(ab.decide({ rows, movable: () => false, nowMs: NOW }).atRisk, [], 'CONTROL: an account not at risk is not named');
+  let reads = 0;
+  const m = ab.movableFor({ cards: [{ sessionName: 'ada', isNamedOurs: true, state: 'idle' }], records: () => { reads += 1; return []; }, readCommitment: () => ({ state: 'clear' }) });
+  assert.equal(reads, 0, 'the projects were read before anyone was asked about');
+  assert.equal(m('ada'), true);
+  assert.equal(reads, 1, 'CONTROL: asking about an agent reads them');
+});
+
+test('#7152 review 3: a roster that could not be read is refused, not taken as an empty one', () => {
+  assert.throws(() => ab.movableFor({ cards: null, records: [], readCommitment: () => null }), /roster could not be read/, 'an unreadable roster read as nobody to move');
+  assert.doesNotThrow(() => ab.movableFor({ cards: [], records: [], readCommitment: () => null }), 'CONTROL: an empty roster is fine');
 });

@@ -35,13 +35,21 @@ the decision is logged once per change (a line in the board's log), which is the
   not claim a reason the engine does not give. The browser checks that stub /api/accounts (6108, 6214, 6176) now
   carry bulkTargetable computed by the engine function itself. mobile-shots' account shot draws no move control (no
   agents on its rows), so it is unchanged. Not taken: rounding the at-risk and target tests as the page rounds (the
-  raw figure is the truer one), lazy reads of the roster when nothing is at risk (cheap; reads only on Settings).
+  raw figure is the truer one). (Lazy reads: taken in review 3.)
 - Review 2: the route marks its rows with the clock as the answer is sent, not as the request started (its live checks
   can take a while), so a paint, and the click-time re-read, are as current as the page's own Date.now() was. A guide
   is never movable (the bulk move never moves one), and an agent already mid-move is not named again. A failed read
   takes the earlier lines away with the list. server.autobalance-7152.test.js drives the real routes: the switch's
   default, its screen-only and boolean-only PUT, bulkTargetable on every Claude row, and the decision only with
   ?agents=1 (with no email in it).
+- Review 3: no second roster snapshot: the walk that lists each account's agents already read the roster
+  (claudeAgentsByAccount now passes it on), and the projects are read only when an agent on an at-risk account is
+  asked about. A roster that could not be read is "could not work out", never "nothing to move". One clock for the
+  marks and the decision. The decision also names every at-risk account (`atRisk`), so one whose agents are all busy
+  is said on the page, not silent. On the page: pressing the switch never starts a read over one that is out (it
+  waits for it, bounded, then reads once), switching off clears the lines at once, and a switch that could not be read
+  says so. The route test now has two accounts, one at 95%, so the real route works out a decision. The earlier "lazy
+  reads, not taken" line is withdrawn: the reads were not cheap (a pane capture).
 - engine/autobalance-setting.js: the assigner-setting pattern. Missing reads ON; a corrupt file reads off. Effective
   only with two or more eligible accounts; with one it does nothing and says nothing.
 - GET /api/accounts?agents=1: `autobalance: { on, eligible, moves, held, short, unreadable? }`; every Claude row also

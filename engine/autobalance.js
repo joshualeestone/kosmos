@@ -105,19 +105,22 @@ function eligible(rows) {
  * The decision. `rows`: the Claude account rows (/api/accounts shape: dir, provider, email, organization,
  * memoryShared, offerable, apiKey, connection.badge, weekly, fiveHour, agentsHere.names and .complete).
  * `movable(session)`: whether that agent may move now. Returns { moves: [{ agent, from, to, why }], held: [{ from,
- * why }], short: [dir] }: `held` names an at-risk account with movable agents but no target, so the page can say
- * nothing could take them; `short` names an at-risk account whose list of agents may be incomplete (review 1), so the
- * page does not read "nothing to move" as the whole truth.
+ * why }], short: [dir], atRisk: [{ from, why }] }: `held` names an at-risk account with movable agents but no target,
+ * so the page can say nothing could take them; `short` names an at-risk account whose list of agents may be incomplete
+ * (review 1), so the page does not read "nothing to move" as the whole truth; `atRisk` names every account at risk,
+ * so an at-risk account with no idle agent on it is said, not silent (review 3).
  */
 function decide({ rows, movable, nowMs }) {
   const all = Array.isArray(rows) ? rows.filter((r) => r && r.provider === 'anthropic' && r.dir) : [];
   const moves = [];
   const held = [];
   const short = [];
-  if (eligible(all).length < 2) return { moves, held, short };
+  const atRisk = [];
+  if (eligible(all).length < 2) return { moves, held, short, atRisk };
   for (const from of all) {
     const why = riskOf(from, nowMs);
     if (!why) continue;
+    atRisk.push({ from: from.dir, why });
     if (!from.agentsHere || from.agentsHere.complete !== true) short.push(from.dir);
     const names = from.agentsHere && Array.isArray(from.agentsHere.names) ? from.agentsHere.names : [];
     /* Review 2: an agent already being moved is not named again. */
@@ -128,7 +131,7 @@ function decide({ rows, movable, nowMs }) {
     if (!to) { held.push({ from: from.dir, why }); continue; }
     for (const agent of going.slice().sort()) moves.push({ agent, from: from.dir, to: to.dir, why });
   }
-  return { moves, held, short };
+  return { moves, held, short, atRisk };
 }
 
 /* kosmos#7152 slice 2: put the engine's answer on every Claude row /api/accounts sends, so the page's bulk move reads
@@ -144,17 +147,21 @@ function markTargets(rows, nowMs) {
 
 /* The card's movable test, as the Assigner decides "free": the card reads idle (assigner.idleCard), its commitments
    leave it free (assigner.commitmentsFree), and it holds no open part of a task in ANY project (assigner.hasOpenWork,
-   archived ones included). `cards`: the board roster; `records`: every project; `readCommitment(session)`. An agent
-   that is not on the roster, or whose record cannot be read, is not movable. */
+   archived ones included). `cards`: the board roster; `records`: every project, or a function that reads them (review
+   3: read only when an agent is first asked about); `readCommitment(session)`. An agent that is not on the roster, or
+   whose record cannot be read, is not movable. */
 function movableFor({ cards, records, readCommitment, assigner = require('./assigner') }) {
-  const bySession = new Map((Array.isArray(cards) ? cards : []).filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
+  /* Review 3: a roster that could not be read is not an empty one: the caller says "could not work out". */
+  if (!Array.isArray(cards)) throw new Error('the roster could not be read');
+  const bySession = new Map(cards.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
   return (session) => {
     const c = bySession.get(session);
     if (!c || !assigner.idleCard(c)) return false;
     if (c.isGuide === true) return false;   // review 2: the page's bulk move never moves a guide, so neither would this
     let rec = null;
     try { rec = readCommitment(session); } catch { rec = null; }
-    return assigner.commitmentsFree(rec) && !assigner.hasOpenWork(session, Array.isArray(records) ? records : []);
+    const all = typeof records === 'function' ? records() : records;
+    return assigner.commitmentsFree(rec) && !assigner.hasOpenWork(session, Array.isArray(all) ? all : []);
   };
 }
 

@@ -27,6 +27,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
+const statusline = require('./engine/kosmos-statusline');
 
 let port = 0;
 test.before(async () => { await start(0); port = server.address().port; });
@@ -85,4 +86,25 @@ test('#7152 slice 2: every Claude row carries bulkTargetable, and the decision c
   assert.equal(ab.on, true);
   assert.equal(ab.eligible, claude.filter((a) => !a.apiKey).length, 'the account count is not the Claude subscription rows');
   assert.equal(JSON.stringify(settings.json.autobalance).includes('@'), false, 'an email went into the decision');
+});
+
+test('#7152 review 3: with two accounts and one running out, the real route works out the decision and names it', async () => {
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.test' } }));
+  const second = path.join(home, '.claude-spare');
+  fs.mkdirSync(second, { recursive: true });
+  fs.writeFileSync(path.join(second, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'other@example.test' } }));
+  const weekly = (dir, usedPct) => fs.writeFileSync(path.join(dir, statusline.FILE),
+    JSON.stringify({ usedPct, resetsAt: Math.floor((Date.now() + 40 * 3600e3) / 1000), at: Date.now() - 60e3, history: [] }));
+  weekly(path.join(home, '.claude'), 95);
+  weekly(second, 10);
+  const ab = (await call('GET', '/api/accounts?agents=1')).json.autobalance;
+  assert.equal(ab.eligible, 2, 'CONTROL: the sandbox lists two Claude subscription accounts');
+  assert.equal(ab.unreadable, undefined, 'the decision failed through the real route');
+  assert.deepEqual(ab.atRisk.map((x) => x.from), [path.join(home, '.claude')], 'the account at 95% was not named as running out');
+  assert.match(ab.atRisk[0].why, /95% of its weekly limit/);
+  assert.equal(JSON.stringify(ab).includes('@'), false, 'an email went into the decision');
+  weekly(path.join(home, '.claude'), 50);
+  assert.deepEqual((await call('GET', '/api/accounts?agents=1')).json.autobalance.atRisk, [], 'CONTROL: at 50% nothing is running out');
 });

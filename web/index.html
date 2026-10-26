@@ -28842,7 +28842,8 @@ function paintAutobalance(ab, list) {
   const who = (n) => (((LAST || []).find((x) => x && x.sessionName === n) || {}).name || n);
   const line = (t) => '<p class="dhint" style="margin:8px 0 0;">' + t + '</p>';
   let html = '';
-  if (ab.unreadable) html = line('Kosmos could not work out what it would move just now.');
+  if (ab.on !== true && ab.on !== false) html = line('We could not read this setting just now.');   // review 3: as the Assigner's says
+  else if (ab.unreadable) html = line('Kosmos could not work out what it would move just now.');
   else if (ab.on === true) {
     const moves = Array.isArray(ab.moves) ? ab.moves : [];
     const held = Array.isArray(ab.held) ? ab.held : [];
@@ -28851,6 +28852,10 @@ function paintAutobalance(ab, list) {
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
       + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
       + short.map((d) => line('Kosmos could not read every agent on ' + esc(label(d)) + ', so there may be more to move.')).join('');
+    /* Review 3: an account at risk with no idle agent on it (its agents are working, or it has none) is said, not silent. */
+    const said = new Set([...moves.map((m) => m.from), ...held.map((h) => h.from), ...short]);
+    html += (Array.isArray(ab.atRisk) ? ab.atRisk : []).filter((x) => !said.has(x.from))
+      .map((x) => line(esc(label(x.from)) + ' is running out, because ' + esc(x.why) + ', but none of its agents is idle, so there is nothing to move yet.')).join('');
     if (!html) html = line('Nothing to move right now.');
   }
   if (lines) lines.innerHTML = html;
@@ -28871,14 +28876,23 @@ async function abToggleClick() {
     if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     if (msg) msg.textContent = '';
     paintSwitch('ab-toggle', out.on === true);
+    /* Review 3: switched off, the lines go now, not when the next read lands (which can fail and leave them). */
+    if (out.on !== true) { const lines = document.getElementById('ab-lines'); if (lines) lines.innerHTML = ''; }
     saved = true;
   } catch {
     if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
   } finally {
     AB_SAVING = false;
-    /* Read the list again in place (no "Checking" flash, no follow-up chain), so the lines match the switch. */
-    if (saved) paintAccounts({ followUp: ACCT_FOLLOWUP.max });
+    /* Read the list again in place (no "Checking" flash, no follow-up chain), so the lines match the switch. Review 3:
+       never over a read that is already out: a follow-up raises the epoch and would throw that read away, leaving the
+       list on "Checking". That read may also have read the switch before this save, so wait for it to finish (bounded,
+       about ten seconds) and read once after it. */
+    if (saved) abRepaintAfterReads(0);
   }
+}
+function abRepaintAfterReads(tries) {
+  if (!acctReadOpen) { paintAccounts({ followUp: ACCT_FOLLOWUP.max }); return; }
+  if (tries < 20) setTimeout(() => abRepaintAfterReads(tries + 1), 500);
 }
 document.getElementById('ab-toggle') && document.getElementById('ab-toggle').addEventListener('click', abToggleClick);
 async function paintAccounts(opts) {

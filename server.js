@@ -2847,7 +2847,7 @@ function agentsByAccountWalk(runner, { skipGuide = false } = {}) {
     }
     entries.push({ sessionName, home: job.configDir || null });
   }
-  return { entries, complete };
+  return { entries, complete, roster: known.roster };   // kosmos#7152 review 3: the roster read here, so a caller need not take a second
 }
 /* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
    directory" enumeration, shared by EVERY provider's disconnect/remove route so the
@@ -2974,6 +2974,7 @@ function claudeAgentsByAccount() {
   }
   return {
     complete,
+    roster: walk.roster,   // kosmos#7152 review 3: the walk's own roster (null when it could not be read)
     on(dir, isDefault) {   // the agents on one account row
       let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
       return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
@@ -13002,8 +13003,10 @@ const server = http.createServer(async (req, res) => {
            decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
         const ab = require('./engine/autobalance');
         /* Review 2: the clock as the answer is sent, not the request's start (the live checks above can take a while), so
-           a reset or a limit reached during them is seen, as the page's own Date.now() saw it before. */
-        ab.markTargets(claude, Date.now());
+           a reset or a limit reached during them is seen, as the page's own Date.now() saw it before. Review 3: one
+           clock for the marks and the decision, so the two cannot disagree. */
+        const sentAt = Date.now();
+        ab.markTargets(claude, sentAt);
         let autobalance;
         if (wantAgents) {
           /* Review 1: the switch and the count are read first, so a failure in the decision below can say so on the page
@@ -13012,13 +13015,18 @@ const server = http.createServer(async (req, res) => {
           try { setting = autobalanceSetting.read(); } catch { setting = { on: null }; }
           const eligibleCount = ab.eligible(claude).length;
           try {
-            let decision = { moves: [], held: [], short: [] };
+            let decision = { moves: [], held: [], short: [], atRisk: [] };
             if (setting.on && eligibleCount >= 2) {
-              const movable = ab.movableFor({ cards: safeRoster(), records: projects.readAll(), readCommitment: (session) => commitments.read(session) });
-              decision = ab.decide({ rows: claude, movable, nowMs });
+              /* Review 3: the walk's roster (no second pane capture), and the projects read only if an agent is asked
+                 about, which happens only for an at-risk account. A roster that could not be read is "could not work
+                 out", never "nothing to move". */
+              const cards = claudeAgents ? claudeAgents.roster : null;   // movableFor refuses one that could not be read
+              let records;
+              const movable = ab.movableFor({ cards, records: () => (records || (records = projects.readAll())), readCommitment: (session) => commitments.read(session) });
+              decision = ab.decide({ rows: claude, movable, nowMs: sentAt });
             }
             autobalance = { on: setting.on, eligible: eligibleCount, ...decision };
-          } catch { autobalance = { on: setting.on, eligible: eligibleCount, moves: [], held: [], short: [], unreadable: true }; }
+          } catch { autobalance = { on: setting.on, eligible: eligibleCount, moves: [], held: [], short: [], atRisk: [], unreadable: true }; }
         }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
           ...(autobalance ? { autobalance } : {}) });
