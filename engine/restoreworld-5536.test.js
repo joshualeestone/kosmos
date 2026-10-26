@@ -328,3 +328,45 @@ test('a world folder left on disk under the chosen id is never reused: it is hid
   assert.ok(first && first.hiddenAt, 'the world over the leftover folder was hidden');
   assert.deepEqual(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents, []);
 });
+
+test('git folders are matched in any case, and any provider folder, opencode.json, a (@ import and a UTF-16 brief are named', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(w, rel)), { recursive: true }); fs.writeFileSync(path.join(w, rel), text); };
+  put('mixed/CLAUDE.md', '# m\n');
+  put('mixed/.Git/config', '[core]\n');
+  put('grok/CLAUDE.md', '# see the notes (@notes.md)\n');
+  put('grok/.grok/settings.json', '{}\n');
+  put('grok/opencode.json', '{}\n');
+  put('wide/CLAUDE.md', '');
+  fs.writeFileSync(path.join(w, 'wide', 'CLAUDE.md'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('@x\n', 'utf16le')]));
+  let by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => [a.folder, a]));
+  assert.match(by.mixed.because, /git folder/);
+  assert.deepEqual(by.grok.runs, ['.grok', 'opencode.json', 'CLAUDE.md imports']);
+  assert.equal(by.grok.because, null, 'listed for the screen, not refused');
+  assert.deepEqual(by.wide.runs, ['CLAUDE.md (not plain text, so not checked)']);
+  put('.GIT/config', '[core]\n');
+  by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => [a.folder, a]));
+  assert.match(by.grok.because, /workers folder holds a git folder/);
+});
+
+test('a leftover world folder that cannot be set aside stops the restore rather than staying on the list', (t) => {
+  const base = fresh(t);
+  fs.mkdirSync(path.join(base, worlds.WORLDS_SUBDIR, store.safeKey(rw.worldName('Ann', NOW)), 'workers', 'old'), { recursive: true });
+  const r = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW, hideWorld: () => { throw new Error('locked'); } });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /could not be set aside/);
+});
+
+test('finish refuses when the world folder itself has been swapped for a link', { skip: process.platform === 'win32' ? 'a directory symlink needs privileges on Windows' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  fs.renameSync(p.dir, `${p.dir}-real`);
+  fs.symlinkSync(`${p.dir}-real`, p.dir);
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /did not name its Kosmos/);
+  assert.ok(fs.existsSync(path.join(`${p.dir}-real`, rw.RESTORE_DIR, 'workers', 'ann')), 'nothing moved');
+});

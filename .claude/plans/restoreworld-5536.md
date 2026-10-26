@@ -17,9 +17,9 @@ no profile record, and STARTS the agent: enable then bootstrap).
     the sink's record or lock.
   - `listRestoredAgents({ base, world, restoreDir })`: each folder in the world's workers and in `restored/agents`,
     with a `because` when it cannot be enabled (a link, which is not opened; a folder name create.js cannot start; no
-    instructions file; kept outside the workers folder), and `runs`: the files that run or load something when the
-    agent starts (Claude settings and hooks, .mcp.json, .envrc, Codex and Gemini settings, `@` imports in the brief),
-    for the screen to show before any enable. Registers, starts and writes nothing.
+    instructions file; kept outside the workers folder; a git folder, matched in any case), and `runs`: every
+    dot-entry at the top of the folder except .DS_Store, CLAUDE.local.md, opencode.json, linked briefs, briefs that
+    are not plain text, and `@` imports, for the screen to show and have acknowledged before any enable. Registers, starts and writes nothing.
 - The member's name loses control, format and bidi characters and is cut at 60 code points before it names a world.
 
 ## Rejected
@@ -49,7 +49,18 @@ no profile record, and STARTS the agent: enable then bootstrap).
    Windows (the sink does the same); a member name can carry a date that reads like the world's, and two folders can
    share a label (4c tells rows apart by `folder` and shows the world's creation time).
 
+4. W: the git checks were case-sensitive (APFS and NTFS read .GIT); the start-time list named only some providers, so
+   it is now every dot-entry; `(@file` imports and UTF-16 briefs went unseen; a leftover world that could not be
+   hidden stayed listed (now the restore stops); the world folder itself was not checked for a link. Contract stated
+   instead of a refusal: hooks and MCP servers are often wanted, so the screen must have `runs` and `shared`
+   acknowledged before enabling. Deferred: reserved Windows names (cannot exist on NTFS), a FIFO swapped in after
+   lstat (restored data is static), Atomics.wait (as the sink).
+
 ## Residuals, stated
+- Between finish's emptiness check and its rename, another process of the person's own (an agent already running in
+  the new world) could write into a target; rmdir then fails and the failure is reported, nothing is lost.
+- Nested briefs (a CLAUDE.md in a subfolder, read when an agent works there) are not scanned; 4a's review list covers
+  every file's content.
 - A restore that stops is never finished: it stays in `restored` and continues there (slice 3). Nothing here cleans it.
 - A rename failing part way leaves workers moved and projects not; `moved` says which. Re-running finish moves the
   rest, since the moved root is gone from `restored`.
