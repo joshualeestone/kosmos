@@ -203,8 +203,8 @@ function finishRestoreWorld(opts = {}) {
   const lock = takeFinishLock(dir);
   if (lock.busy) return refuse('a finish of this restore is already under way (a finish that stopped frees it within ten minutes)');
   if (!lock.release) return refuse(`the new Kosmos's folder could not be locked for the finish (${lock.code})`);
-  try { return finishLocked(); } finally { lock.release(); }
-  function finishLocked() {
+  try { return finishLocked(lock.beat); } finally { lock.release(); }
+  function finishLocked(beat) {
     // A stopped restore keeps its record, an open sink holds its lock, and a crashed one leaves its temp folder: any of
     // the sink's own entries means the restore is not finished, and it continues in this folder (slice 3).
     let names;
@@ -239,6 +239,7 @@ function finishRestoreWorld(opts = {}) {
     const heldName = path.join(restoreDir, HELD_PREFIX + crypto.randomBytes(6).toString('hex'));
     let heldMade = false;
     for (const { name, src, dst, hold } of plan) {
+      beat();
       try {
         if (hold.length && !heldMade) {
           // Recorded before the folder is made, so no held-back folder of this run is ever unrecorded (a later run
@@ -251,7 +252,7 @@ function finishRestoreWorld(opts = {}) {
         for (const n of hold) renameRetrying(path.join(src, n), path.join(heldName, name, n));
       } catch (e) {
         const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
-        return answer(false, `the top of the restored ${name} could not be set aside${code}`);
+        return answer(false, `the top of the restored ${name} could not be set aside${code}; finishing again carries on`);
       }
       try {
         if (!realDir(dst)) throw Object.assign(new Error('the target changed'), { code: 'ECHANGED' });
@@ -305,9 +306,13 @@ function takeFinishLock(dir) {
         if (held) throw first;
         renameRetrying(tmp, at);
       }
-      return { release: () => {
-        try { if (fs.readFileSync(path.join(at, 'pid'), 'utf8') === mine) fs.rmSync(at, { recursive: true, force: true }); } catch { /* gone */ }
-      } };
+      sweepLeftovers(dir);
+      const ours = () => { try { return fs.readFileSync(path.join(at, 'pid'), 'utf8') === mine; } catch { return false; } };
+      return {
+        release: () => { try { if (ours()) fs.rmSync(at, { recursive: true, force: true }); } catch { /* gone */ } },
+        // Called between roots: a live finish keeps its lock young, so the ten-minute rule never takes it over.
+        beat: () => { try { if (ours()) { const t = new Date(); fs.utimesSync(at, t, t); } } catch { /* best effort */ } },
+      };
     } catch (e) {
       try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort */ }
       let exists = true;
@@ -332,6 +337,17 @@ function takeFinishLock(dir) {
     try { fs.rmSync(aside, { recursive: true, force: true }); } catch { /* aside, harmless */ }
   }
   return { busy: true };
+}
+/* Temporary lock and record files left by a crash, older than the stale line, are removed when a lock is taken. */
+function sweepLeftovers(dir) {
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const n of names) {
+    if (!n.startsWith(`${FINISH_LOCK}.`) && !n.startsWith(`${HELD_RECORD}.`)) continue;
+    try {
+      if (Date.now() - fs.lstatSync(path.join(dir, n)).mtimeMs > FINISH_LOCK_STALE_MS) fs.rmSync(path.join(dir, n), { recursive: true, force: true });
+    } catch { /* best effort */ }
+  }
 }
 function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return !!e && e.code === 'EPERM'; }

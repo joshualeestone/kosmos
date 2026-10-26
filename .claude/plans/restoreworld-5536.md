@@ -131,7 +131,7 @@ no profile record, and STARTS the agent: enable then bootstrap).
    held back with dot-entries and HEAD). Deferred with the contract stated: a project's own .git moves with it
    (restoring a repository whole is the point; it is shown in `shared` with its reason, and agents made later must
    be started with git hooks and fsmonitor off, 4c). Nits: heldBack reads only this run's folder (a snapshot can name a
-   lookalike); kept no longer lists this run's held-back folder; agents kept elsewhere are named in the contract as
+   lookalike; superseded in round 19 by the record of every run's folder); kept no longer lists this run's held-back folder; agents kept elsewhere are named in the contract as
    never to run git; two dead checks removed.
 
 16. W: HEAD, node_modules and the plain start-time names were matched by toLowerCase, but a case-insensitive
@@ -189,7 +189,14 @@ no profile record, and STARTS the agent: enable then bootstrap).
    an empty folder on POSIX; the lock's first rename is plain, so a held lock answers busy without the Windows retry
    wait; the contract names shell-hook files (direnv, mise) as outside `runs`.
 
+25. W: a live finish could be taken over at the ten-minute line (now it touches its lock between roots, so a live
+   finish keeps it young; no test, it needs a finish past ten minutes); a failed hold-back now says finishing again
+   carries on. Nits: temporary lock and record files a crash left are swept when a lock is taken, once older than the
+   stale line; the plan names the inode-0 fallback; round 15's superseded sentence is marked.
+
 ## Residuals, stated
+- On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that
+  catches further folding cannot run there.
 - A Restored world opened and used before its finish cannot be finished (its folders are no longer empty); the 4c
   screen must keep the person out until then.
 - The import pattern flags an @ after a letter only before a path (/, ./, ../, ~/). A provider that accepts an @
