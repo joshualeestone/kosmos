@@ -69,7 +69,7 @@ old task 1's conversation (a person's words included), and its room showed the o
   only, no one's words; a re-made project may be asked a little later than a new name would be; not changed.
 
 ## Proven
-- engine/taskchat.remade-7185.test.js, 8 tests (the eighth: lastPostAt), and in engine/messages.test.js a room post
+- engine/taskchat.remade-7185.test.js, 9 tests (the eighth: lastPostAt; the ninth: another spelling of an id), and in engine/messages.test.js a room post
   with the projects file unreadable is refused as could-not-read, and so are a reaction and a freed claim (each red
   without its guard). Each guard reverted on its own reds its own tests: the old
   messages.js reds the room test and the room half of the unreadable test; the old taskchat.js reds the task, progress
