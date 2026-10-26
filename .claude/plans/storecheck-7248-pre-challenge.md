@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: storecheck-7248
-diff_hash: 54687fae000f2bbe0c070779395fdea91a4086836afb4daa1c331e7b5db0c13c
+diff_hash: 4e1e0dacecd4226de1f0adc82fd95cfa12ce55cf01a834bf87a2d511a2f1947a
 validation: passed at 19201666db on origin/main (every root *.test.js 10253 pass 0 fail; render-damaged-files-7248 and the six surface-flagged checks pass, render-login-expiry-3532 against a sandboxed board from this branch; #2518 and #1720 gates exit 0; sync-forced-theme --check exit 0)
 subdir_audit: passed (no CLAUDE.md in the diff)
 timestamp: 2026-10-26T22:14:13Z
@@ -30,3 +30,6 @@ converged: true
 
 #### Iteration 4
 Full validation once at convergence, on origin/main: all green. No issues found.
+
+#### Iteration 5
+Rebased onto main after #7244 merged (one README row conflict, both rows kept). Wiring and storecheck tests pass. No issues found.
