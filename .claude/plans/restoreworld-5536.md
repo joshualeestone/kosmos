@@ -80,6 +80,11 @@ no profile record, and STARTS the agent: enable then bootstrap).
    commands a hook or MCP file runs (engine/startcommands.js commandsIn), and starting agents with
    safe.bareRepository=explicit as a second guard. Not armed by a test: the 32 MB budget and the lone-surrogate strip.
 
+8. W: finish read any lstat failure on a restored root as "no such root" and could finish an unreadable restore as
+   empty (now only ENOENT skips); finish and the listing accepted a hidden world (now refused: it is off the list); a
+   folder padded past the read limit could hide its start-time files (such an agent is now refused and the list says
+   `more`). Nit: a comment had moved to the wrong constant.
+
 ## Residuals, stated
 - Between finish's emptiness check and its rename, another process of the person's own (an agent already running in
   the new world) could write into a target; rmdir then fails and the failure is reported, nothing is lost.
