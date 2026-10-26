@@ -25,10 +25,11 @@ dialog. Accepted: the person still lands where they can sign in.
 
 ## Challenge loop, review 1 (decided)
 - The dialog's background: only the login notice slot is made inert while the account dialog is open (all four
-  openers go through acctAddModalShow), not the whole page. Rejected the whole-page inert: the dialog opens from
+  openers call loginAdvInert(true); closeAcctAdd calls it with false), not the whole page. Rejected the whole-page inert: the dialog opens from
   first-run, Settings and every sign-in-again path, and first-run already manages its own inert set, so a page-wide
   one here would fight it. What would change my mind: a second control outside the dialog that reopens it.
-- Focus on close falls back to a Refresh login still showing, never to a hidden element (D4).
+- Focus on close falls back to a Refresh login still showing, never to a hidden element (D4). Only when a notice
+  opened the dialog; every other opener keeps its old fallback to the Accounts door (review 3).
 
 ## Challenge loop, review 2 (decided)
 - The page fails open when it has not read its account list: the board's naming stands (status.js dirOf already
