@@ -773,6 +773,33 @@ const SCREENS = [
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
   } },
+  /* kosmos#7212 slice 2a (PigeonPete): an agent whose messages have waited behind its input box for days. The card's
+     pill keeps its word (slice 2b changes that); the sentence shows on the agent's own page, here. The status read is
+     edited in the page: the board's own row for the chat agent, made idle and given the minute sweep's reading (the
+     fixture board holds nothing behind a box). One screen per box reading that asks something different of the person:
+     the box Kosmos cannot read (the seven-day case on the card) and text left unsent. */
+  ...['unread', 'text'].map((box) => ({ name: 'agent-held-' + box + '-7212', owner: 'PigeonPete', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/api/status', async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      try {
+        const res = await fetchBoard(route);
+        const body = await res.json();
+        for (const a of Array.isArray(body.agents) ? body.agents : []) {
+          if (a && a.sessionName === data.chatAgent) {
+            a.state = 'idle';
+            a.heldInput = { since: new Date(Date.now() - (6 * 24 + 5) * 3600 * 1000).toISOString(), count: 12, box };
+          }
+        }
+        await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
+    });
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
+    await page.waitForFunction(() => /behind its input box/.test(document.getElementById('panel-detail').innerText), null, { timeout: 8000 });
+  }, verify: async (page) => {
+    const text = await page.evaluate(() => document.getElementById('panel-detail').innerText);
+    if (!/held 12 messages to it for about 6 days behind its input box/.test(text)) throw new Error('the held sentence is not on the agent page');
+  } })),
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
