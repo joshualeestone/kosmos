@@ -82,6 +82,8 @@ converged: false
   matcher the new test fails); bash -O/+O and --rcfile/--init-file are read past their values; -c is matched
   case-sensitively, so bash -C (noclobber) is not taken for it. This file alone: 19/19; with windows-tests-1777 under
   the guard: 42/42.
+
+#### Iteration 8
 - Round 8 (last; the fleet rule stops a loop at 8 rounds unless a BLOCKER is open): no BLOCKER. Reviewer re-ran this
   file 19/19 and ten existing win32 test files under the preload (green, zero refusals), and checked every refusal path
   ends ENOENT without hanging. Two WARNINGs and three NITs, all in the matcher, none a call the code makes today, are
