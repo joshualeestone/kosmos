@@ -30,6 +30,15 @@ dialog. Accepted: the person still lands where they can sign in.
   one here would fight it. What would change my mind: a second control outside the dialog that reopens it.
 - Focus on close falls back to a Refresh login still showing, never to a hidden element (D4).
 
+## Challenge loop, review 2 (decided)
+- The page fails open when it has not read its account list: the board's naming stands (status.js dirOf already
+  requires the folder in accounts.list), and C4 now pins that the dialog opens there.
+- Deferred: the rest of the page stays Tab-reachable behind the account dialog. That is how the dialog has always
+  behaved, from every opener; this branch makes unreachable only the one control that would reopen it mid sign-in.
+  Making the dialog fully modal is a change to every opener and belongs on its own card.
+- Deferred: accounts.list on each notice recompute. It reads files only (readdir and each folder's .claude.json, no
+  process), the 5-second status tick already calls it, and the notices are recomputed at most every five minutes.
+
 ## Checks
 - render-refreshlogin-5407.js (rewritten): D1 over the board (Settings shut, closing leaves the board), D2 on an agent's
   page, K1 one-screen on a project, C2 no folder opens AI Models and no dialog, C3 a folder the page no longer lists
