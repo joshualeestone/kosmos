@@ -8,9 +8,13 @@
  *
  * kosmos_curl now tries a refused connection once more, a second later. The refusals here are real, not a curl stub:
  * the stub board answers the health check, closes its listening socket, and (refuse-once) listens again on the same
- * port 600 ms later, inside the CLI's one-second pause. A curl on PATH that logs each request and then runs the real
- * curl counts the tries, so an arm cannot pass without the refusal it is about (a first try that landed after the
- * board was back would count 1, and fail).
+ * port as soon as the first try has been refused, inside the CLI's one-second pause. A curl on PATH that logs each
+ * request and then runs the real curl counts the tries, so an arm cannot pass without the refusal it is about (a first
+ * try that landed after the board was back would count 1, and fail).
+ *
+ * #7258: the board used to listen again on a clock, 600 ms after the health check. On a loaded machine the CLI's first
+ * try could come later than that, find the board back and count 1. It now waits for the counting curl to report the
+ * refused try (exit 7), so the first try is refused however late it comes; only the one-second pause still bounds it.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -27,14 +31,21 @@ const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6968-'));
 test.after(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
 // The counting curl. The health check calls /usr/bin/curl by its path, so only kosmos_curl's requests reach it.
+// After the real curl ends it appends its exit code to <log>.rc, which a refuse-once board waits on (#7258).
 const SHIM_DIR = path.join(SCRATCH, 'bin');
 fs.mkdirSync(SHIM_DIR);
 fs.writeFileSync(path.join(SHIM_DIR, 'curl'), [
   '#!/bin/sh',
+  // A slow first try (#7258): as on a loaded machine, it comes later than any fixed re-listen clock would allow.
+  '[ -n "$KOSMOS_TEST_CURL_SLOW_FIRST" ] && [ ! -s "$KOSMOS_TEST_CURL_LOG" ] && sleep "$KOSMOS_TEST_CURL_SLOW_FIRST"',
   'for a in "$@"; do case "$a" in http://*) printf \'%s\\n\' "$a" >> "$KOSMOS_TEST_CURL_LOG"; [ -n "$KOSMOS_TEST_CURL_REFUSE" ] && exit 7 ;; esac; done',
-  'exec /usr/bin/curl "$@"',
+  '/usr/bin/curl "$@"; rc=$?',
+  'printf \'%s\\n\' "$rc" >> "$KOSMOS_TEST_CURL_LOG.rc"',
+  'exit "$rc"',
   '',
 ].join('\n'), { mode: 0o755 });
+// Each arm's counting-curl log, by the board port its env names: a refuse-once board finds the refusal there.
+const CURL_LOG_BY_PORT = new Map();
 
 function runCli(args, env, input) {
   const t0 = Date.now();
@@ -55,6 +66,7 @@ function baseEnv(port, extra = {}) {
   delete env.KOSMOS_AGENT_TOKEN; delete env.KOSMOS_AGENT_SESSION; delete env.TMUX_PANE;
   const tmp = path.join(home, 'tmp');
   fs.mkdirSync(tmp);
+  CURL_LOG_BY_PORT.set(port, path.join(home, 'curl.log'));
   return {
     ...env,
     PATH: SHIM_DIR + path.delimiter + (env.PATH || ''),
@@ -84,8 +96,8 @@ async function closedPort() {
   return port;
 }
 
-/** A board that answers its first health check, then stops listening; `back` ms later (null: never) it listens on
- *  the same port again. `seen` records each request after the health check, with its body. With `after503` it
+/** A board that answers its first health check, then stops listening; `back` ms later (null: never; 'refused': once
+ *  the counting curl has reported a refused try, #7258) it listens on the same port again. `seen` records each request after the health check, with its body. With `after503` it
  *  stays up through the health check, answers the first request 503 (it reached the board, nothing recorded) and
  *  only then stops listening. With `cutFirstPost` it cuts the first request's reply, then stops listening. */
 async function withRefusingBoard(back, fn, { after503 = false, cutFirstPost = false } = {}) {
@@ -102,13 +114,24 @@ async function withRefusingBoard(back, fn, { after503 = false, cutFirstPost = fa
     closedOnce = true;
     const port = current.address().port;
     current.close();
-    if (back !== null) {
-      backTimer = setTimeout(() => {
+    const relisten = () => {
+      if (ended) return;
+      current = http.createServer(handler);
+      current.on('error', (e) => { relistenError = e; });   // the port taken meanwhile: the arm fails on it, the process does not crash
+      current.listen(port, '127.0.0.1');
+    };
+    if (back === 'refused') {
+      // Every 10 ms, well inside the CLI's one-second pause: listen again once a try has ended in curl's 7.
+      const rcLog = CURL_LOG_BY_PORT.get(port) + '.rc';
+      const poll = () => {
         if (ended) return;
-        current = http.createServer(handler);
-        current.on('error', (e) => { relistenError = e; });   // the port taken meanwhile: the arm fails on it, the process does not crash
-        current.listen(port, '127.0.0.1');
-      }, back);
+        let rcs = '';
+        try { rcs = fs.readFileSync(rcLog, 'utf8'); } catch { /* no try has ended yet */ }
+        if (rcs.split('\n').includes('7')) relisten(); else backTimer = setTimeout(poll, 10);
+      };
+      poll();
+    } else if (back !== null) {
+      backTimer = setTimeout(relisten, back);
     }
   };
   const handler = (req, res) => {
@@ -141,13 +164,23 @@ async function withRefusingBoard(back, fn, { after503 = false, cutFirstPost = fa
   }
 }
 
-test('#6968: a board that refuses the request once and then accepts: `task list` succeeds, asked once more', () => withRefusingBoard(600, async (port, seen) => {
+test('#6968: a board that refuses the request once and then accepts: `task list` succeeds, asked once more', () => withRefusingBoard('refused', async (port, seen) => {
   const env = baseEnv(port);
   const out = await runCli(['task', 'list', 'proj'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.doesNotMatch(out.stdout + out.stderr, /could not reach|did not take the connection|Is it running|kosmos start/);
   assert.equal(tries(env, /\/api\/tasks/), 2, 'refused, then asked once more');
   assert.equal(seen.filter((s) => s.url.startsWith('/api/tasks')).length, 1, 'the refused try sent nothing; the retry sent it once');
+  assertNoLeftovers(env);
+}));
+
+test('#7258: a first try slower than the old 600 ms re-listen clock is still refused, then asked once more', () => withRefusingBoard('refused', async (port, seen) => {
+  // 800 ms before the first try: a board back on a clock 600 ms after the health check would take it (1 try, red).
+  const env = baseEnv(port, { KOSMOS_TEST_CURL_SLOW_FIRST: '0.8' });
+  const out = await runCli(['task', 'list', 'proj'], env);
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(tries(env, /\/api\/tasks/), 2, 'refused, then asked once more');
+  assert.equal(seen.filter((s) => s.url.startsWith('/api/tasks')).length, 1);
   assertNoLeftovers(env);
 }));
 
@@ -184,7 +217,7 @@ test('#6968 CONTROL: a board still listening that refuses every try (too busy): 
   } finally { await new Promise((r) => board.close(r)); }
 });
 
-test('#6968: a refused write whose body is on stdin (`msg`) sends the whole body on the retry', () => withRefusingBoard(600, async (port, seen) => {
+test('#6968: a refused write whose body is on stdin (`msg`) sends the whole body on the retry', () => withRefusingBoard('refused', async (port, seen) => {
   const env = baseEnv(port, { TMUX_PANE: '%42' });
   const out = await runCli(['msg', 'mara', 'the', 'whole', 'body'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -195,7 +228,7 @@ test('#6968: a refused write whose body is on stdin (`msg`) sends the whole body
   assertNoLeftovers(env);
 }));
 
-test('#6968: a refused call that reads its status code (-w) sees only the second try\'s (`community follow`)', () => withRefusingBoard(600, async (port, seen) => {
+test('#6968: a refused call that reads its status code (-w) sees only the second try\'s (`community follow`)', () => withRefusingBoard('refused', async (port, seen) => {
   // curl prints -w even on a refusal ("000"); were the first try's printed too, the answer would not parse.
   const env = baseEnv(port);
   const out = await runCli(['community', 'follow', 'Echo'], env);
@@ -206,7 +239,7 @@ test('#6968: a refused call that reads its status code (-w) sees only the second
   assertNoLeftovers(env);
 }));
 
-test('#6968: `task told` keeps kosmos_curl\'s retry (only `ran` asks again on its own): refused once, then recorded', () => withRefusingBoard(600, async (port, seen) => {
+test('#6968: `task told` keeps kosmos_curl\'s retry (only `ran` asks again on its own): refused once, then recorded', () => withRefusingBoard('refused', async (port, seen) => {
   const env = baseEnv(port, { TMUX_PANE: '%42' });
   const out = await runCli(['task', 'told', 'proj', '1', 'it is done'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
