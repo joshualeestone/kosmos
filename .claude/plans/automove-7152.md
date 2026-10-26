@@ -78,7 +78,7 @@ observed holds each agent's last real-call outcome. From the moment the move sta
 a first call made as the restart finishes counts), the first call seen decides a 'works' line: 'yes' (OK) or 'no'
 (rejected). Until then nothing is written: an idle agent may take no turn for hours, and that is not a failure. After
 24 h with none, a 'not-seen' line. On 'no' the target is held for a day, and the agent is NOT moved back (see above):
-its conversation gets one Kosmos line saying its first request on the new account was refused and that it can be
+the person's thread with it gets one Kosmos line saying its first request on the new account was refused and that it can be
 moved back in Settings, and Settings says the same. A watch is dropped when the agent is no longer on the account it
 was moved to (a person moved it), so a later call is never blamed on that account; a second move of one agent
 replaces its watch (review 4).
@@ -91,7 +91,7 @@ is not trusted.
 - engine/automove.js keeps a JSON-lines file in the board's data folder: one line per CHANGED decision (would-move
   lines are not repeated every tick) and one per move with its outcome and works-again state. Bounded (last 500 lines).
   Account labels and agent names only; no email.
-- The moved agent's conversation gets one Kosmos line (keepAgentReply, kosmos: true): which account to which and why.
+- The person's thread with the moved agent gets one Kosmos line (keepAgentReply, kosmos: true): which account to which and why.
 - GET /api/accounts?agents=1 adds autobalance.recording (the sweep's own gate: live execution, the usage reading on
   and allowed, no brake), autobalance.movesOn (recording and the move switch) and autobalance.recent (the last 10
   entries the page draws, newest first; a decision made with moves on is one only for its moves off a stopped login,
@@ -120,3 +120,12 @@ target before its figure moves).
 - An agent refused three times in a day is passed over for the day, not retried hourly.
 - The last decision is rebuilt from the record, so a restart does not write it again.
 - Settings shows the record even when the current decision could not be worked out.
+
+## Review 7
+- A person's Stop on an automatic move wins too, and an agent Kosmos has moved rests a day, so it is not moved again
+  and again as usage shifts (both rebuilt from the record).
+- A partial or unknown move (the agent may still be running on its old account until its next restart) takes no
+  sighting as proof: observed is keyed by agent alone. Its watch closes only as not-seen or when the agent leaves.
+- A record line that cannot be read never stops the board: create() tolerates odd lines, and the board turns the
+  sweep off (with a log line) if create() throws anyway. An unfinished move keeps its own time and is held.
+- The person is told in their thread with the agent (keepAgentReply, kosmos: true), not "the agent's conversation".

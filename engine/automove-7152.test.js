@@ -56,7 +56,8 @@ function deps(o = {}) {
     startMove: (body) => {
       calls.starts.push(body);
       const r = o.start ? o.start(body) : { status: 202, body: { id: 'm1', agents: [{ name: body.names[0], outcome: 'pending' }] }, done: Promise.resolve() };
-      if (r && r.status === 202 && ((r.body.agents || [])[0] || {}).outcome !== 'refused' && (o.moveOutcome || 'changed') === 'changed') where[body.names[0]] = body.dir;   // the agent is where it was moved
+      /* The walk lists an agent by its launch file, so a partial move (saved, not yet restarted) is listed on its new account too. */
+      if (r && r.status === 202 && ((r.body.agents || [])[0] || {}).outcome !== 'refused' && ['changed', 'partial'].includes(o.moveOutcome || 'changed')) where[body.names[0]] = body.dir;   // the agent is where it was moved
       return r;
     },
     readMove: () => ({ agents: [{ name: 'ada', outcome: o.moveOutcome || 'changed' }] }),
@@ -418,22 +419,22 @@ test('#7152 slice 3 review 6: a person who moves an agent off the account Kosmos
   assert.equal(calls.starts.length, 2, 'CONTROL: after a day it may move again');
 });
 
-test('#7152 slice 3 review 4: a second move of one agent replaces its watch (so its old one is not taken for a person\'s move)', async () => {
+test('#7152 slice 3 review 7: an agent Kosmos has moved rests a day, so it is not moved again and again', async () => {
   const file = fileFor();
   const list3 = [...LIST, { dir: '/u/.claude-third', label: 'third', email: 't@example.test', memoryShared: true, apiKey: false }];
   const usage = { ...USAGE, '/u/.claude-third': reading(20, 100) };
   const where = { ada: '/u/.claude-work' };
   const run = automove.create({ file });
-  const { d, calls } = deps({ movesOn: true, where, usage });
+  const { d, calls } = deps({ movesOn: true, where, usage, lastSeen: () => ({ outcome: 'ok', at: Date.now() + 5000 }) });
   d.list = () => list3;
   await twoTicks(run, d);
-  assert.deepEqual(calls.starts.pop(), { dir: '/u/.claude-spare', names: ['ada'] }, 'CONTROL: the first move, to the emptiest');
-  usage['/u/.claude-spare'] = reading(95, 40);   // now spare runs out too, and Kosmos moves ada on to third
+  assert.deepEqual(calls.starts.pop(), { dir: '/u/.claude-spare', names: ['ada'] }, 'CONTROL: the first move');
+  usage['/u/.claude-spare'] = reading(95, 40);   // now spare runs out too
   await twoTicks(run, d, NOW + 10000);
-  assert.deepEqual(calls.starts.pop(), { dir: '/u/.claude-third', names: ['ada'] }, 'CONTROL: the second move');
-  await run.tick(d, NOW + 20000);
-  assert.deepEqual(run.state.watching.map((w) => w.to), ['/u/.claude-third'], 'a second move of one agent left its first watch open');
-  assert.equal(automove.readLines(file).some((l) => l.kind === 'released'), false, 'Kosmos took its own second move for a person\'s');
+  assert.equal(calls.starts.length, 0, 'an agent Kosmos had just moved was moved again within the day');
+  assert.ok(automove.create({ file, nowMs: NOW + 20000 }).state.personHold.has('ada'), 'a restart forgot that ada was just moved');
+  await twoTicks(run, d, NOW + automove.PERSON_HOLD_MS + 30000);
+  assert.deepEqual(calls.starts.pop(), { dir: '/u/.claude-third', names: ['ada'] }, 'CONTROL: after the day it may move on');
 });
 test('#7152 slice 3 review 3: with fewer than two subscription accounts the sweep stops before the agents walk', async () => {
   let walks = 0;
@@ -566,4 +567,38 @@ test('#7152 slice 3 review 6: an agent not seen to work in a day leaves its targ
   await twoTicks(run, d);
   await run.tick(d, Date.now() + automove.WATCH_MS + 60000);
   assert.equal(run.state.failed.has('/u/.claude-spare'), true, 'a target nobody was seen to work on was offered to the next agent at once');
+});
+
+test('#7152 slice 3 review 7: a person who stops an automatic move wins: the agent is not moved again for a day', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d, calls } = deps({ movesOn: true, moveOutcome: 'stopped' });
+  await twoTicks(run, d);
+  await run.tick(d, NOW + 2000);
+  await run.tick(d, NOW + 3000);
+  assert.equal(calls.starts.length, 1, 'Kosmos started the move again after the person stopped it');
+  assert.ok(automove.create({ file, nowMs: NOW + 4000 }).state.personHold.has('ada'), 'a restart forgot the person\'s Stop');
+});
+
+test('#7152 slice 3 review 7: after a partial move, a call the agent makes (maybe still on its old account) is no proof', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d } = deps({ movesOn: true, moveOutcome: 'partial', lastSeen: () => ({ outcome: 'ok', at: Date.now() + 5000 }) });
+  await twoTicks(run, d);
+  await run.tick(d, NOW + 2000);
+  assert.equal(automove.readLines(file).some((l) => l.kind === 'works'), false, 'a call from an agent that may not have moved was taken as proof');
+  assert.deepEqual(run.state.watching.map((w) => [w.agent, w.uncertain]), [['ada', true]], 'CONTROL: still watched, as uncertain');
+  automove.append(file, { kind: 'move', at: NOW + 3000, agent: 'bo', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'unknown' });
+  assert.equal(automove.create({ file, nowMs: NOW + 4000 }).state.watching.every((w) => w.uncertain), true, 'a rebuilt partial or unknown watch takes sightings as proof');
+});
+
+test('#7152 slice 3 review 7: an odd record does not stop the board starting, and an unfinished move keeps its own time', () => {
+  const file = fileFor();
+  automove.append(file, { kind: 'decision', at: NOW - 1000, moves: [null, 7], held: [null], atRisk: [null] });
+  automove.append(file, { kind: 'move', at: NOW - 3 * H, startedAt: NOW - 3 * H, agent: 'ada', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'started' });
+  let run;
+  assert.doesNotThrow(() => { run = automove.create({ file, nowMs: NOW }); }, 'a decision line with a null in it threw at startup');
+  const ended = automove.readLines(file).find((l) => l.outcome === 'unknown');
+  assert.equal(ended.at, NOW - 3 * H, 'an unfinished move was stamped with the restart time, so it shows as new');
+  assert.equal(run.state.refused.has('ada'), true, 'an unfinished move was not held like an unknown one');
 });

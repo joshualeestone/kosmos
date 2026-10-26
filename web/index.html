@@ -28912,8 +28912,8 @@ function abRecentHtml(recent, label, who, line) {
     else if (e.kind === 'move' && e.outcome === 'changed') out.push(at(e.at) + 'Kosmos moved ' + agent + ' from ' + from + ' to ' + to + ', because ' + esc(e.why || 'its account was running out') + '.');
     else if (e.kind === 'move' && e.outcome === 'unknown') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ' and could not tell whether it went through. Check which account it is on above.');
     else if (e.kind === 'move' && e.outcome === 'partial') out.push(at(e.at) + 'Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.');
-    else if (e.kind === 'move') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused.');
-    else if (e.kind === 'released') out.push(at(e.at) + agent + ' is no longer on ' + to + ', so someone moved it; Kosmos leaves it where it is for a day.');
+    else if (e.kind === 'move' && e.outcome === 'refused') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused.');
+    else if (e.kind === 'released') out.push(at(e.at) + agent + ' is no longer on ' + to + ' (it was moved or removed), so Kosmos leaves it where it is for a day.');
     else if (e.kind === 'skipped') out.push(at(e.at) + 'Kosmos did not move ' + agent + ', because it was no longer idle.');
     else if (e.kind === 'works' && e.works === 'yes') out.push(at(e.at) + agent + ' was seen working on ' + to + '.');
     else if (e.kind === 'works' && e.works === 'no') out.push(at(e.at) + agent + '\u2019s first request on ' + to + ' was refused. Move it back here if it needs to work now; Kosmos will not move agents to ' + to + ' for a day.');
