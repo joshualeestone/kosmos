@@ -174,18 +174,21 @@ function renameRetrying(src, dst) {
    every path. `failedFiles` counts the files runRestore listed as failed (it answers ok with some failed, since one
    damaged file does not fail the rest), and `fetchProblems` carries its reasons why some were not fetched.
    Only plain-named folders at the top of each root become the world's: everything else there (dot-entries, HEAD,
-   node_modules, files, links) is held back in `restored/held-back-<random>/<root>/` and named in `heldBack`, because the top of workers or
-   projects is above every agent and project the person makes in this world later, where nothing reviews it.
+   node_modules, files, links) is held back in `restored/held-back-<random>/<root>/` and named in `heldBack`, because
+   the top of workers or projects is above every agent and project the person makes in this world later, where
+   nothing reviews it.
    Every check runs before anything moves, so a refusal moves nothing; a failure part way says what moved, and
    finishing again carries on. */
 function finishRestoreWorld(opts = {}) {
   const { base, world, restoreDir } = opts;
   let moved = [], failedFiles = 0, fetchProblems = [];
-  const dirOf = worldDirOf(base, world);
-  const answer = (ok, because) => Object.assign({ ok, moved, kept: keptIn(restoreDir, base, world).filter((n) => !recordedHeld(dirOf).includes(n)),
-    heldBack: heldIn(restoreDir, recordedHeld(dir)), failedFiles, fetchProblems }, because ? { because } : {});
-  const refuse = (because) => ({ ok: false, moved: [], kept: [], heldBack: [], failedFiles: 0, fetchProblems: [], because });
   const dir = worldDirOf(base, world);
+  const answer = (ok, because) => {
+    const recorded = recordedHeld(dir);
+    return Object.assign({ ok, moved, kept: keptIn(restoreDir, base, world).filter((n) => !recorded.includes(n)),
+      heldBack: heldIn(restoreDir, recorded), failedFiles, fetchProblems }, because ? { because } : {});
+  };
+  const refuse = (because) => ({ ok: false, moved: [], kept: [], heldBack: [], failedFiles: 0, fetchProblems: [], because });
   if (!dir || !realDir(dir)) return refuse('the restore did not name its Kosmos');
   if (!opts.result || opts.result.ok !== true) return refuse('the restore did not succeed, so its files stay where it can continue');
   if (!onTheList(base, world.id)) return refuse('this is not a Kosmos on your list, so nothing is moved into it');
@@ -198,8 +201,9 @@ function finishRestoreWorld(opts = {}) {
   if (problems.length > 20) fetchProblems.push('(more not listed)');
   if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) return refuse('the restore folder is not the one made for this Kosmos');
   const lock = takeFinishLock(dir);
-  if (!lock) return refuse('a finish of this restore is already under way');
-  try { return finishLocked(); } finally { lock(); }
+  if (lock.busy) return refuse('a finish of this restore is already under way');
+  if (!lock.release) return refuse(`the new Kosmos's folder could not be locked for the finish (${lock.code})`);
+  try { return finishLocked(); } finally { lock.release(); }
   function finishLocked() {
     // A stopped restore keeps its record, an open sink holds its lock, and a crashed one leaves its temp folder: any of
     // the sink's own entries means the restore is not finished, and it continues in this folder (slice 3).
@@ -265,24 +269,37 @@ function finishRestoreWorld(opts = {}) {
   }
 }
 
-/* One finish at a time per world: a lock folder holding the owner's pid. One whose process is gone is taken over.
-   Returns a release function, or null when another live finish holds it. */
+/* One finish at a time per world: a lock folder holding the owner's pid. A lock is stale when its process is gone,
+   when it has no readable pid (a crash between making it and writing the pid), or when it is older than
+   FINISH_LOCK_STALE_MS (a recycled pid can look alive); a stale lock is renamed aside first, so only one taker wins.
+   Returns { release } when taken, { busy: true } when a live finish holds it, or { code } when it cannot be made. */
+const FINISH_LOCK_STALE_MS = 10 * 60 * 1000;
 function takeFinishLock(dir) {
   const at = path.join(dir, FINISH_LOCK);
   for (let tries = 0; tries < 2; tries++) {
     try {
       fs.mkdirSync(at, { mode: 0o700 });
-      fs.writeFileSync(path.join(at, 'pid'), String(process.pid), { mode: 0o600 });
-      return () => { try { fs.rmSync(at, { recursive: true, force: true }); } catch { /* best effort */ } };
     } catch (e) {
-      if (!e || e.code !== 'EEXIST') return null;
-      let pid = NaN;
-      try { pid = Number(fs.readFileSync(path.join(at, 'pid'), 'utf8')); } catch { /* unreadable: treat as held */ }
-      if (!Number.isSafeInteger(pid) || pid <= 0 || pidAlive(pid)) return null;
-      try { fs.rmSync(at, { recursive: true, force: true }); } catch { return null; }
+      if (!e || e.code !== 'EEXIST') return { code: (e && e.code) || 'EUNKNOWN' };
+      let pid = NaN, age = 0;
+      try { age = Date.now() - fs.lstatSync(at).mtimeMs; } catch { /* gone: try again */ }
+      try { pid = Number(fs.readFileSync(path.join(at, 'pid'), 'utf8')); } catch { /* no pid */ }
+      const live = Number.isSafeInteger(pid) && pid > 0 && pidAlive(pid) && age < FINISH_LOCK_STALE_MS;
+      if (live) return { busy: true };
+      const aside = `${at}.stale-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+      try { fs.renameSync(at, aside); } catch { return { busy: true }; }   // another taker won the rename
+      try { fs.rmSync(aside, { recursive: true, force: true }); } catch { /* aside, harmless */ }
+      continue;
     }
+    try {
+      fs.writeFileSync(path.join(at, 'pid'), String(process.pid), { mode: 0o600 });
+    } catch (e) {
+      try { fs.rmSync(at, { recursive: true, force: true }); } catch { /* best effort */ }
+      return { code: (e && e.code) || 'EUNKNOWN' };
+    }
+    return { release: () => { try { fs.rmSync(at, { recursive: true, force: true }); } catch { /* best effort */ } } };
   }
-  return null;
+  return { busy: true };
 }
 function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return !!e && e.code === 'EPERM'; }
@@ -294,7 +311,7 @@ function pidAlive(pid) {
 const NOT_PLAIN = ['HEAD', 'node_modules'];
 /* Dot-names git or a provider opens at start. Asked by exact name too, since some filesystems (HFS+ ignores
    zero-width characters) open a name that does not start with a dot as one of these. */
-const START_DOT = [GIT, '.claude', '.mcp.json', '.envrc', '.codex', '.gemini'];
+const START_DOT = [GIT, '.claude', '.mcp.json', '.envrc', '.codex', '.gemini', '.opencode'];
 function plainFolder(parent, n) {
   if (n.startsWith('.') || NOT_PLAIN.some((x) => x.toLowerCase() === n.toLowerCase())) return false;
   let st;

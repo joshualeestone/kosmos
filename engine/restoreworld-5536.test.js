@@ -26,7 +26,7 @@ const { createRestoreSink, RECORD_NAME, LOCK_NAME } = require('./restoresink');
 
 const NOW = new Date(2026, 9, 26, 0, 30).getTime();   // local time, as the world name is
 const DAY = '2026-10-26';
-const nameOk = (n) => /^[a-z0-9][a-z0-9_-]{1,31}$/.test(n);
+const nameOk = (n) => require('./create').NAME_RE.test(n);   // the real rule, required after the sandbox above
 const OK = { ok: true };   // runRestore's answer for a restore that succeeded
 
 /* A base the sink accepts (inside the profile on Windows, as restoresink.test.js makes them). */
@@ -783,4 +783,19 @@ test('one finish at a time: a live lock refuses, a dead process\'s lock is taken
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, true, r.because);
   assert.ok(!fs.existsSync(lock), 'the lock is released after the finish');
+});
+
+test('a lock left with no pid, or one that cannot be made, does not block or mislabel the finish', { skip: process.platform === 'win32' ? 'POSIX modes' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  fs.mkdirSync(path.join(p.dir, 'restore-finishing'));   // a crash between making the lock and writing its pid
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  const q = rw.prepareRestoreWorld(base, { member: 'Bo', now: NOW });
+  fs.chmodSync(q.dir, 0o555);
+  let s;
+  try { s = rw.finishRestoreWorld({ base, world: q.world, restoreDir: q.restoreDir, result: OK }); } finally { fs.chmodSync(q.dir, 0o755); }
+  assert.equal(s.ok, false);
+  assert.match(s.because, /could not be locked for the finish \(EACCES\)/, 'not "already under way"');
 });
