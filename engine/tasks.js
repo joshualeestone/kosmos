@@ -846,7 +846,7 @@ function withoutBuilt(t) {
  *   builtFreesAll          the person marked it: the Assigner frees every agent on it. Not an unnamed caller
  *                          (review round 11: that gave a caller that would not name itself more power than one that
  *                          did); an unnamed mark frees nobody, and the person can free them from the screen
- *   builtFingerprint       (#6330) the deliverable's "sha256:<hex>", from an agent's `fingerprint`
+ *   builtFingerprint       (#6330) the deliverable's "sha256:<hex>" or (#7213, a PDF) "pdf-normalized:<hex>", from an agent's `fingerprint`
  *   builtFingerprintBy     who sent it. Another named agent's mark without one (the checker's) and the person's mark
  *                          keep it; the sender's own mark without one drops it, as that is a new version sent without
  *                          its fingerprint (review 5: keeping it presented the old one as current), and so does an

@@ -76,7 +76,8 @@ test('#7213: compare refuses what is not a hash, and a PDF fingerprint against a
     const c = fp.compare(txt, 'pdf-normalized:' + 'c'.repeat(64));
     assert.equal(c.ok, true);
     assert.equal(c.match, false, 'a pdf-normalized value matched a file that is not a normalized PDF');
-    assert.match(c.words, /this file has none.*Its plain sha256 is sha256:/);
+    assert.match(c.words, /this file is not a PDF, so it has none: sha256:/);
+    assert.equal(fp.compare(txt, 'pdf-normalized:' + hex(txt)).match, false, 'review 2: a text file matched a PDF fingerprint by hex');
     assert.equal(fp.compare(path.join(dir, 'nope'), hex(txt)).ok, false);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -134,5 +135,33 @@ test('#7213 review 1: a PDF whose dates are already empty matches a PDF fingerpr
     const c = fp.compare(emptied, want);
     assert.equal(c.match, true, 'the same hex read as differs because the label differed');
     assert.match(c.words, /^matches the PDF fingerprint/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#7213 review 2: a bare shasum value is checked byte for byte; only a sha256:-labelled one falls back to the PDF fingerprint', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fileprint-7213-'));
+  try {
+    const edited = path.join(dir, 'edited.pdf');
+    fs.writeFileSync(edited, '%PDF-1.7\n1 0 obj << /Title (x) /ModDate (D:20991231) >> endobj\n', 'latin1');
+    const orig = path.join(dir, 'orig.pdf');   // the approved file: the same PDF with its date already empty
+    fs.writeFileSync(orig, fp.stablePdf(fs.readFileSync(edited)));
+    assert.equal(fp.fingerprint(edited), 'pdf-normalized:' + hex(orig), 'CONTROL: the edit is only a date, so the PDF fingerprints agree');
+    const bare = fp.compare(edited, hex(orig));
+    assert.equal(bare.match, false, 'a shasum check passed for different bytes');
+    assert.match(bare.words, /^differs from the plain sha256/);
+    assert.equal(fp.compare(edited, 'sha256:' + hex(orig)).match, true, 'CONTROL: the labelled form is the older mark and still falls back');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#7213 review 2: a PDF fingerprint against a PDF over 64 MB or one with nothing to leave out gives the real reason', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fileprint-7213-'));
+  try {
+    const big = path.join(dir, 'big.pdf');
+    fs.writeFileSync(big, '%PDF-1.7\n<< /ModDate (D:20261021) >>\n', 'latin1');
+    fs.truncateSync(big, fp.PDF_MAX + 1);
+    assert.match(fp.compare(big, 'pdf-normalized:' + 'c'.repeat(64)).words, /this PDF is over 64 MB/);
+    const bare = path.join(dir, 'bare.pdf');
+    fs.writeFileSync(bare, '%PDF-1.7\n1 0 obj << /Title (x) >> endobj\n', 'latin1');
+    assert.match(fp.compare(bare, 'pdf-normalized:' + 'c'.repeat(64)).words, /no dates or ID to leave out/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
