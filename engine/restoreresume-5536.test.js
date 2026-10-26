@@ -382,9 +382,11 @@ test('#5536 slice 3 review 3: a record write that fails part way is cut back, so
 
 test('#5536 slice 3 review 3: Finder and Explorer metadata in a half-restored folder does not stop it continuing (control: other files still refuse)', (t) => {
   const root = stoppedRoot(t);
-  fs.writeFileSync(path.join(root, '.DS_Store'), 'finder', { mode: 0o600 });
-  fs.writeFileSync(path.join(root, 'd', 'Thumbs.db'), 'thumbs', { mode: 0o600 });
-  fs.writeFileSync(path.join(root, 'd', 'desktop.ini'), 'ini', { mode: 0o600 });
+  // As a file browser writes them: the ordinary umask, 0644 (review 4: 0600 here could not fail on the real case).
+  fs.writeFileSync(path.join(root, '.DS_Store'), 'finder', { mode: 0o644 });
+  fs.writeFileSync(path.join(root, 'd', 'Thumbs.db'), 'thumbs', { mode: 0o644 });
+  fs.writeFileSync(path.join(root, 'd', 'desktop.ini'), 'ini', { mode: 0o644 });
+  if (process.platform !== 'win32') for (const f of ['.DS_Store', 'd/Thumbs.db', 'd/desktop.ini']) fs.chmodSync(path.join(root, f), 0o644);
   createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
   assert.ok(fs.existsSync(path.join(root, '.DS_Store')), 'left where it was');
   fs.writeFileSync(path.join(root, 'd', 'notes.txt'), 'planted', { mode: 0o600 });
@@ -394,10 +396,13 @@ test('#5536 slice 3 review 3: Finder and Explorer metadata in a half-restored fo
 test('#5536 slice 3 review 3: one recording sink per folder at a time; a lock left by a process that is gone is taken over', (t) => {
   const root = stoppedRoot(t);
   const first = createRestoreSink(root, { resume: true, snapshot: SNAP });
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /another restore is running in this folder/);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /left open in this process/);
   const o = first.begin('later.txt'); o.write(Buffer.from('still mine')); o.commit();   // the first sink was not disturbed
   first.close({ keepRecord: true });
   assert.equal(fs.existsSync(path.join(root, LOCK_NAME)), false, 'released at close');
+  // Another process that is alive holds it (this one's parent stands in): refused, by name.
+  fs.writeFileSync(path.join(root, LOCK_NAME), `${process.ppid}\n`, { mode: 0o600 });
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /another restore is running in this folder/);
   // A crash: the lock names a process that has exited.
   const gone = spawnSync(process.execPath, ['-e', '0']).pid;
   fs.writeFileSync(path.join(root, LOCK_NAME), `${gone}\n`, { mode: 0o600 });
@@ -427,4 +432,45 @@ test('#5536 slice 3 review 3: the record is cut back by bytes, so a damaged byte
   const tail = raw.subarray(raw.lastIndexOf(0x0a, raw.length - 2) + 1).toString('utf8');
   assert.equal(JSON.parse(tail).path, 'n.txt', 'the new line starts on its own line, not inside the damaged one');
   createRestoreSink(root, { resume: true, snapshot: SNAP }).close();
+});
+
+test('#5536 slice 3 review 4: a .DS_Store the backup held that Finder then rewrote is not held, and the resume goes on', (t) => {
+  const root = fresh(t);
+  const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
+  for (const [rel, text] of [['d/.DS_Store', 'from the backup'], ['d/k.txt', 'kept']]) { const o = sink.begin(rel); o.write(Buffer.from(text)); o.commit(); }
+  sink.close({ keepRecord: true });
+  // Finder replaces it with its own, at its own mode.
+  fs.rmSync(path.join(root, 'd', '.DS_Store'));
+  fs.writeFileSync(path.join(root, 'd', '.DS_Store'), 'finder wrote this', { mode: 0o644 });
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.equal(r.has('d/.DS_Store', sha(Buffer.from('from the backup')), 15), false, 'not held: restore will try it and report it');
+  assert.equal(r.has('d/k.txt', sha(Buffer.from('kept')), 4), true);
+  r.close({ keepRecord: true });
+  // Rewritten at 0600 (a stricter umask): it reaches the hash check, and is still only not held.
+  fs.rmSync(path.join(root, 'd', '.DS_Store'));
+  fs.writeFileSync(path.join(root, 'd', '.DS_Store'), 'finder again', { mode: 0o600 });
+  if (process.platform !== 'win32') fs.chmodSync(path.join(root, 'd', '.DS_Store'), 0o600);
+  const r2 = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.equal(r2.has('d/.DS_Store', sha(Buffer.from('from the backup')), 15), false);
+  r2.close({ keepRecord: true });
+  // Any other recorded file rewritten still refuses (control).
+  fs.writeFileSync(path.join(root, 'd', 'k.txt'), 'changed');
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /has changed/);
+});
+
+test('#5536 slice 3 review 4: a lock this process left open says so, and a lock that cannot be written does not stay behind', (t) => {
+  const root = stoppedRoot(t);
+  const open = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /left open in this process/);
+  open.close({ keepRecord: true });
+  const real = fs.writeSync;
+  try {
+    fs.writeSync = function (fd, buf) {
+      if (typeof buf === 'string' && buf === `${process.pid}\n`) { const e = new Error('no space'); e.code = 'ENOSPC'; throw e; }
+      return real.apply(fs, arguments);
+    };
+    const empty = fresh(t);
+    assert.throws(() => createRestoreSink(empty, { record: true, snapshot: SNAP }), /restore lock \(ENOSPC\)/);
+    assert.deepEqual(fs.readdirSync(empty), [], 'the fresh folder is left as given');
+  } finally { fs.writeSync = real; }
 });

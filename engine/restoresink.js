@@ -6,7 +6,9 @@
  *  - The root is a fresh folder the person chose: absolute, a real directory (not a symlink), and empty, on a
  *    volume that supports hard links (checked when the sink is created; exFAT, FAT32 and some network shares do not).
  *    The one exception is a resume (slice 3, opts.resume): a root an earlier recording sink of the same snapshot
- *    filled, re-proved by its record (verifyResumable) after every other check here.
+ *    filled, re-proved by its record (verifyResumable) after every other check here. One recording sink per root at a
+ *    time, by a lock file holding its pid; two resumes started at the same instant after a crash can both take over the
+ *    dead owner's lock (narrowed, not closed).
  *  - Bytes go to a temp file in a folder inside the root, never at the final path, until commit.
  *  - Commit publishes with link(), which never replaces anything: a name already there (a file this restore
  *    committed, or one a case-insensitive volume treats as the same name) refuses the commit.
@@ -269,12 +271,21 @@ function verifyResumable(rootReal, held, recordAt) {
         continue;
       }
       const lines = held.get(key);
-      if (!lines && OS_METADATA.has(name.toLowerCase()) && at.isFile() && !untrusted(at, true)) continue;
+      // A file browser's metadata (review 4): never read or trusted, only left in place, so its mode does not matter
+      // (Finder writes 0644); it must still be a plain single-link file of yours. One the record names but Finder has
+      // rewritten is simply not held: its commit then fails as a name already there, reported, never refused.
+      const metadata = OS_METADATA.has(name.toLowerCase()) && at.isFile() && at.nlink === 1n
+        && (process.platform === 'win32' || at.uid === BigInt(process.getuid()));
+      if (!lines && metadata) continue;
       if (!at.isFile() || !lines) throw new Error(`restoresink: this folder holds something the restore did not put there, so it cannot be continued (${rel})`);
       const why = untrusted(at, true);
-      if (why) throw new Error(`restoresink: a restored file ${why}, so it cannot be continued (${rel})`);
+      if (why) {
+        if (metadata) continue;   // not held, and left in place
+        throw new Error(`restoresink: a restored file ${why}, so it cannot be continued (${rel})`);
+      }
       const got = hashFile(abs, at);
       const match = got && lines.find((w) => w.size === got.size && w.sha256 === got.sha256);
+      if (!match && metadata) continue;
       if (!match) throw new Error(`restoresink: a restored file has changed since the restore stopped, so it cannot be continued (${rel})`);
       kept.set(key, match);
     }
@@ -294,13 +305,23 @@ function acquireLock(rootReal) {
       const at = fs.lstatSync(file, { bigint: true });
       if (at.isSymbolicLink() || !at.isFile() || untrusted(at, true)) throw new Error('restoresink: this folder\'s restore lock is not a private file of yours');
       const pid = Number(fs.readFileSync(file, 'utf8').trim());
+      if (pid === process.pid) throw new Error(`restoresink: a restore of this folder was left open in this process (close it first); if none is, remove the hidden file ${LOCK_NAME} from the folder`);
       let alive = false;
       if (Number.isSafeInteger(pid) && pid > 0) { try { process.kill(pid, 0); alive = true; } catch (k) { alive = k.code === 'EPERM'; } }
-      if (alive) throw new Error(`restoresink: another restore is running in this folder (process ${pid}); if none is, remove ${LOCK_NAME} from it`);
-      fs.rmSync(file, { force: true });
+      if (alive) throw new Error(`restoresink: another restore is running in this folder (process ${pid}); if none is, remove the hidden file ${LOCK_NAME} from the folder`);
+      // Taken over only if it is still the stale lock just read (review 4: narrows, does not close, the race where two
+      // resumes both find a dead owner; stated in the header).
+      const again = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
+      if (again && again.dev === at.dev && again.ino === at.ino) fs.rmSync(file, { force: true });
       continue;
     }
-    try { fs.writeSync(fd, `${process.pid}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    try { fs.writeSync(fd, `${process.pid}\n`); fs.fsyncSync(fd); } catch (e) {
+      // A lock that could not be written must not stay behind in the person's folder (review 4).
+      try { fs.closeSync(fd); } catch { /* removed below */ }
+      fd = null;
+      try { fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+      throw new Error(`restoresink: could not take this folder's restore lock (${e.code || e.message})`);
+    } finally { if (fd !== null) fs.closeSync(fd); }
     return () => { fs.rmSync(file, { force: true }); };
   }
   throw new Error('restoresink: could not take this folder\'s restore lock (it kept reappearing)');
