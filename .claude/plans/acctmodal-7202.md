@@ -6,8 +6,11 @@
   previous stop, wrapping: WebKit's default Tab skips buttons (the Mac app is a WKWebView), so a trap that acted only
   at the ends leaked between them there. Focus behind the dialog (Sign in again for OpenAI opens without moving it)
   goes in on the next Tab. Focus on something inside that is not a stop (the note a failed start focuses) moves to
-  the next stop in that direction, in page order, wrapping. A press another trap already handled (defaultPrevented)
-  is left alone, and inert is read as the property too (where `inert` is unimplemented only the property is set).
+  the next stop in that direction, in page order, wrapping. Option+Tab too (how WebKit moves between buttons). It
+  stands down on a press another trap already handled (defaultPrevented), while another aria-modal dialog shows (it
+  opened over this one and its own trap has the keys), and while an input method is composing. Inert is read as the
+  property too (where `inert` is unimplemented only the property is set). A radio group is one stop, as the browser
+  tabs it.
 - Stops are worked out on each key press (`acctAddTabStops`): the dialog's focusable controls that are shown,
   enabled, visible, not inert and have a box, plus the Sign in again ask's buttons when it shows (as first run's trap does,
   #6616), so the ask stays reachable.
@@ -42,3 +45,11 @@
    fail, since a stop follows the note (now a non-stop after the last stop, both directions, and Shift+Tab from the
    note). Nits taken: stand down on a press another trap handled; skip visibility:hidden controls; read inert as the
    property too.
+2. (sonnet) W: the trap stood down on Option+Tab, which is how WebKit moves between buttons, so it walked out (now
+   trapped). W: a dialog opened over this one (a removal confirm, a Kosmos+ sheet) had its Tab pulled back here by a
+   trap registered first (now this one stands down while another aria-modal dialog shows). W: Tab during IME
+   composition was taken (now left alone; no test, Playwright cannot compose). W: every radio was a stop (now a group
+   is one, as the browser tabs it; no radio in the dialog today). W: the check never pressed Option+Tab, opened the
+   picker's list, showed another dialog or the one-stop success view (arms for each; each reds on the round 1 trap,
+   both engines). Not taken: the plan file's name has no timestamp (precedent: muse-acct-3939.md); Shift+Tab from a
+   focused container skips its descendants (no focusable container in the dialog).

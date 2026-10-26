@@ -33500,8 +33500,9 @@ document.addEventListener('keydown', (e) => {
    first run already pulls stray focus to its heading, and two pulls would fight. As in the first-run trap (#6616),
    the Sign in again ask is the last stop when it shows, so it stays reachable.
    Every Tab is moved here, not only at the ends: WebKit's default Tab skips buttons (the Mac app is a WKWebView), so
-   between the ends it would leave the dialog for a field behind it; and the ask sits far from the dialog in the
-   page, so a default step from either one lands on the board between them. */
+   between the ends it would leave the dialog for a field behind it. Option+Tab too, since that is how WebKit moves
+   between buttons. It stands down while another dialog shows (that one's own trap has the keyboard) and while an
+   input method is composing (Tab picks a candidate there). */
 function acctAddInert(el) {
   // The property, not only the attribute: where `inert` is not implemented, first run's `el.inert = true` sets only it.
   for (let n = el; n && n.nodeType === 1; n = n.parentElement) if (n.inert === true || n.hasAttribute('inert')) return true;
@@ -33511,17 +33512,25 @@ function acctAddTabStops() {
   const dlg = document.getElementById('acct-add-dialog');
   const ask = document.getElementById('stepup-ask');
   const sel = 'button, [href], input, select, textarea, [tabindex]';
-  return Array.from(dlg.querySelectorAll(sel))
+  const stops = Array.from(dlg.querySelectorAll(sel))
     .concat(ask && !ask.hidden ? Array.from(ask.querySelectorAll('button')) : [])
     .filter((el) => el.tabIndex >= 0 && !el.disabled && !el.closest('[hidden]') && el.getClientRects().length
       && getComputedStyle(el).visibility !== 'hidden' && !acctAddInert(el));
+  // A radio group is one stop, as the browser tabs it: the checked radio, or the first when none is checked.
+  return stops.filter((el) => {
+    if (el.type !== 'radio' || el.checked || !el.name) return true;
+    const group = stops.filter((r) => r.type === 'radio' && r.name === el.name && r.form === el.form);
+    return !group.some((r) => r.checked) && group[0] === el;
+  });
 }
 document.addEventListener('keydown', (e) => {
   // Another dialog's trap above this one has already moved focus for this press (the update confirm): leave it.
-  if (e.key !== 'Tab' || e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented) return;
+  if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
   const modal = document.getElementById('acct-add-modal');
   // Not open, or under another screen that made it inert (first run, the restart screen): that screen owns the keyboard.
   if (modal.hidden || acctAddInert(modal)) return;
+  // Another dialog showing (a removal confirm, the Kosmos+ sheets): it opened over this one, and its trap has the keys.
+  if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => !modal.contains(m) && m.getClientRects().length && !acctAddInert(m))) return;
   const stops = acctAddTabStops();
   e.preventDefault();
   if (!stops.length) return;
