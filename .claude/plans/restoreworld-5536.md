@@ -230,6 +230,15 @@ no profile record, and STARTS the agent: enable then bootstrap).
    words it separated (a control character in a name is not a real name, and the test pins the strip). Deferred as
    duplicate: ids that fold together share the nine names a day (round 6, #7181).
 
+31. (sonnet) Nits taken (comments): an unreadable registry reads as no ids taken, and why that is safe; create.js
+   freezes store.ROOT on first require, so 4c sets the root before its first listing. Not taken: the day rolls over
+   at local midnight (it matches the date the name shows). Deferred as duplicates: the 4c start-path guard (rounds
+   15, 26) and the window before the mark exists (the keep-out contract, round 24).
+   Arms (rounds 28 to 30, one run): 85 of 86 red; the one green was isRestoredWorld's link check, and it showed the
+   check failed OPEN (a world folder swapped for a link read as not Restored, so a start path would run git with
+   hooks on there). Now it fails closed (a folder that is a link or a file reads as Restored; a missing one does
+   not), with the test, and the arm aimed at the new line.
+
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
 - On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that

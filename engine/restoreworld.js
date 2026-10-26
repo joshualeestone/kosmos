@@ -96,6 +96,8 @@ function worldName(member, now, attempt = 1) {
   return attempt > 1 ? `${base} (${attempt})` : base;
 }
 
+// An unreadable registry reads as no ids taken: createWorld then fails on the real clash and the restore says it
+// could not be made, rather than trying names it cannot check (the safe outcome).
 function takenIds(base) {
   try { return new Set(worlds.readRegistry(base).worlds.map((w) => w.id)); } catch { return new Set(); }
 }
@@ -177,10 +179,16 @@ function renameRetrying(src, dst) {
 }
 
 /* Whether `world` was made by prepareRestoreWorld: the mark it writes in the world folder, which a snapshot never
-   writes. What an agent start path checks before starting an agent in that world (git hooks and fsmonitor off). */
+   writes. What an agent start path checks before starting an agent in that world (git hooks and fsmonitor off).
+   Fails closed: a world folder swapped for a link or a file cannot be vouched for, so it reads as Restored and
+   agents there start with hooks off (finish refuses such a folder before it asks this). No folder at all reads as
+   not Restored: there is nothing to start in. */
 function isRestoredWorld(base, world) {
   const dir = worldDirOf(base, world);
-  if (!dir || !realDir(dir)) return false;
+  if (!dir) return false;
+  let st;
+  try { st = fs.lstatSync(dir); } catch { return false; }
+  if (!st.isDirectory()) return true;
   try { return fs.lstatSync(path.join(dir, RESTORED_MARK)).isFile(); } catch { return false; }
 }
 
@@ -580,6 +588,7 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    `because`, so a refusal cannot read as an empty restore.
    opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL (tests). */
 function listRestoredAgents(opts = {}) {
+  // create.js freezes store.ROOT when first required, so 4c's caller sets the store root before its first listing.
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
   const worldDir = worldDirOf(opts.base, opts.world);
   const listable = worldDir && realDir(worldDir) && onTheList(opts.base, opts.world.id);
