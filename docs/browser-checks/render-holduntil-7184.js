@@ -133,13 +133,45 @@ function chk(ok, label, extra) {
       await openTask(page, p.id, 3);
       tasks.setOnHold(p.id, 3, true, { until: { task: 1 } });   // an agent, after the page last loaded
       await page.click('#tk-hold');
-      await waitText(page, '#tk-hold-msg', /a moment ago/);
+      await waitText(page, '#tk-hold-msg', /already on hold/);
       const s3 = stored(p.id, 3);
-      chk(await text(page, '#tk-hold-msg') === 'This was put on hold a moment ago, so nothing changed.'
+      chk(await text(page, '#tk-hold-msg') === 'This is already on hold, so nothing changed.'
         && JSON.stringify(s3.onHoldUntil) === '{"task":1}' && s3.onHoldByPerson !== true && s3.onHold === true,
         `${tag} Put on hold on a stale page changes nothing: the agent's condition stays, the hold stays the agent's`, JSON.stringify(s3));
       chk(await text(page, '#tk-hold-until') === 'Waiting for task 1 to close.' && await page.isVisible('#tk-hold-takeover') && await text(page, '#tk-hold') === 'Take off hold',
         `${tag} the page then shows it: Waiting for task 1 to close., and Saving makes this hold yours`, await text(page, '#tk-hold-until'));
+
+      /* Review 1: Save on a page that has not seen an agent take the hold off changes nothing (it would put the task back
+         on hold as the person's). */
+      tasks.setOnHold(p.id, 3, false);   // an agent, after the page last loaded
+      await page.selectOption('#tk-hold-for', 'at');
+      await page.fill('#tk-hold-at', local);
+      await page.click('#tk-hold-save');
+      await waitText(page, '#tk-hold-msg', /taken off hold/);
+      chk(await text(page, '#tk-hold-msg') === 'This was taken off hold, so nothing changed.' && stored(p.id, 3).onHold !== true && stored(p.id, 3).onHoldByPerson !== true,
+        `${tag} Save after an agent took the hold off changes nothing`, JSON.stringify(stored(p.id, 3)));
+      await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Put on hold', null, { timeout: 5000 }).catch(() => {});
+
+      /* Review 1: when the task cannot be read again, Put on hold changes nothing (the poll's old list is not a reading). */
+      let refuse = true;
+      await page.route('**/api/projects', (route) => (refuse && route.request().method() === 'GET' ? route.fulfill({ status: 500, body: '{}' }) : route.fallback()));
+      await page.click('#tk-hold');
+      await waitText(page, '#tk-hold-msg', /could not check/);
+      chk(await text(page, '#tk-hold-msg') === 'we could not check that task just now, so nothing changed' && stored(p.id, 3).onHold !== true,
+        `${tag} a failed read: Put on hold says so and changes nothing`, await text(page, '#tk-hold-msg'));
+      refuse = false;
+      await page.unroute('**/api/projects');
+
+      /* Review 1: a hold waiting for a task that is gone keeps that choice, said as gone, and the line says it can come off. */
+      tasks.setOnHold(p.id, 1, true, { viaScreen: true, until: { task: 3 } });
+      projects.mutate(p.id, (x) => ({ ...x, tasks: x.tasks.filter((t) => t.number !== 3) }));
+      await page.evaluate(async () => { await pjReload(); });
+      await openTask(page, p.id, 1);
+      await waitText(page, '#tk-hold-until', /no longer on this project/);
+      const goneOpt = await page.evaluate(() => { const o = document.querySelector('#tk-hold-task option:checked'); return o ? o.textContent : null; });
+      chk(await text(page, '#tk-hold-until') === 'Task 3 is no longer on this project, so this can come off hold.'
+        && await page.inputValue('#tk-hold-for') === 'task' && await page.inputValue('#tk-hold-task') === '3' && goneOpt === '#3 (no longer on this project)' && await page.isDisabled('#tk-hold-save'),
+        `${tag} a hold waiting for a task that is gone: the choice stays, said as gone, Save off`, JSON.stringify([await text(page, '#tk-hold-until'), goneOpt]));
 
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
       chk(!sideways, `${tag} no sideways scroll`);

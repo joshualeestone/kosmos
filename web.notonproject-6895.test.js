@@ -126,9 +126,9 @@ function paintTask(task, project) {
   const proj = { ...project, tasks: [task] };
   const src = ['let TK_ACT = null;', page.liftAll(SCRIPT, ['tkStateWord', 'tkAdded', 'tkFace', 'tkSayPart', 'claimNotReported', 'taskClaimHtml',
     'tkMemberName', 'paintTaskPage', 'tkPaintSubtasks'])].join('\n');
-  new Function('document', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'pjView', 'esc', 'discTint', 'discInk', 'initials', 'tskAgentName', 'tkPaintRepeat',
+  new Function('document', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'pjView', 'esc', 'discTint', 'discInk', 'initials', 'tskAgentName', 'tkPaintRepeat', 'tkPaintHoldUntil',
     src + '\n; paintTaskPage();')({ getElementById: (id) => els[id] || null, querySelector: () => null }, () => proj, proj.id, task.number, () => {},
-    (s) => String(s), () => '#dfe5ea', () => '#4a5560', (n) => String(n).slice(0, 2).toUpperCase(), (s) => NAMES[s] || s, () => {});
+    (s) => String(s), () => '#dfe5ea', () => '#4a5560', (n) => String(n).slice(0, 2).toUpperCase(), (s) => NAMES[s] || s, () => {}, () => {});   // kosmos#7184: what a hold waits for has its own check
   return els['tk-who'].innerHTML;
 }
 

@@ -740,7 +740,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     ...taskrepeatMod.fieldsOf(tasksModEarly.progressOf(t).closed ? Object.assign({}, t, { isClosed: true }) : t),
     // kosmos#7184: what a held task waits for and whether it has happened, from the engine's own reading (holdUntilState
     // counts a task that is gone as met), so the task page draws it and never works it out itself. null when none.
-    holdUntil: tasksModEarly.holdUntilState({ tasks }, t),
+    holdUntil: (() => { try { return tasksModEarly.holdUntilState({ tasks: tasks.filter(Boolean) }, t); } catch { return null; } })(),   // review 1: one bad row never fails the read
   } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
   /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole
