@@ -47,6 +47,16 @@ This leaves the Claude-account paths (key add, live badge, auth status, machine 
 4. Server routes + Settings/setup Connect row for DeepSeek (key paste), live check against the vendor.
 5. Browser check for the row.
 
+## Progress (10-26 13:0x, paused for the 0.7.70 cut)
+Done and pushed: the module and table (13 tests), the supervisor launch with the env scrub (6 tests, Qwen's 27 still
+green), the stale-401 exclusion (red with it removed). Reverted: an exclusion in signedoutaccounts.js, whose table has
+no claude runner at all, so it could never run.
+Next: provider identity. create.jobProvider must return the vendor for a claude job on a vendor home, and
+agentProvider / codexJobProvider read a job only for codex agents today. Extending that to claude agents means a job
+read per claude agent per tick (memoized 2 s), which is most agents, not a few: measure the cost, or carry the
+provider on the card from the launch, before choosing. Its 10 callers' provider tables (providerLabel, modelsFor,
+failover families) must each learn the vendor or be shown not to need it.
+
 ## Windows launch: not in slice 1
 engine/win32launch.js copies the board's whole environment into a Windows agent, and this slice changes only the Mac
 supervisor. Until the Windows launcher applies launchEnv the same way, a vendor account is Mac only (the Settings row
