@@ -3667,6 +3667,11 @@ check(AppTabs.keep(.tasks, tasksTab: false) == .agents, "#7252: Tasks leaving th
 check(AppTabs.keep(.today, tasksTab: true) == .agents, "#7252: a selection on the hidden Today goes to Agents")
 check(AppTabs.barTab(forPage: .today, tasksTab: true) == .today, "#7252: the board's home page is still the board page (shown over the tabs)")
 check(AppTabs.barTab(forPage: .settings, tasksTab: true) == .today, "#7252: the board's Settings is the board page, not the native Settings")
+// Review 2: with Today off every tab the bar offers is native, so the board page moving by itself never moves the bar.
+for sel in AppTabs.visible(tasksTab: true) {
+    let a = URL(string: "https://mac.example/#agents"), b = URL(string: "https://mac.example/#settings")
+    check(AppTabs.follow(from: a, to: b, selected: sel, barHeld: false, tasksTab: true) == nil, "#7252: a page move leaves \(sel) where it is")
+}
 
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
