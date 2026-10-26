@@ -49,7 +49,7 @@ struct ContentView: View {
             // kosmos#7031: KOSMOS_SAMPLE_TAB=tasks opens the native Tasks tab's samples.
             switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAB"] {
             case "settings": return .settings
-            case "today": return .today
+            case "today": return AppTabs.todayTab ? .today : .agents   // kosmos#7252: no Today tab to open on
             // kosmos#7032: KOSMOS_SAMPLE_TAB=projects opens the native Projects tab's samples.
             case "projects": return .projects
             case "tasks": return .tasks   // kosmos#7031 (launch with -kosmos.app.tasksTab YES so the bar offers it)
@@ -300,11 +300,14 @@ struct ContentView: View {
     private var boardPage: some View {
         VStack(spacing: 0) {
             HStack {
-                Button { todayBoard = false } label: {
+                // Review 1: closing also presses the tab underneath, which ends a section press still waiting for the
+                // page to load (PressTracker), so a late answer cannot put the page back over the tabs.
+                Button { todayBoard = false; web.press(tab) } label: {
                     Label("Close", systemImage: "chevron.down").labelStyle(.titleAndIcon)
+                        .padding(.horizontal, 16).frame(minHeight: 44)
+                        .contentShape(Rectangle())   // the whole 44pt row is the target, not only the words
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 16).frame(minHeight: 44)
                 .accessibilityLabel("Close this page")
                 Spacer()
             }
@@ -312,6 +315,8 @@ struct ContentView: View {
             webBoard(.today, active: true)
         }
         .background(Color(UIColor.kosmosNavy).ignoresSafeArea())
+        // Review 1: VoiceOver stays on the page, not the tabs drawn underneath it.
+        .accessibilityAddTraits(.isModal)
     }
 
     // Agents, Projects (kosmos#7032), Tasks (kosmos#7031) and Settings are native, and Today when nothing was sent
