@@ -93,11 +93,7 @@ function born(name, configDir, provider) {
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), '# brief\n', 'utf8');
   return name;
 }
-function withSwitch(on, fn) {
-  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
-  if (on) process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1'; else delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
-  try { return fn(); } finally { if (prev === undefined) delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; else process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev; }
-}
+function withSwitch(on, fn) { return require('../test-support/compat-switch').withSwitch(on, fn); }   // the marker in store.ROOT
 
 test('switch OFF (the default): a switch to DeepSeek is refused and changes nothing', () => {
   const name = born('c7206-off', null, 'anthropic');
@@ -151,8 +147,7 @@ test('a DeepSeek agent\'s model is its account\'s: a model change is refused', (
 test('Repair rebuilds a lost DeepSeek job on its recorded account, and refuses one whose account it does not know', () => {
   const register = require('./register');
   create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
-  const prevSwitch = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
-  process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
+  require('../test-support/compat-switch').set(true);
   try {
     for (const [n, prof] of [['c7206-rep-known', { provider: 'deepseek', vendorAccount: DS_HOME }], ['c7206-rep-unknown', { provider: 'deepseek' }]]) {
       fs.mkdirSync(create.workerDir(n), { recursive: true });
@@ -173,7 +168,7 @@ test('Repair rebuilds a lost DeepSeek job on its recorded account, and refuses o
     assert.equal(create.readJob('c7206-rep-unknown'), null, 'an agent with no recorded account was rebuilt anyway');
   } finally {
     create.setRunner(null);
-    if (prevSwitch === undefined) delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; else process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prevSwitch;
+    require('../test-support/compat-switch').set(false);
   }
 });
 

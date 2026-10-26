@@ -51,9 +51,9 @@ function vendorOf(id) {
  * setup, creating or switching an agent, the add route). OFF by default: Claude Code at a vendor's address with only a
  * key, in an empty config folder (no login, no onboarding stop, no anthropic.com traffic) has not been measured on a
  * real run, and nothing unproven ships to a person. It is turned on, after that measurement, by a support switch rather
- * than a setting, the mirror of Meta Muse's off switch (engine/musestatus.js): AGENT_WORKFORCE_COMPAT_PROVIDERS=1 (or
- * true, on, yes) for one run, or the ON MARKER (a file named compat-providers-on in the Kosmos data folder), which lasts
- * because every install and update rewrites the board's launchd job and drops the variable. A Mac only: the Windows
+ * than a setting, the mirror of Meta Muse's off switch (engine/musestatus.js): the ON MARKER, a file named
+ * compat-providers-on in the Kosmos data folder, read by the board and by every agent's launch alike. (No environment
+ * variable: an agent's launchd job never carries one, review 3.) A Mac only: the Windows
  * launch does not point an agent at a vendor yet. Read on every check, so creating or deleting the marker needs no
  * restart.
  */
@@ -61,8 +61,9 @@ const ON_MARKER = 'compat-providers-on';
 function onMarker() { return path.join(require('./store').ROOT, ON_MARKER); }
 function enabled(platform = process.platform) {
   if (platform !== 'darwin') return false;
-  if (/^(1|true|on|yes)$/i.test(String(process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS || '').trim())) return true;
-  // An unreadable data folder leaves it off: off is the default, and the marker is only ever a way on.
+  /* 1b review 3: the marker is the ONLY on-state. An environment variable reached the board but never an agent's launchd
+     job (its plist carries a fixed environment), so an agent made with it on could not start. The marker is read by
+     both, from the data folder. An unreadable data folder leaves it off: off is the default. */
   try { return fs.existsSync(onMarker()); } catch { return false; }
 }
 /* The sentence every refusal uses while the switch is off. */

@@ -29,7 +29,7 @@ process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
 // Slice 1b: vendor providers are off by default; these tests exercise the routes with the switch ON, and the switch's
 // own test below turns it off.
-process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
+require('./test-support/compat-switch').setAt(SANDBOX, true);   // the switch ON (the marker in this test's data folder)
 
 const compat = require('./engine/anthropiccompat');
 const runners = require('./engine/runners');
@@ -67,8 +67,7 @@ const hasModels = { status: 200, body: { data: [{ id: 'deepseek-chat' }, { id: '
 
 test('slice 1b: with the switch OFF (the default) the add route refuses and GET offers nothing; ON is the control', async () => {
   const urls = vendorAnswers(hasModels);
-  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
-  delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  require('./test-support/compat-switch').setAt(SANDBOX, false);
   try {
     const status = await (await fetch(base + '/api/accounts/compat')).json();
     assert.deepEqual(status, { enabled: false, vendors: [] }, 'the page is offered a vendor while the switch is off');
@@ -79,7 +78,7 @@ test('slice 1b: with the switch OFF (the default) the add route refuses and GET 
     assert.equal(b.error, 'DeepSeek is not available in Kosmos yet');
     assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-deepseek-offswitch')), false);
     assert.deepEqual(urls, [], 'the key was sent to the vendor while the switch is off');
-  } finally { process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev; }
+  } finally { require('./test-support/compat-switch').setAt(SANDBOX, true); }
   // CONTROL: on, the page is told which vendors exist.
   const on = await (await fetch(base + '/api/accounts/compat')).json();
   assert.equal(on.enabled, true);
@@ -129,15 +128,14 @@ test('add: a good key is stored and listed under DeepSeek while the switch is on
   assert.equal(rows[0].providerName, 'DeepSeek');
   assert.equal(JSON.stringify(list).includes(KEY), false, 'the list carries the key');
   // With the switch OFF: not listed, and the vendor is not asked (no key leaves this computer for a row nobody sees).
-  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
-  delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  require('./test-support/compat-switch').setAt(SANDBOX, false);
   try {
     compat.resetLiveCacheForTest();
     const asked = vendorAnswers(hasModels);
     const off = await (await fetch(base + '/api/accounts')).json();
     assert.equal(off.accounts.some((a) => a.provider === 'deepseek'), false, 'a DeepSeek row is listed while the switch is off');
     assert.deepEqual(asked, [], 'the account list sent a key to the vendor while the switch is off');
-  } finally { process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev; }
+  } finally { require('./test-support/compat-switch').setAt(SANDBOX, true); }
   // Its own route still finds it.
   assert.equal(compat.list('deepseek').some((a) => a.label === 'work'), true);
 });
