@@ -412,7 +412,11 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    itself made (the Files folder and its parent, each agent's folder, ~/.ssh, ~/.config), which a person or a
    process of this user would have to replace with a link to a share; and every agent's RECORDED folder, which for
    a connected agent is its own working folder and may simply be written as a share or a mapped drive: keptRoots
-   stats it and instructions.fileFor lstats it on each project-file attach, as on main (#7232); (c) a share is
+   stats it and instructions.fileFor lstats it on each project-file attach, as on main (#7232); (d) a link that IS
+   one of the agent's project folders is followed onto a share only when the walk reaches it as written: a project
+   written C:\work\proj where C:\work is itself a link (to D:\work) is met as D:\work\proj, does not match, and
+   its share files are refused, where main attached them (the safe direction; write the project folder as it
+   resolves); (c) a share is
    matched by how it is WRITTEN
    (review 4 finding 2): a project written \\fileserver\x whose real path reads \\10.0.0.5\x (or a DFS path, or
    another name for the server) is not matched to its files, which are then refused, where main matched by identity.
@@ -428,7 +432,8 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    mapped drive or a share, and those files attached on main (review 17 finding 1). */
 function agentRoots(sessionName, filesDir, projectList) {
   const drives = new Set();
-  const folders = [];
+  const folders = [];          // every folder of the agent's, Files included: rule 1's share exception
+  const projectFolders = [];   // the project folders alone: the second guard's exemption (Files has its own)
   const walkFrom = [];
   const addDrivePath = (p) => { drives.add(driveOf(p)); walkFrom.push(asDrivePath(p)); };
   let filesFolder = null;
@@ -442,10 +447,11 @@ function agentRoots(sessionName, filesDir, projectList) {
     /* A share written \\?\UNC\host\share is read as \\host\share (review 12 NIT). A local volume written without a
        letter adds nothing here: its files named by a drive path on a drive no other root reaches are refused, the safe
        direction (named in the plan). */
-    if (d) folders.push(p.folder);
-    else if (shareOf(p.folder)) folders.push(asShareSpelling(p.folder));
+    if (d) projectFolders.push(p.folder);
+    else if (shareOf(p.folder)) projectFolders.push(asShareSpelling(p.folder));
   }
-  return { drives, folders, filesFolder, walkFrom, reached: null };
+  folders.push(...projectFolders);
+  return { drives, folders, projectFolders, filesFolder, walkFrom, reached: null };
 }
 /* Whether a root is on drive `d`, as written or through its own links. A root written on C: may live on D: through a
    junction or link on its way (C:\Users\me\work -> D:\work), and a path the walk follows onto D: is then judged on D:,
@@ -587,7 +593,7 @@ function filesFolderReal(filesFolder) {
    path swapped onto a share between the walk and the realpath is still refused before the open. */
 function winRealRefusal(real, given, roots) {
   if (isNetworkSpelling(real)) {
-    const inProject = roots.folders.some((f) => f !== roots.filesFolder && writtenInside(given, f));
+    const inProject = roots.projectFolders.some((f) => writtenInside(given, f));
     const inSharedFiles = !inProject && !!roots.filesFolder && writtenInside(given, roots.filesFolder)
       && isNetworkSpelling(filesFolderReal(roots.filesFolder));
     if (!inProject && !inSharedFiles) return ON_NETWORK;

@@ -23,6 +23,7 @@ function isDevicePart(part) {
    which every caller treats as not local, the safe reading. A local drive's \\?\C:\, \\.\C:\ and \??\C:\ spellings and
    a local volume's \\?\Volume{GUID}\ are not (review 10 finding 1: a link to a local volume had been refused as "on
    another computer"; review 19 finding 2: the NT \??\ spellings of a share had read as local). */
+const NT_LOCAL = /^\\\?\?\\(?=[A-Za-z]:[\\/])/;                  // \??\C:\..., the NT spelling of a local drive
 const NT_PREFIX = /^\\\?\?\\/;
 function isNetworkSpelling(p) {
   const s = String(p);
@@ -38,7 +39,6 @@ function driveOf(p) {
    as \??\GLOBALROOT\..., one backslash, which no \\ rule sees, and its realpath stalled 21 s on the Windows box.
    So the only targets followed are X:\... (also written \\?\X:\ or \??\X:\) and a plain relative path; a rooted
    target with no drive, a drive-relative one (C:x) and any other colon are refused unfollowed. */
-const NT_LOCAL = /^\\\?\?\\(?=[A-Za-z]:[\\/])/;                  // \??\C:\..., the NT spelling of a local drive
 function followableLinkTarget(to) {
   const t = String(to).replace(LOCAL_LONG, '').replace(NT_LOCAL, '');
   if (/^[A-Za-z]:[\\/]/.test(t)) return t.indexOf(':', 2) >= 0 ? null : t;

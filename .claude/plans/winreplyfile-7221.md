@@ -306,6 +306,11 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   and `D:\real\proj` links to a share is refused (only a link written exactly as the project folder is followed onto
   a share); the safe direction. A single path classifier (one `{kind}` for any spelling, unknown = network) would
   replace the growing set of predicates; a good follow-up, not this card.
+- Review 20: the earlier-link case above is now named in the code header too, as residual (d). `agentRoots` keeps
+  the project folders in their own list (the second guard's exemption) instead of filtering the Files folder out by
+  string. winpath's NT constants sit above their first use. Not changed: "the Windows arms run only on win32" is
+  covered by CI: `.github/workflows/windows.yml` runs `tools/windows-tests.js` on windows-latest, which runs every
+  `win32`-named test file (why this file was renamed in review 1).
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
