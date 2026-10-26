@@ -1507,6 +1507,7 @@ function ownerPassUnknown(minted) {
 }
 /* A refusal about this agent only (the coordinator or the site answered 400 or 403 for it): the agent waits, the pass
    goes on to the next one, so one agent the service will not vouch for cannot hold every agent after it. */
+// Returns true when it changed what is saved (the reason, written once per reason), so the caller saves the keys.
 function ownerLinkSkipAgent(ep, agentKey, k, why) {
   ownerLinkAgentAt.set(ep + '\n' + agentKey, Date.now() + OWNER_LINK_RETRY_MS);
   if (k.ownerLinkRetrying !== why) { k.ownerLinkRetrying = why; log(`owner link for ${agentKey}: ${why}; trying again in ${Math.round(OWNER_LINK_RETRY_MS / 60000)} min, until it lands`); return true; }
@@ -1536,6 +1537,9 @@ async function sweepOwnerLink(keys, on) {
       // Refused on this computer before anything was sent (a register or a Forget is out): nothing was asked, so
       // nothing pauses; the next sweep tries again.
       if (minted.notSent) return;
+      // A Forget and a new sign-in during the mint: this pass vouches for the account just forgotten. Not sent; the
+      // next sweep links the agent under the new identity.
+      if (ownerLinkMac() !== mac) return;
       if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string') {
         const st = minted.refusal ? minted.refusal.status : 0;
         if (st === 400 || st === 403) { marks = ownerLinkSkipAgent(ep, agentKey, k, `Kosmos+ refused to vouch (${st})`) || marks; continue; }

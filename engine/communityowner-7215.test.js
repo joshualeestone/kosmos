@@ -208,10 +208,15 @@ test('a coordinator from before the route answers 404: the same hour-long wait',
 
 test('a coordinator that fails for another reason (a 503): the pass waits 15 minutes, not an hour', async () => {
   R.mint = () => ({ ok: false, because: 'coordinator answered 503', refusal: { status: 503, code: null, currentEpoch: null } });
-  cs._ownerLinkRetry(0);   // the short pause is over at once; the hour-long one would not be
-  await registered('ava');
+  await registered('ava');   // its sweep asks once, then the 15-minute pause starts
+  assert.equal(R.mints.length, 1);
   await cs.sweep();
-  assert.ok(R.mints.length >= 2, 'tried again after the short pause: ' + R.mints.length);
+  assert.equal(R.mints.length, 1, 'inside the 15-minute pause nothing is asked');
+  cs._ownerLinkRetry(0);   // ends the pause and makes the next one zero; an hour-long pause would not be touched
+  await cs.sweep();
+  assert.equal(R.mints.length, 2, 'asked again once the short pause is over');
+  await cs.sweep();
+  assert.equal(R.mints.length, 3, 'a 503 sets the short pause, not the hour');
   cs._ownerLinkRetry(15 * 60 * 1000);
 });
 
@@ -310,4 +315,17 @@ test('an agent whose key the community refuses is not tried again', async () => 
   cs._ownerLinkRetry(0);
   await cs.sweep();
   assert.equal(ownerCalls().length, n, 'no owner call for a refused key, even with no pause');
+});
+
+test('a new computer identity during the mint: the pass is not sent, and the next sweep links under the new one', async () => {
+  await registered('ava');
+  const n = ownerCalls().length;
+  // (registered()'s sweep already linked ava; force a fresh link by a new identity whose mint swaps it again.)
+  R.mac = 'mac-2';
+  R.mint = (body) => { R.mac = 'mac-3'; return { ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } }; };
+  await cs.sweep();
+  assert.equal(ownerCalls().length, n, 'the pass minted under mac-2 is never sent');
+  R.mint = null;
+  await cs.sweep();
+  assert.equal(ownerCalls().length, n + 1, 'linked under mac-3 on the next sweep');
 });
