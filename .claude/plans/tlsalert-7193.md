@@ -89,6 +89,16 @@ were placed on it; the next tunnel was up at 12:49:40Z. The certificate check fo
 the app's immediate re-ask landed inside the same two seconds.
 - Change (Splinter's suggestion): when the check could not run, the app's one re-ask waits 3 s (a key mismatch still
   re-asks at once). A planned reconnect no longer reaches the person.
-- Not explained by the code: seven refusals for one address at once give ONE alert under the shipped once-a-minute rule
-  (identical in 0.7.63 and main), so the seven alerts mean either different host names or refusals spread over
-  minutes. Both shapes are covered now: the hold-back and the minute are app-wide, not per computer.
+- Why SEVEN (confirmed by Splinter from the relay log, table on #7193): the board and tunnel started at 00:49, so the
+  hourly retire lands near :49. Each retire 06:49 to 12:49Z (01:49 to 07:49 CDT) had a request placed in the same
+  second: seven retires, seven refusals an hour apart, each past the once-a-minute rule, each sheet queued behind the
+  one nobody had dismissed overnight. Caveat (Splinter): the relay does not name the requesting computer.
+- Round 4: 0 blockers, 1 warning, 2 nits. The 3 s wait checked clean (the handler is called once on every path, the
+  worst-case hold is about 43 s at the board's bound, parallel connections join one fresh run).
+  - [WARNING] the per-address reason was never cleared, so an answer that never ran the tunnel (the sign-out guard)
+    could log an old reason: the reason is now keyed by the answer object itself (a WeakMap), so only the run that
+    made an answer can give its reason; the sign-out answer logs its own words.
+  - Nit taken: the held-back line is written once per alert on screen (tlsPinHeldSaid, cleared on dismissal).
+  - Nit decided against: matching only this alert's own sheet. A dropped sheet with another sheet up then holds back,
+    which is the safe side; matching only our own would let this alert queue again behind another sheet, which is the
+    bug. The line now says "an alert or another sheet is already on screen", so it is true either way.

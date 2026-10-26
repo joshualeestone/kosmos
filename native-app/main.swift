@@ -2185,6 +2185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var tlsPinToldAt: [String: TimeInterval] = [:]   // kosmos#6589: when the person was last told, per computer
     private var tlsPinAlertShowing = false   // kosmos#7193: a refusal alert is on screen now (any computer)
     private var tlsPinDismissedAt: TimeInterval = -1000   // kosmos#7193: when the person last dismissed one (any computer)
+    private var tlsPinHeldSaid = false   // kosmos#7193 review 4: the held-back line is written once per alert on screen
     var webView: WKWebView!
     /// #4409: the mic's bridge, so closing or minimising the window can turn the mic off.
     var voice: VoiceBridge?
@@ -3673,8 +3674,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         /* Review 1: the WINDOW decides, not only the mark. On macOS 26 a sheet begun over another can be dropped without
            its completion (#2807), which would leave the mark set for good; so the mark holds an alert back only while a
            sheet is really attached (or a runModal one is up, which clears its own mark). Held back is said, not silent. */
+        /* Review 4: any sheet holds it back, not only this alert's: matching only our own would let this alert queue
+           again behind another sheet, which is the stacking this prevents. The line says so, once per alert. */
         if tlsPinAlertShowing, window == nil || window?.attachedSheet != nil {
-            logToSystem("tls-pin: an alert is already on screen, so this refusal is not shown again")
+            if !tlsPinHeldSaid { tlsPinHeldSaid = true; logToSystem("tls-pin: an alert or another sheet is already on screen, so this refusal is not shown") }
             return
         }
         tlsPinAlertShowing = false
@@ -3692,6 +3695,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.addButton(withTitle: "OK")
         let dismissed: () -> Void = { [weak self] in
             self?.tlsPinAlertShowing = false
+            self?.tlsPinHeldSaid = false
             self?.tlsPinToldAt[host] = ProcessInfo.processInfo.systemUptime
             self?.tlsPinDismissedAt = ProcessInfo.processInfo.systemUptime
         }

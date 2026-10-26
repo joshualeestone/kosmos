@@ -67,7 +67,7 @@ test('#5481: only the two microphone permission lines and the two tls-pin lines 
   assert.ok(calls.some((c) => c.startsWith('logToSystem(mismatch ? "tls-pin: refused a computer: ')), 'the tls-pin refusal line is not one of them');
   assert.ok(calls.some((c) => c.startsWith('logToSystem("tls-pin: the board did not answer (status ')), 'the tls-pin unanswered-ask line is not one of them');
   // kosmos#7193 review 2: a refusal held back while an alert is on screen, fixed words, no computer name.
-  assert.ok(calls.some((c) => c === 'logToSystem("tls-pin: an alert is already on screen, so this refusal is not shown again")'), 'the held-back line is not one of them');
+  assert.ok(calls.some((c) => c === 'logToSystem("tls-pin: an alert or another sheet is already on screen, so this refusal is not shown")'), 'the held-back line is not one of them');
   // The tls-pin lines may interpolate only the HTTP status and concatenate nothing, so no computer address (or any other
   // value a person or a page chose) can reach the unified log through them, whatever a variable is called.
   for (const c of calls.filter((x) => x.includes('tls-pin'))) {

@@ -3082,7 +3082,7 @@ const TLS_PIN_WARM_QUIET_MS = 60 * 1000;
    own ask only. Josh's Mac refused a computer for minutes and nothing recorded why: the tunnel's words were kept only
    in this answer. No computer name (the app's unified-log line keeps none either, #5481), the home folder as ~. */
 const tlsPinSaidAt = new Map();
-const tlsPinWhy = new Map();   // review 3: the last required answer's reason, per address, for the app's own ask to log
+const tlsPinWhy = new WeakMap();   // review 4: the reason of the run that made THIS answer (keyed by the answer, never stale)
 const escapeRe = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /* Review 2/3: no computer is named. An unreachable computer's reason carries its URL (the tunnel's HTTP client prints
    it first), and a certificate made for another computer names THAT one ("only valid for ..."), so every URL's host
@@ -3105,7 +3105,7 @@ const SPKI = /^[0-9a-f]{64}$/;
 async function tlsPin(address, { fresh = false, say = false } = {}) {
   // kosmos#7193 review 3: only the app's own ask says why in the board log; background warming never does.
   const answer = await tlsPinAnswer(address, { fresh });
-  if (say && answer && answer.data && answer.data.state === 'required') tlsPinSayWhy(address, tlsPinWhy.get(address) || answer.data.because, Date.now());
+  if (say && answer && answer.data && answer.data.state === 'required') tlsPinSayWhy(address, tlsPinWhy.get(answer) || answer.data.because, Date.now());
   return answer;
 }
 async function tlsPinAnswer(address, { fresh = false } = {}) {
@@ -3146,7 +3146,7 @@ async function tlsPinAsk(address, now) {
       // Anything else, an answer of the wrong shape included, is "do not proceed": a check that cannot be read
       // must never read as nothing to check. The tunnel's own words stay here (a path, a key name).
       answer = { ok: true, because: null, data: { state: 'required', because: "this computer's certificate could not be checked" } };
-      tlsPinWhy.set(address, [d && typeof d.because === 'string' ? d.because : '', said].filter(Boolean).join('\n'));
+      tlsPinWhy.set(answer, [d && typeof d.because === 'string' ? d.because : '', said].filter(Boolean).join('\n'));
     }
   }
   // Only a definite answer is cached: a required one is asked again next time (it may be a passing failure).
@@ -4332,7 +4332,7 @@ module.exports = { clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LA
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { acceptedKey = null; lastOffered = null; tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); tlsPinSaidAt.clear(); tlsPinWhy.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
+  resetForTests: () => { acceptedKey = null; lastOffered = null; tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); tlsPinSaidAt.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
