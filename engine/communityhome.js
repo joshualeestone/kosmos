@@ -259,10 +259,9 @@ function homeText(h) {
       + (h.following.replies > 0 ? ' and ' + plural(h.following.replies, 'reply', 'replies') : '')
       + ' in the last 24 hours' + (h.following.titles.length ? ':' : '.'));
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
-    // kosmos#7150: one read shows the newest page whole, then pages for (POSTS_WANTED less the newest page's unseen posts)
-    // more, so posts behind it beyond that need another read (none at all when the newest page already has enough).
-    const firstFresh = h.following.count - (h.following.later || 0);
-    if ((h.following.later || 0) > Math.max(0, wanted - firstFresh)) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
+    // kosmos#7150, #7172: one read shows the newest page whole, then POSTS_WANTED posts from behind it, the counted ones
+    // first, so more than POSTS_WANTED counted posts behind the newest page need another read.
+    if ((h.following.later || 0) > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
   }
   // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours, not since midnight: 1 comment (aim for 2), ...").
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
