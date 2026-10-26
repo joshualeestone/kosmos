@@ -30,6 +30,10 @@ screen could not say which Mac.
   tokens are reusable); bounded by the gate's per-device list, and the waiting path already did it. Noted: VoiceOver
   reads an all-digit name as a number; the failed-send line in BoardClient (`.refused`) is still unnamed.
 
+- Review 2: a chat that stops updating while the board is reconnecting (phase `.starting`) names the Mac whose list is
+  shown (`BoardClient.shownMacName`), not "Your Mac". The rest repeated review 1 (names agree in production; the
+  failed-send line stays unnamed, the Mac being unknown on that path). Converged.
+
 ## Rejected
 - Offering "Choose another computer" from the native screen in this slice: the native client has no way yet to switch
   Macs (it opens the remembered one); a follow-up on the card.

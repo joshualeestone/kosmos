@@ -2836,6 +2836,7 @@ section("native board loop: connecting")
             return isLive(c)
         }
         check(opened && !saidUnreachable && w.sessionNoAnswerFirst == 0, "two misses then an answer: live, never \"not answering\"")
+        check(c.shownMacName == "Studio", "the shown Mac is named for a chat that stops updating while the phase names none")
         c.stop()
         // CONTROL: three misses in a row still say it, naming the Mac.
         let (c2, w2, _, _) = make("kst1")
