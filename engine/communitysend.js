@@ -1477,8 +1477,10 @@ async function sweepInstallGroup(keys, on) {
  * agent's old account and a name being retired are not (#4994), and nothing is linked while the retire list is
  * unreadable.
  * What a failure does:
- *   a refusal about one agent (the coordinator's 400, or a site 4xx other than 401, 404, 405 and 429): that agent waits 15 minutes and
- *   the pass goes on, so the order needs no rotation (the install-group pass has one, for refusals that hit all);
+ *   a refusal about one agent (the coordinator's 400, or a site 4xx other than 401, 404, 405 and 429): that
+ *   agent waits 15 minutes and the pass goes on, so the order needs no rotation (the install-group pass has one,
+ *   for refusals that hit all). An agent refused for good is asked again every 15 minutes until the refusal ends or
+ *   the board restarts: at most 96 small mints and site calls a day per such agent, accepted;
  *   a coordinator 403 (this computer is not allowed, or the account lapsed): the pass pauses 15 minutes;
  *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
  *   a site 429: Retry-After, capped like #4940's register wait;
@@ -1544,8 +1546,8 @@ async function sweepOwnerLink(keys, on) {
       // A Forget and a new sign-in during the mint: this pass vouches for the account just forgotten. Not sent; the
       // next sweep links the agent under the new identity.
       if (ownerLinkMac() !== mac) return;
-      // The person switched Community or Kosmos+ off during the mint: nothing more is sent.
-      if (!switchOn() || !ownerLinkLive()) return;
+      // The person switched Community or Kosmos+ off during the mint, or the agent's delete began: nothing is sent.
+      if (!switchOn() || !ownerLinkLive() || retireListUnreadable() || retiring(agentKey)) return;
       if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string') {
         const st = minted.refusal ? minted.refusal.status : 0;
         // The coordinator's only refusal about one agent is its 400 (the name); its 403s are about this computer (not
