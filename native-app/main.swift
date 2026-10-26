@@ -2183,6 +2183,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     var window: NSWindow!
     private var tlsPinToldAt: [String: TimeInterval] = [:]   // kosmos#6589: when the person was last told, per computer
+    private var tlsPinAlertShowing = false   // kosmos#7193: a refusal alert is on screen now (any computer)
     var webView: WKWebView!
     /// #4409: the mic's bridge, so closing or minimising the window can turn the mic off.
     var voice: VoiceBridge?
@@ -3657,17 +3658,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                              : "tls-pin: refused a computer: its certificate could not be checked")
         logLine(mismatch ? "tls-pin: refused \(host): its certificate's key is not the one it vouches for"
                          : "tls-pin: refused \(host): its certificate could not be checked (see the 'did not answer' line before it)")
+        /* kosmos#7193: never a second alert while one is on screen. A sheet begun while another is up waits behind it
+           (macOS queues sheets), so a page that kept retrying for minutes left one alert per minute stacked up, each
+           appearing as the last was dismissed: Josh pressed OK seven times on 0.7.63. The minute below then counts from
+           when the person dismissed it (the completion), so the next alert waits a minute after they last answered. */
+        if tlsPinAlertShowing { return }
         let now = ProcessInfo.processInfo.systemUptime
         if let at = tlsPinToldAt[host], now - at < 60 { return }
         tlsPinToldAt[host] = now
+        tlsPinAlertShowing = true
         let alert = NSAlert()
         alert.messageText = "Kosmos did not open \(host)"
         alert.informativeText = mismatch
             ? "That computer did not present the certificate it vouches for, so Kosmos stopped before sending it anything. If you just set that computer up again, pair it with this one again. If this keeps happening, contact Kosmos support."
-            : "Kosmos could not check that computer's certificate just now, so it stopped before sending it anything. Try again in a moment."
+            : "Kosmos could not check that computer's certificate just now, so it stopped before sending it anything. Try again in a moment. If it keeps happening, check that the other computer is on and connected to the internet."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
-        if let window { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }
+        let dismissed: () -> Void = { [weak self] in
+            self?.tlsPinAlertShowing = false
+            self?.tlsPinToldAt[host] = ProcessInfo.processInfo.systemUptime
+        }
+        if let window { alert.beginSheetModal(for: window) { _ in dismissed() } } else { alert.runModal(); dismissed() }
     }
     /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. #5167: on every
     /// computer, a download the page asks for is decided first.
