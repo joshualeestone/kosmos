@@ -100,3 +100,10 @@ shell parser: an unusual quoting could hide a schtasks call from it. Kosmos's ow
   said in the preload's header and in the runner's comment, and it is the guard's main gap (see Weakest part). The
   matcher's header lists what it does not read (script blocks, Start-Process, cmd /c with no space). 34/34 with
   windows-tests-1777.
+- Round 4: no BLOCKER. Fixed: run-tests.sh's no-cygpath fallback read CI=false as CI (now read as onCi does, and it
+  prints the REAL-scheduler line when it goes on unguarded); bash, sh (with -c, -lc, -ec) and env in front of schtasks
+  were not read, and tests do start bash -c (Git Bash's is an MSYS program NODE_OPTIONS never reaches); the docs said
+  npm test "cannot reach" the scheduler, now "every node process" with test:shell's bash scripts named as unguarded.
+  NITs taken: a source check that main() hands each file childEnv's env; one shared options-then-tail helper; the
+  matcher's header names a lone apostrophe in a cmd line, wsl and npx. Negative control: against round 3's matcher and
+  run-tests.sh the two new behaviour tests fail. 37/37 with windows-tests-1777; under the guard 0 fail.

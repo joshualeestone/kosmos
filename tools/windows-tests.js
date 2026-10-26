@@ -36,8 +36,10 @@
  * admin, with no Kosmos user setup. It is evidence about Windows, not about a user's laptop.
  *
  * ON YOUR OWN WINDOWS COMPUTER (#7247): `node tools/windows-tests.js` (and `npm test`, through
- * tools/run-tests.sh) loads tools/no-schtasks-preload.cjs into every test by itself, so the run
- * cannot reach the computer's real Task Scheduler, where Kosmos keeps its board and agents. Most
+ * tools/run-tests.sh) loads tools/no-schtasks-preload.cjs into every node process the run starts,
+ * so their schtasks calls do not reach the computer's real Task Scheduler, where Kosmos keeps its
+ * board and agents. It guards node only: test:shell's bash scripts never load it, and a process
+ * started with an environment that leaves NODE_OPTIONS out runs unguarded. Most
  * tests stub their scheduler calls; one that does not could end a live task, such as the board's.
  * A test that needs the real scheduler sees schtasks.exe as missing (ENOENT). On
  * CI the preload is not loaded. To run against the real scheduler on purpose, on a computer whose

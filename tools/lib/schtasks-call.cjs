@@ -12,11 +12,15 @@
  *
  * It reads command lines with a small tokenizer, not a full shell parser. What it does not see: a command built at run
  * time inside the shell (a variable, a script file run by powershell -File or cmd /c script.cmd), a PowerShell script
- * block or Start-Process (powershell -Command "& {schtasks}"), and cmd /c with no space before the command.
+ * block or Start-Process (powershell -Command "& {schtasks}"), cmd /c with no space before the command, a
+ * launcher it does not know (wsl, npx), and a lone apostrophe in a cmd line (cmd has no single quotes, but this
+ * reads one as a quote, so "echo don't & schtasks" stays one command).
  */
 
 const PROGRAM = /^schtasks(\.exe)?$/i;
 const CMD = /^cmd(\.exe)?$/i;
+/* sh and bash, which tests start with -c (Git Bash's are MSYS programs, which NODE_OPTIONS never reaches). */
+const POSIX_SHELL = /^(ba)?sh(\.exe)?$/i;
 const POWERSHELL = /^(powershell|pwsh)(\.exe)?$/i;
 /* PowerShell switches whose value is the next word, so the value is not taken for the command. */
 const PS_VALUE = /^-(executionpolicy|ep|ex|windowstyle|w|version|v|inputformat|if|outputformat|of|configurationname|workingdirectory|wd|settingsfile|custompipename|psconsolefile)$/i;
@@ -96,6 +100,17 @@ function wordsRun(ws, i, depth) {
       }
       continue;   // powershell with a bare command: the next word starts it
     }
+    if (POSIX_SHELL.test(b)) {
+      for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) {
+        if (/^-[a-z]*c[a-z]*$/i.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1);   // -c, -lc, -ec
+      }
+      return false;   // a script file: what it runs cannot be read here
+    }
+    /* env NAME=value ... program: the program after the assignments is what runs. */
+    if (/^env(\.exe)?$/i.test(b)) {
+      for (i += 1; i < ws.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1);
+      continue;
+    }
     if (/^call$/i.test(b)) { i += 1; continue; }
     if (/^start$/i.test(b)) {
       i += 1;
@@ -123,7 +138,7 @@ function callRuns(file, args, options) {
   if (options && options.shell) return commandRuns([String(file)].concat(list).join(' '));
   const base = baseName(file);
   if (PROGRAM.test(base)) return true;
-  if (CMD.test(base) || POWERSHELL.test(base)) return commandRuns([base].concat(list).join(' '));
+  if (CMD.test(base) || POWERSHELL.test(base) || POSIX_SHELL.test(base) || /^env(\.exe)?$/i.test(base)) return commandRuns([base].concat(list).join(' '));
   return false;
 }
 

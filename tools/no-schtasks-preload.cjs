@@ -44,12 +44,15 @@ function note(how, what) {
 function split(rest) {
   const hasArgs = Array.isArray(rest[0]) || (rest.length > 1 && rest[0] == null);
   const args = Array.isArray(rest[0]) ? rest[0] : null;
-  const after = hasArgs ? rest.slice(1) : rest;
+  return { args, ...optionsThenTail(hasArgs ? rest.slice(1) : rest) };
+}
+/* (options?, callback?), the part every call shares. A null or undefined in the options slot with a callback after
+   it is still the options slot (Node moves past it), so the callback is kept (review 3: execFile(file, args, null,
+   cb) lost cb when refused). */
+function optionsThenTail(after) {
   const options = after[0] && typeof after[0] === 'object' ? after[0] : null;
-  /* A null or undefined in the options slot with a callback after it is still the options slot (Node moves past it),
-     so the callback is kept (review 3: execFile(file, args, null, cb) lost cb when refused). */
   const slot = options || (after[0] == null && after.length > 1);
-  return { args, options, tail: slot ? after.slice(1) : after };
+  return { options, tail: slot ? after.slice(1) : after };
 }
 /* The same call aimed at REFUSED_PROGRAM, with no shell, so it fails as a missing program rather than as a shell
    that could not find a command. */
@@ -74,9 +77,7 @@ function shellCall(name, run, refusedRun) {
   return function (command, ...rest) {
     if (!commandRuns(command)) return run.call(this, command, ...rest);
     note(name, String(command));
-    const options = rest[0] && typeof rest[0] === 'object' ? rest[0] : null;
-    const slot = options || (rest[0] == null && rest.length > 1);
-    return refusedRun.call(this, ...refused({ args: null, options, tail: slot ? rest.slice(1) : rest }));
+    return refusedRun.call(this, ...refused({ args: null, ...optionsThenTail(rest) }));
   };
 }
 

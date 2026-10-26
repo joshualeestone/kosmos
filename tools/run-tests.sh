@@ -182,10 +182,12 @@ _RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; export KOSMOS_SHELL_PARALLEL=1
 case "$(uname -s 2>/dev/null)" in
   MINGW*|MSYS*|CYGWIN*)
     if ! _rt_wt="$(cygpath -m "$REPO/tools/windows-tests.js" 2>/dev/null)" || [ -z "$_rt_wt" ]; then
-      if [ "${KOSMOS_TESTS_REAL_SCHTASKS:-}" != 1 ] && [ -z "${CI:-}" ]; then
+      case "${CI:-}" in ""|false|FALSE|False|0) _rt_ci="" ;; *) _rt_ci=1 ;; esac   # as windows-tests.js onCi reads it
+      if [ "${KOSMOS_TESTS_REAL_SCHTASKS:-}" != 1 ] && [ -z "$_rt_ci" ]; then
         echo "run-tests: cygpath is missing, so the #7247 schtasks guard cannot be set up; KOSMOS_TESTS_REAL_SCHTASKS=1 runs against the real Task Scheduler" >&2
         exit 2
       fi
+      echo "run-tests: schtasks calls reach this computer's REAL Task Scheduler (#7247; CI or KOSMOS_TESTS_REAL_SCHTASKS=1 asked for it)" >&2
     else
       _rt_sched="$(node -e 'const w = require(process.argv[1]); const e = w.childEnv(process.env, "win32"); process.stdout.write((e.NODE_OPTIONS || "") + "\n" + (w.schedulerLine(process.env, "win32") || ""))' "$_rt_wt")" \
         || { echo "run-tests: could not read the #7247 schtasks rule from tools/windows-tests.js" >&2; exit 2; }

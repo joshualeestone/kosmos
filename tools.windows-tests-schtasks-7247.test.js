@@ -180,3 +180,34 @@ test('#7247: run-tests.sh\'s own node snippet reads the rule from windows-tests.
   assert.equal(ciOpts, '');
   assert.match(ciLine, /REAL Task Scheduler/);
 });
+
+/* ---------- review 4 ---------- */
+
+test('#7247: sh, bash and env in front of schtasks are read too; a script file is not', () => {
+  for (const [file, args] of [
+    ['bash', ['-c', 'schtasks /End /TN x']], ['sh', ['-c', 'echo a; schtasks /Query']], ['bash.exe', ['-lc', '"schtasks /Run"']],
+    ['C:\\Program Files\\Git\\usr\\bin\\bash.exe', ['-ec', 'schtasks /Delete']], ['env', ['A=1', 'schtasks', '/Query']],
+  ]) assert.equal(callRuns(file, args), true, JSON.stringify([file, args]));
+  assert.equal(commandRuns('env FOO=bar schtasks /Query'), true);
+  for (const [file, args] of [['bash', ['-c', 'echo schtasks']], ['bash', ['script.sh']], ['sh', ['-c', 'git grep schtasks']], ['env', ['A=1', 'node', 'x.js']]])
+    assert.equal(callRuns(file, args), false, JSON.stringify([file, args]));
+});
+
+test('#7247: windows-tests.js hands each test file the environment childEnv builds', () => {
+  /* Read from the source, as the run-tests.sh snippet is: dropping `env` from the per-file spawn would leave every
+     other test here green while no file loaded the preload. */
+  const src = fs.readFileSync(path.join(__dirname, 'tools', 'windows-tests.js'), 'utf8');
+  assert.match(src, /const env = childEnv\(\);/);
+  assert.match(src, /cp\.spawnSync\(process\.execPath, \[[^\]]*\], \{\s*cwd: root, env,/);
+});
+
+test('#7247: run-tests.sh reads CI as onCi does where it cannot ask windows-tests.js (no cygpath)', () => {
+  const sh = fs.readFileSync(path.join(__dirname, 'tools', 'run-tests.sh'), 'utf8');
+  const m = sh.match(/case "\$\{CI:-\}" in ([^)]+)\) _rt_ci="" ;;/);
+  assert.ok(m, 'the fallback reads CI with a case');
+  const notCi = m[1].split('|').map((s) => s.replace(/"/g, ''));
+  for (const v of ['', 'false', 'FALSE', 'False', '0']) {
+    assert.ok(notCi.includes(v), JSON.stringify(v) + ' is not CI in run-tests.sh');
+    assert.equal(wt.guardsScheduler(v ? { CI: v } : {}, 'win32'), true, JSON.stringify(v) + ' is not CI in windows-tests.js');
+  }
+});
