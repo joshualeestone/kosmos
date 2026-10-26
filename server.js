@@ -12283,7 +12283,6 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
-  /* #2619: the Assigner automation setting. Same STATUS-control contract. */
   /* kosmos#7152 slice 2: usage auto-balance's switch (Settings > AI Models). Screen-only PUT, as the Assigner's. */
   if (pathname === '/api/autobalance-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
@@ -12308,6 +12307,7 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* #2619: the Assigner automation setting. Same STATUS-control contract. */
   if (pathname === '/api/assigner-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const r = assignerSetting.read();
@@ -13000,22 +13000,23 @@ const server = http.createServer(async (req, res) => {
            reads idle, its commitments leave it free, and it holds no open part of a task in any project. */
         /* kosmos#7152 slice 2: whether a whole set of agents may be moved onto each Claude row, from the ONE rule the
            decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
-        for (const r of claude) {
-          try { r.bulkTargetable = require('./engine/autobalance').bulkTargetable(r, nowMs); } catch { r.bulkTargetable = false; }
-        }
+        const ab = require('./engine/autobalance');
+        ab.markTargets(claude, nowMs);
         let autobalance;
         if (wantAgents) {
+          /* Review 1: the switch and the count are read first, so a failure in the decision below can say so on the page
+             instead of hiding the row. */
+          let setting = { on: null };
+          try { setting = autobalanceSetting.read(); } catch { setting = { on: null }; }
+          const eligibleCount = ab.eligible(claude).length;
           try {
-            const ab = require('./engine/autobalance');
-            const setting = autobalanceSetting.read();
-            const eligibleCount = ab.eligible(claude).length;
-            let decision = { moves: [], held: [] };
+            let decision = { moves: [], held: [], short: [] };
             if (setting.on && eligibleCount >= 2) {
               const movable = ab.movableFor({ cards: safeRoster(), records: projects.readAll(), readCommitment: (session) => commitments.read(session) });
               decision = ab.decide({ rows: claude, movable, nowMs });
             }
             autobalance = { on: setting.on, eligible: eligibleCount, ...decision };
-          } catch { autobalance = { on: null, eligible: 0, moves: [], held: [], unreadable: true }; }
+          } catch { autobalance = { on: setting.on, eligible: eligibleCount, moves: [], held: [], short: [], unreadable: true }; }
         }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
           ...(autobalance ? { autobalance } : {}) });

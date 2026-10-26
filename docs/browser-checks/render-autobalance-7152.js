@@ -9,7 +9,8 @@
  *    with two);
  *  - a would-move line names the agent by its board name, both accounts as the list names them, and why; a name
  *    with markup in it is shown as text;
- *  - an account with nothing able to take its agents says so; nothing to move says "Nothing to move right now.";
+ *  - an account with nothing able to take its agents says so; one whose agent list may be short says so; nothing to
+ *    move says "Nothing to move right now.";
  *  - switched off: the switch reads off and no line is drawn; an unreadable decision says so;
  *  - pressing the switch sends { on: false } once and draws the next read's answer;
  *  - at 390 px nothing scrolls sideways.
@@ -39,10 +40,12 @@ const CASES = {
     { agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY },
     { agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY }] } },
   held: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [{ from: '/home/.claude-full', why: WHY }] } },
-  none: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [] } },
+  none: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [] } },
+  short: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: ['/home/.claude-full'] } },
   off: { accounts: TWO, autobalance: { on: false, eligible: 2, moves: [], held: [] } },
-  bad: { accounts: TWO, autobalance: { on: null, eligible: 0, moves: [], held: [], unreadable: true } },
-  badtwo: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], unreadable: true } },
+  /* The two shapes the route sends when the decision fails (review 1): the switch and the count are read first. */
+  bad: { accounts: [TWO[0]], autobalance: { on: true, eligible: 1, moves: [], held: [], short: [], unreadable: true } },
+  badtwo: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], unreadable: true } },
 };
 
 const fails = [];
@@ -109,10 +112,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.moves && r.moves.shown && r.moves.checked === 'true', tag + ' CONTROL: two accounts, the row shows and the switch reads on', JSON.stringify(r.moves && { shown: r.moves.shown, checked: r.moves.checked }));
       say(r.moves && r.moves.lines.length === 2 && r.moves.lines[0] === 'Would move Ada from Work to Spare, because ' + WHY + '.', tag + ' a would-move line names the agent, both accounts and why', JSON.stringify(r.moves && r.moves.lines));
       say(r.moves && r.moves.lines[1] === 'Would move <b>Bo</b> from Work to Spare, because ' + WHY + '.' && !r.moves.markup, tag + ' a name with markup in it is shown as text', JSON.stringify(r.moves && r.moves.lines[1]));
-      say(r.held && r.held.lines.length === 1 && /^Would move the idle agents off Work, because it is at 93%.*but no account has room: none Kosmos has measured is under 70%\.$/.test(r.held.lines[0]), tag + ' nothing able to take them says so', JSON.stringify(r.held && r.held.lines));
+      say(r.held && r.held.lines.length === 1 && /^Would move the idle agents off Work, because it is at 93%.*, but no other account can take them right now\.$/.test(r.held.lines[0]), tag + ' nothing able to take them says so', JSON.stringify(r.held && r.held.lines));
+      say(r.short && r.short.lines.length === 1 && r.short.lines[0] === 'Kosmos could not read every agent on Work, so there may be more to move.', tag + ' a list that may be short says so, not "nothing to move"', JSON.stringify(r.short && r.short.lines));
       say(r.none && r.none.lines.length === 1 && r.none.lines[0] === 'Nothing to move right now.', tag + ' nothing to move says so', JSON.stringify(r.none && r.none.lines));
       say(r.off && r.off.shown && r.off.checked === 'false' && r.off.lines.length === 0, tag + ' switched off: it reads off and draws no line', JSON.stringify(r.off));
-      say(r.bad && !r.bad.shown, tag + ' an unreadable decision with no count hides the row', JSON.stringify(r.bad));
+      say(r.bad && !r.bad.shown, tag + ' a failed decision with one account still hides the row', JSON.stringify(r.bad));
       say(r.badtwo && r.badtwo.shown && r.badtwo.lines[0] === 'Kosmos could not work out what it would move just now.', tag + ' an unreadable decision says so', JSON.stringify(r.badtwo && r.badtwo.lines));
       say(r.pressed && r.pressed.puts.length === 1 && r.pressed.puts[0] === '{"on":false}' && r.pressed.checked === 'false' && r.pressed.lines.length === 0,
         tag + ' pressing the switch sends off once and draws the next read', JSON.stringify(r.pressed));

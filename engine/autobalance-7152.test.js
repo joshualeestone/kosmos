@@ -11,9 +11,13 @@ const ab = require('./autobalance');
 
 const NOW = Date.parse('2026-10-25T22:00:00Z');
 const H = 3600000;
-const row = (dir, o = {}) => ({ provider: 'anthropic', dir, email: `${dir}@example.test`, memoryShared: true, apiKey: false,
-  connection: { badge: 'working' }, weekly: { usedPct: 20, resetsAt: NOW + 72 * H, at: NOW - H }, fiveHour: null,
-  agentsHere: { names: [] }, ...o });
+const row = (dir, o = {}) => {
+  const r = { provider: 'anthropic', dir, email: `${dir}@example.test`, memoryShared: true, apiKey: false,
+    connection: { badge: 'working' }, weekly: { usedPct: 20, resetsAt: NOW + 72 * H, at: NOW - H }, fiveHour: null,
+    agentsHere: { names: [], complete: true }, ...o };
+  if (r.agentsHere && r.agentsHere.complete === undefined) r.agentsHere = { ...r.agentsHere, complete: true };   // a list is whole unless a test says not
+  return r;
+};
 const all = () => true;
 
 test('#7152: agents on an account at 90% that does not reset soon would move to the emptiest measured account', () => {
@@ -94,14 +98,58 @@ test('#7152: the same login in another folder is the same account, so it is neve
 });
 
 test('#7152: ties go to the earlier reset, then the folder, so the answer is stable', () => {
+  /* Review 1: the earlier reset is on the folder that sorts LATER, so the reset rule and the folder rule disagree. */
   const rows = [
     row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + 40 * H }, agentsHere: { names: ['raph'] } }),
-    row('/u/.claude-c', { weekly: { usedPct: 30, resetsAt: NOW + 80 * H } }),
-    row('/u/.claude-b', { weekly: { usedPct: 30, resetsAt: NOW + 20 * H } }),
+    row('/u/.claude-b', { weekly: { usedPct: 30, resetsAt: NOW + 80 * H } }),
+    row('/u/.claude-c', { weekly: { usedPct: 30, resetsAt: NOW + 20 * H } }),
   ];
-  assert.equal(ab.decide({ rows, movable: all, nowMs: NOW }).moves[0].to, '/u/.claude-b', 'the later reset won a tie');
+  assert.equal(ab.decide({ rows, movable: all, nowMs: NOW }).moves[0].to, '/u/.claude-c', 'the later reset won a tie');
   rows[2].weekly.resetsAt = NOW + 80 * H;
-  assert.equal(ab.decide({ rows, movable: all, nowMs: NOW }).moves[0].to, '/u/.claude-b', 'a full tie was not settled by the folder');
+  /* The folder that should win is listed LAST, so an order-keeping sort without the folder rule gets it wrong. */
+  assert.equal(ab.decide({ rows: [rows[0], rows[2], rows[1]], movable: all, nowMs: NOW }).moves[0].to, '/u/.claude-b', 'a full tie was not settled by the folder');
+});
+
+test('#7152 review 1: an automatic target must be positively signed in; the page\'s bulk move still offers an unchecked one', () => {
+  const from = row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + 40 * H }, agentsHere: { names: ['raph'] } });
+  const unchecked = row('/u/.claude-b', { connection: { badge: 'unchecked' } });
+  assert.deepEqual(ab.decide({ rows: [from, unchecked], movable: all, nowMs: NOW }).moves, [], 'agents would move onto a login nobody has checked');
+  assert.equal(ab.bulkTargetable(unchecked, NOW), true, 'CONTROL: the page still offers it, labelled, as before');
+  const unverified = row('/u/.claude-b', { connection: { badge: 'signed_in_unverified' } });
+  assert.equal(ab.decide({ rows: [from, unverified], movable: all, nowMs: NOW }).moves.length, 1, 'CONTROL: a signed-in login is a target');
+});
+
+test('#7152 review 1: an at-risk account whose agent list may be short is named, so "nothing to move" is not the whole truth', () => {
+  const rows = [
+    row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + 40 * H }, agentsHere: { names: [], complete: false } }),
+    row('/u/.claude-b'),
+  ];
+  assert.deepEqual(ab.decide({ rows, movable: all, nowMs: NOW }).short, ['/u/.claude-a'], 'a short list read as the whole list');
+  rows[0].agentsHere.complete = true;
+  assert.deepEqual(ab.decide({ rows, movable: all, nowMs: NOW }).short, [], 'CONTROL: a whole list is not named');
+  rows[0].weekly.usedPct = 50;
+  rows[0].agentsHere.complete = false;
+  assert.deepEqual(ab.decide({ rows, movable: all, nowMs: NOW }).short, [], 'CONTROL: an account not at risk is not named');
+});
+
+test('#7152 review 1: every row the route sends carries the engine\'s answer, and a row that throws is not a target', () => {
+  const rows = [row('/u/.claude-a'), row('/u/.claude-b', { memoryShared: false })];
+  const bad = { get provider() { throw new Error('boom'); } };
+  ab.markTargets([...rows, bad], NOW);
+  assert.equal(rows[0].bulkTargetable, true);
+  assert.equal(rows[1].bulkTargetable, false, 'CONTROL: a row the rule refuses says so');
+  assert.equal(bad.bulkTargetable, false, 'a row that could not be read was left without an answer');
+});
+
+test('#7152 review 1: the route marks every Claude row and reads the switch before the decision can fail', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('ab.markTargets(claude, nowMs);');
+  assert.ok(at > 0, 'the route does not mark its Claude rows');
+  const block = src.slice(at, src.indexOf('sendJson(res, 200, { accounts: [...claude', at));
+  assert.ok(block.length > 0, 'CONTROL: the block is found whole');
+  const read = block.indexOf('setting = autobalanceSetting.read()');
+  const guarded = block.indexOf('try {', block.indexOf('const eligibleCount'));
+  assert.ok(read > 0 && guarded > read, 'the switch is read inside the guarded decision, so a failure hides the row');
 });
 
 test('#7152: only movable agents would move, and nothing with fewer than two accounts', () => {
@@ -111,8 +159,8 @@ test('#7152: only movable agents would move, and nothing with fewer than two acc
   ];
   const d = ab.decide({ rows, movable: (n) => n === 'leo', nowMs: NOW });
   assert.deepEqual(d.moves.map((m) => m.agent), ['leo'], 'a busy agent was named to move');
-  assert.deepEqual(ab.decide({ rows: [rows[0]], movable: all, nowMs: NOW }), { moves: [], held: [] }, 'one account did something');
-  assert.deepEqual(ab.decide({ rows: [rows[0], row('/u/.claude-k', { apiKey: true })], movable: all, nowMs: NOW }), { moves: [], held: [] },
+  assert.deepEqual(ab.decide({ rows: [rows[0]], movable: all, nowMs: NOW }), { moves: [], held: [], short: [] }, 'one account did something');
+  assert.deepEqual(ab.decide({ rows: [rows[0], row('/u/.claude-k', { apiKey: true })], movable: all, nowMs: NOW }), { moves: [], held: [], short: [] },
     'an API key counted as a second account (the decision ran, and said nothing could take them)');
 });
 

@@ -43,7 +43,10 @@ const claude = (id, extra) => ({ provider: 'anthropic', providerName: 'Anthropic
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn, agentsHere: { names: [], complete: true }, ...extra });
 const week = (pct) => ({ usedPct: pct, resetsAt: now + 50 * H, at: now - H });
 const five = (pct) => ({ usedPct: pct, resetsAt: now + 2 * H, at: now - 2 * 60e3 });
-const ACCOUNTS = [
+/* kosmos#7152 slice 2: /api/accounts now sends each Claude row's bulkTargetable, from the engine's own rule; the
+   fixtures carry what the route would send, computed by that same function, not a hand-set value. */
+const withTarget = (rows) => rows.map((r) => ({ ...r, bulkTargetable: require('../../engine/autobalance').bulkTargetable(r, now) }));
+const ACCOUNTS = withTarget([
   claude('both', { weekly: week(40), fiveHour: five(64) }),
   claude('weekonly', { weekly: week(40), fiveHour: null }),
   claude('fivewarn', { weekly: week(20), fiveHour: five(82), agentsHere: { names: ['s-a'], complete: true } }),
@@ -62,7 +65,7 @@ const ACCOUNTS = [
   claude('fivenotwired', { weekly: null, weeklyBlocked: 'not-wired', fiveHour: five(30) }),
   claude('key', { apiKey: true, keyTail: 'abcd', weekly: null, fiveHour: five(50) }),
   claude('spare', { weekly: week(5), fiveHour: null }),
-];
+]);
 const AGENTS = [{ sessionName: 's-a', name: 'Ada', state: 'working' }, { sessionName: 's-b', name: 'Bo', state: 'working' }];
 
 const fails = [];

@@ -30,11 +30,14 @@ const conn = { state: 'connected', badge: 'working', checkedLive: true, because:
 const claude = (email, dir, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir: '/home/.claude-' + dir,
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn,
   weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, ...extra });
-const ACCOUNTS = [
+/* kosmos#7152 slice 2: /api/accounts now sends each Claude row's bulkTargetable, from the engine's own rule; the
+   fixtures carry what the route would send, computed by that same function, not a hand-set value. */
+const withTarget = (rows) => rows.map((r) => ({ ...r, bulkTargetable: require('../../engine/autobalance').bulkTargetable(r, now) }));
+const ACCOUNTS = withTarget([
   claude('busy@example.com', 'busy', { agentsHere: { names: ['s-al', 's-bo', 's-cy'], complete: true } }),
   claude('calm@example.com', 'calm', { agentsHere: { names: ['s-di'], complete: true } }),
   claude('spare@example.com', 'spare', { agentsHere: { names: [], complete: true } }),
-];
+]);
 const AGENTS = [{ sessionName: 's-al', name: 'Al', state: 'working' }, { sessionName: 's-bo', name: 'Bo', state: 'working' },
   { sessionName: 's-cy', name: 'Cy', state: 'working' }, { sessionName: 's-di', name: 'Di', state: 'working' }];
 

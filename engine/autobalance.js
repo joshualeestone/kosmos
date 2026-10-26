@@ -44,8 +44,9 @@ function offerable(row) {
 }
 
 /* Whether a whole set of agents may be moved onto this row at all, whoever asks (the page's bulk move or this
-   decision): the row-only half of the page's old acctBulkTarget, moved here unchanged so the two cannot disagree. The
-   "not the account they are on" half needs the source and stays with the caller. */
+   decision): the row-only half of the page's old acctBulkTarget, moved here so the two cannot disagree. One test is
+   added: a row that says it is not offerable (OpenAI rows carry the field; Claude rows do not today). The "not the
+   account they are on" half needs the source and stays with the caller. */
 function bulkTargetable(row, nowMs) {
   if (!row || row.provider !== 'anthropic' || !row.dir || !row.memoryShared || row.apiKey) return false;
   if (row.offerable === false || !offerable(row)) return false;
@@ -77,9 +78,16 @@ function sameAccount(a, b) {
   return !(a.organization && b.organization && a.organization !== b.organization);
 }
 
+/* Signed in, positively: the automatic move needs more than the page's include-and-label rule, which also offers an
+   account whose check has not answered (review 1: slice 3 must not move agents onto a login that just timed out). */
+function signedIn(row) {
+  const badge = row && row.connection && row.connection.badge;
+  return badge === 'working' || badge === 'signed_in_unverified';
+}
+
 /* The best target for agents leaving `from`, or null. */
 function targetFor(from, rows, nowMs) {
-  const ok = rows.filter((r) => !sameAccount(r, from) && bulkTargetable(r, nowMs)
+  const ok = rows.filter((r) => !sameAccount(r, from) && bulkTargetable(r, nowMs) && signedIn(r)
     && weeklyNow(r, nowMs) && weeklyNow(r, nowMs).usedPct < TARGET_MAX_PCT);
   ok.sort((x, y) => (weeklyNow(x, nowMs).usedPct - weeklyNow(y, nowMs).usedPct)
     || (weeklyNow(x, nowMs).resetsAt - weeklyNow(y, nowMs).resetsAt)
@@ -95,18 +103,22 @@ function eligible(rows) {
 
 /**
  * The decision. `rows`: the Claude account rows (/api/accounts shape: dir, provider, email, organization,
- * memoryShared, offerable, apiKey, connection.badge, weekly, fiveHour, agentsHere.names). `movable(session)`: whether
- * that agent may move now. Returns { moves: [{ agent, from, to, why }], held: [{ from, why }] }: `held` names an
- * at-risk account with movable agents but no target, so the page can say nothing could take them.
+ * memoryShared, offerable, apiKey, connection.badge, weekly, fiveHour, agentsHere.names and .complete).
+ * `movable(session)`: whether that agent may move now. Returns { moves: [{ agent, from, to, why }], held: [{ from,
+ * why }], short: [dir] }: `held` names an at-risk account with movable agents but no target, so the page can say
+ * nothing could take them; `short` names an at-risk account whose list of agents may be incomplete (review 1), so the
+ * page does not read "nothing to move" as the whole truth.
  */
 function decide({ rows, movable, nowMs }) {
   const all = Array.isArray(rows) ? rows.filter((r) => r && r.provider === 'anthropic' && r.dir) : [];
   const moves = [];
   const held = [];
-  if (eligible(all).length < 2) return { moves, held };
+  const short = [];
+  if (eligible(all).length < 2) return { moves, held, short };
   for (const from of all) {
     const why = riskOf(from, nowMs);
     if (!why) continue;
+    if (!from.agentsHere || from.agentsHere.complete !== true) short.push(from.dir);
     const names = from.agentsHere && Array.isArray(from.agentsHere.names) ? from.agentsHere.names : [];
     const going = names.filter((n) => typeof movable === 'function' && movable(n) === true);
     if (!going.length) continue;
@@ -114,7 +126,18 @@ function decide({ rows, movable, nowMs }) {
     if (!to) { held.push({ from: from.dir, why }); continue; }
     for (const agent of going.slice().sort()) moves.push({ agent, from: from.dir, to: to.dir, why });
   }
-  return { moves, held };
+  return { moves, held, short };
+}
+
+/* kosmos#7152 slice 2: put the engine's answer on every Claude row /api/accounts sends, so the page's bulk move reads
+   the same rule (review 1: the route's loop is here so a test can reach it). A row the rule cannot read is not a
+   target. */
+function markTargets(rows, nowMs) {
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || typeof r !== 'object') continue;
+    try { r.bulkTargetable = bulkTargetable(r, nowMs); } catch { r.bulkTargetable = false; }
+  }
+  return rows;
 }
 
 /* The card's movable test, as the Assigner decides "free": the card reads idle (assigner.idleCard), its commitments
@@ -132,4 +155,4 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
   };
 }
 
-module.exports = { decide, movableFor, bulkTargetable, eligible, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS };
+module.exports = { decide, movableFor, markTargets, bulkTargetable, eligible, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS };

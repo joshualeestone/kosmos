@@ -28846,8 +28846,11 @@ function paintAutobalance(ab, list) {
   else if (ab.on === true) {
     const moves = Array.isArray(ab.moves) ? ab.moves : [];
     const held = Array.isArray(ab.held) ? ab.held : [];
+    const short = Array.isArray(ab.short) ? ab.short : [];
     html = moves.map((m) => line('Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.')).join('')
-      + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no account has room: none Kosmos has measured is under 70%.')).join('');
+      /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
+      + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
+      + short.map((d) => line('Kosmos could not read every agent on ' + esc(label(d)) + ', so there may be more to move.')).join('');
     if (!html) html = line('Nothing to move right now.');
   }
   if (lines) lines.innerHTML = html;
