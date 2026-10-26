@@ -138,16 +138,16 @@ test('#7152: a reading older than three missed polls, or from a finished week, i
   assert.equal(usagepoll.readUsage(d, resetsAt * 1000 + 10000).weekly, null, 'a finished week\'s figure was used');
 });
 
-test('#7152: accountsweekly takes the newer of the status line\'s reading and the endpoint\'s, in the same shape', (t) => {
+test('#7152: within one window accountsweekly takes the higher of the status line\'s figure and the endpoint\'s, in the same shape', (t) => {
   const d = tmpDir(t);
   const resetsAt = Math.floor((NOW + 3 * 86400000) / 1000);
   const statusAt = NOW - 2 * 3600000;
   fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 30, resetsAt, at: statusAt, history: [] }));
   assert.deepEqual(accountsweekly.weeklyOf({ dir: d }, NOW), { usedPct: 30, resetsAt: resetsAt * 1000, at: statusAt }, 'CONTROL: the status line alone');
   usagepoll.write(d, { at: NOW - 60000, state: 'ok', weekly: { usedPct: 41, resetsAt }, fiveHour: null });
-  assert.deepEqual(accountsweekly.weeklyOf({ dir: d }, NOW), { usedPct: 41, resetsAt: resetsAt * 1000, at: NOW - 60000 }, 'the newer endpoint reading was not used');
+  assert.deepEqual(accountsweekly.weeklyOf({ dir: d }, NOW), { usedPct: 41, resetsAt: resetsAt * 1000, at: NOW - 60000 }, 'the higher endpoint figure was not used');
   fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 45, resetsAt, at: NOW - 1000, history: [] }));
-  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).usedPct, 45, 'an older endpoint reading beat a newer status line');
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).usedPct, 45, 'a lower endpoint figure beat a higher status line');
   usagepoll.write(d, { at: NOW - 60000, state: 'token-expired' });
   assert.equal(usagepoll.readUsage(d, NOW).state, 'token-expired', 'CONTROL: the unmeasured read was recorded');
   assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).usedPct, 45, 'an unmeasured read hid the status line\'s reading');
@@ -270,6 +270,11 @@ test('#7152 review 6: a token whose profile is another account gives no reading 
     request: fakeRequest((opts) => (opts.path === '/api/oauth/profile' ? { code: 500, body: '' } : { code: 200, body: BODY }), {}),
   });
   assert.equal(noProfile.state, 'profile-unreadable', 'an unreadable profile let the reading in');
+  const noEmail = await usagepoll.readOne({ dir: '/u/x', email: 'a@example.test' }, {
+    now: NOW, platform: 'darwin', readCred: async () => cred(),
+    request: fakeRequest((opts) => (opts.path === '/api/oauth/profile' ? { code: 200, body: '{}' } : { code: 200, body: BODY }), {}),
+  });
+  assert.equal(noEmail.state, 'profile-unreadable', 'a profile that names no login let the reading in');
 });
 
 test('#7152 review 7: a sandboxed board never reads the bare Keychain entry, whatever its environment says', async () => {
@@ -441,4 +446,24 @@ test('#7152 review 11: a measured time in the future is not fresh', (t) => {
   assert.equal(usagepoll.readUsage(d, NOW).weekly, null, 'a figure stamped tomorrow stays fresh for ever');
   usagepoll.write(d, { at: NOW, measuredAt: NOW - 1000, state: 'http-429', email: EMAIL, weekly: w, fiveHour: null });
   assert.equal(usagepoll.readUsage(d, NOW).weekly.usedPct, 12, 'CONTROL: a recent measured time is fresh');
+});
+
+test('#7152 review 13: the same figure in the same window shows the later change, from either source', (t) => {
+  const d = tmpDir(t);
+  const resetsAt = Math.floor((NOW + 3 * 86400000) / 1000);
+  fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 56, resetsAt, at: NOW - 2 * 3600000, history: [] }));
+  usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', weekly: { usedPct: 56, resetsAt: resetsAt + 30, changedAt: NOW - 3600000 }, fiveHour: null });
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).at, NOW - 3600000, 'the status line\'s older change was shown over the endpoint\'s later one');
+  fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 56, resetsAt, at: NOW - 600000, history: [] }));
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).at, NOW - 600000, 'CONTROL: a later status-line change is the one shown');
+});
+
+test('#7152 review 13: a record names the organization the profile answered for', async (t) => {
+  const d = tmpDir(t);
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], {
+    now: NOW, platform: 'darwin', readCred: async () => cred(), identityOf: () => ({ email: EMAIL, organizationUuid: null }),
+    request: fakeRequest((opts) => (opts.path === '/api/oauth/profile'
+      ? { code: 200, body: JSON.stringify({ account: { email: EMAIL }, organization: { uuid: 'org-x' } }) } : { code: 200, body: BODY }), {}),
+  });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(d, usagepoll.FILE), 'utf8')).org, 'org-x', 'the record does not say which organization it measured');
 });

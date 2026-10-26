@@ -71,6 +71,8 @@ at 0%, had no reading at all (the card's opening).
   board started with the real home and no test signals reads the real logins on any platform, as the real board
   does. Deferred to slice 2, not fixed: the profile is asked on every read (two requests per account per 10 minutes);
   caching a checked login would halve that, and is worth it only if the first live sweeps show profile failures.
+- Review 13: a test now reaches the same-figure branch of the merge (the later change is shown, from either source),
+  and a record names the organization the profile answered for, falling back to the folder's.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -123,7 +125,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 32 tests (counted from a run after review 11), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 34 tests (counted from a run after review 13), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

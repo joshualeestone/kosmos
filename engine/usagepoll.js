@@ -189,7 +189,8 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (
     if (want !== org) return { at: now, state: 'other-account' };
   }
   const fiveHour = windowOf(j && j.five_hour, { nowMs: now, maxAheadSeconds: statusline.FIVE_HOUR_MAX_AHEAD_SECONDS });
-  return { at: now, state: 'ok', weekly, fiveHour };
+  /* Review 13: the organization the profile answered for, which the record keeps (see pollAll). */
+  return { at: now, state: 'ok', weekly, fiveHour, ...(typeof org === 'string' && org ? { org } : {}) };
 }
 
 /* Write the record into the account folder, atomically, readable by this user only. Never throws. */
@@ -238,7 +239,7 @@ async function pollAll(list, deps = {}) {
     if (rec.state === 'ok') {
       rec.measuredAt = rec.at;
       rec.email = a.email;   // review 9: whose figures these are, so a later failed read keeps them only for the same login
-      if (typeof org === 'string' && org) rec.org = org;   // review 11: and in which organization
+      if (!rec.org && typeof org === 'string' && org) rec.org = org;   // review 11: and in which organization (review 13: the profile's first)
       /* Review 3: each window carries when its figure last CHANGED, as the status line's `at` means (it is written
          only when the figure moves). A read that finds the same figure and reset keeps the earlier changedAt, so an
          idle account does not claim a fresh change every ten minutes, and accountsweekly compares like with like. */
