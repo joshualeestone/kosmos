@@ -109,39 +109,36 @@ test('#7212 s2: the first saying of a stretch is marked, so the phone is told on
   assert.deepEqual(say(now + limitqueue.HELD_INPUT_RESAY_MS).map((h) => h.first), [false], 'the daily line told the phone again');
 });
 
-test('#7212 s2a: the minute sweep records, says once, pushes once, and a restart does neither again', () => {
+test('#7212 s2a: the minute sweep records under the card\'s key, says once, and a restart does not say it again', () => {
   heldinput.resetForTests();
   const at = ago(40);
   assert.ok(limitqueue.add('swept', { id: 'sw1', from: 'x', envelope: 'e', at, reset: at, input: true }));
   assert.ok(limitqueue.add('swept', { id: 'sw2', from: 'x', envelope: 'e', at: ago(5), reset: ago(5), input: true }));
-  const lines = []; const pushes = [];
-  const deps = (said, box = () => 'text') => ({ said, readBox: box, cardName: () => 'Swept Card', log: (l) => lines.push(l), push: (e) => pushes.push(e) });
-  const mine = (xs) => xs.filter((x) => (x.session || x).toString().includes('swept'));
+  const lines = [];
+  // The queue is named as the send route spelled it; the card's session name is what its row is looked up by.
+  const deps = (said, box = () => 'text') => ({ said, readBox: box, cardKey: (n) => (n === 'swept' ? 'swept-session' : n), log: (l) => lines.push(l) });
+  const mine = (xs) => xs.filter((x) => x.includes('swept'));
   heldinput.sweep(deps(heldinput.loadSaid()));
-  assert.deepEqual(heldinput.peek('swept'), { since: at, count: 2, box: 'text' }, 'the card reading was not recorded');
+  assert.deepEqual(heldinput.peek('swept-session'), { since: at, count: 2, box: 'text' }, 'the card reading was not recorded under the card');
+  assert.equal(heldinput.peek('swept'), null, 'recorded under the queue name, which the card row never asks for');
   assert.equal(mine(lines).length, 1);
   assert.match(lines.find((l) => l.includes('swept')), /has 2 message\(s\) held behind its input box.*holds text that was not sent/);
-  assert.equal(mine(pushes).length, 1);
-  assert.equal(pushes.find((p) => p.session === 'swept').agent, 'Swept Card');
-  assert.equal(pushes.find((p) => p.session === 'swept').kind, 'needs_you');
-  // The same minute again, then a board restart (a fresh map read back from disk): nothing said or pushed again.
+  // The same minute again, then a board restart (a fresh map read back from disk): nothing said again.
   heldinput.sweep(deps(heldinput.loadSaid()));
   assert.equal(mine(lines).length, 1, 'said again after a restart');
-  assert.equal(mine(pushes).length, 1, 'pushed again after a restart');
-  // A day on, the stretch is said again in the log, but the phone is not told again.
+  // A day on, the stretch is said again in the log.
   heldinput.sweep({ ...deps(heldinput.loadSaid()), now: Date.now() + limitqueue.HELD_INPUT_RESAY_MS + 60 * 1000 });
-  assert.equal(mine(lines).length, 2, 'CONTROL: the daily line was not said');
-  assert.equal(mine(pushes).length, 1, 'the daily line pushed the phone again');
+  assert.equal(mine(lines).length, 2, 'the daily line was not said');
   // A box that cannot be read, or reads something unknown, is 'unread' on the card.
   heldinput.sweep(deps(heldinput.loadSaid(), () => { throw new Error('no pane'); }));
-  assert.equal(heldinput.peek('swept').box, 'unread');
+  assert.equal(heldinput.peek('swept-session').box, 'unread');
   heldinput.sweep(deps(heldinput.loadSaid(), () => 'weird'));
-  assert.equal(heldinput.peek('swept').box, 'unread');
+  assert.equal(heldinput.peek('swept-session').box, 'unread');
   // The stretch ends: the card reading goes, and the saved map lets it go.
   assert.ok(limitqueue.remove('swept', 'sw1'));
   assert.ok(limitqueue.remove('swept', 'sw2'));
   heldinput.sweep(deps(heldinput.loadSaid()));
-  assert.equal(heldinput.peek('swept'), null);
+  assert.equal(heldinput.peek('swept-session'), null);
   assert.ok(!heldinput.loadSaid().has('swept'), 'an ended stretch stayed on disk');
 });
 
@@ -160,7 +157,7 @@ test('#7212 s2a: while a flush run is typing, the sweep reads no box and keeps t
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
   }).finally(() => board.restore());
   let reads = 0;
-  const said = heldinput.sweep({ said: new Map(), readBox: () => { reads += 1; return 'text'; }, cardName: () => '', log: () => {}, push: () => {} });
+  const said = heldinput.sweep({ said: new Map(), readBox: () => { reads += 1; return 'text'; }, cardKey: (n) => n, log: () => {} });
   finish();
   await run;
   assert.deepEqual(said, []);

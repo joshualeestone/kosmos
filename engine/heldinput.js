@@ -27,8 +27,8 @@ function peek(name) {
   return v ? { ...v } : null;
 }
 
-/* The held stretches already said (name -> when last said, ms), kept on disk so a board restart or update neither says
-   nor pushes them again: limitqueue.heldInputToSay keeps the map, the sweep saves it when it changes (review 1). */
+/* The held stretches already said (name -> when last said, ms), kept on disk so a board restart or update does not say
+   them again: limitqueue.heldInputToSay keeps the map, the sweep saves it when it changes (review 1). */
 function saidFile() { return path.join(store.ROOT, 'heldinput-said.json'); }
 function loadSaid() {
   try {
@@ -47,11 +47,13 @@ function saveSaid(said) {
 
 /* The board's minute step, after the limit queue's flush has settled: record every agent held past half an hour with
    what its box reads (for the cards), then say each stretch due (limitqueue.heldInputToSay, once and then daily) in the
-   log, and tell the phone on a stretch's first saying. `said` is the board's map (loadSaid at start); it is saved
-   whenever it changes. Skipped while a flush run is typing, so a box is never read under a delivery. The pane reads
-   and the push are passed in: readBox(name) -> 'text' | 'empty' | 'unread', cardName(name), log(line), push(event).
-   Never throws. Returns what it said, for the tests. */
-function sweep({ said, readBox, cardName, log, push, now = Date.now() }) {
+   log. `said` is the board's map (loadSaid at start); it is saved whenever it changes. Skipped while a flush run is
+   typing, so a box is never read under a delivery. Passed in: readBox(name) -> 'text' | 'empty' | 'unread', and
+   cardKey(name), the session name of the card a queue name resolves to (a queue can be named as a send route spelled
+   it), so the card's row finds its reading (review 2). No phone push here: telling the phone the agent needs the person
+   belongs with counting it so everywhere (slice 2b), or the phone would disagree with the board. Never throws.
+   Returns what it said, for the tests. */
+function sweep({ said, readBox, cardKey, log, now = Date.now() }) {
   const out = [];
   try {
     const limitqueue = require('./limitqueue');
@@ -59,9 +61,11 @@ function sweep({ said, readBox, cardName, log, push, now = Date.now() }) {
     const held = limitqueue.heldBehindInput(now, limitqueue.HELD_INPUT_SAY_MS).map((h) => {
       let box = 'unread';
       try { box = readBox(h.name); } catch { /* could not be read */ }
-      return { ...h, box: box === 'text' || box === 'empty' ? box : 'unread' };
+      let key = h.name;
+      try { key = cardKey(h.name) || h.name; } catch { /* the queue name */ }
+      return { ...h, key, box: box === 'text' || box === 'empty' ? box : 'unread' };
     });
-    setAll(held);
+    setAll(held.map((h) => ({ ...h, name: h.key })));
     const boxOf = new Map(held.map((h) => [h.name, h.box]));
     const before = JSON.stringify([...said]);
     const toSay = limitqueue.heldInputToSay(now, limitqueue.HELD_INPUT_SAY_MS, said);
@@ -70,12 +74,6 @@ function sweep({ said, readBox, cardName, log, push, now = Date.now() }) {
       const box = boxOf.get(h.name) || 'unread';
       const reads = box === 'text' ? 'holds text that was not sent' : box === 'empty' ? 'reads empty' : 'could not be read';
       try { log('limit-queue: ' + h.name + ' has ' + h.count + ' message(s) held behind its input box, the oldest kept since ' + h.since + '; the box ' + reads + '\n'); } catch { /* best effort */ }
-      // The phone once per held stretch, as a stuck terminal error is (the card says why).
-      if (h.first) {
-        let shown = h.name;
-        try { shown = cardName(h.name) || h.name; } catch { /* the queue name */ }
-        try { push({ kind: 'needs_you', id: 'heldinput:' + h.name + ':' + now, agent: shown, session: h.name, project: null }); } catch { /* best effort */ }
-      }
       out.push({ ...h, box });
     }
   } catch { /* said next minute */ }
