@@ -101,7 +101,7 @@ test.beforeEach(async () => {
   fs.rmSync(data, { recursive: true, force: true });
   cs.setSender((url, init) => fetch(url, init));
   cs.setTimeoutMs(2000);
-  cs._ownerLinkRetry(15 * 60 * 1000);
+  cs._ownerLinkReset(15 * 60 * 1000);
   stubRemote();
   be = await backend();
   await cs.sweep();   // Community's on-period starts here; a post from before it is never sent
@@ -195,21 +195,21 @@ test('nothing is minted or sent while Kosmos+ is off here, not signed in, or Com
 test('a coordinator or tunnel that does not know the route: the pass waits an hour, and links once it does', async () => {
   // The tunnel's real refusal, verbatim from kosmos-relay crates/tunnel/src/coordinator.rs check_mac_request.
   R.mint = () => ({ ok: false, because: 'Error: mac-request does not sign POST "/v1/mac/community-owner-pass"; it signs only: POST /v1/mac/notify-credential, POST /v1/mac/standing' });
-  cs._ownerLinkRetry(0);   // the 15-minute pause is over at once, so only the hour-long one keeps it at one ask
+  cs._ownerLinkReset(0);   // the 15-minute pause is over at once, so only the hour-long one keeps it at one ask
   await registered('ava');
   await cs.sweep();
   await cs.sweep();
   assert.equal(R.mints.length, 1, 'asked once, then left alone');
   assert.equal(ownerCalls().length, 0);
   R.mint = null;
-  cs._ownerLinkRetry(15 * 60 * 1000);   // the hour is over
+  cs._ownerLinkReset(15 * 60 * 1000);   // the hour is over
   await cs.sweep();
   assert.equal(agentNamed('ava').owner !== null, true);
 });
 
 test('a coordinator from before the route answers 404: the same hour-long wait', async () => {
   R.mint = () => ({ ok: false, because: 'coordinator answered 404', refusal: { status: 404, code: null, currentEpoch: null } });
-  cs._ownerLinkRetry(0);   // as above: only the hour-long wait keeps it at one ask
+  cs._ownerLinkReset(0);   // as above: only the hour-long wait keeps it at one ask
   await registered('ava');
   await cs.sweep();
   await cs.sweep();
@@ -223,23 +223,24 @@ test('a coordinator that fails for another reason (a 503): the pass waits 15 min
   assert.equal(R.mints.length, 1);
   await cs.sweep();
   assert.equal(R.mints.length, 1, 'inside the 15-minute pause nothing is asked');
-  cs._ownerLinkRetry(0);   // ends the pause and makes the next one zero; an hour-long pause would not be touched
+  cs._ownerLinkReset(0);   // ends the pause and makes the next one zero; an hour-long pause would not be touched
   await cs.sweep();
   assert.equal(R.mints.length, 2, 'asked again once the short pause is over');
   await cs.sweep();
   assert.equal(R.mints.length, 3, 'a 503 sets the short pause, not the hour');
-  cs._ownerLinkRetry(15 * 60 * 1000);
+  cs._ownerLinkReset(15 * 60 * 1000);
 });
 
-test('the site has no owner route yet (404): one try, then the pass waits; no agent is marked linked', async () => {
+test('the site has no owner route yet (404): one try, then the pass waits an hour; no agent is marked linked', async () => {
   be.st.mode.noRoute = true;
   await registered('ava');
   await registered('bo');
+  cs._ownerLinkReset(0);   // the short pause is now zero, so only the hour-long wait holds the second sweep back
   await cs.sweep();
   await cs.sweep();
-  assert.equal(ownerCalls().length, 1, 'one call, then the pause');
+  assert.equal(ownerCalls().length, 1, 'one call, then the hour');
   be.st.mode.noRoute = false;
-  cs._ownerLinkRetry(15 * 60 * 1000);
+  cs._ownerLinkReset(15 * 60 * 1000);
   await cs.sweep();
   assert.ok(agentNamed('ava').owner && agentNamed('bo').owner, 'both linked once the route exists');
 });
@@ -251,7 +252,7 @@ test('a refused pass is not recorded as linked and is tried again after the paus
   await cs.sweep();
   assert.equal(ownerCalls().length, 1);
   be.st.mode.status = 0;
-  cs._ownerLinkRetry(15 * 60 * 1000);
+  cs._ownerLinkReset(15 * 60 * 1000);
   await cs.sweep();
   assert.equal(ownerCalls().length, 2);
   assert.ok(agentNamed('ava').owner);
@@ -296,7 +297,9 @@ test('a site 429 pauses the pass', async () => {
   be.st.mode.status = 429;
   be.st.mode.headers = { 'retry-after': '99999' };
   await registered('ava');
+  await registered('bo');
   await cs.sweep();
+  assert.equal(ownerCalls().length, 1, 'the whole pass waits, not only that agent (bo is not asked)');
   await cs.sweep();
   assert.equal(ownerCalls().length, 1, 'asked once, then the pass waits');
   assert.equal(agentNamed('ava').owner, null);
@@ -323,7 +326,7 @@ test('an agent whose key the community refuses is not tried again', async () => 
   const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
   assert.equal(keys.ava.refused, true, 'the key is marked refused');
   const n = ownerCalls().length;
-  cs._ownerLinkRetry(0);
+  cs._ownerLinkReset(0);
   await cs.sweep();
   assert.equal(ownerCalls().length, n, 'no owner call for a refused key, even with no pause');
 });
@@ -432,12 +435,12 @@ test('a pass-wide failure on one agent does not keep the agents after it from ev
   await registered('bo');
   R.on = true;
   be.st.mode.statusFor = { name: keyName('ava'), status: 500 };
-  cs._ownerLinkRetry(0);   // the pass-wide pause ends at once
+  cs._ownerLinkReset(0);   // the pass-wide pause ends at once
   await cs.sweep();
   assert.equal(agentNamed('bo').owner, null, 'the first pass stopped on ava');
   await cs.sweep();
   assert.ok(agentNamed('bo').owner, 'the next pass starts after ava and reaches bo');
-  cs._ownerLinkRetry(15 * 60 * 1000);
+  cs._ownerLinkReset(15 * 60 * 1000);
 });
 
 test('at most 5 passes are minted in one sweep; the next sweep goes on from there', async () => {
@@ -455,7 +458,7 @@ test('a 401 whose fresh login gets no good answer pauses the pass, does not mark
   await registered('bo');
   be.st.mode.statusFor = { name: keyName('ava'), status: 401 };
   be.st.mode.loginStatus = 500;
-  cs._ownerLinkRetry(0);
+  cs._ownerLinkReset(0);
   await cs.sweep();
   const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
   assert.notEqual(keys.ava.refused, true, 'a login the service failed is not a refused key');
@@ -463,7 +466,7 @@ test('a 401 whose fresh login gets no good answer pauses the pass, does not mark
   be.st.mode.loginStatus = 0;
   await cs.sweep();
   assert.ok(agentNamed('bo').owner, 'the next pass starts after ava');
-  cs._ownerLinkRetry(15 * 60 * 1000);
+  cs._ownerLinkReset(15 * 60 * 1000);
 });
 
 test('the pass budget: an exhausted pass stops before the agent and the next pass starts at it', async () => {
@@ -499,8 +502,10 @@ test('a site refusal for a second agent in one pass means the site no longer tak
 
 test('a mint that throws is treated as no answer: the pass waits', async () => {
   await registered('ava');
+  await registered('bo');
   R.mint = () => { throw new Error('boom'); };
   await cs.sweep();
+  assert.equal(R.mints.length, 1, 'the whole pass waits, not only that agent (bo is not asked)');
   await cs.sweep();
   assert.equal(R.mints.length, 1, 'asked once, then the pass waits');
   assert.equal(ownerCalls().length, 0);

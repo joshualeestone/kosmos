@@ -1488,7 +1488,8 @@ async function sweepInstallGroup(keys, on) {
  *   in one pass (the request, not a name), or a second site refusal in one pass: the pass pauses 15 minutes;
  *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
  *   a site 429: Retry-After, capped like #4940's register wait;
- *   anything else (no answer, a 5xx, a 401 logging in again did not clear): the pass pauses 15 minutes;
+ *   anything else (no answer, a 5xx, a 401 logging in again did not clear): the pass pauses 15 minutes (a 503's
+ *   Retry-After is not honoured: the 15 minutes is longer, so safe, and a linked page can wait that long);
  *   a mint refused on this computer before it was sent (a register or a Forget is out): no pause.
  * Pauses are per endpoint, in memory.
  */
@@ -3219,6 +3220,6 @@ module.exports = {
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
   _ownerLinkBudget: (ms) => { OWNER_LINK_PASS_MS = ms; },   // #7215: for its budget test
-  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkPassLogged.clear(); ownerLinkFrom.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
+  _ownerLinkReset: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkPassLogged.clear(); ownerLinkFrom.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests: ends every pause and wait, and sets the short pause
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };
