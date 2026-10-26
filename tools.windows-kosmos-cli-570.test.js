@@ -947,4 +947,16 @@ test('#6849: task built --file and kosmos fingerprint give a PDF the fingerprint
   const missing = await run(['fingerprint', path.join(fix, 'nope.pdf')]);
   assert.equal(missing.code, 2);
   assert.match(missing.err, /missing \(no such file\)/);
+  // #7213, as the Mac: an approval's plain sha256 is compared with the plain bytes, and the answer names the kind.
+  assert.match(want, /^pdf-normalized:/, 'a PDF fingerprint is labelled as a plain sha256');
+  const same = await run(['fingerprint', a, plain(a).slice('sha256:'.length)]);
+  assert.equal(same.code, 0, same.err);
+  assert.match(same.out, /matches the plain sha256/);
+  const diff = await run(['fingerprint', b, plain(a)]);
+  assert.equal(diff.code, 1, diff.err);
+  assert.match(diff.out, /differs from the plain sha256/);
+  const kind = await run(['fingerprint', b, want]);
+  assert.equal(kind.code, 0, kind.err);
+  assert.match(kind.out, /matches the PDF fingerprint/);
+  assert.equal((await run(['fingerprint', a, plain(a), 'extra'])).code, 2);
 });

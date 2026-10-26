@@ -98,7 +98,7 @@ const USAGE = {
   records: 'Usage: kosmos records <project-id> | kosmos records set <project-id> "<name>" [--status "<status>"] [--confirmed YYYY-MM-DD] [--source "<link or file>"] | kosmos records remove <project-id> "<name>" | kosmos records label <project-id> "<what the rows are>"',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
-  fingerprint: 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)',
+  fingerprint: 'Usage: kosmos fingerprint <file> [expected]   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: sha256:<hex> is the plain sha256 of the file, what shasum prints; pdf-normalized:<hex> is a PDF with its creation and change dates and document ID left out, so the same source rendered twice matches, and is not what shasum prints; a PDF over 64 MB is hashed as plain bytes. With an expected value it compares like with like and says which kind: a bare 64-hex value or sha256: is checked against the plain sha256)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
@@ -1106,7 +1106,7 @@ async function taskList(ctx, args) {
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);
     // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
-    if (x.builtAt && /^sha256:[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
+    if (x.builtAt && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
   }
   return 0;
 }
@@ -2446,9 +2446,15 @@ async function verbHandoff(ctx, args) {
 /* kosmos#6849, as install/kosmos cmd_fingerprint: a file's fingerprint, the one `kosmos task built --file` sends and
    `kosmos handoff` prints (engine/fileprint.js), so an agent checking a handed-off copy compares like with like. */
 async function verbFingerprint(ctx, args) {
-  if (args.length !== 1 || !args[0]) { ctx.err(USAGE.fingerprint); return 2; }
+  if (args.length < 1 || args.length > 2 || !args[0]) { ctx.err(USAGE.fingerprint); return 2; }
   let fileprint;
   try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
+  if (args.length === 2) {   // #7213, as install/kosmos: compare like with like and say which kind
+    const c = fileprint.compare(args[0], args[1]);
+    if (!c.ok) { ctx.err(args[0] + ': ' + c.words); return 2; }
+    ctx.out(args[0] + ' ' + c.words);
+    return c.match ? 0 : 1;
+  }
   const got = fileprint.fingerprint(args[0]);
   if (!fileprint.isPrint(got)) { ctx.err(args[0] + ': ' + got); return 2; }
   ctx.out(got);
