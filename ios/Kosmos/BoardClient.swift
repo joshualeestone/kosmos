@@ -1255,3 +1255,17 @@ final class BoardClient: ObservableObject {
         return true
     }
 }
+
+// kosmos#7197: the Mac a phase is about, by name (its address label, as Kosmos+ lists it), or nil.
+extension BoardClient.Phase {
+    var macName: String? {
+        switch self {
+        case .waitingForAllow(let mac, _), .connecting(let mac), .denied(let mac), .unreachable(let mac), .macRefused(let mac):
+            return mac
+        case .live(let mac):
+            return mac.name
+        case .starting, .signedOut, .noMac, .kosmosPlusDown, .kosmosPlusRefused:
+            return nil
+        }
+    }
+}

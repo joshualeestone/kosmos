@@ -36,6 +36,8 @@ enum Board {
     // gate's cross-site guard refuses only a foreign one.
     static func sessionRequest(mac: URL, handoffToken: String) -> URLRequest {
         var r = URLRequest(url: URL(string: "/_kosmos/session", relativeTo: mac)!.absoluteURL)
+        // kosmos#7197: three tries before "not answering", so each waits 8 s, not the session's 15 s (about 30 s in all).
+        r.timeoutInterval = 8
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.httpBody = try? JSONSerialization.data(withJSONObject: ["token": handoffToken])
