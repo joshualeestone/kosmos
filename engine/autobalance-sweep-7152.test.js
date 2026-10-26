@@ -275,16 +275,16 @@ test('#7152 slice 3 review 14, 16: an at-risk account that goes unmeasured is a 
   /* The shape slice 1 really writes on a failed read: a fresh record whose figures have aged out (review 16). */
   const aged = { at: NOW, measuredAt: NOW - 31 * 60e3, state: 'token-expired', weekly: null, fiveHour: null };
   const gap = deps({ usage: { ...USAGE, '/u/.claude-work': aged } });
-  assert.equal((await run.tick(gap, NOW + 1000)).did, 'nothing', 'a gap in the readings was taken for a change');
+  assert.equal((await run.tick(gap, NOW + 1000)).did, 'gap', 'a gap in the readings was taken for a change');
   assert.equal(sweep.readLines(file).length, 1, 'a gap in the readings was written as the risk ending');
-  assert.equal((await run.tick(deps({ usage: { ...USAGE, '/u/.claude-work': null } }), NOW + 1500)).did, 'nothing', 'no record at all was taken for the end of the risk');
+  assert.equal((await run.tick(deps({ usage: { ...USAGE, '/u/.claude-work': null } }), NOW + 1500)).did, 'gap', 'no record at all was taken for the end of the risk');
   assert.equal((await run.tick(deps(), NOW + 2000)).did, 'nothing', 'the same risk, measured again, was written again');
-  assert.equal((await sweep.create({ file, nowMs: NOW + 3000 }).tick(gap, NOW + 3000)).did, 'nothing', 'a restart forgot which account was at risk');
+  assert.equal((await sweep.create({ file, nowMs: NOW + 3000 }).tick(gap, NOW + 3000)).did, 'gap', 'a restart forgot which account was at risk');
   /* CONTROL: an account measured again below the line does end the risk. */
   assert.equal((await run.tick(deps({ usage: { ...USAGE, '/u/.claude-work': reading(40, 35) } }), NOW + 4000)).did, 'cleared');
 });
 
-test('#7152 slice 3 review 16: during one account\'s gap, a change on another account is still written, and says which was carried', async () => {
+test('#7152 slice 3 review 18: during an at-risk account\'s gap nothing is written; the change elsewhere is written once it ends', async () => {
   const list3 = [...LIST, { dir: '/u/.claude-third', label: 'third', email: 't@example.test', memoryShared: true, apiKey: false }];
   const usage = { ...USAGE, '/u/.claude-third': reading(20, 100) };
   const agentsOn = (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : dir === '/u/.claude-third' ? ['bo'] : [], complete: true, moving: [] });
@@ -293,22 +293,30 @@ test('#7152 slice 3 review 16: during one account\'s gap, a change on another ac
   const run = sweep.create({ file });
   await run.tick(deps({ list: list3, usage, agentsOn, cards }), NOW);
   const aged = { at: NOW, measuredAt: NOW - 31 * 60e3, state: 'token-expired', weekly: null, fiveHour: null };
-  const later = deps({ list: list3, agentsOn, cards, usage: { ...usage, '/u/.claude-work': aged, '/u/.claude-third': reading(95, 40) } });
-  assert.equal((await run.tick(later, NOW + 1000)).did, 'recorded', 'a change on another account went unrecorded during a gap');
-  const line = sweep.readLines(file).pop();
-  assert.deepEqual(line.unmeasured, ['/u/.claude-work'], 'the line did not say which account was carried');
-  assert.deepEqual(line.atRisk.map((x) => x.from).sort(), ['/u/.claude-third', '/u/.claude-work'], 'the unmeasured account\'s risk ended in the record');
+  const third95 = { ...usage, '/u/.claude-third': reading(95, 40) };
+  assert.equal((await run.tick(deps({ list: list3, agentsOn, cards, usage: { ...third95, '/u/.claude-work': aged } }), NOW + 1000)).did, 'gap',
+    'a tick with an at-risk account unmeasured wrote a decision');
+  assert.equal(sweep.readLines(file).length, 1, 'a gap wrote a line (it could only have been a guess)');
+  assert.equal((await run.tick(deps({ list: list3, agentsOn, cards, usage: third95 }), NOW + 2000)).did, 'recorded', 'the change made during the gap was never written');
+  assert.deepEqual(sweep.readLines(file).pop().atRisk.map((x) => x.from).sort(), ['/u/.claude-third', '/u/.claude-work']);
 });
-
-test('#7152 slice 3 review 16: a folder with no credential at all is signed out, so its stopped login stays at risk', () => {
+test('#7152 slice 3 review 18: "no credential" is not a signed-out login: no badge, and unmeasured', () => {
   const rows = ab.rowsFromReadings({ list: LIST, nowMs: NOW, readUsage: (dir) => (dir === '/u/.claude-work' ? { at: NOW, state: 'no-credential' } : USAGE[dir]),
     agentsOn: (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true }) });
-  assert.equal(rows[0].connection.badge, 'signed_out');
-  assert.equal(rows[0].measured, true, 'CONTROL: a signed-out folder is a reading of its login');
-  assert.deepEqual(ab.decide({ rows, movable: () => true, nowMs: NOW }).atRisk.map((x) => x.kind), ['login'], 'a signed-out folder was not at risk by login');
+  assert.equal(rows[0].connection.badge, null, 'a Keychain hiccup read as a stopped login');
+  assert.equal(rows[0].measured, false, 'a folder whose credential could not be read was taken as measured');
+  assert.deepEqual(ab.decide({ rows, movable: () => true, nowMs: NOW }).atRisk, [], 'CONTROL: nothing is at risk from it');
 });
 
-test('#7152 slice 3 review 17: an account carried through a gap does not make the same decision read as new when it returns', async () => {
+test('#7152 slice 3 review 18: an at-risk account whose agent list may be short is a gap, not "nothing could move"', async () => {
+  const file = fileFor();
+  const run = sweep.create({ file });
+  const shortList = deps({ agentsOn: (dir) => ({ names: [], complete: false, moving: [] }) });
+  assert.equal((await run.tick(shortList, NOW)).did, 'gap', 'a failed walk was recorded as a decision');
+  assert.deepEqual(sweep.readLines(file), []);
+  assert.equal((await run.tick(deps(), NOW + 1000)).did, 'recorded', 'CONTROL: with the whole list, it is recorded');
+});
+test('#7152 slice 3 review 17: a gap does not make the same decision read as new when the account returns', async () => {
   const list3 = [...LIST, { dir: '/u/.claude-third', label: 'third', email: 't@example.test', memoryShared: true, apiKey: false }];
   const agentsOn = (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : dir === '/u/.claude-third' ? ['bo'] : [], complete: true, moving: [] });
   const cards = realCards(['ada'], ['bo']);
@@ -317,7 +325,7 @@ test('#7152 slice 3 review 17: an account carried through a gap does not make th
   const file = fileFor();
   const run = sweep.create({ file });
   await run.tick(deps({ list: list3, agentsOn, cards, usage: both }), NOW);
-  assert.equal((await run.tick(deps({ list: list3, agentsOn, cards, usage: { ...both, '/u/.claude-work': aged } }), NOW + 1000)).did, 'nothing',
+  assert.equal((await run.tick(deps({ list: list3, agentsOn, cards, usage: { ...both, '/u/.claude-work': aged } }), NOW + 1000)).did, 'gap',
     'a gap on one account, with nothing else changed, was written as a new decision');
   assert.equal((await run.tick(deps({ list: list3, agentsOn, cards, usage: both }), NOW + 2000)).did, 'nothing',
     'the carried account measured again, nothing changed, wrote the decision a second time');
@@ -338,4 +346,15 @@ test('#7152 slice 3 review 17: a failed write followed by a return to the record
     await run.tick(deps(), NOW + 2000);   // back to the decision the record already holds
     assert.equal(run.state.writeFailed, false, 'a failure stayed raised though the record already held the decision');
   } finally { fs.chmodSync(dir, 0o755); }
+});
+
+test('#7152 slice 3 review 17: the account list in another order is not a new decision', async () => {
+  const list3 = [...LIST, { dir: '/u/.claude-third', label: 'third', email: 't@example.test', memoryShared: true, apiKey: false }];
+  const agentsOn = (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : dir === '/u/.claude-third' ? ['bo'] : [], complete: true, moving: [] });
+  const cards = realCards(['ada'], ['bo']);
+  const both = { ...USAGE, '/u/.claude-third': reading(95, 40) };
+  const run = sweep.create({ file: fileFor() });
+  assert.equal((await run.tick(deps({ list: list3, agentsOn, cards, usage: both }), NOW)).did, 'recorded');
+  assert.equal((await run.tick(deps({ list: [list3[2], list3[1], list3[0]], agentsOn, cards, usage: both }), NOW + 1000)).did, 'nothing',
+    'the same decision, from the accounts listed in another order, was written again');
 });

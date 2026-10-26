@@ -118,13 +118,10 @@ reads idle, and a restart kills the job.
   hold for two ticks before it is written.
 
 ## Review 16
-- "Cannot be read" is exact now: a row is measured when a figure is still fresh, or its login was refused or is signed
-  out. Slice 1 rewrites a record's time on every poll, a failed one included, while its figures age out after 30
+- "Cannot be read" is exact now: a row is measured when a figure is still fresh, or its login was refused. Slice 1 rewrites a record's time on every poll, a failed one included, while its figures age out after 30
   minutes, so "a record exists" (review 14's test) was the wrong test: an at-risk account whose token expired, or that
   met one 429, read as measured with no risk, and its risk "ended" in the record.
-- An unmeasured account that was at risk keeps its entries from the last decision, and the line says which were carried
-  (unmeasured: [dirs]), so a gap on one account no longer stops the record for every other one.
-- A folder with no credential at all is signed out (as Settings' live check calls it), so a stopped login stays at risk.
+- (Superseded by review 18: carrying an unmeasured account's entries, and reading "no credential" as signed out.)
 - Something other than a file where the guide marker belongs is "cannot tell": not movable.
 - The failed-write flag clears only when a write succeeds; the tick asks the gate without it, so the write is retried.
 - AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS is an operator's setting (no test can tick), floored at a minute.
@@ -135,3 +132,16 @@ reads idle, and a restart kills the job.
 - A failed-write flag clears when the decision matches the one the record already holds (nothing is left unsaid), not
   only after a later write.
 - A tick that cannot work out the decision logs why, once per reason, so a code defect does not read as a quiet record.
+
+## Review 18: when it cannot measure, it writes nothing
+- A tick is a gap, and writes nothing, when an account that was at risk at the last recorded decision cannot be read
+  now, or when an account at risk now has an agent list that may be short (decide's `short`: the walk failed or is
+  incomplete). Reviews 16 and 17 tried carrying the unmeasured account's last entries instead; that kept old reasons
+  alive past their reset and redrew them in Settings as new would-moves. Rejected for that reason.
+- The cost, decided: a real change on another account during a gap is recorded only once the gap ends. In a record
+  meant as evidence, a missed line is better than a false one, and the gap ends with the next good reading.
+- "No credential" from slice 1 is not a signed-out login: slice 1 says it for any Keychain failure (a timeout, a locked
+  keychain) as well, so one hiccup would have marked every account a stopped login. It gives no badge and is
+  unmeasured. Settings' own live check is unchanged.
+- Not taken: showing the recent lines while a write is failing (the page says it is not recording, which is true), and
+  collapsing repeated moves in "Lately" (review 15's call stands).
