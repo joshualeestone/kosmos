@@ -251,3 +251,27 @@ test('a vendor account folder is never a Qwen home (the two keep different accou
   assert.equal(qwen.isEndpointHome(dir), false, 'Qwen reads a DeepSeek folder as its own endpoint home');
   assert.equal(qwen.isQwenHome(dir), false);
 });
+
+test('slice 1b: the switch is OFF by default, on by the variable or the marker, and never on off a Mac', () => {
+  const store = require('./store');
+  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  const marker = nodePath.join(store.ROOT, compat.ON_MARKER);
+  try {
+    try { fs.rmSync(marker, { force: true }); } catch { /* absent */ }
+    assert.equal(compat.enabled('darwin'), false, 'on by default');
+    for (const v of ['1', 'true', 'ON', ' yes ']) { process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = v; assert.equal(compat.enabled('darwin'), true, v); }
+    for (const v of ['0', 'off', '', 'maybe']) { process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = v; assert.equal(compat.enabled('darwin'), false, v); }
+    delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+    fs.mkdirSync(store.ROOT, { recursive: true });
+    fs.writeFileSync(marker, '');
+    assert.equal(compat.enabled('darwin'), true, 'the marker does not turn it on');
+    assert.equal(compat.enabled('win32'), false, 'on on Windows, whose launch does not point an agent at a vendor');
+    process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
+    assert.equal(compat.enabled('linux'), false);
+  } finally {
+    try { fs.rmSync(marker, { force: true }); } catch { /* best effort */ }
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; else process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev;
+  }
+  assert.equal(compat.notYet('deepseek'), 'DeepSeek is not available in Kosmos yet');
+});

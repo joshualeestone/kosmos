@@ -46,6 +46,29 @@ function vendorOf(id) {
   return typeof id === 'string' && Object.prototype.hasOwnProperty.call(VENDORS, id) ? VENDORS[id] : null;
 }
 
+/**
+ * #7206 slice 1b (Splinter, 2026-10-26 14:28): whether vendor providers show ANYWHERE a person can reach (Settings,
+ * setup, creating or switching an agent, the add route). OFF by default: Claude Code at a vendor's address with only a
+ * key, in an empty config folder (no login, no onboarding stop, no anthropic.com traffic) has not been measured on a
+ * real run, and nothing unproven ships to a person. It is turned on, after that measurement, by a support switch rather
+ * than a setting, the mirror of Meta Muse's off switch (engine/musestatus.js): AGENT_WORKFORCE_COMPAT_PROVIDERS=1 (or
+ * true, on, yes) for one run, or the ON MARKER (a file named compat-providers-on in the Kosmos data folder), which lasts
+ * because every install and update rewrites the board's launchd job and drops the variable. A Mac only: the Windows
+ * launch does not point an agent at a vendor yet. Read on every check, so creating or deleting the marker needs no
+ * restart.
+ */
+const ON_MARKER = 'compat-providers-on';
+function onMarker() { return path.join(require('./store').ROOT, ON_MARKER); }
+function enabled(platform = process.platform) {
+  if (platform !== 'darwin') return false;
+  if (/^(1|true|on|yes)$/i.test(String(process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS || '').trim())) return true;
+  // An unreadable data folder leaves it off: off is the default, and the marker is only ever a way on.
+  try { return fs.existsSync(onMarker()); } catch { return false; }
+}
+/* The sentence every refusal uses while the switch is off. */
+const NOT_YET = 'is not available in Kosmos yet';
+function notYet(vendor) { const v = vendorOf(vendor); return `${v ? v.name : 'That provider'} ${NOT_YET}`; }
+
 /* A function, not a const (the #1337 rule): a caller may set AGENT_WORKFORCE_HOME after requiring this module. */
 function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
 
@@ -381,6 +404,7 @@ if (require.main === module) {
 
 module.exports = {
   STATE, VENDORS, ENDPOINT_BASENAME, LAUNCH_VARS, vendorOf,
+  enabled, notYet, ON_MARKER,
   homeDir, dirPrefix, forgottenPrefix, endpointFile, vendorOfName, isCompatHome, accountProblem, readAccount,
   list, cleanLabel, dirForLabel, storeAccount,
   setFetcher, askModels, validateLive, checkLive, listLive, resetLiveCacheForTest,
