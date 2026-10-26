@@ -294,8 +294,13 @@ function compare(p, expected) {
   if (got === want) return { ok: true, match: true, kind, got, words: 'matches ' + kindWords(want) };
   /* A mark sent between #6849 and #7213 carries a PDF's normalized hash under the sha256: label (review 1, finding 1).
      Its plain bytes do not match, so try the PDF fingerprint too, and say that is what matched. */
-  const fp = bare ? '' : fingerprint(p);   // review 2: a bare shasum value is checked against the bytes and nothing else
-  if (fp.startsWith(PDF_KIND) && hexOf(fp) === hexOf(want)) {
+  const fp = fingerprint(p);
+  /* Review 4: a bare value stays a byte-for-byte check (review 2), but when it is this PDF's own fingerprint with its
+     label left off, say so: "differs" alone was the #7213 confusion again. */
+  if (bare && fp.startsWith(PDF_KIND) && hexOf(fp) === hexOf(want)) {
+    return { ok: true, match: false, kind, got, words: 'differs from the plain sha256 (what shasum -a 256 prints): this file gives ' + got + '. But that value is this PDF\'s fingerprint (' + fp + '): give it with the pdf-normalized: label to compare it that way' };
+  }
+  if (!bare && fp.startsWith(PDF_KIND) && hexOf(fp) === hexOf(want)) {
     /* Review 3: a sha256: value typed by hand cannot be told from an older mark, so the words never call this a byte
        match. It is the PDF fingerprint that matches, and the bytes differ only in the PDF's own dates or ID. */
     return { ok: true, match: true, kind: 'pdf-normalized', got: fp, words: 'matches the PDF fingerprint, not the bytes: the bytes differ only in the PDF\'s own dates or ID (a mark sent before #7213 labelled a PDF fingerprint sha256:). For a byte-for-byte check give the value without sha256:' };

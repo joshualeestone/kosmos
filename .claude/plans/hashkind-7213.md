@@ -72,3 +72,7 @@ seat concluded the file had changed.
   label). Kept exit 0: the fallback exists so an unchanged re-render does not read as changed. N2 success words for
   a PDF with nothing left out -> FIXED. N3 re-open race only affects the reason text -> accepted. N4 task built
   --file usage on Mac and Windows names both labels -> FIXED.
+- Iteration 4 (opus): W1 a PDF fingerprint pasted without its label read only "differs" on an unchanged PDF -> FIXED:
+  still differs (a bare value is byte for byte), and the words add that the value is this PDF's fingerprint and to
+  give it with its label. N2 exit 1 means both "differs" and "install incomplete" -> accepted: the install exit 1
+  predates this branch, and the words say which; a script that needs the split can read the text.
