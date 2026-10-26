@@ -1002,9 +1002,16 @@ const composerReadable = (card) => !!card && String(card.runner || 'claude') ===
 /* #6256 item 1: true only when a Claude Code card's input box is read and holds nothing (roomhold's retry of posts
    held by text in the box); false for anything unread, so an unreadable box keeps its posts waiting. */
 function inputBoxEmpty(card) {
-  if (!composerReadable(card) || !card.target) return false;
+  return inputBoxReads(card) === 'empty';
+}
+/* #7212: what the box a delivery types into reads now: 'empty', 'text' (something unsent sits there), or 'unread' (no
+   Claude Code box Kosmos can read). inputBoxEmpty holds deliveries on both of the last two (the #6256 rule), and the
+   board log says which, because only 'text' is something a person or the stuck-input sweep can see and clear. */
+function inputBoxReads(card) {
+  if (!card || !composerReadable(card) || !card.target) return 'unread';
   const box = readComposer(paneTarget(card));   // review 5: the exact pane the delivery types into
-  return box.ok === true && box.text === '';
+  if (box.ok !== true) return 'unread';
+  return box.text === '' ? 'empty' : 'text';
 }
 /* After the Enter, how long the box may take to empty before it is called not sent (measured: 25 to 93 ms on 2.1.300,
    up to about a second for the first line after start on 2.1.296), and how often it is looked at. */
@@ -5210,7 +5217,7 @@ function retryDmFinish(agent, at, text, delivery) {
 module.exports = {
   retryDmBegin, retryDmFinish,   // kosmos#6720
   setEarlierSubmittedHook,   // #6256 item 2
-  inputBoxEmpty,   // #6256 item 1
+  inputBoxReads, inputBoxEmpty,   // #6256 item 1
   updateDmDelivery,   // #5805 slice 2b
   setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,

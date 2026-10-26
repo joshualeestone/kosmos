@@ -25872,6 +25872,8 @@ function start(port = PORT) {
          ten-minute constant it serves. unref'd so it never holds the
          process open, and every run is best-effort: the room's own
          unanswered line is the person-facing surface either way. */
+      /* #7212: once per held stretch (keyed by its oldest message), not every minute. */
+      const heldInputSaid = new Map();
       const sweep = setInterval(() => {
         /* ⚠️ safeRoster(), NEVER paneRoster(): the sweep delivers, and
            delivery needs full snapshot-shaped cards (target and all).
@@ -25906,9 +25908,23 @@ function start(port = PORT) {
           const roster = limitqueue.names().length ? safeRoster() : null;
           if (roster) {
             limitqueue.flush(roster, limitqueue.sweepHooks({ chat, messages })).then((done) => {
-              for (const d of done) process.stdout.write('limit-queue: ' + d.name + ' was given held message ' + d.id + ' after its usage reset, delivery=' + d.state + '\n');
+              for (const d of done) process.stdout.write(limitqueue.deliveredLine(d));
             }).catch(() => { /* kept for the next minute */ });
           }
+          /* #7212: messages held behind an agent's input box for half an hour are said once per held stretch, with what
+             the box reads now (text, or nothing Kosmos can read), so a hold that lasts days is never silent. */
+          for (const h of limitqueue.heldBehindInput(Date.now(), limitqueue.HELD_INPUT_SAY_MS)) {
+            if (heldInputSaid.get(h.name) === h.since) continue;
+            heldInputSaid.set(h.name, h.since);
+            let reads = 'could not be read';
+            try {
+              const r = chat.inputBoxReads(chat.resolveCard(safeRoster(), h.name));
+              if (r === 'text') reads = 'holds text that was not sent';
+              else if (r === 'empty') reads = 'reads empty';
+            } catch { /* could not be read */ }
+            process.stdout.write('limit-queue: ' + h.name + ' has ' + h.count + ' message(s) held behind its input box since ' + h.since + '; the box ' + reads + '\n');
+          }
+          for (const k of [...heldInputSaid.keys()]) if (!limitqueue.names().includes(k)) heldInputSaid.delete(k);
         } catch { /* kept for the next minute */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
