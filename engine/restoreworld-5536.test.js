@@ -633,12 +633,13 @@ test('only plain-named folders at the top of workers and projects become the wor
   put('workers/.git/config', '[core]\n\tfsmonitor = touch /tmp/x\n');
   put('workers/HEAD', 'ref: refs/heads/main\n');
   put('workers/CLAUDE.md', 'every agent @~/.ssh/id\n');
+  put('workers/.foo/settings', 'x\n');   // any dot-folder, not only the names git and providers are known to open
   put('projects/site/README.md', 'site\n');
   put('projects/.git/config', '[core]\n');
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, true, r.because);
   assert.deepEqual(r.moved, ['workers', 'projects']);
-  assert.deepEqual(r.heldBack, ['workers/.git', 'workers/CLAUDE.md', 'workers/HEAD', 'projects/.git']);
+  assert.deepEqual(r.heldBack, ['workers/.foo', 'workers/.git', 'workers/CLAUDE.md', 'workers/HEAD', 'projects/.git']);
   const roots = worlds.envOverridesFor(base, p.world);
   assert.deepEqual(fs.readdirSync(roots.AGENT_WORKFORCE_WORKERS), ['ann'], 'nothing sits above the agents a person makes later');
   assert.deepEqual(fs.readdirSync(roots.AGENT_WORKFORCE_PROJECTS), ['site']);
