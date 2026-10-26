@@ -89,3 +89,13 @@ reads idle, and a restart kills the job.
   can differ (Settings names a move while the record says held). The record is the 3b evidence, by design.
 - Second weakest premise: slice 1 never measures an idle account whose access token has expired (token-expired), so
   overnight an idle spare account mostly reads unmeasured, and the record shows "held" more than a mover would see.
+
+## Review 12
+- A target stays signed in through one blip: the latest read worked, or a fresh measurement stands and the latest read
+  was not a refused login (a 429, an unreachable endpoint, an expired access token). Otherwise every blip wrote the
+  same would-move twice.
+- A move off a stopped login stays in the file (evidence of the login problem) but is not drawn as a would-move in
+  Settings, since slice 3b moves for usage only.
+- Stated, not changed: the "not recording under a test" assert is satisfied by several gate arms at once (each arm is
+  tested where it lives, in usagepoll); and a time the sweep was not watching (setting off, poll off) writes nothing,
+  so a gap reads as "no change". A reader of a day's record should know the setting and the poll were on that day.

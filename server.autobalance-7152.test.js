@@ -226,6 +226,8 @@ test('#7152 slice 3: one real tick through the board wiring records the decision
   assert.deepEqual(sweep.readLines(file + '.2')[0].held.map((h) => h.from), [main], 'an unmeasured account was taken as a target');
   fs.rmSync(path.join(main, usagepoll.FILE), { force: true });
   fs.rmSync(pp, { force: true });
+  /* Review 12: leave the sandbox as the next test expects it, one account and no second sign-in. */
+  fs.rmSync(spare, { recursive: true, force: true });
 });
 
 test('#7152 slice 3 review 2: the real guide check: a guide folder with its marker is never movable, nor the seeded guide name', () => {

@@ -215,7 +215,7 @@ test('#7152 slice 3 review 9: figures are kept through a failed read; a record f
     agentsOn: (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true }) });
   const d = ab.decide({ rows, movable: () => true, nowMs: NOW });
   assert.deepEqual(d.atRisk.map((x) => x.from), ['/u/.claude-work'], 'one network blip took a 95% account off the at-risk list');
-  assert.equal(rows[0].connection.badge, null, 'CONTROL: a failed read is not a working login');
+  assert.equal(rows[0].connection.badge, 'working', 'a fresh measurement through a blip was not signed in (review 12)');
   const other = ab.rowsFromReadings({ list: LIST, nowMs: NOW, readUsage: (dir) => (dir === '/u/.claude-work' ? { ...reading(95, 40), email: 'someone-else@example.test' } : USAGE[dir]),
     agentsOn: () => ({ names: [], complete: true }) });
   assert.equal(other[0].weekly, null, 'another login\'s figure was put on this account');
@@ -235,4 +235,23 @@ test('#7152 slice 3 review 10: Settings is not handed a record line stamped in t
   sweep.append(file, { kind: 'decision', at: NOW - 1000, moves: [{ agent: 'ada' }], held: [], atRisk: [] });
   sweep.append(file, { kind: 'decision', at: Date.now() + 10 * sweep.CLOCK_SLACK_MS, moves: [{ agent: 'bo' }], held: [], atRisk: [] });
   assert.deepEqual(sweep.recent(file).map((l) => l.moves[0].agent), ['ada'], 'a line from the future reached Settings as the newest');
+});
+
+test('#7152 slice 3 review 12: one blip on the target does not flip the decision, and a refused login still stops it', () => {
+  const at = (spareRec) => ab.decide({ rows: ab.rowsFromReadings({ list: LIST, nowMs: NOW,
+    readUsage: (dir) => (dir === '/u/.claude-spare' ? spareRec : USAGE[dir]),
+    agentsOn: (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true }) }), movable: () => true, nowMs: NOW });
+  for (const state of ['unreachable', 'http-429', 'token-expired']) {
+    assert.equal(at({ ...reading(10, 100), state }).moves.length, 1, `a fresh target read as gone on one ${state}`);
+  }
+  assert.equal(at({ ...reading(10, 100), state: 'http-401' }).moves.length, 0, 'a target whose login was refused stayed a target');
+  assert.equal(at({ at: NOW, state: 'unreachable' }).moves.length, 0, 'CONTROL: a target with no fresh measurement is not one');
+});
+
+test('#7152 slice 3 review 12: a would-move off a stopped login is kept in the record but not drawn as one', () => {
+  const file = fileFor();
+  sweep.append(file, { kind: 'decision', at: NOW - 2000, moves: [{ agent: 'ada', kind: 'usage' }], held: [], atRisk: [] });
+  sweep.append(file, { kind: 'decision', at: NOW - 1000, moves: [{ agent: 'bo', kind: 'login' }], held: [], atRisk: [] });
+  assert.deepEqual(sweep.recent(file).map((l) => l.moves[0].agent), ['ada'], 'a move slice 3b will never make reached Settings');
+  assert.equal(sweep.readLines(file).length, 2, 'CONTROL: it is kept in the file');
 });

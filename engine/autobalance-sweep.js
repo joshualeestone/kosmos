@@ -37,7 +37,7 @@ function readLines(file) {
   const out = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
-    try { const j = JSON.parse(line); if (j && typeof j === 'object') out.push(j); } catch { /* one bad line is skipped */ }
+    try { const j = JSON.parse(line); if (j && typeof j === 'object') out.push(j); } catch { /* one bad line is skipped, and dropped at the next write */ }
   }
   return out;
 }
@@ -62,12 +62,13 @@ function append(file, entry) {
 
 const objects = (x) => (Array.isArray(x) ? x : []).filter((y) => y && typeof y === 'object');   // an odd line must not throw
 
-/* The newest RECENT decisions Settings draws, newest first: only those with a move in them. A decision with an account at
-   risk and nothing that could move (none idle, or no account able to take them) is recorded but not drawn: the record
-   is of what Kosmos would have moved. Throws when the record cannot be read (the route answers it as empty). */
+/* The newest RECENT decisions Settings draws, newest first: only those with a usage move in them. A decision with an
+   account at risk and nothing that could move is recorded but not drawn, and so is a move off a stopped login (review
+   12): it stays in the file as evidence of the login problem, but slice 3b moves for usage only, so drawing it would
+   show a move that will never happen. Throws when the record cannot be read (the route answers it as empty). */
 function recent(file, n = RECENT) {
   const now = Date.now();
-  return readLines(file).filter((l) => l.kind === 'decision' && objects(l.moves).length && !(Number.isFinite(l.at) && l.at > now + CLOCK_SLACK_MS))   // review 10: as create() distrusts it
+  return readLines(file).filter((l) => l.kind === 'decision' && objects(l.moves).some((m) => m.kind !== 'login') && !(Number.isFinite(l.at) && l.at > now + CLOCK_SLACK_MS))   // review 10: as create() distrusts it
     .slice(-n).reverse();
 }
 

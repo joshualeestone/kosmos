@@ -28895,7 +28895,7 @@ function abRecentHtml(recent, label, who, line) {
   for (const e of recent) {
     if (!e || typeof e !== 'object' || e.kind !== 'decision') continue;
     for (const m of Array.isArray(e.moves) ? e.moves : []) {
-      if (!m || typeof m !== 'object') continue;
+      if (!m || typeof m !== 'object' || m.kind === 'login') continue;   // review 12: never made, so not drawn as a would-move
       const mv = esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel));
       const when = at(e.at);   // review 9: no time read from the entry, so the line starts with a capital
       out.push((when ? when + 'it' : 'It') + ' would have moved ' + mv + (m.why ? ', because ' + esc(m.why) : '') + '.');
