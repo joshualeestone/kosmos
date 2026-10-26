@@ -144,6 +144,24 @@ test('a new computer identity (a Forget and a new sign-in) links every agent aga
   assert.equal(ownerCalls().length, n + 1);
 });
 
+test('a new agent key (rotated) links that agent again; the marker never holds the key itself', async () => {
+  await registered('ava');
+  await cs.sweep();
+  const n = ownerCalls().length;
+  assert.ok(n >= 1);
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.ok(typeof keys.ava.ownerLinked === 'string' && !keys.ava.ownerLinked.includes(keys.ava.apiKey), 'the marker is a digest');
+  // The service rotates the key; the board now holds the new one.
+  const a = agentNamed('ava');
+  a.key = 'rotated-' + a.key;
+  keys.ava.apiKey = a.key;
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  await cs.sweep();
+  assert.equal(ownerCalls().length, n + 1, 'linked again after the key changed');
+  await cs.sweep();
+  assert.equal(ownerCalls().length, n + 1, 'and only once');
+});
+
 test('nothing is minted or sent while Kosmos+ is off here, not signed in, or Community is off', async () => {
   R.on = false;
   await registered('ava');

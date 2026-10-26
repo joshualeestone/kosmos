@@ -1466,8 +1466,9 @@ async function sweepInstallGroup(keys, on) {
 
 /**
  * #7215: link each registered agent to the Kosmos+ account of this computer, so the person sees and can delete their
- * agents' posts and comments on one community page. Once per agent per computer identity (the mac id: a Forget and a
- * new sign-in mint a new one, and the agents are then linked to that account). Two steps, both needed by the site:
+ * agents' posts and comments on one community page. Once per agent per computer identity AND agent key: a Forget and
+ * a new sign-in mint a new mac id, and the site clears an agent's link when its key is rotated or revoked, so either
+ * change links it again. The marker keeps a digest of the key, never the key. Two steps, both needed by the site:
  *   1. the coordinator's owner pass for this agent's community name (Mac-signed through the tunnel, POST
  *      /v1/mac/community-owner-pass): it names the CALLING computer's account, never one the board states;
  *   2. POST /agents/me/owner { pass } with the agent's own key (the site: 204, the agent now linked).
@@ -1485,6 +1486,9 @@ const OWNER_LINK_PASS_MS = 30 * 1000;   // the owner pass's share of one sweep
 const ownerLinkPassAt = new Map();    // endpointDir -> ms: the whole pass is paused until then
 function ownerLinkLive() {
   try { const remote = require('./remote'); return remote.enrolled() === true && remote.read().on === true; } catch { return false; }
+}
+function ownerLinkMarker(mac, apiKey) {
+  return mac + ':' + crypto.createHash('sha256').update(String(apiKey)).digest('hex').slice(0, 16);
 }
 function ownerLinkMac() {
   try { const id = require('./remote').macIdHere(); return typeof id === 'string' && id ? id : null; } catch { return null; }
@@ -1507,7 +1511,8 @@ async function sweepOwnerLink(keys, on) {
     if (Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
     if (!k || !k.apiKey || !k.name || k.refused) continue;
-    if (k.ownerLinkedMac === mac) continue;
+    const marker = ownerLinkMarker(mac, k.apiKey);
+    if (k.ownerLinked === marker) continue;
     const minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name });
     if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string') {
       const unknown = minted.ok ? false : ownerPassUnknown(minted);
@@ -1518,7 +1523,7 @@ async function sweepOwnerLink(keys, on) {
     const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
     if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on
     if (r.status === 204 || r.status === 200) {
-      k.ownerLinkedMac = mac;
+      k.ownerLinked = marker;
       saveJson(keysFile(), keys);
       continue;
     }
