@@ -129,7 +129,7 @@ test('each agent is linked once: a pass minted for ITS community name, sent with
   const ava = agentNamed('ava'); const bo = agentNamed('bo');
   assert.equal(ava.owner, 'pass-for:' + ava.name);
   assert.equal(bo.owner, 'pass-for:' + bo.name);
-  assert.deepEqual(R.mints.map((m) => [m.method, m.route]).filter((x, i, a) => a.findIndex((y) => y[1] === x[1]) === i), [['POST', '/v1/mac/community-owner-pass']]);
+  assert.ok(R.mints.length > 0 && R.mints.every((m) => m.method === 'POST' && m.route === '/v1/mac/community-owner-pass'));
   for (const m of R.mints) assert.deepEqual(Object.keys(m.body), ['agent'], 'the board names only the agent, never an account');
   const before = ownerCalls().length;
   await cs.sweep();
@@ -258,12 +258,12 @@ test('one agent the community refuses does not hold the agents after it: they ar
   assert.equal(ownerCalls().length, n, 'the refused agent waits its pause; nothing else is left to link');
 });
 
-test('one agent Kosmos+ refuses to vouch for (403) does not hold the agents after it', async () => {
+test('one agent Kosmos+ refuses to vouch for (its 400, about the name) does not hold the agents after it', async () => {
   await registered('ava');
   await registered('bo');
   const refused = keyName('ava');
   R.mint = (body) => (body.agent === refused
-    ? { ok: false, because: 'coordinator answered 403', refusal: { status: 403, code: null, currentEpoch: null } }
+    ? { ok: false, because: 'coordinator answered 400', refusal: { status: 400, code: null, currentEpoch: null } }
     : { ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } });
   await cs.sweep();
   assert.equal(agentNamed('ava').owner, null);
@@ -328,4 +328,56 @@ test('a new computer identity during the mint: the pass is not sent, and the nex
   R.mint = null;
   await cs.sweep();
   assert.equal(ownerCalls().length, n + 1, 'linked under mac-3 on the next sweep');
+});
+
+test('a coordinator 403 is about this computer: one ask, then the whole pass waits', async () => {
+  R.on = false;   // registered with Kosmos+ off, so nothing is linked yet
+  await registered('ava');
+  await registered('bo');
+  await registered('cy');
+  R.on = true;
+  R.mint = () => ({ ok: false, because: 'coordinator answered 403', refusal: { status: 403, code: 'own_lineage', currentEpoch: null } });
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(R.mints.length, 1, 'not one ask per agent: ' + R.mints.length);
+});
+
+function writeRetireRequest(name, body) {
+  const d = cs._paths.retireDir();
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, name), body);
+  return path.join(d, name);
+}
+
+test('nothing is linked while the retire list cannot be read; once it can, linking resumes', async () => {
+  R.on = false;
+  await registered('ava');
+  R.on = true;
+  const f = writeRetireRequest('zz-broken.json', '{ not json');
+  await cs.sweep();
+  assert.equal(R.mints.length, 0, 'fail-closed: no pass asked');
+  fs.rmSync(f);
+  await cs.sweep();
+  assert.ok(agentNamed('ava').owner, 'control: linked once the list reads again');
+});
+
+test('a name being retired is not linked; another agent is, in the same sweep', async () => {
+  R.on = false;
+  await registered('ava');
+  await registered('bo');
+  R.on = true;
+  writeRetireRequest('ava.json', JSON.stringify({ agent: 'ava', at: '2026-10-26T00:00:00Z', done: [], stuck: [] }));
+  await cs.sweep();
+  assert.ok(!R.mints.some((m) => m.body.agent === keyName('ava')), 'no pass asked for the name being retired');
+  assert.ok(agentNamed('bo').owner, 'control: the other agent is linked');
+});
+
+test('Community switched off during a mint: the pass is not sent', async () => {
+  R.on = false;
+  await registered('ava');
+  R.on = true;
+  R.mint = (body) => { SW = { on: false, ok: true }; return { ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } }; };
+  await cs.sweep();
+  assert.equal(R.mints.length, 1);
+  assert.equal(ownerCalls().length, 0, 'switched off after the mint: nothing sent');
 });
