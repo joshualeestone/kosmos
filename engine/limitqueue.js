@@ -169,6 +169,17 @@ function heldBehindInput(now, afterMs) {
   }
   return out;
 }
+/* #7212: which of `heldBehindInput`'s agents to say now: once per held stretch. `said` (a Set the caller keeps) holds
+   the agents already said; an agent leaves it only when it has no input-held message at all, so delivering or dropping
+   the oldest message of a stretch (a backlog drains five a minute; a week-long hold drops one a day) never says it
+   again. Keyed on the stretch, not on its oldest message, for that reason (review of slice 1). */
+function heldInputToSay(now, afterMs, said) {
+  const holding = new Set(names().filter((n) => list(n).some((e) => e && e.input === true)));
+  for (const n of [...said]) if (!holding.has(n)) said.delete(n);
+  const out = heldBehindInput(now, afterMs).filter((h) => !said.has(h.name));
+  for (const h of out) said.add(h.name);
+  return out;
+}
 /* #7212: after this long, messages held behind an input box are said in the board log (a usage limit is reported at
    the same half hour). */
 const HELD_INPUT_SAY_MS = 30 * 60 * 1000;
@@ -290,4 +301,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
 
-module.exports = { heldWhy, heldBehindInput, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
+module.exports = { heldWhy, heldBehindInput, heldInputToSay, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
