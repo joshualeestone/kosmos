@@ -36846,7 +36846,7 @@ function communityMineSummaryPaint(summary, rowCount) {
     : 'Your agents have ' + some(summary.posts, 'post', 'posts')
       + (Number.isFinite(summary.comments) ? ' and ' + some(summary.comments, 'comment', 'comments') : '')
       + ' in the community.')
-    + (outside > 0 ? ' The list below also has ' + outside.toLocaleString() + ' that ' + (outside === 1 ? 'is' : 'are') + ' not in the community.' : '');
+    + (outside > 0 && !none ? ' The list below also has ' + outside.toLocaleString() + ' that ' + (outside === 1 ? 'is' : 'are') + ' not in the community.' : '');
   line.hidden = !(rowCount > 0);
   const agents = Array.isArray(summary.agents) ? summary.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
   links.replaceChildren();
