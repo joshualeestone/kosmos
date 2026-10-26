@@ -147,3 +147,12 @@ test('#7210 design review: while not on All the sound switch keeps its value but
   assert.equal(note.hidden, true);
   assert.equal(sound.attrs['aria-describedby'], undefined);
 });
+
+test('#7210 review 4: the sound switch\'s click handler refuses while the switch is disabled (a scripted click too)', () => {
+  const at = SCRIPT.indexOf("document.getElementById('pjs-sound-toggle').addEventListener('click', () => {");
+  assert.ok(at > 0, 'the sound switch handler moved');
+  const body = SCRIPT.slice(at, SCRIPT.indexOf('});', at));
+  const guard = body.indexOf(".disabled) return;");
+  const flip = body.indexOf('setProjectSoundOn(');
+  assert.ok(guard > 0 && flip > guard, 'the handler can flip the saved sound choice while the switch is disabled');
+});
