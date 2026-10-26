@@ -23915,11 +23915,9 @@ let ACCT_SOON_SEQ = 0;   // unique ids for each row's warning line (aria-describ
 function loginAdvGo(dir, email, opener) {
   /* kosmos#7198 (Josh, 08:32: "lets update per Kitty's plan on the ai model modal"): a notice tied to one account
      opens that account's Sign in again dialog right where the person is, on any page; the dialog is a window over the
-     page, so the page underneath stays as it was and closing it leaves them there. The notice names a folder only when
-     it is the one its AI Models row reads (status.js dirOf), so the dialog signs in again as that account. A notice
-     with no such folder still goes to AI Models, below. */
-  /* The board names a folder only when AI Models lists it (status.js dirOf); if this page has the list and it no longer
-     has that row (removed since), AI Models instead. */
+     page, so the page underneath stays as it was and closing it leaves them there. The board names a folder only when
+     AI Models lists it and its row reads the same login (status.js dirOf); if this page has read its own account list
+     and no longer has that row (removed since), and for a notice with no folder, AI Models instead, below. */
   const listed = !(typeof ACCOUNTS_LOADED !== 'undefined' && ACCOUNTS_LOADED && Array.isArray(ACCOUNTS)) || ACCOUNTS.some((a) => a && a.dir === dir);
   if (typeof dir === 'string' && dir && listed && typeof openAcctReauth === 'function') {
     ACCT_ADD_RETURN_FOCUS = opener && typeof opener.focus === 'function' ? opener : null;

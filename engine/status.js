@@ -8935,6 +8935,9 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
           return typeof email === 'string' && email ? email : null;
         } catch { return null; }
       });
+      // The folders AI Models lists (accounts.list, read from disk; no live check). Unreadable: no notice names a row.
+      let rowDirs = null;
+      try { rowDirs = opts.rowDirs instanceof Set ? opts.rowDirs : new Set(accounts.list().map((a) => a && a.dir).filter(Boolean)); } catch { rowDirs = null; }
       /* #5407: the account's folder as Settings > AI Models names its row (accounts.list: the default is
          ~/.claude, any other the folder itself), so the notice's Refresh login can sign in again as that account.
          Review 5: ONLY when that row reads the same login. The row's login is the keychain entry for its folder
@@ -8951,9 +8954,6 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
            for this folder in place, which must never be a folder with no account row (removed, or never listed). */
         return rowReads === adv.service && rowDirs && rowDirs.has(dir) ? dir : null;
       };
-      // The folders AI Models lists (accounts.list, read from disk; no live check). Unreadable: no notice names a row.
-      let rowDirs = null;
-      try { rowDirs = opts.rowDirs instanceof Set ? opts.rowDirs : new Set(accounts.list().map((a) => a && a.dir).filter(Boolean)); } catch { rowDirs = null; }
       const out = le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
         .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf), dir: dirOf(a) }));
       // A run through the readCcd seam (a test) writes nothing unless it asks for the lines with opts.log (review 3).
