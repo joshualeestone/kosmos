@@ -22,6 +22,7 @@
  *   8. the stubbed pop is a sine starting at 400 Hz (the recipe fields).
  *   9. one pop through the REAL AudioContext builds a valid graph (no throw).
  *  10. the per-project settings toggle exists and paintSwitch drives its state.
+ *  4b. kosmos#7210: a project on Mentions only or Muted does not ring; the same rise on All does.
  *
  * DOM-state + a stubbed-AudioContext call count (+ one real-context throw check), so headless is fine.
  *
@@ -127,6 +128,18 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if ((await pops()) === 1) ok('an unmuted project rings (mute is per-project)'); else bad('unmuted did not ring', String(await pops()));
     await p.evaluate(() => { setProjectSoundOn('a', true); });   // restore
 
+    // 4b. kosmos#7210: a project set to Mentions only or Muted (the board's level) makes no sound; All does.
+    for (const level of ['mentions', 'muted']) {
+      await reset();
+      await p.evaluate((lv) => ringNewMessages([{ id: 'a', unread: 0, notify: lv }]), level);
+      await p.evaluate((lv) => ringNewMessages([{ id: 'a', unread: 4, notify: lv }]), level);
+      if ((await pops()) === 0) ok('#7210: a project on ' + level + ' does not ring'); else bad('#7210 ' + level + ' rang', String(await pops()));
+    }
+    await reset();
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 0, notify: 'all' }]));
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 4, notify: 'all' }]));
+    if ((await pops()) === 1) ok('#7210 CONTROL: the same rise on All rings'); else bad('#7210 All did not ring', String(await pops()));
+
     // 5. DND suppresses
     await reset();
     await p.evaluate(() => { SOUND_QUIET = true; });
@@ -198,7 +211,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 15) { console.log('bubblepop: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 18) { console.log('bubblepop: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('bubblepop: ' + failures + ' FAILED'); process.exit(1); }
   console.log('bubblepop: all good, ' + ran + ' checks');
 })();
