@@ -50,6 +50,8 @@ const attachments = require('./attachments');
 const dmfiles = require('./dmfiles');
 const projects = require('./projects');
 const store = require('./store');
+/* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
+const { NAMESPACE, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, mayHold } = require('./winpath');
 
 /* The type a stored file is described by, from its extension. The page words the
    card from it (pjFileWord) and the download carries it with nosniff, an attachment
@@ -253,15 +255,18 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
   const skippedOthers = [];   // read only after best is the agent's: with no project of its own there, it is refused anyway
   for (const p of all) {
     if (!p || typeof p.folder !== 'string' || !p.folder) continue;
-    if (win && !isLocalVolumeSpelling(p.folder)) {
-      /* Review 3 finding 1: a folder written on a drive can itself be (or sit under) a link out to a share, and
-         folderState resolves it. Its links are walked first, by lstat and readlink only (its \\?\C:\ and \\.\C:\
-         spellings read as the drive path they are), and a folder whose walk is refused is not resolved. A local
-         volume written without a letter (\\?\Volume{GUID}\) is resolved as on main: it is on this computer, and its
-         spelling cannot be compared with the file's (review 8 finding 1). */
+    /* Only ANOTHER agent's project folder is ever left unresolved, and only when it leads to a share. The agent's own
+       folders are resolved as on main, a share among them included: the person chose that share (review 11 finding
+       2). Another agent's folder written as a share (any agent can register one) is resolved only for a file on that
+       same share; one written on a drive is walked first, by lstat and readlink (its \\?\C:\ and \\.\C:\ spellings
+       read as the drive path they are), and left unresolved only when the walk says its links lead to a share (review
+       3 finding 1). Every other folder, a local link the walk will not follow included, is resolved as on main, so
+       identity decides; skipping those let a nested project's files through (review 11 finding 1). A local volume
+       written without a letter (\\?\Volume{GUID}\) is resolved too: it is on this computer. */
+    if (win && !(p.agents || []).includes(sessionName) && !isLocalVolumeSpelling(p.folder)) {
       const otherShare = isNetworkSpelling(p.folder) && (!fileShare || shareOf(p.folder) !== fileShare);
-      if (otherShare || (!isNetworkSpelling(p.folder) && winLinkRefusal(asDrivePath(p.folder), null))) {
-        if (!(p.agents || []).includes(sessionName)) skippedOthers.push(p.folder);
+      if (otherShare || (!isNetworkSpelling(p.folder) && winLinkRefusal(asDrivePath(p.folder), null) === ON_NETWORK)) {
+        skippedOthers.push(p.folder);
         continue;
       }
     }
@@ -362,8 +367,6 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    Write the project folder as Windows resolves it. */
 const ON_NETWORK = 'that path is on another computer on the network, or names a device, so it cannot be attached; copy the file into your Files folder and attach it from there';
 const DEVICE_NAME = 'that name belongs to a Windows device, not a file, so it cannot be attached';
-/* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
-const { NAMESPACE, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, mayHold } = require('./winpath');
 /* The agent's roots: `drives`, the letters every root is written on or reaches through its own links, and `folders`, the
    agent's own project folders (on a drive letter, or a plain share). A project may live on a share, written as a
    mapped drive (projects.js opens "a Z:\ record whose realpath is \\server\share") or as \\server\share itself; that
@@ -453,12 +456,22 @@ function listed(p) {
   try { return fs.readdirSync(path.win32.dirname(p)).some((n) => n.toLowerCase() === name); } catch { return false; }
 }
 function winLinkRefusal(p, roots) {
-  return walkLinks(p, (reached) => winSpellingRefusal(reached, roots));
+  /* One link the walk stops at without refusing: one of the agent's own project folders that is itself a link to a
+     plain share (C:\x\proj -> \\host\share\proj), the person's choice of folder as a mapped drive is (review 11
+     finding 2). The path is then resolved, and winRealRefusal lets its share real path through as a project file. */
+  const ownShareProject = (linkPath, to) => !!roots && isPlainShare(to)
+    && roots.folders.some((f) => !!driveOf(f) && sameWrittenPath(linkPath, f));
+  return walkLinks(p, (reached) => winSpellingRefusal(reached, roots), 0, ownShareProject);
+}
+/* Whether two drive paths are written the same, as Windows compares them (case-insensitively, either slash). */
+function sameWrittenPath(a, b) {
+  const norm = (p) => path.win32.normalize(asDrivePath(p)).toLowerCase().replace(/\\+$/, '');
+  return norm(a) === norm(b);
 }
 /* The one link walk (review 9 finding 2: drivesReached had its own copy). Each path the walk reaches, the given one and
    then each followed link's resolved path, is shown to `onPath` before its parts are read; a sentence from onPath, or
    from the walk itself, stops it and is returned. Null: the walk reached the end with nothing refused. */
-function walkLinks(p, onPath, hops = 0) {
+function walkLinks(p, onPath, hops = 0, acceptLink = null) {
   if (hops > MAX_HOPS) return 'that path goes through too many links to follow, so it cannot be attached';
   const why = onPath(p);
   if (why) return why;
@@ -481,9 +494,9 @@ function walkLinks(p, onPath, hops = 0) {
     let to;
     try { to = fs.readlinkSync(cur); } catch { return CANNOT_READ; }
     const target = followableLinkTarget(to);
-    if (target === null) return unfollowedLinkRefusal(to);
+    if (target === null) return (acceptLink && acceptLink(cur, to)) ? null : unfollowedLinkRefusal(to);
     const next = path.win32.resolve(path.win32.dirname(cur), target, ...parts.slice(i + 1));
-    return walkLinks(next, onPath, hops + 1);
+    return walkLinks(next, onPath, hops + 1, acceptLink);
   }
   return null;
 }

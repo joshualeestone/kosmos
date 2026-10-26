@@ -38,7 +38,12 @@ const NT_LOCAL = /^\\\?\?\\(?=[A-Za-z]:[\\/])/;                  // \??\C:\..., 
 function followableLinkTarget(to) {
   const t = String(to).replace(LOCAL_LONG, '').replace(NT_LOCAL, '');
   if (/^[A-Za-z]:[\\/]/.test(t)) return t.indexOf(':', 2) >= 0 ? null : t;
-  if (/^[\\/]/.test(t) || t.includes(':')) return null;
+  if (t.includes(':') || t.includes('?')) return null;
+  /* A root-relative target (\dir\x, what mklink writes for a target typed without a drive) is a path on the link's own
+     drive, resolved against it like a relative one (review 11 finding 3). Not one that names the object manager's own
+     folders (\Device\..., \GLOBAL??\...), which only the NT spellings above may reach. */
+  if (/^[\\/](?![\\/])/.test(t)) return /^[\\/](device|global)/i.test(t) ? null : t;
+  if (/^[\\/]/.test(t)) return null;
   return t;
 }
 /* A share path's namespace spellings (\\?\UNC\host\share, \??\UNC\..., and the Mup device that serves shares,

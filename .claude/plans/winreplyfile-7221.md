@@ -57,8 +57,12 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
      attach (review 5 finding 2): a file directly in Files touches no project folder, as on main, so a project on a
      mapped drive whose server is down never stalls it.
 2. **The links, by lstat and readlink only** (`winLinkRefusal`): each part of the path is lstat'd; a link's target is
-   read and followed ONLY when it is a drive path (`X:\...`, also written `\\?\X:\` or `\??\X:\`) or a plain relative
-   one (`followableLinkTarget`, an allow-list). Anything else is refused unfollowed: review 2 finding 1 measured a
+   read and followed ONLY when it is a drive path (`X:\...`, also written `\\?\X:\` or `\??\X:\`), a plain relative
+   one, or a root-relative one (`\dir\x`, what `mklink` writes for a target typed without a drive: a path on the
+   link's own drive, review 11 finding 3), but not `\Device\...` or `\GLOBAL...` (`followableLinkTarget`, an
+   allow-list). One more link is followed no further and not refused: one of the agent's OWN project folders that is
+   itself a link to a plain share (`C:\x\proj -> \\host\share\proj`), the person's choice of folder as a mapped drive
+   is (review 11 finding 2, **decided**: it attached on main). Anything else is refused unfollowed: review 2 finding 1 measured a
    target written `\\?\GLOBALROOT\Device\Mup\<host>\<share>` reading back as `\??\GLOBALROOT\...` (one backslash, past
    a `\\` deny rule) whose realpath stalled 21 s. A followed target is resolved and walked the same way (rule 1
    applied to each, so a link to another drive is refused too). More than 32 links: refused. A part that lstats
@@ -76,7 +80,10 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    another share, so skipping it changes no answer; one on the file's own share may hold it, so it is still resolved.
    A project folder written on a drive is walked by rule 2 first (lstat and readlink, no drive rule; a `\\?\C:\` or
    `\??\C:\` spelling read as its drive path), and skipped when its links leave for a share (review 3 finding 1:
-   `C:\x\proj` as a link to `\\host\share` was still resolved).
+   `C:\x\proj` as a link to `\\host\share` was still resolved). **Only another agent's folder is ever skipped, and only
+   when its walk says "a share"** (review 11 findings 1 and 2): every other folder, a local link the walk will not
+   follow included, is resolved as on main so identity decides (skipping those let a nested project's file through,
+   reproduced); the agent's own folders are always resolved, a share among them included.
 5. **A skipped project fails closed** (review 5 finding 1, a fail-open found in this branch): a nested project the
    agent is NOT on exists to keep its files from the outer project's agents, so skipping it must not let the outer
    project answer. When a project of another agent is skipped by rule 4 and its folder may hold the file by spelling
@@ -146,10 +153,11 @@ compare `ino` as numbers too; they are #7229 (filed), not this branch, with refu
 4. A path on a drive no root is written on (any caller of `/api/reply` can name `Q:\x`) walks the agent's OWN roots'
    links to learn the drives they reach (review 6 finding 2). One of the agent's own projects on a mapped drive whose
    server is down then stalls that attach, as any attach of a file in that project already would. Named in the code.
-5. Not changed (review 6 finding 1, deferred): every Windows attach of a project file walks every registered project
-   folder by lstat before `folderState` resolves it. For a folder on a mapped drive the walk touches the same server
-   the realpath touches next, so it adds no new place contacted; it is what skips a folder that is a local link to a
-   share (review 3 finding 1), which a spelling-only filter could not see.
+5. Not changed here (review 6 finding 1; review 11 finding 4 asked for a card): every Windows attach of a project
+   file walks every OTHER agent's project folder by lstat before `folderState` resolves it. For a folder on a mapped
+   drive the walk touches the same server the realpath touches next, so it adds no new place contacted; it is what
+   skips a folder that is a local link to a share (review 3 finding 1), which a spelling-only filter could not see.
+   Cost and the dead-mapped-drive stall are #7232 (filed), with three options.
 
 What would change my mind: a Windows build where `lstat` or `readlink` itself contacts a share (measured not to, here).
 
@@ -212,6 +220,12 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   counts an unplaceable namespace such as `\\.\pipe\` as not local, the safe reading), so a Files link to a local
   volume is refused unresolved as an unfollowable link, not as "on the network". Against iteration 9's code
   (1e8153e): fails. winpath exports only what other modules or the tests use.
+- Review 11: the reviewer's repro, made faithfully (Node's `symlinkSync` fills a drive into a rooted target, measured,
+  so root-relative links are made with `mklink`): another agent's nested project that is a root-relative link, and one
+  that is a volume-GUID link, each keep their file from the agent on the outer project; a root-relative link in Files
+  attaches; the agent's own project folder that is a link to a share (through the admin share) attaches, and the same
+  link as another agent's project is refused unresolved. Against iteration 10's code (8126391): all 5 fail, both
+  repros by attaching the nested file (`ok: true`).
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -220,7 +234,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 31/31 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 36/36 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

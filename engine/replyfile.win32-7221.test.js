@@ -276,7 +276,7 @@ test('#7221 review 2-1: a link target is followed only when it is a drive path o
   assert.equal(follow('f.txt'), 'f.txt');
   for (const t of ['\\??\\GLOBALROOT\\Device\\Mup\\10.255.255.1\\share\\x', '\\\\?\\GLOBALROOT\\Device\\Mup\\h\\s',
     '\\\\host\\share\\x', '//host/share/x', '\\\\?\\UNC\\host\\share', '\\\\.\\NUL', '\\??\\UNC\\host\\share',
-    '\\Device\\Mup\\host\\share', '\\Users\\a\\f.txt', 'C:f.txt', 'f.txt:stream', 'C:\\a\\f.txt:stream',
+    '\\Device\\Mup\\host\\share', 'C:f.txt', 'f.txt:stream', 'C:\\a\\f.txt:stream',
     '\\\\?\\Volume{0b1c2d3e-0000-0000-0000-100000000000}\\x']) {
     assert.equal(follow(t), null, t + ' is not followed');
   }
@@ -550,4 +550,93 @@ test('#7221 review 8-1: a nested project of another agent written by its volume 
   ];
   const r = replyfile.attach(WHO, path.join(nested, 'secret.txt'), { platform: 'win32' });
   assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it by identity: ' + JSON.stringify(r));
+});
+
+/* ---------- review 11 ---------- */
+
+/* A link with a ROOT-RELATIVE target (\dir\x, no drive), made the way a person makes one: cmd's mklink. Node's
+   symlinkSync fills the drive in (measured: it stores C:\dir\x), so it cannot make this link. False if mklink failed. */
+function mklinkRootRelative(link, target, isDir) {
+  const { execFileSync } = require('node:child_process');
+  const args = ['/c', 'mklink'].concat(isDir ? ['/D'] : [], [link, target]);
+  try { execFileSync('cmd', args, { stdio: 'ignore' }); } catch { return false; }
+  try { return !/^[A-Za-z]:/.test(fs.readlinkSync(link)); } catch { return false; }
+}
+
+test('#7221 review 11-3: a root-relative link target is a path on the link\'s own drive, and is followed', () => {
+  assert.equal(winpath.followableLinkTarget('\\Users\\a\\f.txt'), '\\Users\\a\\f.txt');
+  assert.equal(winpath.followableLinkTarget('/Users/a/f.txt'), '/Users/a/f.txt');
+  for (const t of ['\\Device\\Mup\\host\\share', '\\device\\HarddiskVolume3\\x', '\\GLOBAL??\\C:\\x', '\\??\\GLOBALROOT\\x', '\\Users\\a:b']) {
+    assert.equal(winpath.followableLinkTarget(t), null, t + ' is not followed');
+  }
+});
+
+test('#7221 review 11-3: a root-relative link in Files to a file in Files attaches', linkOnly, (t) => {
+  const link = path.join(FILES, 'rootrel.txt');
+  if (!mklinkRootRelative(link, path.join(FILES, 'report.txt').slice(2), false)) { t.skip('mklink could not make a root-relative link here'); return; }
+  try {
+    const r = replyfile.attach(WHO, link, { platform: 'win32' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    replyfile.discard(r.rec);
+  } finally { fs.rmSync(link, { force: true }); }
+});
+
+test('#7221 review 11-1: a nested project of another agent that is a link the walk will not follow is resolved, and keeps its files', linkOnly, (t) => {
+  /* The repro from review 11: agent B's project `outer\nested` is a link whose target the walk does not follow (a
+     volume GUID path); skipped, it was judged by spelling only and the file at its physical target attached for the
+     agent on `outer`. Now it is resolved, as on main, and identity decides. */
+  const { execFileSync } = require('node:child_process');
+  let volume = null;
+  try { volume = (/\\\\\?\\Volume\{[0-9a-f-]+\}\\/i.exec(execFileSync('mountvol', [path.parse(SANDBOX).root.slice(0, 2), '/L'], { encoding: 'utf8' })) || [null])[0]; } catch { volume = null; }
+  if (!volume) { t.skip('mountvol gave no volume name here'); return; }
+  const outer = path.join(SANDBOX, 'router');
+  const data = path.join(outer, 'deep', 'data');
+  fs.mkdirSync(data, { recursive: true });
+  fs.writeFileSync(path.join(data, 'secret.txt'), 'B\'s project file\n');
+  const nested = path.join(outer, 'nested');
+  fs.symlinkSync(volume + data.slice(3), nested, 'dir');
+  try {
+    PROJECTS = [
+      { id: 'p-router', name: 'Outer', folder: outer, agents: [WHO] },
+      { id: 'p-rnested', name: 'Nested', folder: nested, agents: ['someone-else'] },
+    ];
+    const r = replyfile.attach(WHO, path.join(data, 'secret.txt'), { platform: 'win32' });
+    assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it: ' + JSON.stringify(r));
+  } finally { fs.rmSync(nested, { force: true }); }
+});
+
+test('#7221 review 11-1: the same with a root-relative link (the reviewer\'s exact repro)', linkOnly, (t) => {
+  const outer = path.join(SANDBOX, 'rrouter');
+  const data = path.join(outer, 'deep', 'data');
+  fs.mkdirSync(data, { recursive: true });
+  fs.writeFileSync(path.join(data, 'secret.txt'), 'B\'s project file\n');
+  const nested = path.join(outer, 'nested');
+  if (!mklinkRootRelative(nested, data.slice(2), true)) { t.skip('mklink could not make a root-relative link here'); return; }
+  try {
+    PROJECTS = [
+      { id: 'p-rrouter', name: 'Outer', folder: outer, agents: [WHO] },
+      { id: 'p-rrnested', name: 'Nested', folder: nested, agents: ['someone-else'] },
+    ];
+    const r = replyfile.attach(WHO, path.join(data, 'secret.txt'), { platform: 'win32' });
+    assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it: ' + JSON.stringify(r));
+  } finally { fs.rmSync(nested, { force: true }); }
+});
+
+test('#7221 review 11-2: the agent\'s own project folder that is a link to a share attaches its files, as on main', linkOnly, (t) => {
+  const target = path.join(SANDBOX, 'own-share-target');
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, 'f.txt'), 'on the share\n');
+  const targetUnc = adminShareOf(target);
+  if (!targetUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  const proj = path.join(SANDBOX, 'own-share-link');
+  fs.symlinkSync(targetUnc, proj, 'dir');
+  try {
+    PROJECTS = [{ id: 'p-own-share', name: 'Own share', folder: proj, agents: [WHO] }];
+    const r = replyfile.attach(WHO, path.join(proj, 'f.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, 'attaches as on main: ' + JSON.stringify(r));
+    replyfile.discard(r.rec);
+    // CONTROL: the same link registered as ANOTHER agent's project keeps it from this one, unresolved
+    PROJECTS = [{ id: 'p-other-share', name: 'Other share', folder: proj, agents: ['someone-else'] }];
+    refusedUnresolved(path.join(proj, 'f.txt'), replyfile.ON_NETWORK, 'another agent\'s link to a share');
+  } finally { fs.rmSync(proj, { force: true }); }
 });
