@@ -472,6 +472,65 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     };
     await sendJumpArms('');
 
+    /* ---- 4b. kosmos#7196: ON A PHONE THE NEWEST ROW IS NOT UNDER THE COMPOSER. The room column ran about 85px past
+       the screen in the phone tab layout, so the sticky composer covered the thread's floor: a reader "at the bottom"
+       could not see the newest row until the page was nudged. Measured on a fresh phone page of this same board (tab
+       layout, before section 5 switches it), at the room's floor, against the composer's top edge. */
+    {
+      const ph = await b.newPage({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+      ph.on('pageerror', (e) => errs.push('phone: ' + String(e)));
+      try {
+        await ph.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+        if (await ph.isVisible('#firstrun')) await ph.keyboard.press('Escape');
+        const tab = ph.locator('[data-tab="projects"]').first();
+        if (await tab.isVisible().catch(() => false)) await tab.click();
+        else await ph.evaluate(() => { const t = document.querySelector('[data-tab="projects"]'); if (t) t.click(); });
+        await ph.locator('#pj-list').getByText('Scroll Repro').first().click();
+        await ph.waitForSelector('#pj-room', { state: 'visible', timeout: GROW_MS });
+        await ph.waitForFunction(() => document.getElementById('pj-room').children.length > 20, null, { timeout: GROW_MS }).catch(() => {});
+        const floor = () => ph.evaluate(async () => {
+          const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer');
+          room.scrollTop = room.scrollHeight;
+          await new Promise((r) => setTimeout(r, 300));
+          const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
+          const last = rows[rows.length - 1];
+          return { cls: last ? last.className : '', lastBottom: Math.round(last ? last.getBoundingClientRect().bottom : 0),
+            composerTop: Math.round(comp.getBoundingClientRect().top), composerBottom: Math.round(comp.getBoundingClientRect().bottom),
+            roomH: Math.round(room.getBoundingClientRect().height), viewport: innerHeight,
+            phoneTab: !document.body.classList.contains('consolidated') && matchMedia('(max-width: 30rem)').matches };
+        });
+        const post = await floor();
+        if (!post.phoneTab) bad('#7196 the phone arms run in the phone tab layout', JSON.stringify(post));
+        else if (post.lastBottom <= post.composerTop) ok('#7196 on a phone the newest post sits above the composer (' + post.lastBottom + ' <= ' + post.composerTop + ')');
+        else bad('#7196 on a phone the newest post sits above the composer', JSON.stringify(post));
+        // CONTROL: lift the cap the fix writes, and the same measurement must see the newest row go under the composer.
+        const lifted = await ph.evaluate(() => { document.getElementById('pj-room').style.setProperty('--pj-room-fit', '2000px'); return true; }) && await floor();
+        if (lifted.lastBottom > lifted.composerTop) ok('#7196 CONTROL: without the fit, the measurement sees the newest row under the composer');
+        else bad('#7196 CONTROL: without the fit, the measurement sees the newest row under the composer', 'it cannot fail: ' + JSON.stringify(lifted));
+        await ph.evaluate(() => pjFitRoomPhone());
+        // An automated notice as the newest row (the shape Josh's report showed), not only an ordinary post.
+        await ph.evaluate(async () => {
+          await fetch('/api/project/scrollrepro/notice', { method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ source: 'email digest', text: 'Email cleanup\n- main inbox: 3 marked read\n\nNothing needs you today.' }) });
+        });
+        await ph.waitForFunction(() => /msg-valve/.test((document.getElementById('pj-room').lastElementChild || {}).className || ''), null, { timeout: GROW_MS }).catch(() => {});
+        const notice = await floor();
+        if (!/msg-valve/.test(notice.cls)) bad('#7196 the notice arm has a notice as the newest row', JSON.stringify(notice));
+        else if (notice.lastBottom <= notice.composerTop) ok('#7196 on a phone a notice as the newest row sits above the composer');
+        else bad('#7196 on a phone a notice as the newest row sits above the composer', JSON.stringify(notice));
+        // The keyboard: the visible height shrinks; the thread shrinks with it and the composer stays on screen.
+        await ph.setViewportSize({ width: 393, height: 852 - 336 });
+        await ph.waitForTimeout(500);
+        const kb = await floor();
+        if (kb.composerBottom <= kb.viewport && kb.roomH < post.roomH) ok('#7196 with the keyboard up the thread shrinks and the composer stays on screen');
+        else bad('#7196 with the keyboard up the thread shrinks and the composer stays on screen', JSON.stringify({ before: post, kb }));
+      } catch (e) {
+        bad('#7196 the phone arms ran', String((e && e.message) || e));
+      } finally {
+        await ph.close().catch(() => {});
+      }
+    }
+
     /* ---- 5. THE SAME ARMS IN THE CONSOLIDATED VIEW, which is the layout Josh
        is actually using. It gives the room a different box entirely (grid rows,
        its own scroller), so every pass above is a statement about the TAB view
