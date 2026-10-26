@@ -70,6 +70,16 @@ no profile record, and STARTS the agent: enable then bootstrap).
    plainSegments, now said at the check. The shared nine-name pool is filed as #7181. Deferred: O_NOFOLLOW and
    O_NONBLOCK (the #1732 guard refuses POSIX-only flags; the identity check covers a swapped link).
 
+7. B: git reads a folder holding HEAD, objects and refs as a repository with no .git (safe.bareRepository defaults to
+   all), so that layout reached core.fsmonitor past every git check: it now counts as a git folder in an agent, at
+   the top of workers (by lstat on exact names, the filesystem's own case rule) and at the top of projects. W:
+   failedFiles missed backuprestore's failedNotListed; the listing read every entry and brief with no bound (now
+   MAX_ENTRIES_READ per folder through opendir, and a 32 MB brief budget per listing); a git folder at the top of
+   projects was shown without its reason. Nits taken: the listing requires a registry row, a busy registry lock asks
+   to try again, lone surrogates are stripped, the contract says `more` can be forced. Deferred to 4c: showing the
+   commands a hook or MCP file runs (engine/startcommands.js commandsIn), and starting agents with
+   safe.bareRepository=explicit as a second guard. Not armed by a test: the 32 MB budget and the lone-surrogate strip.
+
 ## Residuals, stated
 - Between finish's emptiness check and its rename, another process of the person's own (an agent already running in
   the new world) could write into a target; rmdir then fails and the failure is reported, nothing is lost.
