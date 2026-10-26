@@ -174,6 +174,21 @@ esac
 # run-tests.sh itself runs its shell part one at a time rather than 4 shards inside a shard. A test that scrubs the
 # environment (env -i, or dropping KOSMOS_ variables) gets the unset default instead, as any run with no value does.
 _RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; export KOSMOS_SHELL_PARALLEL=1
+# #7247: on a Windows computer (Git Bash, MSYS, Cygwin) that is not CI, every node this run starts loads
+# tools/no-schtasks-preload.cjs, so the suite cannot reach the computer's real Task Scheduler (without it a run fires
+# thousands of real schtasks calls). Forward slashes: NODE_OPTIONS reads a backslash inside quotes as an escape.
+# KOSMOS_TESTS_REAL_SCHTASKS=1 asks for the real scheduler; tools/windows-tests.js applies the same rule.
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if [ -z "${CI:-}" ] && [ "${KOSMOS_TESTS_REAL_SCHTASKS:-}" != 1 ]; then
+      _rt_preload="$(cygpath -m "$REPO/tools/no-schtasks-preload.cjs" 2>/dev/null)" || _rt_preload="$REPO/tools/no-schtasks-preload.cjs"
+      case "${NODE_OPTIONS:-}" in
+        *no-schtasks-preload.cjs*) ;;
+        *) export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require \"$_rt_preload\"" ;;
+      esac
+      echo "run-tests: schtasks calls are refused in every test (#7247); KOSMOS_TESTS_REAL_SCHTASKS=1 allows the real scheduler" >&2
+    fi ;;
+esac
 # #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
 if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
   if [ -z "${KOSMOS_SHELL_SHARD:-}" ] || { [ "$KOSMOS_SHELL_PLATFORM" != linux ] && [ "$KOSMOS_SHELL_PLATFORM" != mac ]; }; then
