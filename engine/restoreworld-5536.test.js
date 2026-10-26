@@ -359,16 +359,20 @@ test('a leftover world folder that cannot be set aside stops the restore rather 
   assert.match(r.because, /could not be set aside/);
 });
 
-test('finish refuses when the world folder itself has been swapped for a link', { skip: process.platform === 'win32' ? 'a directory symlink needs privileges on Windows' : false }, (t) => {
+test('finish and listing refuse a world folder swapped for a link', { skip: process.platform === 'win32' ? 'a directory symlink needs privileges on Windows' : false }, (t) => {
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
   fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  fs.mkdirSync(path.join(p.dir, 'workers', 'bob'));
+  fs.writeFileSync(path.join(p.dir, 'workers', 'bob', 'CLAUDE.md'), '# bob\n');
+  assert.equal(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.length, 1, 'control: bob is listed through the real folder');
   fs.renameSync(p.dir, `${p.dir}-real`);
   fs.symlinkSync(`${p.dir}-real`, p.dir);
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, false);
   assert.match(r.because, /did not name its Kosmos/);
   assert.ok(fs.existsSync(path.join(`${p.dir}-real`, rw.RESTORE_DIR, 'workers', 'ann')), 'nothing moved');
+  assert.deepEqual(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents, [], 'nothing is listed through the link');
 });
 
 test('a move that fails part way says which root moved and puts the empty target back; finishing again moves the rest', { skip: process.platform === 'win32' ? 'a read-only folder needs POSIX modes' : false }, (t) => {
