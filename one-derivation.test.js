@@ -54,8 +54,15 @@ test('#1228: every instructions.staleness() call is wrapped in toldOverride', ()
      `.staleness` is raw. There is no `instructions.staleness(` text on that line,
      so reverting it left this file green. Asserted by its own shape. */
   const server = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
-  assert.match(server, /instructions\.read\(/, 'could not find the instructions route to check it');
-  const routeWindow = server.slice(server.indexOf('instructions.read('), server.indexOf('instructions.read(') + 600);
+  /* #5313: anchor on THIS route's own read, `instructions.read(name, sessionOf(name))`, not the first
+     `instructions.read(` anywhere in the file. An unrelated caller (the community task-done membership
+     check, agentInCommunity) reads instructions with a single-arg `instructions.read(session)` and
+     legitimately has no toldOverride; the assertion here is about the /api/agent/<name>/instructions
+     route, so it must anchor on the route's read, not on file order. */
+  const routeRead = 'instructions.read(name, sessionOf(name))';
+  const readAt = server.indexOf(routeRead);
+  assert.notEqual(readAt, -1, 'could not find the instructions route\'s read to check it');
+  const routeWindow = server.slice(readAt, readAt + 600);
   assert.match(routeWindow, /toldOverride\s*\(/,
     'the instructions route serves a raw verdict, so renderStale\'s told branch is unreachable from its own endpoint');
 });

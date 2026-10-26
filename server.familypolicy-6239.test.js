@@ -197,8 +197,10 @@ test('#6239: a shared room under the policy says it is closed, and a post there 
 
 test('#6239: the community turn never treats the stopped lines as the rules (round 7, source pin)', () => {
   const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-  const a = SRC.indexOf('const inCommunity = (session) => {');
+  // #5313: the membership check moved into the shared module-scope agentInCommunity (one definition
+  // for the community-turn sweep AND the task-done prompt), so the pin follows it there.
+  const a = SRC.indexOf('function agentInCommunity(session) {');
   assert.notEqual(a, -1, 'CONTROL: the community turn\'s check moved; find it');
-  const fn = SRC.slice(a, SRC.indexOf('};', a));
+  const fn = SRC.slice(a, a + 500);
   assert.match(fn, /return Boolean\(f\) && f\.ambiguous !== true && !cb\.isStoppedSection\(cur\.text \|\| ''\);/);
 });

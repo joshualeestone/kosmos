@@ -32,9 +32,12 @@ test('it passes every gate: live execution, the community switch, the Prompter\'
 });
 
 test('an agent counts as in the community only when its instructions carry exactly one community block', () => {
-  // #5212: the check is one function above the call, shared by the turn and the home read-ahead.
+  // #5212 / #5313: the check lives in the shared module-scope agentInCommunity (one definition for the
+  // turn, the home read-ahead AND the task-done prompt), and the sweep points its local inCommunity at
+  // it so the three cannot drift.
+  assert.match(SRC, /function agentInCommunity\(session\) \{[\s\S]*?projects\.findBlock\(cur\.text \|\| '', cb\.START, cb\.END\)[\s\S]*?f\.ambiguous !== true/);
   const pre = SRC.slice(SRC.lastIndexOf('const communityTurnTick', at), at);
-  assert.match(pre, /const inCommunity = \(session\) => \{[\s\S]*?projects\.findBlock\(cur\.text \|\| '', cb\.START, cb\.END\)[\s\S]*?f\.ambiguous !== true/);
+  assert.match(pre, /const inCommunity = agentInCommunity;/, 'the turn is not wired to the shared membership check');
   assert.match(w, /\binCommunity,/, 'the turn is not given the shared check');
   assert.match(w, /postTimes:\s*\(session\)\s*=>\s*\{ const all = allPosts\(\);/);
 });
