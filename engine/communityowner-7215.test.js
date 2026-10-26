@@ -441,5 +441,6 @@ test('at most 5 passes are minted in one sweep; the next sweep goes on from ther
   assert.equal(R.mints.length, 5, 'five in the first sweep');
   await cs.sweep();
   assert.equal(R.mints.length, 7, 'the other two in the next, with no pause between');
+  assert.equal(R.mints[5].body.agent, keyName('a6'), 'the next sweep starts at the first agent not yet tried, not after it');
   for (const a of ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7']) assert.ok(agentNamed(a).owner, a + ' linked');
 });
