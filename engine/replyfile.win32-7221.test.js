@@ -33,7 +33,13 @@ const WIN = process.platform === 'win32';
 const SHARE = '\\\\10.255.255.1\\share\\x';
 const WHO = 'win7221';
 
-test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+const realFilesDir = dmfiles.filesDir;
+const realReadAll = projects.readAll;
+test.after(() => {
+  dmfiles.filesDir = realFilesDir;   // put back what before() replaced, in case a runner ever shares the process
+  projects.readAll = realReadAll;
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
 
 /* ---------- the rules by spelling: every platform ---------- */
 
@@ -47,15 +53,15 @@ test('#7221: DOS device names are recognised with an extension, trailing dots an
 });
 
 test('#7221: the spelling rules refuse shares, device namespaces, streams, device names and drives outside the roots', () => {
-  const drives = new Set(['C']);
+  const drives = { drives: new Set(['C']), folders: [] };   // the agent's roots: Files on C:, no projects
   const net = replyfile.ON_NETWORK;
   assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\f.txt', drives), net);
   assert.equal(replyfile.winSpellingRefusal('//host/share/f.txt', drives), net);
   assert.equal(replyfile.winSpellingRefusal('\\\\?\\UNC\\host\\share\\f.txt', drives), net);
   assert.equal(replyfile.winSpellingRefusal('\\\\.\\NUL', drives), net);
   assert.equal(replyfile.winSpellingRefusal('\\\\?\\C:\\Users\\a\\Files\\f.txt', drives), net, 'the \\\\?\\ namespace is refused as typed, local or not');
-  assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\f.txt:hidden', drives), net, 'an alternate data stream');
-  assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\COM1:', drives), net);
+  assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\f.txt:hidden', drives), replyfile.STREAM, 'an alternate data stream');
+  assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\COM1:', drives), replyfile.STREAM);
   assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\NUL', drives), replyfile.DEVICE_NAME);
   assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\com1.txt', drives), replyfile.DEVICE_NAME);
   assert.equal(replyfile.winSpellingRefusal('Z:\\Files\\f.txt', drives), replyfile.NOT_YOURS, 'a drive no root is on (a mapped drive is a share)');
@@ -165,7 +171,7 @@ test('#7221: a DOS device name in Files is refused before it is opened or resolv
 });
 
 test('#7221: an alternate data stream on a file in Files is refused before it is resolved', winOnly, () => {
-  refusedUnresolved(path.join(FILES, 'report.txt') + ':secret', replyfile.ON_NETWORK, 'a stream');
+  refusedUnresolved(path.join(FILES, 'report.txt') + ':secret', replyfile.STREAM, 'a stream');
 });
 
 test('#7221: a drive no root is on (a mapped drive is a share under a letter) is refused before it is touched', winOnly, () => {
@@ -285,4 +291,54 @@ test('#7221 review 2-3: a file on a share resolves only the share-written projec
   assert.ok(!resolved.includes('\\\\10.255.255.1\\share\\proj'), 'a project on another share is never resolved: ' + JSON.stringify(resolved));
   assert.ok(resolved.includes(sameShare), 'a project on the file\'s own share still is (it may hold the file): ' + JSON.stringify(resolved));
   assert.ok(Date.now() - started < 2000, 'no network attempt to another share');
+});
+
+/* ---------- review 3 ---------- */
+
+test('#7221 review 3-2: a plain share path passes the spelling rule only inside one of the agent\'s own share-written project folders', () => {
+  const roots = { drives: new Set(['C']), folders: ['\\\\host\\share\\proj', 'C:\\work\\local'] };
+  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\proj\\f.txt', roots), null);
+  assert.equal(replyfile.winSpellingRefusal('//HOST/Share/proj/sub/f.txt', roots), null, 'either slash, any case');
+  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\other\\f.txt', roots), replyfile.ON_NETWORK, 'outside the project');
+  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\projx\\f.txt', roots), replyfile.ON_NETWORK, 'a sibling whose name starts the same');
+  assert.equal(replyfile.winSpellingRefusal('\\\\elsewhere\\share\\proj\\f.txt', roots), replyfile.ON_NETWORK, 'another host');
+  assert.equal(replyfile.winSpellingRefusal('\\\\?\\UNC\\host\\share\\proj\\f.txt', roots), replyfile.ON_NETWORK, 'the \\\\?\\ namespace stays refused');
+  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\proj\\NUL', roots), replyfile.DEVICE_NAME, 'a device name stays refused inside');
+  assert.equal(replyfile.winSpellingRefusal('\\\\host\\share\\proj\\f.txt', { drives: new Set(['C']), folders: ['C:\\work\\local'] }), replyfile.ON_NETWORK, 'no share project: refused');
+});
+
+test('#7221 review 3-2: a file in one of the agent\'s own share-written projects attaches by its share path; one beside it is refused unresolved', winOnly, (t) => {
+  const proj = path.join(SANDBOX, 'uncproj');
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'f.txt'), 'on the share project\n');
+  const projUnc = adminShareOf(proj);
+  if (!projUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  PROJECTS = [{ id: 'p-unc', name: 'Unc', folder: projUnc, agents: [WHO] }];
+  const r = replyfile.attach(WHO, path.join(projUnc, 'f.txt'), { platform: 'win32' });
+  assert.equal(r.ok, true, 'attaches as on main: ' + JSON.stringify(r));
+  replyfile.discard(r.rec);
+  refusedUnresolved(path.join(adminShareOf(SANDBOX), 'outside', 'f.txt'), replyfile.ON_NETWORK, 'a share path outside the project');
+});
+
+test('#7221 review 3-1: a project folder that is a link out to a share is never resolved to judge a local file', winOnly, () => {
+  const linked = path.join(SANDBOX, 'linkedproj');
+  fs.symlinkSync('\\\\10.255.255.1\\share\\proj', linked, 'dir');
+  const proj = path.join(SANDBOX, 'localproj');
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'notes.txt'), 'local notes\n');
+  PROJECTS = [
+    { id: 'p-linked', name: 'Linked', folder: linked, agents: ['someone-else'] },
+    { id: 'p-under', name: 'Under', folder: path.join(linked, 'sub'), agents: ['someone-else'] },
+    { id: 'p-local', name: 'Local', folder: proj, agents: [WHO] },
+  ];
+  const resolved = [];
+  projects.folderState = (folder) => { resolved.push(folder); return realFolderState(folder); };
+  const started = Date.now();
+  try {
+    const r = replyfile.attach(WHO, path.join(proj, 'notes.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    replyfile.discard(r.rec);
+    assert.deepEqual(resolved, [proj], 'neither the link to a share nor a folder under it was resolved');
+    assert.ok(Date.now() - started < 2000, 'no network attempt on the way');
+  } finally { fs.rmSync(linked, { force: true }); }
 });

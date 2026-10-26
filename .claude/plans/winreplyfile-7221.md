@@ -41,8 +41,12 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
 
 1. **By spelling, before any filesystem call** (`winSpellingRefusal`):
    - a `\\` or `//` start: a share, the `\\?\` and `\\.\` namespaces, the local `\\?\C:\` long spelling too (none is
-     how an agent names its own file);
-   - a colon past the drive (an alternate data stream, `COM1:`);
+     how an agent names its own file), BUT a plain `\\host\share\...` written inside one of the agent's own project
+     folders that is itself written as that share (review 3 finding 2, **decided**: the card's first bullet refuses
+     every `\\` start, but a project written as a share attached its files on main, the same "the person chose that
+     share" case as a mapped drive, and the card's aim is to refuse BEFORE the contact what would be refused anyway,
+     not a file the agent may send. Revertible in one change; said on #7221 for Renet);
+   - a colon past the drive (an alternate data stream, `COM1:`), said as a stream, not a network path (review 3 NIT);
    - a last part that is a DOS device name (CON, PRN, AUX, NUL, CONIN$, CONOUT$, COM0-9, LPT0-9 and the superscript
      digits, any extension, trailing dots and spaces dropped as Windows does);
    - a drive letter none of the agent's roots (its Files folder, the folders of the projects it is on) is written on.
@@ -66,6 +70,8 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    3, review 2 finding 3): any agent can register such a project (`kosmos project create`), and allowedRoot resolves
    every project folder to judge containment. A share's real path cannot be a folder above a local file or a file on
    another share, so skipping it changes no answer; one on the file's own share may hold it, so it is still resolved.
+   A project folder written on a drive is walked by rule 2 first (lstat and readlink, no drive rule), and skipped when
+   its links leave for a share (review 3 finding 1: `C:\x\proj` as a link to `\\host\share` was still resolved).
 
 On Windows `attach` reads `dmfiles.filesDir` and the projects list once and hands both on, so an attach still reads
 each agent's instructions path once (#6726 r5-3) and parses the projects file once.
@@ -86,8 +92,8 @@ each agent's instructions path once (#6726 r5-3) and parses the projects file on
    is allowed by design (a mapped-drive project). Node has no openat-style walk to hold each folder open. Same class
    as the double-swap the file header already names.
 2. The OTHER folders an attach resolves to judge containment (review 1 finding 3): a project folder on a drive letter
-   that is mapped to a share is still resolved on every attach (only a written `\\` is skipped; telling a mapped letter
-   apart needs a call Node does not have), and so are the folders Kosmos itself made (the Files folder and its parent,
+   that is mapped to a share is still resolved on every attach (a written `\\`, and a local link out to a share, are
+   skipped; telling a mapped letter apart needs a call Node does not have), and so are the folders Kosmos itself made (the Files folder and its parent,
    each agent's folder, `~/.ssh`, `~/.config`), which a person or a process of this user would have to replace with a
    link to a share. Named in the code comment too.
 
@@ -118,13 +124,20 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   written inside the project is not.
 - Review 2-3: through this box's own admin share (`\\127.0.0.1\C$`, a real share; skipped where unreachable), a file on
   a share resolves the share-written project on its own share and never one on another share.
+- Review 3-2: the share-project spelling exception (inside the project, either slash, any case: passes; outside it, a
+  sibling with the same prefix, another host, `\\?\UNC`, a device name inside, no share project: refused); through the
+  admin share, a file in the agent's own share-written project attaches by its share path, and a share path beside it
+  is refused unresolved.
+- Review 3-1: a project folder that is a local link to a share, and a project folder under it, are never resolved
+  while a local project file attaches.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
-review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail.
+review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
+(5f08d3d): all 3 fail.
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 18/18 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 21/21 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours).
