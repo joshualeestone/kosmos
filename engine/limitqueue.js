@@ -172,10 +172,14 @@ function heldBehindInput(now, afterMs) {
 /* #7212: which of `heldBehindInput`'s agents to say now: once per held stretch. `said` (a Set the caller keeps) holds
    the agents already said; an agent leaves it only when it has no input-held message at all, so delivering or dropping
    the oldest message of a stretch (a backlog drains five a minute; a week-long hold drops one a day) never says it
-   again. Keyed on the stretch, not on its oldest message, for that reason (review of slice 1). */
+   again. Keyed on the stretch, not on its oldest message, for that reason (review of slice 1). A file that cannot be
+   read this minute (a write in progress) ends nothing: only a read that worked and found no input-held message, or
+   no file at all, ends a stretch (review 2). */
 function heldInputToSay(now, afterMs, said) {
-  const holding = new Set(names().filter((n) => list(n).some((e) => e && e.input === true)));
-  for (const n of [...said]) if (!holding.has(n)) said.delete(n);
+  for (const n of [...said]) {
+    const read = readEntries(n);
+    if (read.ok && !read.entries.some((e) => e && e.input === true)) said.delete(n);
+  }
   const out = heldBehindInput(now, afterMs).filter((h) => !said.has(h.name));
   for (const h of out) said.add(h.name);
   return out;
@@ -192,6 +196,8 @@ function deliveredLine(d) {
    when `isReleased(card, roster, live)` (the card for the agent in `roster`, and the messages still kept), type the
    rest in order with `deliver`. A message typed (placed or unconfirmed) is removed and reported (onDelivered); the
    first that is not stops that agent's run and stays. Returns [{ name, id, state, why }] for what was typed. */
+/* #7212: true while a flush run is typing (one younger than FLUSH_STUCK_MS), so a reader of the input box can wait. */
+function isFlushing() { return !!flushingSince && Date.now() - flushingSince < FLUSH_STUCK_MS; }
 async function flush(roster, opts) {
   // One run at a time: a run still typing a backlog when the next minute starts would type each message twice. A run
   // that has not finished in FLUSH_STUCK_MS (a delivery that never settled) no longer blocks the next one.
@@ -301,4 +307,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
 
-module.exports = { heldWhy, heldBehindInput, heldInputToSay, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
+module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };

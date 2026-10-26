@@ -25876,9 +25876,11 @@ function start(port = PORT) {
       const heldInputSaid = new Set();
       /* #7212: messages held behind an agent's input box for half an hour are said once per held stretch, with what
          the box reads now (text, or nothing Kosmos can read), so a hold that lasts days is never silent. Run after the
-         minute's flush has settled, so the box is never read while a delivery is typing into it. */
+         minute's flush has settled, and not while an older run is still typing (flush skips a minute that finds one),
+         so the box is never read while a delivery is typing into it. */
       const sayHeldInput = () => {
         try {
+          if (limitqueue.isFlushing()) return;   // said next minute
           for (const h of limitqueue.heldInputToSay(Date.now(), limitqueue.HELD_INPUT_SAY_MS, heldInputSaid)) {
             let reads = 'could not be read';
             try {

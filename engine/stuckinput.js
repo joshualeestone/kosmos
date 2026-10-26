@@ -62,7 +62,8 @@ function makeTick(deps) {
           /* 'empty': the box has emptied since the card was read, so nothing is stuck to say. */
           if (waited >= sayWaitingMs && waitedSaid.get(card.sessionName) !== since && !(r && r.because === 'empty')) {
             waitedSaid.set(card.sessionName, since);
-            const because = (r && r.because) || 'no answer';
+            /* A thrown error's message is free text: logged as its kind only. */
+            const because = !r || !r.because ? 'no answer' : String(r.because).startsWith('failed:') ? 'failed' : r.because;
             try { deps.log(`stuck-input: ${card.name || card.sessionName} (${card.sessionName}) text unsent in its input box ~${Math.round(waited / 60000)} min: not cleared yet, still waiting (${because})\n`); } catch { /* best effort */ }
           }
           continue;

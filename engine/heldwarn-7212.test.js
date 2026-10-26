@@ -130,3 +130,56 @@ test('#7212 review: the stuck-input sweep says nothing when the box has emptied'
   await tick();
   assert.deepEqual(lines, [], 'an emptied box was reported as text still unsent');
 });
+
+test('#7212 review 2: a queue file that cannot be read for a minute does not end the stretch', () => {
+  const now = Date.parse('2026-10-26T12:00:00Z');
+  const at = new Date(now - 40 * MIN).toISOString();
+  assert.ok(limitqueue.add('glitchy', { id: 'g1', from: 'x', envelope: 'e', at, reset: at, input: true }));
+  const said = new Set();
+  const say = () => limitqueue.heldInputToSay(now, limitqueue.HELD_INPUT_SAY_MS, said).filter((h) => h.name === 'glitchy');
+  assert.equal(say().length, 1);
+  const file = limitqueue.fileFor('glitchy');
+  const good = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, good.slice(0, 5));   // a write caught half done
+  assert.equal(say().length, 0);
+  assert.ok(said.has('glitchy'), 'an unreadable minute ended the stretch');
+  fs.writeFileSync(file, good);
+  assert.equal(say().length, 0, 'the stretch was said again after a read glitch');
+});
+
+test('#7212 review 2: the board knows a flush is still typing, so the box is not read under it', async () => {
+  const chat = require('./chat');
+  const now = new Date().toISOString();
+  assert.ok(limitqueue.add('slowpat', { id: 'w1', from: 'x', envelope: 'e', at: now, reset: now }));
+  let finish;
+  const typed = new Promise((r) => { finish = r; });
+  assert.equal(limitqueue.isFlushing(), false, 'CONTROL: nothing is typing yet');
+  const run = limitqueue.flush([{ name: 'slowpat', sessionName: 'slowpat', state: 'idle' }], {
+    deliver: async () => { await typed; return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true,
+    resolveCard: (r, k) => r.find((c) => c.sessionName === k) || null, DELIVERY: chat.DELIVERY,
+  });
+  assert.equal(limitqueue.isFlushing(), true, 'a run typing a message was not seen');
+  assert.deepEqual(await limitqueue.flush([], {}), [], 'CONTROL: a second run skips while one is in flight');
+  assert.equal(limitqueue.isFlushing(), true);
+  finish();
+  await run;
+  assert.equal(limitqueue.isFlushing(), false, 'a finished run still reads as typing');
+});
+
+test('#7212 review 2: a thrown error is logged by its kind, never its message text', async () => {
+  const lines = [];
+  const now = Date.parse('2026-10-26T12:00:00Z');
+  const since = new Date(now - 40 * MIN).toISOString();
+  const tick = stuckinput.makeTick({
+    allowed: () => true,
+    roster: () => [{ name: 'Ira', sessionName: 'ira', state: 'idle', runner: 'claude', unsentInput: { since } }],
+    recover: async () => { throw new Error('secret words from the box'); },
+    stuckMs: 10 * MIN,
+    log: (l) => lines.push(l),
+    now: () => now,
+  });
+  await tick();
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /still waiting \(failed\)/);
+  assert.doesNotMatch(lines[0], /secret/);
+});
