@@ -8840,7 +8840,8 @@ function paneCcd(target) { return paneCcdRead(target).ccd; }
 const LOGIN_ADV_LOGGED = { sig: '' };
 function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED) {
   const list = Array.isArray(out) ? out : [];
-  const sig = list.map((a) => [a.service || '', a.expired ? 'x' : a.daysLeft, (a.agents || []).slice().sort().join(',')].join(':')).sort().join('|');
+  // A key, not a path list: joined with control characters, which no service name, day count or agent name holds.
+  const sig = list.map((a) => [a.service || '', a.expired ? 'x' : a.daysLeft, (a.agents || []).slice().sort().join('\u0000')].join('\u0001')).sort().join('\u0002');
   if (sig === state.sig) return 0;
   const had = state.sig !== '';
   state.sig = sig;
