@@ -69014,6 +69014,12 @@ function tkPaintSubtasks(p, t, closed) {
    event added to the engine later shows up as its bare name instead of vanishing. */
 function tkActPhrase(ev, p) {
   const nameOf = (sn) => (sn ? tkMemberName(p, sn) : null);
+  /* kosmos#7184: a hold's time (an ISO instant) in the person's own clock; anything else as it is. Kept inside this
+     function, which taskactphrase.test.js lifts alone (engine/taskactphrase.js when(), the same rule). */
+  const when = (v) => {
+    const t = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? Date.parse(v) : NaN;
+    return Number.isFinite(t) ? new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : v;
+  };
   switch (ev.kind) {
     case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : '') + (ev.doneWhen ? '. Done when: ' + ev.doneWhen : ''); }
     case 'assigned': { const who = nameOf(ev.who); return who ? who + ' put on a part' : 'A part left with nobody on it'; }
@@ -69027,7 +69033,7 @@ function tkActPhrase(ev, p) {
     case 'done-when-cleared': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
     case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')
-      + (typeof ev.until === 'string' && ev.until ? ' until ' + (/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : ev.until)
+      + (typeof ev.until === 'string' && ev.until ? ' until ' + (/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : when(ev.until))
         : ev.untilCleared === true ? ', no longer waiting for anything' : '');
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
@@ -69044,7 +69050,7 @@ function tkActPhrase(ev, p) {
       const who = nameOf(ev.told) || 'its owner';
       // kosmos#7180: told because what the hold waited for happened, not because of the room's posts.
       if (typeof ev.met === 'string' && ev.met) {
-        return 'What its hold waited for happened (' + ev.met + '); ' + (ev.reached === false ? 'Kosmos could not reach ' + who : who + ' was told it can come off hold');
+        return 'What its hold waited for happened (' + when(ev.met) + '); ' + (ev.reached === false ? 'Kosmos could not reach ' + who : who + ' was told it can come off hold');
       }
       return ev.reached === false ? 'Still on hold while ' + who + ' worked in its project room; Kosmos could not reach ' + who
         : 'Still on hold while ' + who + ' worked in its project room; ' + who + ' was asked whether the hold still stands';
@@ -69705,7 +69711,7 @@ document.getElementById('tk-who').addEventListener('keydown', (e) => {
 
 document.getElementById('tk-back').addEventListener('click', leaveTaskPage);
 /* #3861 part 2: into a subtask or up to the parent (both are task pages on this project). */
-for (const id of ['tk-subs', 'tk-partof-row', 'tk-state', 'tk-activity', 'tk-hold-until']) {   // #6923: the replaced-by links too; kosmos#7184: the task a hold waits for
+for (const id of ['tk-subs', 'tk-partof-row', 'tk-state', 'tk-activity']) {   // #6923: the replaced-by links too
   document.getElementById(id).addEventListener('click', (e) => {
     const b = e.target.closest('[data-sub]');
     if (b && b.dataset.sub) openTaskPage(Number(b.dataset.sub));
@@ -70160,11 +70166,10 @@ function tkPaintHoldUntil(p, t) {
   const m = u && typeof u.words === 'string' ? /^task #(\d+) is closed$/.exec(u.words) : null;
   const at = u && !m && typeof u.words === 'string' ? Date.parse(u.words) : NaN;
   const n = m ? Number(m[1]) : 0;
-  const link = (word) => '<button type="button" class="linkish" data-sub="' + n + '">' + word + ' ' + n + '</button>';
   const gone = m && !(p.tasks || []).some((x) => x && x.number === n);
   const html = !u ? ''
     : m ? (gone ? 'Task ' + n + ' is no longer on this project, so this can come off hold.'
-      : u.met === true ? link('Task') + ' is closed, so this can come off hold.' : 'Waiting for ' + link('task') + ' to close.')
+      : u.met === true ? 'Task ' + n + ' is closed, so this can come off hold.' : 'Waiting for task ' + n + ' to close.')
     : Number.isFinite(at) ? (u.met === true ? 'That time has passed, so this can come off hold.' : 'Waiting until ' + esc(tkHoldWhen(at)) + '.')
     : '';
   if (line.tkPainted !== html) { line.innerHTML = html; line.tkPainted = html; }

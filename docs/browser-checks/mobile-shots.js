@@ -176,7 +176,7 @@ const OVERFLOW_SELECTORS = ['html', 'body', 'main', '.view', '.panel', '[role="m
    take the chat agent off it (its tasks stay with it). Answers the project's id. offProject6895Gone deletes it. */
 const OFFPROJECT_6895 = 'Plan the autumn launch';
 const ROLLUP_6501 = 'Autumn brochure';   // kosmos#6501: the task-rollup-6501 screen's throwaway project
-const HOLDUNTIL_7184 = 'Supplier order';   // kosmos#7184: the task-holduntil-7184 screens' throwaway project
+const HOLDUNTIL_7184 = { task: 'Supplier order', at: 'Courier booking' };   // kosmos#7184: each hold screen's own throwaway project (#7185: a reused name inherits the last one's task activity)
 async function offProject6895(page, data) {
   return page.evaluate(async ([name, chat, ask]) => {
     const call = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -221,7 +221,7 @@ async function holdUntil7184(page, data, kind) {
     const h = await call('POST', base + '/task/1/hold', { onHold: true, until });
     if (h.status !== 200) throw new Error('task-holduntil-7184: the hold answered ' + h.status);
     return pid;
-  }, [HOLDUNTIL_7184, data.chatAgent, kind]);
+  }, [HOLDUNTIL_7184[kind], data.chatAgent, kind]);
   await openTab(page, 'projects');
   await page.click(`#pj-list .pj-row[data-project="${id}"]`);
   await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
@@ -1844,9 +1844,9 @@ const SCREENS = [
   /* kosmos#7184: what a held task waits for, on its page: held (from the screen) until task 2 closes, or until a time two
      days ahead at 9:30 in the shot's own clock. A throwaway project, deleted after the shot. */
   { name: 'task-holduntil-7184', owner: 'Mona Lisa', go: async (page, data) => { await holdUntil7184(page, data, 'task'); },
-    after: async (page) => { await throwawayProjectGone(page, HOLDUNTIL_7184); } },
+    after: async (page) => { await throwawayProjectGone(page, HOLDUNTIL_7184.task); } },
   { name: 'task-holdtime-7184', owner: 'Mona Lisa', go: async (page, data) => { await holdUntil7184(page, data, 'at'); },
-    after: async (page) => { await throwawayProjectGone(page, HOLDUNTIL_7184); } },
+    after: async (page) => { await throwawayProjectGone(page, HOLDUNTIL_7184.at); } },
   /* kosmos#4787 slice 1b: the task page's Repeats control with a rule set (every Tuesday at 10:30am), scrolled to it. */
   { name: 'task-repeat', owner: 'Mona Lisa', go: async (page, data) => {
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ every: 'week', on: 'tue', at: '10:30' }) }).then((r) => r.status), data.projectId);

@@ -29,6 +29,12 @@ function phrase(ev, nameOfMember, opts) {
   /* Review 2: words a person or an agent wrote (a part's sentence, the done-when checks, a run's or a built mark's note)
      are quoted too, worded for an agent, so none of them can read as a line of Kosmos's own. */
   const own = (v) => (agent ? quoted(v) : v);
+  /* kosmos#7184: a hold's time (stored as an ISO instant) reads in the person's own clock on the page; an agent gets the
+     exact instant. Anything else (a task's words) is left as it is. */
+  const when = (v) => {
+    const t = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? Date.parse(v) : NaN;
+    return agent || !Number.isFinite(t) ? v : new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  };
   const nameOf = (sn) => (sn ? (typeof nameOfMember === 'function' ? nameOfMember(sn) : sn) || sn : null);
   switch (ev.kind) {
     case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : '') + (ev.doneWhen ? '. Done when: ' + own(ev.doneWhen) : ''); }
@@ -43,7 +49,7 @@ function phrase(ev, nameOfMember, opts) {
     case 'done-when-cleared': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
     case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')
-      + (typeof ev.until === 'string' && ev.until ? ' until ' + own(/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : ev.until)
+      + (typeof ev.until === 'string' && ev.until ? ' until ' + own(/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : when(ev.until))
         : ev.untilCleared === true ? ', no longer waiting for anything' : '');
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
@@ -60,7 +66,7 @@ function phrase(ev, nameOfMember, opts) {
       const who = nameOf(ev.told) || 'its owner';
       // kosmos#7180: told because what the hold waited for happened, not because of the room's posts.
       if (typeof ev.met === 'string' && ev.met) {
-        return 'What its hold waited for happened (' + own(ev.met) + '); ' + (ev.reached === false ? 'Kosmos could not reach ' + who : who + ' was told it can come off hold');
+        return 'What its hold waited for happened (' + own(when(ev.met)) + '); ' + (ev.reached === false ? 'Kosmos could not reach ' + who : who + ' was told it can come off hold');
       }
       return ev.reached === false ? 'Still on hold while ' + who + ' worked in its project room; Kosmos could not reach ' + who
         : 'Still on hold while ' + who + ' worked in its project room; ' + who + ' was asked whether the hold still stands';

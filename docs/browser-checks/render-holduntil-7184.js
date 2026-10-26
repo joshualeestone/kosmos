@@ -112,6 +112,9 @@ function chk(ok, label, extra) {
       await waitText(page, '#tk-hold-until', /^Waiting until /);
       chk(/^Waiting until .*9:30/.test(await text(page, '#tk-hold-until') || '') && stored(p.id, 1).onHoldUntil && stored(p.id, 1).onHoldUntil.at === wantAt,
         `${tag} A date and time saves the picker's local time as that instant and the line says Waiting until it`, JSON.stringify([await text(page, '#tk-hold-until'), stored(p.id, 1).onHoldUntil, wantAt]));
+      await waitText(page, '#tk-activity', /Put on hold until [A-Z][a-z]{2},/);
+      const act = await text(page, '#tk-activity') || '';
+      chk(/Put on hold until [A-Z][a-z]{2}, .*9:30/.test(act) && !act.includes(wantAt), `${tag} the activity says the time in the person's clock, never the stored instant`, act.slice(-160));
 
       await page.selectOption('#tk-hold-for', '');
       await page.click('#tk-hold-save');
