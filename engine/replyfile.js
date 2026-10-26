@@ -342,7 +342,6 @@ function otherFolderSkip(folder, fileShare) {
      device: \\.\pipe\..., \\.\COM1): such a folder leads nowhere, so it cannot make another agent's
      attach refuse (reviews 12 and 23). Any other namespace that names no share may name a drive
      (\\?\GLOBALROOT\...), so it stays unknown and fails closed. */
-  const holdsNoFiles = (p) => classify(p).kind === 'no-file-namespace';
   /* The skip gate is the network SHAPE, not the kind: a DosDevices drive alias (\??\Global\C:\) is
      networkSpelled, and must be left unresolved exactly as before, even though its kind is a drive. */
   const c = classify(folder);
