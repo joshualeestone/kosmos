@@ -5310,7 +5310,7 @@ kosmos_command_list() {
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos handoff       print facts for your handoff: your live state, artifact fingerprints, instruction and git status\n'
-  printf '  kosmos fingerprint   print the fingerprint of a file, to check a handed-off copy (the dates and ID inside a PDF are left out)\n'
+  printf '  kosmos fingerprint   print the fingerprint of a file, or compare one with it, to check a handed-off copy (the dates and ID inside a PDF are left out)\n'
   printf '  kosmos connections   list the outside services and which are connected\n'
   printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'

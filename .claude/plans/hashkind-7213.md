@@ -57,3 +57,12 @@ seat concluded the file had changed.
   (fallback above). W2 a PDF already emptied of dates matched by hex but refused by label -> FIXED (the hex decides in
   the pdf-normalized branch). N3 orphaned handoff comment, N4 inverted assertion messages -> FIXED. N5 fixture drift is
   already controlled in tests 1 and 3 -> no change. Mutations: fallback removed (1 red), label compare (1 red).
+- Iteration 2 (opus): W1 the older-mark fallback also ran for a BARE shasum value, so a date-only edit of a PDF
+  approved with its date already empty passed a byte-for-byte check -> FIXED (the fallback needs the sha256: label;
+  older marks always carried it). W2 the "has none" message was false for a PDF over 64 MB and for a PDF with nothing
+  to leave out -> FIXED (each gets its own reason). N4 a text file matched a pdf-normalized value by hex -> FIXED
+  (only a PDF can). N5 stale descriptions (tasks.js field comment, one-line help on Mac and Windows) -> FIXED.
+  N3 working rules still say compare with shasum -> DEFERRED, reason: a mark between #6849 and this prints the SAME
+  hex under a new label, which a reader comparing values sees; the rules' shasum line was written for pre-#6849
+  marks and still holds for them; a rules change re-offers the section to every agent. Revisit if a report shows an
+  agent misled by it. Mutations: bare-value fallback (1 red), PDF-only hex match (1 red), size reason (1 red).
