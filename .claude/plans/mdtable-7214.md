@@ -31,3 +31,15 @@ table loose in .msg-bd, with no max-width and no scroll. Dumped from the real ro
 - Shots: ~/work/design-shots/kosmos-7214 (4, 0 overflow, 0 errors).
 
 ## Review
+- Round 1 (.claude/plans/mdtable-7214-review1.md): 1 blocker, 2 warnings, 2 nits. Approach changed:
+  - pjRoomPara no longer wraps a block-holding body in div.msg-p (which restyled every post with a code fence). It
+    builds the body as the browser would show it, on purpose: each run of words a <p>, each block (the table's
+    .mdtablewrap, a code block's figure, its path) between them, where the parser already put a code block. A body
+    with no block is one <p>. All the .msg-p CSS is reverted to main's rules. The one visible change on a code post: the
+    words after a fence are now a <p> like the words before it (15px, not the 13px of loose text).
+  - BLOCKER: `.mdc { overflow-wrap: anywhere }` is scoped to #pj-room tables only (DMs, the project list and task detail
+    are main's again, #718), with a floor `td:has(> .mdc) { min-width: 12ch }` so a table of short names scrolls.
+  - render-richtext-room-2239: a short-names table and a 393px pass; asserts the names stay whole (at most 2 pieces)
+    with the table scrolling, and the hash wraps in a column of 80px or more. Red without the floor (2) and with
+    pjRoomPara as a plain <p> (6).
+  - Nits: the block list is now the parser's whole list; the redundant quote selectors are gone with the revert.
