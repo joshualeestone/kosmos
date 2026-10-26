@@ -29,8 +29,9 @@ const WORK_PER_ENTRY = 8192;
 const MAX_MANIFEST_OBJECT = 128 * 1024 * 1024;
 const MAX_FILES = 500_000;
 const SHA256_RE = /^[0-9a-f]{64}$/;
-// Windows device names, with or without an extension, and with spaces before it (CON, nul.txt, COM1.log, nul .txt).
-const WIN_RESERVED_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³]) *(\..*)?$/i;
+// Windows device names, with or without an extension, and with spaces before it (CON, nul.txt, COM1.log, nul .txt):
+// the one shared rule (engine/winpath.js, #7221).
+const WIN_RESERVED_RE = require('./winpath').WINDOWS_DEVICE_NAME;
 // The shape of an NTFS 8.3 short name (PROGRA~1, LONGFI~1.MD), which can name another entry's file.
 const SHORT_NAME_RE = /^[^.]{1,6}~[0-9]+(\.[^.]{1,3})?$/;
 const IGNORABLE_RE = /\p{Default_Ignorable_Code_Point}/gu;

@@ -26,12 +26,16 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 
 const replyfile = require('./replyfile');
+const winpath = require('./winpath');
 const dmfiles = require('./dmfiles');
 const projects = require('./projects');
 
 const WIN = process.platform === 'win32';
 const SHARE = '\\\\10.255.255.1\\share\\x';
 const WHO = 'win7221';
+/* Under this, an answer came without a network attempt: the one measured on the Windows box stalled 21 s, and a slow
+   CI runner needs room (review 6 NIT). The realpath count is the exact guard; this one catches a stall. */
+const SOON_MS = 10000;
 /* A drive letter no drive here uses, picked in random order so two runs at once rarely want the same one; null when
    Q to Z are all taken, and the arm that needs one skips (review 5 finding 3). */
 function freeDriveLetter() {
@@ -51,10 +55,10 @@ test.after(() => {
 
 test('#7221: DOS device names are recognised with an extension, trailing dots and spaces, and the superscript digits', () => {
   for (const n of ['NUL', 'nul', 'Con', 'PRN', 'aux', 'COM1', 'com9', 'LPT1', 'lpt9', 'COM1.txt', 'nul.tar.gz', 'NUL.', 'NUL ', 'nul .txt', 'CONIN$', 'conout$', 'COM\u00b9', 'LPT\u00b3']) {
-    assert.equal(replyfile.isDevicePart(n), true, n + ' is a device name');
+    assert.equal(winpath.isDevicePart(n), true, n + ' is a device name');
   }
   for (const n of ['null.txt', 'console.log', 'nulls', 'COM10', 'lpt', 'com', 'aux_notes.md', 'report.pdf', 'x.nul']) {
-    assert.equal(replyfile.isDevicePart(n), false, n + ' is an ordinary name');
+    assert.equal(winpath.isDevicePart(n), false, n + ' is an ordinary name');
   }
 });
 
@@ -97,7 +101,7 @@ function refusedUnresolved(p, because, label) {
   assert.equal(r.ok, false, label + ': must be refused, got ' + JSON.stringify(r));
   assert.equal(r.because, because, label);
   assert.equal(realpathCalls, 0, label + ': refused before the path was resolved');
-  assert.ok(ms < 2000, label + ': refused at once, not after a network attempt (' + ms + ' ms)');
+  assert.ok(ms < SOON_MS, label + ': refused at once, not after a network attempt (' + ms + ' ms)');
 }
 
 test.before(() => {
@@ -231,14 +235,14 @@ test('#7221 review 1-3: a project folder written as a share is never resolved to
   const r = replyfile.attach(WHO, path.join(proj, 'notes.txt'), { platform: 'win32' });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.deepEqual(resolved, [proj], 'only the local project folder was resolved');
-  assert.ok(Date.now() - t < 2000, 'no network attempt on the way');
+  assert.ok(Date.now() - t < SOON_MS, 'no network attempt on the way');
   replyfile.discard(r.rec);
 });
 
 /* ---------- review 2 ---------- */
 
 test('#7221 review 2-1: a link target is followed only when it is a drive path or a relative one', () => {
-  const follow = replyfile.followableLinkTarget;
+  const follow = winpath.followableLinkTarget;
   assert.equal(follow('C:\\Users\\a\\f.txt'), 'C:\\Users\\a\\f.txt');
   assert.equal(follow('\\\\?\\C:\\Users\\a\\f.txt'), 'C:\\Users\\a\\f.txt', 'the long spelling of a local drive');
   assert.equal(follow('\\??\\C:\\Users\\a\\f.txt'), 'C:\\Users\\a\\f.txt', 'the NT spelling of a local drive');
@@ -296,7 +300,7 @@ test('#7221 review 2-3: a file on a share resolves only the share-written projec
   replyfile.attach(WHO, path.join(proj, 'f.txt'), { platform: 'win32' });
   assert.ok(!resolved.includes('\\\\10.255.255.1\\share\\proj'), 'a project on another share is never resolved: ' + JSON.stringify(resolved));
   assert.ok(resolved.includes(sameShare), 'a project on the file\'s own share still is (it may hold the file): ' + JSON.stringify(resolved));
-  assert.ok(Date.now() - started < 2000, 'no network attempt to another share');
+  assert.ok(Date.now() - started < SOON_MS, 'no network attempt to another share');
 });
 
 /* ---------- review 3 ---------- */
@@ -345,7 +349,7 @@ test('#7221 review 3-1: a project folder that is a link out to a share is never 
     assert.equal(r.ok, true, JSON.stringify(r));
     replyfile.discard(r.rec);
     assert.deepEqual(resolved, [proj], 'neither the link to a share nor a folder under it was resolved');
-    assert.ok(Date.now() - started < 2000, 'no network attempt on the way');
+    assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
   } finally { fs.rmSync(linked, { force: true }); }
 });
 

@@ -87,6 +87,14 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
 On Windows `attach` reads `dmfiles.filesDir` and the projects list once and hands both on, so an attach still reads
 each agent's instructions path once (#6726 r5-3) and parses the projects file once.
 
+**Where the code lives** (review 6 findings 3 and 4): the pure rules for how Windows spells a path (shares, namespaces,
+drive letters, the link-target allow-list, DOS device names, "written inside") are `engine/winpath.js`, functions of a
+string with no disk access. The attachment policy that uses them (the agent's roots, the walk, the refusal sentences)
+stays in `engine/replyfile.js`, since it is about what an agent may send. `winpath.WINDOWS_DEVICE_NAME` is now the one
+device-name rule: `engine/backuprestore.js` and `engine/win32zip.js` import it in place of their own copies, which
+disagreed (`clock$` was in one only); the shared rule is the superset (`clock$`, and any whitespace before an
+extension), so both refuse at least what they did.
+
 ## Rejected
 
 - Checking only the real path after realpath (the card's literal second bullet): by then the contact has happened.
@@ -112,6 +120,13 @@ each agent's instructions path once (#6726 r5-3) and parses the projects file on
    whose files' real paths read `\\10.0.0.5\x` (or a DFS path, or another name for the server) is not matched to them,
    and they are refused where main matched by identity. Narrow; the remedy is to write the project folder as Windows
    resolves it. Named in the code comment too.
+4. A path on a drive no root is written on (any caller of `/api/reply` can name `Q:\x`) walks the agent's OWN roots'
+   links to learn the drives they reach (review 6 finding 2). One of the agent's own projects on a mapped drive whose
+   server is down then stalls that attach, as any attach of a file in that project already would. Named in the code.
+5. Not changed (review 6 finding 1, deferred): every Windows attach of a project file walks every registered project
+   folder by lstat before `folderState` resolves it. For a folder on a mapped drive the walk touches the same server
+   the realpath touches next, so it adds no new place contacted; it is what skips a folder that is a local link to a
+   share (review 3 finding 1), which a spelling-only filter could not see.
 
 What would change my mind: a Windows build where `lstat` or `readlink` itself contacts a share (measured not to, here).
 
@@ -154,6 +169,9 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   the outer project (refused, as on main; the outer project's own file still attaches); through the admin share, a
   nested share project written on `\\localhost` inside an outer one on `\\127.0.0.1` does the same.
 - Review 5-2: an attach of a file directly in Files lstats nothing under the agent's project folder.
+- Review 6: the device-name arm now reads `winpath.isDevicePart` (adds CLOCK$ as reserved via the shared rule); the
+  link-target arm reads `winpath.followableLinkTarget`. Every timing check is one named bound, `SOON_MS` (10 s: the
+  measured stall is 21 s, and a slow CI runner needs room); the realpath count stays the exact guard.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -168,6 +186,11 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
   O_NONBLOCK: Mac filesystem behaviours).
 - `server.attachment-stream-6734.test.js`: 25/31 (+2 skipped), the same 6 failures as main, two runs each (download
   streaming on win32). One run showed a 7th (an upload arm) once; it passed in both re-runs on this branch: a flake.
+- The shared device-name rule, A/B against main's three modules on this box: `engine/backuprestore.test.js` 24/24,
+  `engine/backuprun.test.js` 19/19, `engine/backupsnapshot.test.js` 98/103 (the same 5 as main, by name and every
+  error line: Mac backslash-name and FIFO cases), `engine/restoreresume-5536.test.js` 20 (+3 skipped),
+  `engine/restoresink.test.js` 10 (+7 skipped), `engine/win32update.test.js` 133 (+1 skipped),
+  `engine/win32zip.test.js` 22/22, `tools.win-zip-modes-6677.test.js` 12/12: identical counts on both.
 - The full suite (`npm test`, tools/run-tests.sh) is not run on this box: it makes real schtasks calls here. CI runs it.
 
 ## After merge

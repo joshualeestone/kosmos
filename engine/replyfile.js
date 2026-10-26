@@ -247,7 +247,7 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
   /* Projects of OTHER agents left unresolved below. A nested project the agent is not on exists to keep its files
      from the outer project's agents, so skipping it must not let the outer project answer instead (review 5 finding
      1): after the loop, a skipped one whose folder may hold the file refuses the attach. */
-  const skippedOthers = [];
+  const skippedOthers = [];   // read only after best is the agent's: with no project of its own there, it is refused anyway
   for (const p of all) {
     if (!p || typeof p.folder !== 'string' || !p.folder) continue;
     if (win) {
@@ -355,64 +355,8 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    Write the project folder as Windows resolves it. */
 const ON_NETWORK = 'that path is on another computer on the network, or names a device, so it cannot be attached; copy the file into your Files folder and attach it from there';
 const DEVICE_NAME = 'that name belongs to a Windows device, not a file, so it cannot be attached';
-const NAMESPACE = /^[\\/]{2}/;                                   // \\host\share, //host/share, \\?\..., \\.\...
-const LOCAL_LONG = /^[\\/]{2}\?[\\/](?=[A-Za-z]:[\\/])/;         // \\?\C:\..., the long-path spelling of a local drive
-const DEVICE_PART = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])\s*(\..*)?$/i;
-function isDevicePart(part) {
-  return DEVICE_PART.test(String(part).replace(/[ .]+$/, ''));   // Windows drops trailing dots and spaces: "NUL. " is NUL
-}
-function isNetworkSpelling(p) {
-  return NAMESPACE.test(p) && !LOCAL_LONG.test(p);
-}
-function driveOf(p) {
-  const m = /^([A-Za-z]):/.exec(String(p).replace(LOCAL_LONG, ''));
-  return m ? m[1].toUpperCase() : null;
-}
-/* A link's target as a drive path or a relative one, or null for anything else. An allow-list, not a list of
-   network spellings (review 2 finding 1): a target written as \\?\GLOBALROOT\Device\Mup\<host>\<share> reads back
-   as \??\GLOBALROOT\..., one backslash, which no \\ rule sees, and its realpath stalled 21 s on the Windows box.
-   So the only targets followed are X:\... (also written \\?\X:\ or \??\X:\) and a plain relative path; a rooted
-   target with no drive, a drive-relative one (C:x) and any other colon are refused unfollowed. */
-const NT_LOCAL = /^\\\?\?\\(?=[A-Za-z]:[\\/])/;                  // \??\C:\..., the NT spelling of a local drive
-function followableLinkTarget(to) {
-  const t = String(to).replace(LOCAL_LONG, '').replace(NT_LOCAL, '');
-  if (/^[A-Za-z]:[\\/]/.test(t)) return t.indexOf(':', 2) >= 0 ? null : t;
-  if (/^[\\/]/.test(t) || t.includes(':')) return null;
-  return t;
-}
-/* `\\host\share` of a network path, lower-cased (\\?\UNC\host\share read the same), or null. */
-function shareOf(p) {
-  const m = /^[\\/]{2}([^\\/?.][^\\/]*)[\\/]+([^\\/]+)/.exec(String(p).replace(/^[\\/]{2}\?[\\/]UNC[\\/]/i, '\\\\'));
-  return m ? (m[1] + '\\' + m[2]).toLowerCase() : null;
-}
-/* A path written as a plain share, \\host\share\... or //host/share/..., not the \\?\ or \\.\ namespaces. */
-function isPlainShare(p) {
-  return !/^[\\/]{2}[?.][\\/]/.test(String(p)) && shareOf(p) !== null;
-}
-/* A drive path's long (\\?\C:\) or NT (\??\C:\) spelling read as the plain drive path it is. */
-function asDrivePath(p) {
-  return String(p).replace(LOCAL_LONG, '').replace(NT_LOCAL, '');
-}
-/* Whether `given` is written inside `folder` (a drive path or a plain share), case-insensitively as Windows does. */
-function writtenInside(given, folder) {
-  const norm = (p) => path.win32.normalize(asDrivePath(p)).toLowerCase().replace(/\\+$/, '');
-  const f = norm(folder);
-  return (!!driveOf(f) || isPlainShare(f)) && norm(given).startsWith(f + '\\');
-}
-/* A share path with its host dropped: \share\rest, lower-cased, or null. Two spellings of one server (a name and its
-   address) give the same tail, so a check that must fail closed can match on it. */
-function shareTail(p) {
-  if (!shareOf(p)) return null;
-  const s = path.win32.normalize(String(p).replace(/^[\\/]{2}\?[\\/]UNC[\\/]/i, '\\\\')).toLowerCase();
-  return s.replace(/^\\\\[^\\]+/, '').replace(/\\+$/, '');
-}
-/* Whether a project folder left unresolved may hold the file, by spelling, erring toward yes: inside it as given or as
-   resolved, or on a share whose path below the server matches, whatever the server is called (review 5 finding 1). */
-function mayHold(folder, given, real) {
-  if (writtenInside(given, folder) || writtenInside(real, folder)) return true;
-  const ft = shareTail(folder);
-  return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && t.startsWith(ft + '\\'); });
-}
+/* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
+const { NAMESPACE, LOCAL_LONG, NT_LOCAL, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, asDrivePath, writtenInside, shareTail, mayHold } = require('./winpath');
 /* The agent's roots: `drives`, the letters every root is written on or reaches through its own links, and `folders`, the
    agent's own project folders (on a drive letter, or a plain share). A project may live on a share, written as a
    mapped drive (projects.js opens "a Z:\ record whose realpath is \\server\share") or as \\server\share itself; that
@@ -439,7 +383,9 @@ function agentRoots(sessionName, filesDir, projectList) {
    junction or link on its way (C:\Users\me\work -> D:\work), and a path the walk follows onto D: is then judged on D:,
    as it was by identity on main (review 4 finding 1). The roots' links are walked only when the written drives do not
    answer, and once per attach (review 5 finding 2): a file directly in Files never touches a project folder, which may
-   be on a mapped drive whose server is down. */
+   be on a mapped drive whose server is down. ⚠️ Named (review 6 finding 2): a path on a drive no root is written on
+   (any caller of /api/reply can name Q:\x) does walk the agent's OWN roots, so one of its own projects on a mapped
+   drive whose server is down stalls that attach, as any attach of a file in that project already would. */
 function rootReaches(roots, d) {
   if (roots.drives.has(d)) return true;
   if (!roots.reached) {
@@ -504,10 +450,12 @@ function unfollowedLinkRefusal(to) {
    device or a drive outside the roots. Null when the path may be resolved. A chain of more than 32 links is refused. */
 const MAX_HOPS = 32;
 const UNREADABLE_LINK = 'that path goes through a link that cannot be followed, so it cannot be attached';
-/* Reads the folder's names, so it is asked only after an lstat ENOENT (a missing part, usually a mistyped name). */
+/* Reads the folder's names, so it is asked only after an lstat ENOENT (a missing part, usually a mistyped name). The
+   name is matched exactly (review 6 NIT): in an ordinary folder lstat already finds any case, so ENOENT with only a
+   different-case entry means a case-sensitive folder and a mistyped case, which is "no file", not an unreadable link. */
 function listed(p) {
-  const name = path.win32.basename(p).toLowerCase();
-  try { return fs.readdirSync(path.win32.dirname(p)).some((n) => n.toLowerCase() === name); } catch { return false; }
+  const name = path.win32.basename(p);
+  try { return fs.readdirSync(path.win32.dirname(p)).includes(name); } catch { return false; }
 }
 function winLinkRefusal(p, roots, hops = 0) {
   if (hops > MAX_HOPS) return 'that path goes through too many links to follow, so it cannot be attached';
@@ -726,6 +674,6 @@ function discard(rec) {
   if (ledger && key && ledger.has(key)) ledger.get(key).delete(rec.id);
 }
 
-/* isDevicePart, winSpellingRefusal and followableLinkTarget are exported for engine/replyfile.win32-7221.test.js
-   only; nothing else should call them (review 4 NIT). */
-module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, isDevicePart, winSpellingRefusal, followableLinkTarget };
+/* winSpellingRefusal is exported for engine/replyfile.win32-7221.test.js only; nothing else should call it (review 4
+   NIT). The pure path rules it builds on are engine/winpath.js. */
+module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, winSpellingRefusal };
