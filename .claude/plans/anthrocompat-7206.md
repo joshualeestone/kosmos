@@ -108,3 +108,11 @@ SLICE 1b NOW OWNS: listing vendor rows in GET /api/accounts together with acctPr
 vendor, and a page test with a deepseek row.
 Accepted: an agent's own work-folder settings can set Claude Code's environment (as for any agent); the agent already
 holds its key, so that is no new exposure.
+
+## Slice 1a review 4 (2026-10-26 14:2x)
+No blockers. FIXED: GET /api/accounts no longer runs the hidden DeepSeek check (it sent keys to the vendor for rows
+nobody sees; pinned that the vendor is not asked); a REAL-tmux test now proves the scrub end to end (a private tmux
+server's global environment carries stray ANTHROPIC_* and Bedrock values; a stand-in claude records its environment:
+the vendor's address, key and model arrive and none of the globals do; red with env -u removed, "tmux's global
+ANTHROPIC_API_KEY reached the pane"); one link check in readAccount for every reader.
+Accepted: the provider-switch list is fixed (recorded in review 2).
