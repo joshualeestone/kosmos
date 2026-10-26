@@ -280,14 +280,15 @@ async function readFollowing(agentKey) {
   if (!items) return unreadable;
   const page = items.slice(0, communityread.MAX_ITEMS);
   const isPost = (it) => it && typeof it === 'object' && it.kind === 'post';
-  // The posts communityhome does not count as new (shown here, or commented on from this board), so a read pages for
+  // The posts communityhome does not count as new (shown here, or commented on from this board), so a read takes
   // exactly the posts the count names.
   let done;
   // Home's own DAY_MS, so a counted post here is one home counts (#7172), read before doneFollowing can throw. Home
   // unloadable: none counts, and unseen posts go newest first.
   let dayMs = NaN;
   try { const home = require('./communityhome'); dayMs = home.DAY_MS; done = home.doneFollowing(agentKey); } catch { done = followingSeen(agentKey); }
-  const unseen = (it) => isPost(it) && !done.has(String(it.id || '').toLowerCase());
+  // #7172: a post whose id noteSeen cannot record is never unseen here: it would stay first in its tier on every read.
+  const unseen = (it) => isPost(it) && UUID_RE.test(String(it.id || '')) && !done.has(String(it.id || '').toLowerCase());
   const postCount = page.filter(isPost).length;
   // kosmos#7172: every older page is read, up to FEED_PAGES_MAX and within the time bounds.
   const inHand = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
@@ -314,8 +315,7 @@ async function readFollowing(agentKey) {
      between two reads a counted post is never lost; more than that can still lose one (the moving-feed test pins
      both). Older unseen posts fill next, newest first. Already-shown ones fill only up to POSTS_WANTED posts in all,
      the newest page's included, so a page of replies still offers a post. */
-  // Only a post whose id noteSeen can record: one it cannot would stay the deepest and take a place on every read.
-  const counted = (it) => unseen(it) && UUID_RE.test(String(it.id || '')) && Date.parse(it.created_at) > Date.now() - dayMs;
+  const counted = (it) => unseen(it) && Date.parse(it.created_at) > Date.now() - dayMs;
   const take = older.filter(counted).reverse()
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);
