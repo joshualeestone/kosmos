@@ -10,7 +10,8 @@
  * review screen (slice 4c), one at a time, through create.installJob. That call STARTS the agent (measured: enable then
  * bootstrap), which is why nothing in this module calls it.
  *
- *   prepareRestoreWorld   makes "Restored: <member>, <date>" with worlds.createWorld, and a private, empty folder
+ *   prepareRestoreWorld   makes "Restored: <member>, <date> (<tag>)" with worlds.createWorld (#7181: <tag> from the
+ *                         member's id), and a private, empty folder
  *                         inside it for engine/restoresink.js (createWorld pre-makes store, projects and workers, and
  *                         the sink needs an empty root)
  *   finishRestoreWorld    after a restore that succeeded and whose sink is closed: moves the restored `workers` and
@@ -93,8 +94,21 @@ function dayOf(now) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-function worldName(member, now, attempt = 1) {
+/* kosmos#7181: the world's id comes from its name through store.safeKey, which keeps only [a-z0-9_-]. Members whose
+   names reduce to the same id (a name only in a non-Latin script, or two that differ only in punctuation) shared one
+   pool of nine names a day, so one member's restores could use up another's. With the member's id (the restore
+   request's `member`, which 4c has from the verified release) the name carries a short tag of it, hex, which safeKey
+   keeps, so each member has a pool of their own. The tag is six hex of a hash, not the id; it is
+   only shown, never trusted, and a guessable member id can be confirmed from it (the member's name is in the title
+   already, so this adds little). */
+function memberTag(memberId) {
+  if (typeof memberId !== 'string' || !memberId) return '';
+  return crypto.createHash('sha256').update('kosmos-restored-world:' + memberId).digest('hex').slice(0, 6);
+}
+function worldName(member, now, attempt = 1, memberId) {
   const base = `Restored: ${cleanMember(member)}, ${dayOf(now)}`;
+  const tag = memberTag(memberId);
+  if (tag) return attempt > 1 ? `${base} (${tag}, ${attempt})` : `${base} (${tag})`;
   return attempt > 1 ? `${base} (${attempt})` : base;
 }
 
@@ -110,9 +124,10 @@ function onTheList(base, id) {
   try { return worlds.readRegistry(base).worlds.some((w) => w.id === id && !w.hiddenAt); } catch { return false; }
 }
 
-/* opts: { member, now?, createWorld?, hideWorld? } (the two world calls injectable for tests).
+/* opts: { member, memberId?, now?, createWorld?, hideWorld? } (the two world calls injectable for tests). memberId is
+   the restore request's member (kosmos#7181): pass it, so this member's names are not shared with another's.
    { ok: true, world, dir, restoreDir } or { ok: false, because }.
-   ⚠️ 4c builds opts by hand ({ member, now }), never by forwarding a request's object: createWorld and hideWorld
+   ⚠️ 4c builds opts by hand ({ member, memberId, now }), never by forwarding a request's object: createWorld and hideWorld
    replace the calls whose freshness and hide-again guarantees this function gives. */
 function prepareRestoreWorld(base, opts = {}) {
   const create = opts.createWorld || worlds.createWorld;
@@ -120,7 +135,7 @@ function prepareRestoreWorld(base, opts = {}) {
   if (typeof base !== 'string' || !path.isAbsolute(base)) return { ok: false, because: 'the restore was asked without a place for its Kosmos' };
   let world = null, leftovers = 0;
   for (let n = 1; n <= MAX_NAME_TRIES && !world; n++) {
-    const name = worldName(opts.member, opts.now, n);
+    const name = worldName(opts.member, opts.now, n, opts.memberId);
     try { world = create(base, name); } catch (e) {
       // Taken (a hidden Kosmos keeps its id too): try the next name. Anything else is a failure.
       if (takenIds(base).has(store.safeKey(name))) continue;
@@ -139,7 +154,8 @@ function prepareRestoreWorld(base, opts = {}) {
     }
   }
   if (!world && leftovers) return { ok: false, because: `Kosmos folders already on this computer took ${leftovers} of the ${MAX_NAME_TRIES} names tried, so no restored Kosmos could be made today` };
-  if (!world) return { ok: false, because: `there are already ${MAX_NAME_TRIES} restored Kosmoses for this member today; hide one and try again` };
+  // Only "for this member" when the names are this member's own (kosmos#7181); without the id they are shared by name.
+  if (!world) return { ok: false, because: `there are already ${MAX_NAME_TRIES} restored Kosmoses ${memberTag(opts.memberId) ? 'for this member' : 'under names that read the same to Kosmos'} today; hide one and try again` };
   const dir = worlds.worldBaseDir(base, world);
   const restoreDir = path.join(dir, RESTORE_DIR);
   try {
@@ -601,7 +617,8 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    (projects are usually repositories; one at the top reaches every project without its own); one in an agent folder
    or at the top of workers refuses. Projects keep their own .git (restoring a repository whole is the point), so an
    agent made in this world later meets it without this review: start agents in a Restored world with git's hooks
-   and fsmonitor switched off (4c); isRestoredWorld is the check every start path makes. Agents kept elsewhere sit
+   and fsmonitor switched off (4c); isRestoredWorld is the check every start path makes. Pass the release's member
+   id to prepareRestoreWorld as memberId (#7181), or members whose names reduce to one id share nine names a day. Agents kept elsewhere sit
    under the restore folder, whose top a snapshot chooses, so never run git or open a terminal there; they are listed
    only when opts.restoreDir names that folder (pass it, or they are left out without a `more`). A backup can
    force `more` with enough empty folders, and this call has no paging: until 4c adds one (an offset here), such a
@@ -702,4 +719,4 @@ function listRestoredAgents(opts = {}) {
   return { agents, shared, more };
 }
 
-module.exports = { prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, isRestoredWorld, worldName, RESTORE_DIR };
+module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, isRestoredWorld, worldName, RESTORE_DIR };

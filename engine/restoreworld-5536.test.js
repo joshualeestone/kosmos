@@ -107,6 +107,40 @@ test('a second restore of the same member on the same day gets "(2)"; a hidden K
   assert.match(tenth.because, /already 9 restored Kosmoses/);
 });
 
+test('#7181: with the member\'s id, each member has names of their own, however their names reduce', (t) => {
+  const base = fresh(t);
+  const tag = (id) => rw.memberTag(id);
+  assert.match(tag('m-1'), /^[0-9a-f]{6}$/);
+  assert.notEqual(tag('m-1'), tag('m-2'));
+  assert.equal(tag(''), '', 'no id, no tag');
+  // Two names that reduce to the same id (non-Latin only), same day: each is the member's first, under its own id.
+  const li = rw.prepareRestoreWorld(base, { member: '\u674e', memberId: 'm-1', now: NOW });
+  const wang = rw.prepareRestoreWorld(base, { member: '\u738b', memberId: 'm-2', now: NOW });
+  assert.equal(li.ok && wang.ok, true, (li.because || '') + (wang.because || ''));
+  assert.equal(li.world.name, `Restored: \u674e, ${DAY} (${tag('m-1')})`);
+  assert.equal(wang.world.name, `Restored: \u738b, ${DAY} (${tag('m-2')})`, 'the second member was numbered as if it were a second restore');
+  assert.notEqual(li.world.id, wang.world.id);
+  // The same member again: the attempt number goes inside the tag's brackets.
+  const again = rw.prepareRestoreWorld(base, { member: '\u674e', memberId: 'm-1', now: NOW });
+  assert.equal(again.world.name, `Restored: \u674e, ${DAY} (${tag('m-1')}, 2)`);
+  // CONTROL: without the id the two names still share one pool, as before.
+  const base2 = fresh(t);
+  rw.prepareRestoreWorld(base2, { member: '\u674e', now: NOW });
+  assert.equal(rw.prepareRestoreWorld(base2, { member: '\u738b', now: NOW }).world.name, `Restored: \u738b, ${DAY} (2)`);
+});
+
+test('#7181: one member using all nine names does not block another; the refusal names the member only when it is one', (t) => {
+  const base = fresh(t);
+  for (let n = 1; n <= 9; n++) assert.equal(rw.prepareRestoreWorld(base, { member: '\u674e', memberId: 'm-1', now: NOW }).ok, true);
+  const tenth = rw.prepareRestoreWorld(base, { member: '\u674e', memberId: 'm-1', now: NOW });
+  assert.equal(tenth.ok, false);
+  assert.match(tenth.because, /already 9 restored Kosmoses for this member today/);
+  assert.equal(rw.prepareRestoreWorld(base, { member: '\u738b', memberId: 'm-2', now: NOW }).ok, true, 'another member was blocked by the first one\'s nine');
+  const base2 = fresh(t);
+  for (let n = 1; n <= 9; n++) rw.prepareRestoreWorld(base2, { member: 'Ann', now: NOW });
+  assert.match(rw.prepareRestoreWorld(base2, { member: 'Ann', now: NOW }).because, /already 9 restored Kosmoses under names that read the same to Kosmos today/, 'without an id it cannot say "for this member"');
+});
+
 test('prepare reads a taken name by the id createWorld derives (the two derivations stay one)', (t) => {
   const base = fresh(t);
   const name = rw.worldName('Ann Lee', NOW);
