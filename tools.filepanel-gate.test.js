@@ -72,6 +72,7 @@ const GOOD = [
   'press:hidden-input\tasked-for-panel:yes',
   'press:visible-input\tasked-for-panel:yes',
   'press:real-presenter\tpanel-on-screen:yes',
+  'press:window-clicked-over-the-picker\tpicker-stays-in-front:yes',
   'press:after-a-cancel\treaches-the-app-again:yes',
   'press:with-a-sheet-up\tno-abort-and-panel-presented:yes',
   'press:dropped-callback\tno-abort:yes asked:yes',
@@ -99,8 +100,9 @@ test('a missing uiDelegate is reported as the product, which is what it is', () 
 
 test('a cancel that never answers is reported as the product, at the crash exit code', () => {
   /* The real shape: arms 1-3 print, then WebKit raises because the completion
-     handler was not called and the process aborts at 134 before arm 4. */
-  const v = verdict(GOOD.split('\n').slice(0, 5).join('\n'), 134);
+     handler was not called and the process aborts at 134 before arm 4 (#7209's arm, which
+     needs no cancel, prints before it). */
+  const v = verdict(GOOD.split('\n').slice(0, 6).join('\n'), 134);
   assert.ok(!v.ok);
   assert.match(v.text, /file picker is broken/);
   assert.match(v.text, /after-a-cancel/, 'the message must name the arm that did not hold');
@@ -140,7 +142,7 @@ test('#2807: a with-a-sheet-up SETUP INCONCLUSIVE is the harness, NOT the produc
      The output still carries the earlier uiDelegate:/press: arms that DID run, so
      the gate must match the INCONCLUSIVE arm BEFORE the product arm and NOT blame
      the product. */
-  const ranArms = GOOD.split('\n').slice(0, 6).join('\n'); // through after-a-cancel; with-a-sheet-up absent
+  const ranArms = GOOD.split('\n').slice(0, 7).join('\n'); // through after-a-cancel; with-a-sheet-up absent
   const v = verdict(ranArms + '\nfilepanel selftest SETUP INCONCLUSIVE: the host sheet never attached (harness, not the product)', 1);
   assert.ok(!v.ok, 'an inconclusive setup must still stop the cut');
   assert.match(v.text, /could not set up/);
@@ -188,7 +190,7 @@ test('spaces where the tabs should be do not pass', () => {
 });
 
 test('#4412: a run that dies at the dropped-callback arm (the abort itself) fails the gate', () => {
-  const upToSheet = GOOD.split('\n').slice(0, 7).join('\n');   // through with-a-sheet-up, then SIGABRT
+  const upToSheet = GOOD.split('\n').slice(0, 8).join('\n');   // through with-a-sheet-up, then SIGABRT
   const v = verdict(upToSheet, 134);
   assert.equal(v.ok, false, 'a build that aborts when a picker drops its callback passed the gate');
 });
@@ -197,7 +199,7 @@ test('#4412: a run that dies at the dropped-callback arm (the abort itself) fail
    list knows the new lines, so that test cannot show the gate requires them. At exit 0 only that list can
    refuse, so each new line is dropped in turn and the gate must name it. */
 for (const want of ['press:dropped-callback', 'press:after-a-dropped-callback', 'press:after-a-hung-picker', 'rule:picker-still-up',
-  'press:still-up-past-first-look', 'press:gone-once-then-back']) {
+  'press:still-up-past-first-look', 'press:gone-once-then-back', 'press:window-clicked-over-the-picker']) {
   test(`#4412: a clean exit without ${want} fails the gate and names it`, () => {
     const v = verdict(GOOD.split('\n').filter((l) => !l.startsWith(want + '\t')).join('\n'), 0);
     assert.equal(v.ok, false, `the gate passed a run that never printed ${want}`);

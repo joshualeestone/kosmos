@@ -465,7 +465,7 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   # that printed none of them never got going and is the only case where the
   # product is genuinely not implicated.
   _fp_missing=""
-  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:after-a-cancel	reaches-the-app-again:yes" "press:with-a-sheet-up	no-abort-and-panel-presented:yes" "press:dropped-callback	no-abort:yes asked:yes" "press:after-a-dropped-callback	reaches-the-app-again:yes" "press:after-a-hung-picker	reaches-the-app-again:yes" "rule:picker-still-up	shown+here:up gone+here:gone shown+away:up gone+away:up" "press:still-up-past-first-look	left-alone:yes" "press:gone-once-then-back	left-alone:yes"; do
+  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:window-clicked-over-the-picker	picker-stays-in-front:yes" "press:after-a-cancel	reaches-the-app-again:yes" "press:with-a-sheet-up	no-abort-and-panel-presented:yes" "press:dropped-callback	no-abort:yes asked:yes" "press:after-a-dropped-callback	reaches-the-app-again:yes" "press:after-a-hung-picker	reaches-the-app-again:yes" "rule:picker-still-up	shown+here:up gone+here:gone shown+away:up gone+away:up" "press:still-up-past-first-look	left-alone:yes" "press:gone-once-then-back	left-alone:yes"; do
     case "$_fp_out" in
       *"$_fp_want"*) ;;
       *) [ -n "$_fp_missing" ] || _fp_missing="$_fp_want" ;;
