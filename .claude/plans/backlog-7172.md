@@ -48,8 +48,11 @@ FEED_PAGES_MAX (3), as an all-shown newest page already did. Each read is up to 
 - Rebased onto #7175 (03dfea5a5f): the read's "counted" IS communityhome.countedFollowing (24 hours, not done, a UUID
   id), so home and the read share one rule. countedFollowing's comment now describes the read's deepest-first take.
   Mutation: the read without home's rule turns the direct test red.
-- Not tested: a page failing while counted posts sit behind it. The read then takes the deepest of what arrived; the
-  guarantee does not hold for that read (stated above), and the existing failed-page arm covers the failure path.
+- A page failing while counted posts sit on it: the read takes the deepest of what arrived ([21, 22]), and the next
+  read, with the page answering, takes the failed page's posts ([23, 24, 25]). The guarantee does not hold for the read
+  that lost the page (stated above).
+- Home without countedFollowing (a stub or an older module): the read falls back to newest first and does not throw.
+  Red without the typeof guard ("countedByHome is not a function").
 - Posts with no id are never de-duplicated against each other (inHand keys only real ids); they cannot be marked shown
   either way.
 - Not measured: the service bucket's size. Reads whose newest page was all shown already made 3 requests; only reads
