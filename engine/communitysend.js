@@ -1541,8 +1541,9 @@ async function sweepOwnerLink(keys, on) {
     const start = (ownerLinkFrom.get(ep) || 0) % Math.max(order.length, 1);
     for (let idx = 0; idx < order.length; idx++) {
       const agentKey = order[(start + idx) % order.length];
-      const stopHere = () => ownerLinkFrom.set(ep, (start + idx + 1) % order.length);
-      if (Date.now() > until) break;   // the rest wait for the next sweep
+      const stopHere = () => ownerLinkFrom.set(ep, (start + idx + 1) % order.length);   // after this agent
+      const resumeHere = () => ownerLinkFrom.set(ep, (start + idx) % order.length);    // at this agent, not yet tried
+      if (Date.now() > until) { resumeHere(); break; }   // the rest wait for the next sweep, which starts here
       // #4994: a deleted agent's old account, or a name being retired, is not linked.
       if (agentKey.startsWith(RETIRED_PREFIX) || retiring(agentKey)) continue;
       const k = keys[agentKey];
@@ -1550,7 +1551,7 @@ async function sweepOwnerLink(keys, on) {
       const marker = ownerLinkMarker(mac, k.apiKey);
       if (k.ownerLinked === marker) continue;
       if ((ownerLinkAgentAt.get(ep + '\n' + agentKey) || 0) > Date.now()) continue;
-      if (mints >= OWNER_LINK_MINTS_PER_PASS) { stopHere(); break; }   // no pause: the next sweep goes on from here
+      if (mints >= OWNER_LINK_MINTS_PER_PASS) { resumeHere(); break; }   // no pause: the next sweep starts at this agent
       mints++;
       const minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name });
       // Refused on this computer before anything was sent (a register or a Forget is out): nothing was asked, so
