@@ -516,7 +516,7 @@ test('#7152 review 15: a refused profile request backs off too, and a new login 
 test('#7152 review 15: the real home comes from the user database, so a sandboxed HOME cannot pass for it', async (t) => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'usagepoll-home-'));
   const saved = process.env.HOME;
-  t.after(() => { process.env.HOME = saved; fs.rmSync(sandbox, { recursive: true, force: true }); });
+  t.after(() => { if (saved === undefined) delete process.env.HOME; else process.env.HOME = saved; fs.rmSync(sandbox, { recursive: true, force: true }); });
   process.env.HOME = sandbox;
   assert.equal(os.homedir(), sandbox, 'CONTROL: the sandbox HOME took effect');
   const asked = [];
@@ -525,4 +525,25 @@ test('#7152 review 15: the real home comes from the user database, so a sandboxe
   assert.deepEqual(asked, [], 'a sandboxed HOME\'s .claude read the operator\'s bare Keychain entry');
   await usagepoll.tokenStateFor({ dir: path.join(os.userInfo().homedir, '.claude'), isDefault: true }, { now: NOW, platform: 'darwin', readCred });
   assert.deepEqual(asked, [loginexpiry.DEFAULT_SERVICE], 'CONTROL: the real home\'s .claude reads the bare entry');
+});
+
+test('#7152 review 16: a renewed token ends the backoff, another login\'s token backs off, and a waiting record stays shown', async (t) => {
+  const seen = {};
+  let expiresAt = NOW + 10 * 3600000;
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt }), request: fakeRequest(answer, seen) });
+  const d = tmpDir(t);
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 40 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'CONTROL: the same token waits out its hour');
+  assert.notEqual(usagepoll.readUsage(d, NOW + 40 * 60000), null, 'a waiting record vanished, hiding why the account is not measured');
+  assert.equal(usagepoll.readUsage(d, NOW + 40 * 60000).state, 'http-401');
+  expiresAt = NOW + 20 * 3600000;
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 50 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 2, 'a renewed token for the same login stayed in the old token\'s backoff');
+  const e = tmpDir(t);
+  const other = (opts) => (opts.path === '/api/oauth/profile' ? { code: 200, body: JSON.stringify({ account: { email: 'b@example.test' } }) } : { code: 200, body: BODY });
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW, other));
+  assert.equal(usagepoll.readUsage(e, NOW).state, 'other-account');
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 10 * 60000, other));
+  assert.equal(seen.calls.length, 0, 'another login\'s token was sent again ten minutes later');
 });

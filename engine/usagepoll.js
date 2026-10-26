@@ -51,7 +51,8 @@ const EXPIRY_MARGIN_MS = 60 * 1000;
 /* Review 14: after a refusal (401, 403 or 429) the same token is not sent again for an hour. The token is the one
    Claude Code itself uses, so repeated refused requests must not put the operator's live agents at risk. */
 const BACKOFF_MS = 60 * 60 * 1000;
-const BACKOFF_STATES = new Set(['http-401', 'http-403', 'http-429', 'profile-http-401', 'profile-http-403', 'profile-http-429']);
+const BACKOFF_STATES = new Set(['http-401', 'http-403', 'http-429', 'profile-http-401', 'profile-http-403', 'profile-http-429',
+  'other-account']);   // review 16: another login's token is not sent every ten minutes either
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
 
@@ -107,7 +108,7 @@ async function tokenStateFor(a, { now = Date.now(), ...deps } = {}) {
   if (typeof oauth.expiresAt === 'number' && Number.isFinite(oauth.expiresAt) && oauth.expiresAt <= now + EXPIRY_MARGIN_MS) {
     return { state: 'token-expired' };
   }
-  return { state: 'ok', token };
+  return { state: 'ok', token, expiresAt: typeof oauth.expiresAt === 'number' ? oauth.expiresAt : null };
 }
 
 /* One GET of the usage endpoint. Resolves { code, body }; code 0 on a network error, an idle socket, or a request that
@@ -243,9 +244,19 @@ async function pollAll(list, deps = {}) {
   for (const a of Array.isArray(list) ? list : []) {
     const before = a && typeof a.dir === 'string' ? readRaw(a.dir) : null;
     const nowMs = typeof deps.now === 'number' ? deps.now : Date.now();
-    /* Review 15: the hour belongs to the login that was refused, so signing the folder in again ends it. */
+    /* Review 15: the hour belongs to the login that was refused, so signing the folder in again ends it. Review 16: and
+       to the token, identified by its expiry time (not a secret), so a token renewed for the same login is read at
+       once. While it waits, the record's `at` moves on so its state stays shown; its figures still age out by
+       measuredAt as any kept figures do. */
     if (before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number' && nowMs - before.refusedAt < BACKOFF_MS
-      && typeof before.refusedEmail === 'string' && before.refusedEmail === a.email) continue;
+      && typeof before.refusedEmail === 'string' && before.refusedEmail === a.email) {
+      let t = null;
+      try { t = await tokenStateFor(a, deps); } catch { t = null; }
+      if (t && t.state === 'ok' && t.expiresAt === before.refusedExpiresAt) {
+        write(a.dir, { ...before, at: nowMs });
+        continue;
+      }
+    }
     let rec = null;
     try { rec = await readOne(a, deps); } catch { rec = null; }
     if (!rec) continue;
@@ -271,7 +282,13 @@ async function pollAll(list, deps = {}) {
       }
     } else {
       const prev = readRaw(a.dir);
-      if (BACKOFF_STATES.has(rec.state)) { rec.refusedAt = rec.at; rec.refusedEmail = a.email; }   // review 14: the hour runs from the refusal
+      if (BACKOFF_STATES.has(rec.state)) {   // review 14: the hour runs from the refusal
+        rec.refusedAt = rec.at;
+        rec.refusedEmail = a.email;
+        let t = null;
+        try { t = await tokenStateFor(a, deps); } catch { t = null; }
+        rec.refusedExpiresAt = t && t.state === 'ok' ? t.expiresAt : null;
+      }
       const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
       /* Review 9: a folder signed in again as another login must not show the old login's figures under the new one. */
       if (sameLogin(prev, a, org) && typeof prevAt === 'number' && Number.isFinite(prevAt)) {
