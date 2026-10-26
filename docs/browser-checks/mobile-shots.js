@@ -1119,6 +1119,31 @@ const SCREENS = [
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }).then((r) => r.status), data.projectId);
     if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
   } },
+  /* kosmos#7210: a project set to Muted: the label beside its title, then its settings with the notification choice.
+     Set from the page (as the person) and put back to All after, so no later screen shoots it muted. */
+  { name: 'project-muted-7210', owner: 'Ice Cream Kitty', go: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: 'muted' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('project-muted-7210: could not mute the project (status ' + st + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-head-notify', { state: 'visible', timeout: 8000 });
+  }, after: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: 'all' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not unmute the project after the shot (' + st + ')');
+  } },
+  { name: 'project-settings-notify-7210', owner: 'Ice Cream Kitty', go: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: 'mentions' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('project-settings-notify-7210: could not set Mentions only (status ' + st + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.click('#pj-settings-link');
+    await page.waitForSelector('#pjs-notify [aria-checked="true"][data-notify="mentions"]', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.getElementById('pjs-notify').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+  }, after: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: 'all' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not put the project back to All after the shot (' + st + ')');
+  } },
   { name: 'projects-paused', owner: 'Mona Lisa', go: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
     await openTab(page, 'projects');
