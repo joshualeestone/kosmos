@@ -19,7 +19,10 @@ old task 1's conversation (a person's words included), and its room showed the o
   answers ok:false, which every careful caller already treats as "could not read" (projectOfPost's misroute guard
   throws, the unread count says unknown). Direct messages carry no project and are untouched. The cost of that
   choice: while the projects file is unreadable, every reader that checks ok reports "could not read" for the whole
-  log, direct messages included, though the log itself is fine. Most room paths already stop at projects.get then.
+  log, direct messages included, though the log itself is fine. The room post and react paths, which used rows
+  without checking ok, now answer could-not-read too (review 4), so nothing is posted, folded or reacted on against
+  an empty room. The direct-message send path keeps going: its rows carry no project. A receipt is never kept from a
+  read made while the stamps were unknown, and the room-held memo keys on the stamps as well as the row count.
 - Cost: the stamps are cached until the projects file changes (inode, size, mtime, ctime); record()'s filtered rows
   are cached until the log or the stamps change.
 - Why keep the rows: an enterprise owner owns work content (Josh, 2026-10-09) and may want a deleted project's
@@ -53,13 +56,15 @@ old task 1's conversation (a person's words included), and its room showed the o
   only, no one's words; a re-made project may be asked a little later than a new name would be; not changed.
 
 ## Proven
-- engine/taskchat.remade-7185.test.js, 7 tests. Each guard reverted on its own reds its own tests: the old
+- engine/taskchat.remade-7185.test.js, 8 tests (the eighth: lastPostAt), and in engine/messages.test.js a room post
+  with the projects file unreadable is refused as could-not-read (red without the guard). Each guard reverted on its own reds its own tests: the old
   messages.js reds the room test and the room half of the unreadable test; the old taskchat.js reds the task, progress
   and unreadable tests; a fail-OPEN projectborn reds the unreadable test; the old taskseen.js reds the seen test.
-- Nine existing tests wrote rows dated before the project they had just made and were changed to date the project
+- Ten existing tests wrote rows dated before the project they had just made and were changed to date the project
   first: engine/messages.test.js #3564; server.room-held-5800.test.js, three route tests (folder files included, so
   they do not read as fresh work); server.projects.test.js #1895; server.room-paged-7032.test.js, two (found by review
-  3); server.roomread-seen-4926.test.js, three (review 3). Found first by a pattern list, which missed the last two
+  3); server.roomread-seen-4926.test.js, three (review 3); cli.task-activity-5874.test.js #6947, a view a minute
+  before a message (found by the sweep). Found first by a pattern list, which missed the last two
   files; the final check is a sweep of every test file that touches the room log, task chats or seen marks. No real row can predate its project: createdAt is written
   only by projects.create, and external rows are stamped on arrival.
 
