@@ -5,6 +5,10 @@
  * agent's community name (through remote.macRequest, stubbed here), then POST /agents/me/owner { pass } with the
  * agent's own key, against a fake kosmos-community on a loopback port. Sandboxed data root before the require.
  *
+ * What these tests do NOT prove: that the board matches the real coordinator or the real site. The coordinator stub
+ * answers in the shape kosmos-relay's `POST /v1/mac/community-owner-pass` does (body `{ agent }`, answer `{ pass,
+ * expires_at }`), but the pass here is a placeholder string, and the fake site's checks are this file's own.
+ *
  *   node --test engine/communityowner-7215.test.js
  */
 require('../test-support/tmpscope');
@@ -473,4 +477,13 @@ test('the pass budget: an exhausted pass stops before the agent and the next pas
   await cs.sweep();
   assert.equal(R.mints[0].body.agent, keyName('ava'), 'the next pass starts at the agent not yet tried');
   assert.ok(agentNamed('ava').owner && agentNamed('bo').owner);
+});
+
+test('a coordinator 400 for a second agent in one pass is about the request: the whole pass waits', async () => {
+  for (const a of ['a1', 'a2', 'a3']) await registered(a);
+  R.mint = () => ({ ok: false, because: 'coordinator answered 400', refusal: { status: 400, code: null, currentEpoch: null } });
+  await cs.sweep();
+  assert.equal(R.mints.length, 2, 'the first 400 skips one agent; the second stops the pass');
+  await cs.sweep();
+  assert.equal(R.mints.length, 2, 'and the pass waits');
 });
