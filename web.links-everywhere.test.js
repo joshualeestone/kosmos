@@ -256,6 +256,10 @@ test('kosmos#7239: a bare web address is a link everywhere a message is drawn, l
   // Review 2: a label that is itself the address is not a second link.
   const twice = rich('[example.com](https://example.com)');
   assert.equal((twice.match(/<a /g) || []).length, 1, 'the label and the target are both links: ' + twice);
+  for (const lbl of ['**example.com**', 'example.com.', 'see example.com']) {
+    const out = rich('[' + lbl + '](https://e.com)');
+    assert.equal((out.match(/<a /g) || []).length, 1, 'label ' + lbl + ' became a second link: ' + out);
+  }
   // Review 1: a cited project file keeps its Show me, even when its name looks like a host.
   const spans = new Function(lift(['esc', 'pjBareWeb', 'pjBareSplit', 'pjRichSpans', 'pjCiteKey', 'pjListDepth']) + '\nreturn pjRichSpans;')();
   const cited = spans('see brand.io and example.com', new Set(['brand.io']));
@@ -268,6 +272,9 @@ test('kosmos#7239: a bare web address is a link everywhere a message is drawn, l
     assert.match(out, /<span class="ref">brand\.io<button/, dressed + ' lost its Show me: ' + out);
     assert.doesNotMatch(out, /xlink/, dressed + ' became a website link: ' + out);
   }
+  // Review 3: an address with a path is a website, even when its last part is a cited file.
+  const gh = spans('see "github.com/o/r/blob/main/README.md" now', new Set(['README.md']));
+  assert.match(gh, /href="https:\/\/github\.com\/o\/r\/blob\/main\/README\.md"/, 'a quoted address with a path became a chip: ' + gh);
 });
 
 test('kosmos#7239 review 1: a code block\'s path label is never a website', () => {

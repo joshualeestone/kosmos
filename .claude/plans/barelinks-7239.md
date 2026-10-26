@@ -49,3 +49,7 @@ In a DM and a project room, example.com, example.com/path and https://example.co
   - pjInline's bare arm is gone (its only caller is a code block's path label): pjInline and pjLinkPaths are main's.
   - [example.com](https://example.com): the label that is itself the address is held plain, so one link, not two.
   - Left as judgement calls (recorded in review2): hello.world, this.io, a three-part settings module, curly quotes.
+- Round 3 (.claude/plans/barelinks-7239-review3.md): 0 blockers, 0 warnings, 2 nits; converged. A dressed cited file
+  chips only as a bare name (no path, no ".."), so an address with a path stays a link; a markdown label with any
+  address in it is held plain, so no label is ever a second link. Fuzzed by the reviewer: 355,000 messages render the
+  same visible text as main, 400,000 renders with no malformed markup.

@@ -72983,10 +72983,11 @@ function pjRichSpans(seg, names, agentNames) {
       /* Held so the emphasis pass leaves it alone, unless it already carries a held span (inline code
          inside the address): restoring is one pass, so a placeholder held inside another would leak. */
       : (u.includes('\uFFFC') ? u : hold(u));
-    // Review 2: a label that is itself an address ([example.com](https://example.com)) stays plain, or it is a second link.
+    // Reviews 2 and 3: a label with an address in it ([example.com](https://e.com), [see **x.com**](...)) stays plain
+    // text, or it becomes a second link, possibly to somewhere else.
     const rawLabel = label.replace(/&(amp|lt|gt|quot);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e]));
-    const lb = typeof pjBareSplit === 'function' ? pjBareSplit(rawLabel) : null;
-    return (lb && !lb.lead && !lb.tail ? hold(label) : label) + ' (' + shown + ')';
+    const labelHasWeb = typeof pjBareSplit === 'function' && rawLabel.split(/\s+/).some((w) => pjBareSplit(w));
+    return (labelHasWeb ? hold(label) : label) + ' (' + shown + ')';
   });
   /* A URL (or, with `names`, a cited file) is a whole whitespace-delimited
      token. Trailing sentence punctuation and trailing emphasis stars
@@ -73060,7 +73061,8 @@ function pjRichSpans(seg, names, agentNames) {
       const bare = typeof pjBareSplit === 'function' ? pjBareSplit(rawTok) : null;
       if (bare) {
         // Review 2: a cited project file dressed in bold, quotes, parens or 's is still the file, with its Show me.
-        const key = hasNames ? pjCiteKey(bare.core, names) : null;
+        // Only a bare name, no path and no "..": an address with a path is a website, even if it ends in a file name (review 3).
+        const key = hasNames && !/[/?#]/.test(bare.core) && !bare.core.includes('..') ? pjCiteKey(bare.core, names) : null;
         const mid = key !== null
           ? '<span class="ref">' + esc(bare.core) + '<button class="refgo" type="button" data-ref="' + esc(key)
             + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>'
