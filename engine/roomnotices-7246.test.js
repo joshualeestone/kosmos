@@ -95,3 +95,43 @@ test('#7246 s2 review 1: the save sends roomNotices only when THIS page changed 
   assert.match(SCRIPT, /if \(noticesSel && noticesVal !== \(noticesSel\.dataset\.painted \|\| 'auto'\)\) body\.roomNotices = noticesVal;/,
     'the save compares with the poll\'s value, so a stale tab sends its old choice back');
 });
+
+test('#7246 the busy hour, modelled on the real roomhold code: one wake per post becomes one wake an hour', async () => {
+  // An idle member of a busy room: a colleague's unaddressed post every minute for an hour. A line typed to the
+  // member wakes it; its turn ends a minute later in an idle report, which runs flushOnIdle (the report route), and
+  // the minute sweep runs flushDigests. This counts the wakes under each mode. A MODEL of the chain the card measured
+  // (one agent over 1,000 turns a day), not a measurement on a live board; slice 3 measures that.
+  const MIN = 60 * 1000;
+  const T = Date.parse('2026-10-27T15:00:00Z');
+  const fleet = require('../test-support/fleet');
+  async function hour(mode, who) {
+    let wakes = 0;
+    let busyUntil = -1;   // the minute its current turn ends
+    const deliver = async () => { wakes += 1; return { state: 'placed' }; };
+    const board = fleet.install([fleet.agent(who, { state: 'idle' })]);
+    try {
+      for (let m = 0; m < 60; m += 1) {
+        const now = T + m * MIN;
+        roomhold.hold(who, 'busy', 'm' + m);
+        if (m === busyUntil) {   // the turn the last wake started ends now: the report route's flush
+          const before = wakes;
+          await roomhold.flushOnIdle(who, { deliver, roster: [], shownOf: () => 'Busy', DELIVERY: { COULD_NOT: 'could_not' }, modeOf: () => mode, now });
+          if (wakes > before) busyUntil = m + 1;
+        }
+        if (m !== busyUntil) {   // the minute sweep, for a member not mid-turn
+          const before = wakes;
+          await roomhold.flushDigests(board.agents, { readReport: () => ({ found: true, state: 'idle', by: 'auto', at: new Date(now).toISOString() }),
+            now, decayMs: 15 * MIN, deliver, DELIVERY: { COULD_NOT: 'could_not' }, shownOf: () => 'Busy', modeOf: () => mode, addressable: () => ({ ok: true }) });
+          if (wakes > before) busyUntil = m + 1;
+        }
+        if (mode === 'each' && m === 0) { wakes += 1; busyUntil = 1; }   // 'each': the first post's line starts the chain
+      }
+    } finally { board.restore(); }
+    return wakes;
+  }
+  const each = await hour('each', 'modeleach');
+  const digest = await hour('digest', 'modeldigest');
+  assert.ok(each >= 25, 'CONTROL: the each-mode chain did not keep the member awake (' + each + ' wakes in the hour)');
+  assert.ok(digest <= 2, 'the digest still woke the member ' + digest + ' times in the hour');
+  console.log('busy-hour model: each=' + each + ' wakes, digest=' + digest);
+});
