@@ -431,8 +431,13 @@ function noteDigest(name, projectId, now) {
     require('./securewrite').writeSecret(digestFile(name), JSON.stringify(all), 0o600, { atomicOnly: true });
   } catch { /* best effort: the next digest comes a minute later at worst */ }
 }
-/* A held post that asks something of the member (held on a quota or a limit, or by the Gemini cap): told at once in any mode. */
-function urgent(x) { return isAddressed(x) || isCapped(x); }
+/* A held post that names the member and asks for its answer (the @ mark): told at once in any mode. A cap-marked post
+   (^) asks nothing; it waits for the digest like any other (review 1: counting it made a Gemini member's every post in a
+   digest room skip the digest). */
+function urgent(x) { return isAddressed(x); }
+/* A digest the gate held (a menu, a limit, the quota, the cap) is tried again this long after, not every minute
+   (review 1: the #4797 shape, the held file taken and rewritten each minute while the hold lasted). */
+const DIGEST_RETRY_MS = 10 * 60 * 1000;
 
 /* The turn ended: tell the member, one line per project, about what was held. `deliver` is the board's
    typing path (chat.deliverAsync). An id is cleared only once its line was typed (anything but
@@ -487,6 +492,8 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
     else if (due) noteDigest(name, projectId, now);   // #7246: a digest was typed (or held for typing): the next waits an hour
+    // A digest the gate refused is tried again in DIGEST_RETRY_MS, not at the next minute's sweep.
+    if (due && (!state || state === DELIVERY.COULD_NOT)) noteDigest(name, projectId, now - DIGEST_MS + DIGEST_RETRY_MS);
     out.push({ projectId, n: ids.length, state, ...(due ? { digest: true } : {}), ...(after ? { after } : {}) });
   }
   return out;
@@ -524,7 +531,7 @@ async function flushDigests(roster, { readReport, now, decayMs, deliver, shownOf
    same gated path (a held verdict puts the ids back again). `isAgy` picks those cards; #5805 adds a Claude member
    holding an ask a usage limit kept (see the loop), and #6256 a project holding a post that text in a Claude member's
    input box held, once the box reads empty (see the loop). Every other #4624 hold is exactly as before. Never throws. */
-async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf, boxEmpty }) {
+async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf, boxEmpty, modeOf }) {
   const out = [];
   if (off(env)) return out;
   for (const card of Array.isArray(roster) ? roster : []) {
@@ -540,7 +547,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
       if (inProjects.length && !workingNow(readReport, inName, now, decayMs)) {
         const chatMod = require('./chat');
         if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster) && boxEmpty(card) === true) {
-          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: inProjects });
+          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: inProjects, modeOf, now });   // #7246: a digest room's unasked posts still wait
           inputProjects(inName);   // drop the notes for posts now told
           for (const d of done) out.push({ name: inName, why: 'input', ...d });
           continue;
@@ -600,7 +607,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
          skipped. */
       const agyquota = require('./agyquota');
       if (agyquota.heldForAgy(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;   // #4588 ask 3: the cap too
-      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy, afterOf })) out.push({ name, ...d });
+      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy, afterOf, modeOf, now })) out.push({ name, ...d });   // #7246: and here
     } catch { /* the posts stay held for the next minute */ }
   }
   return out;
@@ -644,4 +651,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { NOTICE_MODES, BIG_ROOM, DIGEST_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
+module.exports = { NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };

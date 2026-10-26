@@ -108,3 +108,37 @@ test('#7246 flushDigests: an idle member gets its due digest; a working one, a n
   assert.deepEqual(roomhold.heldIn('ed', 'small'), ['m9'], 'an each-room\'s post was told by the digest sweep');
   assert.deepEqual(roomhold.heldIn('fay', 'big'), ['m1'], 'a working member was told mid-turn');
 });
+
+test('#7246 review 1: a cap-marked post (asks nothing) waits for the digest; only an @ post is told at once', async () => {
+  const { typed, deliver } = harness();
+  roomhold.noteDigest('ivy', 'big', T0);
+  roomhold.hold('ivy', 'big', roomhold.cappedId('m1'));
+  await flush('ivy', deliver, 'digest', T0 + 5 * MIN);
+  assert.equal(typed.length, 0, 'a cap-marked post skipped the digest');
+  assert.deepEqual(roomhold.heldIn('ivy', 'big'), [roomhold.cappedId('m1')], 'it was not kept');
+});
+
+test('#7246 review 1: a digest the gate refuses is tried again ten minutes later, not every minute', async () => {
+  let tries = 0;
+  const refuse = async () => { tries += 1; return { state: D.COULD_NOT, held: true }; };
+  const board = fleet.install([fleet.agent('jo', { state: 'idle' })]);
+  try {
+    roomhold.hold('jo', 'big', 'm1');
+    const report = { found: true, state: 'idle', by: 'auto', at: new Date(T0).toISOString() };
+    const sweep = (at, deliver) => roomhold.flushDigests(board.agents, {
+      readReport: () => report, now: at, decayMs: 15 * MIN, deliver, DELIVERY: D, shownOf: () => 'Big Room',
+      modeOf: () => 'digest', addressable: () => ({ ok: true }),
+    });
+    await sweep(T0, refuse);
+    assert.equal(tries, 1);
+    assert.deepEqual(roomhold.heldIn('jo', 'big'), ['m1'], 'a refused digest lost its post');
+    await sweep(T0 + MIN, refuse);
+    await sweep(T0 + 9 * MIN, refuse);
+    assert.equal(tries, 1, 'a refused digest was retried every minute');
+    await sweep(T0 + roomhold.DIGEST_RETRY_MS, refuse);
+    assert.equal(tries, 2, 'the refused digest was not retried after the wait');
+    const { typed, deliver } = harness();
+    await sweep(T0 + 2 * roomhold.DIGEST_RETRY_MS, deliver);
+    assert.equal(typed.length, 1, 'CONTROL: once the gate lets it through, the digest is told');
+  } finally { board.restore(); }
+});

@@ -203,9 +203,13 @@ function withCardWords(rows, projectList) {
 /* #7246: a project's mode for room posts that do not name a member (engine/roomhold.js noticeMode), read from the stored
    project itself (its roomNotices setting and its member count). An unreadable or missing project is 'each', the
    behaviour before #7246. */
+/* Review 1: read at most every 30 s, not once per member, project and flush (the minute sweep asks for every member). */
+let roomNoticeMemo = { at: 0, all: null };
 function roomNoticeModeOf(projectId) {
   try {
-    const raw = projects.readAll().find((p) => p && p.id === projectId);
+    const now = Date.now();
+    if (!roomNoticeMemo.all || now - roomNoticeMemo.at > 30 * 1000 || now < roomNoticeMemo.at) roomNoticeMemo = { at: now, all: projects.readAll() };
+    const raw = (roomNoticeMemo.all || []).find((p) => p && p.id === projectId);
     return roomhold.noticeMode(raw);
   } catch { return 'each'; }
 }
@@ -25904,6 +25908,7 @@ function start(port = PORT) {
             stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
             afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),   // #4926 N7
             isLimitable: chat.limitReleased,   // #5805: the card reads idle, or idle on screen under its StopFailure limit report
+            modeOf: roomNoticeModeOf,   // #7246: a big room's unasked posts wait for its digest here too
             boxEmpty: chat.inputBoxEmpty,   // #6256 item 1: posts held by text in a Claude agent's box, once it empties
           }).then((done) => {
             for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, d.why === 'input' ? 'once its input box was empty' : 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3; #6256
