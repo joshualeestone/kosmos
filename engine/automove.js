@@ -11,7 +11,8 @@
  * picked again before each move. An agent is moved only when it was movable on the PREVIOUS tick too (review 2: one
  * idle reading is a moment), and idleness is read again from a NEW roster just before the move.
  *
- * 🛑 IT MOVES ONLY FOR USAGE. An account whose login has stopped is recorded (and shown) but never acted on, and an agent
+ * 🛑 IT MOVES ONLY FOR USAGE. An account whose login has stopped is recorded (its would-move lines carry kind 'login', so
+ * Settings can say they are not acted on) but never acted on, and an agent
  * whose first request on its new account is refused is NOT moved back: the target is held and the person is told
  * (review 4: both moves needed an idle card, and a refused agent's card reads auth_failed, so neither could have fired
  * where it was needed; the plan says what replaces them).
@@ -71,10 +72,10 @@ function append(file, entry) {
 }
 
 /* The newest RECENT entries Settings draws, newest first. Only entries the page draws a line for are counted (review 2
-   and 4): a decision made with moves on, or one with no move in it, draws nothing; a move that only started draws
-   nothing (its ending line says how it went). */
+   and 4): a decision with no move in it draws nothing, and one made with moves on draws only its moves off a stopped
+   login (review 5: never made, so said); a move that only started draws nothing (its ending line says how it went). */
 function recent(file, n = RECENT) {
-  return readLines(file).filter((l) => (l.kind === 'decision' && !l.live && Array.isArray(l.moves) && l.moves.length)
+  return readLines(file).filter((l) => (l.kind === 'decision' && Array.isArray(l.moves) && l.moves.some((m) => !l.live || (m && m.kind === 'login')))
     || (l.kind === 'move' && l.outcome !== 'started') || l.kind === 'works' || l.kind === 'skipped')
     .slice(-n).reverse();
 }
@@ -96,10 +97,11 @@ function create({ file, nowMs = Date.now() }) {
   const watched = new Map();   // agent -> its watch, from its newest forward move, until a works line or a failed end closes it
   for (const l of readLines(file)) {
     if (!Number.isFinite(l.at) || l.at > nowMs + CLOCK_SLACK_MS) continue;   // review 4: a line from the future is not trusted
+    if (l.kind !== 'decision' && (typeof l.agent !== 'string' || !l.agent)) continue;   // review 5: a line that names no agent
     if (l.kind === 'works' && l.works === 'no' && nowMs - l.at < FAILED_HOLD_MS) state.failed.set(l.to, l.at);
-    if (l.kind === 'move' && l.outcome === 'refused' && nowMs - l.at < REFUSED_HOLD_MS) state.refused.set(l.agent, l.at);
-    if (l.kind === 'move' && (l.outcome === 'started' || l.outcome === 'changed')) {
-      const movedAt = Number.isFinite(l.startedAt) ? l.startedAt : l.at;
+    if (l.kind === 'move' && (l.outcome === 'refused' || l.outcome === 'unknown') && nowMs - l.at < REFUSED_HOLD_MS) state.refused.set(l.agent, l.at);
+    if (l.kind === 'move' && (l.outcome === 'started' || l.outcome === 'changed' || l.outcome === 'unknown')) {
+      const movedAt = Number.isFinite(l.startedAt) ? Math.min(l.startedAt, l.at) : l.at;   // review 5: never later than the line itself
       if (nowMs - movedAt <= WATCH_MS) watched.set(l.agent, { agent: l.agent, from: l.from, to: l.to, fromLabel: l.fromLabel, toLabel: l.toLabel, movedAt });
       else watched.delete(l.agent);
     }
@@ -145,7 +147,17 @@ function create({ file, nowMs = Date.now() }) {
   async function move(deps, nowMs, m) {
     const movedAt = Date.now();   // review 2: before the move, so a first call made as the restart finishes counts
     let started;
-    try { started = deps.startMove({ dir: m.to, names: [m.agent] }); } catch { started = null; }
+    try { started = deps.startMove({ dir: m.to, names: [m.agent] }); }
+    catch {
+      /* Review 5: the account move writes the account before anything else can throw, so a throw is NOT a refusal: the
+         agent may be on its new account. Recorded as unknown, held like a refused agent, and watched. */
+      const line = { kind: 'move', agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, why: m.why, startedAt: movedAt, at: nowMs, outcome: 'unknown' };
+      append(file, line);
+      state.refused.set(m.agent, nowMs);
+      state.watching = state.watching.filter((w) => w.agent !== m.agent);
+      state.watching.push({ agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, movedAt });
+      return line;
+    }
     /* Review 3: a 409 is the board saying no move may start now (one began since accountBusy() was asked, or the board
        is about to restart): nothing about this agent, so no hold and no line. */
     if (started && started.status === 409) return null;
@@ -219,7 +231,7 @@ function create({ file, nowMs = Date.now() }) {
     if (key !== state.lastKey) {
       if (decision.moves.length || decision.held.length || decision.atRisk.length) {
         recorded = append(file, { kind: 'decision', at: nowMs, live,
-          moves: decision.moves.map((m) => ({ agent: m.agent, from: m.from, to: m.to, fromLabel: label(m.from), toLabel: label(m.to), why: m.why })),
+          moves: decision.moves.map((m) => ({ agent: m.agent, from: m.from, to: m.to, fromLabel: label(m.from), toLabel: label(m.to), why: m.why, kind: kindOf(m.from) })),
           held: decision.held.map((h) => ({ from: h.from, fromLabel: label(h.from), why: h.why })),
           atRisk: decision.atRisk.map((x) => ({ from: x.from, fromLabel: label(x.from), why: x.why, kind: x.kind })) });
         if (recorded) state.lastKey = key;   // review 2: a write that failed is tried again next tick
@@ -231,7 +243,11 @@ function create({ file, nowMs = Date.now() }) {
     const held = (dir) => state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS;
     const passedOver = (agent) => state.refused.has(agent) && nowMs - state.refused.get(agent) < REFUSED_HOLD_MS;
     /* Usage only (see the header): a move off an account whose login has stopped is recorded, never made. */
-    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !held(x.to) && !passedOver(x.agent) && before.has(`${x.agent}\n${x.from}`));
+    /* Review 5: no second agent onto a target while the first one moved there has not shown it can work (a watch still
+       open). An idle agent may take no turn for hours; without this, one per tick would follow it onto a target that
+       answers usage calls but refuses turns. */
+    const unproven = (dir) => state.watching.some((w) => w.to === dir);
+    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !held(x.to) && !unproven(x.to) && !passedOver(x.agent) && before.has(`${x.agent}\n${x.from}`));
     if (!next) return quiet;
     const m = { ...next, fromLabel: label(next.from), toLabel: label(next.to) };
     /* Review 1: a roster that cannot be read now is not "no longer idle": nothing is moved and nothing recorded. */

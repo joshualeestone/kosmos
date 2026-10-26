@@ -419,3 +419,53 @@ test('#7152 slice 3 review 3: with fewer than two subscription accounts the swee
   assert.equal((await automove.create({ file: fileFor() }).tick(d, NOW)).did, 'nothing');
   assert.equal(walks, 0, 'the agents were walked with one account');
 });
+
+test('#7152 slice 3 review 5: no second agent onto a target until the first one moved there has shown it works', async () => {
+  let seen = null;
+  const run = automove.create({ file: fileFor() });
+  const { d, calls } = deps({ movesOn: true, names: ['ada', 'bo'], cards: realCards(['ada'], ['bo']), lastSeen: (a) => (a === 'ada' ? seen : null) });
+  await twoTicks(run, d);
+  await run.tick(d, NOW + 2000);
+  await run.tick(d, NOW + 3000);
+  assert.deepEqual(calls.starts.map((b) => b.names[0]), ['ada'], 'a second agent followed the first onto a target nobody had seen work');
+  seen = { outcome: 'ok', at: Date.now() + 5000 };
+  await run.tick(d, NOW + 4000);   // the watch closes with "yes"
+  await run.tick(d, NOW + 5000);
+  assert.deepEqual(calls.starts.map((b) => b.names[0]), ['ada', 'bo'], 'CONTROL: once the first works there, the next one goes');
+});
+
+test('#7152 slice 3 review 5: a move whose call throws is recorded as unknown, held, and watched (and rebuilt so)', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d } = deps({ movesOn: true, start: () => { throw new Error('the board fell over mid-write'); } });
+  const r = await twoTicks(run, d);
+  assert.equal(r.did, 'moved');
+  const line = automove.readLines(file).pop();
+  assert.deepEqual([line.kind, line.outcome], ['move', 'unknown'], 'a move that threw was recorded as something else');
+  assert.equal(run.state.refused.has('ada'), true, 'an agent whose move threw was tried again at once');
+  assert.deepEqual(run.state.watching.map((w) => w.agent), ['ada'], 'an agent that may be on its new account was not watched');
+  const again = automove.create({ file, nowMs: NOW + 5000 });
+  assert.deepEqual([again.state.watching.map((w) => w.agent), again.state.refused.has('ada')], [['ada'], true], 'a restart forgot the unknown move');
+  assert.ok(automove.recent(file).some((l) => l.outcome === 'unknown'), 'Settings was not given the unknown move');
+});
+
+test('#7152 slice 3 review 5: a would-move off a stopped login is recorded with its kind and reaches Settings even with moves on', async () => {
+  const file = fileFor();
+  const { d } = deps({ movesOn: true, usage: { ...USAGE, '/u/.claude-work': { at: NOW, state: 'http-401' } } });
+  await automove.create({ file }).tick(d, NOW);
+  const dec = automove.readLines(file).find((l) => l.kind === 'decision');
+  assert.deepEqual([dec.live, dec.moves.map((m) => m.kind)], [true, ['login']]);
+  assert.ok(automove.recent(file).some((l) => l.kind === 'decision'), 'a live decision with a stopped-login move, never made, was hidden from Settings');
+  const f2 = fileFor();
+  const { d: d2 } = deps({ movesOn: true });
+  await automove.create({ file: f2 }).tick(d2, NOW);
+  assert.equal(automove.recent(f2).some((l) => l.kind === 'decision'), false, 'CONTROL: a live usage decision (its move lines say what happened) is not drawn');
+});
+
+test('#7152 slice 3 review 5: a record line that names no agent, or starts after it was written, does not make a watch', () => {
+  const file = fileFor();
+  automove.append(file, { kind: 'move', at: NOW - 1000, startedAt: NOW - 2000, from: '/a', to: '/b', outcome: 'started' });
+  automove.append(file, { kind: 'move', at: NOW - 1000, startedAt: NOW + 9e9, agent: 'ada', from: '/a', to: '/b', outcome: 'started' });
+  const run = automove.create({ file, nowMs: NOW });
+  assert.deepEqual(run.state.watching.map((w) => [w.agent, w.movedAt]), [['ada', NOW - 1000]], 'a nameless line made a watch, or a future start was kept');
+});

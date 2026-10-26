@@ -46,7 +46,11 @@ its rows from the cheap reads instead:
   accounts (slice 2's eligible rule, checked before the agents walk), no account move running (accountmove.busy), the board not about to restart, AGENT_WORKFORCE_AUTOMOVE_OFF not 1.
 - Fresh decision every tick, so the target is picked again before each move (slice 2's stated assumption).
 - Review 2: an agent is moved only when it was movable on the previous tick too, and not while its box holds unsent
-  words (the card's unsentInput). WEAKEST PREMISE, and the reason moves stay off: an agent sitting at its prompt with
+  words (the card's unsentInput, which appears once the words have sat for 3 minutes: newer words are not seen).
+- Review 5: no second agent goes to a target while the first one moved there has not yet shown it can work (its
+  watch is still open), so a target that answers usage calls but refuses turns strands at most one agent.
+- Review 5: a move whose call throws is recorded as 'unknown', not refused: the account may already be saved. It is
+  held like a refusal and watched like a started move. WEAKEST PREMISE, and the reason moves stay off: an agent sitting at its prompt with
   a background SHELL job (a long validation, a monitor) still reads idle, and a restart kills the job. A background
   agent reads working; a background shell does not. Two ticks narrow it, they do not close it. Before moves go on by
   default, the move must see the agent's own child processes (or Claude's background-task count on its screen).
