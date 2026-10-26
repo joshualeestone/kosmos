@@ -92,7 +92,15 @@ no profile record, and STARTS the agent: enable then bootstrap).
    restore wrote. Nits: a reflowed doc line; the lstat check named as the one that counts; the brief budget now has a
    test through opts.briefTotal.
 
+10. W: readBrief's identity check compares nothing where a filesystem reports no inode (FAT on Windows), so such a
+   brief is now refused as unreadable rather than read unverified (no test: macOS volumes all report one); finish now
+   carries runRestore's fetchProblems (the files they cost are already in failedFiles, checked in backuprestore).
+   Deferred as duplicates: nested folders (round 5's residual); git at the world folder (Kosmos-made, fresh-checked at
+   creation, same-user residual, added below).
+
 ## Residuals, stated
+- Git discovery walks above the workers folder into the world folder and its base. Both are made by Kosmos and the
+  world folder is checked fresh when created; nothing re-checks them after the move.
 - Between finish's emptiness check and its rename, another process of the person's own (an agent already running in
   the new world) could write into a target; rmdir then fails and the failure is reported, nothing is lost.
 - Nested briefs are not scanned. Claude Code reads a subfolder's CLAUDE.md when an agent works there, and Gemini CLI
