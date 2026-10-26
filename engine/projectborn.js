@@ -18,6 +18,12 @@
 
 const fs = require('node:fs');
 
+/* The stores key a project by store.safeKey(id) (taskchat, taskseen), so the stamps are looked up the same way: an id
+   spelled another way still finds its project's createdAt. */
+function keyOf(id) {
+  try { return require('./store').safeKey(String(id)); } catch { return String(id); }
+}
+
 let CACHE = null;
 const NO_PROJECTS = { ok: true, born: new Map() };   // one object, so a caller's work against it is kept
 const UNREADABLE = { ok: false };                     // the same, while the projects file cannot be read
@@ -41,7 +47,7 @@ function births() {
   const born = new Map();
   for (const p of Array.isArray(all) ? all : []) {
     const t = p ? Date.parse(p.createdAt) : NaN;
-    if (p && typeof p.id === 'string' && Number.isFinite(t)) born.set(p.id, t);
+    if (p && typeof p.id === 'string' && Number.isFinite(t)) born.set(keyOf(p.id), t);
   }
   const value = { ok: true, born };
   CACHE = { file: f, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, value };
@@ -49,14 +55,15 @@ function births() {
 }
 
 /* The stamps, read ONCE, for many rows: { ok, earlier(projectId, at), stamp }. earlier() is true when a row stamped
-   `at` under `projectId` belongs to an earlier project of that name (leave it out). ok is false when the projects
+   `at` under `projectId` belongs to an earlier project of that name (leave it out); a row with no readable `at` under
+   a project that has a createdAt is left out too. ok is false when the projects
    file exists but cannot be read; then earlier() is true for every project-tagged row. stamp is the same object for
    as long as the projects file is unchanged, so a caller can keep work done against it. */
 function snapshot() {
   const b = births();
   const earlier = (projectId, at) => {
     if (!b.ok) return true;
-    const t = b.born.get(String(projectId));
+    const t = b.born.get(keyOf(projectId));
     if (t == null) return false;
     const a = Date.parse(at);
     return !(Number.isFinite(a) && a >= t);

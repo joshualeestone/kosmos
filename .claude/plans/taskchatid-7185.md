@@ -27,8 +27,12 @@ old task 1's conversation (a person's words included), and its room showed the o
   the same as "no history" and "not seen", so undo runs without the task's hold history, a task sorts and is offered
   as quiet, and the progress count is empty until the file reads again. A signal would change every caller for a
   state in which most routes already refuse at projects.get. record() returns partial rows then (direct messages
-  stay); a few display-only readers use them unchecked and show nothing for a room rather than "unknown". The direct-message send path keeps going: its rows carry no project. A receipt is never kept from a
+  stay); a few display-only readers use them unchecked and show nothing for a room rather than "unknown". The
+  outside-post day cap (externalKeptOn) seeds from zero then, as it already did for an unreadable log; the seat's live
+  count still charges every post after. A receipt worked out then is shown with no holds (never kept). The direct-message send path keeps going: its rows carry no project. A receipt is never kept from a
   read made while the stamps were unknown, and the room-held memo keys on the stamps as well as the row count.
+- The stamps are looked up by store.safeKey(id), as the task stores key a project, so another spelling of an id
+  still finds its createdAt.
 - Cost: the stamps are cached until the projects file changes (inode, size, mtime, ctime); record()'s filtered rows
   are cached until the log or the stamps change.
 - Why keep the rows: an enterprise owner owns work content (Josh, 2026-10-09) and may want a deleted project's
