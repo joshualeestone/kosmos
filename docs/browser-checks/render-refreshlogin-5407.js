@@ -2,8 +2,8 @@
 'use strict';
 
 /**
- * kosmos#5407 (Josh, 2026-10-06): the login-expiry notice's "Refresh login" button opens Settings > AI Models at that
- * account's row, highlighted, with its Sign in again focused; and the AI Models list marks every Claude sign-in whose
+ * kosmos#5407 (Josh, 2026-10-06), kosmos#7198 (Josh, 2026-10-26): the login-expiry notice's "Refresh login" button
+ * opens that account's Sign in again dialog where the person is; and the AI Models list marks every Claude sign-in whose
  * login is inside the notice's window (or has ended with its agents on borrowed time) with a warning edge, one line,
  * and Sign in again as the row's main action. A login outside the window keeps its green "good until" (the control).
  *
@@ -11,6 +11,10 @@
  *   N1  the expiring, the "stops working" and the "has expired" notice each carry Refresh login, naming their row
  *   D1  kosmos#7198: pressing it opens that account's Sign in again dialog over the board; Settings stays shut, and
  *       closing it leaves the board as it was
+ *   D3  while the dialog is open, Refresh login can be reached neither by the pointer nor by the keyboard (inert)
+ *   D4  closing gives focus back to the notice's button; one repainted away while the dialog was open gives it to a
+ *       Refresh login still showing; with no notice left, focus is never on a hidden element; the notices are no
+ *       longer inert
  *   R1  the expiring row: warning edge, "Expires in 2 days." (#6520), badge
  *       "login expires in 2 days", Sign in again first in its actions and gold
  *   R2  the ended row: its line says when its agents stop, Sign in again is its main action
@@ -158,21 +162,51 @@ function readRows(page) {
     chk(dlg.title === 'Sign in again' && /soon@example\.com/.test(dlg.intro), theme + ' D1: it is the Sign in again dialog for that account', JSON.stringify(dlg));
     chk(dlg.reauthDir === '/home/.claude-soon', theme + ' D1: it signs in again as that account\'s folder', JSON.stringify(dlg));
     chk(!dlg.settings && dlg.tab === 'agents', theme + ' D1: Settings does not open; the board stays where it was', JSON.stringify(dlg));
-    // D3 (Mona Lisa's review): while the dialog is open, the notice's Refresh login is under its backdrop, so a second press
-    // reaches nothing; the dialog stays as it was.
+    // D3 (Mona Lisa's review; review 1 of the loop: the keyboard too): while the dialog is open, the notice's Refresh
+    // login is under its backdrop AND inert, so neither a second press nor Tab reaches it.
     const again = await page.evaluate(() => {
       const b = document.querySelector('#login-adv-slot button.login-adv-go');
       if (!b) return { button: false };
       const q = b.getBoundingClientRect();
       const hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
-      return { button: true, reachable: !!hit && (hit === b || b.contains(hit)) };
+      const before = document.activeElement;
+      b.focus();
+      return { button: true, reachable: !!hit && (hit === b || b.contains(hit)), focusable: document.activeElement === b,
+        focusKept: document.activeElement === before };
     });
     chk(again.button && !again.reachable, theme + ' D3: with the dialog open, Refresh login cannot be pressed again', JSON.stringify(again));
+    chk(again.button && !again.focusable && again.focusKept, theme + ' D3: with the dialog open, the keyboard cannot reach Refresh login', JSON.stringify(again));
     if (OUT) await page.screenshot({ path: nodePath.join(OUT, 'refreshlogin-7198-dialog-' + theme + '.png'), fullPage: false });
     await page.evaluate(() => closeAcctAdd());
     const closed = await page.evaluate(() => ({ open: !document.getElementById('acct-add-modal').hidden, tab: URL_TAB,
       notices: [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length }));
     chk(!closed.open && closed.tab === 'agents' && closed.notices === 3, theme + ' D1: closing it leaves the board, notices and all', JSON.stringify(closed));
+
+    /* D4 (review 1 of the loop): where focus goes on close. */
+    const focusOf = () => page.evaluate(() => {
+      const a = document.activeElement;
+      return { dir: a && a.getAttribute ? a.getAttribute('data-adv-dir') : null, go: !!(a && a.classList && a.classList.contains('login-adv-go')),
+        body: a === document.body, shown: !!(a && a.offsetParent !== null), inert: !!document.getElementById('login-adv-slot').inert };
+    });
+    const pressSoon = async () => { await page.click('#login-adv-slot button.login-adv-go[data-adv-dir="/home/.claude-soon"]'); await page.waitForTimeout(150); };
+    await pressSoon();
+    await page.evaluate(() => closeAcctAdd());
+    const returned = await focusOf();
+    chk(returned.dir === '/home/.claude-soon' && !returned.inert, theme + ' D4: closing gives focus back to the notice\'s Refresh login, no longer inert', JSON.stringify(returned));
+    await pressSoon();
+    await page.evaluate(({ b, c }) => paintLoginAdvisories([b, c]), { b: ADV_ENDED, c: ADV_GONE });   // the sign-in worked
+    await page.evaluate(() => closeAcctAdd());
+    const moved = await focusOf();
+    chk(moved.go && moved.shown && moved.dir !== '/home/.claude-soon', theme + ' D4: its notice gone, focus goes to a Refresh login still showing', JSON.stringify(moved));
+    await page.evaluate(({ a, b, c }) => paintLoginAdvisories([a, b, c]), { a: ADV_SOON, b: ADV_ENDED, c: ADV_GONE });
+    await pressSoon();
+    await page.evaluate(() => paintLoginAdvisories([]));
+    await page.evaluate(() => closeAcctAdd());
+    const none = await focusOf();
+    chk((none.body || none.shown) && !none.inert, theme + ' D4: with no notice left, focus is never on a hidden element', JSON.stringify(none));
+    await page.evaluate(({ a, b, c }) => paintLoginAdvisories([a, b, c]), { a: ADV_SOON, b: ADV_ENDED, c: ADV_GONE });
+    const restored = await page.evaluate(() => [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length);
+    chk(restored === 3, theme + ' D4 CONTROL: the three notices are back for the checks below', String(restored));
 
     // The AI Models rows (opened directly now): the warning edge, the line, and Sign in again as the main action.
     await page.evaluate(() => { showTab('settings'); settingsOpen('accounts'); });
@@ -228,7 +262,7 @@ function readRows(page) {
     chk(!/acct-ended/.test(both.cls || '') && /stops working/.test(both.badge || '') && /stop working/.test(both.line || ''), theme + ' R2 (review 4): ended AND still working reads as stops-working, not the red ended row', JSON.stringify(both));
 
     const fine = rows['fine@example.com'] || {};
-    chk(!/acct-expiring|acct-land/.test(fine.cls || '') && !fine.line, theme + ' C1 CONTROL: a login good for 20 days has no warning and no line', JSON.stringify(fine));
+    chk(!/acct-expiring/.test(fine.cls || '') && !fine.line, theme + ' C1 CONTROL: a login good for 20 days has no warning and no line', JSON.stringify(fine));
     chk(/login good until/.test(fine.badge || '') && !fine.firstIsReauth && fine.reauthCount === 1, theme + ' C1 CONTROL: green, and Sign in again is the plain link', JSON.stringify(fine));
     if (OUT) await page.screenshot({ path: nodePath.join(OUT, 'refreshlogin-5407-' + theme + '.png'), fullPage: false });
     // N2 CONTROL: leaving Settings brings them back.

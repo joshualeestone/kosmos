@@ -19,6 +19,16 @@ Owner: Ice Cream Kitty. Josh, #admin 2026-10-26 08:32: "lets update per Kitty's 
 ## Weakest premise
 That a folder AI Models listed at the last notice recompute (at most five minutes ago) still holds. The page's own
 loaded list closes that window when it has one; otherwise a row removed in the last minutes could get a Sign in again.
+The other direction fails safe: the page's list can be older than the board's (read once by a picker and not
+refreshed), so an account added since is missing from it, and Refresh login then opens AI Models instead of the
+dialog. Accepted: the person still lands where they can sign in.
+
+## Challenge loop, review 1 (decided)
+- The dialog's background: only the login notice slot is made inert while the account dialog is open (all four
+  openers go through acctAddModalShow), not the whole page. Rejected the whole-page inert: the dialog opens from
+  first-run, Settings and every sign-in-again path, and first-run already manages its own inert set, so a page-wide
+  one here would fight it. What would change my mind: a second control outside the dialog that reopens it.
+- Focus on close falls back to a Refresh login still showing, never to a hidden element (D4).
 
 ## Checks
 - render-refreshlogin-5407.js (rewritten): D1 over the board (Settings shut, closing leaves the board), D2 on an agent's

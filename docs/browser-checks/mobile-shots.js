@@ -1539,7 +1539,7 @@ const SCREENS = [
         connection: { state: 'connected', badge: 'working', checkedLive: true, plan: null } }] }) }));
     await page.route((u) => new URL(u).pathname === '/api/status', async (route) => {
       try {
-        const res = await route.fetch(); const data = await res.json();
+        const res = await fetchBoard(route); const data = await res.json();
         data.loginAdvisories = [adv];
         await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
       } catch { await route.abort().catch(() => {}); }
