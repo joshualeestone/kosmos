@@ -320,6 +320,15 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   already resolves the folder, so the contact happens there first; refusing here would close nothing. Closing it
   belongs at project create: added to #7229. Named in the code header as residual (e). The header's residuals now
   read (a) to (e) in order.
+- Review 22 (a fifth fail-open in the skipped-folder class, by reading): a nested project of another agent linked to
+  `\??\Global\C:\...` was read as "another computer, destination unknown", and `skippedMayHold` let a LOCAL file
+  through because "another computer cannot hold a local file". Now (1) the object manager's DosDevices aliases of a
+  drive (`\??\Global\X:\`, `\??\GLOBALROOT\GLOBAL??\X:\`, `\??\GLOBALROOT\??\X:\` and their `\\?\` forms) are drive
+  paths, followed like one, and the same aliases in front of `UNC` name shares; (2) a skipped folder whose destination
+  still cannot be named may hold ANY file (unknown fails closed), except a namespace that holds no files at all
+  (`\\.\pipe\...`, a device: "leads nowhere"), so the pipe nuisance of review 12 stays closed. Against 6c757a2 both
+  new arms fail, the live one by attaching. New `engine/winpath.test.js` (pure, every platform) pins the shared
+  device-name rule to backuprestore's old pattern name by name (review 22 CONVENTION).
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -328,7 +337,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 51/51 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 53/53 (none skipped); `engine/winpath.test.js`: 2/2. `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

@@ -248,7 +248,7 @@ function libraryOpen(chain, k, rootDepth) {
 
 function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win = false } = {}) {
   const chain = chainOf(real);
-  const filesReal = filesRoot(sessionName, filesDir === undefined ? dmfiles.filesDir(sessionName) : filesDir);
+  const filesReal = filesRoot(sessionName, filesDir);
   if (filesReal && chain[1] && chain[1].id && chain[1].id === idOf(filesReal)) return { root: filesReal };
   let all = projectList;
   if (!Array.isArray(all)) { try { all = projects.readAll(); } catch { all = []; } }
@@ -332,13 +332,20 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
    follows. `leadsTo` is the share path a link to a plain share names (the rest of the folder's path joined on), so a
    skipped folder is judged by where it goes, never by its own spelling alone (review 16 finding 1). */
 function otherFolderSkip(folder, fileShare) {
+  /* A namespace that names no share and is not the object manager's root (\\.\pipe\..., \\.\COM1) holds no files: it
+     leads nowhere, so it cannot make another agent's attach refuse (review 12 finding 2, kept through review 22). An
+     unknown that MAY name a drive (\\?\GLOBALROOT\...) stays unknown, and fails closed. mayHold answers which. */
+  const holdsNoFiles = (p) => isNetworkSpelling(p) && !shareOf(p) && !mayHold(p, '', '');
   if (isNetworkSpelling(folder)) {
     if (fileShare && shareOf(folder) === fileShare) return null;
+    if (holdsNoFiles(folder)) return { folder, kind: 'nowhere', leadsTo: null };
     return { folder, kind: 'share', leadsTo: shareOf(folder) ? asShareSpelling(folder) : null };
   }
   let leadsTo = null;
+  let leadsNowhere = false;
   const noteShare = (cur, to, rest) => {
     if (shareOf(to)) leadsTo = asShareSpelling(path.win32.resolve(asShareSpelling(to), ...rest));
+    else if (holdsNoFiles(to)) leadsNowhere = true;
     return false;
   };
   /* A folder written as a local volume (\\?\Volume{GUID}\...) is walked too: it is on this computer, but a link below
@@ -346,7 +353,7 @@ function otherFolderSkip(folder, fileShare) {
      it and its parts are lstat'd like a drive path's. */
   const onPath = (reached) => (isLocalVolumeSpelling(reached) ? null : winSpellingRefusal(reached, null));
   const walked = walkLinks(asDrivePath(folder), onPath, 0, noteShare);
-  if (walked === ON_NETWORK) return { folder, kind: 'share', leadsTo };
+  if (walked === ON_NETWORK) return { folder, kind: leadsNowhere ? 'nowhere' : 'share', leadsTo };
   if (walked === DEAD_LINK || walked === TOO_MANY_LINKS) return { folder, kind: 'nowhere', leadsTo: null };
   /* Anything else is resolved as on main, CANNOT_READ included (review 17 finding 3, kept on purpose): lstat refusing
      (EACCES) makes realpath refuse too; readlink fails only for a reparse point Node does not read as a link (a cloud
@@ -361,8 +368,10 @@ function otherFolderSkip(folder, fileShare) {
 function skippedMayHold(skipped, given, real) {
   if (mayHold(skipped.folder, given, real)) return true;
   if (skipped.kind === 'nowhere') return false;
-  if (!isNetworkSpelling(real)) return false;
+  /* A destination that cannot be named may be anywhere, this computer included, so it may hold any file (review 22
+     finding 1: a link to \??\Global\C:\... had been read as "another computer" and a local file let through). */
   if (!skipped.leadsTo) return true;
+  if (!isNetworkSpelling(real)) return false;
   return mayHold(skipped.leadsTo, real, real);
 }
 

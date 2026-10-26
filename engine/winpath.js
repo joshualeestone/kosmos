@@ -24,6 +24,9 @@ function isDevicePart(part) {
    a local volume's \\?\Volume{GUID}\ are not (review 10 finding 1: a link to a local volume had been refused as "on
    another computer"; review 19 finding 2: the NT \??\ spellings of a share had read as local). */
 const NT_LOCAL = /^\\\?\?\\(?=[A-Za-z]:[\\/])/;                  // \??\C:\..., the NT spelling of a local drive
+/* A local drive reached through the object manager's DosDevices aliases (review 22 finding 1): \??\Global\C:\,
+   \??\GLOBALROOT\GLOBAL??\C:\, \??\GLOBALROOT\??\C:\ and their \\?\ and \\.\ forms all name drive C. */
+const DRIVE_ALIAS = /^(?:\\\?\?\\|[\\/]{2}[?.][\\/])(?:Global[\\/]|GLOBALROOT[\\/](?:GLOBAL\?\?|\?\?)[\\/])(?=[A-Za-z]:[\\/])/i;
 const NT_PREFIX = /^\\\?\?\\/;
 function isNetworkSpelling(p) {
   const s = String(p);
@@ -40,12 +43,12 @@ function driveOf(p) {
    So the only targets followed are X:\... (also written \\?\X:\ or \??\X:\) and a plain relative path; a rooted
    target with no drive, a drive-relative one (C:x) and any other colon are refused unfollowed. */
 function followableLinkTarget(to) {
-  const t = String(to).replace(LOCAL_LONG, '').replace(NT_LOCAL, '');
+  const t = asDrivePath(to);
   if (/^[A-Za-z]:[\\/]/.test(t)) return t.indexOf(':', 2) >= 0 ? null : t;
   if (t.includes(':') || t.includes('?')) return null;
   /* A root-relative target (\dir\x, what mklink writes for a target typed without a drive) is a path on the link's own
      drive, resolved against it like a relative one (review 11 finding 3). Not one that names the object manager's own
-     folders (\Device\...; \GLOBAL??\ has a `?`, refused above), which only the NT spellings above may reach. The word
+     folder \Device\ (anything with a `?`, like \GLOBAL??\, is refused above), which only the NT spellings may reach. The word
      is matched whole (review 12 NIT), so \devices\x or \Global-share\x is a folder like any other. */
   if (/^[\\/](?![\\/])/.test(t)) return /^[\\/]device(?:[\\/]|$)/i.test(t) ? null : t;
   if (/^[\\/]/.test(t)) return null;
@@ -53,7 +56,7 @@ function followableLinkTarget(to) {
 }
 /* A share path's namespace spellings (\\?\UNC\host\share, \??\UNC\..., and the Mup device that serves shares,
    \\?\GLOBALROOT\Device\Mup\host\share) read as the plain \\host\share they name. */
-const SHARE_NAMESPACE = /^(?:[\\/]{2}\?[\\/]UNC|\\\?\?\\UNC|[\\/]{2}[?.][\\/]GLOBALROOT[\\/]Device[\\/]Mup|\\\?\?\\GLOBALROOT\\Device\\Mup)[\\/]/i;
+const SHARE_NAMESPACE = /^(?:(?:[\\/]{2}[?.][\\/]|\\\?\?\\)(?:Global[\\/]|GLOBALROOT[\\/](?:GLOBAL\?\?|\?\?)[\\/])?UNC|[\\/]{2}[?.][\\/]GLOBALROOT[\\/]Device[\\/]Mup|\\\?\?\\GLOBALROOT\\Device\\Mup)[\\/]/i;
 function asShareSpelling(p) {
   return String(p).replace(SHARE_NAMESPACE, '\\\\');
 }
@@ -75,7 +78,7 @@ function isPlainShare(p) {
 }
 /* A drive path's long (\\?\C:\) or NT (\??\C:\) spelling read as the plain drive path it is. */
 function asDrivePath(p) {
-  return String(p).replace(LOCAL_LONG, '').replace(NT_LOCAL, '');
+  return String(p).replace(DRIVE_ALIAS, '').replace(LOCAL_LONG, '').replace(NT_LOCAL, '');
 }
 /* Whether `given` is written inside `folder` (a drive path or a plain share), case-insensitively as Windows does. */
 function writtenInside(given, folder) {

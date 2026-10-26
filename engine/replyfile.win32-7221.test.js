@@ -946,3 +946,32 @@ test('#7221 review 21 NIT: an NT \\??\\UNC\\ path given to attach is refused as 
   assert.equal(winpath.isPlainShare('\\??\\UNC\\host\\share\\x'), false);
   assert.equal(winpath.isPlainShare('\\\\host\\share\\x'), true);
 });
+
+/* ---------- review 22 ---------- */
+
+test('#7221 review 22-1: the object manager\'s DosDevices aliases of a drive are drive paths; of UNC, shares', () => {
+  assert.equal(winpath.followableLinkTarget('\\??\\Global\\C:\\data'), 'C:\\data');
+  assert.equal(winpath.followableLinkTarget('\\??\\GLOBALROOT\\GLOBAL??\\D:\\x'), 'D:\\x');
+  assert.equal(winpath.followableLinkTarget('\\\\?\\Global\\C:\\data'), 'C:\\data');
+  assert.equal(winpath.asDrivePath('\\\\?\\GLOBALROOT\\??\\E:\\x'), 'E:\\x');
+  assert.equal(winpath.shareOf('\\??\\Global\\UNC\\Host\\Share\\x'), 'host\\share');
+  assert.equal(winpath.shareOf('\\\\?\\GLOBALROOT\\GLOBAL??\\UNC\\host\\share'), 'host\\share');
+  assert.equal(winpath.followableLinkTarget('\\??\\GLOBALROOT\\Weird\\x'), null, 'any other object manager path is not followed');
+});
+
+test('#7221 review 22-1: a nested project of another agent linked through \\??\\Global\\C:\\ keeps its files from the outer project', linkOnly, () => {
+  const outer = path.join(SANDBOX, 'gouter');
+  const data = path.join(outer, 'deep', 'secret');
+  fs.mkdirSync(data, { recursive: true });
+  fs.writeFileSync(path.join(data, 'f.txt'), 'theirs\n');
+  const nested = path.join(SANDBOX, 'g-their-link');
+  fs.symlinkSync('\\\\?\\Global\\' + data, nested, 'dir');
+  try {
+    PROJECTS = [
+      { id: 'p-gouter', name: 'Outer', folder: outer, agents: [WHO] },
+      { id: 'p-gnested', name: 'Nested', folder: nested, agents: ['someone-else'] },
+    ];
+    const r = replyfile.attach(WHO, path.join(data, 'f.txt'), { platform: 'win32' });
+    assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it: ' + JSON.stringify(r));
+  } finally { fs.rmSync(nested, { force: true }); }
+});
