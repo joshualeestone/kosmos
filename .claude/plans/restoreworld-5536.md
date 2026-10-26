@@ -126,7 +126,16 @@ no profile record, and STARTS the agent: enable then bootstrap).
    stripped from labels; the import pattern's line handling and the brief budget's overshoot of one brief are said.
    Deferred: the check-then-move window (the residual below).
 
+15. W: node_modules at the top of workers moved in, where npm resolves packages for every agent folder below (now
+   held back with dot-entries and HEAD). Deferred with the contract stated: a project's own .git moves with it
+   (restoring a repository whole is the point; it is shown in `shared` with its reason, and agents made later must
+   be started with git hooks and fsmonitor off, 4c). Nits: heldBack reads only this run's folder (a snapshot can name a
+   lookalike); kept no longer lists this run's held-back folder; agents kept elsewhere are named in the contract as
+   never to run git; two dead checks removed.
+
 ## Residuals, stated
+- A restored project keeps its own .git, so a hostile repository config there reaches any agent made in this world
+  later, which never passes this review. 4c must start agents in a Restored world with git's hooks and fsmonitor off.
 - Git discovery walks above the workers folder into the world folder and its base. Both are made by Kosmos and the
   world folder is checked fresh when created; nothing re-checks them after the move.
 - Between finish's emptiness check and its rename, another process of the person's own (an agent already running in
