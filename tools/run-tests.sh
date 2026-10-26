@@ -174,19 +174,24 @@ esac
 # run-tests.sh itself runs its shell part one at a time rather than 4 shards inside a shard. A test that scrubs the
 # environment (env -i, or dropping KOSMOS_ variables) gets the unset default instead, as any run with no value does.
 _RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; export KOSMOS_SHELL_PARALLEL=1
-# #7247: on a Windows computer (Git Bash, MSYS, Cygwin) that is not CI, every node this run starts loads
-# tools/no-schtasks-preload.cjs, so the suite cannot reach the computer's real Task Scheduler (without it a run fires
-# thousands of real schtasks calls). Forward slashes: NODE_OPTIONS reads a backslash inside quotes as an escape.
-# KOSMOS_TESTS_REAL_SCHTASKS=1 asks for the real scheduler; tools/windows-tests.js applies the same rule.
+# #7247: on a Windows computer (Git Bash, MSYS, Cygwin), every node this run starts loads tools/no-schtasks-preload.cjs
+# unless CI is set or KOSMOS_TESTS_REAL_SCHTASKS=1, so the suite cannot reach the computer's real Task Scheduler,
+# where one test that reaches it could end the board's own task. The rule and the NODE_OPTIONS it builds are
+# tools/windows-tests.js's own (childEnv, schedulerLine), read here rather than written twice. cygpath gives node a
+# path it can read; without it the guard cannot be set up, and the run stops rather than reach the real scheduler.
 case "$(uname -s 2>/dev/null)" in
   MINGW*|MSYS*|CYGWIN*)
-    if [ -z "${CI:-}" ] && [ "${KOSMOS_TESTS_REAL_SCHTASKS:-}" != 1 ]; then
-      _rt_preload="$(cygpath -m "$REPO/tools/no-schtasks-preload.cjs" 2>/dev/null)" || _rt_preload="$REPO/tools/no-schtasks-preload.cjs"
-      case "${NODE_OPTIONS:-}" in
-        *no-schtasks-preload.cjs*) ;;
-        *) export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require \"$_rt_preload\"" ;;
-      esac
-      echo "run-tests: schtasks calls are refused in every test (#7247); KOSMOS_TESTS_REAL_SCHTASKS=1 allows the real scheduler" >&2
+    if ! _rt_wt="$(cygpath -m "$REPO/tools/windows-tests.js" 2>/dev/null)" || [ -z "$_rt_wt" ]; then
+      if [ "${KOSMOS_TESTS_REAL_SCHTASKS:-}" != 1 ] && [ -z "${CI:-}" ]; then
+        echo "run-tests: cygpath is missing, so the #7247 schtasks guard cannot be set up; KOSMOS_TESTS_REAL_SCHTASKS=1 runs against the real Task Scheduler" >&2
+        exit 2
+      fi
+    else
+      _rt_sched="$(node -e 'const w = require(process.argv[1]); const e = w.childEnv(process.env, "win32"); process.stdout.write((e.NODE_OPTIONS || "") + "\n" + (w.schedulerLine(process.env, "win32") || ""))' "$_rt_wt")" \
+        || { echo "run-tests: could not read the #7247 schtasks rule from tools/windows-tests.js" >&2; exit 2; }
+      _rt_opts="$(printf '%s\n' "$_rt_sched" | head -n 1)"
+      if [ -n "$_rt_opts" ]; then export NODE_OPTIONS="$_rt_opts"; fi
+      echo "run-tests: $(printf '%s\n' "$_rt_sched" | tail -n 1)" >&2
     fi ;;
 esac
 # #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.

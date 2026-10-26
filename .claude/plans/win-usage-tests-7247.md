@@ -19,13 +19,24 @@ agents alone use an account, and that holds on every platform. The poller for id
 is a board-task setting that follows what the Mac boards do; asked on the card, not changed here.
 
 ## Ask 2: the schtasks guard
-- `tools/no-schtasks-preload.cjs`: the box's preload, moved into the repo unchanged in behaviour. Any child_process
-  call naming schtasks is refused as ENOENT; `KOSMOS_SCHTASKS_BLOCK_LOG` logs each one. Kosmos reaches the scheduler
-  only through schtasks.exe (no PowerShell ScheduledTasks cmdlets in engine/, server.js or tools/: checked).
-- `tools/windows-tests.js`: `guardsScheduler(env, platform)` and `childEnv(env, platform)`. win32 and not CI and not
-  `KOSMOS_TESTS_REAL_SCHTASKS=1` adds `--require "<preload>"` to NODE_OPTIONS (kept, not added twice), passed to each
-  test file's process, so its children inherit it.
-- `tools/run-tests.sh`: the same rule for MINGW/MSYS/Cygwin, with `cygpath -m` for the path.
+- `tools/lib/schtasks-call.cjs` (pure): whether a call RUNS schtasks. schtasks is the program (any path, case, .exe or
+  not), or cmd/powershell/pwsh start it, or a shell command line (exec, execSync, shell: true) starts it in any of its
+  commands (split at & | ; parentheses and line ends outside quotes). The word anywhere else (a git grep pattern, a
+  commit message, a script's source) is not a call. Kosmos itself always runs `schtasks.exe` as the program (checked
+  in engine/); it reaches the scheduler no other way (no PowerShell ScheduledTasks cmdlets in engine/, server.js or tools/).
+- `tools/no-schtasks-preload.cjs`: a call that runs schtasks is sent to a program that cannot exist
+  (`REFUSED_PROGRAM`, which names the refusal), with no shell. So EVERY arm fails exactly as a missing schtasks.exe
+  would, with Node's own ENOENT: sync calls throw or return it, async ones emit 'error' (with their streams) and call
+  back with it, and promisify rejects with it. Every other call goes to Node unchanged. The execFile and exec wrappers
+  carry `util.promisify.custom`, as test-support/tool-guard.js does: without it promisify(execFile) resolves a bare
+  string for EVERY command (#4326 hit this; review 1). `KOSMOS_SCHTASKS_BLOCK_LOG` logs each refusal.
+- `tools/windows-tests.js`: `guardsScheduler(env, platform)`, `childEnv(env, platform)` and `schedulerLine(env, platform)`.
+  win32 and not CI and not `KOSMOS_TESTS_REAL_SCHTASKS=1` adds `--require "<this checkout's preload>"` to NODE_OPTIONS
+  (kept; not added twice; another copy of a preload does not count), passed to each test file's process, so its
+  children inherit it. A Windows run prints which scheduler it uses either way.
+- `tools/run-tests.sh`: on MINGW/MSYS/Cygwin it runs `childEnv` and `schedulerLine` from tools/windows-tests.js through
+  node, so the rule is written once (review 1). Without `cygpath` the guard cannot be set up, and the run stops (exit
+  2) rather than reach the real scheduler, unless CI or `KOSMOS_TESTS_REAL_SCHTASKS=1` asked for it.
 - Forward slashes: measured on the box, NODE_OPTIONS reads a backslash inside quotes as an escape, so
   `--require "C:\Users\..."` fails to load and `--require "C:/Users/..."` loads.
 
@@ -48,11 +59,26 @@ scheduler on this box could end the board's task. The Windows `npm test` limit i
 - Applying it on CI: the runner is throwaway, and windows.yml's KNOWN_RED list is measured against the real scheduler.
 
 ## Weakest part, named
-"Not CI" is read from the `CI` variable. A developer who sets CI locally gets the real scheduler; the runner prints
-which mode it ran in only when the guard is on, so that run is silent about it.
+"Not CI" is read from the `CI` variable. A developer who sets CI locally gets the real scheduler; the run says so in
+one line ("REAL Task Scheduler (CI is set)"). And the matcher reads a shell command line by a small splitter, not a
+shell parser: an unusual quoting could hide a schtasks call from it. Kosmos's own calls never go through a shell.
 
 ## Tests
-`tools.windows-tests-schtasks-7247.test.js` (pure rule on every platform; selected by windows-tests.js as tools.windows-*):
-the env rule both ways with controls, NODE_OPTIONS kept and not doubled, and a real child process started with that
-environment has schtasks refused by spawnSync and execFileSync while another program still runs. Control by hand on
-the box: the same call without the preload reaches the real schtasks.
+`tools.windows-tests-schtasks-7247.test.js` (every platform; selected by windows-tests.js as tools.windows-*):
+- the env rule both ways with controls; NODE_OPTIONS kept, not doubled, another copy not counted; the printed line.
+- the matcher: programs by path and case, cmd /c, powershell -Command, shell: true, chained commands; and the word in
+  a git grep, a commit message, a script's source, `echo schtasks`, `node -e "require('schtasks')"` NOT refused.
+- every arm in a real child that loads the preload as the runner does: execFileSync, spawnSync, execSync, spawn (with
+  its streams), execFile, exec and promisify(execFile) all give ENOENT; another program runs; promisify(execFile) and
+  promisify(exec) still resolve `{ stdout, stderr }`. CONTROL: the same arms aimed at a program no computer has, with
+  no preload, give the same ENOENT. Negative control: against the previous preload the arms test fails.
+
+## Review rounds (fleet cap: 8, unless a BLOCKER is open)
+- Round 1: no BLOCKER. Fixed: promisify shape (the wrappers dropped util.promisify.custom); the word schtasks in an
+  argument was refused (now only calls that RUN it); async refusals unlike a missing program (now Node's own ENOENT);
+  thin tests; comments repeating the unreproduced "thousands" claim; the rule written twice (run-tests.sh now runs the
+  JS rule); another copy of the preload counted as this one; no cygpath fell back to a path node cannot load (now
+  stops); the run was silent when the guard was off (now prints either way).
+  Verified after round 1: install.reachable-1662 (16 pass / 30 fail) and cli.connections-4451 (1 / 5), both of which
+  call promisify(execFile), give identical counts with and without the guard on this box (their reds are this box's
+  baseline); windows-tests-1777 23/23; this file 8/8.

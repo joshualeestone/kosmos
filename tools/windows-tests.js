@@ -37,9 +37,9 @@
  *
  * ON YOUR OWN WINDOWS COMPUTER (#7247): `node tools/windows-tests.js` (and `npm test`, through
  * tools/run-tests.sh) loads tools/no-schtasks-preload.cjs into every test by itself, so the run
- * cannot reach the computer's real Task Scheduler, where Kosmos keeps its board and agents. Many
- * tests drive scheduler code without a seam, and without the preload a run fires thousands of real
- * schtasks calls. A test that needs the real scheduler sees schtasks.exe as missing (ENOENT). On
+ * cannot reach the computer's real Task Scheduler, where Kosmos keeps its board and agents. Most
+ * tests stub their scheduler calls; one that does not could end a live task, such as the board's.
+ * A test that needs the real scheduler sees schtasks.exe as missing (ENOENT). On
  * CI the preload is not loaded. To run against the real scheduler on purpose, on a computer whose
  * tasks you can lose, set KOSMOS_TESTS_REAL_SCHTASKS=1. To see every refused call, set
  * KOSMOS_SCHTASKS_BLOCK_LOG to a file path.
@@ -288,9 +288,10 @@ function failureDetail(output, expected = []) {
 
 /* #7247: the environment each test file runs with. On a Windows computer that is not CI, NODE_OPTIONS gains
    `--require tools/no-schtasks-preload.cjs`, so the file and every process it starts are kept off the live Task
-   Scheduler (a suite run there fires thousands of real schtasks calls). CI's runner is throwaway and its real
+   Scheduler, where one test that reaches it could end the board's own task. CI's runner is throwaway and its real
    scheduler is part of what this job measures, so it is left as it was; KOSMOS_TESTS_REAL_SCHTASKS=1 asks for the
-   real scheduler on a Windows computer too. */
+   real scheduler on a Windows computer too. tools/run-tests.sh reads this same rule (it runs childEnv), so the two
+   runners cannot disagree. */
 const PRELOAD = path.join(__dirname, 'no-schtasks-preload.cjs');
 function guardsScheduler(env = process.env, platform = process.platform) {
   return platform === 'win32' && !env.CI && env.KOSMOS_TESTS_REAL_SCHTASKS !== '1';
@@ -301,7 +302,15 @@ function childEnv(env = process.env, platform = process.platform) {
      quotes as an escape, so C:\Users\... fails to load (measured on the Windows box), while C:/Users/... loads. */
   const require_ = `--require "${PRELOAD.replace(/\\/g, '/')}"`;
   const prior = env.NODE_OPTIONS || '';
-  return { ...env, NODE_OPTIONS: /no-schtasks-preload\.cjs/.test(prior) ? prior : (prior ? prior + ' ' : '') + require_ };
+  /* Not added twice; a different copy of a preload already there (an older one kept outside the repo) does not count,
+     so this checkout's own is always loaded. */
+  return { ...env, NODE_OPTIONS: prior.includes(require_) ? prior : (prior ? prior + ' ' : '') + require_ };
+}
+/* The one line a run prints about the scheduler on a Windows computer, guarded or not. */
+function schedulerLine(env = process.env, platform = process.platform) {
+  if (platform !== 'win32') return null;
+  if (guardsScheduler(env, platform)) return 'schtasks calls are refused in every test (#7247); KOSMOS_TESTS_REAL_SCHTASKS=1 allows the real scheduler';
+  return 'schtasks calls reach this computer\'s REAL Task Scheduler (' + (env.CI ? 'CI is set' : 'KOSMOS_TESTS_REAL_SCHTASKS=1') + ', #7247)';
 }
 
 function count(output, label) {
@@ -314,7 +323,8 @@ function main() {
   const files = selectFiles(fs.readdirSync(path.join(root, 'engine')), fs.readdirSync(root));
   console.log(`windows-tests: ${files.length} files, node ${process.version}, ${process.platform}`);
   const env = childEnv();
-  if (env !== process.env) console.log('windows-tests: schtasks calls are refused in every test (#7247); KOSMOS_TESTS_REAL_SCHTASKS=1 allows the real scheduler');
+  const line = schedulerLine();
+  if (line) console.log('windows-tests: ' + line);
   // A selection that finds nothing would pass having run nothing.
   if (files.length === 0) { console.log('windows-tests: no test files selected; refusing to report green'); return 1; }
   const began = Date.now();
@@ -370,6 +380,6 @@ function main() {
   return failed.length || blocking ? 1 : 0;
 }
 
-module.exports = { childEnv, guardsScheduler, PRELOAD, selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
+module.exports = { childEnv, guardsScheduler, schedulerLine, PRELOAD, selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
 
 if (require.main === module) process.exitCode = main();

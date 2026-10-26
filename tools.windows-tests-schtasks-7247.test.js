@@ -1,16 +1,20 @@
 'use strict';
 /**
  * #7247: a test run on a Windows computer is kept off its real Task Scheduler by tools/no-schtasks-preload.cjs, which
- * tools/windows-tests.js (and tools/run-tests.sh) load by themselves there, except on CI and when
- * KOSMOS_TESTS_REAL_SCHTASKS=1 asks for the real scheduler. The rule is pure and runs on every platform; the preload
- * is loaded into a real child process the way the runner loads it.
+ * tools/windows-tests.js (and tools/run-tests.sh, through it) load by themselves there, except on CI and when
+ * KOSMOS_TESTS_REAL_SCHTASKS=1 asks for the real scheduler. The rule and the matcher are pure and run on every
+ * platform; the preload is loaded into a real child process the way the runner loads it, so every child_process arm is
+ * checked for what a caller sees.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const cp = require('node:child_process');
 const wt = require('./tools/windows-tests');
+const { callRuns, commandRuns } = require('./tools/lib/schtasks-call.cjs');
 
 const WIN_DEV = { PATH: process.env.PATH || '' };   // a Windows computer that is not CI
+
+/* ---------- the rule ---------- */
 
 test('#7247: on a Windows computer that is not CI, every test file loads the preload, with forward slashes', () => {
   const env = wt.childEnv(WIN_DEV, 'win32');
@@ -19,10 +23,12 @@ test('#7247: on a Windows computer that is not CI, every test file loads the pre
   assert.equal(env.PATH, WIN_DEV.PATH, 'the rest of the environment is kept');
 });
 
-test('#7247: an existing NODE_OPTIONS is kept, and the preload is not added twice', () => {
+test('#7247: an existing NODE_OPTIONS is kept, the preload is not added twice, and another copy does not count', () => {
   const once = wt.childEnv({ NODE_OPTIONS: '--max-old-space-size=4096' }, 'win32');
   assert.match(once.NODE_OPTIONS, /^--max-old-space-size=4096 --require "/);
   assert.equal(wt.childEnv(once, 'win32').NODE_OPTIONS, once.NODE_OPTIONS);
+  const other = wt.childEnv({ NODE_OPTIONS: '--require "C:/elsewhere/no-schtasks-preload.cjs"' }, 'win32');
+  assert.ok(other.NODE_OPTIONS.includes(wt.PRELOAD.replace(/\\/g, '/')), 'this checkout\'s own preload is loaded too');
 });
 
 test('#7247: CI, an explicit ask for the real scheduler, and every other platform are left as they were', () => {
@@ -34,20 +40,93 @@ test('#7247: CI, an explicit ask for the real scheduler, and every other platfor
   assert.equal(wt.guardsScheduler({ KOSMOS_TESTS_REAL_SCHTASKS: '0' }, 'win32'), true);
 });
 
-test('#7247: a child started with that environment has schtasks refused, and runs everything else', () => {
-  const env = { ...process.env, ...wt.childEnv(WIN_DEV, 'win32') };
-  delete env.NODE_TEST_CONTEXT;   // the child is a plain script, not a test file
-  const probe = 'const cp = require("node:child_process");'
-    /* The name is put together inside the child: this test may itself run under the preload (the runner loads it), and
-       a command line naming the program would be refused here before the child could start. */
-    + 'const name = ["sch", "tasks"].join("");'
-    + 'const r = cp.spawnSync(name, ["/query"]);'
-    + 'let thrown = ""; try { cp.execFileSync(name + ".exe", ["/query"]); } catch (e) { thrown = e.message; }'
-    + 'const other = cp.spawnSync(process.execPath, ["-e", "process.stdout.write(\\"ran\\")"], { encoding: "utf8" });'
-    + 'process.stdout.write(JSON.stringify({ spawn: r.error && r.error.message, execFile: thrown, other: other.stdout }));';
-  const out = cp.execFileSync(process.execPath, ['-e', probe], { env, encoding: 'utf8' });
-  const got = JSON.parse(out);
-  assert.match(got.spawn, /blocked by the test suite preload/);
-  assert.match(got.execFile, /blocked by the test suite preload/);
+test('#7247: a Windows run says which scheduler it uses, guarded or not; other platforms say nothing', () => {
+  assert.match(wt.schedulerLine(WIN_DEV, 'win32'), /refused in every test/);
+  assert.match(wt.schedulerLine({ CI: 'true' }, 'win32'), /REAL Task Scheduler \(CI is set/);
+  assert.match(wt.schedulerLine({ KOSMOS_TESTS_REAL_SCHTASKS: '1' }, 'win32'), /REAL Task Scheduler \(KOSMOS_TESTS_REAL_SCHTASKS=1/);
+  assert.equal(wt.schedulerLine({}, 'darwin'), null);
+});
+
+/* ---------- which calls run schtasks ---------- */
+
+test('#7247: a call runs schtasks when schtasks is the program, by any path or case, or a shell starts it', () => {
+  for (const [file, args, options] of [
+    ['schtasks.exe', ['/Query']], ['schtasks', []], ['SCHTASKS.EXE', []], ['C:\\Windows\\System32\\schtasks.exe', ['/End']],
+    ['"C:\\Windows\\System32\\schtasks.exe"', []], ['cmd', ['/c', 'schtasks /End /TN x']], ['cmd.exe', ['/d', '/s', '/c', 'schtasks.exe /Run']],
+    ['powershell.exe', ['-NoProfile', '-Command', 'schtasks /Query']], ['schtasks /Query', [], { shell: true }],
+  ]) assert.equal(callRuns(file, args, options), true, JSON.stringify([file, args, options]));
+  for (const cmd of ['schtasks /Query', 'echo hi && schtasks /End', 'cd x & "C:\\Windows\\System32\\schtasks.exe" /Run', 'cmd /c schtasks /Delete', '(schtasks /Query)'])
+    assert.equal(commandRuns(cmd), true, cmd);
+});
+
+test('#7247: the word schtasks anywhere else is not a call, so it runs as it always did', () => {
+  for (const [file, args, options] of [
+    ['git', ['grep', 'schtasks']], ['git', ['commit', '-m', 'fix schtasks quoting']], [process.execPath, ['-e', 'console.log("schtasks")']],
+    ['schtasks-helper.exe', []], ['C:\\tools\\myschtasks.exe', []], ['cmd', ['/c', 'echo schtasks']], ['findstr', ['schtasks', 'log.txt']],
+  ]) assert.equal(callRuns(file, args, options), false, JSON.stringify([file, args]));
+  for (const cmd of ['git grep schtasks', 'echo schtasks', 'type schtasks.log', 'node -e "require(\'schtasks\')"'])
+    assert.equal(commandRuns(cmd), false, cmd);
+});
+
+/* ---------- every arm, in a child that loads the preload as the runner does ---------- */
+
+/* The child builds the name itself: this test may run under the preload too, and a command line that RAN schtasks
+   would be refused here; the matcher only refuses calls that run it, so the probe's source naming it is fine. */
+const PROBE = `
+const cp = require('node:child_process');
+const util = require('node:util');
+const SCH = 'schtasks.exe';
+const out = {};
+const code = (e) => e && e.code;
+try { cp.execFileSync(SCH, ['/Query']); out.execFileSync = 'ran'; } catch (e) { out.execFileSync = code(e); }
+out.spawnSync = code(cp.spawnSync(SCH, ['/Query']).error);
+try { cp.execSync('schtasks /Query', { stdio: 'pipe' }); out.execSync = 'ran'; } catch (e) { out.execSync = code(e); }
+const other = cp.spawnSync(process.execPath, ['-e', 'process.stdout.write("ran")'], { encoding: 'utf8' });
+out.other = other.stdout;
+const done = [];
+const child = cp.spawn(SCH, ['/Query']);
+out.spawnStdout = !!child.stdout;
+done.push(new Promise((r) => child.on('error', (e) => { out.spawn = code(e); r(); })));
+done.push(new Promise((r) => cp.execFile(SCH, ['/Query'], (e) => { out.execFile = code(e); r(); })));
+done.push(new Promise((r) => cp.exec('schtasks /Query', (e) => { out.exec = code(e); r(); })));
+done.push(util.promisify(cp.execFile)(SCH, ['/Query']).then(() => { out.pExecFile = 'ran'; }, (e) => { out.pExecFile = code(e); }));
+done.push(util.promisify(cp.execFile)(process.execPath, ['-e', 'process.stdout.write("x")']).then((r) => { out.pShape = typeof r === 'object' && r.stdout === 'x' && 'stderr' in r; }));
+done.push(util.promisify(cp.exec)('echo shape').then((r) => { out.pExecShape = typeof r === 'object' && /shape/.test(r.stdout); }));
+Promise.all(done).then(() => process.stdout.write(JSON.stringify(out)));
+`;
+
+/* The probe runs from a file: Windows refuses (EPERM) a node started with this many lines as one -e argument. */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'sch-7247-'));
+test.after(() => fs.rmSync(DIR, { recursive: true, force: true }));
+
+function probe(source, nodeOptions) {
+  const file = path.join(DIR, 'probe-' + Math.random().toString(36).slice(2) + '.js');
+  fs.writeFileSync(file, source);
+  const e = { ...process.env };
+  delete e.NODE_TEST_CONTEXT;   // the child is a plain script, not a test file
+  delete e.NODE_OPTIONS;
+  if (nodeOptions) e.NODE_OPTIONS = nodeOptions;
+  return JSON.parse(cp.execFileSync(process.execPath, [file], { env: e, encoding: 'utf8', timeout: 60000 }));
+}
+
+test('#7247: under the preload every arm fails as a missing schtasks.exe would, and everything else runs unchanged', () => {
+  const got = probe(PROBE, wt.childEnv(WIN_DEV, 'win32').NODE_OPTIONS);
+  for (const arm of ['execFileSync', 'spawnSync', 'execSync', 'spawn', 'execFile', 'exec', 'pExecFile']) {
+    assert.equal(got[arm], 'ENOENT', arm + ': ' + JSON.stringify(got));
+  }
+  assert.equal(got.spawnStdout, true, 'a refused spawn still has its streams, as a missing program\'s child does');
   assert.equal(got.other, 'ran', 'a program that is not schtasks still runs');
+  assert.equal(got.pShape, true, 'promisify(execFile) still resolves { stdout, stderr }');
+  assert.equal(got.pExecShape, true, 'promisify(exec) still resolves { stdout, stderr }');
+});
+
+test('#7247 CONTROL: without the preload, a call to a program that does not exist is what ENOENT looks like, and promisify keeps its shape', () => {
+  /* Never runs the real schtasks: the control aims the same arms at a program no computer has, so it shows the
+     preload's refusals are Node's own ENOENT and not something it made up. */
+  const got = probe(PROBE.replace("const SCH = 'schtasks.exe';", "const SCH = 'no-such-program-7247.exe';").replace(/schtasks \/Query/g, 'no-such-program-7247 /Query'), null);
+  for (const arm of ['execFileSync', 'spawnSync', 'spawn', 'execFile', 'pExecFile']) assert.equal(got[arm], 'ENOENT', arm);
+  assert.equal(got.pShape, true);
 });
