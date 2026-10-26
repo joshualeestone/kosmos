@@ -241,6 +241,62 @@ async function listLiveNow(vendor) {
 }
 const listLive = inflight.collapse(listLiveNow);
 
+/* ---- forget and remove ------------------------------------------------------ */
+
+/* There is no default vendor account (every one is a named folder). Present for callers written for every keyed
+   provider, such as the server's account delete, which compare a folder with the provider's default. */
+function defaultDir() { return null; }
+
+/* What kind of credential an account holds, in the shape the other providers' identityOf answers. */
+function identityOf(dir) { return readAccount(dir).kind === 'absent' ? null : { authMode: 'key' }; }
+
+/** Shared guards for forget and remove: a real vendor account folder directly in this home, not a symlink, not in use. */
+function guard(dir, usedBy) {
+  const home = path.resolve(homeDir());
+  const clean = path.resolve(String(dir == null ? '' : dir));
+  const vendor = vendorOfName(clean);
+  const notOurs = 'that is not a provider account on this computer';
+  if (path.dirname(clean) !== home || !vendor) return { because: notOurs };
+  let st = null;
+  try { st = fs.lstatSync(clean); } catch { st = null; }
+  if (st && !st.isDirectory()) return { because: notOurs };
+  const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
+  if (agents.length) {
+    return {
+      usedBy: agents,
+      because: agents.length === 1
+        ? `${agents[0]} is set up to run on this account. Move it to another account or remove it first.`
+        : `${agents.length} agents are set up to run on this account: ${agents.join(', ')}. Move them to another account or remove them first.`,
+    };
+  }
+  if (!st) return { gone: true, clean };
+  /* The name is not the account: a name-shaped folder with no account file is not ours to move or delete. */
+  if (readAccount(clean).kind === 'absent') return { because: notOurs };
+  return { clean, vendor, label: path.basename(clean).slice(dirPrefix(vendor).length) };
+}
+
+/** Forget an account without deleting it: rename its folder aside so it stops being listed (reversible). */
+function forgetAccount(dir, usedBy) {
+  const g = guard(dir, usedBy);
+  if (g.gone) return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
+  if (!g.clean) return { ok: false, forgotten: false, ...(g.usedBy ? { usedBy: g.usedBy } : {}), because: g.because };
+  const home = path.resolve(homeDir());
+  let target = path.join(home, forgottenPrefix(g.vendor) + g.label);
+  for (let n = 2; fs.existsSync(target) && n < 500; n += 1) target = path.join(home, `${forgottenPrefix(g.vendor)}${g.label}-${n}`);
+  if (fs.existsSync(target)) return { ok: false, forgotten: false, because: 'we could not find a free name to move that account to' };
+  try { fs.renameSync(g.clean, target); } catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
+  return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
+}
+
+/** Delete an account's folder (and its key) from this computer. Irreversible; the UI asks first. */
+function removeAccount(dir, usedBy) {
+  const g = guard(dir, usedBy);
+  if (g.gone) return { ok: true, removed: false, because: 'that account is already gone from this computer' };
+  if (!g.clean) return { ok: false, removed: false, ...(g.usedBy ? { usedBy: g.usedBy } : {}), because: g.because };
+  try { fs.rmSync(g.clean, { recursive: true, force: true }); } catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
+  return { ok: true, removed: true, wasDefault: false, because: null };
+}
+
 /* ---- launch ----------------------------------------------------------------- */
 
 /* Every ANTHROPIC_* variable the launch owns. The supervisor UNSETS each before setting its own: the tmux server's
@@ -303,5 +359,6 @@ module.exports = {
   homeDir, dirPrefix, forgottenPrefix, endpointFile, vendorOfName, isCompatHome, accountProblem, readAccount,
   list, cleanLabel, dirForLabel, storeAccount,
   setFetcher, askModels, validateLive, checkLive, listLive, resetLiveCacheForTest,
+  defaultDir, identityOf, forgetAccount, removeAccount,
   launchEnv,
 };

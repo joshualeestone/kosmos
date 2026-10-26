@@ -1260,6 +1260,7 @@ const claudeAccounts = require('./engine/claudeaccounts');
 const geminiAccounts = require('./engine/geminiaccounts'); // #3296 accounts slice
 const grokAccounts = require('./engine/grokaccounts');     // #3391 accounts slice
 const qwenAccounts = require('./engine/qwenaccounts');     // #5977
+const compatAccounts = require('./engine/anthropiccompat');   // #7206: DeepSeek (and later GLM, MiniMax) on the claude runner
 const qwenLocal = require('./engine/qwenlocal');         // #5977 slice 3
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
@@ -3357,6 +3358,52 @@ function handleQwenAccountStore(req, res) {
       sendJson(res, 200, { ok: true, account: account ? { ...account, connection } : null, connection });
     })
     .catch(() => sendJson(res, 400, { error: 'we could not add that Qwen account' }));
+}
+
+/* #7206: add a vendor account (DeepSeek) that a claude agent runs on with the person's key. Body: { vendor, key,
+   model?, label? }. The address is the vendor's own, from engine/anthropiccompat.js, never the request's. The key is
+   checked with the VENDOR before anything is written (never with Anthropic): a key the vendor refuses stores nothing;
+   a vendor that cannot be reached stores it and says so. An existing account is never overwritten. */
+function handleCompatAccountStore(req, res) {
+  readBody(req)
+    .then(async (raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const v = compatAccounts.VENDORS[body.vendor];
+      if (!v) { sendJson(res, 400, { error: 'Kosmos does not know that provider' }); return; }
+      if (!runners.resolveBin('claude').present || runners.installing('claude')) {   // filed under 'claude' (engine/runners.js)
+        sendJson(res, 400, { error: `we could not find Claude Code, the runner ${v.name} agents use, on this computer`, needsRunner: true, provider: 'claude' });
+        return;
+      }
+      const acct = {
+        vendor: v.id,
+        model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : v.models[0],
+        key: typeof body.key === 'string' ? body.key.trim() : '',
+      };
+      const problem = compatAccounts.accountProblem(acct);
+      if (problem) { sendJson(res, 400, { error: problem }); return; }
+      const named = compatAccounts.dirForLabel(v.id, typeof body.label === 'string' && body.label.trim() ? body.label : 'main');
+      if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
+      /* Claimed before the live check, as the Qwen add does: a plain mkdir fails on a folder already there, so of two
+         adds racing for one label exactly one gets it. A claimed folder this add cannot fill is removed. */
+      try { fs.mkdirSync(named.dir, { mode: 0o700 }); } catch (e) {
+        sendJson(res, e && e.code === 'EEXIST' ? 409 : 400, { error: e && e.code === 'EEXIST'
+          ? `there is already a ${v.name} account called ${named.label} on this computer; give this one another name`
+          : `we could not make a place for this ${v.name} account on this computer` });
+        return;
+      }
+      const giveBack = () => { try { fs.rmSync(named.dir, { recursive: true, force: true }); } catch { /* best effort */ } };
+      let live;
+      try { live = await compatAccounts.validateLive(acct); } catch { live = { state: compatAccounts.STATE.UNKNOWN, because: `we could not check this key with ${v.name} just now` }; }
+      if (live.state === compatAccounts.STATE.NONE) { giveBack(); sendJson(res, 400, { error: live.because }); return; }
+      try { compatAccounts.storeAccount(named.dir, acct); }
+      catch { giveBack(); sendJson(res, 400, { error: `we could not save this ${v.name} account on this computer` }); return; }
+      const account = compatAccounts.list(v.id).find((a) => a.dir === named.dir) || null;
+      const connection = { state: live.state, because: live.because };
+      sendJson(res, 200, { ok: true, account: account ? { ...account, connection } : null, connection });
+    })
+    .catch(() => sendJson(res, 400, { error: 'we could not add that account' }));
 }
 
 /* #1279 GLOBAL PER-CREATOR ACTIVE-AGENT CAP.
@@ -12547,8 +12594,8 @@ const server = http.createServer(async (req, res) => {
     const grokSubStarted = new Map(grokAccounts.list()
       .filter((a) => a && a.dir && a.authMode === 'subscription')
       .map((a) => [a.dir, grokAccounts.subscriptionLive(a.dir).catch(() => ({ verdict: 'unknown', because: 'we could not check this sign-in just now' }))]));
-    Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive()])
-      .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows]) => {
+    Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive(), compatAccounts.listLive()])
+      .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows, compatRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
            accountForAgent the status route uses -- NOT a second copy of the
@@ -13048,6 +13095,8 @@ const server = http.createServer(async (req, res) => {
         /* #5977: Qwen accounts, badged from their live check alone (the endpoint lists the model, or says no): an
            endpoint reached with its model is signed_in_unverified until an agent is seen using it. */
         const qwen = (qwenRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
+        /* #7206: vendor accounts (DeepSeek), badged the same way from the vendor's own key check. */
+        const compat = (compatRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
         /* kosmos#7152 slice 2: whether a whole set of agents may be moved onto each Claude row, from the ONE rule the
            decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
         const ab = require('./engine/autobalance');
@@ -13093,7 +13142,7 @@ const server = http.createServer(async (req, res) => {
             try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
           }
         }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...compat, ...museSub], unlistedAccounts, unlistedComplete,
           ...(autobalance ? { autobalance } : {}) });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
@@ -13472,6 +13521,31 @@ const server = http.createServer(async (req, res) => {
      codex runner Qwen agents use), and check one live (GET <baseUrl>/models). */
   if (pathname === '/api/accounts/qwen' && req.method === 'POST') {
     handleQwenAccountStore(req, res);
+    return;
+  }
+  /* #7206: vendor accounts (DeepSeek) on the claude runner: add, disconnect or delete (the same fail-closed agents
+     guard, on the claude runner), and check one live with the vendor. */
+  if (pathname === '/api/accounts/compat' && req.method === 'POST') {
+    handleCompatAccountStore(req, res);
+    return;
+  }
+  if (pathname === '/api/accounts/compat' && req.method === 'DELETE') {
+    handleApikeyAccountDelete(req, res, { mod: compatAccounts, runner: 'claude' });
+    return;
+  }
+  if (pathname === '/api/accounts/compat/check' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const acct = compatAccounts.list().find((a) => a.dir === path.resolve(dir));
+        if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
+        const c = await compatAccounts.checkLive(acct.dir);
+        sendJson(res, 200, { state: c.state, because: c.because });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not check that account' }));
     return;
   }
   if (pathname === '/api/accounts/qwen' && req.method === 'DELETE') {
