@@ -28,8 +28,8 @@ dialog. Accepted: the person still lands where they can sign in.
   openers call loginAdvInert(true); closeAcctAdd calls it with false), not the whole page. Rejected the whole-page inert: the dialog opens from
   first-run, Settings and every sign-in-again path, and first-run already manages its own inert set, so a page-wide
   one here would fight it. What would change my mind: a second control outside the dialog that reopens it.
-- Focus on close falls back to a Refresh login still showing, never to a hidden element (D4). Only when a notice
-  opened the dialog; every other opener keeps its old fallback to the Accounts door (review 3).
+- Focus on close, off Settings (where the Accounts door is hidden), falls back to a Refresh login still showing,
+  never to a hidden element (D4). Only when a notice opened the dialog; every other opener keeps its old fallback to the Accounts door (review 3).
 
 ## Challenge loop, review 2 (decided)
 - The page fails open when it has not read its account list: the board's naming stands (status.js dirOf already
@@ -47,3 +47,8 @@ dialog. Accepted: the person still lands where they can sign in.
   Mutations, each red: the page guard removed (C3); the in-place branch removed (D1).
 - engine/loginexpiry-snapshot-3532.test.js: a folder with no row names nothing.
 - mobile-shots.js: `settings-accounts-landed` replaced by `login-notice-signin-dialog`; the #6206 control example moved.
+
+## Challenge loop, review 6 (decided)
+- An API-key row is never a Sign in again target (#2433): status.js leaves API-key rows out of rowDirs, and the
+  page guard needs a non-API-key row; the engine test and C5 pin both.
+- The phone sizing is scoped to the dialog's Start the sign-in (#acct-add), the one button P1 measures.

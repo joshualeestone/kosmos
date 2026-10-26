@@ -8935,9 +8935,10 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
           return typeof email === 'string' && email ? email : null;
         } catch { return null; }
       });
-      // The folders AI Models lists (accounts.list, read from disk; no live check). Unreadable: no notice names a row.
+      // The folders AI Models lists (accounts.list, read from disk; no live check), less API-key rows, which have no
+      // sign-in to redo (#2433). Unreadable: no notice names a row.
       let rowDirs = null;
-      try { rowDirs = opts.rowDirs instanceof Set ? opts.rowDirs : new Set(accounts.list().map((a) => a && a.dir).filter(Boolean)); } catch { rowDirs = null; }
+      try { rowDirs = opts.rowDirs instanceof Set ? opts.rowDirs : new Set(accounts.list().filter((a) => a && !a.apiKey).map((a) => a.dir).filter(Boolean)); } catch { rowDirs = null; }
       /* #5407: the account's folder as Settings > AI Models names its row (accounts.list: the default is
          ~/.claude, any other the folder itself), so the notice's Refresh login can sign in again as that account.
          Review 5: ONLY when that row reads the same login. The row's login is the keychain entry for its folder

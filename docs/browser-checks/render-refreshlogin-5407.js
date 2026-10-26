@@ -22,6 +22,7 @@
  *   C2  CONTROL: a notice for a folder with no row opens AI Models, and no dialog
  *   C3  a folder the page's loaded account list no longer has opens AI Models, and no dialog
  *   C4  a page that has not read its account list trusts the board's naming: the dialog opens
+ *   C5  a folder whose row on the page is an API key opens AI Models: it has no sign-in to redo
  *   R3  an ended login whose agents have stopped: "Login expired", its line, Sign in again first
  *   K1  the one-screen layout, on a project: the dialog opens there, Settings stays shut
  *   D2  on an agent's own page: the dialog opens there
@@ -145,6 +146,8 @@ function readRows(page) {
     /* D1 (kosmos#7198, Josh 08:32): pressing it opens that account's Sign in again dialog right here, over the board:
        Settings does not open, and closing the dialog leaves the board as it was. */
     await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; showTab('agents'); });
+    const ready = await page.evaluate(() => ({ slot: !document.getElementById('login-adv-slot').closest('[inert]'), modal: !document.getElementById('acct-add-modal').closest('[inert]') }));
+    chk(ready.slot && ready.modal, theme + ' D1 CONTROL (review 6): before the press, neither the notices nor the dialog is inert', JSON.stringify(ready));
     await page.click('#login-adv-slot button.login-adv-go[data-adv-dir="/home/.claude-soon"]');
     await page.waitForTimeout(200);
     const dlg = await page.evaluate(() => {
@@ -322,6 +325,20 @@ function readRows(page) {
     chk(c4.dialog && !!c4.dir, theme + ' C4: with no list on the page, the board\'s naming stands and the dialog opens', JSON.stringify(c4));
     p4Errs(theme + ' C4');
     await p4.close();
+    // C5 (review 6): the page's list has the folder, but as an API-key row, which has no sign-in to redo (#2433).
+    const p5 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const p5Errs = errsOf(p5);
+    await setUp(p5, theme);
+    await p5.evaluate((accounts) => accountsRead(accounts.concat([{ ...accounts[0], email: 'key@example.com', label: 'key@example.com', dir: '/home/.claude-key', apiKey: true }])), ACCOUNTS);
+    await p5.evaluate((a) => paintLoginAdvisories([a]), { ...ADV_GONEROW, email: 'key@example.com', dir: '/home/.claude-key' });
+    const keyRow = await p5.evaluate(() => Array.isArray(ACCOUNTS) && ACCOUNTS.some((a) => a.dir === '/home/.claude-key' && a.apiKey === true));
+    await p5.click('#login-adv-slot button.login-adv-go');
+    await p5.waitForTimeout(300);
+    const c5 = await p5.evaluate(() => ({ dialog: !document.getElementById('acct-add-modal').hidden, accounts: !document.getElementById('s-sec-accounts').hidden }));
+    chk(keyRow, theme + ' C5 CONTROL: the page lists that folder, as an API-key row');
+    chk(!c5.dialog && c5.accounts, theme + ' C5: a folder whose row is an API key opens AI Models, not Sign in again', JSON.stringify(c5));
+    p5Errs(theme + ' C5');
+    await p5.close();
   }
 
   // K1 (kosmos#7198): in the one-screen layout, on a project, the dialog opens over the project and Settings stays shut.
