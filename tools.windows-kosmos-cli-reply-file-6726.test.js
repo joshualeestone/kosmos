@@ -63,7 +63,7 @@ test('#6726: --file sends an absolute path with the words, and says what was att
 test('#6726: a relative path is made absolute from where the command runs, joined as text', async () => {
   const r = await run(['reply', '--file=Files/notes.md', 'notes'], kept, undefined, atHere);
   assert.equal(r.code, 0, r.err);
-  assert.equal(replies(r)[0].body.file, HERE + path.sep + 'Files/notes.md');
+  assert.equal(replies(r)[0].body.file, ON_WINDOWS ? HERE + '\\Files\\notes.md' : HERE + '/Files/notes.md');
   /* The root folder joins without a doubled separator. */
   if (!ON_WINDOWS) {
     const root = await run(['reply', '--file=Files/notes.md', 'notes'], kept, undefined, { cwd: () => '/' });
@@ -74,7 +74,7 @@ test('#6726: a relative path is made absolute from where the command runs, joine
 test('#6726 review 1: a .. in the path reaches the board as given (the board refuses it there, as on a Mac)', async () => {
   const rel = await run(['reply', '--file', 'Files/sub/../x.txt', 'x'], kept, undefined, atHere);
   assert.equal(rel.code, 0, rel.err);
-  assert.equal(replies(rel)[0].body.file, HERE + path.sep + 'Files/sub/../x.txt', 'the .. was rewritten before it was sent');
+  assert.equal(replies(rel)[0].body.file, ON_WINDOWS ? HERE + '\\Files\\sub\\..\\x.txt' : HERE + '/Files/sub/../x.txt', 'the .. was rewritten before it was sent');
   const dotted = abs('a', 'Files', 'sub', '..', 'x.txt');
   const given = await run(['reply', '--file', dotted, 'x'], kept);
   assert.equal(given.code, 0, given.err);
@@ -84,19 +84,22 @@ test('#6726 review 1: a .. in the path reaches the board as given (the board ref
 test('#6726 review 1: the Windows path forms, with the Windows path rules on any machine', () => {
   const W = path.win32;
   const cwd = 'C:\\Users\\a\\';
-  assert.equal(cli.replyFileAbsolute('C:\\a\\..\\x.txt', cwd, W), 'C:\\a\\..\\x.txt');
-  assert.equal(cli.replyFileAbsolute('c:/a/x.txt', cwd, W), 'c:/a/x.txt');
-  assert.equal(cli.replyFileAbsolute('\\\\srv\\share\\x.txt', cwd, W), null, 'a network path was sent (review 3)');
-  assert.equal(cli.replyFileAbsolute('//srv/share/x.txt', cwd, W), null, 'a network path was sent (review 3)');
-  assert.equal(cli.replyFileAbsolute('\\\\?\\C:\\x.txt', cwd, W), null, 'a device path was sent (review 3)');
-  assert.equal(cli.replyFileAbsolute('x.txt', '\\\\srv\\share\\dir', W), null, 'a relative path from a network folder was sent');
-  assert.equal(cli.replyFileAbsolute('Files\\x.txt', cwd, W), 'C:\\Users\\a\\Files\\x.txt');
-  assert.equal(cli.replyFileAbsolute('C:foo.txt', cwd, W), null, 'a drive with no folder was sent');
-  assert.equal(cli.replyFileAbsolute('\\foo.txt', cwd, W), null, 'a folder with no drive was sent');
-  assert.equal(cli.replyFileAbsolute('/foo.txt', cwd, W), null, 'a folder with no drive was sent');
+  assert.equal(cli.replyFileAbsolute('C:\\a\\..\\x.txt', () => cwd, W), 'C:\\a\\..\\x.txt');
+  assert.equal(cli.replyFileAbsolute('c:/a/x.txt', () => cwd, W), 'c:\\a\\x.txt', 'review 10: a drive path is sent with backslashes only');
+  assert.equal(cli.replyFileAbsolute('Files/sub/x.txt', () => cwd, W), 'C:\\Users\\a\\Files\\sub\\x.txt', 'review 10: a joined path is sent with backslashes only');
+  assert.equal(cli.replyFileAbsolute('C:/a/../x.txt', () => cwd, W), 'C:\\a\\..\\x.txt', 'the .. survives the swap');
+  assert.equal(cli.replyFileAbsolute('C:\\x.txt', () => { throw new Error('the folder was read'); }, W), 'C:\\x.txt', 'review 10: an absolute path never reads the folder');
+  assert.equal(cli.replyFileAbsolute('\\\\srv\\share\\x.txt', () => cwd, W), null, 'a network path was sent (review 3)');
+  assert.equal(cli.replyFileAbsolute('//srv/share/x.txt', () => cwd, W), null, 'a network path was sent (review 3)');
+  assert.equal(cli.replyFileAbsolute('\\\\?\\C:\\x.txt', () => cwd, W), null, 'a device path was sent (review 3)');
+  assert.equal(cli.replyFileAbsolute('x.txt', () => '\\\\srv\\share\\dir', W), null, 'a relative path from a network folder was sent');
+  assert.equal(cli.replyFileAbsolute('Files\\x.txt', () => cwd, W), 'C:\\Users\\a\\Files\\x.txt');
+  assert.equal(cli.replyFileAbsolute('C:foo.txt', () => cwd, W), null, 'a drive with no folder was sent');
+  assert.equal(cli.replyFileAbsolute('\\foo.txt', () => cwd, W), null, 'a folder with no drive was sent');
+  assert.equal(cli.replyFileAbsolute('/foo.txt', () => cwd, W), null, 'a folder with no drive was sent');
   /* CONTROL: the posix rules take /foo as absolute and join a relative one onto the folder. */
-  assert.equal(cli.replyFileAbsolute('/foo.txt', '/w', path.posix), '/foo.txt');
-  assert.equal(cli.replyFileAbsolute('a/../b', '/w', path.posix), '/w/a/../b');
+  assert.equal(cli.replyFileAbsolute('/foo.txt', () => '/w', path.posix), '/foo.txt');
+  assert.equal(cli.replyFileAbsolute('a/../b', () => '/w', path.posix), '/w/a/../b');
 });
 
 test('#6726 review 3: under the Windows path rules, reply refuses a path with no drive and sends one on a drive', async () => {
@@ -240,6 +243,12 @@ test('#6726 r3-6: the command names the file as the board saved it (a link names
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /Sent, with notes-real\.txt attached\./);
   assert.doesNotMatch(r.out, /report-link\.pdf attached/);
+  /* Review 10: a saved name with a control character in it (C1 CSI here) is not written to the terminal; the given
+     name stands in for it. */
+  const c = await run(['reply', '--file', abs('x', 'Files', 'report-link.pdf'), 'here'], () => ({ body: { kept: true, because: null, attached: 'evil\u009b2J.txt' } }));
+  assert.equal(c.code, 0, c.err);
+  assert.ok(!c.out.includes('\u009b'), 'a control character from the saved name reached the terminal');
+  assert.match(c.out, /Sent, with report-link\.pdf attached\./);
 });
 
 test('#6726 r4-5: a saved name with a double quote arrives whole (the JSON is parsed, never cut)', async () => {

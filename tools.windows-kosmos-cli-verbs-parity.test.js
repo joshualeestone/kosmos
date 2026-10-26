@@ -208,7 +208,7 @@ test('#1674: --help and -h on every verb and subcommand print that verb\'s usage
         const r = await runWindows(argv);
         assert.equal(r.calls.length, 0, 'kosmos ' + argv.join(' ') + ' SENT a request');
         assert.equal(r.code, 0, 'kosmos ' + argv.join(' '));
-        assert.equal(r.out, cli.helpFor(verb));   // #6726: reply's help names --file where it is taught (helpFor decides)
+        assert.equal(r.out, cli.helpFor(verb));   // #6726: routing only (main prints helpFor's text); reply's text is pinned in tools.windows-kosmos-cli-reply-file-6726
       }
     }
   }
