@@ -8828,17 +8828,26 @@ function paneCcdRead(target) {
   try {
     env = execFileSync('ps', ['eww', pid], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
   } catch { return { ccd: undefined, pid }; }
-  // `ps eww` prints a header line, then PID TT STAT TIME and the COMMAND, whose first word is the program's path.
-  const prog = String(env).split('\n')[1] ? String(env).split('\n')[1].trim().split(/\s+/)[4] : '';
-  const cmd = prog ? path.basename(prog).replace(/[^\w.@+-]/g, '').slice(0, 64) : null;
-  return { ccd: require('./loginexpiry').ccdFromPsEnv(env), pid, cmd: cmd || null };
+  let comm = '';
+  try {
+    comm = execFileSync('ps', ['-o', 'comm=', '-p', pid], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch { /* the program is only for the board log */ }
+  return { ccd: require('./loginexpiry').ccdFromPsEnv(env), pid, cmd: cmdFromPsComm(comm) };
+}
+
+/* kosmos#7194 review 2: the program's base name, from `ps -o comm=` (the executable's path, alone on its line, so a
+   space in it is kept). null when there is none. */
+function cmdFromPsComm(text) {
+  const first = String(text == null ? '' : text).split('\n')[0].trim();
+  return (first ? path.basename(first).replace(/[^\w.@+-]/g, '').slice(0, 64) : '') || null;
 }
 
 /* kosmos#7194: Josh's board once named eight agents on a login they had left the evening before, and nothing recorded
    what it had read, so the cause could not be found. When the notices change (raised, changed, or cleared), the board
    log gets one line per named agent: the folder read, from which process (pid and program), in which pane. Only on a
    change; a notice's days left are part of it, so a standing notice writes its lines once a day as it counts down.
-   `state` holds the last notices logged, set after its lines are written. */
+   `state` holds the last notices logged, set after its lines are written. The lines hold the login's email; a
+   diagnostics export masks it (engine/diagredact). */
 const LOGIN_ADV_LOGGED = { sig: '' };
 function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED) {
   const list = Array.isArray(out) ? out : [];
@@ -9907,7 +9916,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

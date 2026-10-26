@@ -86,3 +86,13 @@ test('#7194 review 1: the line names the program read, says "today" at 0 days, a
   status.logLoginAdvReads(adv('b@example.com', 0), reads, (l) => lines.push(l), state);
   assert.equal(lines.length, 2, 'a notice whose email changed was not logged');
 });
+
+test('#7194 review 2: the program is the base name of `ps -o comm=`, a path with a space in it included', () => {
+  const real = require('node:child_process').execFileSync('ps', ['-o', 'comm=', '-p', String(process.pid)], { encoding: 'utf8' });
+  assert.equal(status.cmdFromPsComm(real), nodePath.basename(process.execPath).replace(/[^\w.@+-]/g, ''), 'not this process: ' + JSON.stringify(real));
+  assert.equal(status.cmdFromPsComm('/Users/a/Library/Application Support/Kosmos/bin/claude\n'), 'claude');
+  assert.equal(status.cmdFromPsComm('/opt/x/evil;name$(id)\n'), 'evilnameid', 'characters outside the name set are dropped');
+  assert.equal(status.cmdFromPsComm('/x/' + 'a'.repeat(100)).length, 64);
+  assert.equal(status.cmdFromPsComm(''), null);
+  assert.equal(status.cmdFromPsComm(undefined), null);
+});
