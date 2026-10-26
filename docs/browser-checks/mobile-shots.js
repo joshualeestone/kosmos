@@ -1060,9 +1060,10 @@ const SCREENS = [
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-head-notify', { state: 'visible', timeout: 8000 });
-    /* Design review round 2 (Mona Lisa): one shot caught the room before its first read painted. Wait for the room's
-       own words (its empty line, here) so the shot is the room as a person sees it. */
-    await page.waitForFunction(() => /Nothing here yet|We could not read/.test((document.getElementById('pj-room') || {}).textContent || ''), null, { timeout: 8000 });
+    /* Design review round 2 (Mona Lisa): one shot caught the room before its first read painted, so wait for the room to
+       hold something. Any content, not one sentence: the sample room is empty only while #7185's filter hides rows that
+       predate their project (kosmos#7225), and its messages come back once that is fixed. */
+    await page.waitForFunction(() => ((document.getElementById('pj-room') || {}).textContent || '').trim().length > 0, null, { timeout: 8000 });
   }, after: async (page, data) => {
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: 'all' }) }).then((r) => r.status), data.projectId);
     if (st !== 200) throw new Error('could not unmute the project after the shot (' + st + ')');
