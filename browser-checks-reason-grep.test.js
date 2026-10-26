@@ -374,6 +374,7 @@ const SITE_COUNTS = {
   'render-create-openai-model-2140.js': [1, 1],
   'render-create-prefs-3081.js': [1, 1],
   'render-createnav-2190.js': [1, 1],
+  'render-deepseek-add-7206.js': [2, 2],
   'render-detail-header-1841.js': [1, 0],
   'render-detail-openai-model-2140.js': [1, 1],
   'render-device-signed-out-401-718.js': [1, 0],
