@@ -1491,7 +1491,7 @@ async function sweepInstallGroup(keys, on) {
 const OWNER_PASS_ROUTE = '/v1/mac/community-owner-pass';
 let OWNER_LINK_RETRY_MS = 15 * 60 * 1000;   // a pause after a failure of the service or of one agent (tests set it)
 const OWNER_LINK_UNKNOWN_MS = 60 * 60 * 1000;   // a pause when the route does not exist yet; tests rely on it staying long
-const OWNER_LINK_PASS_MS = 30 * 1000;   // no new agent is started after this long in one pass
+let OWNER_LINK_PASS_MS = 30 * 1000;   // no new agent is started after this long in one pass (tests set it)
 // At most this many passes are minted in one sweep: the sweep holds the lock agents' own community calls wait on, and
 // on a first run every agent needs one. The rest are linked by the following sweeps.
 const OWNER_LINK_MINTS_PER_PASS = 5;
@@ -3192,6 +3192,7 @@ module.exports = {
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
+  _ownerLinkBudget: (ms) => { OWNER_LINK_PASS_MS = ms; },   // #7215: for its budget test
   _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkFrom.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };
