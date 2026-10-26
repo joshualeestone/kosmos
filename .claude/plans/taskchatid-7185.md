@@ -12,10 +12,14 @@ old task 1's conversation (a person's words included), and its room showed the o
     undo, holdstale, retire offers, lastActivityOf, progressTimes);
   - engine/messages.js record() `rows` (the room: posts, notes, refusals, valve rows; every room reader starts there).
     `parsed` stays whole, so a hidden row's id stays reserved;
-  - engine/taskseen.js seenAt() (when the person viewed a task: a re-made task 1 read the old "seen").
+  - engine/taskseen.js seenAt() (when the person viewed a task: a re-made task 1 read the old "seen");
+  - engine/messages.js lastPostAt(), which keeps its own map over the raw rows for speed: its answer is filtered
+    (a room whose newest post is older than the project has had none).
 - Fails CLOSED. When the projects file exists but cannot be read, every project-tagged row is left out, and record()
   answers ok:false, which every careful caller already treats as "could not read" (projectOfPost's misroute guard
-  throws, the unread count says unknown). Direct messages carry no project and are untouched.
+  throws, the unread count says unknown). Direct messages carry no project and are untouched. The cost of that
+  choice: while the projects file is unreadable, every reader that checks ok reports "could not read" for the whole
+  log, direct messages included, though the log itself is fine. Most room paths already stop at projects.get then.
 - Cost: the stamps are cached until the projects file changes (inode, size, mtime, ctime); record()'s filtered rows
   are cached until the log or the stamps change.
 - Why keep the rows: an enterprise owner owns work content (Josh, 2026-10-09) and may want a deleted project's
@@ -43,14 +47,20 @@ old task 1's conversation (a person's words included), and its room showed the o
 - roomhold: forgotten when the project is removed (engine/remove.js).
 - attachments: fetched only by a random id named in a post row; hidden posts name nothing.
 - activity: per agent, not per project.
+- filewriters (which agent last changed a project file): a writer is named only for a file change within minutes of
+  the record, so an old project's names cannot attach to a re-made project's files in practice; not changed.
+- assigner-asked.json (when each project was last asked about its goal, and a hash of what it looked like): timing
+  only, no one's words; a re-made project may be asked a little later than a new name would be; not changed.
 
 ## Proven
 - engine/taskchat.remade-7185.test.js, 7 tests. Each guard reverted on its own reds its own tests: the old
   messages.js reds the room test and the room half of the unreadable test; the old taskchat.js reds the task, progress
   and unreadable tests; a fail-OPEN projectborn reds the unreadable test; the old taskseen.js reds the seen test.
-- Four existing tests wrote rows dated before the project they had just made and were changed to date the project
-  first (engine/messages.test.js #3564; server.room-held-5800.test.js, three route tests, folder files included so they
-  do not read as fresh work; server.projects.test.js #1895). No real row can predate its project: createdAt is written
+- Nine existing tests wrote rows dated before the project they had just made and were changed to date the project
+  first: engine/messages.test.js #3564; server.room-held-5800.test.js, three route tests (folder files included, so
+  they do not read as fresh work); server.projects.test.js #1895; server.room-paged-7032.test.js, two (found by review
+  3); server.roomread-seen-4926.test.js, three (review 3). Found first by a pattern list, which missed the last two
+  files; the final check is a sweep of every test file that touches the room log, task chats or seen marks. No real row can predate its project: createdAt is written
   only by projects.create, and external rows are stamped on arrival.
 
 ## Weakest premise
@@ -66,3 +76,5 @@ a backup with a later createdAt.
 - Restoring a deleted project (same id, its own older createdAt) would show its rows and the re-made one's together;
   project restore is not built today.
 - readAll() sets projects' read-ok flag as it always does; a read made here reports the file's real state.
+- Counts over a window (confirmed new posts, suspected misroutes) drop a deleted project's posts once a project of
+  that name exists again; accepted, they were not this project's.
