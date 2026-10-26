@@ -47,6 +47,10 @@ and the list and instructions show what it waits for. A task waited for that nev
 - A changed condition is recorded as a new hold, so it restarts the posts rule's age and post count, as unhold then
   hold already does. The met line says the age of the condition ("set N hours ago"), not of the first hold.
 
+- The task list shows what a hold waits for, not whether it has happened: the CLIs cannot see another task's state
+  from one row. The instructions' mark and the met line say it. A held task with no owner of an open part is told
+  nothing (the met line, like the posts line, goes to owners of open parts).
+
 ## Not in this slice
 - The screen (web/index.html) still shows a plain "on hold" and cannot set a condition; the condition is in the CLI,
   instructions and activity. A follow-up for the screen if a person asks why a hold is silent.

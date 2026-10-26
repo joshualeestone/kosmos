@@ -156,6 +156,9 @@ test('#7180 Mac CLI: each wrong hold shape gets its own message; the time said b
     assert.equal(two.code, 2);
     assert.match(two.stdout + two.stderr, /at most one condition/);
     assert.equal(writes.length, 0, 'a wrong shape was sent');
+    const lower = await runCli(['task', 'hold', 'p1', '3', '--until', '2026-11-02t09:00z'], env);
+    assert.equal(lower.code, 0, 'a lower-case t and z, which the board takes, were refused: ' + lower.stdout + lower.stderr);
+    writes.length = 0;
     const ok = await runCli(['task', 'hold', 'p1', '3', '--until', '2026-11-02'], env);
     assert.equal(ok.code, 0, ok.stdout + ok.stderr);
     assert.match(ok.stdout, /It waits until 2026-11-02T00:00:00\.000Z/, 'the typed date, not the stored time, was said back');
