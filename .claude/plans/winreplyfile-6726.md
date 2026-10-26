@@ -65,3 +65,9 @@ code would be Homer's; this touches none.
    taken: C1 controls refused, as bash's [[:cntrl:]] does in UTF-8; a relative path refused for its folder now names
    that folder (arm added); the dmfiles comment rewrapped.
 
+7. (sonnet) W: a refusal echoed the typed path before the control-character check, so an escape sequence in it
+   reached the agent's terminal (now the typed path is checked first, and a folder named in a refusal has its
+   control characters replaced; arms for both). W: drive paths that are a stream (C:\x:s) or a device (C:\NUL) pass
+   the CLI's spelling check; board-side, added to #7221. Not taken: a single-dash value (-x) is taken as a path
+   (the board refuses it as relative; install/kosmos does the same); no arm drives the real process.cwd() default
+   (every arm injects the folder on purpose, so no result depends on where the suite runs).

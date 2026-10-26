@@ -586,6 +586,10 @@ function replyFileAbsolute(file, cwd, p) {
 const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
 /* What --help prints for a verb: its usage, and for reply (#6726) the --file line too, as install/kosmos's help does. */
 function helpFor(verb) { return verb === 'reply' ? USAGE.reply + '\n' + USAGE_REPLY_FILE : USAGE[verb]; }
+/* #6726: a control character in a --file path (C1 too, as bash's [[:cntrl:]] in UTF-8), and what the refusal says. */
+const REPLY_FILE_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+const REPLY_FILE_CONTROL_ALL = /[\u0000-\u001f\u007f-\u009f]/g;
+const REPLY_FILE_CONTROL_SAYS = 'That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.';
 const USAGE_REPLY_FILE_NEEDS_PATH = '--file needs the path of the file to attach, so nothing was sent: kosmos reply --file <path> "what it is"';
 async function verbReply(ctx, args) {
   /* #4582: --stdin (leading) reads the reply from standard input, as msg and post do (#2909), via
@@ -609,18 +613,21 @@ async function verbReply(ctx, args) {
       if (a === '--file') { file = i + 1 < args.length ? args[++i] : ''; } else file = a.slice('--file='.length);
       if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(USAGE_REPLY_FILE_NEEDS_PATH); return 2; }
       const given = file;
+      /* Review 6726 r7: the typed path first, so a refusal below never echoes an escape sequence or a carriage
+         return to the agent's terminal; the joined path is checked again after (the folder can carry one too). */
+      if (REPLY_FILE_CONTROL.test(given)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
       file = replyFileAbsolute(given, ctx.cwd(), ctx.pathRules);
       if (file === null) {
         // A relative path refused because the folder it is joined onto is not on a drive: say so, naming that folder.
         const rel = !/^[A-Za-z]:/.test(given) && !/^[\\/]/.test(given);
         ctx.err(rel
-          ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + ctx.cwd() + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:\\...).'
+          ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + ctx.cwd().replace(REPLY_FILE_CONTROL_ALL, '?') + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:\\...).'
           : 'Give the file\'s full path on this computer, starting with its drive (C:\\...), so nothing was sent: ' + given + ' is not one.');
         return 2;
       }
       /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. C1 too (U+0080 to U+009F),
          as bash's [[:cntrl:]] matches them in a UTF-8 locale. */
-      if (/[\u0000-\u001f\u007f-\u009f]/.test(file)) { ctx.err('That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.'); return 2; }
+      if (REPLY_FILE_CONTROL.test(file)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
     }
     args = rest;
   }
