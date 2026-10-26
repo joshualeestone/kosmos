@@ -52,6 +52,8 @@ function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
   if (!ok) fail.push(label);
 }
+/* Review 3: every page this check opens says if the page threw, not only the first one. */
+function errsOf(pg) { const e = []; pg.on('pageerror', (x) => e.push(x.message)); return (label) => chk(!e.length, label + ': no page errors', e.join(' | ')); }
 
 const DAY = 86400000;
 function row(email, dir, conn) {
@@ -276,6 +278,7 @@ function readRows(page) {
 
     // C2: a notice for a folder with no row opens AI Models and rings nothing.
     const p2 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const p2Errs = errsOf(p2);
     await setUp(p2, theme);
     await p2.evaluate((a) => paintLoginAdvisories([a]), ADV_NOROW);
     await p2.click('#login-adv-slot button.login-adv-go');
@@ -291,9 +294,11 @@ function readRows(page) {
     chk(await p2.evaluate(() => document.getElementById('acct-add-modal').hidden), theme + ' C2 CONTROL: and the Sign in again dialog does not open');
     chk(c2.focusInSection, theme + ' C2: focus stays in AI Models, not lost to the page', JSON.stringify(c2));
     chk(c2.noticeStays === 1, theme + ' N3 (review 2): a notice with no warned row on screen stays, so the login is never left unwarned', JSON.stringify(c2));
+    p2Errs(theme + ' C2');
     await p2.close();
     // C3 (kosmos#7198): the board named a folder, but this page's account list no longer has it: AI Models, no dialog.
     const p3 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const p3Errs = errsOf(p3);
     await setUp(p3, theme);
     await p3.evaluate((accounts) => accountsRead(accounts), ACCOUNTS);
     await p3.evaluate((a) => paintLoginAdvisories([a]), ADV_GONEROW);
@@ -301,10 +306,12 @@ function readRows(page) {
     await p3.waitForTimeout(300);
     const c3 = await p3.evaluate(() => ({ dialog: !document.getElementById('acct-add-modal').hidden, accounts: !document.getElementById('s-sec-accounts').hidden }));
     chk(!c3.dialog && c3.accounts, theme + ' C3: a folder this page no longer lists opens AI Models, not the dialog', JSON.stringify(c3));
+    p3Errs(theme + ' C3');
     await p3.close();
     // C4 (review 3, decided): a page that has not read its account list trusts the board's naming (status.js dirOf, which
     // requires the folder in accounts.list), so the same notice opens the dialog: the page fails open to the engine.
     const p4 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const p4Errs = errsOf(p4);
     await setUp(p4, theme);
     const unread = await p4.evaluate(() => typeof ACCOUNTS_LOADED !== 'undefined' && ACCOUNTS_LOADED === false);
     await p4.evaluate((a) => paintLoginAdvisories([a]), ADV_GONEROW);
@@ -313,12 +320,14 @@ function readRows(page) {
     const c4 = await p4.evaluate(() => ({ dialog: !document.getElementById('acct-add-modal').hidden, dir: typeof ACCT_REAUTH_DIR === 'string' ? ACCT_REAUTH_DIR : null }));
     chk(unread, theme + ' C4 CONTROL: this page has not read its account list');
     chk(c4.dialog && !!c4.dir, theme + ' C4: with no list on the page, the board\'s naming stands and the dialog opens', JSON.stringify(c4));
+    p4Errs(theme + ' C4');
     await p4.close();
   }
 
   // K1 (kosmos#7198): in the one-screen layout, on a project, the dialog opens over the project and Settings stays shut.
   {
     const pk = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const pkErrs = errsOf(pk);
     await setUp(pk, 'light');
     await pk.evaluate(() => {
       const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
@@ -337,12 +346,14 @@ function readRows(page) {
       tab: URL_TAB,
     }));
     chk(k.dialog && !k.settings && k.tab === 'projects', 'K1: on a project, the dialog opens there and Settings stays shut', JSON.stringify(k));
+    pkErrs('K1');
     await pk.close();
   }
 
   // D2 (kosmos#7198): on an agent's own page (its conversation), the dialog opens over it too.
   {
     const pd = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const pdErrs = errsOf(pd);
     await setUp(pd, 'light');
     await pd.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; showTab('detail'); });
     await pd.evaluate((a) => paintLoginAdvisories([a]), ADV_SOON);
@@ -351,12 +362,14 @@ function readRows(page) {
     const d = await pd.evaluate(() => ({ dialog: !document.getElementById('acct-add-modal').hidden, tab: URL_TAB,
       settings: !document.getElementById('panel-settings').hidden }));
     chk(d.dialog && d.tab === 'detail' && !d.settings, 'D2: on an agent\'s page, the dialog opens there', JSON.stringify(d));
+    pdErrs('D2');
     await pd.close();
   }
 
   // P1: a phone (touch): Refresh login and the dialog's own button at finger size, and no sideways scroll.
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const ph = await ctx.newPage();
+  const phErrs = errsOf(ph);
   await setUp(ph, 'light');
   await ph.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; });
   await ph.evaluate((a) => paintLoginAdvisories([a]), ADV_SOON);
@@ -369,6 +382,7 @@ function readRows(page) {
   const sideways = await ph.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   chk(sideways <= 0, 'P1: no sideways scroll', String(sideways));
   if (OUT) await ph.screenshot({ path: nodePath.join(OUT, 'refreshlogin-7198-phone.png') });
+  phErrs('P1');
   await ctx.close();
 
   await browser.close();

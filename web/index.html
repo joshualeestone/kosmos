@@ -29474,7 +29474,7 @@ async function paintAccounts(opts) {
         : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     }
     /* #5407 (Josh): a Claude sign-in that needs signing in again soon (inside the notice's window, or ended with its
-       agents on borrowed time), or the row the person arrived at from the notice, leads with Sign in again and says
+       agents on borrowed time) leads with Sign in again and says
        why in one line. Not an API-key row: it has no sign-in to redo (#2433). */
     const claudeSignIn = !isKeyed && !a.apiKey;
     const signInFirst = claudeSignIn && (!!stopsAt || loginEnded || expiresIn !== null);
@@ -33480,12 +33480,14 @@ function closeAcctAdd() {
   // door. A recorded opener that is no longer rendered (offsetParent === null =
   // display:none or detached) cannot take focus, so fall back rather than strand
   // focus on <body>.
+  const fromNotice = !!(ACCT_ADD_RETURN_FOCUS && ACCT_ADD_RETURN_FOCUS.classList && ACCT_ADD_RETURN_FOCUS.classList.contains('login-adv-go'));
   let backEl = (ACCT_ADD_RETURN_FOCUS && document.contains(ACCT_ADD_RETURN_FOCUS) && ACCT_ADD_RETURN_FOCUS.offsetParent !== null)
     ? ACCT_ADD_RETURN_FOCUS
     : document.getElementById('acct-add-open');
-  /* kosmos#7198 review 1: the Accounts door is hidden off Settings, so a notice's opener repainted away (the sign-in
-     worked) falls back to a Refresh login still showing, and with none, to nothing rather than a hidden element. */
-  if (backEl && backEl.offsetParent === null) backEl = [...document.querySelectorAll('#login-adv-slot .login-adv-go')].find((b) => b.offsetParent !== null) || null;
+  /* kosmos#7198 review 1: opened from a login notice, off Settings the Accounts door is hidden, so a notice repainted
+     away (the sign-in worked) falls back to a Refresh login still showing, and with none, to nothing rather than a
+     hidden element. Other openers keep the door (review 3). */
+  if (fromNotice && backEl && backEl.offsetParent === null) backEl = [...document.querySelectorAll('#login-adv-slot .login-adv-go')].find((b) => b.offsetParent !== null) || null;
   ACCT_ADD_RETURN_FOCUS = null;
   if (backEl) backEl.focus();
 }
