@@ -10,13 +10,16 @@ no profile record, and STARTS the agent: enable then bootstrap).
     `restored` (0700) inside the world folder for engine/restoresink.js. If that folder cannot be made the world is
     hidden again and the call says so.
   - `finishRestoreWorld({ base, world, restoreDir })`: only after a restore that succeeded and after its sink is
-    closed. Moves `restored/workers` and `restored/projects` into the world's own folders (as `worlds.envOverridesFor`
+    closed. Refuses while the restore folder holds any of the sink's own entries (its record after a stop, its lock
+    while open, its temp folder after a crash): that restore continues where it is (slice 3). Moves `restored/workers` and `restored/projects` into the world's own folders (as `worlds.envOverridesFor`
     names them) by rmdir of the empty target plus rename. Every check runs before anything moves. Only the folder
     prepareRestoreWorld made is accepted. Returns what stayed (agents and projects kept elsewhere, transcripts), never
     the sink's record or lock.
   - `listRestoredAgents({ base, world, restoreDir })`: each folder in the world's workers and in `restored/agents`,
     with a `because` when it cannot be enabled (a link, which is not opened; a folder name create.js cannot start; no
-    instructions file; kept outside the workers folder). Registers, starts and writes nothing.
+    instructions file; kept outside the workers folder), and `runs`: the files that run or load something when the
+    agent starts (Claude settings and hooks, .mcp.json, .envrc, Codex and Gemini settings, `@` imports in the brief),
+    for the screen to show before any enable. Registers, starts and writes nothing.
 - The member's name loses control, format and bidi characters and is cut at 60 code points before it names a world.
 
 ## Rejected
@@ -24,6 +27,13 @@ no profile record, and STARTS the agent: enable then bootstrap).
 - Restoring straight into the world folder: createWorld pre-makes store, projects and workers, and the sink needs an
   empty root.
 - Registering restored agents here: installJob starts them, and design 6 says each agent needs its own enable.
+
+## Review rounds (blind, security-focused)
+1. B: finish moved a stopped restore (no record or lock check), and a test pinned it. W: start-time files not
+   flagged; no Windows rename retry; a create race failed instead of trying the next name; the default name rule
+   untested. Nits taken: sink entries by prefix, combining marks capped, a junction on Windows, absolute base in all
+   three calls. Deferred: a member named only in non-Latin script gets an id of "restored<date>", so two such members
+   share the nine names a day (the shown name keeps their script; rare, and refusal is said plainly).
 
 ## Residuals, stated
 - A restore that stops is never finished: it stays in `restored` and continues there (slice 3). Nothing here cleans it.
