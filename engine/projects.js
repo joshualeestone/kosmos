@@ -907,6 +907,9 @@ function needsYouReason(m, projectId) {
     if (m.stuckError.state === 'rate_limited') return 'stuck_rate';
   }
   if (m.state === 'connection_lost' && m.reconnect && m.reconnect.phase === 'gave_up') return 'gave_up';
+  // #7212 slice 2b: messages held half an hour behind its input box; after the agent's own conditions, before a
+  // Kosmos give-up (pjAlsoWhy orders them the same).
+  if (m.heldInput && Number(m.heldInput.count) > 0) return 'held_input';
   // #5154 slice B: a Kosmos give-up is the LOWEST-priority specific reason -- the agent's own question, trust,
   // crash loop, stuck error and connection-gave-up all win the wording first (aligned with pjAlsoWhy ordering).
   if (m.ownBound && m.ownBound.raised === true) return 'own_bound';
@@ -1094,6 +1097,7 @@ function describe(project, roster, all) {
       crashLoop: (card && card.isNamedOurs && 'crashLoop' in card && card.crashLoop) ? card.crashLoop : null,   // #5154: as reconnect (safeRoster carries it; `in` for a raw snapshot roster)
       stuckError: (card && card.isNamedOurs && 'stuckError' in card && card.stuckError) ? card.stuckError : null,   // #5154 slice C: carried like crashLoop so needsPerson lights the project's Issue pill too (two-derivations rule)
       ownBound: (card && card.isNamedOurs && 'ownBound' in card && card.ownBound) ? card.ownBound : null,   // #5154 slice B: carried the same way, so an own-bound give-up lights the project's Issue pill too
+      heldInput: (card && card.isNamedOurs && 'heldInput' in card && card.heldInput) ? card.heldInput : null,   // #7212 slice 2b: messages held behind its box, carried the same way
       /* #2808 class 2: carry the card's `stateReportedBy` onto the member (same isNamedOurs gate
          as `state`), so pjMember's shared `cardStOf(m).st==='attn'` render de-alarms a deliberate
          agent question here just as it does on the home card / list row / org node. WITHOUT this,
@@ -3094,7 +3098,7 @@ function cleanParent(value, childId) {
 /* 'elsewhere' is a row the page lists after the counted ones (#5692: red here, but its need is not about this project);
    it is dismissed as a whole, and stands while the member has no counted reason here. */
 // stuck_rate is not here: out of usage is never a project's reason (Josh 19:47), so no page shows it to dismiss.
-const NEEDS_REASONS = ['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'own_bound', 'other', 'elsewhere'];
+const NEEDS_REASONS = ['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'own_bound', 'held_input', 'other', 'elsewhere'];
 function dismissNeeds(projectId, sessionName, reason) {
   if (typeof sessionName !== 'string' || !sessionName) throw new Error('say which agent to dismiss');
   // A question's key carries its words ('question:<words>', needsDismissKey); every other reason is the bare reason.

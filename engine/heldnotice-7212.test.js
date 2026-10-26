@@ -36,6 +36,20 @@ const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', '
 const agentNeedsAttention = new Function(page.lift(SCRIPT, 'agentNeedsAttention') + '\nreturn agentNeedsAttention;')();
 const reasonOf = (a) => new Function('a', `${page.lift(SCRIPT, 'quotaResetWords')}\n${page.lift(SCRIPT, 'stateReason')}\nreturn stateReason(a, {});`)(a);
 const ago = (m) => new Date(Date.now() - m * MIN).toISOString();
+/* The page's `const NAME = {...};` by brace depth (as web.project-needs-you-5688.test.js does): page.liftConst stops at
+   the first semicolon, and a reason's words can hold one. */
+function sliceConst(name) {
+  const start = 'const ' + name + ' = {';
+  const at = SCRIPT.indexOf(start);
+  assert.notEqual(at, -1, start + ' is not in the page');
+  let depth = 0;
+  let i = SCRIPT.indexOf('{', at);
+  for (; i < SCRIPT.length; i++) {
+    if (SCRIPT[i] === '{') depth++;
+    else if (SCRIPT[i] === '}') { depth--; if (depth === 0) break; }
+  }
+  return SCRIPT.slice(at, i + 1) + ';';
+}
 
 test('#7212 s2: the sweep\'s reading is what the rows see; each minute replaces the last', () => {
   heldinput.resetForTests();
@@ -50,11 +64,40 @@ test('#7212 s2: the sweep\'s reading is what the rows see; each minute replaces 
   assert.equal(heldinput.peek('dario'), null, 'a stretch that ended still shows');
 });
 
-test('#7212 s2a: a held stretch is not yet counted as needing the person, by either rule (slice 2b does all copies at once)', () => {
-  // Counting it in one copy and not the others (projects, Today, the phone's own needsPerson) would make them disagree.
-  const row = { state: 'idle', heldInput: { since: ago(40), count: 2, box: 'unread' } };
-  assert.equal(needsPerson(row), false);
-  assert.equal(agentNeedsAttention(row), false);
+test('#7212 s2b: every copy of "needs the person" counts a held stretch, idle or working only, and they agree', () => {
+  const held = { since: ago(40), count: 2, box: 'unread' };
+  const rows = [
+    { state: 'idle', heldInput: held },
+    { state: 'working', heldInput: { ...held, box: 'text' } },
+    { state: 'rate_limited', heldInput: held },   // keeps its own word: out of usage is never a held-box issue
+    { state: 'restarting', heldInput: held },
+    { state: 'idle', heldInput: { ...held, count: 0 } },
+    { state: 'idle', heldInput: null },
+    { state: 'idle' },   // a bare snapshot row (needsPerson is guarded on presence)
+  ];
+  const want = [true, true, false, false, false, false, false];
+  rows.forEach((r, i) => {
+    assert.equal(needsPerson(r), want[i], 'needsPerson row ' + i);
+    assert.equal(agentNeedsAttention(r), want[i], 'agentNeedsAttention row ' + i);
+  });
+});
+
+test('#7212 s2b: the project and Today name it as held_input, after the agent\'s own conditions and before a Kosmos give-up', () => {
+  const projects = require('./projects');
+  const cardlabel = require('./cardlabel');
+  const held = { since: ago(40), count: 2, box: 'unread' };
+  const member = (extra) => ({ present: true, tied: true, state: 'idle', heldInput: held, ...extra });
+  assert.equal(projects.needsYouReason(member({}), 'p1'), 'held_input');
+  assert.equal(projects.needsYouReason(member({ ownBound: { raised: true } }), 'p1'), 'held_input', 'a give-up took the wording');
+  assert.equal(projects.needsYouReason(member({ crashLoop: { looping: true } }), 'p1'), 'crash_loop', 'a crash loop lost the wording');
+  assert.equal(projects.needsYouReason(member({ state: 'rate_limited' }), 'p1'), null, 'a limited agent was counted');
+  assert.equal(cardlabel.reasonOf({ state: 'idle', running: true, heldInput: held }, true), 'held_input');
+  // The page's own words for it, and the project row's reason.
+  const PJ = new Function(sliceConst('PJ_NEEDS_WHY') + '\nreturn PJ_NEEDS_WHY;')();
+  assert.match(PJ.held_input[0], /behind its input box/);
+  const also = new Function(sliceConst('PJ_NEEDS_WHY') + '\n' + page.lift(SCRIPT, 'pjAlsoWhy') + '\nreturn pjAlsoWhy;')();
+  assert.equal(also({ state: 'idle', heldInput: held, ownBound: { raised: true } })[0], PJ.held_input[0]);
+  assert.equal(also({ state: 'rate_limited', heldInput: held })[0], PJ.other[0], 'CONTROL: a limited agent is not called held');
 });
 
 test('#7212 s2a: the stretches already said survive a board restart, so nothing is said or pushed again', () => {
@@ -130,9 +173,10 @@ test('#7212 s2a: the minute sweep records under the card\'s key, says once, and 
   const at = ago(40);
   assert.ok(limitqueue.add('swept', { id: 'sw1', from: 'x', envelope: 'e', at, reset: at, input: true }));
   assert.ok(limitqueue.add('swept', { id: 'sw2', from: 'x', envelope: 'e', at: ago(5), reset: ago(5), input: true }));
-  const lines = [];
+  const lines = []; const pushes = [];
   // The queue is named as the send route spelled it; the card's session name is what its row is looked up by.
-  const deps = (said, box = () => 'text') => ({ said, readBox: box, cardKey: (n) => (n === 'swept' ? 'swept-session' : n), log: (l) => lines.push(l) });
+  const deps = (said, box = () => 'text') => ({ said, readBox: box, cardKey: (n) => (n === 'swept' ? 'swept-session' : n), log: (l) => lines.push(l), push: (e) => pushes.push(e) });
+  const myPushes = () => pushes.filter((e) => e.session === 'swept-session');
   const mine = (xs) => xs.filter((x) => x.includes('swept'));
   heldinput.sweep(deps(heldinput.loadSaid()));
   heldinput.sweep(deps(heldinput.loadSaid()));   // text is said on its second minute (one read can be a delivery typing)
@@ -140,12 +184,16 @@ test('#7212 s2a: the minute sweep records under the card\'s key, says once, and 
   assert.equal(heldinput.peek('swept'), null, 'recorded under the queue name, which the card row never asks for');
   assert.equal(mine(lines).length, 1);
   assert.match(lines.find((l) => l.includes('swept')), /has 2 message\(s\) held behind its input box.*holds text that was not sent/);
+  assert.equal(myPushes().length, 1, 's2b: the phone was not told on the first saying');
+  assert.equal(myPushes()[0].kind, 'needs_you');
   // The same minute again, then a board restart (a fresh map read back from disk): nothing said again.
   heldinput.sweep(deps(heldinput.loadSaid()));
   assert.equal(mine(lines).length, 1, 'said again after a restart');
+  assert.equal(myPushes().length, 1, 'pushed again after a restart');
   // A day on, the stretch is said again in the log.
   heldinput.sweep({ ...deps(heldinput.loadSaid()), now: Date.now() + limitqueue.HELD_INPUT_RESAY_MS + 60 * 1000 });
   assert.equal(mine(lines).length, 2, 'the daily line was not said');
+  assert.equal(myPushes().length, 1, 'the daily line pushed the phone again');
   // A box that cannot be read, or reads something unknown, is 'unread' on the card.
   heldinput.sweep(deps(heldinput.loadSaid(), () => { throw new Error('no pane'); }));
   assert.equal(heldinput.peek('swept-session').box, 'unread');

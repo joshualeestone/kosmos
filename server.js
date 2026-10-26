@@ -2785,6 +2785,7 @@ function safeRoster() {
             crashLoop: crashloop.read(a.sessionName),
             stuckError: stuckterminal.peek(a.sessionName, a.state, Date.now()),   // peek returns not-stuck unless the anchor matches the CURRENT state
             ownBound: ownbounds.peek(a.sessionName, a.state, Date.now()),         // #5154 slice B: a Kosmos helper gave up on this agent (READ-ONLY; state moots an idle-only give-up at once; the 60s sweep is the only writer)
+            heldInput: heldinput.peek(a.sessionName),                             // #7212 slice 2b: messages held behind its box (READ-ONLY; the minute sweep writes it), so projects count it too
           })
         : withReconnect;
     });
@@ -25883,8 +25884,8 @@ function start(port = PORT) {
          the box reads now (text, or nothing Kosmos can read), so a hold that lasts days is never silent. Run after the
          minute's flush has settled, and not while an older run is still typing (flush skips a minute that finds one),
          so the box is never read while a delivery is typing into it. */
-      /* Slice 2a: engine/heldinput.js sweep (tested there); only the pane reads are the server's. One roster read per
-         minute, and the box is read only for agents already held half an hour. */
+      /* Slice 2a: engine/heldinput.js sweep (tested there); only the pane reads and the push are the server's. One roster
+         read per minute, and the box is read only for agents already held half an hour. */
       const sayHeldInput = () => {
         let roster = null;
         const cardOf = (name) => { if (roster === null) roster = safeRoster(); return chat.resolveCard(roster, name); };
@@ -25893,6 +25894,8 @@ function start(port = PORT) {
           readBox: (name) => chat.inputBoxReads(cardOf(name)),
           cardKey: (name) => { const c = cardOf(name); return c && c.sessionName; },
           log: (line) => process.stdout.write(line),
+          // Slice 2b: the phone, once per stretch, named as the card is.
+          push: (event) => { const c = cardOf(event.session); phonenotify.happened({ ...event, agent: (c && c.name) || event.session }); },
         });
       };
       const sweep = setInterval(() => {

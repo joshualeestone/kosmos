@@ -733,6 +733,11 @@ do {
     check(Board.needsPerson(["state": "idle", "crashLoop": ["looping": true]]), "a crash loop needs you")
     check(Board.needsPerson(["state": "auth_failed", "stuckError": ["stuck": true]]) && !Board.needsPerson(["state": "auth_failed"]), "an error it is stuck on needs you; a passing one does not (as on the board)")
     check(Board.needsPerson(["state": "working", "ownBound": ["raised": true]]), "a helper that gave up needs you")
+    // kosmos#7212: messages held half an hour behind an idle or working agent's input box; idle or working only, as on the board.
+    check(Board.needsPerson(["state": "idle", "heldInput": ["since": "2026-10-19T14:30:00Z", "count": 12, "box": "unread"]]), "messages held behind its input box need you")
+    check(Board.needsPerson(["state": "working", "heldInput": ["count": 1, "box": "text"]]), "held behind the box while working needs you too")
+    check(!Board.needsPerson(["state": "rate_limited", "heldInput": ["count": 3, "box": "unread"]]), "a limited agent keeps its own word, as on the board")
+    check(!Board.needsPerson(["state": "idle", "heldInput": ["count": 0, "box": "empty"]]) && !Board.needsPerson(["state": "idle", "heldInput": NSNull()]), "nothing held is nothing")
     check(!Board.needsPerson(["state": "working"]) && !Board.needsPerson(["state": "idle", "running": false]), "working, and plain not running, do not")
     check(word("gus") == "Not running", "an agent that is not running says so, whatever its last state")
     check(word("hal") == "Reconnecting\u{2026}", "a lost connection that is retrying says Reconnecting")
@@ -826,10 +831,10 @@ do {
     check(why("old") == ("Kosmos needs you to look at it.", .open), "an older Mac (no reason) reads as other, never a question")
     for (reason, action) in [("question", Board.TodayAction.answer), ("permission", .answer), ("waiting", .open), ("restart_failed", .open),
                              ("trust", .open), ("gave_up", .open), ("crash_loop", .open), ("stuck_auth", .open), ("stuck_rate", .open),
-                             ("own_bound", .open), ("other", .open)] {
+                             ("own_bound", .open), ("held_input", .open), ("other", .open)] {
         check(Board.todayWhy[reason]?.1 == action, "\(reason): \(action.title)")
     }
-    check(Board.todayWhy.count == 11, "one row per reason the Mac sends (engine/cardlabel.js NEEDS_REASONS)")
+    check(Board.todayWhy.count == 12, "one row per reason the Mac sends (engine/cardlabel.js NEEDS_REASONS)")
     check(Board.todayWhy["permission"]?.0 == "Waiting for you to allow or deny something.", "the spec's permission words")
     check(Board.todayWhy["waiting"]?.0 == "Waiting for you. Open it to see what it shows.", "the spec's words for a wait read off the screen")
     check(Board.todayWhy["restart_failed"]?.0 == "Kosmos restarted it, and it did not come back.", "pjAlsoWhy's words for a failed restart")

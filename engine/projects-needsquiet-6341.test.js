@@ -154,6 +154,20 @@ test('#6341 review 6: a second, real reason beside a rate limit is shown, not hi
   assert.deepEqual(member(one(alone, p.id), 'ob61').needsYouQuiet, { reason: 'stuck_rate', because: 'usage' });
 });
 
+test('#7212 slice 2b: an agent whose messages wait behind its input box lights its project, as the board does', () => {
+  reset();
+  const p = projects.create({ name: 'Held', folder: folder('heldbox'), agents: ['hb72'] });
+  roomPost(p.id);
+  const held = { since: new Date(Date.now() - 45 * 60000).toISOString(), count: 3, box: 'unread' };
+  const roster = cards([fleet.agent('hb72', { state: 'idle' })]).map((c) => ({ ...c, heldInput: held }));
+  const r = one(roster, p.id);
+  assert.equal(member(r, 'hb72').needsYouHere, 'held_input', 'the project did not carry what the board counts');
+  assert.equal(r.summary.needsYou, 1);
+  // CONTROL: the same agent with nothing held raises nothing.
+  const clear = cards([fleet.agent('hb72', { state: 'idle' })]).map((c) => ({ ...c, heldInput: null }));
+  assert.equal(one(clear, p.id).summary.needsYou, 0);
+});
+
 test('#6341: a paused project raises nothing, a question included', () => {
   reset();
   const p = projects.create({ name: 'Held', folder: folder('held'), agents: ['qq61'] });
