@@ -242,7 +242,9 @@ function finishRestoreWorld(opts = {}) {
       try {
         if (hold.length && !heldMade) { fs.mkdirSync(heldName, { mode: 0o700 }); heldMade = true; }   // new: refuses one already there
         if (hold.length) fs.mkdirSync(path.join(heldName, name), { mode: 0o700 });
-        if (hold.length) recordHeld(dir, path.basename(heldName));
+        // Recorded before the moves, so a run that fails part way still has its folder named; heldIn lists only what
+      // is actually in it.
+      if (hold.length) recordHeld(dir, path.basename(heldName));
         for (const n of hold) renameRetrying(path.join(src, n), path.join(heldName, name, n));
       } catch (e) {
         const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
@@ -269,35 +271,46 @@ function finishRestoreWorld(opts = {}) {
   }
 }
 
-/* One finish at a time per world: a lock folder holding the owner's pid. A lock is stale when its process is gone,
-   when it has no readable pid (a crash between making it and writing the pid), or when it is older than
-   FINISH_LOCK_STALE_MS (a recycled pid can look alive); a stale lock is renamed aside first, so only one taker wins.
-   Returns { release } when taken, { busy: true } when a live finish holds it, or { code } when it cannot be made. */
+/* One finish at a time per world: a lock folder holding the owner's pid, made whole in a temporary folder and renamed
+   into place, so a lock never exists without its pid (a rename onto an existing lock fails). A lock is stale when its
+   process is gone, when it is older than FINISH_LOCK_STALE_MS (a recycled pid can look alive), or when it has no
+   readable pid and is older than FINISH_LOCK_PIDLESS_MS (left by a crash of an older writer); a stale lock is renamed
+   aside first, so only one taker wins. Returns { release } when taken, { busy: true } when a live finish holds it, or
+   { code } when it cannot be made. release removes the lock only while it still holds this process's pid. */
 const FINISH_LOCK_STALE_MS = 10 * 60 * 1000;
+const FINISH_LOCK_PIDLESS_MS = 30 * 1000;
 function takeFinishLock(dir) {
   const at = path.join(dir, FINISH_LOCK);
+  const mine = String(process.pid);
   for (let tries = 0; tries < 2; tries++) {
+    const tmp = `${at}.new-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
     try {
-      fs.mkdirSync(at, { mode: 0o700 });
+      fs.mkdirSync(tmp, { mode: 0o700 });
+      fs.writeFileSync(path.join(tmp, 'pid'), mine, { mode: 0o600 });
     } catch (e) {
-      if (!e || e.code !== 'EEXIST') return { code: (e && e.code) || 'EUNKNOWN' };
-      let pid = NaN, age = 0;
-      try { age = Date.now() - fs.lstatSync(at).mtimeMs; } catch { /* gone: try again */ }
-      try { pid = Number(fs.readFileSync(path.join(at, 'pid'), 'utf8')); } catch { /* no pid */ }
-      const live = Number.isSafeInteger(pid) && pid > 0 && pidAlive(pid) && age < FINISH_LOCK_STALE_MS;
-      if (live) return { busy: true };
-      const aside = `${at}.stale-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
-      try { fs.renameSync(at, aside); } catch { return { busy: true }; }   // another taker won the rename
-      try { fs.rmSync(aside, { recursive: true, force: true }); } catch { /* aside, harmless */ }
-      continue;
-    }
-    try {
-      fs.writeFileSync(path.join(at, 'pid'), String(process.pid), { mode: 0o600 });
-    } catch (e) {
-      try { fs.rmSync(at, { recursive: true, force: true }); } catch { /* best effort */ }
+      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort */ }
       return { code: (e && e.code) || 'EUNKNOWN' };
     }
-    return { release: () => { try { fs.rmSync(at, { recursive: true, force: true }); } catch { /* best effort */ } } };
+    try {
+      fs.renameSync(tmp, at);
+      return { release: () => {
+        try { if (fs.readFileSync(path.join(at, 'pid'), 'utf8') === mine) fs.rmSync(at, { recursive: true, force: true }); } catch { /* gone */ }
+      } };
+    } catch (e) {
+      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort */ }
+      let exists = true;
+      try { fs.lstatSync(at); } catch { exists = false; }
+      if (!exists) return { code: (e && e.code) || 'EUNKNOWN' };
+    }
+    let pid = NaN, age = 0;
+    try { age = Date.now() - fs.lstatSync(at).mtimeMs; } catch { continue; }   // gone meanwhile: try again
+    try { pid = Number(fs.readFileSync(path.join(at, 'pid'), 'utf8')); } catch { /* no pid */ }
+    const hasPid = Number.isSafeInteger(pid) && pid > 0;
+    const live = hasPid ? pidAlive(pid) && age < FINISH_LOCK_STALE_MS : age < FINISH_LOCK_PIDLESS_MS;
+    if (live) return { busy: true };
+    const aside = `${at}.stale-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    try { fs.renameSync(at, aside); } catch { return { busy: true }; }   // another taker won the rename
+    try { fs.rmSync(aside, { recursive: true, force: true }); } catch { /* aside, harmless */ }
   }
   return { busy: true };
 }
