@@ -313,7 +313,7 @@ const RELPORT = freePort();
        (statusFetchWithin, swapped for these legs only and put back): a NEW boot on the SAME version is "restarted";
        three minutes of no answer is the deadline, whose Reload must not also press Update. */
     answer = (route) => route.abort('connectionreset');
-    await p.evaluate(() => { window.__realStatusFetch = statusFetchWithin; if (!LAST_BOOTED_AT) LAST_BOOTED_AT = 'boot-before-7207'; });
+    await p.evaluate(() => { window.__realStatusFetch = statusFetchWithin; window.__realBoot = LAST_BOOTED_AT; if (!LAST_BOOTED_AT) LAST_BOOTED_AT = 'boot-before-7207'; });
     {
       await p.evaluate(() => { const v = LAST_VERSION || SERVED_VERSION; window.statusFetchWithin = async () => new Response(
         JSON.stringify({ version: v, bootedAt: 'boot-after-7207' }), { status: 200, headers: { 'content-type': 'application/json' } }); });
@@ -331,8 +331,11 @@ const RELPORT = freePort();
       await p.click('#uc-go');
       await p.waitForFunction(() => document.getElementById('uc-go').textContent.trim() === 'Waiting\u2026', null, { timeout: 10000 });
       await p.evaluate(() => { const real = Date.now; window.__realDateNow = real; Date.now = () => real() + 4 * 60 * 1000; });
-      await p.waitForFunction(() => document.getElementById('uc-go').textContent.trim() === 'Reload', null, { timeout: 15000 });
-      await p.evaluate(() => { Date.now = window.__realDateNow; });
+      try {
+        await p.waitForFunction(() => document.getElementById('uc-go').textContent.trim() === 'Reload', null, { timeout: 15000 });
+      } finally {
+        await p.evaluate(() => { Date.now = window.__realDateNow; });   // the page's own timers run on this clock too
+      }
       const out = await p.evaluate(() => ({ err: document.getElementById('uc-err').textContent.trim(), enabled: !document.getElementById('uc-go').disabled }));
       if (!out.enabled || out.err !== 'Kosmos has not answered for three minutes. Reload this page to see where it is.')
         die('#7207: the deadline said: ' + JSON.stringify(out));
@@ -343,7 +346,7 @@ const RELPORT = freePort();
       await new Promise((r) => setTimeout(r, 500));
       if (pressed !== before + 1) die('#7207: pressing the deadline Reload also pressed Update (' + (pressed - before - 1) + ' extra POST)');
     }
-    await p.evaluate(() => { window.statusFetchWithin = window.__realStatusFetch; const go = document.getElementById('uc-go');
+    await p.evaluate(() => { window.statusFetchWithin = window.__realStatusFetch; LAST_BOOTED_AT = window.__realBoot; const go = document.getElementById('uc-go');
       go.onclick = null; delete go.dataset.reloadOnly; go.textContent = 'Update'; document.getElementById('uc-err').hidden = true; });
     await p.unroute('**/api/update', stub);
     await p.unroute('**/api/update/rollback', stub);
