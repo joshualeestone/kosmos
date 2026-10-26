@@ -28,3 +28,12 @@ touch it.
 ## What would change my mind
 - A failure of the new version inside a full suite: then the ratio itself moves under load and the test needs a
   different shape (for example a fit across three depths).
+
+## Review rounds
+- Round 1 (blind, 17:40): applied. The fixtures are built once per depth and only run() is timed (building them was
+  inside the timed region). The ratio is now the MEDIAN of five adjacent (shallow, deep) pair ratios. Not min/min:
+  each side's best can come from different moments. Not the minimum of the pair ratios: one slow shallow sample would
+  drag it down and hide a real regression. A median of adjacent pairs needs three of five pairs to be disturbed
+  before it moves. Comments reworded so the fix reads as reasoned, not measured, against the failing case.
+- After round 1, alone (12 runs, light lane, 18:1x CDT): median ratio 3.72 to 3.88, 12 of 12 pass; per-pair spread
+  3.43 to 4.14. The bound stays 7.5 (the quadratic check measured about 13).
