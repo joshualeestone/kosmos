@@ -236,10 +236,11 @@ test('#7152 review 4: a token about to run out is expired, and a weekly reset ye
 });
 
 test('#7152 review 5: the sweep never reads real logins under a test, and the brake stops it', () => {
-  assert.equal(usagepoll.liveAllowed({}), true, 'CONTROL: a plain board may read');
-  assert.equal(usagepoll.liveAllowed({ NODE_TEST_CONTEXT: 'child-v8' }), false, 'a test-spawned server would read real logins');
-  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL_OFF: '1' }), false, 'the brake did not stop it');
-  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_DRY_RUN: '1' }), false, 'a harness board (no NODE_TEST_CONTEXT) would read real logins');
+  assert.equal(usagepoll.liveAllowed({}), false, 'review 19: a board read subscription tokens without being switched on');
+  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1' }), true, 'CONTROL: a board switched on may read');
+  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1', NODE_TEST_CONTEXT: 'child-v8' }), false, 'a test-spawned server would read real logins');
+  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1', AGENT_WORKFORCE_USAGE_POLL_OFF: '1' }), false, 'the brake did not stop it');
+  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1', AGENT_WORKFORCE_DRY_RUN: '1' }), false, 'a harness board (no NODE_TEST_CONTEXT) would read real logins');
   assert.equal(usagepoll.liveAllowed(), false, 'this test process itself was allowed');
 });
 
@@ -489,8 +490,8 @@ test('#7152 review 14: after a refusal the token is not sent again for an hour',
   const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 429, body: '' }));
   assert.equal(seen.calls.length, 1, 'CONTROL: the first read was sent');
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
-  assert.equal(seen.calls.length, 0, 'a refused token was sent again ten minutes later');
+  await usagepoll.pollAll([{ dir: d, email: EMAIL.toUpperCase() }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'a refused token was sent again ten minutes later (the same login, spelled in capitals)');
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 61 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 2, 'the account was never read again after its hour');
   assert.equal(usagepoll.readUsage(d, NOW + 61 * 60000).state, 'ok');

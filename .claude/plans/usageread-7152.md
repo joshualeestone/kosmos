@@ -79,7 +79,7 @@ at 0%, had no reading at all (the card's opening).
   operator's live agents at risk. A server error (5xx) or a timeout is not a refusal and does not back off.
   Weakest premise, stated: this reads an endpoint Anthropic has not documented, with the subscription token. The
   endpoint and its beta header are the ones Claude Code's own usage view reads (reasoned, not measured from its
-  traffic). If Anthropic objects, the failure is a refusal, which now backs off, and the status line still works.
+  traffic). If Anthropic objects, a refusal backs off (review 19: but the cost may be to the account, so the reader is off by default).
 - Review 15: a refused profile request (`profile-http-401/403/429`) backs off as the usage request does, and the
   hour belongs to the login that was refused, so a folder signed in again is read at once. A test now uses the real
   home lookup with a sandboxed HOME, so swapping the user database for $HOME turns it red.
@@ -98,6 +98,17 @@ at 0%, had no reading at all (the card's opening).
   profile before the usage (saves one request per other-account hour; the backoff already bounds it), and the
   integer status line beating a fractional endpoint figure by under a point within a window (a display flip
   between two sources that agree to the point, not a wrong figure).
+- Review 19: OFF BY DEFAULT. A board reads the endpoint only with AGENT_WORKFORCE_USAGE_POLL=1. Decided, with the
+  reason: this would send every Kosmos user's subscription token, about 288 times a day, to an endpoint Anthropic
+  has not documented, from a client that names itself. If Anthropic objects, the likely cost is to the account
+  itself, which no backoff undoes; review 14's "the failure is a refusal" was not established, and is withdrawn.
+  An account is not something to risk on a person's behalf without their knowing, so turning it on for people is
+  a product ruling, not a build call. Rejected: on by default with the backoff (the risk above), and measuring
+  Claude Code's own traffic first (worth doing, but it would still not make the ruling). Nothing is lost while off:
+  the status line works as before, and the fleet's own launchd reader (outside Kosmos) already measures the
+  fleet's accounts. What would change this: Anthropic documenting the endpoint, or a ruling to turn it on.
+  Not taken: a sweep on every board restart (bounded while off), a home path spelled differently from the user
+  database (reads as no-credential, safe), the backoff lost when the folder cannot be written.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:

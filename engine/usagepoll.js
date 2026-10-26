@@ -65,9 +65,14 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    which those harnesses set, refuses too. Not every harness sets it, so readCredFor also reads the bare entry only for
    the real home's .claude, which covers every harness that sandboxes HOME or AGENT_WORKFORCE_HOME. A board started
    with the real home, no NODE_TEST_CONTEXT and no DRY_RUN is not covered: it reads the real logins exactly as the
-   real board would, and writes the same accurate figures. AGENT_WORKFORCE_USAGE_POLL_OFF=1 is the operator's brake. */
+   real board would, and writes the same accurate figures. AGENT_WORKFORCE_USAGE_POLL_OFF=1 is the operator's brake.
+   Review 19: and it is OFF unless AGENT_WORKFORCE_USAGE_POLL=1. It sends each person's subscription token to an
+   endpoint Anthropic has not documented, and if Anthropic objects the cost may fall on the account itself, which no
+   backoff undoes. So nobody's board reads this way until it is switched on deliberately; the status line is
+   unchanged either way. */
 function liveAllowed(env = process.env) {
-  return !env.NODE_TEST_CONTEXT && env.AGENT_WORKFORCE_DRY_RUN !== '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1';
+  return env.AGENT_WORKFORCE_USAGE_POLL === '1'
+    && !env.NODE_TEST_CONTEXT && env.AGENT_WORKFORCE_DRY_RUN !== '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1';
 }
 
 /* The CLAUDE_CONFIG_DIR value this account's agents run with: unset for the default account (see the header). */
@@ -256,7 +261,7 @@ async function pollAll(list, deps = {}) {
     }
     if (t && before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number'
       && nowMs - before.refusedAt >= 0 && nowMs - before.refusedAt < BACKOFF_MS   // review 18: a refusal stamped in the future has expired
-      && typeof before.refusedEmail === 'string' && before.refusedEmail === a.email
+      && typeof before.refusedEmail === 'string' && typeof a.email === 'string' && before.refusedEmail.toLowerCase() === a.email.toLowerCase()
       && t.state === 'ok' && t.expiresAt === before.refusedExpiresAt) {   // a token that is not usable sends nothing anyway
       write(a.dir, { ...before, at: nowMs });
       continue;
