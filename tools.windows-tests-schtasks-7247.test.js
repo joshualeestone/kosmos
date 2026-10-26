@@ -274,3 +274,13 @@ test('#7247: env with an option that takes a value is read past it', () => {
   assert.equal(callRuns('env', ['-C', 'C:/x', 'A=1', 'schtasks.exe']), true);
   assert.equal(callRuns('env', ['-u', 'X', 'node', 'x.js']), false);
 });
+
+test('#7247: a launcher given by a quoted path with a space is read as that launcher', () => {
+  for (const cmd of [
+    '"C:\\Program Files\\Git\\bin\\bash.exe" -c "schtasks /Query"', '"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command schtasks',
+    '"C:\\Program Files\\Git\\usr\\bin\\env.exe" A=1 schtasks /End', 'bash -O extglob -c schtasks', 'bash --rcfile x.rc -c "schtasks /Run"',
+  ]) assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: the same launchers running something else, and -C (noclobber) is not -c
+  assert.equal(commandRuns('"C:\\Program Files\\Git\\bin\\bash.exe" -c "echo schtasks"'), false);
+  assert.equal(callRuns('bash', ['-C', 'script.sh']), false);
+});

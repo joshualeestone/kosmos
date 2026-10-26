@@ -26,6 +26,10 @@ const CMD = /^cmd(\.exe)?$/i;
 /* The POSIX shells, which tests start with -c (Git Bash's are MSYS programs, which NODE_OPTIONS never reaches); the
    same set test-support/tool-guard.js reads. */
 const POSIX_SHELL = /^(sh|bash|zsh|dash|ksh|fish)(\.exe)?$/i;
+/* A program this reads past to the command it starts. */
+function isLauncher(base) {
+  return CMD.test(base) || POWERSHELL.test(base) || POSIX_SHELL.test(base) || /^env(\.exe)?$/i.test(base);
+}
 const POWERSHELL = /^(powershell|pwsh)(\.exe)?$/i;
 /* PowerShell switches whose value is the next word, so the value is not taken for the command. */
 const PS_VALUE = /^-(executionpolicy|ep|ex|windowstyle|w|version|v|inputformat|if|outputformat|of|configurationname|workingdirectory|wd|settingsfile|custompipename|psconsolefile)$/i;
@@ -85,8 +89,11 @@ function wordsRun(ws, i, depth) {
   const rest = (k) => ws.slice(k).map((w) => w.raw).join(' ');
   while (i < ws.length) {
     const w = ws[i];
-    /* A quoted command as one word (cmd /c "schtasks /End"): read what is inside. A quoted path is a program. */
-    if (w.quoted && /\s/.test(w.inner) && !PROGRAM.test(baseName(w.inner))) return lineRuns(w.inner, depth + 1);
+    /* A quoted command as one word (cmd /c "schtasks /End"): read what is inside. A quoted path is a program, schtasks
+       or a launcher read below ("C:\Program Files\Git\bin\bash.exe" -c ..., review 7). */
+    if (w.quoted && /\s/.test(w.inner) && !PROGRAM.test(baseName(w.inner)) && !isLauncher(baseName(w.inner))) {
+      return lineRuns(w.inner, depth + 1);
+    }
     const b = baseName(w.text);
     if (PROGRAM.test(b)) return true;
     if (CMD.test(b)) {
@@ -107,8 +114,9 @@ function wordsRun(ws, i, depth) {
     }
     if (POSIX_SHELL.test(b)) {
       for (i += 1; i < ws.length && /^[-+]/.test(ws[i].text); i += 1) {
-        if (/^-[a-z]*c[a-z]*$/i.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1);   // -c, -lc, -ec
-        if (/^[-+]o$/.test(ws[i].text)) i += 1;   // -o pipefail, +o errexit: the option's name is its value
+        if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1);   // -c, -lc, -ec (not -C)
+        if (/^[-+][oO]$/.test(ws[i].text)) i += 1;   // -o pipefail, +o errexit, -O extglob: the option's name is its value
+        else if (/^--(rcfile|init-file)$/.test(ws[i].text)) i += 1;
       }
       return false;   // a script file: what it runs cannot be read here
     }
@@ -146,7 +154,7 @@ function callRuns(file, args, options) {
   if (options && options.shell) return commandRuns([String(file)].concat(list).join(' '));
   const base = baseName(file);
   if (PROGRAM.test(base)) return true;
-  if (CMD.test(base) || POWERSHELL.test(base) || POSIX_SHELL.test(base) || /^env(\.exe)?$/i.test(base)) return commandRuns([base].concat(list).join(' '));
+  if (isLauncher(base)) return commandRuns([base].concat(list).join(' '));
   return false;
 }
 

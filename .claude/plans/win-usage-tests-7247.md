@@ -132,3 +132,8 @@ form could hide a schtasks call from it (its header lists the ones known). Kosmo
   stop test fails. `env -u NAME`, `-C DIR` and `-S STRING` are read past their values (against round 5's matcher the
   new test fails). The matcher header names PowerShell's parameter prefixes (-Com, -enco) as unread. 41/41 with
   windows-tests-1777; bash ran here (no skip).
+- Round 7: no BLOCKER. Fixed: a launcher given by a quoted path with a space ("C:\Program Files\Git\bin\bash.exe" -c,
+  "...\pwsh.exe" -Command) was re-read as a command line and missed (now read as that launcher; against round 6's
+  matcher the new test fails); bash -O/+O and --rcfile/--init-file are read past their values; -c is matched
+  case-sensitively, so bash -C (noclobber) is not taken for it. This file alone: 19/19; with windows-tests-1777 under
+  the guard: 42/42.
