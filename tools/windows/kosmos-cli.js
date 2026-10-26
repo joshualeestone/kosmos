@@ -575,12 +575,16 @@ async function verbMsg(ctx, args) {
    so both are tested on any machine. */
 function replyFileAbsolute(file, cwd, p) {
   if (p.sep === '\\') {
-    if (/^[A-Za-z]:[\\/]/.test(file)) return file;
+    // Review 10: sent with backslashes only. The board's hidden-in-home check reads the path as written and splits on
+    // the native separator, so C:/Users/a/.aws/x would pass it where C:\Users\a\.aws\x is refused. Swapping
+    // separators rewrites no `..`, so the board still sees and refuses one.
+    const native = (s) => s.replace(/\//g, '\\');
+    if (/^[A-Za-z]:[\\/]/.test(file)) return native(file);
     if (/^[A-Za-z]:/.test(file) || /^[\\/]/.test(file)) return null;
-    const joined = cwd.replace(/[\\/]+$/, '') + '\\' + file;
-    return /^[A-Za-z]:[\\/]/.test(joined) ? joined : null;
+    const joined = cwd().replace(/[\\/]+$/, '') + '\\' + file;
+    return /^[A-Za-z]:[\\/]/.test(joined) ? native(joined) : null;
   }
-  return file.startsWith('/') ? file : cwd.replace(/\/+$/, '') + '/' + file;
+  return file.startsWith('/') ? file : cwd().replace(/\/+$/, '') + '/' + file;
 }
 /* #6726: the second usage line install/kosmos prints for reply (tools.windows-kosmos-cli-reply-file-6726.test.js pins it to install/kosmos's). */
 const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
@@ -622,7 +626,7 @@ async function verbReply(ctx, args) {
       /* Review 6726 r7: the typed path first, so a refusal below never echoes an escape sequence or a carriage
          return to the agent's terminal; the joined path is checked again after (the folder can carry one too). */
       if (REPLY_FILE_CONTROL.test(given)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
-      file = replyFileAbsolute(given, ctx.cwd(), ctx.pathRules);
+      file = replyFileAbsolute(given, ctx.cwd, ctx.pathRules);   // the folder is read only for a relative path
       if (file === null) {
         // A relative path refused because the folder it is joined onto is not on a drive: say so, naming that folder.
         const rel = !/^[A-Za-z]:/.test(given) && !/^[\\/]/.test(given);
@@ -671,7 +675,13 @@ async function verbReply(ctx, args) {
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
   if (r.json && r.json.kept === true) {
     /* #6726: the name the board saved it under (a link's target's name), else the given one. */
-    if (file) { const named = typeof r.json.attached === 'string' && r.json.attached ? r.json.attached : ctx.pathRules.basename(file); ctx.out('Sent, with ' + named + ' attached. It is in their conversation with you.'); return 0; }
+    if (file) {
+      // The saved name is the link's TARGET's, which the control check on the typed path never saw (review 10).
+      const saved = typeof r.json.attached === 'string' && r.json.attached && !REPLY_FILE_CONTROL.test(r.json.attached) ? r.json.attached : '';
+      const named = saved || ctx.pathRules.basename(file);
+      ctx.out('Sent, with ' + named + ' attached. It is in their conversation with you.');
+      return 0;
+    }
     ctx.out('Sent. It is in their conversation with you.');
     return 0;
   }

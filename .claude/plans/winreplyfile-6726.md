@@ -24,8 +24,9 @@ code would be Homer's; this touches none.
    --file value with cygpath, as it already did --body-file's for feedback and community (review 3: /c/Users/...
    typed in Git Bash was refused). Tested on a Mac with a stand-in cygpath and node.
 3. engine/dmfiles.js: comment only. The instructions paragraph is still left out on a win32 board, and the comment
-   now gives the true reason: the board's file checks have never run on Windows. The CLI's own usage and --help
-   do name --file on Windows (review 5), as on a Mac: decided, below.
+   now gives the true reason: the board's file checks have never run on Windows. The CLI's usage and --help name
+   --file on a Mac only; on Windows the flag works when typed but is not named until #7221 (review 8, which reversed
+   review 5).
 4. tools.windows-kosmos-cli-reply-file-6726.test.js: the Mac test's arms, plus --stdin with --file, a wrong-world
    CONTROL (a plain reply IS kept through the same injected outbox), and a pin of the usage line against
    install/kosmos (it caught 25 MB vs 100 MB on the first run).
@@ -42,6 +43,8 @@ code would be Homer's; this touches none.
 - The JSON-escape fallback install/kosmos needs for `attached` is not copied: the Windows CLI parses JSON.
 
 ## For the one real Windows run (asked of Homer on the card when the PR opens)
+- Review 10: PowerShell passes `~` to kosmos.ps1 literally, so `--file ~/Files/x.txt` is joined onto the folder and
+  the board answers there is no file there; say so, or expand ~ in the shim, once teaching turns on.
 - FIRST, #7221 (review 6): the board resolves a network or device path, and a link or junction out to a share,
   before refusing it (engine/replyfile.js realpath before allowedRoot). The CLI's refusal is spelling only. A run with
   a normal file would pass with that open, so #7221 lands before teaching turns on. Specced for Homer, not built here.
@@ -82,4 +85,11 @@ code would be Homer's; this touches none.
    reply with a file is driven at the board by server.reply-file-6726.test.js (lines 165, 484). Deferred as
    duplicates: the board-side refusals and their ordering (#7221, review 6), a relative path's working folder from
    PowerShell (review 2), a single-dash value (review 7).
+10. (default model) W: a drive path typed with forward slashes (C:/Users/a/.aws/x) passes the board's hidden-in-home
+   check, which reads the path as written and splits on backslashes; the CLI now sends a Windows drive path with
+   backslashes only (no `..` is rewritten; tested), and the board side is added to #7221. W: Changes item 3 still
+   said Windows names --file (fixed). Nits taken: the folder is read only for a relative path (an absolute one
+   never reads it, tested); a saved name with a control character is not written to the terminal (the given name
+   stands in, tested); the sibling help arms say they check routing; PowerShell's literal ~ is on the Windows run
+   list.
 

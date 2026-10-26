@@ -759,7 +759,7 @@ test('#1674: `kosmos reply --help` prints the usage and SENDS NOTHING (it used t
     const r = await run(argv, () => { throw new Error('--help sent a request'); });
     assert.equal(r.calls.length, 0, argv.join(' '));
     assert.equal(r.code, 0, argv.join(' '));
-    assert.equal(r.out, cli.helpFor(argv[0]));   // #6726: reply's help names --file where it is taught (helpFor decides)
+    assert.equal(r.out, cli.helpFor(argv[0]));   // #6726: routing only (main prints helpFor's text); reply's text is pinned in tools.windows-kosmos-cli-reply-file-6726
   }
   const mention = await run(['reply', 'use --help next time'], () => ({ body: { kept: true } }));
   assert.equal(mention.calls.length, 1, 'a message that only MENTIONS --help must still be sent');
