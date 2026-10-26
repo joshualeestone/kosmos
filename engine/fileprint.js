@@ -259,14 +259,25 @@ function compare(p, expected) {
   if (/^[0-9a-f]{64}$/.test(want)) want = PLAIN + want;
   if (!isPrint(want)) return { ok: false, words: 'that is not a sha256 or a fingerprint: give sha256:<64 hex>, pdf-normalized:<64 hex> or the 64 hex characters alone' };
   const kind = want.startsWith(PDF_KIND) ? 'pdf-normalized' : 'sha256';
+  const hexOf = (s) => s.slice(s.indexOf(':') + 1);
   const got = kind === 'sha256' ? plain(p) : fingerprint(p);
   if (!isPrint(got)) return { ok: false, words: got };
-  // A pdf-normalized value is only made for a PDF with dates or an ID to leave out; any other file has none to give.
-  if (kind === 'pdf-normalized' && !got.startsWith(PDF_KIND)) {
-    return { ok: true, match: false, kind, got, words: 'differs: that value is a PDF fingerprint, and this file has none (it is not a PDF with dates or an ID to leave out). Its plain sha256 is ' + got };
+  if (kind === 'pdf-normalized') {
+    /* A PDF whose dates and ID are already empty normalizes to its own bytes and is labelled sha256: (review 1, finding 2),
+       so the hex decides, not the label. Any other file has no PDF fingerprint to give. */
+    const match = hexOf(got) === hexOf(want);
+    if (match) return { ok: true, match, kind, got, words: 'matches ' + kindWords(want) };
+    if (!got.startsWith(PDF_KIND)) return { ok: true, match, kind, got, words: 'differs: that value is a PDF fingerprint, and this file has none (it is not a PDF with dates or an ID to leave out). Its plain sha256 is ' + got };
+    return { ok: true, match, kind, got, words: 'differs from ' + kindWords(want) + ': this file gives ' + got };
   }
-  const match = got === want;
-  return { ok: true, match, kind, got, words: (match ? 'matches ' : 'differs from ') + kindWords(want) + (match ? '' : ': this file gives ' + got) };
+  if (got === want) return { ok: true, match: true, kind, got, words: 'matches ' + kindWords(want) };
+  /* A mark sent between #6849 and #7213 carries a PDF's normalized hash under the sha256: label (review 1, finding 1).
+     Its plain bytes do not match, so try the PDF fingerprint too, and say that is what matched. */
+  const fp = fingerprint(p);
+  if (fp.startsWith(PDF_KIND) && hexOf(fp) === hexOf(want)) {
+    return { ok: true, match: true, kind: 'pdf-normalized', got: fp, words: 'matches ' + kindWords(fp) + ', which an older mark labelled sha256:' };
+  }
+  return { ok: true, match: false, kind, got, words: 'differs from ' + kindWords(want) + ': this file gives ' + got };
 }
 
 module.exports = { fingerprint, plain, compare, kindWords, isPrint, isPdfHead, stablePdf, firstLine, PDF_MAX };

@@ -36,8 +36,10 @@ seat concluded the file had changed.
 
 ## Deliberate gaps
 
-- Marks stored before this keep `sha256:` on a normalized PDF value. They cannot be relabelled without the file; the
-  working rules already say a PDF marked before may not match, and `compare` against the plain bytes settles it.
+- Marks stored between #6849 and this keep `sha256:` on a normalized PDF value. They cannot be relabelled without the
+  file, so `compare` handles them instead: when a `sha256:` value misses the plain bytes of a PDF, it is tried against
+  the PDF fingerprint, and a match says "which an older mark labelled sha256:" (review 1). Marks from before #6849 are
+  truly plain and match the plain bytes.
 - An older CLI on the same board still sends a normalized PDF as `sha256:` until it updates (CLI and board ship in one
   install, so this lasts one update).
 
@@ -48,3 +50,10 @@ seat concluded the file had changed.
   compare arms. tools.windows-kosmos-cli-570.test.js: Windows CLI compare arms.
 - Mutations, each went red: PDF label back to `sha256:` (6 of 6 new tests red); compare ignoring the kind (2 red);
   Mac CLI passing only `$1` (the Mac test red).
+
+## Challenge loop
+
+- Iteration 1 (sonnet): W1 older marks (normalized hash under sha256:) read as changed through the new compare -> FIXED
+  (fallback above). W2 a PDF already emptied of dates matched by hex but refused by label -> FIXED (the hex decides in
+  the pdf-normalized branch). N3 orphaned handoff comment, N4 inverted assertion messages -> FIXED. N5 fixture drift is
+  already controlled in tests 1 and 3 -> no change. Mutations: fallback removed (1 red), label compare (1 red).
