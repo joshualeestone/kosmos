@@ -41466,7 +41466,7 @@ function dmRow(m, name, replyAdjacent) {
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
-  const v = pjVerdict(m, name);
+  const v = pjVerdict(m, name, typeof DM_ROWS_OF !== 'undefined' ? DM_ROWS_OF : null);   // kosmos#7208: the card by session
   /* ⚠️ WHAT WAS TYPED, when it is not what the bubble shows. A numbered answer
      sends the digit the agent's prompt is waiting for and shows the option's
      own words; the record keeps both, so the screen says both. Without this the
@@ -78245,15 +78245,17 @@ function dmHeldWords(name, d, a) {
   const soon = (t) => (t > now && typeof quotaResetWords === 'function' ? quotaResetWords(t, now) : '');
   const cardAt = a && typeof a.limitUntil === 'string' ? Date.parse(a.limitUntil) : NaN;
   const heldAt = typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
-  const restarting = !!a && a.state === 'restarting';
-  // Review 1: one order of reasons. Signed out (the hold's or the card's) beats a scraped usage limit; restarting is
-  // not "not running"; a usage hold whose reset has passed, with the agent's card running, is not "out of usage".
-  const signedOut = d.heldFor === 'signin' || (!!a && a.state === 'auth_failed');
-  const cardOut = !!a && !signedOut && (a.state === 'rate_limited' || cardAt > now);
-  const stopped = !!a && !signedOut && !cardOut && !restarting && (a.running === false || a.state === 'stopped');
-  const back = !!a && !cardOut && !stopped && !restarting && !signedOut && !(heldAt > now);
+  const st = a ? a.state : null;
+  /* One order of reasons, read off the card as the server reads it before it types (reviews 1 and 2). The sweep types
+     a held message once the card is idle (engine/chat.js limitReleased), so "back" is that, never a guess; a card that
+     does not know (unknown, stale, a lost connection) leaves the hold's own words. */
+  const released = !!a && (st === 'idle' || (st === 'blocked' && a.screenState === 'idle')) && a.screenRead !== 'remembered';   // #5949: a remembered screen waits for a fresh look
+  const cardOut = !!a && (st === 'rate_limited' || cardAt > now);
+  const signedOut = (d.heldFor === 'signin' && !released) || st === 'auth_failed';
+  const stopped = !!a && !signedOut && !cardOut && st !== 'restarting' && (a.running === false || st === 'stopped');
+  const asking = !!a && !signedOut && !cardOut && !stopped && st === 'needs_you';
   const usageHold = !d.behind && d.heldFor !== 'input' && d.heldFor !== 'signin';
-  const out = !signedOut && (cardOut || (usageHold && !back));
+  const out = !signedOut && (cardOut || (usageHold && !released && !stopped && !asking));
   // The message box blocks it too: kept for the box, or queued behind something kept for the box.
   const box = d.heldFor === 'input' || (d.behind === true && d.behindFor === 'input');
   // When it goes: after the messages ahead of it when it is queued, and once the box is clear when that blocks it too.
@@ -78267,26 +78269,29 @@ function dmHeldWords(name, d, a) {
     said = name + (guess ? ' looks to be out of usage' : ' is out of usage') + (until ? ' until ' + until : '') + '.'
       + after(box ? 'once ' + name + ' is back and its message box is clear' : 'when ' + name + ' is back');
   } else if (stopped) said = name + ' is not running.' + after('when ' + name + ' is running again');
+  else if (asking) said = name + ' is waiting on an answer from you.' + after('once that is answered');
   // Ahead of it are other messages to this agent, from anyone (other agents, task notices), not only the person's.
   else if (d.behind === true) said = 'Queued behind earlier messages to ' + name + '.';
   // #6774: its message box holds text not yet sent; the minute sweep sends this once the box reads empty.
   else if (box) said = 'Waiting to deliver: ' + name + "'s message box has unsent text in it. Yours goes through as soon as that is cleared.";
-  // A usage hold past its reset, with the agent running again: the sweep sends it within the minute.
-  else said = name + ' is back. This goes through in a minute or so.';
+  // Released on the card and not failing: the minute sweep types it. Otherwise no time is promised.
+  else if (released && !stuck) said = name + ' is back. This goes through in a minute or so.';
+  else said = name + ' is back. This goes through when Kosmos can type it.';
   return said + stuck;
 }
-/* kosmos#7208: the card of the agent a held message waits for, from the board's list by the name the thread shows
-   (the open chat's card first). Guarded: tests lift dmHeldWords and pjVerdict without the page's globals. */
-function dmHeldAgent(m, name) {
+/* kosmos#7208: the card of the agent a held message waits for: by its session when the caller knows it (two agents can
+   share a name), else by the name the thread shows. Guarded: tests lift dmHeldWords and pjVerdict without the page. */
+function dmHeldAgent(m, name, session) {
   try {
-    const is = (a) => !!a && (a.name === name || a.displayName === name || a.agentName === name || a.sessionName === name);
     const cur = typeof CURRENT !== 'undefined' ? CURRENT : null;
-    if (is(cur)) return cur;
     const list = typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : [];
+    // A card carries the name a person sees as `name` and its session as `sessionName`; nothing else names it.
+    const is = session ? (a) => !!a && a.sessionName === session : (a) => !!a && a.name === name;
+    if (is(cur)) return cur;
     return list.find(is) || null;
   } catch { return null; }
 }
-function pjVerdict(m, name) {
+function pjVerdict(m, name, session) {
   const d = (m && m.delivery) || {};
   // The pane's state when we typed, and what it means for what happens next.
   const note = d.paneNote ? esc(d.paneNote) : '';
@@ -78299,7 +78304,7 @@ function pjVerdict(m, name) {
   if (d.state === 'held') {
     // #5805 slice 2b: a held message (out of usage, signed out, not running, its box, or queued); dmRow puts Send now anyway beside it.
     mark = ' held';
-    said = esc(dmHeldWords(name, d, typeof dmHeldAgent === 'function' ? dmHeldAgent(m, name) : null));
+    said = esc(dmHeldWords(name, d, typeof dmHeldAgent === 'function' ? dmHeldAgent(m, name, session) : null));
   } else if (d.state === 'placed') {
     mark = '';
     /* #3419: a placed message's thread row carries NO delivery-status copy --
@@ -78349,8 +78354,8 @@ function pjVerdict(m, name) {
   return { mark, said, when };
 }
 
-function pjMsg(m, name) {
-  const { mark, said, when } = pjVerdict(m, name);
+function pjMsg(m, name, session) {
+  const { mark, said, when } = pjVerdict(m, name, session);
   /* 🔑 THE SAME ROW FURNITURE AS THE ROOM'S: the time in its own element, the
      receipt in its own, and the receipt free to say nothing. This panel and the
      agent page's thread are the same conversation kind and share one verdict,
@@ -78679,7 +78684,7 @@ function paintThread(body) {
     // rather than implying the visible list is the whole record.
     setLive(msgs, (body.olderCount
       ? '<p class="fhint">The first ' + body.olderCount + ' messages of this conversation are kept on this computer and not shown here.</p>'
-      : '') + body.messages.map((m) => pjMsg(m, name)).join(''));
+      : '') + body.messages.map((m) => pjMsg(m, name, body.agent && body.agent.sessionName)).join(''));
   }
 
   /* Its screen. ⚠️ The HEADING follows the read (round 30, measured): set

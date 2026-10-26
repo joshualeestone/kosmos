@@ -5,13 +5,14 @@ A person's message that Kosmos is holding reads as "nothing is wrong, here is wh
 (out of usage or not running beats a half-typed message box), and is said once: on the message's own row, not
 again under the composer.
 
-## Built
-- dmHeldWords: no "Held:". Out of usage (from the message or the agent's card): "X is out of usage until <time>.
-  This delivers when X is back." Not running: "X is not running. This delivers when X is running again." Signed
-  out: "X is signed out. This delivers once X is signed in again." Message box: "Waiting to deliver: X's message
-  box has unsent text in it. Yours goes through as soon as that is cleared." Later messages: "Queued behind your
-  earlier message to X."
-- dmHeldAgent finds the agent's card (by the message's `to`, else the open chat) so the card's state can win.
+## Built (as of review round 2)
+- dmHeldWords: no "Held:", one order of reasons read off the agent's card as the server reads it before it types:
+  signed out ("X is signed out. This delivers once X is signed in again."), out of usage ("X is out of usage until
+  <time>. This delivers when X is back.", or "... once X is back and its message box is clear." when the box blocks it
+  too), not running, waiting on an answer from you, queued ("Queued behind earlier messages to X."), the message box
+  ("Waiting to deliver: X's message box has unsent text in it. Yours goes through as soon as that is cleared."), and
+  back ("X is back. This goes through in a minute or so." only when the card is idle and nothing is failing).
+- dmHeldAgent finds the agent's card by session (both callers pass it), else by the name the thread shows.
 - sendTalk: the line under the box no longer repeats the row.
 
 ## Decided (Josh's example copy adapted)
@@ -40,3 +41,13 @@ again under the composer.
   - dmHeldAgent: the open chat's card, else the board list by name (the dead m.to arm dropped).
   - Comment updated; web.inputkeep-6774 anchored on code, not on a comment.
   - Evidence: a unit case per finding (web.inputkeep-6774); render-dm-held-5805 15 passed; root unit set 3552/3552.
+- Round 2 (.claude/plans/heldwords-7208-review2.md): 0 blockers, 3 warnings, 4 nits. All taken:
+  - "Back" is the card's release state as the server types on it (idle, or blocked with an idle screen, not a remembered
+    screen), never heldUntil and never while a send is failing ("This goes through when Kosmos can type it." then);
+    an agent waiting on an answer says so; a card that does not know leaves the hold's own words.
+  - A stopped card outranks a usage hold, so one agent's held rows give one reason.
+  - dmHeldAgent by session: the DM rows pass DM_ROWS_OF, the project panel body.agent.sessionName; by name only as a
+    fallback, on the card's `name` (cards carry no displayName: the strict fleet fixture throws on reading one).
+  - Plan "Built" rewritten; the browser check's control tests every row; the em dash in review1 removed.
+  - Evidence: unit cases per finding, incl. a session lookup over real fleet cards (two agents named Gemini, one named
+    as another's session); render-dm-held-5805 15 passed.

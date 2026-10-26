@@ -95,7 +95,7 @@ now borrows the card's state.
   is "" after a held send.
 - Measured: scratch probe of dmHeldWords/dmHeldAgent lifted from the branch page over 10 delivery/card combinations
   (results quoted in findings 1, 3, 4, 5, 6).
-- Measured: no em dash in added lines (literal, entities, — escape; 0 hits) with a planted control that hits 1.
+- Measured: no em dash in added lines (literal, entities, u2014 escape; 0 hits) with a planted control that hits 1.
 - Measured: nothing else reads the removed under-box line. grep for the old strings ("Held: ", "To send it now, use
   Send now anyway", "Kosmos sends it after the reset") in web/index.html and the browser checks: only the new
   explanatory comment at 78139. Remaining hits are server/CLI/room wording (server.js, kosmos-cli, room tests), a

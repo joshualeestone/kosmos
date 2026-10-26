@@ -850,7 +850,7 @@ const SCREENS = [
   /* kosmos#7208 (Mona Lisa): two of the person's messages Kosmos is holding, as their rows say it now: the first waits
      for the agent's message box to clear, the second is queued behind it. The thread the board serves gets the two
      rows added on the way to the page; nothing is written to the board. */
-  { name: 'agent-chat-held-7208', owner: 'Mona Lisa', go: async (page, data) => {
+  { name: 'agent-chat-held-7208', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
     await page.route('**/thread*', async (r) => {
       try {
         if (r.request().method() !== 'GET') { await r.continue(); return; }

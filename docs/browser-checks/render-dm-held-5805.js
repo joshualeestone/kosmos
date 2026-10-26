@@ -129,17 +129,18 @@ function readRow(page, words) {
       return (await readRow(page, 'the words row')).pill || '';
     };
     const BOX = "Waiting to deliver: April's message box has unsent text in it. Yours goes through as soon as that is cleared.";
-    let w = await wordsFor({ state: 'held', heldFor: 'input' });
+    const seen = [];
+    let w = await wordsFor({ state: 'held', heldFor: 'input' }); seen.push(w);
     chk(w === BOX, 'held for the message box: says so, and that nothing is wrong', w);
-    w = await wordsFor({ state: 'held', heldFor: 'input' }, { state: 'rate_limited', limitUntil: UNTIL });
+    w = await wordsFor({ state: 'held', heldFor: 'input' }, { state: 'rate_limited', limitUntil: UNTIL }); seen.push(w);
     chk(/^April is out of usage until .+\. This delivers once April is back and its message box is clear\.$/.test(w), 'held for the box but April is out of usage: the usage is said first, and the box still counts', w);
-    w = await wordsFor({ state: 'held', heldFor: 'input' }, { running: false, state: 'stopped' });
+    w = await wordsFor({ state: 'held', heldFor: 'input' }, { running: false, state: 'stopped' }); seen.push(w);
     chk(w === 'April is not running. This delivers when April is running again.', 'held for the box but April is stopped: says she is not running', w);
-    w = await wordsFor({ state: 'held', behind: true, behindFor: 'input' });
+    w = await wordsFor({ state: 'held', behind: true, behindFor: 'input' }); seen.push(w);
     chk(w === 'Queued behind earlier messages to April.', 'a later message: queued behind the earlier one', w);
-    w = await wordsFor({ state: 'held', heldFor: 'signin' });
+    w = await wordsFor({ state: 'held', heldFor: 'signin' }); seen.push(w);
     chk(w === 'April is signed out. This delivers once April is signed in again.', 'signed out: says so', w);
-    chk(!/Held:|input box/.test(BOX + w), 'CONTROL: none of the old words', w);
+    chk(seen.length === 5 && seen.every((x) => !/Held:|input box|your earlier message/.test(x)), 'CONTROL: none of the old words, on every row', JSON.stringify(seen));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
