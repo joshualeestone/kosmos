@@ -51,8 +51,46 @@ const EXPIRY_MARGIN_MS = 60 * 1000;
 /* Review 14: after a refusal (401, 403 or 429) the same token is not sent again for an hour. The token is the one
    Claude Code itself uses, so repeated refused requests must not put the operator's live agents at risk. */
 const BACKOFF_MS = 60 * 60 * 1000;
-const BACKOFF_STATES = new Set(['http-401', 'http-403', 'http-429', 'profile-http-401', 'profile-http-403', 'profile-http-429',
-  'other-account']);   // review 16: another login's token is not sent every ten minutes either
+
+/* Review 22: the backoff as one rule, replacing the case-by-case additions of reviews 14 to 21.
+   - A REFUSAL is any answer that says "do not send this again soon": a 4xx from either request, a profile that answers
+     but names no login or organization (the endpoint is not what this reads), or another login's token. A server
+     error (5xx) or no answer at all is not a refusal and is read again on the next sweep.
+   - A refusal holds the account for an hour, for the login that was refused (a new login is read at once), and for
+     the token that was refused (identified by its expiry time, not a secret), except a 429, which is the account's
+     rate limit and holds across a renewed token.
+   - A clock that steps back inside the hour still holds; a refusal stamped more than an hour away either way has
+     expired (review 18).
+   - The refusal is kept in memory as well as in the record, and the newer copy wins, so a folder that cannot be
+     written, or a record that cannot be read, does not erase it, and every record that is not a reading carries a
+     refusal still within its hour, so a restarted board keeps it too. A reading with another token does not clear it:
+     the refused token stays refused for its hour if it comes back. */
+function isRefusal(state) {
+  return typeof state === 'string' && (/^(profile-)?http-4\d\d$/.test(state) || state === 'profile-unreadable' || state === 'other-account');
+}
+const refusals = new Map();   // account folder -> its last refusal, the in-memory copy
+
+function refusalOf(dir, rec) {
+  const fromFile = rec && typeof rec.refusedAt === 'number' && Number.isFinite(rec.refusedAt)
+    && isRefusal(typeof rec.refusedState === 'string' ? rec.refusedState : rec.state)
+    ? { refusedState: typeof rec.refusedState === 'string' ? rec.refusedState : rec.state, refusedAt: rec.refusedAt,
+      refusedEmail: rec.refusedEmail, refusedExpiresAt: rec.refusedExpiresAt === undefined ? null : rec.refusedExpiresAt }
+    : null;
+  const inMemory = refusals.get(dir) || null;
+  if (!fromFile) return inMemory;
+  if (!inMemory) return fromFile;
+  return inMemory.refusedAt >= fromFile.refusedAt ? inMemory : fromFile;
+}
+
+function withinHour(ref, nowMs) { const age = nowMs - ref.refusedAt; return age < BACKOFF_MS && age > -BACKOFF_MS; }
+
+/* Whether this account is held back now: a usable token that is the refused one (or any token after a 429), for the
+   refused login, within the hour. A token that is not usable sends nothing anyway, so it is never "held". */
+function holds(ref, a, t, nowMs) {
+  if (!ref || !t || t.state !== 'ok' || !withinHour(ref, nowMs)) return false;
+  if (typeof ref.refusedEmail !== 'string' || typeof a.email !== 'string' || ref.refusedEmail.toLowerCase() !== a.email.toLowerCase()) return false;
+  return ref.refusedState.endsWith('429') || t.expiresAt === ref.refusedExpiresAt;
+}
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
 
@@ -187,8 +225,10 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (
      another login's figure in, and the higher-figure rule would keep it on screen. So it is a failed read, and
      pollAll keeps the last good figures as it does for any other. */
   const p = await getUsage(t.token, { request, path: PROFILE_PATH, ...(timeoutMs ? { timeoutMs } : {}) });
-  /* Review 15: a refused profile request is a refusal of the same token, so it backs off as the usage request does. */
-  if ([401, 403, 429].includes(p.code)) return { at: now, state: `profile-http-${p.code}` };
+  /* Review 15: a refused profile request is a refusal of the same token (review 22: any 4xx). A server error or no
+     answer is not, and is not a reading either. */
+  if (p.code >= 400 && p.code < 500) return { at: now, state: `profile-http-${p.code}` };
+  if (p.code !== 200) return { at: now, state: 'profile-unreachable' };
   let email = null;
   let org = null;
   try {
@@ -253,25 +293,17 @@ async function pollAll(list, deps = {}) {
   for (const a of Array.isArray(list) ? list : []) {
     const before = a && typeof a.dir === 'string' ? readRaw(a.dir) : null;
     const nowMs = typeof deps.now === 'number' ? deps.now : Date.now();
-    /* Review 15: the hour belongs to the login that was refused, so signing the folder in again ends it. Review 16: and
-       to the token, identified by its expiry time (not a secret), so a token renewed for the same login is read at
-       once. While it waits, the record's `at` moves on so its state stays shown; its figures still age out by
-       measuredAt as any kept figures do. */
     /* Review 17: the token is read once per account per sweep, and that one read decides the backoff, is the token
-       sent, and is the expiry recorded on a refusal, so the backoff is always keyed to the token actually refused. */
+       sent, and keys a refusal. Review 22: the backoff rule is above isRefusal. */
     let t = null;
     if (a && typeof a.dir === 'string' && a.dir && !a.apiKey) {
       try { t = await tokenStateFor(a, deps); } catch { t = { state: 'no-credential' }; }
     }
-    /* Review 21: the refusal is read from refusedState, which survives sweeps that sent nothing (see below). */
-    const refused = before && (typeof before.refusedState === 'string' ? before.refusedState : before.state);
-    if (t && before && BACKOFF_STATES.has(refused) && typeof before.refusedAt === 'number'
-      && nowMs - before.refusedAt >= 0 && nowMs - before.refusedAt < BACKOFF_MS   // review 18: a refusal stamped in the future has expired
-      && typeof before.refusedEmail === 'string' && typeof a.email === 'string' && before.refusedEmail.toLowerCase() === a.email.toLowerCase()
-      && t.state === 'ok' && (refused.endsWith('429') || t.expiresAt === before.refusedExpiresAt)) {
-      /* review 20: a rate limit (429) is the account's, so it keeps its hour across a renewed token; a 401 or 403 is the
-         token's. A token that is not usable sends nothing anyway. */
-      write(a.dir, { ...before, at: nowMs });
+    const ref = a && typeof a.dir === 'string' ? refusalOf(a.dir, before) : null;
+    if (holds(ref, a, t, nowMs)) {
+      /* While it waits, the record's `at` moves on so its state (why it is not measured) stays shown; kept figures
+         still age out by measuredAt. */
+      write(a.dir, { ...(before || { state: ref.refusedState }), ...ref, at: nowMs });
       continue;
     }
     let rec = null;
@@ -299,18 +331,12 @@ async function pollAll(list, deps = {}) {
       }
     } else {
       const prev = readRaw(a.dir);
-      if (BACKOFF_STATES.has(rec.state)) {   // review 14: the hour runs from the refusal
-        rec.refusedState = rec.state;
-        rec.refusedAt = rec.at;
-        rec.refusedEmail = a.email;
-        rec.refusedExpiresAt = t && t.state === 'ok' ? t.expiresAt : null;
-      } else if (!t || t.state !== 'ok') {
-        /* Review 21: this sweep sent nothing (no usable token), so a refusal still within its hour is carried
-           forward; otherwise an expired token or one failed Keychain read would erase the hour. */
-        for (const k of ['refusedState', 'refusedAt', 'refusedEmail', 'refusedExpiresAt']) {
-          if (before && before[k] !== undefined) rec[k] = before[k];
-        }
-        if (before && rec.refusedState === undefined && BACKOFF_STATES.has(before.state)) rec.refusedState = before.state;
+      if (isRefusal(rec.state)) {
+        const fresh = { refusedState: rec.state, refusedAt: rec.at, refusedEmail: a.email, refusedExpiresAt: t && t.state === 'ok' ? t.expiresAt : null };
+        refusals.set(a.dir, fresh);
+        Object.assign(rec, fresh);
+      } else if (ref && withinHour(ref, nowMs)) {
+        Object.assign(rec, ref);   // review 21/22: not a reading, so a refusal still within its hour is kept
       }
       const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
       /* Review 9: a folder signed in again as another login must not show the old login's figures under the new one. */

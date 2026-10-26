@@ -116,6 +116,16 @@ at 0%, had no reading at all (the card's opening).
   expired token, a failed Keychain read), so they cannot erase its hour. With the brake on, earlier records are not
   shown either. Not taken: a liveAllowed check inside pollAll (the server is its only caller; the tests call it
   directly with injected credentials), and keying the backoff to the organization (errs to fewer requests).
+- Review 22: THE BACKOFF IS ONE RULE NOW, rewritten rather than patched again (reviews 14 to 21 each found the next
+  case). A refusal is any 4xx from either request, a profile that answers but names no login or organization, or
+  another login's token; a server error or no answer is not. It holds for an hour, for the refused login, and for the
+  refused token (by its expiry), except a 429, which holds across a renewed token. A clock stepped back inside the
+  hour still holds; a refusal more than an hour away either way has expired. It is kept in memory as well as in the
+  record (the newer wins), so an unwritable folder or unreadable record cannot erase it, and every record that is not
+  a reading carries it, so a restart keeps it. The rule sits in one comment above `isRefusal` in usagepoll.js.
+  Ten mutants were run against it; the one that survived (clearing the memory copy after a reading) showed that line
+  did nothing observable, and it was removed. Not taken: requiring an email on a record to show it (only a build that
+  never shipped could write one without), and two boards racing on one record.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -168,7 +178,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 48 tests (counted from a run after review 21), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 52 tests (counted from a run after review 22), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

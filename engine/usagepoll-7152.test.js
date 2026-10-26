@@ -273,7 +273,7 @@ test('#7152 review 6: a token whose profile is another account gives no reading 
     now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(),
     request: fakeRequest((opts) => (opts.path === '/api/oauth/profile' ? { code: 500, body: '' } : { code: 200, body: BODY }), {}),
   });
-  assert.equal(noProfile.state, 'profile-unreadable', 'an unreadable profile let the reading in');
+  assert.equal(noProfile.state, 'profile-unreachable', 'a profile server error let the reading in (review 22: it is unreachable, not a refusal)');
   const noEmail = await usagepoll.readOne({ dir: '/u/x', email: 'a@example.test' }, {
     now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(),
     request: fakeRequest((opts) => (opts.path === '/api/oauth/profile' ? { code: 200, body: '{}' } : { code: 200, body: BODY }), {}),
@@ -681,4 +681,58 @@ test('#7152 review 21: with the brake on, earlier records are not shown either',
   process.env.AGENT_WORKFORCE_USAGE_POLL_OFF = '1';
   t.after(() => { delete process.env.AGENT_WORKFORCE_USAGE_POLL_OFF; });
   assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), null, 'with the brake on an earlier reading was shown');
+});
+
+test('#7152 review 22: any 4xx from either request is a refusal; a server error is not', async (t) => {
+  const seen = {};
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  for (const [label, answer] of [
+    ['usage 404', { code: 404, body: '' }],
+    ['profile 400', (opts) => (opts.path === '/api/oauth/profile' ? { code: 400, body: '' } : { code: 200, body: BODY })],
+    ['profile with no login', (opts) => (opts.path === '/api/oauth/profile' ? { code: 200, body: '{}' } : { code: 200, body: BODY })],
+  ]) {
+    const d = tmpDir(t);
+    await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, answer));
+    await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+    assert.equal(seen.calls.length, 0, `${label} was sent again ten minutes later`);
+  }
+  const e = tmpDir(t);
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW, (opts) => (opts.path === '/api/oauth/profile' ? { code: 503, body: '' } : { code: 200, body: BODY })));
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 2, 'CONTROL: a profile server error is read again on the next sweep');
+});
+
+test('#7152 review 22: a clock stepped back inside the hour still holds', async (t) => {
+  const d = tmpDir(t);
+  const seen = {};
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW - 5 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'a clock stepped back five minutes let the refused token be sent');
+});
+
+test('#7152 review 22: a folder that cannot be written keeps its refusal in memory', async (t) => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return;   // permissions are not enforced there
+  const d = tmpDir(t);
+  fs.chmodSync(d, 0o500);
+  t.after(() => { try { fs.chmodSync(d, 0o700); } catch { /* already removed */ } });
+  const seen = {};
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
+  assert.equal(fs.existsSync(path.join(d, usagepoll.FILE)), false, 'CONTROL: the record could not be written');
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'a refusal that could not be written was forgotten, and the token sent again');
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 61 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 2, 'CONTROL: after its hour the account is read');
+});
+
+test('#7152 review 22: a refusal from an earlier run survives a sweep that sent nothing, so a restart keeps it', async (t) => {
+  const d = tmpDir(t);
+  /* Written as a board that has since restarted would have left it: nothing of it is in this process's memory. */
+  usagepoll.write(d, { at: NOW, state: 'http-429', refusedState: 'http-429', refusedAt: NOW, refusedEmail: EMAIL, refusedExpiresAt: NOW + 10 * 3600000 });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW + 10 * 60000, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW }), request: fakeRequest({ code: 200, body: BODY }, {}) });
+  const rec = JSON.parse(fs.readFileSync(path.join(d, usagepoll.FILE), 'utf8'));
+  assert.equal(rec.state, 'token-expired', 'CONTROL: the sweep had no usable token');
+  assert.equal(rec.refusedState, 'http-429', 'a sweep that sent nothing dropped the refusal from the record');
+  assert.equal(rec.refusedAt, NOW);
 });
