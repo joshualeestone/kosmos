@@ -51,8 +51,8 @@ const GET_TIMEOUT_MS = 40000;
 const GRANT_TIMEOUT_MS = 15000;   // a grant that does not answer in this long reads as not reached (review 2)
 const RETRY_WAIT_MS = 2000;   // before a second try at a grant that was not reached
 // The manifest can be 64 MB where a chunk is a few: ONE GET with most of the 2 minutes, after up to two grants (a
-// blip there must not fail the restore): 15 + 2 + 15 + 85 = 117 s (review 4).
-const MANIFEST_GET_TIMEOUT_MS = 85000;
+// blip there must not fail the restore): 15 + 2 + 15 + 78 = 110 s, 10 s inside the 2 minutes (reviews 4 and 6).
+const MANIFEST_GET_TIMEOUT_MS = 78000;
 const MAX_UNREACHED = 3;   // grants in a row that could not be reached before the restore gives up
 const LINKS_EXPIRED = 'the storage service says each download link had already expired, so the clock on this computer or on Kosmos+ may be wrong';
 const HEX64_RE = /^[0-9a-f]{64}$/;
@@ -185,13 +185,14 @@ function readGrantFetcher(opts) {
   const ctx = { org: opts.org, member: opts.member, epoch: String(opts.epoch), period: rec.period };
   // review 5: the route reads the epoch as a number, so one past 2^53 would be sent wrong and its echo refused as
   // another key's. Refused by name instead, before any call.
-  const epochTooLarge = !Number.isSafeInteger(Number(ctx.epoch));
+  const epochProblem = !/^[1-9][0-9]*$/.test(ctx.epoch) ? 'restore was asked for this backup without a valid key epoch'
+    : !Number.isSafeInteger(Number(ctx.epoch)) ? 'this backup\'s key epoch is larger than restore can ask Kosmos+ for' : null;
   const urls = new Map();   // key -> { url, expiresAtMs } (this computer's clock)
   const batchOf = new Map();   // key -> batch index
   const batches = [[]];   // batch 0 is the manifest alone (keys: [])
   const done = new Set();   // keys already fetched, never asked for again
   const inFlight = new Map();   // batch index -> promise
-  let stopped = epochTooLarge ? 'this backup\'s key epoch is larger than restore can ask Kosmos+ for' : null;   // the reason every later fetch is refused
+  let stopped = epochProblem;   // the reason every later fetch is refused
   let unreached = 0;
   const unreadable = new Map();   // key -> why it is not granted
   const problems = new Set();   // why some files could not be fetched, without stopping the rest (review 3)
@@ -206,7 +207,7 @@ function readGrantFetcher(opts) {
       // Only what is still to come: a batch granted again does not hand out links for files already restored. The
       // route takes any 500 keys of the manifest, so a short call (a chunk a later file reuses, the tail of a batch)
       // is topped up with the next keys still to fetch, in plan order (review 3: a reused chunk spent a call alone).
-      const keys = batches[i].filter((k) => !done.has(k) || k === forKey);
+      const keys = batches[i].filter((k) => k === forKey || (!done.has(k) && !fresh(k)));   // review 6: not a fresh one
       if (i > 0) {
         const have = new Set(keys);
         for (let j = i + 1; j < batches.length && keys.length < GRANT_KEYS; j += 1) {
@@ -299,7 +300,11 @@ function readGrantFetcher(opts) {
     // review 2: a link granted just now and already expired, twice, is the clocks, not this file: stop before every
     // other file spends the hour's grants the same way.
     if (expired === 2 && !stopped) stopped = LINKS_EXPIRED;
-    if (lastKind === 'missing') return null;
+    if (lastKind === 'missing') {
+      // review 6: named too, so a missing file is never headed by another file's reason
+      if (!isManifest) problems.add('the storage service does not have some files');
+      return null;
+    }
     if (isManifest) {
       // review 5: the manifest is the first fetch, so it is where an outage or a wrong clock shows first: name it.
       if (lastKind === 'retry') problems.add('the storage service did not answer with this backup\'s manifest');
