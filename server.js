@@ -20836,7 +20836,8 @@ const server = http.createServer(async (req, res) => {
       : allProjects ? all.filter((t) => !t.projectArchived && (!tokenProjects || tokenProjects.has(t.projectId))) : all;
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
-       them: the agents' `kosmos tasks` reads the list exactly as cheaply as before. */
+       them: the agents' `kosmos tasks` reads the list as cheaply as before (kosmos#7151: the stale list adds one board
+       snapshot, only when some row would be offered for retiring). */
     if (!forTasksView) {
       if (listOnly !== null && !tasks.LIST_GROUPS.includes(listOnly)) {
         sendJson(res, 400, { error: 'the state to list must be one of: ' + tasks.LIST_GROUPS.join(', ') });
@@ -20857,6 +20858,15 @@ const server = http.createServer(async (req, res) => {
           .filter((x) => !Number.isFinite(x.ms) || x.ms <= cutoff)
           .sort((a, b) => (Number.isFinite(a.ms) ? a.ms : -Infinity) - (Number.isFinite(b.ms) ? b.ms : -Infinity))
           .map((x) => Object.assign({}, withRepeatWords(x.t), { lastActivityAt: x.at || null }));
+        /* kosmos#7151 (feedback): a quiet task an agent left under work that has since finished is OFFERED for retiring
+           (`leftUnder`, the closed parent's number); nothing is retired here. The rule is tasks.retireOffers'. The
+           roster (a board snapshot) and each candidate's transcript are read only when some row would be offered. */
+        const taskchat = require('./engine/taskchat');
+        // Review 4: the offer is never worth the list. Anything it throws offers nothing, and the list still answers.
+        try {
+          tasks.retireOffers(quiet, everyProject, () => safeRoster(), (pid, num) => taskchat.read(pid, num))
+            .forEach((parent, i) => { quiet[i].leftUnder = parent; });
+        } catch { /* no offers */ }
         sendJson(res, 200, { tasks: quiet, count: quiet.length, project: projectScope, listState: 'open', quietDays: days, ...(allProjects ? { all: true } : {}) });
         return;
       }

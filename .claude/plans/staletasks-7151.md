@@ -1,0 +1,104 @@
+# staletasks-7151: the stale task list offers tasks left behind by finished work for retiring
+
+Card: kosmos#7151 (agent feedback, 2026-10-25). Rotation card, my shard (mod 7 == 4).
+
+## Decided (reversible; Josh can override)
+- OFFER, never retire automatically. The card allows either. Closing is reversible (tasks.reopen), but an automatic
+  close reads as done to a person who was still counting on the task, and nothing in the store can prove nobody is.
+  The agent who owns the task decides, with the rule in front of it.
+- WHERE: the agent's own `kosmos task list --stale` (#7057), the tool the report praises. No board interface: Josh's
+  10-17 hold on new interface (#6501's note) still stands.
+- THE RULE (tasks.leftUnder + tasks.retireOffers, after review round 1), printed with every offer. Strict on purpose:
+  any sign the person may still want a task means no offer.
+  1. in the stale list already: open (not done, built or held) and quiet N days or more;
+  2. an agent filed it, naming itself (addedVia process with addedBy); the person's own, one with no record, one with
+     no agent named, or a webhook's, is never offered;
+  3. nothing on it the person set up: no repeat, due date or done-when, no part added or moved from the screen; and
+     nothing under it at all (round 6: a closed step's history always has a row naming nobody);
+  4. its parent is closed as done (not replaced by another task), it was made before that close, every task above
+     the parent is closed as done too (a closed step of open work is work still going on), and no other task under
+     the parent is still open and the person's, built or held (round 8: a parent can be closed with work open);
+  5. retireOffers: never in a project held in two records; never one whose agent needs the person about it (a real
+     roster, read only when some row would be offered; an unreadable roster offers nothing); and only one whose WHOLE
+     history is rows an agent wrote naming itself (an allow-list, agentOnlyHistory), beginning with its creation by a
+     named agent: most rows the person's screen writes carry no sign of who wrote them, so anything else rules it out.
+
+## Rejected
+- Auto-retire on a timer: see above.
+- A board "Clean up" control: new interface under Josh's hold.
+- Parent closed alone: catches deliberate follow-ups under finished work.
+
+## Known limit
+- Each candidate's transcript is read twice (once for its quiet date, once for the allow-list). Only candidates pay it.
+
+## Known limit (review 4)
+- "An agent filed it" rests on the CLI naming the sender from its tmux session, so a task the person types with
+  `kosmos task add` inside an agent's session reads as that agent's. That identity model is fleet-wide, not this card's.
+
+## Weakest premise
+"Made before the parent closed" stands for "left behind by that cycle". A task made earlier but still wanted after the
+close (an agent's real follow-up that happened to be filed early) is offered too; the offer is advice, and the agent
+owning it is the one who closes it.
+
+## Checks at the first build (17:00 CDT; later rounds below)
+- engine/tasks.leftunder-7151.test.js 7/7, server.tasks-leftunder-7151.test.js 3/3; the neighbouring task suites
+  (220 pass, 0 fail); fixture-discipline and no-name-refs.
+- Broken copies: no made-before check, no filed-by check, no waiting check, no line marker: each red.
+
+## Review
+- Round 1: 3 blockers, 5 warnings, 4 nits, all fixed by the stricter rule above. Blockers: repeating tasks (and a
+  person-reviewed missed run) were offered; an unreadable roster offered everything; the waiting check had no real
+  test (now retireOffers against real fleet cards, with a control). Warnings: a shared project in two records; a
+  replaced parent read as finished; due dates, done-when, repeats and screen parts ignored; a walk past an open parent;
+  re-parenting invisible. Nits: the Assigner branch dropped (tasks are never written with it); an agent must be
+  named; one tree per project; the project filled into the close command; a test renamed. The server test now uses a
+  real 30-day-old person entry in the transcript (removing the history check goes red). Engine 14/14, server 2/2, the
+  18 task suites 174/174, fixture-discipline and no-name-refs. Broken copies: unreadable roster offering, two records
+  allowed, no history check: each red.
+- Round 2: 1 blocker, 3 warnings, 4 nits. Blocker fixed: the history check was a deny-list, and most of what a person
+  does (a screen message, a hold or due date set and cleared, a part moved, a repeat cleared) leaves no person mark;
+  it is now an allow-list of rows only an agent writes, naming itself, tested against the engine's own writers
+  (create, setDue, setOnHold, say) with controls. Warnings fixed: every task above the parent must be finished; an
+  empty or unreadable history is no longer "never touched" (the history must begin with its creation); the line
+  speaks to the task's owner ("If one is yours"). Nits fixed: the server test's header; the history control uses real
+  row kinds; the rule is three short lines (each under 200 characters, asserted). Recorded: the transcript read twice
+  per candidate. Engine 16/16, server 2/2, task suites 176/176, tree guards. Broken copies: allow-all, parent only:
+  each red.
+- Round 3: 0 blockers, 5 warnings, 4 nits. Fixed: hold rows dropped from the allow-list (via 'agent' means "not the
+  screen", which includes the person's terminal); a task with an open task under it is not offered (tested, with a
+  closed-child control); the server test gives every task its real creation row, so each fails only on its named
+  rule (turning off the filed-by and made-before checks now reds it). Decided and recorded on the card: safety over
+  coverage (the allow-list rejects agent-only histories whose rows name nobody: Assigner hand-outs, messages, parts);
+  built and held tasks are never offered (the person reviews or parked them). Nits: stale comments, #5's title, the
+  plan's checks heading, the card's old rule (a new comment replaces it). Not taken: a screen-opened mark as a hint
+  (the allow-list already rules out anything the person did that is recorded). Engine 17/17, server 2/2.
+- Round 4: 0 blockers, 3 warnings, 3 nits. Fixed: every task under it at ANY depth must be closed and an agent's (an
+  open grandchild, or a closed step the person added, ruled it in before); the route wraps the offer in a try/catch
+  that offers nothing (a throw left the request hanging: the new test fails without it, by timeout); the filer's own
+  wait counts too, for an unassigned task; the plain-list test now has an offered task, so it can fail. Recorded: the
+  tmux-session identity limit (Known limit). Engine 19/19, server 3/3, task suites 180/180, tree guards. Broken copies:
+  one level only, no filer check, no try/catch: each red.
+- Round 5: 0 blockers, 2 warnings, 2 nits. Fixed: every task under it gets the task's own checks (a named agent filed
+  it, nothing the person set up, agentsOwn) and an agent-only history too (a closed step from the person's Terminal,
+  or with a screen part, ruled it in before); the server test's requests have a 5 s deadline, so a hang fails in
+  5 s (measured) rather than at fetch's 300 s. Nits: the loop test now loops through the task itself; a stale comment.
+  Engine 21/21, server 3/3. Broken copies: no child history, child not checked as the agent's: each red.
+- Round 6: 0 blockers, 2 warnings, 4 nits. Warning fixed: a task with anything under it is now never offered. A closed
+  step's history always has a "closed" row naming nobody, so the descendant checks of rounds 4 and 5 could never pass
+  and their control was a false claim; the descendant code is gone. Warning fixed: the loop guard above the parent is
+  tested in a child process with a deadline (removing the guard times it out at 10 s, measured; a sync loop on the
+  request path is beyond any try/catch). Nits: doc comments moved above leftUnder and retireOffers; the dead
+  "up === task.number" dropped; the cheap child check comes first; the duplicated history read is gone with the
+  descendant code. The card has a comment stating the rule change. Engine 19/19, server 3/3.
+- Round 7: 0 blockers, 1 warning, 2 nits. Warning fixed: the allow-list's named-agent rule for assigned, built,
+  unbuilt and run rows is tested both ways (each naming nobody, or marked as the person's, rules it out; each naming
+  kit is the control), and against the engine's own writers (assignPart through the CLI naming nobody, setBuilt by
+  the person). Nits: stale "every task under it" comments; the plan's rule list now says nothing under it.
+- Round 8 (the cap): 0 blockers, 1 warning, 2 nits, all fixed. Warning: a parent can be closed with the person's own
+  task still open under it, so a sibling leftover was offered as "the work has finished"; now another task under the
+  parent that is open and the person's, built or held rules it out (tested with two controls; three older tests'
+  controls shared a parent with such tasks and now each has its own fixture; the server fixture's #4 and #7 moved
+  under a second finished cycle, #9). Nits: the server's old cost comment names the snapshot; the server test header
+  says what the code checks. Engine 20/20, server 3/3, task suites 181/181, tree guards.
+- STOPPED AT THE 8-ROUND CAP, not converged by a clean round: round 8 still found a warning, fixed here without a
+  ninth review. Findings shrank every round (12, 8, 8, 6, 4, 4, 6 with 0 blockers since round 3, 3); the PR says so.
