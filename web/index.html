@@ -41835,6 +41835,7 @@ function talkFilterRows(rows, name, q) {
     || String(m.text || '').toLowerCase().includes(needle));
 }
 let TALK_QUERY = '';
+const DM_KEPT_HIDDEN = 'Your message is kept to send later. Clear the search to see it.';   // kosmos#7208 review 4
 /* #5406 part 2 slice C: the choices of the question an agent's screen shows, as buttons in that question's bubble.
    Josh's #3419 ruling: no prompt box and no banner; the question is an ordinary message, and these sit inside it, to
    press or to ignore (typing still works). Only what the server could be sure of (options and the question's identity,
@@ -43310,7 +43311,8 @@ async function sendTalk(text, attachment) {
       clearSent();
       /* Review 3: the row is not announced, and a search can hide it. Heard once (the quiet region, after "Sending…"),
          and under the box only when a search keeps the row out of sight. */
-      line = TALK_QUERY.trim() ? 'Your message is kept to send later. Clear the search to see it.' : '';
+      // Review 4: only when the search really hides it (the row's own words, as the thread filters them).
+      line = TALK_QUERY.trim() && !talkFilterRows([{ from: 'you', text }], name, TALK_QUERY).length ? DM_KEPT_HIDDEN : '';
       if (!flightMoved()) dmReplyAnnounce(dmHeldWords(name, d, typeof dmHeldAgent === 'function' ? dmHeldAgent(null, name, sentName) : null));
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
@@ -76989,7 +76991,7 @@ function paintRoom(body) {
 document.getElementById('d-talk-search').addEventListener('input', () => {
   TALK_QUERY = document.getElementById('d-talk-search').value;
   const said = document.getElementById('d-say-msg');   // #4256: "hidden by your search" is stale once the search changes
-  if (said && said.textContent === 'That message is hidden by your search.') said.textContent = '';
+  if (said && (said.textContent === 'That message is hidden by your search.' || said.textContent === DM_KEPT_HIDDEN)) said.textContent = '';
   const th = document.getElementById('d-dmthread');
   // #5624 review 3: only the agent on screen's own thread (as talkPaintPending checks), never the last agent's.
   if (!th.__lastBody || th.__lastSession !== (CURRENT && CURRENT.sessionName)) return;
@@ -78257,7 +78259,7 @@ function dmHeldWords(name, d, a) {
   /* Review 3: a card that knows decides. The server keeps a sign-in or usage hold only while the card reads signed out
      or out of usage (signinHeldVerdict, limitHeldVerdict); any other known state has released it. The hold's own words
      stand only when there is no card, or it cannot say (unknown, stale, a lost connection, restarting, remembered). */
-  const unsure = !a || !st || a.screenRead === 'remembered' || ['unknown', 'stale', 'connection_lost', 'error', 'restarting'].includes(st);
+  const unsure = !a || !st || a.screenRead === 'remembered' || ['unknown', 'restarting'].includes(st);   // the board's states that cannot say (engine/status.js STATE)
   const signedOut = st === 'auth_failed' || (d.heldFor === 'signin' && unsure);
   const stopped = !!a && !signedOut && !cardOut && st !== 'restarting' && (a.running === false || st === 'stopped');
   const usageHold = !d.behind && d.heldFor !== 'input' && d.heldFor !== 'signin';
@@ -78269,12 +78271,15 @@ function dmHeldWords(name, d, a) {
   let said;
   if (signedOut) said = name + ' is signed out.' + after('once ' + name + ' is signed in again');
   else if (out) {
-    const until = soon(cardAt > now ? cardAt : heldAt);
+    // A sign-in hold's heldUntil is the sign-in's one-minute relook, not a reset: never said as one (review 4).
+    const until = soon(cardAt > now ? cardAt : (d.heldFor === 'signin' ? NaN : heldAt));
     // The card can only guess at a limit it read off the screen (stateConfidence 'scraped'); the row hedges as it does.
     const guess = cardOut && !usageHold && a.stateConfidence === 'scraped';
     said = name + (guess ? ' looks to be out of usage' : ' is out of usage') + (until ? ' until ' + until : '') + '.'
       + after(box ? 'once ' + name + ' is back and its message box is clear' : 'when ' + name + ' is back');
   } else if (stopped) said = name + ' is not running.' + after('when ' + name + ' is running again');
+  // Review 4: both holds are released then; the connection coming back is what delivers it.
+  else if (st === 'connection_lost') said = name + ' lost its connection.' + after('when ' + name + ' is connected again');
   // Ahead of it are other messages to this agent, from anyone (other agents, task notices), not only the person's.
   else if (d.behind === true) said = 'Queued behind earlier messages to ' + name + '.';
   // #6774: its message box holds text not yet sent; the minute sweep sends this once the box reads empty.

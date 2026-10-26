@@ -121,7 +121,20 @@ function readRow(page, words) {
     await page.waitForTimeout(400);
     const searching = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
     chk(searching === 'Your message is kept to send later. Clear the search to see it.', 'while searching, the line under the box says where the message went', searching);
-    await page.evaluate(() => { TALK_QUERY = ''; document.getElementById('d-say-msg').textContent = ''; window.__fx = Object.assign({}, window.__fx, { messages: window.__fx.messages.filter((m) => m.text !== 'one more') }); paintTalk('april', 'April'); });
+    // Review 4: changing the search clears that line, as it does the #4256 one.
+    await page.evaluate(() => { const i = document.getElementById('d-talk-search'); i.value = ''; i.dispatchEvent(new Event('input')); });
+    const cleared = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(cleared === '', 'clearing the search clears the line', JSON.stringify(cleared));
+    /* 2c. Review 4: a search the new message matches leaves its row in sight, so nothing is said under the box. */
+    await page.evaluate((u) => {
+      TALK_QUERY = 'invoice';
+      window.__sendAnswer = { delivery: { state: 'held', heldUntil: u, because: 'held: out of usage', at: new Date().toISOString() }, recorded: true, recordedBecause: null };
+      const s = document.getElementById('d-say'); s.value = 'send the invoice tonight'; sendTalk('send the invoice tonight');
+    }, UNTIL);
+    await page.waitForTimeout(400);
+    const matching = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(matching === '', 'a search the message matches says nothing under the box', JSON.stringify(matching));
+    await page.evaluate(() => { TALK_QUERY = ''; document.getElementById('d-say-msg').textContent = ''; window.__fx = Object.assign({}, window.__fx, { messages: window.__fx.messages.filter((m) => m.text !== 'one more' && m.text !== 'send the invoice tonight') }); paintTalk('april', 'April'); });
     await page.waitForTimeout(300);
 
     /* 3. Send now anyway: the row's at is posted, and the row repaints as sent. */

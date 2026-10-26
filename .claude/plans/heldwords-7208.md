@@ -63,3 +63,10 @@ again under the composer.
   - The "waiting on an answer" line is gone: a question on screen may or may not hold the sweep, so the neutral line
     ("X is back. This goes through when Kosmos can type it.") is the true one.
   - The em dash quoted in review2 removed.
+- Round 4 (.claude/plans/heldwords-7208-review4.md): 0 blockers, 1 warning, 2 nits. All taken:
+  - The search line is said only when the search really hides the kept row (talkFilterRows on its own words), and the
+    search input clears it, as it clears #4256's line. Browser cases: a matching search says nothing; clearing the
+    search clears it. Both go red on round 3's code.
+  - A sign-in hold never takes its time from heldUntil (that is the one-minute relook, not a reset).
+  - "unsure" is the board's own states that cannot say (unknown, restarting); connection_lost has its own line ("X lost
+    its connection. This delivers when X is connected again."), since both holds are released then.
