@@ -79,6 +79,7 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'sendertoken.prune-ended-5208.test.js',   // kosmos#5208: sealing, compacting and deleting files a reader may hold open, on Windows too
   'restoresink.test.js',   // #5536: the restore sink's Windows duties (Unicode names, link on NTFS, junction refusal) are measured here
   'restoreresume-5536.test.js',   // #5536 slice 3: resume on NTFS (case-folded names, the record and lock identity checks where O_NOFOLLOW is 0)
+  'restoreworld-5536.test.js',   // #5536 slice 4b: the restored workers and projects moved into the new Kosmos by rename on NTFS, and the sink opened on the folder made for it
   'accounts.wiredefaulthooks-5612.test.js',   // #5612: the default account's reporting hooks, wired on the real win32 platform
   'computerprint-5532.test.js',   // #5532: the computer print's real-registry arm reads this runner's registry
   'orgenroll-5531.test.js',   // #6113: its owner-only checks skip and its unreadable-id arm swaps the file for a folder on Windows
