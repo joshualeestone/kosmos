@@ -168,6 +168,8 @@ case "$me" in
     esac ;;
   xcode-select) [ "${FX_NO_CLT:-0}" = 1 ] && exit 2; echo /Library/Developer/CommandLineTools ;;
   ps) [ "${FX_PS_FAIL:-0}" = 1 ] && exit 1
+    # kosmos#5488: one pid's owner. FX_LIVE_USERS="<pid>=<user> ..."; a pid not listed is gone (macOS ps exits 1).
+    case "$*" in "-o user= -p "*) for kv in ${FX_LIVE_USERS:-}; do [ "${kv%%=*}" = "$4" ] && { echo "${kv#*=}"; exit 0; }; done; exit 1 ;; esac
     # An idle runner as svc.sh starts it (actions/runner runsvc.sh): its service host is node.
     printf '%s\n' "/bin/bash /Users/kosmos-ci/actions-runner/runsvc.sh" "./externals/node24/bin/node ./bin/RunnerService.js" \
       "/Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service"
@@ -267,6 +269,21 @@ refuse() {  # refuse <case> <expected REFUSE text> <env...>
 refuse launchd "non-Apple launchd job(s) still loaded" FX_JOBS=com.kosmos.board
 refuse crontab "crontab still has lines" "FX_CRON=*/10 * * * * mcp-sweep-alert.sh"
 refuse suite "a suite looks live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh"
+# kosmos#5488: the owner's suite still refuses when the owner is known, and a runner's suite beside it does not hide it.
+refuse suite-owner "a suite looks live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh" "FX_LIVE_USERS=123=agent1"
+refuse suite-mixed "123 bash tools/run-tests.sh" "FX_LIVE=456 bash tools/run-tests.sh
+123 bash tools/run-tests.sh" "FX_LIVE_USERS=456=kosmos-ci 123=agent1"
+has pf-suite-mixed "a runner's suite, not counted (kosmos-ci): 456" && ! grep REFUSE "$T/pf-suite-mixed.out" | grep -q -F 456 \
+  && pass "preflight: beside an owner's suite, only the owner's line is refused" \
+  || fail "preflight suite-mixed: $(grep -E 'REFUSE|not counted' "$T/pf-suite-mixed.out" | head -3)"
+refuse suite-lookalike-user "a suite looks live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh" "FX_LIVE_USERS=123=kosmos-cix.y"
+# A suite run by another runner user (a second runner, set up while the first is busy) is a note, not a refusal.
+run pf-suite-runner "$H" "FX_LIVE=456 bash tools/run-tests.sh
+457 node tools/shell-shard.js queued-heavy.sh" "FX_LIVE_USERS=456=kosmos-ci 457=kosmos-ci2" -- preflight
+[ "$(rc pf-suite-runner)" = 0 ] && has pf-suite-runner "a runner's suite, not counted (kosmos-ci): 456" \
+  && has pf-suite-runner "a runner's suite, not counted (kosmos-ci2): 457" && ! has pf-suite-runner "REFUSE: " \
+  && pass "preflight: a runner user's suite is noted, not refused" \
+  || fail "preflight suite-runner: rc $(rc pf-suite-runner): $(grep -E 'REFUSE|suite' "$T/pf-suite-runner.out" | head -3)"
 refuse disk "under the 20 GiB floor" FX_FREE_KIB=10485760
 refuse filevault "FileVault is not plainly off" "FX_FV=FileVault is On."
 refuse filevault-deferred "FileVault is not plainly off" "FX_FV=FileVault is Off, but will be enabled after the next restart."
