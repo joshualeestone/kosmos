@@ -33,74 +33,74 @@ snapshot, so a projects file unreadable only for that instant could still keep a
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 3 NITs
 **Self-generated:** 0
-- [WARNING] engine/taskchat.js:163 — a projects-file parse per read() (quadratic in loops) --> FIXED: engine/projectborn.js, cached by the file's identity (674a2a702b)
-- [WARNING] engine/taskchat.js:152 — the filter failed open on an unreadable projects file --> FIXED: fails closed (674a2a702b)
+- [WARNING] engine/taskchat.js:163: a projects-file parse per read() (quadratic in loops) --> FIXED: engine/projectborn.js, cached by the file's identity (674a2a702b)
+- [WARNING] engine/taskchat.js:152: the filter failed open on an unreadable projects file --> FIXED: fails closed (674a2a702b)
 - [NIT] JSDoc placement; plan wording on precedents; the no-record test is not discriminating --> taken where cheap
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 5 WARNINGs, 4 NITs
 **Self-generated:** 0
-- [WARNING] engine/messages.js:962 — fail closed returned ok:true with rows missing, defeating callers that check ok --> FIXED: ok:false (2f8d4cbc80)
-- [WARNING] engine/messages.js:962 — record() re-filtered the whole log on every call --> FIXED: filtered rows cached (2f8d4cbc80)
-- [WARNING] engine/messages.js:962 — reactions and claims on hidden posts --> DEFERRED: accepted, recorded in the plan
-- [WARNING] engine/projectborn.js:55 — rows with no record stay visible; restore case --> DEFERRED: recorded as the weakest premise
+- [WARNING] engine/messages.js:962: fail closed returned ok:true with rows missing, defeating callers that check ok --> FIXED: ok:false (2f8d4cbc80)
+- [WARNING] engine/messages.js:962: record() re-filtered the whole log on every call --> FIXED: filtered rows cached (2f8d4cbc80)
+- [WARNING] engine/messages.js:962: reactions and claims on hidden posts --> DEFERRED: accepted, recorded in the plan
+- [WARNING] engine/projectborn.js:55: rows with no record stay visible; restore case --> DEFERRED: recorded as the weakest premise
 - [WARNING] plan out of date --> FIXED (163df346ee)
 
 #### Iteration 3
 **Reviewer model:** opus
 **New findings:** 1 BLOCKER, 3 WARNINGs, 2 NITs
 **Self-generated:** 0
-- [BLOCKER] server.room-paged-7032 and server.roomread-seen-4926 — five tests planted rows before their project --> FIXED: dated back (8c8caeb131)
+- [BLOCKER] server.room-paged-7032 and server.roomread-seen-4926: five tests planted rows before their project --> FIXED: dated back (8c8caeb131)
 - [WARNING] plan's fixture search incomplete --> FIXED: a sweep of every test file touching the stores
-- [WARNING] engine/messages.js:983 — lastPostAt read raw rows; tail mixed filtered and raw lengths --> FIXED (8c8caeb131)
-- [WARNING] engine/messages.js:963 — every ok-checking reader tied to the projects file --> DEFERRED: accepted and recorded
+- [WARNING] engine/messages.js:983: lastPostAt read raw rows; tail mixed filtered and raw lengths --> FIXED (8c8caeb131)
+- [WARNING] engine/messages.js:963: every ok-checking reader tied to the projects file --> DEFERRED: accepted and recorded
 
 #### Iteration 4
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 3 NITs
 **Self-generated:** 1 (the record() comment)
-- [WARNING] engine/messages.js:1520/2318/3823 — post, fold, valve and react used rows without checking ok --> FIXED: could-not-read (87453073a6)
-- [WARNING] engine/messages.js:4032 — HELD_MEMO keyed on a filtered length --> FIXED: keys on the stamp (87453073a6)
-- [WARNING] engine/receipt.js:472 — an empty receipt kept from an unreadable read --> FIXED (87453073a6)
+- [WARNING] engine/messages.js:1520/2318/3823: post, fold, valve and react used rows without checking ok --> FIXED: could-not-read (87453073a6)
+- [WARNING] engine/messages.js:4032: HELD_MEMO keyed on a filtered length --> FIXED: keys on the stamp (87453073a6)
+- [WARNING] engine/receipt.js:472: an empty receipt kept from an unreadable read --> FIXED (87453073a6)
 
 #### Iteration 5
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 2 NITs
 **Self-generated:** 1 (the post guard)
-- [WARNING] engine/messages.js:2321 — the post guard also caught an unreadable LOG, reversing the recorded fail-open trade --> FIXED: stampsUnknown only (45f6e5a6c4)
-- [WARNING] engine/messages.js:3648 — freeClaim lacked react's guard --> FIXED, tested (45f6e5a6c4)
-- [WARNING] engine/messages.js:3827 — the react guard was untested --> FIXED, tested (45f6e5a6c4)
+- [WARNING] engine/messages.js:2321: the post guard also caught an unreadable LOG, reversing the recorded fail-open trade --> FIXED: stampsUnknown only (45f6e5a6c4)
+- [WARNING] engine/messages.js:3648: freeClaim lacked react's guard --> FIXED, tested (45f6e5a6c4)
+- [WARNING] engine/messages.js:3827: the react guard was untested --> FIXED, tested (45f6e5a6c4)
 
 #### Iteration 6
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 2 NITs
 **Self-generated:** 1 (lastPostAt)
-- [WARNING] engine/messages.js:1004 — lastPostAt could answer null between two snapshots --> FIXED: undefined (dcc1ee1f13)
-- [WARNING] engine/taskchat.js:159 — read() and seenAt() answer empty while the stamps are unknown --> DEFERRED: accepted, said at each site and in the plan
-- [WARNING] engine/messages.js:971 — partial rows with ok:false --> DEFERRED: deliberate (direct messages), callers named in the comment
+- [WARNING] engine/messages.js:1004: lastPostAt could answer null between two snapshots --> FIXED: undefined (dcc1ee1f13)
+- [WARNING] engine/taskchat.js:159: read() and seenAt() answer empty while the stamps are unknown --> DEFERRED: accepted, said at each site and in the plan
+- [WARNING] engine/messages.js:971: partial rows with ok:false --> DEFERRED: deliberate (direct messages), callers named in the comment
 
 #### Iteration 7
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING, 4 NITs
 **Self-generated:** 1 (memo comments)
-- [WARNING] engine/messages.js:4036/4148 — memo comments described the old key --> FIXED (9879521d67)
+- [WARNING] engine/messages.js:4036/4148: memo comments described the old key --> FIXED (9879521d67)
 - [NIT] one stamp per reading; receipt check after the read; outbox noted --> taken
 
 #### Iteration 8
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 3 NITs
 **Self-generated:** 0
-- [WARNING] engine/messages.js:783 — the outside-post day cap seeds from zero while the stamps are unknown --> DEFERRED: the recorded fail-open trade, now said in the comment and plan
-- [WARNING] engine/projectborn.js:60 — the stamp lookup used the raw id, the stores key by safeKey --> FIXED, tested (a2159cbe21)
-- [WARNING] engine/receipt.js:472 — a receipt shown with no holds then --> DEFERRED: accepted, recorded
+- [WARNING] engine/messages.js:783: the outside-post day cap seeds from zero while the stamps are unknown --> DEFERRED: the recorded fail-open trade, now said in the comment and plan
+- [WARNING] engine/projectborn.js:60: the stamp lookup used the raw id, the stores key by safeKey --> FIXED, tested (a2159cbe21)
+- [WARNING] engine/receipt.js:472: a receipt shown with no holds then --> DEFERRED: accepted, recorded
 
 #### Iteration 9
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 5 NITs
 **Self-generated:** 0
 - [NIT] the receipt keep's third snapshot (residual stated above); logRoomRefusal dedupe while unknown; freeClaim's second record(); re-filter cost on projects writes; the room read cursor and fedseats not in the checked list
-**Converged** — no new actionable findings.
+**Converged**: no new actionable findings.
 
 ### Final Ledger
 
