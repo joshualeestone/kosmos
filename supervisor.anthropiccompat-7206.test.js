@@ -126,8 +126,8 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
   const out = nodePath.join(SANDBOX, `seen-${sock}.txt`);
   const fake = nodePath.join(SANDBOX, `fake-claude-${sock}.sh`);
   fs.writeFileSync(fake, `#!/bin/bash\n{ printf 'ARGS %s\\n' "$*"; env; } > "${out}.part" && mv "${out}.part" "${out}"\nsleep 2\n`, { mode: 0o755 });
-  const tm = (...a) => spawnSync(wrap, a, { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: SANDBOX } });
-  const session = `agent-t${++n}`;   // the agent's tmux session on the private server   // no TMUX_TMPDIR: /tmp
+  const tm = (...a) => spawnSync(wrap, a, { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: SANDBOX } });   // no TMUX_TMPDIR: /tmp
+  const session = `agent-t${++n}`;   // the agent's tmux session on the private server
   try {
     tm('new-session', '-d', '-s', 'keepalive', 'sleep 60');
     for (const [k, v] of [['ANTHROPIC_API_KEY', 'sk-ant-global-leak'], ['ANTHROPIC_BASE_URL', 'https://global.example'],
