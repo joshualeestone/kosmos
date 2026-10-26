@@ -580,7 +580,7 @@ function replyFileAbsolute(file, cwd, p) {
     const joined = cwd.replace(/[\\/]+$/, '') + '\\' + file;
     return /^[A-Za-z]:[\\/]/.test(joined) ? joined : null;
   }
-  return file.startsWith('/') ? file : cwd + '/' + file;
+  return file.startsWith('/') ? file : cwd.replace(/\/+$/, '') + '/' + file;
 }
 /* #6726: the second usage line install/kosmos prints for reply (tools.windows-kosmos-cli-reply-file-6726.test.js pins it to install/kosmos's). */
 const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
@@ -610,9 +610,17 @@ async function verbReply(ctx, args) {
       if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(USAGE_REPLY_FILE_NEEDS_PATH); return 2; }
       const given = file;
       file = replyFileAbsolute(given, ctx.cwd(), ctx.pathRules);
-      if (file === null) { ctx.err('Give the file\'s full path on this computer, starting with its drive (C:\\...), so nothing was sent: ' + given + ' is not one.'); return 2; }
-      /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. */
-      if (/[\u0000-\u001f\u007f]/.test(file)) { ctx.err('That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.'); return 2; }
+      if (file === null) {
+        // A relative path refused because the folder it is joined onto is not on a drive: say so, naming that folder.
+        const rel = !/^[A-Za-z]:/.test(given) && !/^[\\/]/.test(given);
+        ctx.err(rel
+          ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + ctx.cwd() + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:\\...).'
+          : 'Give the file\'s full path on this computer, starting with its drive (C:\\...), so nothing was sent: ' + given + ' is not one.');
+        return 2;
+      }
+      /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. C1 too (U+0080 to U+009F),
+         as bash's [[:cntrl:]] matches them in a UTF-8 locale. */
+      if (/[\u0000-\u001f\u007f-\u009f]/.test(file)) { ctx.err('That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.'); return 2; }
     }
     args = rest;
   }

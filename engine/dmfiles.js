@@ -47,10 +47,10 @@ const FOLDER = 'Files';
 /* #6726: `kosmos reply --file` hands the person the file itself, as an attachment they download in the
    conversation. This paragraph is left out on a Windows board: the Windows `kosmos` takes --file too (its usage
    and --help name it, as on a Mac), but the board's checks of which files may go (engine/replyfile.js) have never
-   run on Windows, so this block waits for one real run there. The route attaches only for a sender its AGENT token names (server.js /api/reply), and only agents
-   Kosmos starts get one
-   (bin/agent-supervisor.sh mints it); an adopted agent (a tmux session Kosmos found, launched by its own script)
-   receives this block too and has none, so the sentence says who can (review r7 finding 3). */
+   run on Windows, so this block waits for one real run there. The route attaches only for a sender its AGENT token
+   names (server.js /api/reply), and only agents Kosmos starts get one (bin/agent-supervisor.sh mints it); an adopted
+   agent (a tmux session Kosmos found, launched by its own script) receives this block too and has none, so the
+   sentence says who can (review r7 finding 3). */
 const ATTACH_PARAGRAPH = process.platform === 'win32' ? [] : [
   'If Kosmos started you (an agent Kosmos started has its own agent token), you',
   'can hand them the file itself by attaching it to your reply:',

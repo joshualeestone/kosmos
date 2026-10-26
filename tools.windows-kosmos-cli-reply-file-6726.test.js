@@ -46,6 +46,10 @@ const replies = (r) => r.calls.filter((c) => c.route === '/api/reply');
 const ON_WINDOWS = process.platform === 'win32';
 const abs = (...parts) => (ON_WINDOWS ? 'C:\\' + parts.join('\\') : '/' + parts.join('/'));
 const ABS = abs('x', 'Files', 'cut.mp4');
+/* The folder the command runs in, injected as a literal, so a relative path's expected result does not depend on
+   where this suite runs (a network folder on Windows is refused on purpose; `/` on a Mac must not give `//`). */
+const HERE = ON_WINDOWS ? 'C:\\work' : '/work';
+const atHere = { cwd: () => HERE };
 
 test('#6726: --file sends an absolute path with the words, and says what was attached', async () => {
   const r = await run(['reply', '--file', ABS, 'Here', 'it', 'is'], kept);
@@ -57,15 +61,20 @@ test('#6726: --file sends an absolute path with the words, and says what was att
 });
 
 test('#6726: a relative path is made absolute from where the command runs, joined as text', async () => {
-  const r = await run(['reply', '--file=Files/notes.md', 'notes'], kept);
+  const r = await run(['reply', '--file=Files/notes.md', 'notes'], kept, undefined, atHere);
   assert.equal(r.code, 0, r.err);
-  assert.equal(replies(r)[0].body.file, process.cwd().replace(/[\\/]+$/, '') + path.sep + 'Files/notes.md');
+  assert.equal(replies(r)[0].body.file, HERE + path.sep + 'Files/notes.md');
+  /* The root folder joins without a doubled separator. */
+  if (!ON_WINDOWS) {
+    const root = await run(['reply', '--file=Files/notes.md', 'notes'], kept, undefined, { cwd: () => '/' });
+    assert.equal(replies(root)[0].body.file, '/Files/notes.md');
+  }
 });
 
 test('#6726 review 1: a .. in the path reaches the board as given (the board refuses it there, as on a Mac)', async () => {
-  const rel = await run(['reply', '--file', 'Files/sub/../x.txt', 'x'], kept);
+  const rel = await run(['reply', '--file', 'Files/sub/../x.txt', 'x'], kept, undefined, atHere);
   assert.equal(rel.code, 0, rel.err);
-  assert.equal(replies(rel)[0].body.file, process.cwd().replace(/[\\/]+$/, '') + path.sep + 'Files/sub/../x.txt', 'the .. was rewritten before it was sent');
+  assert.equal(replies(rel)[0].body.file, HERE + path.sep + 'Files/sub/../x.txt', 'the .. was rewritten before it was sent');
   const dotted = abs('a', 'Files', 'sub', '..', 'x.txt');
   const given = await run(['reply', '--file', dotted, 'x'], kept);
   assert.equal(given.code, 0, given.err);
@@ -102,6 +111,11 @@ test('#6726 review 3: under the Windows path rules, reply refuses a path with no
   const rel = await run(['reply', '--file', 'Files\\notes.md', 'x'], kept, undefined, { ...win, cwd: () => 'C:\\Users\\a\\' });
   assert.equal(rel.code, 0, rel.err);
   assert.equal(replies(rel)[0].body.file, 'C:\\Users\\a\\Files\\notes.md');
+  /* Review 6: a relative path from a folder that is not on a drive is refused, and the refusal names that folder. */
+  const share = await run(['reply', '--file', 'Files\\notes.md', 'x'], kept, undefined, { ...win, cwd: () => '\\\\host\\share\\w' });
+  assert.equal(share.code, 2, share.err);
+  assert.match(share.err, /is joined onto the folder this command runs in, and \\\\host\\share\\w is not on a drive/);
+  assert.equal(replies(share).length, 0, 'a relative path from a network folder reached the board');
   /* CONTROL: a path on a drive is sent as given, and the file is named by the Windows rules (posix would name it whole). */
   const ok = await run(['reply', '--file', 'C:\\a\\Files\\cut.mp4', 'x'], kept, undefined, win);
   assert.equal(ok.code, 0, ok.err);
@@ -190,8 +204,8 @@ test('#6726: on a wrong-world board a reply with a file is not kept for later', 
 
 test('#6726 r1-7: a path with a line break, a tab or another control character is refused, and nothing is sent', async () => {
   /* Each is absolute on the platform running this, so the control character is what is refused (review 3). */
-  for (const bad of [abs('x', 'Files', 'two\nlines.txt'), abs('x', 'Files', 'tab\there.txt'), abs('x', 'Files', 'bell\u0007.txt'), 'rel\u001fative.txt']) {
-    const r = await run(['reply', '--file', bad, 'x'], kept);
+  for (const bad of [abs('x', 'Files', 'two\nlines.txt'), abs('x', 'Files', 'tab\there.txt'), abs('x', 'Files', 'bell\u0007.txt'), abs('x', 'Files', 'nel\u0085.txt'), 'rel\u001fative.txt']) {
+    const r = await run(['reply', '--file', bad, 'x'], kept, undefined, atHere);
     assert.equal(r.code, 2, JSON.stringify(bad) + ': ' + r.err);
     assert.match(r.err, /control character in it, so it cannot be attached/, JSON.stringify(bad));
     assert.equal(replies(r).length, 0, 'a path with a control character reached the board');
