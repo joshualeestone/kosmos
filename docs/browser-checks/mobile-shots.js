@@ -1520,6 +1520,36 @@ const SCREENS = [
     });
     await page.waitForSelector('#acct-qwen-local', { state: 'visible', timeout: 8000 });
   } },
+  /* #7206: DeepSeek while its switch is OFF (the default): the Add a provider menu, opened, lists it as coming soon. */
+  { name: 'settings-add-deepseek-soon', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => { openAcctAdd(); });
+    await page.waitForFunction(() => { const o = document.querySelector('#acct-provider-pick option[value="deepseek"]'); return o && o.disabled; }, null, { timeout: 5000 });
+    await page.evaluate(() => {
+      const t = document.getElementById('acct-provider-pick').nextElementSibling.querySelector('.pcombo-trigger');
+      t.click();
+    });
+    await page.waitForSelector('.pcombo-list:not([hidden]) [data-value="deepseek"]', { state: 'visible', timeout: 5000 });
+  } },
+  /* #7206: DeepSeek while its switch is ON: the key form. The board's answer to "is DeepSeek offered" is stubbed on, as
+     the Qwen screens stub theirs, so this shoots the page and needs no switch on the throwaway board. */
+  { name: 'settings-add-deepseek', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
+    await page.route((u) => new URL(u).pathname === '/api/accounts/compat', (route) => (route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: true,
+        vendors: [{ id: 'deepseek', name: 'DeepSeek', models: ['deepseek-chat', 'deepseek-reasoner'], keyPage: 'https://platform.deepseek.com/api_keys' }] }) })
+      : route.continue()));
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => { openAcctAdd(); });
+    await page.waitForFunction(() => { const o = document.querySelector('#acct-provider-pick option[value="deepseek"]'); return o && !o.disabled; }, null, { timeout: 5000 });
+    await page.evaluate(() => {
+      const sel = document.getElementById('acct-provider-pick');
+      sel.value = 'deepseek';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.waitForSelector('#acct-compat-flow', { state: 'visible', timeout: 5000 });
+  } },
   /* #5977: the same step while qwen2.5:7b downloads (the bar, and the sentence written once). */
   { name: 'settings-add-qwen-downloading', owner: 'PigeonPete', noServiceWorker: true, go: async (page, data) => {
     page.__qwenLocal = { state: 'needs_download', because: 'Ollama does not have qwen2.5:7b yet', model: 'kosmos-qwen2.5-7b-16k:latest',
