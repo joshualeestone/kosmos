@@ -10956,6 +10956,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* And the same in Settings' Add a provider dialog (review pass 2), where the choice, the install and
    the key step are the same buttons and drew the same blue. */
 #acct-add-dialog .btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* kosmos#7198: the login notice opens this dialog on any page, a phone included, so its buttons are finger-sized there. */
+@media (pointer: coarse) { #acct-add-dialog .btn { min-height: 44px; } }
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 /* When a permission step's action FAILS, its message must read as an error, not
@@ -23916,7 +23918,10 @@ function loginAdvGo(dir, email, opener) {
      page, so the page underneath stays as it was and closing it leaves them there. The notice names a folder only when
      it is the one its AI Models row reads (status.js dirOf), so the dialog signs in again as that account. A notice
      with no such folder still goes to AI Models, below. */
-  if (typeof dir === 'string' && dir && typeof openAcctReauth === 'function') {
+  /* The board names a folder only when AI Models lists it (status.js dirOf); if this page has the list and it no longer
+     has that row (removed since), AI Models instead. */
+  const listed = !(typeof ACCOUNTS_LOADED !== 'undefined' && ACCOUNTS_LOADED && Array.isArray(ACCOUNTS)) || ACCOUNTS.some((a) => a && a.dir === dir);
+  if (typeof dir === 'string' && dir && listed && typeof openAcctReauth === 'function') {
     ACCT_ADD_RETURN_FOCUS = opener && typeof opener.focus === 'function' ? opener : null;
     openAcctReauth(dir, typeof email === 'string' ? email : '');
     return;

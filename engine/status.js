@@ -8947,8 +8947,13 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
         const def = path.join(accounts.homeDir(), '.claude');
         const dir = set ? path.resolve(set) : def;
         const rowReads = le.serviceNameFor(dir === def ? undefined : dir);
-        return rowReads === adv.service ? dir : null;
+        /* kosmos#7198: and only a folder AI Models lists as an account: the notice's Refresh login opens Sign in again
+           for this folder in place, which must never be a folder with no account row (removed, or never listed). */
+        return rowReads === adv.service && rowDirs && rowDirs.has(dir) ? dir : null;
       };
+      // The folders AI Models lists (accounts.list, read from disk; no live check). Unreadable: no notice names a row.
+      let rowDirs = null;
+      try { rowDirs = opts.rowDirs instanceof Set ? opts.rowDirs : new Set(accounts.list().map((a) => a && a.dir).filter(Boolean)); } catch { rowDirs = null; }
       const out = le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
         .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf), dir: dirOf(a) }));
       // A run through the readCcd seam (a test) writes nothing unless it asks for the lines with opts.log (review 3).

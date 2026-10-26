@@ -153,9 +153,13 @@ test('#5407: each advisory names its account row\'s folder only when that row re
   const ccdByName = { roo: '/acct/one', cleo: null, pixel: '/acct/two/', ivy: nodePath.join(home, '.claude') };
   const readCcd = (a) => ccdByName[a.name];
   const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
-  const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] } });
+  const rowDirs = new Set(['/acct/one', '/acct/two', nodePath.join(home, '.claude')]);   // the folders AI Models lists
+  const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] }, rowDirs });
   const dirFor = (agent) => (out.find((a) => a.agents.includes(agent)) || {}).dir;
   assert.equal(dirFor('roo'), '/acct/one', 'a labelled folder names its row');
+  // kosmos#7198: the same folder with no account row in AI Models names nothing (Refresh login then opens AI Models).
+  const none = status.computeLoginAdvisories([panes[0]], now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] }, rowDirs: new Set() });
+  assert.equal(none[0] && none[0].dir, null, 'a folder with no account row was named');
   assert.equal(dirFor('cleo'), nodePath.join(home, '.claude'), 'unset names the default row (the same spelling accounts.list gives)');
   // The two that READ ANOTHER LOGIN than the row of that folder: no row is named, so nothing wrong is ringed or hidden.
   assert.equal(dirFor('ivy'), null, 'an explicit ~/.claude reads its own keychain entry, not the default row\'s');

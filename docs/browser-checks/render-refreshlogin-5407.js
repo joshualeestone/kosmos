@@ -71,7 +71,10 @@ const ADV_ENDED = { agents: ['echo'], names: ['Echo'], daysLeft: -1, severity: '
   worksUntil: Date.now() + 5 * 3600000, provider: 'Claude', email: 'ended@example.com', dir: '/home/.claude-ended' };
 const ADV_GONE = { agents: ['leo'], names: ['Leo'], daysLeft: -2, severity: 'urgent', expired: true, service: 's-gone2',
   worksUntil: null, provider: 'Claude', email: 'gone@example.com', dir: '/home/.claude-gone2' };
-const ADV_NOROW = { ...ADV_SOON, service: 's-norow', email: 'gone@example.com', dir: '/home/.claude-gone' };
+// kosmos#7198: the board names no folder for a notice whose folder AI Models does not list (status.js dirOf).
+const ADV_NOROW = { ...ADV_SOON, service: 's-norow', email: 'gone@example.com', dir: '' };
+// The page's own guard: a folder the board named, but the account list this page holds no longer has.
+const ADV_GONEROW = { ...ADV_SOON, service: 's-gonerow', email: 'gone@example.com', dir: '/home/.claude-removed' };
 
 async function setUp(page, theme) {
   await page.goto('file://' + PAGE);
@@ -243,6 +246,16 @@ function readRows(page) {
     chk(c2.focusInSection, theme + ' C2: focus stays in AI Models, not lost to the page', JSON.stringify(c2));
     chk(c2.noticeStays === 1, theme + ' N3 (review 2): a notice with no warned row on screen stays, so the login is never left unwarned', JSON.stringify(c2));
     await p2.close();
+    // C3 (kosmos#7198): the board named a folder, but this page's account list no longer has it: AI Models, no dialog.
+    const p3 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    await setUp(p3, theme);
+    await p3.evaluate((accounts) => accountsRead(accounts), ACCOUNTS);
+    await p3.evaluate((a) => paintLoginAdvisories([a]), ADV_GONEROW);
+    await p3.click('#login-adv-slot button.login-adv-go');
+    await p3.waitForTimeout(300);
+    const c3 = await p3.evaluate(() => ({ dialog: !document.getElementById('acct-add-modal').hidden, accounts: !document.getElementById('s-sec-accounts').hidden }));
+    chk(!c3.dialog && c3.accounts, theme + ' C3: a folder this page no longer lists opens AI Models, not the dialog', JSON.stringify(c3));
+    await p3.close();
   }
 
   // K1 (kosmos#7198): in the one-screen layout, on a project, the dialog opens over the project and Settings stays shut.
