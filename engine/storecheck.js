@@ -55,6 +55,14 @@ const FOLDERS = {
   remote: 'Kosmos+ connection state',
 };
 const MAX_BYTES = 64 * 1024 * 1024;   // larger is not one of these stores; never read it whole
+/* Stores that hold a secret (a key, a token, a sign-in). Their damage is named, but no copy is kept or put back: a kept
+   copy of a secret outlives its own revocation, the residue engine/securewrite.js exists to prevent (review 1). */
+const SECRET_FILES = new Set(['remote.json', 'service-keys.json', 'org-enrollment.json', 'fed-seal-key.json', 'github-app.json',
+  'codex-signins.json', 'grok-signins.json', 'board.token']);
+const SECRET_FOLDERS = new Set(['sendertokens', 'communitysend', 'remote', 'backupkeys']);
+function holdsSecret(file) {
+  return SECRET_FILES.has(path.basename(file)) || SECRET_FOLDERS.has(path.basename(path.dirname(file)));
+}
 
 let FOUND = [];          // the damaged stores this start found
 let BASE_ROOT = null;    // where worlds.json lives, captured at start
@@ -69,13 +77,15 @@ function classify(buf) {
   if (!text.trim()) return 'empty';
   try { JSON.parse(text); return null; } catch { return 'unreadable'; }
 }
-const PROBLEM = { empty: 'is empty', nul: 'holds only empty bytes (a crash can leave a file like this)', unreadable: 'cannot be read as Kosmos data' };
+const PROBLEM = { empty: 'is empty', nul: 'is blank, as a crash can leave a file', unreadable: 'cannot be read as Kosmos data',
+  unopenable: 'cannot be opened (its permissions changed)', toobig: 'is too large for Kosmos to check' };
 
 function rel(abs) {
   // Said relative to the data root (or the base), never as a home path: board.log and the screen carry it.
   const r = path.relative(store.ROOT, abs);
-  if (!r.startsWith('..')) return r;
-  return BASE_ROOT ? path.relative(BASE_ROOT, abs) : path.basename(abs);
+  if (r && !r.startsWith('..') && !path.isAbsolute(r)) return r;
+  const b = BASE_ROOT ? path.relative(BASE_ROOT, abs) : '';
+  return b && !b.startsWith('..') && !path.isAbsolute(b) ? b : path.basename(abs);   // never an absolute path (Windows drives)
 }
 
 function candidates(dir) {
@@ -83,7 +93,8 @@ function candidates(dir) {
   let names = [];
   try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
   for (const d of names) {
-    if (!d.isFile() || d.name.startsWith('.') || !d.name.endsWith('.json')) continue;
+    if (d.name.startsWith('.') || !d.name.endsWith('.json')) continue;
+    if (!d.isFile() && !d.isSymbolicLink()) continue;   // a linked store is checked at its target (statSync below)
     out.push(path.join(dir, d.name));
   }
   return out;
@@ -91,6 +102,7 @@ function candidates(dir) {
 
 /** The newest copy beside `file` that reads as JSON and is not empty, or null. */
 function goodCopy(file) {
+  if (holdsSecret(file)) return null;
   const dir = path.dirname(file);
   const base = path.basename(file);
   let names = [];
@@ -102,18 +114,22 @@ function goodCopy(file) {
     if (!isTmp && !isKept) continue;
     const p = path.join(dir, n);
     let st;
-    try { st = fs.statSync(p); } catch { continue; }
-    if (!st.isFile() || st.size > MAX_BYTES) continue;
+    try { st = fs.lstatSync(p); } catch { continue; }
+    if (!st.isFile() || st.size > MAX_BYTES) continue;   // lstat: a link is never offered (review 1)
     let buf;
     try { buf = fs.readFileSync(p); } catch { continue; }
     if (classify(buf) !== null) continue;
-    if (!best || st.mtimeMs > best.mtimeMs) best = { path: p, mtimeMs: st.mtimeMs, isTmp };
+    if (!best || st.mtimeMs > best.mtimeMs) best = { path: p, mtimeMs: st.mtimeMs, st, isTmp };
   }
   if (!best) return null;
   if (best.isTmp) {
     // Kept under a new name before anything deletes the temp file; 'wx' never writes over an existing file.
     const kept = path.join(dir, base + '.recovered-' + new Date(best.mtimeMs).toISOString().replace(/[:.]/g, '-'));
-    try { fs.copyFileSync(best.path, kept, fs.constants.COPYFILE_EXCL); } catch (err) { if (err.code !== 'EEXIST') return null; }
+    try {
+      fs.copyFileSync(best.path, kept, fs.constants.COPYFILE_EXCL);
+      // The copy keeps the write's own time, or a later start would offer "the copy saved" at the time it was kept.
+      fs.utimesSync(kept, best.st.atime, best.st.mtime);
+    } catch (err) { if (err.code !== 'EEXIST') return null; }
     return { path: kept, at: new Date(best.mtimeMs).toISOString() };
   }
   return { path: best.path, at: new Date(best.mtimeMs).toISOString() };
@@ -131,16 +147,20 @@ function scan(opts) {
   const found = [];
   for (const file of files) {
     let st;
-    try { st = fs.statSync(file); } catch { continue; }
-    if (!st.isFile() || st.size > MAX_BYTES) continue;
-    let buf;
-    try { buf = fs.readFileSync(file); } catch { continue; }
-    const problem = classify(buf);
+    try { st = fs.statSync(file); } catch { continue; }   // a dangling link or a file gone meanwhile: nothing to name
+    if (!st.isFile()) continue;
+    let problem;
+    if (st.size > MAX_BYTES) problem = 'toobig';
+    else {
+      let buf = null;
+      try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; }
+      if (buf) problem = classify(buf);
+    }
     if (!problem) continue;
     const folder = path.basename(path.dirname(file));
     const holds = HOLDS[path.basename(file)] || (path.dirname(file) !== store.ROOT && FOLDERS[folder]) || 'a record Kosmos keeps';
-    const copy = goodCopy(file);
-    found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, abs: file, copyAbs: copy ? copy.path : null });
+    const copy = problem === 'toobig' || problem === 'unopenable' ? null : goodCopy(file);
+    found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null });
   }
   FOUND = found;
   return found;
@@ -150,18 +170,27 @@ function scan(opts) {
 function atStart(opts, write) {
   const say = write || ((line) => process.stderr.write(line + '\n'));
   let found = [];
-  try { found = scan(opts); } catch (err) { say('Kosmos could not check its own files at start: ' + ((err && err.message) || err)); return []; }
+  try { found = scan(opts); } catch (err) { say('Kosmos could not check its own files at start (' + ((err && err.code) || 'an error') + ').'); return []; }
   for (const d of found) {
     say('Kosmos found a damaged file at start: ' + d.file + ' ' + PROBLEM[d.problem] + ' (it holds ' + d.holds + '). '
       + 'Kosmos left it as it is. '
-      + (d.backup ? 'A good copy from ' + d.backup.at + ' is at ' + d.backup.file + '; the person can put it back.' : 'No good copy of it was found.'));
+      + (d.backup ? 'A good copy saved ' + d.backup.at + ' is at ' + d.backup.file + '; the person can put it back.'
+        : d.secret ? 'It holds a secret, so Kosmos keeps no copy of it to put back.' : 'No good copy of it was found.'));
   }
   return found;
 }
 
 /** What the page shows: the damaged stores this start found and has not been told to put back. */
 function current() {
-  return FOUND.map((d) => ({ file: d.file, holds: d.holds, problem: d.problem, backup: d.backup }));
+  /* Looked at again each time the page asks (review 1): a reader that treats a damaged store as empty writes over it
+     on its next save, and then "Kosmos has not changed it" would no longer be true. `savedOver` says so. */
+  return FOUND.map((d) => {
+    let savedOver = false;
+    if (d.problem === 'empty' || d.problem === 'nul' || d.problem === 'unreadable') {
+      try { savedOver = classify(fs.readFileSync(d.abs)) === null; } catch { savedOver = false; }
+    }
+    return { file: d.file, holds: d.holds, problem: d.problem, backup: d.backup, secret: d.secret, savedOver };
+  });
 }
 
 /**
@@ -176,21 +205,25 @@ function restore(file, write) {
   let buf;
   try { buf = fs.readFileSync(d.copyAbs); } catch { return { ok: false, why: 'the good copy could not be read' }; }
   if (classify(buf) !== null) return { ok: false, why: 'the good copy is no longer good' };
-  // The store must still be the damaged one: if something wrote it meanwhile, nothing here replaces that.
+  /* Whatever is there now goes aside first, under a new name, flushed: the damaged file, or what a reader saved over
+     it since this start (the page says which before the person presses). Nothing is ever deleted here. The owning
+     module's own lock is not taken: inside the board everything is one thread, so the residual is another process
+     (the CLI, a second board) writing the same store in the same moment. */
   let now;
   try { now = fs.readFileSync(d.abs); } catch { now = null; }
-  if (now && classify(now) === null) return { ok: false, why: 'it is readable again, so Kosmos left it alone' };
   const aside = d.abs + '.damaged-' + new Date().toISOString().replace(/[:.]/g, '-');
   try {
-    if (now) fs.copyFileSync(d.abs, aside, fs.constants.COPYFILE_EXCL);
-    const tmp = d.abs + '.restore-' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, buf, { mode: 0o600 });
-    fs.renameSync(tmp, d.abs);
+    if (now) {
+      if (fs.existsSync(aside)) return { ok: false, why: 'try again in a moment' };
+      store.saveFlushed(aside, now);
+    }
+    store.saveFlushed(d.abs, buf);   // flushed before it replaces the file, so a crash cannot leave it blank again
   } catch (err) {
-    say('Kosmos could not put back the good copy of ' + d.file + ': ' + ((err && err.message) || err));
+    say('Kosmos could not put back the good copy of ' + d.file + ' (' + ((err && err.code) || 'an error') + ').');
     return { ok: false, why: 'Kosmos could not put it back' };
   }
-  say('Kosmos put back the good copy of ' + d.file + ' from ' + d.backup.at + ', at the person\'s request; the damaged one is kept at ' + rel(aside) + '.');
+  say('Kosmos put back the good copy of ' + d.file + ' saved ' + d.backup.at + ', at the person\'s request; '
+    + (now ? 'what was there is kept at ' + rel(aside) + '.' : 'nothing was there to keep.'));
   FOUND = FOUND.filter((x) => x !== d);
   return { ok: true };
 }

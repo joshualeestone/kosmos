@@ -41,3 +41,19 @@ named in the board log and on the screen, and nothing else is touched.
 - render-damaged-files-7248 (new, gated): the note at 1280 and 390.
 
 ## Review
+- Round 1 (.claude/plans/storecheck-7248-review1.md): 0 blockers, 7 warnings, 8 nits. All taken:
+  - W1 a kept copy keeps the write's own time (utimes), so a later start says the right "saved at".
+  - W2 stores that hold a secret (remote.json, service-keys.json, org-enrollment.json, fed-seal-key.json,
+    github-app.json, the sign-ins; the sendertokens, communitysend, remote, backupkeys folders) are named, but no copy
+    is kept or offered: a kept secret outlives its revocation. The row and the log say why.
+  - W3 POST /api/board/damaged-files/restore is in REMOTE_STEP_UP_EXACT.
+  - W4 current() looks again each time: a store saved over since start says so ("Kosmos has saved over it since it
+    started") and its copy can still be put back, what is there kept aside.
+  - W5 restore and the aside copy are written by store.saveFlushed (flushed, the store's mode, atomic).
+  - W6 one sentence shape for every store ("The file with <what> (<name>) <is empty / is blank, as a crash can leave a
+    file / cannot be read>."), and the button "Put back the copy saved <when>".
+  - W7 the button is busy, not disabled, so focus stays; on success the row takes focus. Red with disabled.
+  - N1 an unopenable store and a too-large one are named; a linked store is checked at its target. N2 a copy is lstat'd
+    (never a link). N3 a failing worlds base no longer skips the check. N4 log lines carry error codes, never paths.
+    N5 the owning module's lock is not taken: documented in restore. N6 the log assertion checks the sandbox path. N7 a
+    static test pins the check first in the start block. N8 the browser check presses for real (focus+Enter, click).

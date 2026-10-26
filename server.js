@@ -4800,6 +4800,8 @@ function remoteSessionFresh(headers, nowSecs) {
   return age >= -60 && age <= REMOTE_STEP_UP_SECS;
 }
 const REMOTE_STEP_UP_EXACT = new Set([
+  // kosmos#7248: putting a kept copy back over one of Kosmos's own stores, from a remote session, asks for sign-in again.
+  'POST /api/board/damaged-files/restore',
   // Updating, and anything that downloads and runs software here. PUT /api/autoupdate is gated whole, off as well as
   // on: telling them apart needs the body, which the gate does not read, and asking once more to switch it off costs
   // little.
@@ -27009,8 +27011,12 @@ if (require.main === module) {
      empty, NUL-filled or unreadable, in board.log and (through /api/board/damaged-files) on the screen. Reads only;
      never fatal. Several readers treat a damaged store as empty and a later write replaces it, so this is the one
      moment the damage is still there to name. */
-  try { require('./engine/storecheck').atStart({ base: worldBase() }); } catch (err) {
-    process.stderr.write('Kosmos could not check its own files at start: ' + ((err && err.message) || err) + '\n');
+  {
+    let base = null;
+    try { base = worldBase(); } catch { base = null; }   // a broken worlds env still gets the data root checked
+    try { require('./engine/storecheck').atStart({ base }); } catch (err) {
+      process.stderr.write('Kosmos could not check its own files at start (' + ((err && err.code) || 'an error') + ').\n');
+    }
   }
   /* #1598: authorize live launchctl/tmux for the real board process ONLY. The
      guarded modules (engine/remove.js, engine/delete-leftover.js, engine/create.js)

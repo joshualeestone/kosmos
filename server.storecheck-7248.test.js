@@ -93,13 +93,16 @@ test('kosmos#7248: an empty and an all-NUL store are named in board.log and on t
     const got = await bootAndAsk(sb);
 
     // The board log names both, says what each holds, and that it left them.
-    assert.match(got.log, /Kosmos found a damaged file at start: projects\.json holds only empty bytes[^\n]*\(it holds your projects, their tasks and who is on them\)\. Kosmos left it as it is\./,
+    assert.match(got.log, /Kosmos found a damaged file at start: projects\.json is blank, as a crash can leave a file \(it holds your projects, their tasks and who is on them\)\. Kosmos left it as it is\./,
       'projects.json (all NUL) is not named in the board log:\n' + got.log);
     assert.match(got.log, /Kosmos found a damaged file at start: removed\.json is empty \(it holds the agents you removed\)\. Kosmos left it as it is\. No good copy of it was found\./,
       'removed.json (empty) is not named in the board log');
-    assert.match(got.log, /projects\.json[^\n]*A good copy from [^\n]* is at projects\.json\.recovered-/, 'the good copy is not offered in the log');
+    assert.match(got.log, /projects\.json[^\n]*A good copy saved [^\n]* is at projects\.json\.recovered-/, 'the good copy is not offered in the log');
     assert.doesNotMatch(got.log, /damaged file at start: settings\.json/, 'CONTROL: a good store was named as damaged');
-    assert.doesNotMatch(got.log, new RegExp(os.homedir().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\\n]*damaged'), 'a home path reached the log line');
+    // No absolute path in the lines it writes: the sandbox's own path is the one that would show (review 1).
+    for (const line of got.log.split('\n').filter((l) => /damaged file at start|good copy/.test(l))) {
+      assert.ok(!line.includes(sb) && !line.includes(fs.realpathSync(sb)), 'a path reached the board log: ' + line);
+    }
 
     // The screen's route lists both, with the copy for projects.json.
     assert.equal(got.status, 200);
@@ -107,6 +110,7 @@ test('kosmos#7248: an empty and an all-NUL store are named in board.log and on t
     assert.deepEqual(files, ['projects.json', 'removed.json'], 'the screen does not list exactly the two damaged stores: ' + JSON.stringify(got.body));
     const proj = got.body.files.find((f) => f.file === 'projects.json');
     assert.equal(proj.problem, 'nul');
+    assert.equal(proj.savedOver, false, 'a store nothing wrote is said to be saved over');
     assert.ok(proj.backup && /^projects\.json\.recovered-/.test(proj.backup.file), 'no good copy offered on the screen: ' + JSON.stringify(proj));
     assert.equal(got.body.files.find((f) => f.file === 'removed.json').backup, null);
 
@@ -142,15 +146,56 @@ test('kosmos#7248: putting the good copy back happens only on request, and keeps
     assert.equal(fs.readFileSync(path.join(root, 'projects.json')).every((b) => b === 0), true, 'the check itself changed the store');
     assert.equal(sc.current().length, 1);
     assert.deepEqual(sc.restore('settings.json', () => {}), { ok: false, why: 'that file is not one Kosmos found damaged' });
+    // Saved over since start (a reader wrote it as empty): the page is told, and putting the copy back keeps that aside.
+    fs.writeFileSync(path.join(root, 'projects.json'), JSON.stringify({ projects: ['saved over'] }));
+    assert.equal(sc.current()[0].savedOver, true, 'a store saved over since start is not said to be');
     const r = sc.restore('projects.json', (l) => lines.push(l));
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'projects.json'), 'utf8')), { projects: [] });
     const aside = fs.readdirSync(root).filter((n) => n.startsWith('projects.json.damaged-'));
-    assert.equal(aside.length, 1, 'the damaged file was not kept aside');
-    assert.equal(fs.readFileSync(path.join(root, aside[0])).every((b) => b === 0), true);
+    assert.equal(aside.length, 1, 'what was there was not kept aside');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, aside[0]), 'utf8')), { projects: ['saved over'] });
     assert.equal(sc.current().length, 0, 'a store that was put back is still listed');
     // CONTROL: classify tells the three kinds and a good value apart.
     assert.deepEqual([sc.classify(Buffer.from('')), sc.classify(Buffer.alloc(3)), sc.classify(Buffer.from('{ no')), sc.classify(Buffer.from('[]'))], ['empty', 'nul', 'unreadable', null]);
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = prev;
+    fs.rmSync(sb, { recursive: true, force: true });
+  }
+});
+
+test('kosmos#7248: the check is the FIRST thing the board does at start, before anything reads or writes a store', () => {
+  const src = fs.readFileSync(path.join(REPO, 'server.js'), 'utf8');
+  const at = src.indexOf("if (require.main === module) {\n  /* kosmos#7248");
+  assert.notEqual(at, -1, 'the start block does not open with the kosmos#7248 check');
+  const block = src.slice(at, at + 1200);
+  const first = block.indexOf("require('./engine/storecheck').atStart(");
+  assert.ok(first > 0, 'storecheck.atStart is not at the top of the start block');
+  for (const later of ['communityswitch.migrate(', 'wireDefaultHooks', 'undo.sweep']) {
+    const i = block.indexOf(later);
+    assert.ok(i === -1 || i > first, later + ' runs before the store check');
+  }
+});
+
+test('kosmos#7248: a store holding a secret is named, with no copy kept or offered', () => {
+  const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-storecheck-7248-secret-'));
+  const prev = process.env.AGENT_WORKFORCE_DATA;
+  process.env.AGENT_WORKFORCE_DATA = path.join(sb, 'data');
+  try {
+    const root = store.ROOT;
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(path.join(root, 'service-keys.json'), '');
+    fs.writeFileSync(path.join(root, 'service-keys.json.kosmos-4242-1793000000000-1.tmp'), JSON.stringify({ k: 'secret' }));
+    delete require.cache[require.resolve('./engine/storecheck')];
+    const sc = require('./engine/storecheck');
+    const lines = [];
+    sc.atStart({}, (l) => lines.push(l));
+    const d = sc.current()[0];
+    assert.equal(d.file, 'service-keys.json');
+    assert.equal(d.backup, null, 'a copy of a secret was offered');
+    assert.equal(d.secret, true);
+    assert.equal(fs.readdirSync(root).some((n) => n.includes('.recovered-')), false, 'a copy of a secret was kept');
+    assert.match(lines.join('\n'), /It holds a secret, so Kosmos keeps no copy of it to put back\./);
   } finally {
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = prev;
     fs.rmSync(sb, { recursive: true, force: true });

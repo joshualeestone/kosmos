@@ -1362,7 +1362,7 @@ body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display:
 .utoast.dmg .utxt small.dmgrow { display: block; margin-top: 4px; }
 .utoast.dmg .dmgput { font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; margin-left: 4px;
   border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }   /* as .uacts buttons */
-.utoast.dmg .dmgput:disabled { opacity: .5; cursor: default; }
+.utoast.dmg .dmgput[aria-disabled="true"] { opacity: .5; cursor: default; }
 @media (pointer: coarse) { .utoast.dmg .dmgput { min-height: 44px; } }
 /* #6160: the streak's daily note. A celebration, so its edge and dot are gold; restated in each theme block below. */
 .utoast.streak { --utone: var(--gold-edge); }
@@ -23915,7 +23915,14 @@ function paintRebootNote(note) {
 /* kosmos#7248: the files of Kosmos's own that this start found damaged (engine/storecheck.js). Each says what it holds
    and that Kosmos has not changed it; a good copy goes back only on its button; the X hides the note until the next
    start. Every action says when it did not work, as the restart note's X does. */
-const DAMAGED_PROBLEM = { empty: 'is empty', nul: 'holds only empty bytes', unreadable: 'cannot be read' };
+const DAMAGED_PROBLEM = { empty: 'is empty', nul: 'is blank, as a crash can leave a file', unreadable: 'cannot be read',
+  unopenable: 'cannot be opened', toobig: 'is too large for Kosmos to check' };
+function damagedRowWords(f) {
+  // One shape that reads with every store (review 1): "The file with <what it holds> (<name>) <what is wrong>."
+  return asSentence('the file with ' + String(f.holds || 'a record Kosmos keeps') + ' (' + f.file + ') '
+    + (DAMAGED_PROBLEM[f.problem] || 'cannot be read'))
+    + (f.savedOver ? ' Kosmos has saved over it since it started.' : ' Kosmos has not changed it.');
+}
 function paintDamagedFiles(files) {
   const slot = document.getElementById('damaged-slot');
   if (!slot) return;
@@ -23925,11 +23932,11 @@ function paintDamagedFiles(files) {
   const head = list.length === 1 ? 'Kosmos found a damaged file' : 'Kosmos found ' + list.length + ' damaged files';
   const rows = list.map((f, i) => {
     const when = f.backup ? rebootWhen(f.backup.at) : '';
-    return '<small class="dmgrow">' + esc(asSentence(String(f.holds || 'a record Kosmos keeps') + ' (' + f.file + ') '
-      + (DAMAGED_PROBLEM[f.problem] || 'cannot be read'))) + ' Kosmos has not changed it.'
+    return '<small class="dmgrow" tabindex="-1">' + esc(damagedRowWords(f))
       + (f.backup
-        ? ' <button type="button" class="dmgput" data-i="' + i + '">Put back the copy from ' + esc(when.replace(/^at /, '') || 'before') + '</button>'
-        : ' There is no good copy to put back.')
+        ? (f.savedOver ? ' Putting the copy back keeps what is there now beside it.' : '')
+          + ' <button type="button" class="dmgput" data-i="' + i + '">Put back the copy saved ' + esc(when || 'before') + '</button>'
+        : f.secret ? ' It holds a secret, so Kosmos keeps no copy of it.' : ' There is no good copy to put back.')
       + '</small>';
   }).join('');
   slot.innerHTML = '<div class="utoast reboot dmg">'
@@ -23944,9 +23951,11 @@ function paintDamagedFiles(files) {
   };
   slot.querySelectorAll('.dmgput').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      // Busy, not disabled: a disabled button drops keyboard focus to the page (review 1).
+      if (btn.getAttribute('aria-disabled') === 'true') return;
+      btn.setAttribute('aria-disabled', 'true');
       const f = list[Number(btn.dataset.i)];
       const row = btn.closest('.dmgrow');
-      btn.disabled = true;
       let ok = false;
       let why = '';
       try {
@@ -23955,8 +23964,9 @@ function paintDamagedFiles(files) {
         ok = r.ok;
         why = (got && got.error) || '';
       } catch { ok = false; }
-      if (!ok) { btn.disabled = false; say(row, why || 'Kosmos could not put it back just now. Try again in a moment.'); return; }
-      row.innerHTML = esc(f.file) + ': put back. The damaged one is kept beside it. If anything still looks missing, restart Kosmos.';
+      if (!ok) { btn.removeAttribute('aria-disabled'); say(row, why || 'Kosmos could not put it back just now. Try again in a moment.'); return; }
+      row.textContent = f.file + ': put back. What was there is kept beside it. If anything still looks missing, restart Kosmos.';
+      row.focus();   // the button it replaced held focus; the row that says what happened takes it
     });
   });
   const x = slot.querySelector('.ux');
