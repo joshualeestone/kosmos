@@ -15,7 +15,8 @@
  *  - pressing the switch sends { on: false } once and draws the next read's answer; a failed read takes earlier lines away;
  *  - at 390 px nothing scrolls sideways.
  * Slice 3, in its own box under the decision (#ab-recent): where the sweep does not record it says so; where it does, it
- * says nothing moves on its own yet and lists the recorded would-moves newest first, with the reason, a name with markup
+ * says nothing moves on its own yet and lists the recorded would-moves newest first (not a move off a stopped login,
+ * which slice 3b will never make), with the reason, a name with markup
  * in it as text, an account gone from the list by the record's own label, and another day's entry with its day; the
  * record still shows when the current decision is unreadable; switched off, or with one account, the box is empty.
  *
@@ -207,7 +208,6 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       const rc = r.recorded && r.recorded.recent;
       const want = [new RegExp('^' + NONE.replace(/\./g, '\\.') + '$'), /^Lately$/,
         new RegExp('^At 11:55\\sAM, it would have moved <b>Bo</b> from Work to Old, because ' + WHY + '\\.$'),
-        /^At 11:50\sAM, it would have moved Ada from Work to Spare, because its login has stopped working\.$/,
         new RegExp('^On [A-Z][a-z]{2} \\d{1,2} at 12:00\\sPM, it would have moved Ada from Work to Spare, because ' + WHY + '\\.$')];
       say(rc && rc.length === want.length && want.every((re, i) => re.test(rc[i])), tag + ' the record: nothing moves on its own, would-moves newest first with the reason and the day', JSON.stringify(rc));
       say(r.recorded && !r.recorded.recentMarkup, tag + ' a name with markup in the record is shown as text', '');

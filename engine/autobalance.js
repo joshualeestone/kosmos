@@ -229,7 +229,12 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
       catch { same = false; }
       if (!same) rec = null;
     }
-    const badge = rec && rec.state === 'ok' ? 'working' : (rec && LOGIN_REFUSED.test(String(rec.state)) ? 'rejected' : null);
+    /* Review 12: signed in when the latest read worked, or when a fresh measurement stands and the latest read was not
+       a refused login (a 429, an unreachable endpoint, an expired access token): one blip on a target must not flip
+       the decision to held and back, writing the same would-move again. */
+    const refused = !!rec && LOGIN_REFUSED.test(String(rec.state));
+    const measured = !!rec && !!(rec.weekly || rec.fiveHour);
+    const badge = refused ? 'rejected' : (rec && (rec.state === 'ok' || measured) ? 'working' : null);
     let here = { names: [], complete: false };
     try { here = agentsOn(a.dir, a.isDefault === true) || here; } catch { here = { names: [], complete: false }; }
     out.push({ provider: 'anthropic', dir: a.dir, label: a.label || null, isDefault: a.isDefault === true,

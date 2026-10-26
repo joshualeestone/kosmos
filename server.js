@@ -26180,7 +26180,7 @@ function start(port = PORT) {
       const abSweepTick = () => {
         /* Review 9: nothing here may throw out of a timer into the board, and a throw must not leave the busy flag set. */
         try {
-          if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a stale busy flag (see slice 1's review 12)
+          if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a backstop: the tick awaits nothing today, so this guards a future await (see slice 1's review 12)
           if (!abSweep) return;
           abSweep.state.writeFailed = false;   // asked without the write arm, so a failed write is tried again
           if (!autobalanceSweepRuns()) return;
