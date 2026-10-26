@@ -59,7 +59,7 @@ const INSTALL = () => {
   window.__stops7202 = () => {
     const ok = (el) => el.tabIndex >= 0 && !el.disabled && !el.closest('[hidden]') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
     const ask = document.getElementById('stepup-ask');
-    return Array.from(document.getElementById('acct-add-dialog').querySelectorAll('button, [href], input, select, textarea, [tabindex]'))
+    return Array.from(document.getElementById('acct-add-dialog').querySelectorAll('button, [href], input, select, textarea, summary, [contenteditable]:not([contenteditable="false"]), [tabindex]'))
       .concat(ask && !ask.hidden ? Array.from(ask.querySelectorAll('button')) : []).filter(ok);
   };
 };
@@ -208,6 +208,14 @@ async function walk(p) {
           say(hasField, eng + ', the ' + prov + ' key step: its key field is a stop');
           const missK = await walk(p);
           say(!missK, eng + ', the ' + prov + ' key step: from every stop, the field included, Tab and Shift+Tab land on the neighbour', missK ? JSON.stringify(missK) : '');
+          /* A key typed, Tab away, Shift+Tab back: its text is selected, as a native Tab leaves it, so typing replaces it. */
+          await p.fill(field, 'sk-mistyped-7202');
+          await p.focus(field);
+          await p.evaluate((sel) => { const f = document.querySelector(sel); f.setSelectionRange(3, 3); }, field);
+          await p.keyboard.press('Tab');
+          await p.keyboard.press('Shift+Tab');
+          const selK = await p.evaluate((sel) => { const f = document.querySelector(sel); return { on: document.activeElement === f, start: f.selectionStart, end: f.selectionEnd, len: f.value.length }; }, field);
+          say(selK.on && selK.start === 0 && selK.end === selK.len, eng + ', the ' + prov + ' key step: Shift+Tab back into the key selects it', JSON.stringify(selK));
           await p.keyboard.press('Escape');
           await p.waitForTimeout(300);
         }

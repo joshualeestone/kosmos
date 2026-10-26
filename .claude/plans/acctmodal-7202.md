@@ -63,3 +63,8 @@
    the IME and inert stand-downs had no arm (now sent key events, with a plain Tab as the control); the radio rule's
    backward case is stated; the defaultPrevented comment named the wrong case; the check picks a provider through the
    picker a person uses, not the hidden native select.
+4. (sonnet) W: focus moved by script left a text field's caret where it was, where a native Tab selects its text, so
+   Shift+Tab back into a mistyped key and typing appended to it (now its text is selected; arm on both key steps).
+   Nits taken: a dialog hidden by visibility no longer counts as showing; summary and contenteditable are stops; the
+   defaultPrevented comment no longer overstates. Not taken: the other-dialog arm passes for a trap that stands down
+   for any reason (it does discriminate the trap that does not, which is the failure it is for).
