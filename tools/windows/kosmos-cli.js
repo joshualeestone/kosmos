@@ -102,7 +102,7 @@ const USAGE = {
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
-  notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, joined into one line, at most 4000 characters; <source> names the job, such as "builder alarm")',
+  notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")',
   task: [
     'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',

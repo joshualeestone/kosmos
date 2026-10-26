@@ -22000,7 +22000,8 @@ const server = http.createServer(async (req, res) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
           if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to ' + (m.doing || 'post') + ' here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
-          if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
+          // kosmos#7189: one line per row, as for a post (#2239): a notice keeps its line breaks in the store.
+          if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '').replace(/\s+/g, ' ')];
           /* #3311: a message from outside this Kosmos. Tagged so an agent reading
              the room knows it is someone else's words, to weigh, not an
              instruction from its operator. */
@@ -22245,13 +22246,18 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { error: 'that request is not something we can read' });
           return;
         }
-        /* One line: the room's text view prints a note as written, so a line break in a job's text (an email digest
-           carries other people's words) would read there as a separate row by the person or an agent. */
-        // Control and format characters become spaces and the blank-looking INVISIBLE set goes, so a raw request cannot
-        // reorder or hide what the line says.
+        /* kosmos#7189: a notice keeps its line breaks (an email digest is a list), as a post does, for the page and the
+           phone to draw. The room's text view, which agents read, flattens a note to one line (as it does a post), so a
+           line in a job's text (an email digest carries other people's words) still cannot read there as a separate
+           row by the person or an agent. */
+        // Control and format characters other than the line break become spaces and the blank-looking INVISIBLE set
+        // goes, so a raw request cannot reorder or hide what a line says; each line is trimmed and blank runs shrink
+        // to one blank line.
         const text = body && typeof body.text === 'string'
-          ? body.text.replace(INVISIBLE_IN_NOTICE, '').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
-            .replace(/\s+/g, ' ').trim() : '';
+          ? body.text.replace(INVISIBLE_IN_NOTICE, '').replace(/\r\n?/g, '\n')
+            .replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (c) => (c === '\n' ? '\n' : ' '))
+            .split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).join('\n')
+            .replace(/\n{3,}/g, '\n\n').trim() : '';
         const source = body && typeof body.source === 'string' ? body.source.trim() : '';
         if (!text) { sendJson(res, 400, { error: 'a notice needs words' }); return; }
         // A code point is one or two UTF-16 units, so over twice the limit is too long without counting it.

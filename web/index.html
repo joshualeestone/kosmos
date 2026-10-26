@@ -76081,7 +76081,8 @@ function pjRoomRow(m, p, hideHeader) {
      participant they can talk to. */
   if (m.kind === 'note') {
     const whenN = pjWhen(m.at) || '';
-    return '<div class="msg-valve">' + esc(m.text || '')
+    /* kosmos#7189: a notice keeps its line breaks (an email digest is a list), drawn as breaks, as an external row's are. */
+    return '<div class="msg-valve">' + esc(m.text || '').replace(/\n/g, '<br>')
       + (whenN ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   /* #3311: a message from OUTSIDE this Kosmos, through a federated project. The

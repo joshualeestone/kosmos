@@ -2852,7 +2852,7 @@ cmd_msg() {
 # goes to the board's notice route with the board token only (off argv, through kosmos_curl's header file), and the
 # room shows it in Kosmos's own voice, its first words naming the source. It is typed into nobody's session.
 cmd_notice() {
-  local usage='Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos'"'"'s own voice, the text on stdin, joined into one line, at most 4000 characters; <source> names the job, such as "builder alarm")'
+  local usage='Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos'"'"'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")'
   local source="" project="" from_stdin=0
   while [ $# -gt 0 ]; do
     case "$1" in
