@@ -1468,7 +1468,7 @@ async function sweepInstallGroup(keys, on) {
  * #7215: link each registered agent to the Kosmos+ account of this computer, so the person sees and can delete their
  * agents' posts and comments on one community page. Once per agent per computer identity AND agent key: a new mac id
  * (a Forget and a new sign-in) or a new key links the agent again. The marker keeps a digest of the key, never the
- * key. Two steps, both needed by the site:
+ * key (the digest only tells a new key from the old one). Two steps, both needed by the site:
  *   1. the coordinator's owner pass for this agent's community name (Mac-signed through the tunnel, POST
  *      /v1/mac/community-owner-pass): it names the CALLING computer's account, never one the board states;
  *   2. POST /agents/me/owner { pass } with the agent's own key (the site: 204, the agent now linked).
@@ -1477,7 +1477,9 @@ async function sweepInstallGroup(keys, on) {
  * agent's old account and a name being retired are not (#4994), and nothing is linked while the retire list is
  * unreadable.
  * What a failure does:
- *   a 400 or 403 about one agent (from the coordinator or the site): that agent waits 15 minutes, the pass goes on;
+ *   a refusal about one agent (the coordinator's 400, or the site's 400 or 403): that agent waits 15 minutes and
+ *   the pass goes on, so the order needs no rotation (the install-group pass has one, for refusals that hit all);
+ *   a coordinator 403 (this computer is not allowed, or the account lapsed): the pass pauses 15 minutes;
  *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
  *   a site 429: Retry-After, capped like #4940's register wait;
  *   anything else (no answer, a 5xx, a 401 logging in again did not clear): the pass pauses 15 minutes;
@@ -1507,10 +1509,11 @@ function ownerPassUnknown(minted) {
 }
 /* A refusal about this agent only (the coordinator or the site answered 400 or 403 for it): the agent waits, the pass
    goes on to the next one, so one agent the service will not vouch for cannot hold every agent after it. */
+const ownerLinkWait = (ms) => (ms >= 60000 ? Math.round(ms / 60000) + ' min' : Math.round(ms / 1000) + ' s');
 // Returns true when it changed what is saved (the reason, written once per reason), so the caller saves the keys.
 function ownerLinkSkipAgent(ep, agentKey, k, why) {
   ownerLinkAgentAt.set(ep + '\n' + agentKey, Date.now() + OWNER_LINK_RETRY_MS);
-  if (k.ownerLinkRetrying !== why) { k.ownerLinkRetrying = why; log(`owner link for ${agentKey}: ${why}; trying again in ${Math.round(OWNER_LINK_RETRY_MS / 60000)} min, until it lands`); return true; }
+  if (k.ownerLinkRetrying !== why) { k.ownerLinkRetrying = why; log(`owner link for ${agentKey}: ${why}; trying again in ${ownerLinkWait(OWNER_LINK_RETRY_MS)}, until it lands`); return true; }
   return false;
 }
 async function sweepOwnerLink(keys, on) {
@@ -1540,12 +1543,16 @@ async function sweepOwnerLink(keys, on) {
       // A Forget and a new sign-in during the mint: this pass vouches for the account just forgotten. Not sent; the
       // next sweep links the agent under the new identity.
       if (ownerLinkMac() !== mac) return;
+      // The person switched Community or Kosmos+ off during the mint: nothing more is sent.
+      if (!switchOn() || !ownerLinkLive()) return;
       if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string') {
         const st = minted.refusal ? minted.refusal.status : 0;
-        if (st === 400 || st === 403) { marks = ownerLinkSkipAgent(ep, agentKey, k, `Kosmos+ refused to vouch (${st})`) || marks; continue; }
+        // The coordinator's only refusal about one agent is its 400 (the name); its 403s are about this computer (not
+        // allowed on the account, or the account lapsed), so they pause the whole pass below.
+        if (st === 400) { marks = ownerLinkSkipAgent(ep, agentKey, k, 'Kosmos+ refused to vouch for that name (400)') || marks; continue; }
         const unknown = !minted.ok && ownerPassUnknown(minted);
         ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
-        log(`owner link: ${unknown ? 'Kosmos+ cannot vouch for agents yet' : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '')}; trying again in ${unknown ? 'an hour' : Math.round(OWNER_LINK_RETRY_MS / 60000) + ' min'}`);
+        log(`owner link: ${unknown ? 'Kosmos+ cannot vouch for agents yet' : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '')}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
         break;
       }
       const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
@@ -1570,7 +1577,7 @@ async function sweepOwnerLink(keys, on) {
       }
       // No answer, a 5xx (the site's 503 while it is not ready), a 401 logging in again could not clear: the service.
       ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
-      log(`owner link: the community answered ${r.status || 'nothing'}; the pass waits ${Math.round(OWNER_LINK_RETRY_MS / 60000)} min`);
+      log(`owner link: the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
       break;
     }
   } finally {
