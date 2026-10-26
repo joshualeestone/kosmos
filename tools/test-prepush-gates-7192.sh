@@ -86,6 +86,23 @@ else ok 'a push of several refs checks the line that sends HEAD, wherever it is'
 git tag t-bad web-bad
 if raw "refs/tags/t-bad $(git rev-parse web-bad) refs/tags/t-bad $Z"; then bad 'a tag at HEAD was let through'; else ok 'a tag at HEAD is checked like the branch'; fi
 
+# 5b. Review 3: a backup push to wip/ is not checked, even of the checked-out bad branch.
+if raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/wip/web-bad $Z"; then ok 'a wip/ backup push is not checked'
+else bad 'a wip/ backup push was refused: '"$(cat "$T/out")"; fi
+# 5c. Review 3: a stale origin/main. Someone else's web/ change lands on origin main; this branch is rebased onto it
+#     and changes only a README, but this clone's origin/main still points at the old main. Without the hook's own
+#     fetch the gates would count that web/ commit as this branch's and refuse it.
+git clone -q -b main "$T/origin.git" "$T/other" && ( cd "$T/other" && git config user.email o@example.com && git config user.name o \
+  && printf '<div class="seat-chip">theirs</div>\n' > web/index.html && git add web && git commit -qm "their web change, no trailer (their gate is not ours to answer)" && git push -q origin main )
+old=$(git rev-parse origin/main)
+git fetch -q origin && git checkout -qb stale-base origin/main
+printf 'y\n' > README.md; git add README.md; git commit -qm 'readme only'
+git update-ref refs/remotes/origin/main "$old"   # this clone has not seen their change
+if raw "refs/heads/stale-base $(git rev-parse stale-base) refs/heads/stale-base $Z"; then ok 'a stale origin/main does not refuse a branch that changes no web/ itself (the hook fetches)'
+else bad 'a stale origin/main refused a branch for someone else'"'"'s web/ change: '"$(cat "$T/out")"; fi
+[ "$(git rev-parse origin/main)" != "$old" ] && ok 'CONTROL: the hook moved origin/main forward' || bad 'CONTROL: origin/main was not fetched, so the arm above proves nothing'
+git checkout -q web-bad
+
 # 6. Review 1: a real git push through core.hooksPath, so git's own stdin, the hook's working directory and the
 #    refusal stopping the push are measured, not assumed.
 git config core.hooksPath .githooks
