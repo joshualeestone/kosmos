@@ -178,7 +178,7 @@ test('#7152 slice 3: Settings is told that moves are off, and gets the record ne
   assert.equal(first.movesOn, false, 'moves read as on with AGENT_WORKFORCE_AUTOMOVE unset');
   assert.equal(first.recording, false, 'a board under a test said its sweep records (the sweep cannot run here)');
   assert.deepEqual(first.recent, [], 'a record was shown before anything was recorded');
-  automove.append(file, { kind: 'decision', at: 1, live: false, moves: [], held: [], atRisk: [] });
+  automove.append(file, { kind: 'decision', at: 1, live: false, moves: [{ agent: 'ada', from: '/a', to: '/b', why: 'x' }], held: [], atRisk: [] });
   automove.append(file, { kind: 'skipped', at: 2, agent: 'ada', because: 'it was no longer idle' });
   const recent = (await call('GET', '/api/accounts?agents=1')).json.autobalance.recent;
   assert.deepEqual(recent.map((e) => e.at), [2, 1], 'the record did not reach Settings newest first');
