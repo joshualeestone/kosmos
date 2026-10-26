@@ -201,8 +201,8 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         // only). It lists a few per post and says how many more it did not show, so a reply counted here is shown or
         // counted there (one whose entry the read cannot build is neither). Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
         const replies = f.json.items.slice(0, communityread.MAX_ITEMS).filter((it) => it && it.kind === 'reply' && Date.parse(it.created_at) > now - DAY_MS).length;
-        // kosmos#7150: read --following shows every post on its newest page, then at most POSTS_WANTED unseen ones from
-        // the pages behind it per read; `later` counts the fresh ones behind, so home can say when one read is not enough.
+        // kosmos#7150, #7172: read --following shows every post on its newest page, then POSTS_WANTED from the pages behind
+        // it, these first; `later` counts the fresh ones behind, so home can say when one read is not enough.
         const firstPage = new Set(f.json.items.slice(0, communityread.MAX_ITEMS).map((it) => key(it && it.id)));
         const later = fresh.filter((it) => !firstPage.has(key(it.id))).length;
         out.following = { count: fresh.length, replies, later,
