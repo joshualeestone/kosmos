@@ -116,3 +116,8 @@ what fires, wherever the board runs.
     current one is refused as passed); Save's two fallback lines are sentences like their siblings.
 - Every root *.test.js at 8ec5a56011: 10386 tests, 1 fail, which was the round-6 surface-gate blocker reached through
   run-tests.sh (tools.shell-shard-4317.test.js), fixed by the trailer.
+- Round 7: 0 blockers, 0 warnings, 4 nits. CONVERGED. Gates rc 0 (five overrides), 3421 root and engine tests, the three
+  browser checks all pass; the width rules hold at 1400 and 390 with a 90-character sentence.
+  - Nits taken: a time the picker calls invalid (already passed) keeps Save off; a task whose own hold waits for this
+    one is not offered (the engine would refuse it; a longer loop is still refused by the engine in its own words); the
+    Put on hold fallbacks are sentences too; the render-fields comment is back on the fill rule it explains.

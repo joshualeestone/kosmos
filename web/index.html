@@ -6687,9 +6687,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
-#tk-repeat-every, #tk-repeat-day, #tk-review-who, #tk-hold-for, #tk-hold-task { background-color: var(--field-fill); }
-#tk-hold-task { max-width: 100%; min-width: 0; }   /* kosmos#7184 round 6: a long task sentence never widens the page on a phone */
-#tk-hold-for-when .tk-repeat-when { min-width: 0; max-width: 100%; }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too) */
+#tk-repeat-every, #tk-repeat-day, #tk-review-who, #tk-hold-for, #tk-hold-task { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too; kosmos#7184: the hold choices) */
+#tk-hold-task, #tk-hold-for-when .tk-repeat-when { max-width: 100%; min-width: 0; }   /* kosmos#7184 round 6: a long task sentence never widens the page on a phone */
 @media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who, #tk-hold-for, #tk-hold-task, #tk-hold-save { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
@@ -70161,7 +70160,7 @@ function tkHoldShowWhen() {
 }
 function tkHoldDirty() {
   const c = tkHoldChoice();
-  const ready = c.kind === '' || (c.kind === 'task' && c.task) || (c.kind === 'at' && c.at);
+  const ready = c.kind === '' || (c.kind === 'task' && c.task) || (c.kind === 'at' && c.at && document.getElementById('tk-hold-at').validity.valid);   // round 7: not a time already passed
   const save = document.getElementById('tk-hold-save');
   save.disabled = save.dataset.busy === '1' || !ready || JSON.stringify(c) === document.getElementById('tk-hold-for').dataset.stored;   // round 2: not while saving
 }
@@ -70171,7 +70170,8 @@ function tkHoldTaskOptions(p, t) {
   const sel = document.getElementById('tk-hold-task');
   const waits = t.onHoldUntil && Number.isInteger(t.onHoldUntil.task) ? t.onHoldUntil.task : null;
   const chosen = Number(sel.value) || null;   // round 3: an unsaved choice whose task has closed stays a choice too
-  const list = (p.tasks || []).filter((x) => x && x.number !== t.number && (!(x.progress && x.progress.closed) || x.number === waits || x.number === chosen));
+  const list = (p.tasks || []).filter((x) => x && x.number !== t.number && (!(x.progress && x.progress.closed) || x.number === waits || x.number === chosen)
+    && !(x.onHold === true && x.onHoldUntil && x.onHoldUntil.task === t.number && x.number !== waits));   // round 7: one waiting for this task would never be met
   /* Review 1: a stored task no longer on the project stays a choice too, said as gone, so the select never goes blank
      (a blank would read as an unsaved change and stop following the stored condition). */
   const gone = waits !== null && !list.some((x) => x.number === waits) ? '<option value="' + waits + '">' + esc('#' + waits + ' (no longer on this project)') + '</option>' : '';
@@ -70304,11 +70304,11 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
       body: JSON.stringify({ onHold: t.onHold !== true }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'we could not change that task'); return; }   // round 4: only on its own task
+    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'We could not change that task.'); return; }   // round 4: only on its own task
     await pjReload();
     paintTaskActivity(TK_OPEN);
   } catch {
-    tkHoldSay(key, 'we could not reach Kosmos to change that task');
+    tkHoldSay(key, 'We could not reach Kosmos to change that task.');
   } finally {
     btn.disabled = false;
     delete save.dataset.busy;
