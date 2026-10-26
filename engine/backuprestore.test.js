@@ -259,28 +259,38 @@ test('#5536 an empty chunk is refused, and a deep folder clash is found', async 
 
 test('#5536 the collision check scales linearly with path depth (a ratio, so machine load does not decide it)', async () => {
   // Every entry is listed twice, so all are refused before any fetch and the time is the path and collision checks.
-  // Measured 10-08: depth x4 costs x3.8 to x4.5 with the trie, x13 with the quadratic check it replaced.
-  // kosmos#7235: one sample at a depth; the best of several is taken below.
-  const timeOnce = async (depth) => {
+  // Measured: depth x4 costs x3.75 to x4.5 with the trie (10-08, and #7235 alone 10-26), x13 with the quadratic check.
+  // kosmos#7235: each depth's fixture is built ONCE, so no sample pays for a build (and the deep build's garbage) inside
+  // its timed region; only run() is timed.
+  const fixtureAt = (depth) => {
     const deep = Array(depth).fill('a').join('/');
-    const { run } = handMade((entry) => Array.from({ length: 400 }, (_, i) => entry(`${deep}${i >> 1}`)));
+    return handMade((entry) => Array.from({ length: 400 }, (_, i) => entry(`${deep}${i >> 1}`))).run;
+  };
+  const shallowRun = fixtureAt(500);
+  const deepRun = fixtureAt(2000);
+  const timeOnce = async (run) => {
     const t0 = process.hrtime.bigint();
     const { r } = await run();
     const ns = Number(process.hrtime.bigint() - t0);
     assert.equal(r.failed.length, 400);
     return ns;
   };
-  /* kosmos#7235: measured alone this ratio is about 3.8 (12 of 12, x3.75 to x3.88), but inside a full suite it read
-     x8 to x9 about one run in four. The samples were taken in two blocks (all of one depth, then all of the other), so
-     a load spike during one block landed on one side of the ratio. Now both depths are warmed, then sampled
-     alternately, and each side keeps its best: a spike lands on both sides, or on neither best. */
-  await timeOnce(500); await timeOnce(2000);
-  let shallow = Infinity, deepest = Infinity;
+  /* kosmos#7235: alone this ratio reads about 3.8 (x3.75 to x3.88, 12 of 12), but inside a full suite it read x8 to x9
+     about one run in four. Reasoned, not reproduced inside a suite: the old test took all of one depth's samples, then
+     all of the other's, so load that came and went could land on one side only; and under steady load the longer deep
+     samples are hit more often, which skews a ratio of two minimums. So: one warm-up run of each (JIT), then five
+     adjacent pairs (shallow, deep), and the MEDIAN of the five pair ratios. Each ratio compares two samples taken
+     moments apart, and the median ignores up to two disturbed pairs in either direction, so a slow shallow sample
+     cannot hide a real regression either (as a minimum of ratios could). */
+  await timeOnce(shallowRun);
+  await timeOnce(deepRun);
+  const ratios = [];
   for (let k = 0; k < 5; k++) {
-    shallow = Math.min(shallow, await timeOnce(500));
-    deepest = Math.min(deepest, await timeOnce(2000));
+    const shallow = await timeOnce(shallowRun);
+    ratios.push((await timeOnce(deepRun)) / shallow);
   }
-  const ratio = deepest / shallow;
+  ratios.sort((a, b) => a - b);
+  const ratio = ratios[2];
   assert.ok(ratio < 7.5, `depth x4 cost x${ratio.toFixed(1)}; the trie measured about 4, the quadratic check about 13`);
 });
 
