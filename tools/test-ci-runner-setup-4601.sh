@@ -277,6 +277,7 @@ has pf-suite-mixed "a runner's suite, not counted (kosmos-ci): 456" && ! grep RE
   && pass "preflight: beside an owner's suite, only the owner's line is refused" \
   || fail "preflight suite-mixed: $(grep -E 'REFUSE|not counted' "$T/pf-suite-mixed.out" | head -3)"
 refuse suite-lookalike-user "a suite looks live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh" "FX_LIVE_USERS=123=kosmos-cix.y"
+refuse suite-prefixed-user "a suite looks live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh" "FX_LIVE_USERS=123=xkosmos-ci"
 # A suite run by another runner user (a second runner, set up while the first is busy) is a note, not a refusal.
 run pf-suite-runner "$H" "FX_LIVE=456 bash tools/run-tests.sh
 457 node tools/shell-shard.js queued-heavy.sh" "FX_LIVE_USERS=456=kosmos-ci 457=kosmos-ci2" -- preflight
