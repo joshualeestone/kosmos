@@ -24675,7 +24675,11 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     res = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' } });
     body = await res.json().catch(() => null);
   } catch { res = null; }
-  if (!res || !res.ok) {
+  /* #7207 (Josh, 2026-10-26 10:28): no answer at all is the moment the board restarts, very often to install the
+     update the first press started. Offering Update again there had him pressing it "like a million times" at a board
+     that could not answer. So wait for it instead, and decide from what it says when it is back. */
+  if (!res) { waitForUnansweredPress(rollingBack); return; }
+  if (!res.ok) {
     // The route's own sentence: a from-source run, nothing newer published,
     // or a spawn failure. All are states, not scoldings.
     /* #6903 (Josh, 2026-10-22 10:46): with no sentence from the route the dialog said only "we could not start the
@@ -24683,10 +24687,8 @@ document.getElementById('uc-go').addEventListener('click', async () => {
        answer at all (it was restarting, perhaps for an automatic update that began a moment earlier), or it answered
        without a reason. Each says what happened and the one thing to do; the board logs its own refusals (#6903). */
     const did = rollingBack ? 'roll back' : 'update';
-    const said = (body && body.error) || (!res
-      ? 'Kosmos did not answer, so this page cannot tell whether the ' + did + ' started. Kosmos may be restarting'
-        + (rollingBack ? '' : ', perhaps to install it') + '. Wait a minute, then reload this page.'
-      : 'Kosmos could not start the ' + did + ' (it answered ' + res.status + ' with no reason). Try again in a minute.');
+    const said = (body && body.error)
+      || ('Kosmos could not start the ' + did + ' (it answered ' + res.status + ' with no reason). Try again in a minute.');
     /* 🛑 "THERE IS NO UPDATE TO INSTALL RIGHT NOW" UNDER A BUTTON THAT SAYS
        UPDATE (Josh, 2026-08-23 13:03, screenshot). The offer came from a
        poll; by the press the board had already been restarted on the newer
@@ -24811,6 +24813,67 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     if (verdict !== 'waiting') { settle(verdict, versionNow, attempt); return; }
   }
 });
+
+/* #7207: what a press that got no answer should do next, from the status the board gives once it answers. Pure, so
+   the suite drives every branch. `before`/`bootBefore`: the version and boot identity this page last saw.
+     done        a new version answers: the update happened, reload into it
+     restarted   a new boot on the same version: it restarted without updating
+     answering   the same boot answers: it never went away (the press may or may not have reached it, and the route
+                 joins an install already under way, so pressing again is safe)
+     deadline    no answer for three minutes
+     waiting     no answer yet */
+function unansweredPressVerdict(v) {
+  if (v.reached && v.before && v.now && v.now !== v.before) return 'done';
+  if (v.reached && v.bootBefore && v.bootNow && v.bootNow !== v.bootBefore) return 'restarted';
+  if (v.reached) return 'answering';
+  if (v.elapsedMs >= 3 * 60 * 1000) return 'deadline';
+  return 'waiting';
+}
+
+/* #7207: the Update / Roll back dialog after a press that got no answer. It says so, keeps the button off, and asks
+   the board's status every two seconds until the board answers or the dialog is closed. */
+async function waitForUnansweredPress(rollingBack) {
+  const err = document.getElementById('uc-err');
+  const go = document.getElementById('uc-go');
+  const dlg = document.getElementById('updconfirm');
+  const did = rollingBack ? 'roll back' : 'update';
+  const label = rollingBack ? 'Roll back' : 'Update';
+  err.textContent = 'Kosmos is not answering right now. It may be restarting'
+    + (rollingBack ? '' : ', perhaps to install the update') + '. This page will wait for it to answer.';
+  err.hidden = false;
+  go.disabled = true;
+  go.textContent = 'Waiting\u2026';
+  const before = LAST_VERSION;
+  const bootBefore = LAST_BOOTED_AT || null;
+  const t0 = Date.now();
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 2000));
+    if (dlg.hidden) { go.textContent = label; go.disabled = false; return; }   // closed: stop asking
+    let reached = false; let now = null; let bootNow = null;
+    try {
+      const ping = await (typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch('/api/status', { cache: 'no-store' }));
+      if (ping.ok) {
+        const st = await ping.json().catch(() => null) || {};
+        reached = true; now = st.version || null; bootNow = st.bootedAt || null;
+      }
+    } catch { /* no answer yet */ }
+    const verdict = unansweredPressVerdict({ reached, before, now, bootBefore, bootNow, elapsedMs: Date.now() - t0 });
+    if (verdict === 'waiting') continue;
+    if (verdict === 'done') { location.reload(); return; }
+    go.textContent = label;
+    go.disabled = false;
+    if (verdict === 'deadline') {
+      err.textContent = 'Kosmos has not answered for three minutes. Reload this page to see where it is.';
+      go.textContent = 'Reload';
+      go.onclick = () => window.location.reload();
+      return;
+    }
+    err.textContent = verdict === 'restarted'
+      ? 'Kosmos restarted and is still on ' + (now || 'the same version') + '. Press ' + label + ' to ' + did + (rollingBack ? '' : ' it') + ' now.'
+      : 'Kosmos is answering again. Press ' + label + ' to ' + did + ': if it already started, this joins it.';
+    return;
+  }
+}
 
 /* #553: the one place the overlay decides what is true. Pure, so the
    suite can drive every branch. `attempt` is the server's record of the

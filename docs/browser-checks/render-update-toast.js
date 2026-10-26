@@ -251,9 +251,27 @@ const RELPORT = freePort();
       const reached = await p.evaluate(async (u) => fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' } }).then(() => true, () => false), url);
       if (reached || pressed !== before + 1) die('#6903: the stub did not catch a POST to ' + url + '; not pressing anything');
     }
-    const none = await press();
-    if (none !== 'Kosmos did not answer, so this page cannot tell whether the update started. Kosmos may be restarting, perhaps to install it. Wait a minute, then reload this page.')
-      die('#6903: no answer said: ' + none);
+    /* #7207: a press with NO answer waits for the board (the button off, saying so) instead of offering Update again;
+       the board here never went away (only the route is stubbed), so its next status answer re-offers the button. */
+    const pressNoAnswer = async (label = 'Update') => {
+      const before = pressed;
+      await p.click('#uc-go');
+      await p.waitForFunction(() => { const e = document.getElementById('uc-err'); return e && !e.hidden; }, null, { timeout: 10000 });
+      if (pressed !== before + 1) die('#7207: the ' + label + ' press did not reach the stubbed route (' + pressed + ')');
+      const waiting = await p.evaluate(() => ({ err: document.getElementById('uc-err').textContent.trim(),
+        go: document.getElementById('uc-go').textContent.trim(), enabled: !document.getElementById('uc-go').disabled }));
+      if (waiting.enabled || waiting.go !== 'Waiting\u2026') die('#7207: a press with no answer offered the button again at once: ' + JSON.stringify(waiting));
+      await p.waitForFunction(() => !document.getElementById('uc-go').disabled, null, { timeout: 15000 });
+      const after = await p.evaluate(() => ({ err: document.getElementById('uc-err').textContent.trim(),
+        go: document.getElementById('uc-go').textContent.trim(), open: !document.getElementById('updconfirm').hidden }));
+      if (!after.open || after.go !== label) die('#7207: once the board answered, the dialog was left stranded: ' + JSON.stringify(after));
+      return { waiting: waiting.err, after: after.err };
+    };
+    const none = await pressNoAnswer();
+    if (none.waiting !== 'Kosmos is not answering right now. It may be restarting, perhaps to install the update. This page will wait for it to answer.')
+      die('#7207: while waiting it said: ' + none.waiting);
+    if (none.after !== 'Kosmos is answering again. Press Update to update: if it already started, this joins it.')
+      die('#7207: once the board answered it said: ' + none.after);
     await p.screenshot({ path: path.join(OUT, 'update-confirm-no-answer.png') });
     answer = (route) => route.fulfill({ status: 502, body: '' });
     const bare = await press();
@@ -267,9 +285,11 @@ const RELPORT = freePort();
     // The same dialog in Roll back mode, through the page's own mode switch: no "install it" in its sentence.
     await p.evaluate(() => setUpdConfirmMode('rollback', '0.0.1'));
     answer = (route) => route.abort('connectionreset');
-    const rbNone = await press('Roll back');
-    if (rbNone !== 'Kosmos did not answer, so this page cannot tell whether the roll back started. Kosmos may be restarting. Wait a minute, then reload this page.')
-      die('#6903: a Roll back with no answer said: ' + rbNone);
+    const rbNone = await pressNoAnswer('Roll back');
+    if (rbNone.waiting !== 'Kosmos is not answering right now. It may be restarting. This page will wait for it to answer.')
+      die('#7207: a Roll back with no answer said while waiting: ' + rbNone.waiting);
+    if (rbNone.after !== 'Kosmos is answering again. Press Roll back to roll back: if it already started, this joins it.')
+      die('#7207: a Roll back, once the board answered, said: ' + rbNone.after);
     await p.evaluate(() => setUpdConfirmMode('update'));
     await p.unroute('**/api/update', stub);
     await p.unroute('**/api/update/rollback', stub);
