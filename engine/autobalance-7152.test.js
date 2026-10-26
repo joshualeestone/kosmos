@@ -143,7 +143,7 @@ test('#7152 review 1: every row the route sends carries the engine\'s answer, an
 
 test('#7152 review 1: the route marks every Claude row and reads the switch before the decision can fail', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const at = src.indexOf('ab.markTargets(claude, nowMs);');
+  const at = src.indexOf('ab.markTargets(claude, Date.now());');   // review 2: the clock as the answer is sent
   assert.ok(at > 0, 'the route does not mark its Claude rows');
   const block = src.slice(at, src.indexOf('sendJson(res, 200, { accounts: [...claude', at));
   assert.ok(block.length > 0, 'CONTROL: the block is found whole');
@@ -207,4 +207,16 @@ test('#7152 slice 2: movable is the Assigner\'s own free test: idle, commitments
   assert.equal(m('promised'), false, 'an agent whose commitments name work was movable');
   assert.equal(m('unread'), false, 'an agent whose commitments could not be read was movable');
   assert.equal(m('absent'), false, 'an agent not on the board was movable');
+});
+
+test('#7152 review 2: a guide is never movable, and an agent already being moved is not named again', () => {
+  const m = ab.movableFor({ cards: [{ sessionName: 'guide', isNamedOurs: true, state: 'idle', isGuide: true }, { sessionName: 'ada', isNamedOurs: true, state: 'idle' }],
+    records: [], readCommitment: () => ({ state: 'clear' }) });
+  assert.equal(m('guide'), false, 'the setup guide was movable');
+  assert.equal(m('ada'), true, 'CONTROL: an ordinary idle agent is');
+  const rows = [
+    row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + 40 * H }, agentsHere: { names: ['ada', 'bo'], complete: true, moving: ['bo'] } }),
+    row('/u/.claude-b'),
+  ];
+  assert.deepEqual(ab.decide({ rows, movable: all, nowMs: NOW }).moves.map((x) => x.agent), ['ada'], 'an agent mid-move was named again');
 });

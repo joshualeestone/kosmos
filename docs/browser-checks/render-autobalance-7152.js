@@ -12,7 +12,7 @@
  *  - an account with nothing able to take its agents says so; one whose agent list may be short says so; nothing to
  *    move says "Nothing to move right now.";
  *  - switched off: the switch reads off and no line is drawn; an unreadable decision says so;
- *  - pressing the switch sends { on: false } once and draws the next read's answer;
+ *  - pressing the switch sends { on: false } once and draws the next read's answer; a failed read takes earlier lines away;
  *  - at 390 px nothing scrolls sideways.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-autobalance-7152.js
@@ -70,7 +70,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const puts = [];
         window.fetch = (u, opts) => {
           const url = String(u);
-          if (url.indexOf('/api/accounts') !== -1) return Promise.resolve({ ok: true, json: async () => current });
+          if (url.indexOf('/api/accounts') !== -1) return current === 'fail' ? Promise.resolve({ ok: false, status: 503, json: async () => ({}) }) : Promise.resolve({ ok: true, json: async () => current });
           if (url.indexOf('/api/autobalance-setting') !== -1) {
             puts.push(opts && opts.body);
             current = { ...current, autobalance: { ...current.autobalance, on: false } };
@@ -99,6 +99,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         };
         const out = {};
         for (const [k, c] of Object.entries(cases)) { current = c; await paintAccounts(); out[k] = look(); }
+        /* Review 2: a failed read after a good one takes the earlier lines away with the list. */
+        current = cases.moves; await paintAccounts();
+        out.beforeFail = look();
+        current = 'fail'; await paintAccounts();
+        out.failed = look();
         current = cases.moves;
         await paintAccounts();
         document.getElementById('ab-toggle').click();
@@ -120,6 +125,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.badtwo && r.badtwo.shown && r.badtwo.lines[0] === 'Kosmos could not work out what it would move just now.', tag + ' an unreadable decision says so', JSON.stringify(r.badtwo && r.badtwo.lines));
       say(r.pressed && r.pressed.puts.length === 1 && r.pressed.puts[0] === '{"on":false}' && r.pressed.checked === 'false' && r.pressed.lines.length === 0,
         tag + ' pressing the switch sends off once and draws the next read', JSON.stringify(r.pressed));
+      say(r.beforeFail && r.beforeFail.lines.length === 2 && r.failed && !r.failed.shown && r.failed.lines.length === 0, tag + ' a failed read takes the earlier lines away (shown before it: the control)', JSON.stringify(r.failed));
       say(Object.values(r).every((x) => !x || x.sideways === false), tag + ' nothing scrolls sideways', '');
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
       await page.close();

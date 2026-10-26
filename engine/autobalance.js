@@ -120,7 +120,9 @@ function decide({ rows, movable, nowMs }) {
     if (!why) continue;
     if (!from.agentsHere || from.agentsHere.complete !== true) short.push(from.dir);
     const names = from.agentsHere && Array.isArray(from.agentsHere.names) ? from.agentsHere.names : [];
-    const going = names.filter((n) => typeof movable === 'function' && movable(n) === true);
+    /* Review 2: an agent already being moved is not named again. */
+    const moving = new Set(from.agentsHere && Array.isArray(from.agentsHere.moving) ? from.agentsHere.moving : []);
+    const going = names.filter((n) => !moving.has(n) && typeof movable === 'function' && movable(n) === true);
     if (!going.length) continue;
     const to = targetFor(from, all, nowMs);
     if (!to) { held.push({ from: from.dir, why }); continue; }
@@ -149,6 +151,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
   return (session) => {
     const c = bySession.get(session);
     if (!c || !assigner.idleCard(c)) return false;
+    if (c.isGuide === true) return false;   // review 2: the page's bulk move never moves a guide, so neither would this
     let rec = null;
     try { rec = readCommitment(session); } catch { rec = null; }
     return assigner.commitmentsFree(rec) && !assigner.hasOpenWork(session, Array.isArray(records) ? records : []);

@@ -36,6 +36,12 @@ the decision is logged once per change (a line in the board's log), which is the
   carry bulkTargetable computed by the engine function itself. mobile-shots' account shot draws no move control (no
   agents on its rows), so it is unchanged. Not taken: rounding the at-risk and target tests as the page rounds (the
   raw figure is the truer one), lazy reads of the roster when nothing is at risk (cheap; reads only on Settings).
+- Review 2: the route marks its rows with the clock as the answer is sent, not as the request started (its live checks
+  can take a while), so a paint, and the click-time re-read, are as current as the page's own Date.now() was. A guide
+  is never movable (the bulk move never moves one), and an agent already mid-move is not named again. A failed read
+  takes the earlier lines away with the list. server.autobalance-7152.test.js drives the real routes: the switch's
+  default, its screen-only and boolean-only PUT, bulkTargetable on every Claude row, and the decision only with
+  ?agents=1 (with no email in it).
 - engine/autobalance-setting.js: the assigner-setting pattern. Missing reads ON; a corrupt file reads off. Effective
   only with two or more eligible accounts; with one it does nothing and says nothing.
 - GET /api/accounts?agents=1: `autobalance: { on, eligible, moves, held, short, unreadable? }`; every Claude row also

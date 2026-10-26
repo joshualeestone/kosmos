@@ -28942,6 +28942,7 @@ async function paintAccounts(opts) {
     if (msg) msg.textContent = '';
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
+    acctAutobalance = null; paintAutobalance(null, []);   // kosmos#7152 review 2: no lines from an earlier read under a failed one
     /* This branch used to leave the flags untouched, so a failure here could not be told
        apart from never having asked, and a stale LOADED from an earlier read outlived it. */
     accountsUnreadable();

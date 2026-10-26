@@ -13001,7 +13001,9 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#7152 slice 2: whether a whole set of agents may be moved onto each Claude row, from the ONE rule the
            decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
         const ab = require('./engine/autobalance');
-        ab.markTargets(claude, nowMs);
+        /* Review 2: the clock as the answer is sent, not the request's start (the live checks above can take a while), so
+           a reset or a limit reached during them is seen, as the page's own Date.now() saw it before. */
+        ab.markTargets(claude, Date.now());
         let autobalance;
         if (wantAgents) {
           /* Review 1: the switch and the count are read first, so a failure in the decision below can say so on the page
