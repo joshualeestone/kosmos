@@ -18,6 +18,14 @@ The first real user (the 07:00 email digest, 10-26) arrived as one run-on line: 
 - Web: the note band escapes, then draws `\n` as `<br>` (as an external row does).
 - Both CLIs' usage lines say the line breaks are kept and that agents see one line.
 
+- Review 1: the forged-row test's "no own row" assertion matched the old double space, which the store now tidies,
+  so it could not fail; it matches any whitespace now (measured: with the text-view flatten removed and the positive
+  assertion disabled, it fails). The text view's flatten also takes U+0085 (`\s` does not), for notes and posts. The
+  multi-line test pins a lone CR (a break), VT and FF (spaces).
+- Not an issue (review 1 aside): the test board prints its update channel at boot, but its first update look is on
+  an unref'd 60 s timer and the test board exits in seconds; the same for every server test.
+- Noted for design, not built (review 1): the phone centres Kosmos lines, so a list shows centred there.
+
 ## Rejected
 - Markdown in notices: rendering it would run other people's words (an email digest) through the rich renderer that
   draws links, a phishing surface; stripping it would mangle real underscores and asterisks in names. Left literal;
