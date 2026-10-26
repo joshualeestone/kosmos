@@ -312,8 +312,8 @@ async function readFollowing(agentKey) {
      newest page, the backlog behind it drained by less than it sank and posts passed FEED_ITEMS_MAX unread). The ones
      home counts (from the last 24 hours, not done) go first and DEEPEST first: they are the next to pass the depth edge
      and leave home's count. Depth is counted in feed ITEMS, replies included, so with at most POSTS_WANTED new items
-     between two reads a counted post is never lost; more than that can still lose one (the moving-feed test pins
-     both). Older unseen posts fill next, newest first. Already-shown ones fill only up to POSTS_WANTED posts in all,
+     between two reads, and every page read, a counted post is never lost; more than that can still lose one (the
+     moving-feed test pins both). Older unseen posts fill next, newest first. Already-shown ones fill only up to POSTS_WANTED posts in all,
      the newest page's included, so a page of replies still offers a post. */
   const nowMs = Date.now();
   const counted = (it) => unseen(it) && countedByHome(it, done, nowMs);

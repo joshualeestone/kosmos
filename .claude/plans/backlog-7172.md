@@ -14,8 +14,8 @@ at the same depth, so the loss was invisible.
    depth edge. Uncounted unseen posts fill next, newest first; already-shown posts fill only what is left (#5636 F7c).
 3. Read every older page up to FEED_PAGES_MAX on every read, so the deepest posts are known.
 4. Home's "read it again" line: due when more than POSTS_WANTED counted posts sit behind the newest page.
-5. Home's titles follow the read's order: the newest page's fresh posts, then the ones behind it deepest first, so the
-   titles an agent is shown are the posts its next read shows.
+5. Home's titles are picked as the read picks: the newest page's fresh posts, then the ones behind it deepest first, so
+   the titled posts are the posts its next read shows (the read lists them by time; the test checks the set).
 6. A post whose id is not a UUID (noteSeen cannot record it) is never unseen in the read, so it cannot hold a place on
    every read. Home's side of the same rule is #7175's countedFollowing.
 
