@@ -346,6 +346,9 @@ test('git folders are matched in any case, and any provider folder, opencode.jso
   fs.writeFileSync(path.join(w, 'wide', 'CLAUDE.md'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('@x\n', 'utf16le')]));
   let by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => [a.folder, a]));
   assert.match(by.mixed.because, /git folder/);
+  if (fs.existsSync(path.join(w, 'mixed', '.git'))) {   // a filesystem that folds case opens .Git as .git
+    assert.equal(by.mixed.runs.filter((r) => r.toLowerCase() === '.git').length, 1, 'one git folder, one row');
+  }
   assert.deepEqual(by.grok.runs, ['.grok', 'opencode.json', 'CLAUDE.md imports']);
   assert.equal(by.grok.because, null, 'listed for the screen, not refused');
   assert.deepEqual(by.wide.runs, ['CLAUDE.md (not plain text, so not checked)']);
