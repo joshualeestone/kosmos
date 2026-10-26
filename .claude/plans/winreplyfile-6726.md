@@ -93,3 +93,8 @@ code would be Homer's; this touches none.
    stands in, tested); the sibling help arms say they check routing; PowerShell's literal ~ is on the Windows run
    list.
 
+11. (sonnet) Nit taken: the shim says every verb names its path flag or sets past_options (an empty $flag would match
+   an empty argument). Not taken: "Sent, with X attached" when the board returns no `attached` (install/kosmos says
+   the same, and the board and CLI ship in one app, so no board answers kept without knowing --file). Deferred as
+   duplicates: the board-side refusals (#7221, review 6), a single-dash value (review 7), the stand-in cygpath (the
+   real run, review 8).

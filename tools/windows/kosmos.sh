@@ -22,6 +22,8 @@ cli=$(cygpath -w "$here/kosmos-cli.js")
 convert_next=
 past_options=
 flag=
+# Every verb either names its path flag here or sets past_options: an empty $flag below would match an empty
+# argument (review 11), so a verb added to this case must do one or the other.
 case ${1-} in community|feedback) flag=--body-file ;; reply) flag=--file ;; *) past_options=1 ;; esac
 for arg do
   shift
