@@ -2817,6 +2817,14 @@ body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
 /* The play mark, drawn with a clip-path, never a border: the #3692 guard reads any border-left as a left bar. */
 .pj-head-pause.on::before { content: ""; width: 6px; height: 8px; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
 .pj-paused-line { margin: 4px 0 0; color: var(--k-ink-2); }
+/* kosmos#7210: a project not on All says so beside its title, in the pause button's shape, so a quiet room does not
+   look broken. Pressing it opens the project's settings, where the choice is made. */
+.linkish.pj-head-notify { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; flex: none;
+                 height: 22px; padding: 0 8px; border-radius: 7px; font: 600 .75rem/1 var(--font-ui); color: var(--k-ink-2);
+                 border: 1px solid var(--k-rule); background: var(--k-surface); }
+.linkish.pj-head-notify:hover { color: var(--k-ink); background: var(--k-sunk); }
+.pjs-notify-seg { margin: 6px 0 0; }
+#pjs-notify-msg:empty { display: none; }   /* an empty .fmsg still takes a line (#5391 review 1) */
 #pj-head-pause-msg:empty { display: none; }   /* review 1: an empty .fmsg still takes ~23px under every title */
 /* On touch it still LOOKS 22px, as Josh asked, but takes a 36px-tall tap, as the cog beside it does (an invisible ring). */
 @media (hover: none) { .pj-head-pause::after { content: ""; position: absolute; inset: -7px -2px; } }
@@ -17149,6 +17157,8 @@ window.kosmosMeasureScrollbarWidth();
           <!-- kosmos#5391 (Josh, 2026-10-06 08:11: "a pause project button on the actual project"): one click beside the
                title, the same pause as Settings' #pj-one-pause (#4771, PUT /api/project/<id> {paused}). -->
           <button class="linkish pj-head-pause" id="pj-head-pause" type="button" hidden><span class="pause" aria-hidden="true"><i></i><i></i></span><span class="pj-head-pause-t">Pause</span></button>
+          <!-- kosmos#7210: shown only when this project is not on All; opens the project's settings. -->
+          <button class="linkish pj-head-notify" id="pj-head-notify" type="button" hidden><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l1.5 2h-15"/><path d="M10 20.5a2 2 0 0 0 4 0"/><path d="M3 3l18 18"/></svg><span id="pj-head-notify-t"></span></button>
         </div>
         <!-- Who asked for this project (#327): shown only when it was NOT the
              person, because "made by you" under everything you made is
@@ -17923,6 +17933,20 @@ window.kosmosMeasureScrollbarWidth();
          writes localStorage directly rather than a server setting. Not `hidden` like the
          server-backed switches above: the value is always readable, so there is no
          unknown state to paint around. Copy is Mona's to finalize. -->
+    <!-- kosmos#7210 (Josh, 2026-10-26: "mute projects so that I can select the notifications on a project-by-project
+         basis"): what reaches the person from this project. Kept by the board, so the Mac app, the web board and the
+         phone all follow it; saved as it is chosen, like the switch below. -->
+    <div class="field">
+      <span class="flabel" id="pjs-notify-l">Notifications from this project</span>
+      <div class="cons-agents-lay pjs-notify-seg" id="pjs-notify" role="radiogroup" aria-labelledby="pjs-notify-l" aria-describedby="pjs-notify-hint">
+        <button type="button" role="radio" data-notify="all" aria-checked="true" tabindex="0">All</button>
+        <button type="button" role="radio" data-notify="mentions" aria-checked="false" tabindex="-1">Mentions only</button>
+        <button type="button" role="radio" data-notify="muted" aria-checked="false" tabindex="-1">Muted</button>
+      </div>
+      <p class="dhint" id="pjs-notify-hint" style="margin:6px 0 0;"></p>
+      <p class="fmsg" id="pjs-notify-msg" aria-live="polite"></p>
+    </div>
+
     <div class="field">
       <div class="setrow" id="pjs-sound-row">
         <div><b>Play a sound when a new message lands</b>
@@ -65616,6 +65640,9 @@ function playBubblePop() {
    is yours, not the project's, so it lives in localStorage beside the other per-viewer
    display preferences rather than on the shared project record. A noisy project is
    muted here on its own; storage blocked (private window) falls back to ON. */
+/* #7210: this project's notification level as the board sent it (All / Mentions only / Muted); anything else, or an
+   older board with no field, reads as all, today's behaviour. */
+function pjNotifyLevel(p) { return p && (p.notify === 'mentions' || p.notify === 'muted') ? p.notify : 'all'; }
 function projectSoundOn(id) {
   try { return localStorage.getItem('kosmos.sound.pj.' + id) !== 'off'; }
   catch { return true; }
@@ -65687,7 +65714,8 @@ function ringNewMessages(projects) {
        `/seen` lands, so /api/projects can still report unread=1 for the room you are
        reading -- exclude it here too, the same guard the badge keeps. */
     const prev = prevSeen ? prevSeen[p.id] : undefined;
-    if (prev !== undefined && cur > Number(prev) && p.id !== PJ_CURRENT && projectSoundOn(p.id)) burst = true;
+    /* #7210: a project set to Mentions only or Muted makes no new-message sound (its unread count still rises above). */
+    if (prev !== undefined && cur > Number(prev) && p.id !== PJ_CURRENT && projectSoundOn(p.id) && pjNotifyLevel(p) === 'all') burst = true;
   }
   PJ_UNREAD_SEEN = next;
   /* #2436: the global master gates the play, not the baseline: PJ_UNREAD_SEEN is
@@ -71039,6 +71067,8 @@ function paintProjectSettings(p) {
   document.getElementById('pjs-desc').value = p.description || '';
   // #2407: reflect this project's per-device sound preference (default ON).
   paintSwitch('pjs-sound-toggle', projectSoundOn(p.id));
+  pjNotifyPaint(pjNotifyLevel(p));   // kosmos#7210
+  document.getElementById('pjs-notify-msg').textContent = '';
   pjPaintParentSelect(p);
   document.getElementById('pjs-msg').textContent = '';
   document.getElementById('pjs-reveal-msg').textContent = '';
@@ -71587,6 +71617,84 @@ document.getElementById('pjs-sound-toggle').addEventListener('click', () => {
   paintSwitch('pjs-sound-toggle', on);
 });
 
+/* kosmos#7210: the project's notification level. The words under the choice say what it does, so nobody has to guess
+   what "Mentions only" keeps. */
+const PJ_NOTIFY_HINT = {
+  all: 'Everything from this project: its new-message sound, and phone notifications as you set them in Settings.',
+  mentions: 'Only what is addressed to you: an agent that needs you, a post that names you, and work waiting for your check. No new-message sound.',
+  muted: 'Nothing from this project: no sound and no phone notifications. Its unread count still shows, so nothing is lost.',
+};
+const PJ_NOTIFY_HEAD = { mentions: 'Mentions only', muted: 'Muted' };
+function pjNotifyPaint(level) {
+  const seg = document.getElementById('pjs-notify');
+  if (!seg) return;
+  for (const b of seg.querySelectorAll('[data-notify]')) {
+    const on = b.dataset.notify === level;
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+  }
+  document.getElementById('pjs-notify-hint').textContent = PJ_NOTIFY_HINT[level] || PJ_NOTIFY_HINT.all;
+}
+function pjHeadNotifyPaint(p) {
+  const b = document.getElementById('pj-head-notify');
+  if (!b) return;
+  const level = pjNotifyLevel(p);
+  b.hidden = level === 'all';
+  document.getElementById('pj-head-notify-t').textContent = PJ_NOTIFY_HEAD[level] || '';
+  b.setAttribute('aria-label', level === 'all' ? '' : 'Notifications: ' + PJ_NOTIFY_HEAD[level] + '. Change in project settings');
+}
+/* Saved as it is chosen. Each choice counts itself, so an earlier answer arriving late never repaints over a later
+   choice; a refusal puts back what the board holds and says why, under the choice. */
+let PJ_NOTIFY_SEQ = 0;
+async function pjNotifyChoose(level) {
+  const p = pjById(PJ_CURRENT);
+  if (!p || !PJ_NOTIFY_HINT[level] || level === pjNotifyLevel(p)) { pjNotifyPaint(level); return; }
+  const seq = ++PJ_NOTIFY_SEQ;
+  const msg = document.getElementById('pjs-notify-msg');
+  pjNotifyPaint(level);
+  msg.textContent = '';
+  let ok = false, got = {};
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: level }),
+    });
+    got = await res.json().catch(() => ({}));
+    ok = res.ok;
+  } catch { ok = false; }
+  if (seq !== PJ_NOTIFY_SEQ) return;
+  const now = pjById(p.id);
+  if (ok) {
+    if (now) now.notify = got && got.project && got.project.notify ? got.project.notify : level;
+    msg.textContent = 'Saved.';
+  } else {
+    pjNotifyPaint(pjNotifyLevel(now || p));
+    msg.textContent = 'Not saved: ' + ((got && got.error && pjSentence(got.error)) || 'Kosmos did not answer. Try again.');
+  }
+  if (now && PJ_CURRENT === now.id) pjHeadNotifyPaint(now);
+}
+(() => {
+  const seg = document.getElementById('pjs-notify');
+  if (!seg) return;
+  seg.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-notify]');
+    if (b) pjNotifyChoose(b.dataset.notify);
+  });
+  /* A radio group's keys, as the Documents switch above (#4937): arrows move and choose, wrapping; Home and End. */
+  seg.addEventListener('keydown', (e) => {
+    const b = e.target.closest('[data-notify]');
+    if (!b || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    const all = [...seg.querySelectorAll('[data-notify]')];
+    const i = all.indexOf(b);
+    const to = e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1]
+      : all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];
+    e.preventDefault();
+    to.focus();
+    pjNotifyChoose(to.dataset.notify);
+  });
+  const head = document.getElementById('pj-head-notify');
+  if (head) head.addEventListener('click', () => document.getElementById('pj-settings-link').click());
+})();
+
 /* #2436: flip the GLOBAL master new-message sound preference (Settings > Automation >
    Sounds). Same shape as the per-project toggle above: writes localStorage and repaints
    the switch. Off here silences the pop on every project (soundMasterOn gates the play in
@@ -71877,6 +71985,7 @@ function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
   document.getElementById('pj-one-name').textContent = p.name;
+  pjHeadNotifyPaint(p);   // kosmos#7210
   /* #2928 breadcrumb: the location trail (where this project sits) above the name,
      derived from pjAncestry -- the same tree the list cards use -- so the detail
      page and the list can never disagree. (#3103 removed the sub-projects section
