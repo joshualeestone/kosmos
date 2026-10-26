@@ -146,9 +146,18 @@ test('#7152 slice 3: no move while another account move runs; refused, partial a
   assert.equal((await twoTicks(automove.create({ file: fileFor() }), d)).because, 'busy');
   assert.deepEqual(calls.starts, []);
   const file = fileFor();
-  const { d: d2 } = deps({ movesOn: true, start: () => ({ status: 409, body: { outcome: 'refused', because: 'x' } }) });
-  assert.equal((await twoTicks(automove.create({ file }), d2)).did, 'refused');
+  const run2 = automove.create({ file });
+  const { d: d2 } = deps({ movesOn: true, start: () => ({ status: 202, body: { id: 'm', agents: [{ name: 'ada', outcome: 'refused', because: 'x' }] }, done: Promise.resolve() }) });
+  assert.equal((await twoTicks(run2, d2)).did, 'refused');
   assert.equal(automove.readLines(file).pop().outcome, 'refused');
+  assert.equal(run2.state.refused.has('ada'), true, 'CONTROL: an agent the move refused is held');
+  /* Review 3: a 409 is the board saying no move may start now, not the agent refused: no line and no hold. */
+  const f409 = fileFor();
+  const r409 = automove.create({ file: f409 });
+  const { d: d409 } = deps({ movesOn: true, start: () => ({ status: 409, body: { outcome: 'refused', because: 'busy' } }) });
+  assert.equal((await twoTicks(r409, d409)).because, 'busy');
+  assert.equal(automove.readLines(f409).some((l) => l.kind === 'move'), false, 'a 409 was recorded as a move');
+  assert.equal(r409.state.refused.has('ada'), false, 'a 409 held a healthy agent as refused');
   for (const outcome of ['partial', 'stopped']) {
     const f = fileFor();
     const { d: dx, calls: cx } = deps({ movesOn: true, moveOutcome: outcome });
