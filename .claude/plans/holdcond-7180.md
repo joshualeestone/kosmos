@@ -21,7 +21,8 @@ Owner: Ice Cream Kitty. From agent feedback; split from #7149 ask 2, which left 
   state flips, never by a changed condition (review 1 found that path let an agent strip the mark, then lift the hold).
 - A wait that leads back to the held task (A waits for B, B for A, or longer) is refused: it would never be met.
 - Restating the stored condition is no change and is not re-checked, so a met one is not refused as closed or past.
-- The instructions' held mark names the condition on the person's hold too, and adds "(that has happened)" once met.
+- The instructions' held mark names the condition on the person's hold too. It does not say whether the condition is
+  met: the block is rewritten only on a sync, so that would go stale. The met line tells the owner.
 - An agent's bare re-hold of the person's hold leaves it whole (condition and mark); an agent changing its condition
   is 403. The person's screen hold sets exactly what it says, so it drops an agent's earlier condition.
 - Times: only a real ISO date or date-time is taken (2026-11-31 or T24:00 are refused, not rolled over) (not "2026-11-02 09:00" or "Nov 2", which Date.parse reads in the
@@ -37,7 +38,7 @@ Owner: Ice Cream Kitty. From agent feedback; split from #7149 ask 2, which left 
 ## Weakest premise
 That one line when met is enough. The met line has its own mark (holdMetTold), so after it the posts rule still applies
 to the hold as to any other: an owner that keeps working in the room is told again.
-Also: an unmet condition parks the hold with no ceiling. That is the point of the card (no asking while it is unmet),
+Also: an unmet condition parks the hold with no ceiling (raised by three reviewers; kept, and called out on the card). That is the point of the card (no asking while it is unmet),
 and the list and instructions show what it waits for. A task waited for that never closes keeps its waiter parked.
 
 ## Known, not changed

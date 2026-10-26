@@ -1134,6 +1134,17 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
       closed.status = 409;
       throw closed;
     }
+    /* kosmos#7180: what the person's hold waits for is theirs, so an agent sending a different one is refused before the
+       condition is checked (so it hears whose hold it is, not that its condition was wrong). */
+    const u1 = t.onHoldUntil;
+    const restates = until && typeof until === 'object' && !Array.isArray(until) && Object.keys(until).length === 1 && u1
+      && ((Number.isInteger(until.task) && until.task === u1.task)
+        || (typeof until.at === 'string' && typeof u1.at === 'string' && Date.parse(until.at) === Date.parse(u1.at)));
+    if (onHold && until != null && !restates && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true) {
+      const refused = new Error('the person put this task on hold, so only they can change what it waits for, on the screen');
+      refused.status = 403;
+      throw refused;
+    }
     /* kosmos#7180: an agent's bare re-hold of the person's hold leaves it as it is, condition included (only the person
        changes their hold); an agent's own hold, or any screen hold, is set to exactly what it is given. */
     const keepPersons = onHold && until == null && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true;
@@ -1144,13 +1155,6 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
         || (typeof until.at === 'string' && typeof u0.at === 'string' && Date.parse(until.at) === Date.parse(u0.at)));
     const want = keepPersons || restated ? (u0 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
     const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
-    /* kosmos#7180: what the person's hold waits for is theirs too, so an agent cannot change it (that change would
-       also count as a new hold and drop the person's mark below). */
-    if (onHold && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true && !sameUntil) {
-      const refused = new Error('the person put this task on hold, so only they can change what it waits for, on the screen');
-      refused.status = 403;
-      throw refused;
-    }
     didChange = isOnHold(t) !== onHold || (onHold && !sameUntil);
     changed = { ...t };
     if (onHold) {

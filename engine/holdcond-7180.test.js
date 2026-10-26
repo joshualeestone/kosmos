@@ -316,11 +316,9 @@ test('#7180 restating the stored condition is no change, even once it is met; a 
   assert.deepEqual(stored(g.id, g.a).onHoldUntil, { at: iso(passed) });
 });
 
-test('#7180 the instructions name the condition on the person\'s hold too, and say when it has happened', () => {
+test('#7180 the instructions name the condition on the person\'s hold too', () => {
   const f = fixture();
   tasks.setOnHold(f.id, f.a, true, { viaScreen: true, until: { task: f.b } });
   const block = () => projects.blockBody(projects.readAll().filter((x) => x.id === f.id), REX);
   assert.match(block(), new RegExp('task ' + f.a + ' of [^\\n]*\\[on hold until task #' + f.b + ' is closed: the person parked it; do not start it\\]'));
-  tasks.close(f.id, f.b);
-  assert.match(block(), new RegExp('task ' + f.a + ' of [^\\n]*\\[on hold until task #' + f.b + ' is closed \\(that has happened\\): the person parked it'));
 });

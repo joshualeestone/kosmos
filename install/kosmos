@@ -5819,7 +5819,7 @@ cmd_task() {
       done
       [ "$_twant" = 0 ] || { say "--value needs the words. $_toldusage"; exit 2; } ;;
     unhold)
-      _hold_until=""   # kosmos#7180: never a condition with taking a hold off, whatever the environment holds
+      local _hold_until=""   # kosmos#7180: never a condition with taking a hold off, whatever the environment holds
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task $sub <project-id> <task-number>"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _no_more_words "task $sub" 2 "Usage: kosmos task $sub <project-id> <task-number>" "$@" ;;   # kosmos#4889 review 6
@@ -5828,7 +5828,7 @@ cmd_task() {
       local _holdusage="Usage: kosmos task hold <project-id> <task-number> [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_holdusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      _hold_until=""
+      local _hold_until=""
       if [ $# -gt 2 ]; then
         case "$3" in
           --until-task|--until)
