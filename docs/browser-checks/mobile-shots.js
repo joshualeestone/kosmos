@@ -847,30 +847,6 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
   } },
-  /* kosmos#7208 (Mona Lisa): two of the person's messages Kosmos is holding, as their rows say it now: the first waits
-     for the agent's message box to clear, the second is queued behind it. The thread the board serves gets the two
-     rows added on the way to the page; nothing is written to the board. */
-  { name: 'agent-chat-held-7208', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
-    await page.route('**/thread*', async (r) => {
-      try {
-        if (r.request().method() !== 'GET') { await r.continue(); return; }
-        const res = await r.fetch();
-        let body = null;
-        try { body = await res.json(); } catch { body = null; }
-        if (!body || typeof body !== 'object') { await r.fulfill({ response: res }); return; }
-        const now = Date.now();
-        body.messages = (Array.isArray(body.messages) ? body.messages : []).concat([
-          { at: new Date(now - 90e3).toISOString(), text: 'Can you send me the draft when it is ready?', delivery: { state: 'held', heldFor: 'input' } },
-          { at: new Date(now - 30e3).toISOString(), text: 'And the notes from this morning too.', delivery: { state: 'held', behind: true, behindFor: 'input' } },
-        ]);
-        await r.fulfill({ response: res, body: JSON.stringify(body) });
-      } catch { /* the page closed at teardown (#6022) */ }
-    });
-    await at(page, '?agent=' + data.chatAgent);
-    await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
-    await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
-    await page.waitForSelector('#d-dmthread .delivery.held', { state: 'visible', timeout: 5000 });
-  } },
   { name: 'agent-perm-card', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, null) },
   { name: 'agent-perm-card-allowed', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Allow') },
   { name: 'agent-perm-card-denied', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Deny') },
