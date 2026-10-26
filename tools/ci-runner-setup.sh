@@ -383,9 +383,22 @@ preflight() {
   # Any command line naming either script (a tail of its log too): a false refusal is the safe side, and it is printed.
   # pgrep exits 1 for no match and 2 or more when it failed, which must not read as "none".
   rc=0; live="$(pgrep -fl 'run-tests\.sh|queued-heavy\.sh')" || rc=$?
+  # kosmos#5488: a suite run by a runner user (kosmos-ci, kosmos-ci2, ...) is a CI job on a Mac already given to CI,
+  # not the owner's agents, so it does not stop a second runner's preflight; it is printed as a note. Each pid's owner
+  # is read on its own; one that cannot be read (gone, or ps failed) stays counted, the safe side.
+  if [ "$rc" = 0 ]; then
+    local line pid who kept=""
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      pid="${line%% *}"; who="$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ')" || who=""
+      if printf '%s\n' "$who" | grep -q -E '^kosmos-ci[A-Za-z0-9_-]*$'; then echo "note:   a runner's suite, not counted ($who): $line"
+      else kept="$kept$line"$'\n'; fi
+    done <<<"$live"
+    live="${kept%$'\n'}"
+  fi
   if [ "$rc" -ge 2 ]; then problem "could not list processes (pgrep exit $rc): cannot rule out a live suite"
   elif [ -n "$live" ]; then problem "a suite looks live on this Mac (a process of any user names run-tests.sh or queued-heavy.sh): $(printf '%s\n' "$live" | head -3 | tr '\n' ' ')"
-  else ok "no suite live (any user)"; fi
+  else ok "no suite live (any user but a runner's)"; fi
 
   say "the machine"
   local free_kib
