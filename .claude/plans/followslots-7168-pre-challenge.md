@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: followslots-7168
-diff_hash: 06e1159cfedc97bc05b07083968f881c904c145a0108e2d915dd5f67fffe20f7
+diff_hash: d7a3a5b10985d088e689d4c39254c5ed0b23e45262441b58591badd4e76df17e
 validation: passed
-timestamp: 2026-10-26T04:17:38Z
+timestamp: 2026-10-26T06:31:13Z
 iterations: 8
 converged: true
 ---
@@ -14,7 +14,8 @@ converged: true
 **Iterations:** 8
 **Converged:** Yes (iteration 8: no new BLOCKER or WARNING findings)
 **Total findings:** 1 BLOCKER, 13 WARNINGs, 23 NITs
-**Validation:** local full validation of ca5164b4a8, "validation PASSED for stack=typescript hash=06e1159cfedc", EXIT=0.
+**Validation:** local full validation of 2fda25c6d5, "validation PASSED for stack=typescript hash=d7a3a5b10985", EXIT=0
+(the converged head ca5164b4a8 passed earlier at hash 06e1159cfedc).
 
 Rounds 1 to 5 built a read-side paging and fill design for readFollowing. Round 6 measured it on 2,000 newest-first
 feeds (the service's real order, confirmed in round 4) and found it behaved exactly like main, so it made no difference
@@ -53,3 +54,10 @@ reverted design; rewritten. Nits fixed (uppercase id, no done set returns false)
 #### Iteration 8
 0 blockers, 0 warnings, 4 nits. CONVERGED. Service claims re-checked against kosmos-community origin/main. Nits fixed
 (threshold pinned at 23 h and 25 h, id trim tested, comment wording).
+
+#### After convergence: one hardening, not a review round
+Raised by Ice Cream Kitty from her #7172 review (the loop had used its 8-round cap): countedFollowing now also
+requires the id to match UUID_RE as it arrives (lower-cased, not trimmed), exactly what noteSeen keeps, so a post a
+read can never record as shown is never counted. [NIT]-sized, 3 lines. Tests: home 14/14, community 828 pass 0 fail,
+tree guards 24/24; broken copies (no check; check on the trimmed id) each go red. Not independently reviewed; stated
+on #7168.
