@@ -6,7 +6,7 @@
  * computer. Josh's copy rule (on the card, 2026-09-28): the Kosmos logo, the heading "How would you
  * like to set up Kosmos on this computer?" and the buttons, nothing else on the screen. Three since
  * Josh's 10:31 ruling: "Run agents on this computer", "Connect to agents on another computer" and
- * "Run agents here and connect to other computers".
+ * "Run agents on this computer and connect to agents on another computer" (kosmos#7205, Josh's words).
  *
  * web.firstrun-choice-4356.test.js pins the markup and runs the page's functions. This renders the
  * real page and reads what a person sees: the rendered text, the logo actually loaded, the three
@@ -44,7 +44,7 @@ const srv = require('../../server.js');
 const HEADING = 'How would you like to set up Kosmos on this computer?';
 const RUN = 'Run agents on this computer';
 const CONNECT = 'Connect to agents on another computer';
-const BOTH = 'Run agents here and connect to other computers';
+const BOTH = 'Run agents on this computer and connect to agents on another computer';
 const LINES = JSON.stringify([HEADING, RUN, CONNECT, BOTH]);
 
 const SHOTS = process.argv[2] || null;
@@ -132,6 +132,38 @@ const look = (page) => page.evaluate(() => {
     // kosmos#6616: the one exception is the Sign in again ask, kept pressable over first run, and it is hidden here.
     chk(await page.evaluate(() => { const a = document.getElementById('stepup-ask'); return !!a && a.hidden && !a.inert; }), 'C1 the only exception, the Sign in again ask, is hidden');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356.png') });
+
+    /* C11 (kosmos#7205): the dot field draws on this screen too; Welcome offers Back to it, Back shows it again, and a
+       second answer reaches the app. CONTROL: a first run with no first screen shows no Back. */
+    let p11 = await open(base + '?mode=unset');
+    const field = await p11.evaluate(() => {
+      const c = document.getElementById('fr-dots');
+      const ctx = c && c.getContext('2d');
+      let inked = 0;
+      if (ctx && c.width && c.height) { const d = ctx.getImageData(0, 0, c.width, c.height).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) inked += 1; }
+      return { inChoice: !!c && c.parentElement && c.parentElement.id === 'fr-choice', inked };
+    });
+    chk(field.inChoice && field.inked > 0, 'C11 the setup choice screen draws the dot field behind its buttons', JSON.stringify(field));
+    await p11.click('text=' + RUN);
+    await p11.waitForTimeout(400);
+    const back = await p11.evaluate(() => { const b = document.getElementById('fr-alt'); return b && !b.hidden ? b.textContent.trim() : null; });
+    chk(back === 'Back', 'C11 Welcome offers Back after the setup choice', String(back));
+    await p11.click('#fr-alt');
+    await p11.waitForTimeout(400);
+    s = await look(p11);
+    chk(s.shown && !s.wizard && JSON.stringify(s.lines) === LINES, 'C11 Back shows the setup choice again, first run closed', JSON.stringify([s.shown, s.wizard]));
+    chk(await p11.evaluate(() => document.getElementById('fr-dots').parentElement.id === 'fr-choice'), 'C11 and the dot field is back on it');
+    await p11.click('text=' + BOTH);
+    await p11.waitForTimeout(400);
+    s = await look(p11);
+    chk(JSON.stringify(s.posted) === '["run","both"]' && !s.shown && s.wizard, 'C11 the second answer reaches the app and first run opens again', JSON.stringify(s.posted));
+    chk(await p11.evaluate(() => document.getElementById('fr-dots').parentElement.id === 'firstrun'), 'C11 and the dot field moves back to first run');
+    await p11.context().close();
+    p11 = await open(base, { bridge: false });
+    chk(await p11.evaluate(() => { const b = document.getElementById('fr-alt'); return !document.getElementById('firstrun').hidden && (!b || b.hidden); }),
+      'C11 CONTROL: a first run with no setup choice before it offers no Back');
+    await p11.context().close();
+
 
     // C2: Run agents hands the app "run", hides the screen, first run carries on, and the address forgets ?mode=.
     await page.click('text=' + RUN);

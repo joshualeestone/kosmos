@@ -2252,6 +2252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // first screen or the menu. `modeHome` is the install it was read from and is written back to;
     // nil under the KOSMOS_URL test path, where there is no install and the app behaves as today.
     private(set) var computerMode: ComputerMode = .unset
+    private var modeAskedThisLaunch = false   // kosmos#7205: the page asked this computer's choice in this launch
     private var modeHome: String?
     private var modePort: Int?   // the resolved install's port, for `kosmos stop` (stopBoard)
     // #4356: how many `kosmos stop`s of ours are running: the switch to connect, a connect launch
@@ -2858,6 +2859,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         modeHome = home
         modePort = install.port
         computerMode = readComputerMode(kosmosHome: home)
+        modeAskedThisLaunch = computerMode == .unset || computerMode == .unreadable
         logLine("#4356: this computer's mode is \(computerMode.rawValue)")
     }
 
@@ -2951,8 +2953,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// writes `run` (install/setup.sh, when its first run is done); only the board's own page in the
     /// main frame can post here.
     func pageChoseMode(_ body: Any) {
+        /* kosmos#7205: Welcome's Back returns to the choice, so a second answer in the same launch is taken too (run and
+           both write their mode again; connect switches as ever). Not once this computer has switched to connect: the
+           window is Kosmos+'s then, and no board page is left to ask. */
         guard let choice = body as? String, let home = modeHome,
-              computerMode == .unset || computerMode == .unreadable
+              computerMode == .unset || computerMode == .unreadable || (modeAskedThisLaunch && computerMode != .connect)
         else { logLine("#4356: ignored a mode message while not asking (\(body))"); return }
         switch choice {
         case "run":
