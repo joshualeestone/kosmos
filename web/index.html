@@ -7906,8 +7906,10 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 /* kosmos#7214 (Josh: a 64-character sha256 pushed the table wide): a code span in a cell (a hash, a path) may break
    anywhere, so it wraps inside its column instead of widening the table. Code spans only: plain cell text keeps
    word breaks, so a column of words is never crushed to a letter per line (#718). */
-#pj-room .mdtable .mdc { overflow-wrap: anywhere; }
-#pj-room .mdtable td:has(> .mdc) { min-width: 12ch; }   /* the floor: short names still make the table scroll (#718) */
+/* Only a long code span (pjRoomPara marks it .mdc-long: a hash, a path, a file name) may break anywhere, in a column
+   no narrower than 10ch; short names and flags size to their words and a table of them scrolls (#718). */
+#pj-room .mdtable .mdc-long { overflow-wrap: anywhere; }
+#pj-room .mdtable td:has(> .mdc-long) { min-width: 10ch; }
 .dm-b .mdc, .pj-msg-text .mdc, .msg-b .mdc, .tkdetail .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .85em; background: var(--k-sunk, rgba(20,22,26,.08)); padding: .05em .35em; border-radius: 5px; }
 .dm-b .mdcb, .pj-msg-text .mdcb, .msg-b .mdcb, .tkdetail .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;
@@ -74882,20 +74884,35 @@ function pjRoomPara(html) {
   if (typeof document === 'undefined') return '<p>' + html + '</p>';
   const t = document.createElement('template');
   t.innerHTML = html;   // a template does not close a <p> at a block: the structure stays as pjBody wrote it
+  const nodes = t.content && t.content.childNodes ? [...t.content.childNodes] : [];
+  // Unit tests run this without a DOM (web.quoteb stubs document): there it is one <p>, and only the browser check
+  // (render-richtext-room-2239) can see the split. That check is the guard.
   const isBlock = (n) => n.nodeType === 1 && (PJ_ROOM_BLOCK.test(n.tagName) || n.classList.contains('mdtablewrap'));
-  if (![...t.content.childNodes].some(isBlock)) return '<p>' + html + '</p>';
-  let out = '';
+  if (!nodes.some(isBlock)) return '<p>' + html + '</p>';
+  // A long code span in a table (a hash, a path) may wrap; a short one keeps its words (see the #pj-room .mdc-long rule).
+  t.content.querySelectorAll('.mdtable .mdc').forEach((c) => { if (c.textContent.length > 16) c.classList.add('mdc-long'); });
+  // The parser drops one newline right after <pre>, so a code block that starts with a blank line keeps it only if
+  // the serialised form carries an extra one for the second parse to eat.
+  t.content.querySelectorAll('pre').forEach((pre) => {
+    const first = pre.firstChild;
+    if (first && first.nodeType === 3 && first.data.startsWith('\n')) first.data = '\n' + first.data;
+  });
+  const parts = [];   // { block: true, html } or { block: false, run: <p> }
   let run = document.createElement('p');
-  const flush = () => {
-    // A run that is only line breaks and spaces (the <br> pjBody puts beside a block) is not a paragraph.
-    if (run.textContent.trim() || run.querySelector('img')) out += run.outerHTML;
-    run = document.createElement('p');
-  };
-  for (const n of [...t.content.childNodes]) {
-    if (isBlock(n)) { flush(); out += n.outerHTML; } else run.appendChild(n);
+  const close = () => { if (run.childNodes.length) parts.push({ block: false, run }); run = document.createElement('p'); };
+  for (const n of nodes) {
+    if (isBlock(n)) { close(); parts.push({ block: true, html: n.outerHTML }); } else run.appendChild(n);
   }
-  flush();
-  return out;
+  close();
+  // A run with words or anything but line breaks (a rule, an image) is a paragraph. A run of only line breaks between
+  // two blocks stays as it was, raw, so two tables stack with their blank line, as before; at either end it goes.
+  const real = (r) => !!(r.textContent.trim() || r.querySelector(':not(br)'));
+  return parts.map((x, k) => {
+    if (x.block) return x.html;
+    if (real(x.run)) return x.run.outerHTML;
+    const between = k > 0 && k < parts.length - 1;
+    return between ? x.run.innerHTML : '';
+  }).join('');
 }
 function pjRoomBody(m, p) {
   let words = pjWords(m);

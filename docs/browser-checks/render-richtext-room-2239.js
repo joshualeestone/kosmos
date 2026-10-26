@@ -185,6 +185,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         const names = 'Six commands:\n\n| a | b | c | d | e | f |\n|---|---|---|---|---|---|\n'
           + '| `install-agent` | `refresh-token` | `kosmos-open` | `workforce` | `sessionName` | `fleet-builders` |\n\nThat is all.';
         await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: names }) });
+        // Review 2: two tables stay two (stacked), a rule beside a block survives, a code block keeps its first blank line.
+        const two = 'Two tables\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n| c | d |\n|---|---|\n| 3 | 4 |\n\n```\n\n\nfirst line after a blank\n```\n\n---';
+        await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: two }) });
         return { id };
       }, pjName);
       if (made.error) { bad(t + ' Layer 2 fixture posted a room message', made.error); await p.close(); continue; }
@@ -293,13 +296,20 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
             narrowest: Math.min(...Array.from(tb.querySelectorAll('td')).map((c) => Math.round(c.getBoundingClientRect().width))),
           };
         };
-        return { names: one(/Six commands/), hashes: one(/checksums/) };
+        const twoB = bubbles.find((x) => /Two tables/.test(x.textContent));
+        const wraps = twoB ? [...twoB.querySelectorAll('.mdtablewrap')].map((w) => Math.round(w.getBoundingClientRect().top)) : [];
+        const pre = twoB && twoB.querySelector('figure.codeb pre');
+        return { names: one(/Six commands/), hashes: one(/checksums/), two: { wraps, rules: twoB ? twoB.querySelectorAll('.mdhr').length : -1, preStart: pre ? JSON.stringify(pre.textContent.slice(0, 3)) : null } };
       });
       const pn = phone.names, ph = phone.hashes;
       if (pn && pn.wrapped && pn.spill <= 0 && pn.scrolls && pn.pieces.every((n) => n <= 2)) ok(t + ' phone: short names stay whole and the table scrolls (kosmos#7214, #718) ' + JSON.stringify(pn.pieces));
       else bad(t + ' phone: short names whole, table scrolls', JSON.stringify(pn));
-      if (ph && ph.wrapped && ph.spill <= 0 && ph.narrowest >= 80 && Math.max(...ph.pieces) > 1) ok(t + ' phone: the hash wraps inside the bubble in a column ' + ph.narrowest + 'px wide or more (kosmos#7214)');
+      if (ph && ph.wrapped && ph.spill <= 0 && !ph.scrolls && ph.narrowest >= 80 && Math.max(...ph.pieces) > 1) ok(t + ' phone: the hash wraps inside the bubble in a column ' + ph.narrowest + 'px wide or more (kosmos#7214)');
       else bad(t + ' phone: hash wraps inside the bubble', JSON.stringify(ph));
+      const tw = phone.two;
+      if (tw.wraps.length === 2 && tw.wraps[1] > tw.wraps[0] + 10) ok(t + ' phone: two tables in one post stack, not side by side (review 2) ' + JSON.stringify(tw.wraps)); else bad(t + ' two tables stack', JSON.stringify(tw));
+      if (tw.rules === 1) ok(t + ' a rule after a block, at the end, survives (review 2)'); else bad(t + ' a rule after a block survives', JSON.stringify(tw));
+      if (tw.preStart === JSON.stringify('\nfi')) ok(t + ' a code block keeps its first blank line (review 2)'); else bad(t + ' code block first blank line', JSON.stringify(tw));
       await p.setViewportSize({ width: 1280, height: 800 });
 
       if (errs.length) bad(t + ' no page errors', errs.join(' | ')); else ok(t + ' no page errors');
