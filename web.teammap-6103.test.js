@@ -161,6 +161,15 @@ test('#6103: members nest under who they report to, and a member needing you is 
   assert.doesNotMatch(textOf(flat), /the needs-you list says what each one/, 'CONTROL: nobody needs you, nothing pointed at');
 });
 
+test('#7206: a member running Claude Code on a DeepSeek account shows DeepSeek, never Claude', () => {
+  const { p, board } = build('Family DeepSeek', () => {});
+  const agents = p.agents.map((m) => ({ ...m, runner: 'claude' }));
+  const cards = board.map((c) => (c.sessionName === 'quill' ? { ...c, runner: 'claude', account: { provider: 'deepseek' } } : c));
+  const out = textOf(pjTeamMap({ ...p, agents }, cards));
+  assert.match(out, /quill DeepSeek ·/, 'a DeepSeek agent read as Claude');
+  assert.match(out, /roo Claude ·/, 'CONTROL: a Claude agent beside it still reads Claude');
+});
+
 test('#6103: each member shows its model family, and a Qwen agent is never OpenAI', () => {
   const { p, board } = build('Family', () => {});
   const agents = p.agents.map((m) => ({ ...m, runner: m.sessionName === 'roo' ? 'claude' : 'codex' }));
