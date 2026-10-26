@@ -55,6 +55,9 @@ message states the actual budget rather than a stale "20s limit".
 
 ## Verification
 
+(Results below are from the pre-PR run on Mortals; the commands and logs live in the
+build session and the pre-challenge proof file, and CI reruns them on the PR.)
+
 - Unit: `scaleBudget(30000) === 30000` and `scaleBudget(20000) === 20000` at scale 1;
   4x under load (120000 / 80000); a stray value clamps to 4x.
 - `run-tests.sh --only` the three files: 23/23 pass at natural scale AND at forced
@@ -66,7 +69,11 @@ message states the actual budget rather than a stale "20s limit".
 
 ## Out of scope / follow-ups
 
-- `cli.connections-4451.test.js:79` has a structurally-identical unscaled kill
-  budget that grpb4 (its poll migration) left untouched. Not in this diff; captured
-  as a target for a later Group C batch, to keep C1 tight.
-- The remaining ~70 Group C files follow in subsequent batches.
+- Files that Groups A/B already touched had only their POLL loops migrated; their
+  CLI-spawn kill budgets are still unscaled and are Group C targets. Confirmed cases:
+  `cli.connections-4451.test.js:79` (`setTimeout(() => child.kill('SIGKILL'), 20000)`,
+  grpb4 scaled its polls not this) and `cli.busy-health-4466.test.js:35,45`
+  (`runCli`/`bash` default `timeout = 40000`, grpa3 scaled its page-close poll not
+  these). "Already migrated" for those files means polls-only, not done for Group C.
+- None of these are in this diff; C1 is kept to its three seen-red files. The
+  remaining ~70 Group C files (these included) follow in subsequent batches.

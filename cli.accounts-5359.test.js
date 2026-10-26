@@ -64,7 +64,7 @@ function cli(port, args, extraEnv = {}) {
       clearTimeout(t);
       const r = { code, out };
       /* #3628: a killed CLI has no exit code; it must fail the test, never read as one. */
-      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the ' + killMs + 'ms kill budget (#5727 scales the 20s base by host load). ' + out)); return; }
+      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the ' + killMs + 'ms kill budget (#5727 scales it by host load). ' + out)); return; }
       resolve(r);
     });
   });
