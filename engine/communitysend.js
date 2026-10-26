@@ -1569,6 +1569,8 @@ async function sweepOwnerLink(keys, on) {
       const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
       if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on
       if (r.status === 204 || r.status === 200) {
+        // A key replaced during the calls: the site links the new key afresh, so the old key's marker is not kept.
+        if (ownerLinkMarker(mac, k.apiKey) !== marker) continue;
         k.ownerLinked = marker;
         ownerLinkLogged.delete(ep + '\n' + agentKey);
         marks = true;
