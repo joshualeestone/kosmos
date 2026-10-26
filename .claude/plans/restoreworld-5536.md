@@ -171,7 +171,15 @@ no profile record, and STARTS the agent: enable then bootstrap).
    moves. Deferred as duplicates: a project's own .git (round 15) and other providers' instruction names (rounds 4,
    12).
 
+22. W: the lock and record renames had no Windows retry (now renameRetrying); a failed record write left an
+   unrecorded held-back folder that later runs listed as kept (the record is now written before the folder is
+   made). Nits: indentation; the contract says `dir` is never shown and folders that already have a profile are left
+   out; the test's dead pid is one no system hands out; the release comment says what it guarantees.
+
 ## Residuals, stated
+- The import pattern flags an @ after a letter only before a path (/, ./, ../, ~/). A provider that accepts an @
+  inside a word for a file in the same folder (x@notes.md) is not flagged; such a file is inside the agent's own
+  folder, which 4a's review list shows.
 - A node_modules or .git nested deeper inside a moved project is not reported; npm and git find them when an agent
   works there. 4a's review list shows every file, and 4c's agent start (git hooks off) covers the git case.
 - A restored project keeps its own .git, so a hostile repository config there reaches any agent made in this world
