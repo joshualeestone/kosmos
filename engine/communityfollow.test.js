@@ -745,15 +745,29 @@ test('#7168 read --following: an old unseen post on the newest page does not sto
   const old = '2026-10-10T10:00:00Z';   // two days before NOW_7168: unseen, but not in home's count
   try {
     await cf.follow('mara', 'quill');
-    /* The newest page: three OLD unseen posts. Behind it: a counted (last 24 hours) post, then more old ones. Before
-       #7168 the three old posts filled POSTS_WANTED, no page was read, and the counted post was never reached. */
-    b.st.pages = [[post(1, old), post(2, old), post(3, old)], [post(4, '2026-10-12T09:00:00Z'), post(5, old)]];
+    /* The newest page: three OLD unseen posts, NOT in newest-first order (so nothing proves what lies behind it).
+       Behind it: a counted (last 24 hours) post, then more old ones. Before #7168 the three old posts filled
+       POSTS_WANTED, no page was read, and the counted post was never reached. */
+    b.st.pages = [[post(1, '2026-10-10T10:00:00Z'), post(2, '2026-10-10T11:00:00Z'), post(3, old)], [post(4, '2026-10-12T09:00:00Z'), post(5, old)]];
     b.st.feedCalls = [];
     const r = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.equal(r.ok, true, r.because);
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the old unseen posts stopped the paging');
     assert.ok(r.text.includes('POST4'), 'the counted post behind them was not reached: ' + r.text);
     assert.ok(r.text.includes('POST1'), 'CONTROL: the newest page is still shown whole');
+    /* Review 2 (the cost): the same three old unseen posts in newest-first order prove nothing newer lies behind
+       them, so the read stops there, at main's one request. */
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [[post(1, '2026-10-10T12:00:00Z'), post(2, '2026-10-10T11:00:00Z'), post(3, '2026-10-10T10:00:00Z')], [post(4, '2026-10-09T09:00:00Z')]];
+    b.st.feedCalls = [];
+    await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.deepEqual(b.st.feedCalls, [null], 'a quiet, newest-first page with three unseen posts was paged past');
+    // CONTROL: the same page with only two unseen posts in hand still pages on, as main does.
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [[post(1, '2026-10-10T12:00:00Z'), post(2, '2026-10-10T11:00:00Z')], [post(4, '2026-10-09T09:00:00Z')]];
+    b.st.feedCalls = [];
+    await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'CONTROL: fewer than three unseen in hand should still page');
     /* Slots: a page of replies, then behind it an OLD unseen post BEFORE a counted one in feed order. The counted one
        takes the slot first; the old one only fills what is left. */
     fresh(); await cf.follow('mara', 'quill');
@@ -777,10 +791,11 @@ test('#7168 read --following: an old unseen post on the newest page does not sto
     await cf.readFollowing('mara', { now: NOW_7168 });
     const quiet = await cf.readFollowing('mara', { now: NOW_7168 });
     for (const n of [64, 65, 66]) assert.ok(quiet.text.includes('POST' + n), 'a quiet follow list showed the same page again, POST' + n + ' missing: ' + quiet.text);
-    /* Review 1: three old unseen posts on page 2 and a counted one on page 3 (a feed in any order): the counted one is
-       still reached, because the read pages while it lacks POSTS_WANTED counted posts. */
+    /* Review 1: three old unseen posts on page 2, NOT newest first (a feed in no proven order), and a counted one on
+       page 3: the counted one is still reached, because the read pages while it lacks POSTS_WANTED counted posts and
+       nothing proves there is none behind. */
     fresh(); await cf.follow('mara', 'quill');
-    b.st.pages = [[reply(22, '2026-10-12T19:00:00Z')], [post(70, old), post(71, old), post(72, old)], [post(73, '2026-10-12T07:00:00Z')]];
+    b.st.pages = [[reply(22, '2026-10-12T19:00:00Z')], [post(70, '2026-10-10T09:00:00Z'), post(71, '2026-10-10T10:00:00Z'), post(72, old)], [post(73, '2026-10-12T07:00:00Z')]];
     b.st.feedCalls = [];
     const deep = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'the read stopped before the page with the counted post');

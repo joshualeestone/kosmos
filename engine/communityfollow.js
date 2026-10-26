@@ -253,7 +253,9 @@ function noteSeen(agentKey, ids) {
    best effort: each waits at most PAGE_WAIT_MS for the agent's call chain, and none starts READ_PAGES_MS or more after
    the read began. A later page that fails or is busy costs only its posts.
    kosmos#7150: the pages are read until POSTS_WANTED posts this agent has NOT been shown yet are in hand, and the older
-   pages' unseen posts are added first (already-shown ones only fill what is left). Before, a busy follow list showed
+   pages' unseen posts are added first (already-shown ones only fill what is left). kosmos#7168: "unseen" there now
+   means what home counts first (communityhome.countedFollowing: unseen and from the last 24 hours); older unseen
+   posts come next, then already-shown ones (readFollowing). Before, a busy follow list showed
    the same newest page every time: its posts were marked shown, and the posts behind them were counted as new (home,
    the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new" is
    communityhome.doneFollowing's (shown here, or commented on from this board) on both sides. The cost: once the newest
@@ -297,17 +299,30 @@ async function readFollowing(agentKey, { now = Date.now() } = {}) {
      the paging, so a counted post behind it was never reached, and an old one could take a slot a counted one needed
      (#7150 follow-up 2). Without communityhome, every unseen post counts, as before. */
   const counted = (it) => (home && typeof home.countedFollowing === 'function' ? home.countedFollowing(it, done, now) : unseen(it));
+  const DAY_MS_OF = () => (home && Number.isFinite(home.FOLLOWING_DAY_MS) ? home.FOLLOWING_DAY_MS : 24 * 60 * 60 * 1000);
   let postCount = page.filter(isPost).length;
   let fresh = page.filter(counted).length;   // counted posts in hand
   const olderSeen = [];
   const olderUncounted = [];
   /* Review 1: the read pages while it lacks POSTS_WANTED counted posts (every counted post is unseen, so this also
-     covers #7150's "POSTS_WANTED unseen"). The cost against main: up to FEED_PAGES_MAX - 1 more requests when the
-     newest page holds POSTS_WANTED unseen posts but fewer counted ones, each bounded as below. Decided over assuming
-     the feed is newest first, which would page less but miss a counted post if it is not (groupByPost re-sorts the
-     feed, so this code never relied on that order). */
+     covers #7150's "POSTS_WANTED unseen"). Review 2: it also stops once POSTS_WANTED unseen posts are in hand and the
+     last page read proves no counted post lies further back: that page is newest first and its last item is older
+     than 24 hours, so everything behind it is older still. That keeps a quiet follow list at main's request count.
+     A page that is not newest first proves nothing, so the read pages on (at most FEED_PAGES_MAX - 1 more requests than
+     main, each bounded as below), rather than assume the order and miss a counted post (groupByPost re-sorts the feed
+     itself, so this code never relied on it). */
+  const ms = (it) => Date.parse(it && it.created_at);
+  const nothingCountedBehind = (items) => {
+    const t = items.map(ms);
+    if (!t.length || t.some((x) => !Number.isFinite(x))) return false;
+    for (let i = 1; i < t.length; i += 1) if (t[i] > t[i - 1]) return false;
+    return t[t.length - 1] <= now - DAY_MS_OF();
+  };
+  const unseenInHandNow = () => page.filter(unseen).length + olderUncounted.length;
+  let lastPage = page;
   let cursor = r.json.next_cursor;
-  for (let pages = 1; fresh < POSTS_WANTED && pages < FEED_PAGES_MAX && typeof cursor === 'string'
+  for (let pages = 1; fresh < POSTS_WANTED && !(unseenInHandNow() >= POSTS_WANTED && nothingCountedBehind(lastPage))
+    && pages < FEED_PAGES_MAX && typeof cursor === 'string'
     && communityread.CURSOR_RE.test(cursor) && Date.now() - began < READ_PAGES_MS; pages += 1) {
     const more = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS
       + '&cursor=' + encodeURIComponent(cursor), { register: false, waitMs: PAGE_WAIT_MS });
@@ -322,6 +337,7 @@ async function readFollowing(agentKey, { now = Date.now() } = {}) {
     postCount += olderFresh.length;
     olderUncounted.push(...olderPosts.filter((it) => unseen(it) && !counted(it)));
     olderSeen.push(...olderPosts.filter((it) => !unseen(it)));
+    lastPage = got.slice(0, communityread.MAX_ITEMS);
     cursor = more.json.next_cursor;
   }
   // Once each: a post that shifted pages between calls can be on two of them.

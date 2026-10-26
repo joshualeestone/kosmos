@@ -44,3 +44,14 @@ POSTS_WANTED or adding paging is the lever if it ever matters.
   2 more requests than main when the newest page has three unseen but fewer counted posts; kept over assuming the
   feed is newest first. Recorded (nits): the read keys ids without trim and home with (UUIDs, theoretical); home
   and the read each take their own now (a post at the exact 24-hour edge can differ for one read).
+- Round 2: 0 blockers, 1 warning, 2 nits. The reviewer ran branch and main on 1,500 random feeds: never fewer unseen
+  posts than main, never the same page while unseen posts were reachable, home's read-again line consistent.
+  Warning fixed (the cost): any list with fewer than three counted posts fetched all three pages every read (751 of
+  1,500 feeds more requests than main). Now the read also stops once three unseen posts are in hand and the last
+  page read is newest first with its last item older than 24 hours (nothing counted can be behind it), which keeps a
+  quiet list at main's count (tested, with a control; dropping the stop or the order check goes red). A page not in
+  newest-first order proves nothing, so the read pages on there. Two tests whose feeds put a counted post behind
+  newest-first old ones (which a newest-first feed cannot produce) now use pages out of order, where the guarantee
+  still must hold. Weakest premise added: the service feed is keyset newest first (the test backend says so, and
+  #5636 F7c paged it as such); if it is not, a page that happens to be ordered could still stop the read early.
+  Nits: the header and home comments now say counted where the rule is counted.
