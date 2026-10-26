@@ -275,14 +275,8 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
        identity decides; skipping those let a nested project's files through (review 11 finding 1). A local volume
        written without a letter (\\?\Volume{GUID}\) is resolved too: it is on this computer. */
     if (win && !(p.agents || []).includes(sessionName) && !isLocalVolumeSpelling(p.folder)) {
-      const otherShare = isNetworkSpelling(p.folder) && (!fileShare || shareOf(p.folder) !== fileShare);
-      /* A walk that gave up after MAX_HOPS links is skipped too: Windows follows more (63), so the realpath could still
-         reach a share at the end of a longer chain (review 13 finding 1). */
-      const walked = !isNetworkSpelling(p.folder) && winLinkRefusal(asDrivePath(p.folder), null);
-      if (otherShare || walked === ON_NETWORK || walked === TOO_MANY_LINKS || walked === DEAD_LINK) {
-        skippedOthers.push(p.folder);
-        continue;
-      }
+      const skipped = otherFolderSkip(p.folder, fileShare);
+      if (skipped) { skippedOthers.push(skipped); continue; }
     }
     let root = null;
     try { root = projects.folderState(p.folder).real; } catch { root = null; }
@@ -297,7 +291,7 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
     else if (i === best.depth && mine) best.mine = true;
   }
   if (!best || !best.mine) return null;
-  if (skippedOthers.some((f) => mayHold(f, given, real))) return null;
+  if (skippedOthers.some((s) => skippedMayHold(s, given, real))) return null;
   const k = keptRoots(sessionName, roster);
   /* A project whose folder IS the home folder or CONTAINS it (/Users, /, the Data volume root), or holds the data
      root or the workers root, gives nothing (review r3 finding 3), wherever those roots live and however the folder
@@ -329,6 +323,38 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
   if (hidden) return { refused: hidden };
   if (k.libraryId && chain.some((c, n) => n > 0 && c.id === k.libraryId) && !libraryOpen(chain, k, best.depth)) return { refused: IN_LIBRARY };
   return { root: best.root };
+}
+
+/* Whether allowedRoot leaves ANOTHER agent's project folder unresolved, and if so where its walk says it leads; null
+   when the folder is resolved as on main. Left unresolved: a folder written as a share other than the file's; a
+   folder whose links lead to a share (or toward one this cannot name); a dead junction; a chain longer than Windows
+   follows. `leadsTo` is the share path a link to a plain share names (the rest of the folder's path joined on), so a
+   skipped folder is judged by where it goes, never by its own spelling alone (review 16 finding 1). */
+function otherFolderSkip(folder, fileShare) {
+  if (isNetworkSpelling(folder)) {
+    if (fileShare && shareOf(folder) === fileShare) return null;
+    return { folder, kind: 'share', leadsTo: shareOf(folder) ? asShareSpelling(folder) : null };
+  }
+  let leadsTo = null;
+  const noteShare = (cur, to, rest) => {
+    if (shareOf(to)) leadsTo = asShareSpelling(path.win32.resolve(asShareSpelling(to), ...rest));
+    return false;
+  };
+  const walked = walkLinks(asDrivePath(folder), (reached) => winSpellingRefusal(reached, null), 0, noteShare);
+  if (walked === ON_NETWORK) return { folder, kind: 'share', leadsTo };
+  if (walked === DEAD_LINK || walked === TOO_MANY_LINKS) return { folder, kind: 'nowhere', leadsTo: null };
+  return null;
+}
+/* Whether a project folder of another agent left unresolved may hold the file, erring toward yes. By its own spelling
+   first (winpath.mayHold). Then by where it leads: one that leads nowhere holds nothing; one that leads to another
+   computer cannot hold a file on this one, and holds a file on a share when the file is under the share it leads to,
+   whatever the server is called, or when where it leads cannot be named (review 16 finding 1). */
+function skippedMayHold(skipped, given, real) {
+  if (mayHold(skipped.folder, given, real)) return true;
+  if (skipped.kind === 'nowhere') return false;
+  if (!isNetworkSpelling(real)) return false;
+  if (!skipped.leadsTo) return true;
+  return mayHold(skipped.leadsTo, real, real);
 }
 
 /* The three hidden-name rules, in one place, for a PROJECT file only (review r6 finding 2): allowedRoot calls it after
@@ -466,7 +492,9 @@ function unfollowedLinkRefusal(to) {
 }
 /* Follow the links in `p` by lstat and readlink only, and say why not if any of them leaves for the network, a
    device or a drive outside the roots. Null when the path may be resolved. A chain of more than 32 links is refused. */
-const MAX_HOPS = 32;
+/* More than Windows itself follows (63 reparse points in one resolution): a path the walk gives up on, Windows cannot
+   resolve either, so it holds no file and its realpath reaches no other computer (review 16). */
+const MAX_HOPS = 64;
 /* Reads the folder's names, so it is asked only after an lstat ENOENT (a missing part, usually a mistyped name). The
    name is matched in any case: a junction aimed at a share lstats ENOENT in EVERY case, so an exact match would let
    the same junction typed in another case through to realpath (review 7 finding 1). In a case-sensitive folder the
@@ -518,7 +546,7 @@ function walkLinks(p, onPath, hops = 0, acceptLink = null) {
     try { to = fs.readlinkSync(cur); } catch { return CANNOT_READ; }
     const target = followableLinkTarget(to);
     if (target === null) {
-      if (!acceptLink || !acceptLink(cur, to)) return unfollowedLinkRefusal(to);
+      if (!acceptLink || !acceptLink(cur, to, parts.slice(i + 1))) return unfollowedLinkRefusal(to);
       return walkLinks(path.win32.resolve(to, ...parts.slice(i + 1)), onPath, hops + 1, acceptLink);
     }
     const next = path.win32.resolve(path.win32.dirname(cur), target, ...parts.slice(i + 1));

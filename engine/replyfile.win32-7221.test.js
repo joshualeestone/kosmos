@@ -779,3 +779,60 @@ test('#7221 review 15-1: another agent\'s project folder that is a junction aime
     assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
   } finally { fs.rmSync(theirs, { recursive: true, force: true }); }
 });
+
+/* ---------- review 16 ---------- */
+
+test('#7221 review 16-1: a nested project of another agent that is a local link into this agent\'s share project keeps its files', linkOnly, (t) => {
+  /* The repro from review 16: this agent's project is a share (here the box's own admin share); another agent's
+     nested project is a LOCAL link into that share. Skipped as "leads to a share", it was judged by its local spelling,
+     which says nothing about where it leads, and its file attached. Now it is judged by the share it leads to. */
+  const outer = path.join(SANDBOX, 's16outer');
+  const nested = path.join(outer, 'nested');
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(path.join(nested, 'secret.txt'), 'theirs\n');
+  fs.writeFileSync(path.join(outer, 'mine.txt'), 'mine\n');
+  const outerUnc = adminShareOf(outer);
+  if (!outerUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  const theirLink = path.join(SANDBOX, 's16-their-link');
+  fs.symlinkSync(path.join(outerUnc, 'nested'), theirLink, 'dir');
+  try {
+    PROJECTS = [
+      { id: 'p-s16-outer', name: 'Outer', folder: outerUnc, agents: [WHO] },
+      { id: 'p-s16-nested', name: 'Nested', folder: theirLink, agents: ['someone-else'] },
+    ];
+    const r = replyfile.attach(WHO, path.join(outerUnc, 'nested', 'secret.txt'), { platform: 'win32' });
+    assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it: ' + JSON.stringify(r));
+    // CONTROL: this agent's own file in the share project still attaches
+    const ok = replyfile.attach(WHO, path.join(outerUnc, 'mine.txt'), { platform: 'win32' });
+    assert.equal(ok.ok, true, JSON.stringify(ok));
+    replyfile.discard(ok.rec);
+  } finally { fs.rmSync(theirLink, { force: true }); }
+});
+
+test('#7221 review 16: another agent\'s folder behind more links than Windows follows is never resolved and does not block this agent', linkOnly, () => {
+  const chain = path.join(SANDBOX, 'verylongchain');
+  fs.mkdirSync(chain, { recursive: true });
+  let prev = '\\\\10.255.255.1\\share\\proj';
+  for (let i = 0; i < 70; i++) {
+    const link = path.join(chain, 'l' + i);
+    fs.symlinkSync(prev, link, 'dir');
+    prev = link;
+  }
+  const mine = path.join(SANDBOX, 'mine-beside-verylong');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'notes.txt'), 'mine\n');
+  PROJECTS = [
+    { id: 'p-verylong', name: 'Very long', folder: prev, agents: ['someone-else'] },
+    { id: 'p-mine-verylong', name: 'Mine', folder: mine, agents: [WHO] },
+  ];
+  const resolved = [];
+  projects.folderState = (folder) => { resolved.push(folder); return realFolderState(folder); };
+  const started = Date.now();
+  try {
+    const r = replyfile.attach(WHO, path.join(mine, 'notes.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    replyfile.discard(r.rec);
+    assert.deepEqual(resolved, [mine], 'the 70-link chain was not resolved');
+    assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
+  } finally { fs.rmSync(chain, { recursive: true, force: true }); }
+});

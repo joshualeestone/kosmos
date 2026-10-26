@@ -71,8 +71,10 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    way be resolved, which is the contact). Review 2 finding 1 measured a
    target written `\\?\GLOBALROOT\Device\Mup\<host>\<share>` reading back as `\??\GLOBALROOT\...` (one backslash, past
    a `\\` deny rule) whose realpath stalled 21 s. A followed target is resolved and walked the same way (rule 1
-   applied to each, so a link to another drive is refused too). More than 32 links: refused (and another agent's
-   project folder behind that many is left unresolved, since Windows follows up to 63: review 13 finding 1). A local
+   applied to each, so a link to another drive is refused too). More than 64 links: refused. 64 is more than Windows
+   itself follows (63 in one resolution), so a path the walk gives up on, Windows cannot resolve either: it holds no
+   file and its realpath reaches no other computer (review 13 finding 1 set 32 and skipped such folders; review 16
+   raised it past Windows' own limit, so a long chain of another agent's cannot be used to block anyone). A local
    file written in its long form (`\\?\C:\...`) is refused with its own sentence, not as a network path (review 13
    NIT): the rules that compare spellings against home and project folders do not see it. A part that lstats
    ENOENT but its folder lists (the junction above): refused, never handed to realpath. Any other lstat error: "could
@@ -107,6 +109,14 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    counts as "may hold", so it refuses. Any other namespace (`\\.\pipe\`, `\\.\COM1`) holds no files and answers
    "no", so one such project row cannot make every agent's project attach refuse (review 12 finding 2; refusing those
    rows at create time, existing rows included, is on #7229).
+   **Review 16 finding 1 (a fourth fail-open in this class, reproduced) and the rule that ends the class:** a skipped
+   folder is judged by WHERE ITS WALK LED, not by its own spelling alone. `otherFolderSkip` records, for a folder whose
+   links lead to a plain share, the share path that link names (with the rest of the folder's path joined on);
+   `skippedMayHold` then says: by its own spelling first; a folder that leads nowhere (a dead junction, a chain longer
+   than Windows follows) holds nothing; a folder that leads to another computer cannot hold a file on this one; and
+   for a file on a share, it holds it when the file is under the share it leads to (whatever the server is called),
+   or when where it leads cannot be named. The repro: this agent's project is a share; another agent's nested project
+   is a LOCAL link into that share; judged by its local spelling it held nothing, and its file attached.
 
 On Windows `attach` reads `dmfiles.filesDir` and the projects list once and hands both on, so an attach still reads
 each agent's instructions path once (#6726 r5-3) and parses the projects file once.
@@ -263,6 +273,10 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   project file attaches (against f50df47: fails, by resolving it); a junction in Files is refused with its own
   sentence (`DEAD_LINK`: "leads nowhere this computer can read"). The Windows refusal sentences now sit with the
   module's other sentences at the top.
+- Review 16: the repro through the admin share (this agent's project is the share; another agent's nested project is
+  a local link into it): the nested file is refused, this agent's own file attaches (against 1929bc4: fails, by
+  attaching the nested file, `ok: true`); a 70-link chain of another agent's is never resolved and does not block this
+  agent's project file. The 34-link arm of review 13 now follows the whole chain (to the share at its end).
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -271,7 +285,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 43/43 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 45/45 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary
