@@ -411,7 +411,8 @@ test('a cut-short list says more, and a git folder at the top of workers blocks 
   assert.equal(l.more, true);
   assert.equal(rw.listRestoredAgents({ base, world: p.world, nameOk }).more, false);
   fs.mkdirSync(path.join(w, '.git'));
-  // The workers folder's own git row comes first and fills one place; ! sorts before .git, so the cap stops there.
+  // The "(the workers folder itself)" row, from runsIn on the top of workers, comes first and fills one place; ! sorts
+  // before .git, so the cap stops there.
   l = rw.listRestoredAgents({ base, world: p.world, nameOk: () => true, maxListed: 2 });
   assert.deepEqual(l.agents.map((a) => a.folder), ['!first']);
   assert.match(l.agents[0].because, /workers folder holds a git folder/);
@@ -587,4 +588,36 @@ test('a lone Finder file in the new world\'s empty folder does not stop finish',
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, true, r.because);
   assert.ok(fs.existsSync(path.join(w, 'ann')));
+});
+
+test('an @ before a path counts as an import whatever precedes it; an address still does not', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  const brief = (n, text) => { fs.mkdirSync(path.join(w, n)); fs.writeFileSync(path.join(w, n, 'CLAUDE.md'), text); };
+  brief('dot', 'see.@../../x\n');
+  brief('word', 'x@~/secret\n');
+  brief('mail', 'write to a@b.example or c@d.org\n');
+  const by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => [a.folder, a]));
+  assert.deepEqual(by.dot.runs, ['CLAUDE.md imports']);
+  assert.deepEqual(by.word.runs, ['CLAUDE.md imports']);
+  assert.deepEqual(by.mail.runs, []);
+});
+
+test('leftover folders that take every name tried are said to be the reason, not restored Kosmoses', (t) => {
+  const base = fresh(t);
+  for (let n = 1; n <= 9; n++) fs.mkdirSync(path.join(base, worlds.WORLDS_SUBDIR, store.safeKey(rw.worldName('Ann', NOW, n)), 'workers', 'old'), { recursive: true });
+  const r = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /took 9 of the 9 names/);
+});
+
+test('listing does not read agents through a restore folder swapped for a link', { skip: process.platform === 'win32' ? 'a directory symlink needs privileges on Windows' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'agents', 'x9'), { recursive: true });
+  assert.equal(rw.listRestoredAgents({ base, world: p.world, restoreDir: p.restoreDir, nameOk }).agents.length, 1, 'control: x9 is listed through the real folder');
+  fs.renameSync(p.restoreDir, `${p.restoreDir}-real`);
+  fs.symlinkSync(`${p.restoreDir}-real`, p.restoreDir);
+  assert.deepEqual(rw.listRestoredAgents({ base, world: p.world, restoreDir: p.restoreDir, nameOk }).agents, []);
 });
