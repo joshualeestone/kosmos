@@ -56,11 +56,20 @@ no profile record, and STARTS the agent: enable then bootstrap).
    acknowledged before enabling. Deferred: reserved Windows names (cannot exist on NTFS), a FIFO swapped in after
    lstat (restored data is static), Atomics.wait (as the sink).
 
+5. W: plain start-time names were matched case-sensitively and missed opencode.jsonc and Codex's AGENTS.override.md
+   (now a brief, read and checked); one cap covered agents and shared, so the contract now says nothing is enabled
+   while `more` is true; a project's git folder is shared, not refused, and the contract now says why; the Gemini
+   residual was understated. Tests added for a move failing part way, finishing again, the cap, and the folded names.
+   Nits taken: the listing checks the world folder for a link; a top-level .git is read before any capped loop.
+   Deferred: `more` can be set when only skipped entries remained (it errs toward saying the list is incomplete);
+   readBrief's identity refusal has no test (it needs a swap between two system calls).
+
 ## Residuals, stated
 - Between finish's emptiness check and its rename, another process of the person's own (an agent already running in
   the new world) could write into a target; rmdir then fails and the failure is reported, nothing is lost.
-- Nested briefs (a CLAUDE.md in a subfolder, read when an agent works there) are not scanned; 4a's review list covers
-  every file's content.
+- Nested briefs are not scanned. Claude Code reads a subfolder's CLAUDE.md when an agent works there, and Gemini CLI
+  loads every GEMINI.md below its folder when it starts, so for a Gemini agent they load at start unflagged. 4a's
+  review list shows every file's content, nested briefs included; that is what covers them.
 - A restore that stops is never finished: it stays in `restored` and continues there (slice 3). Nothing here cleans it.
 - A rename failing part way leaves workers moved and projects not; `moved` says which. Re-running finish moves the
   rest, since the moved root is gone from `restored`.
