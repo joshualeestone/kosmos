@@ -51,9 +51,11 @@ const note = (text) => row({ kind: 'note', from: 'kosmos', project: 'p1', text, 
 
 test('a notice\'s line breaks are drawn as breaks in its band', () => {
   const html = note('email digest (automated notice): Email cleanup\n- inbox one: 3 unread\n\nend');
-  assert.match(html, /^<div class="msg-valve">email digest \(automated notice\): Email cleanup<br>- inbox one: 3 unread<br><br>end/,
+  assert.match(html, /^<div class="msg-valve msg-valve-ml">email digest \(automated notice\): Email cleanup<br>- inbox one: 3 unread<br><br>end/,
     'the lines were not drawn as breaks in the note band: ' + html.slice(0, 200));
   assert.doesNotMatch(html, /\n/, 'a raw line break reached the page, where it would draw as a space');
+  // Mona Lisa's review: on a multi-line notice the time stands on its own line (the msg-valve-ml rule).
+  assert.match(html, /<span class="msg-t">.*<\/span><\/div>$/, 'the time is not the last element in the band: ' + html.slice(-160));
 });
 
 test('the words are escaped before the breaks go in, so a notice cannot put markup on the page', () => {
@@ -67,4 +69,5 @@ test('CONTROL: a one-line note (every other Kosmos note) is drawn exactly as bef
   const html = note('Cleo, Dana and Eli are on this project.');
   assert.match(html, /^<div class="msg-valve">Cleo, Dana and Eli are on this project\./);
   assert.doesNotMatch(html, /<br>/, 'a one-line note gained a break');
+  assert.doesNotMatch(html, /msg-valve-ml/, 'a one-line note was given the multi-line time layout');
 });

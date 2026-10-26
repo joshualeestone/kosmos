@@ -592,7 +592,16 @@ async function main() {
               const r = document.createRange(); r.selectNodeContents(n);
               for (const q of r.getClientRects()) tops.add(Math.round(q.top));
             }
-            return { brs: b.querySelectorAll('br').length, lines: tops.size, text: b.textContent };
+            // Mona Lisa's review: the time stands on its own line, below the last line of words.
+            let wordsBottom = 0;
+            for (const n of b.childNodes) {
+              if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+              const r = document.createRange(); r.selectNodeContents(n);
+              for (const q of r.getClientRects()) wordsBottom = Math.max(wordsBottom, q.bottom);
+            }
+            const t = b.querySelector('.msg-t');
+            const timeTop = t ? t.getBoundingClientRect().top : null;
+            return { brs: b.querySelectorAll('br').length, lines: tops.size, text: b.textContent, timeOwnLine: timeTop !== null && timeTop >= wordsBottom - 1 };
           })(),
           visible: box.getBoundingClientRect().height > 0,
         };
@@ -634,6 +643,7 @@ async function main() {
       if (!seen.notice || seen.notice.brs !== 2 || seen.notice.lines < 3) {
         throw new Error('#7189: the room notice did not draw its lines as lines: ' + JSON.stringify(seen.notice));
       }
+      if (!seen.notice.timeOwnLine) throw new Error('#7189 (design review): the time of the notice is not on its own line under its words: ' + JSON.stringify(seen.notice));
     });
     // Removed so every later state (could-not-tell, contrast, archive)
     // sees the record it expects.
