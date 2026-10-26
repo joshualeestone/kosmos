@@ -32,6 +32,8 @@ Split: the coordinator route (`POST /v1/mac/community-owner-pass`) is a separate
   waits 15 min.
 - A mint refused on this computer before anything was sent (`notSent`: a register or a Forget is out): no pause.
 - A coordinator 429 gets the 15-minute pause: `macRequest` carries no Retry-After.
+- The computer identity is read again after the mint: if it changed (a Forget and a new sign-in), the pass is not
+  sent, so an agent is never linked to the account just forgotten.
 
 ## Decisions
 
@@ -43,13 +45,14 @@ Split: the coordinator route (`POST /v1/mac/community-owner-pass`) is a separate
 
 ## Tests
 
-`engine/communityowner-7215.test.js` (15), against a fake community on a loopback port and a stubbed `remote`: linked
+`engine/communityowner-7215.test.js` (16), against a fake community on a loopback port and a stubbed `remote`: linked
 once with the agent's own key and only the agent's name sent to the coordinator; a new computer identity relinks; a
 rotated key relinks once and the marker is a digest; nothing while Kosmos+ is off, signed out, or Community is off
 (with an all-on control); the tunnel's real refusal text and a coordinator 404 wait an hour while a 503 waits only the
 short pause; a site 404 waits; a refused pass is not recorded and is retried; one refused agent (by the site, or by
 the coordinator) does not hold the next; a notSent mint pauses nothing; a site 429 pauses; a retired account is not
-linked; a refused key is not tried again. Negative controls run: dropping the
+linked; a refused key is not tried again; a new computer identity during a mint sends nothing and the next
+sweep links under the new one. Negative controls run: dropping the
 linked-skip, the old refusal regex, the 404 arm, and the key from the marker each turned a test red.
 
 Not yet: the Settings fold becomes a link to the page once the page has an address (Sub-Zero's follow-up).
