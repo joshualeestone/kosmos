@@ -177,7 +177,9 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
     const c = bySession.get(session);
     if (!c || !assigner.idleCard(c)) return false;
     /* Review 2 (slice 3): words sitting unsent in its box are a person's or a peer's, and a restart would drop them. A
-       card that cannot say is not movable. */
+       card that cannot say is not movable. Review 5: the card says so only once the same words have sat there for
+       status.js's UNSENT_SHOW_MS (3 minutes), so words typed more recently are not seen; the two-tick rule narrows
+       that and does not close it. */
     try { if (c.unsentInput) return false; } catch { return false; }
     /* Not from the card: a roster card carries no isGuide (only the status rows are marked); a test pins that. */
     try {

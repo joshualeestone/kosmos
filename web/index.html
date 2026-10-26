@@ -18568,7 +18568,7 @@ window.kosmosMeasureScrollbarWidth();
            accounts; the switch, as every status control here, stays hidden until a read says on or off. -->
       <div class="setrow" id="ab-row" style="margin-top:14px;" hidden>
         <div><b>Move agents off an account that is running out</b>
-          <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 90% of its weekly limit and does not reset within 6 hours, or its login stops working, Kosmos picks the idle agents on it to move to the account with the most room (one Kosmos has measured, under 70%).</p>
+          <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 90% of its weekly limit and does not reset within 6 hours, Kosmos picks the idle agents on it to move to the account with the most room (one Kosmos has measured, under 70%). If an account's login stops working, it says which agents could move, but does not move them itself.</p>
           <div id="ab-lines"></div>
           <div id="ab-recent"></div>
           <p class="dhint" id="ab-msg" role="status" style="margin:8px 0 0;"></p></div>
@@ -28856,7 +28856,11 @@ function paintAutobalance(ab, list) {
     const moves = Array.isArray(ab.moves) ? ab.moves : [];
     const held = Array.isArray(ab.held) ? ab.held : [];
     const short = Array.isArray(ab.short) ? ab.short : [];
-    html = moves.map((m) => line('Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.')).join('')
+    /* Slice 3 review 5: a move off a stopped login is said, never made, so its line says so. */
+    const loginFrom = new Set((Array.isArray(ab.atRisk) ? ab.atRisk : []).filter((x) => x.kind === 'login').map((x) => x.from));
+    html = moves.map((m) => (loginFrom.has(m.from)
+      ? line(esc(who(m.agent)) + ' could move from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '. Kosmos does not move agents off a stopped login itself.')
+      : line('Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.'))).join('')
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
       + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
       /* Review 5: with the reason, so an account whose list is short still says why it is running out (review 7: unless
@@ -28896,10 +28900,16 @@ function abRecentHtml(recent, label, who, line) {
     const agent = esc(who(e.agent));
     const from = esc(name(e.from, e.fromLabel));
     const to = esc(name(e.to, e.toLabel));
-    if (e.kind === 'decision' && !e.live) {
-      for (const m of Array.isArray(e.moves) ? e.moves : []) out.push(at(e.at) + 'it would have moved ' + esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel)) + '.');
+    if (e.kind === 'decision') {
+      /* A move off a stopped login is never made, so it is said whether moves are on or not (review 5). */
+      for (const m of Array.isArray(e.moves) ? e.moves : []) {
+        const mv = esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel));
+        if (m.kind === 'login') out.push(at(e.at) + 'it would have moved ' + mv + ', but its login had stopped, and Kosmos does not move agents off a stopped login itself.');
+        else if (!e.live) out.push(at(e.at) + 'it would have moved ' + mv + '.');
+      }
     } else if (e.kind === 'move' && e.outcome === 'stopped') out.push(at(e.at) + 'the move of ' + agent + ' to ' + to + ' was stopped, so it stays on ' + from + '.');
     else if (e.kind === 'move' && e.outcome === 'changed') out.push(at(e.at) + 'Kosmos moved ' + agent + ' from ' + from + ' to ' + to + ', because ' + esc(e.why || 'its account was running out') + '.');
+    else if (e.kind === 'move' && e.outcome === 'unknown') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ' and could not tell whether it went through. Check which account it is on above.');
     else if (e.kind === 'move' && e.outcome === 'partial') out.push(at(e.at) + 'Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.');
     else if (e.kind === 'move') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused.');
     else if (e.kind === 'skipped') out.push(at(e.at) + 'Kosmos did not move ' + agent + ', because it was no longer idle.');
