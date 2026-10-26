@@ -79,6 +79,9 @@ final class BoardClient: ObservableObject {
     private var shownMac: Board.Mac?
     // kosmos#7197: the name of the Mac whose list is shown, for a screen that names it while the phase does not.
     var shownMacName: String? { shownMac?.name }
+    // The Mac to name when the shown list or chat stops updating: the shown one first (the list and its chat are
+    // its), the phase's only when no list was shown (Board.failingMacName).
+    var failingMacName: String? { Board.failingMacName(shown: shownMacName, phase: phase.macName) }
 
     private let coordinator: URL
     private let sessionStore: SessionStore
@@ -655,7 +658,7 @@ final class BoardClient: ObservableObject {
         // Not connected: nothing was sent, so the buttons come back.
         guard let held = admitted,
               let request = Board.pressRequest(mac: held.url, session: session, option: option, asked: choices.asked, request: choices.request)
-        else { return .refused("Your Mac isn't answering. Try again in a moment.") }
+        else { return .refused(Shell.macUnreachableTitle(shownMacName) + ". Try again in a moment.") }   // kosmos#7197: named
         let answer = await env.send(request)
         return Board.pressResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
     }

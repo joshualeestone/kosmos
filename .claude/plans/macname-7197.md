@@ -32,7 +32,11 @@ screen could not say which Mac.
 
 - Review 2: a chat that stops updating while the board is reconnecting (phase `.starting`) names the Mac whose list is
   shown (`BoardClient.shownMacName`), not "Your Mac". The rest repeated review 1 (names agree in production; the
-  failed-send line stays unnamed, the Mac being unknown on that path). Converged.
+  failed-send line stays unnamed, the Mac being unknown on that path).
+- Review 3: a shown list and the chat opened from it belong to their Mac, so every "not updating" line names the SHOWN
+  Mac first (`Board.failingMacName`, `BoardClient.failingMacName`), the phase's only when nothing was shown: after a
+  reconnect picked the account's other Mac, A's chat no longer says "B isn't answering". The not-connected press line is
+  named too. The two-names finding repeats review 1 (the coordinator's name IS the label; only the test fixture differs).
 
 ## Rejected
 - Offering "Choose another computer" from the native screen in this slice: the native client has no way yet to switch

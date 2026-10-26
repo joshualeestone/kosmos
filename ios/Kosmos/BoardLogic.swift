@@ -1831,3 +1831,13 @@ extension Board {
         return "memory \(shown)%"
     }
 }
+
+// kosmos#7197 (review 3): which Mac a "not answering" line names. A shown list, and a chat opened from it, belong to
+// the Mac they came from, even after the app has moved on to another Mac (a reconnect can pick the account's other
+// one while it waits for Allow), so the shown Mac comes first; the phase's Mac only when nothing was shown.
+extension Board {
+    static func failingMacName(shown: String?, phase: String?) -> String? {
+        if let s = shown, !s.isEmpty { return s }
+        return phase
+    }
+}

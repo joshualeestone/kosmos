@@ -263,7 +263,7 @@ struct ChatView: View {
         if let refusal { return refusal }
         guard lost else { return nil }
         let time = lastRead.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
-        return Shell.notUpdatingLine(client.phase.macName ?? client.shownMacName) + time   // kosmos#7197: named
+        return Shell.notUpdatingLine(client.failingMacName) + time   // kosmos#7197: named
     }
 
     private func banner(_ text: String) -> some View {
@@ -382,7 +382,7 @@ struct ChatView: View {
                     Text(refusal).font(.subheadline).foregroundColor(Palette.primary).multilineTextAlignment(.center)
                     WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
                 } else if lost {
-                    Text(Shell.macUnreachableTitle(client.phase.macName ?? client.shownMacName)).font(.headline).foregroundColor(Palette.primary)
+                    Text(Shell.macUnreachableTitle(client.failingMacName)).font(.headline).foregroundColor(Palette.primary)
                     WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
                 } else {
                     ProgressView()
