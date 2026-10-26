@@ -2825,6 +2825,15 @@ async function seed(base, roots) {
   await post('/api/projects', DATA.secondProject);
   const t0 = Date.now() - 1800e3;
   const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
+  /* kosmos#7233: since #7185 no reader is given a room row stamped before its project's createdAt (an earlier project of
+     that name wrote it). The rows below are stamped from t0, half an hour back, so the project is dated one minute
+     before t0, through the projects module's own write. 31 minutes old is still inside the first 24 hours, so a
+     project's "new" state (roomLive and the 24-hour window) reads as it did before; the room simply has its posts. */
+  const projects = require(path.join(REPO, 'engine', 'projects'));
+  projects.mutate(pid, (p) => ({ ...p, createdAt: new Date(t0 - 60e3).toISOString() }));
+  if (projects.readAll().find((p) => p.id === pid).createdAt !== new Date(t0 - 60e3).toISOString()) {
+    throw new Error('seed: the project could not be dated before its room rows (kosmos#7233), so every room shot would be empty');
+  }
   const lines = [
     // A data set's `room` is exactly three posts: the times and the two reactions below name them.
     ...DATA.room.map(([from, to, text], i) => ({ kind: 'post', id: 'm' + (i + 1), project: pid, from, to, text, at: stamp([1, 4, 9][i]), outcomes: {} })),
