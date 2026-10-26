@@ -13082,6 +13082,8 @@ const server = http.createServer(async (req, res) => {
           /* Slice 3: whether the sweep records here at all (its own gate, so the page never says it records where it
              does not), and its newest decisions (no email in them). */
           try { autobalance.recording = autobalanceSweepRuns(); } catch { autobalance.recording = false; }   // review 13: never fails the read
+          /* Review 20: what the sweep's last tick did, so the page can say when it could not measure every account. */
+          autobalance.lastTick = autobalanceSweepRun && typeof autobalanceSweepRun.state.lastDid === 'string' ? autobalanceSweepRun.state.lastDid : null;
           autobalance.recent = [];
           if (setting.on === true) {   // review 13: the page shows the record only with the switch on, so read it only then
             try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
@@ -26204,8 +26206,8 @@ function start(port = PORT) {
           ticking
             .then((r) => {
               if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n');
-              const why = r && r.did === 'unreadable' ? (r.because || 'unknown') : null;
-              if (why && why !== abSweepUnreadableSaid) process.stdout.write(`autobalance-sweep: could not work out the decision (${why})\n`);
+              const why = r && (r.did === 'unreadable' || r.did === 'gap') ? `${r.did}: ${r.because || 'unknown'}` : null;   // review 20: a gap too
+              if (why && why !== abSweepUnreadableSaid) process.stdout.write(`autobalance-sweep: could not record the decision (${why})\n`);
               abSweepUnreadableSaid = why;
               const failed = !!(r && r.because === 'write-failed');
               if (failed && !abSweepWriteSaid) process.stdout.write('autobalance-sweep: its record could not be written; Settings says it is not recording\n');   // said once per run of failures
