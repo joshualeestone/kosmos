@@ -1,36 +1,68 @@
-# taskchatid-7185: a re-made project does not read a deleted one's task conversations
+# taskchatid-7185: a re-made project does not read a deleted one's history
 
-Card: kosmos#7185 (Mona Lisa, routed by Splinter). A project's id comes from its name, and task conversations are
-stored by (project id, task number) in engine/taskchat.js. Delete a project and make one with the same name, and the
-new task 1 read the old task 1's conversation, a person's words included.
+Card: kosmos#7185 (Mona Lisa, routed by Splinter). A project's id comes from its name. Stores keyed by that id
+still hold a deleted project's rows, so a project made again under the same name read them: its task 1 showed the
+old task 1's conversation (a person's words included), and its room showed the old room's lines.
 
 ## Decided
-- engine/taskchat.js read() keeps only rows whose `at` is at or after the project's createdAt (bornOf). Every reader
-  goes through read(): the task activity route, receipts, undo, holdstale, retire offers, and progressTimes (which
-  looks the stamp up once for all its files).
-- The old rows stay on disk. An enterprise owner owns work content (Josh, 2026-10-09) and may want a deleted project's
-  history back; nothing here deletes it, matching remove()'s own rule that the product deletes nobody's work.
-- Same rule as webhooks (#1307: a webhook carrying an older createdAt is refused) and agent threads (chat.js readThread).
+- One rule, in engine/projectborn.js: a row stamped before its project's createdAt was written by an earlier project
+  of that name, and no reader is given it. The rows stay on disk.
+- Applied at each store's single read point:
+  - engine/taskchat.js read() (task conversations; every reader goes through it: the activity route, receipts,
+    undo, holdstale, retire offers, lastActivityOf, progressTimes);
+  - engine/messages.js record() `rows` (the room: posts, notes, refusals, valve rows; every room reader starts there).
+    `parsed` stays whole, so a hidden row's id stays reserved;
+  - engine/taskseen.js seenAt() (when the person viewed a task: a re-made task 1 read the old "seen").
+- Fails CLOSED. When the projects file exists but cannot be read, every project-tagged row is left out, and record()
+  answers ok:false, which every careful caller already treats as "could not read" (projectOfPost's misroute guard
+  throws, the unread count says unknown). Direct messages carry no project and are untouched.
+- Cost: the stamps are cached until the projects file changes (inode, size, mtime, ctime); record()'s filtered rows
+  are cached until the log or the stamps change.
+- Why keep the rows: an enterprise owner owns work content (Josh, 2026-10-09) and may want a deleted project's
+  history back, and projects.remove() itself says the product deletes nobody's work.
+- Precedent: the webhooks (#1307) and an agent's direct thread (engine/chat.js readThread) both keep the record and
+  refuse a mismatch. Those compare a stamp stored WITH the record for equality; these stores keep no stamp per row, so
+  this is a time floor instead.
 
 ## Rejected
-- Delete a project's task conversations in projects.remove: irreversible loss of a person's words, against the
-  enterprise ruling and remove()'s rule.
-- Give a re-made project a new id: ids from names are used across rooms, the CLI and URLs; far wider than the defect.
-- A creation stamp in the file name: needs a migration for every existing project's files, for the same effect.
+- Delete a project's rows in projects.remove: irreversible, against the enterprise ruling and remove()'s own rule.
+- A new id per re-made project: ids from names are used across rooms, the CLI and URLs.
+- A stamp in each file name or row: a migration of every existing store for the same effect.
+- A tolerance window before createdAt: deleting and re-making within minutes is exactly how this was found.
+
+## Stores keyed by project id, checked
+- task conversations (task-chats): leaked; fixed.
+- room rows (messages.jsonl): leaked, measured through the real /api/project/:id/room route (the deleted project's
+  room line showed in the new room's text view); fixed.
+- task seen marks (task-seen): leaked a false "seen"; fixed.
+- the task list: lives in the project record, which remove() deletes; a re-made project starts at task 1 with only
+  its own created row (measured).
+- receipts (task-receipts): a kept receipt is reused only when its closedAt equals the task's; a new task's differs.
+- webhooks: removed with the project and refused by createdAt (#1307).
+- an agent's direct threads (chats): refused by projectBornAt (chat.js readThread).
+- roomhold: forgotten when the project is removed (engine/remove.js).
+- attachments: fetched only by a random id named in a post row; hidden posts name nothing.
+- activity: per agent, not per project.
 
 ## Proven
-- engine/taskchat.remade-7185.test.js, 4 tests. Against the old taskchat.js exactly the two discriminating tests fail
-  (the re-made task 1 shows the old message; progressTimes counts the old task). As committed, 4 of 4.
-- The 29 engine test files that read task conversations (taskchat, receipt, undo, hold, tasks, limittask,
-  missedtell): 370 of 370.
+- engine/taskchat.remade-7185.test.js, 7 tests. Each guard reverted on its own reds its own tests: the old
+  messages.js reds the room test and the room half of the unreadable test; the old taskchat.js reds the task, progress
+  and unreadable tests; a fail-OPEN projectborn reds the unreadable test; the old taskseen.js reds the seen test.
+- Four existing tests wrote rows dated before the project they had just made and were changed to date the project
+  first (engine/messages.test.js #3564; server.room-held-5800.test.js, three route tests, folder files included so they
+  do not read as fresh work; server.projects.test.js #1895). No real row can predate its project: createdAt is written
+  only by projects.create, and external rows are stamped on arrival.
 
 ## Weakest premise
-That every row a project writes is stamped at or after its createdAt. record() stamps `at` with the same clock that
-stamped createdAt, and a task is made after its project; a clock stepped back between the two would hide a real row.
+That every row a project writes is stamped at or after its createdAt (same clock; a project exists before anything
+is written to it). A clock stepped back between the two would hide a real row; so would a projects file restored from
+a backup with a later createdAt.
 
 ## Not changed / not claimed
-- A project id with no record (or no valid createdAt) keeps every row, as before.
-- Restoring a deleted project (same id, its own older createdAt) would show its own rows and the re-made project's
-  rows together; restore is not built for projects today.
-- An agent's direct thread already handles this case the same way (engine/chat.js readThread, the project's createdAt,
-  nothing deleted), which this follows. The project room's posts (engine/messages.js) are not measured here.
+- A project id with no record, or no valid createdAt, keeps every row, as before. A deleted project's rows are
+  reachable only through a project of that id, so they show again only when one exists.
+- Reactions, claims and read cursors that name a hidden post now name nothing; accepted (the post is not this
+  project's).
+- Restoring a deleted project (same id, its own older createdAt) would show its rows and the re-made one's together;
+  project restore is not built today.
+- readAll() sets projects' read-ok flag as it always does; a read made here reports the file's real state.
