@@ -38,7 +38,8 @@ const MAX_REMOVED = 200;
 const PLACEHOLDER = '{{NAME}}';
 const NAME_MAX = 64;
 const INSTRUCTION_FILES = new Set(['claude.md', 'claude.local.md', 'agents.md', 'gemini.md']);   // .claude/CLAUDE.md by its name
-const MAX_TESTED_LINES = 200 * 1000;   // per review (review 5: cost follows lines, and 2M short lines took seconds)
+const MAX_TESTED_LINES = 200 * 1000;
+const MAX_TESTED_CHARS = 1024 * 1024;   // characters run through the tests, joints included (review 7: cost)   // per review (review 5: cost follows lines, and 2M short lines took seconds)
 
 /* Invisible code points (review 2): format characters (zero-width, bidi, the Unicode tag block), variation
    selectors, and the tag block itself. A line holding one is never a template line and is flagged. */
@@ -174,7 +175,9 @@ const linesOf = (text) => String(text).split(/\r\n|\r|\n|\u2028|\u2029/);
 // with any is never equal to a template line.
 // Leading whitespace is kept (review 4: an indented block is code in Markdown, so an indent change must count), and
 // only spaces and tabs collapse (\s would also swallow U+FEFF).
-const norm = (l) => l.normalize('NFKC').replace(/[ \t]+$/, '').replace(/(\S)[ \t]+/g, '$1 ');
+// No NFKC either (review 7: it folds a full-width backtick into a real one, so a line that is only "equal after
+// NFKC" passed as the template's fence while Markdown did not read it as one). NFKC stays in the flag tests only.
+const norm = (l) => l.replace(/[ \t]+$/, '').replace(/(\S)[ \t]+/g, '$1 ');
 
 /* The template sharing the most lines with these, found through one index from line to templates (review 3: every
    template against every line was seconds on a large restore). Ties go to the first. */
@@ -277,7 +280,7 @@ function reviewAgent({ name, files, templates } = {}) {
     counts[x.kind] += 1;
     flags.push(x);
   };
-  let tested = 0;
+  let tested = 0, testedChars = 0;
   const untested = new Set();
   // The line budget is spent on instruction files first (review 6), then the caller's order is put back.
   const testOrder = read.map((f, k) => ({ f, k })).sort((x, y) => (y.f.instructions - x.f.instructions) || (x.k - y.k));
@@ -291,8 +294,16 @@ function reviewAgent({ name, files, templates } = {}) {
     // hostile file could again fall out of step with. Noisy for a member who added one (rare), never unsafe. A
     // template's own fence is a matched line, so it never starts this.
     if (f.instructions && al.pairs.length) {
-      const firstHide = f.raw.findIndex((l, i) => !al.matchedFile.has(i) && HIDE_RE.test(l));
-      if (firstHide >= 0) for (const [fi, tj] of al.pairs) if (fi > firstHide) { al.matchedFile.delete(fi); al.matchedTpl.delete(tj); }
+      let cut = f.raw.findIndex((l, i) => !al.matchedFile.has(i) && HIDE_RE.test(l));
+      if (cut < 0) cut = Infinity;
+      // From the other side too (review 7): a REMOVED template line that is itself a marker (a template's own fence)
+      // re-pairs every later one, so the cut starts where it was, the file position of the next matched pair after it.
+      for (let tj = 0; tj < closest.lines.length; tj += 1) {
+        if (al.matchedTpl.has(tj) || !HIDE_RE.test(closest.lines[tj])) continue;
+        const nextPair = al.pairs.find(([, pj]) => pj > tj);
+        cut = Math.min(cut, nextPair ? nextPair[0] - 0.5 : Infinity);
+      }
+      if (cut !== Infinity) for (const [fi, tj] of al.pairs) if (fi > cut) { al.matchedFile.delete(fi); al.matchedTpl.delete(tj); }
     }
     if (f.instructions && closest && !al.diffed) unreviewed.push({ file: f.name, why: 'it is too long to compare with its template, so every line counts as added' });
     const added = [];
@@ -304,11 +315,12 @@ function reviewAgent({ name, files, templates } = {}) {
       if (!isAdded(i)) return;
       added.push(i + 1);
       // Past the per-review line budget, an added line is listed but not tested, and the file is unreviewed.
-      if (tested >= MAX_TESTED_LINES) {
-        if (!untested.has(f.name)) { untested.add(f.name); unreviewed.push({ file: f.name, why: 'it has more lines than the review tests, so the rest were listed but not checked' }); }
+      if (tested >= MAX_TESTED_LINES || testedChars >= MAX_TESTED_CHARS) {
+        if (!untested.has(f.name)) { untested.add(f.name); unreviewed.push({ file: f.name, why: 'it has more than the review tests, so the rest was listed but not checked' }); }
         return;
       }
       tested += 1;
+      testedChars += Math.min(line.length, MAX_TEST_CHARS) * 3;   // alone and in its two joints, at most
       if (line.length > MAX_TEST_CHARS) flag({ file: f.name, line: i + 1, kind: 'long', text: shown(line, 0), at: 0, length: line.length });
       const hm = HIDE_RE.exec(line);
       if (hm) flag({ file: f.name, line: i + 1, kind: 'hides', text: shown(line, hm.index), at: hm.index, length: line.length });
