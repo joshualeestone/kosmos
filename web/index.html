@@ -71557,10 +71557,12 @@ async function pjNotifyChoose(level) {
     got = await res.json().catch(() => ({}));
     ok = res.ok;
   } catch { ok = false; }
-  if (seq !== PJ_NOTIFY_SEQ) return;
   const now = pjById(p.id);
+  /* Review 1: a saved answer is what the board holds even when a later choice has been made since, so it is kept;
+     only painting waits for the latest choice (a later refusal then puts back this one, not an older value). */
+  if (ok && now) now.notify = got && got.project && got.project.notify ? got.project.notify : level;
+  if (seq !== PJ_NOTIFY_SEQ) return;
   if (ok) {
-    if (now) now.notify = got && got.project && got.project.notify ? got.project.notify : level;
     msg.textContent = 'Saved.';
   } else {
     pjNotifyPaint(pjNotifyLevel(now || p));

@@ -44,6 +44,14 @@ after trying it. Design shots before merge. The call is written on the card (com
 - The dock badge (counts.waiting) is not muted: it counts agents waiting on the person, not messages, and belongs to
   agents rather than projects.
 - An event whose project cannot be told (a needs_you with no project in its self-report) is never muted.
+- A needs_you is attributed to the project in the agent's self-report, carried forward; an agent that moved to another
+  project without reporting it is muted or not by its last-reported room (review 1, accepted: it follows "work in a
+  muted room", and a report naming the new project corrects it).
+
+## Challenge loop
+- Iteration 1 (sonnet): no BLOCKER or WARNING. N3 a save answered after a later choice was dropped from the page's
+  cache, so a later refusal put back an older level -> FIXED (kept, only the paint waits; test). N1 carried project
+  -> accepted above. N2 tokenless local Origin passes isViaScreen -> pre-existing, same as pause. N4 copy -> fine.
 
 ## Tests
 
