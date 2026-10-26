@@ -73,6 +73,7 @@ function typeOf(name) {
 }
 
 const CHANGED = 'that file changed while it was being attached; try again';
+const CANNOT_READ = 'that file could not be read';
 /* A hard link is the same file under a second name, which may be anywhere on the disk: the name in the
    agent's folder says nothing about where else it lives, so a file with more than one name is refused
    (review r1, finding 3, decided). A copy, not a link, is what the agent sends. */
@@ -229,9 +230,9 @@ function libraryOpen(chain, k, rootDepth) {
   return false;
 }
 
-function allowedRoot(sessionName, real, roster, given, filesDir = dmfiles.filesDir(sessionName), { projectList, win = false } = {}) {
+function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win = false } = {}) {
   const chain = chainOf(real);
-  const filesReal = filesRoot(sessionName, filesDir);
+  const filesReal = filesRoot(sessionName, filesDir === undefined ? dmfiles.filesDir(sessionName) : filesDir);
   if (filesReal && chain[1] && chain[1].id && chain[1].id === idOf(filesReal)) return { root: filesReal };
   let all = projectList;
   if (!Array.isArray(all)) { try { all = projects.readAll(); } catch { all = []; } }
@@ -243,13 +244,22 @@ function allowedRoot(sessionName, real, roster, given, filesDir = dmfiles.filesD
   const fileShare = win ? shareOf(real) : null;
   /* The deepest project holding the file, by identity: the one whose folder is nearest the file in its chain. */
   let best = null;
+  /* Projects of OTHER agents left unresolved below. A nested project the agent is not on exists to keep its files
+     from the outer project's agents, so skipping it must not let the outer project answer instead (review 5 finding
+     1): after the loop, a skipped one whose folder may hold the file refuses the attach. */
+  const skippedOthers = [];
   for (const p of all) {
     if (!p || typeof p.folder !== 'string' || !p.folder) continue;
-    if (win && isNetworkSpelling(p.folder) && (!fileShare || shareOf(p.folder) !== fileShare)) continue;
-    /* Review 3 finding 1: a folder written on a drive can itself be (or sit under) a link out to a share, and
-       folderState resolves it. Its links are walked first, by lstat and readlink only, and a folder whose walk is
-       refused is not resolved: it cannot hold a file this attach may send. */
-    if (win && !isNetworkSpelling(p.folder) && winLinkRefusal(p.folder, null)) continue;
+    if (win) {
+      /* Review 3 finding 1: a folder written on a drive can itself be (or sit under) a link out to a share, and
+         folderState resolves it. Its links are walked first, by lstat and readlink only (its long \\?\C:\ spelling
+         read as the drive path it is), and a folder whose walk is refused is not resolved. */
+      const otherShare = isNetworkSpelling(p.folder) && (!fileShare || shareOf(p.folder) !== fileShare);
+      if (otherShare || (!isNetworkSpelling(p.folder) && winLinkRefusal(asDrivePath(p.folder), null))) {
+        if (!(p.agents || []).includes(sessionName)) skippedOthers.push(p.folder);
+        continue;
+      }
+    }
     let root = null;
     try { root = projects.folderState(p.folder).real; } catch { root = null; }
     const rid = root ? idOf(root) : null;
@@ -263,6 +273,7 @@ function allowedRoot(sessionName, real, roster, given, filesDir = dmfiles.filesD
     else if (i === best.depth && mine) best.mine = true;
   }
   if (!best || !best.mine) return null;
+  if (skippedOthers.some((f) => mayHold(f, given, real))) return null;
   const k = keptRoots(sessionName, roster);
   /* A project whose folder IS the home folder or CONTAINS it (/Users, /, the Data volume root), or holds the data
      root or the workers root, gives nothing (review r3 finding 3), wherever those roots live and however the folder
@@ -378,11 +389,29 @@ function shareOf(p) {
 function isPlainShare(p) {
   return !/^[\\/]{2}[?.][\\/]/.test(String(p)) && shareOf(p) !== null;
 }
+/* A drive path's long (\\?\C:\) or NT (\??\C:\) spelling read as the plain drive path it is. */
+function asDrivePath(p) {
+  return String(p).replace(LOCAL_LONG, '').replace(NT_LOCAL, '');
+}
 /* Whether `given` is written inside `folder` (a drive path or a plain share), case-insensitively as Windows does. */
 function writtenInside(given, folder) {
-  const norm = (p) => path.win32.normalize(String(p).replace(LOCAL_LONG, '')).toLowerCase().replace(/\\+$/, '');
+  const norm = (p) => path.win32.normalize(asDrivePath(p)).toLowerCase().replace(/\\+$/, '');
   const f = norm(folder);
   return (!!driveOf(f) || isPlainShare(f)) && norm(given).startsWith(f + '\\');
+}
+/* A share path with its host dropped: \share\rest, lower-cased, or null. Two spellings of one server (a name and its
+   address) give the same tail, so a check that must fail closed can match on it. */
+function shareTail(p) {
+  if (!shareOf(p)) return null;
+  const s = path.win32.normalize(String(p).replace(/^[\\/]{2}\?[\\/]UNC[\\/]/i, '\\\\')).toLowerCase();
+  return s.replace(/^\\\\[^\\]+/, '').replace(/\\+$/, '');
+}
+/* Whether a project folder left unresolved may hold the file, by spelling, erring toward yes: inside it as given or as
+   resolved, or on a share whose path below the server matches, whatever the server is called (review 5 finding 1). */
+function mayHold(folder, given, real) {
+  if (writtenInside(given, folder) || writtenInside(real, folder)) return true;
+  const ft = shareTail(folder);
+  return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && t.startsWith(ft + '\\'); });
 }
 /* The agent's roots: `drives`, the letters every root is written on or reaches through its own links, and `folders`, the
    agent's own project folders (on a drive letter, or a plain share). A project may live on a share, written as a
@@ -395,17 +424,29 @@ function writtenInside(given, folder) {
 function agentRoots(sessionName, filesDir, projectList) {
   const drives = new Set();
   const folders = [];
-  /* A root written on C: may live on D: through a junction or link on its way (C:\Users\me\work -> D:\work), so the
-     drives a root reaches are collected by walking its own links, lstat and readlink only (review 4 finding 1): a
-     path to it that the walk follows onto D: is then judged on D:, as it was by identity on main. */
-  if (typeof filesDir === 'string' && driveOf(filesDir)) drivesReached(filesDir, drives);
+  const walkFrom = [];
+  const addDrivePath = (p) => { drives.add(driveOf(p)); walkFrom.push(asDrivePath(p)); };
+  if (typeof filesDir === 'string' && driveOf(filesDir)) addDrivePath(filesDir);
   for (const p of projectList) {
     if (!p || typeof p.folder !== 'string' || !(p.agents || []).includes(sessionName)) continue;
     const d = driveOf(p.folder);
-    if (d) drivesReached(p.folder, drives);
+    if (d) addDrivePath(p.folder);
     if (d || isPlainShare(p.folder)) folders.push(p.folder);
   }
-  return { drives, folders };
+  return { drives, folders, walkFrom, reached: null };
+}
+/* Whether a root is on drive `d`, as written or through its own links. A root written on C: may live on D: through a
+   junction or link on its way (C:\Users\me\work -> D:\work), and a path the walk follows onto D: is then judged on D:,
+   as it was by identity on main (review 4 finding 1). The roots' links are walked only when the written drives do not
+   answer, and once per attach (review 5 finding 2): a file directly in Files never touches a project folder, which may
+   be on a mapped drive whose server is down. */
+function rootReaches(roots, d) {
+  if (roots.drives.has(d)) return true;
+  if (!roots.reached) {
+    roots.reached = new Set();
+    for (const f of roots.walkFrom || []) drivesReached(f, roots.reached);
+  }
+  return roots.reached.has(d);
 }
 /* Add to `out` the drive `p` is written on and every drive its links lead to, followed as winLinkRefusal follows
    them (lstat and readlink, the allow-list of targets, at most MAX_HOPS links). Stops quietly where the walk would
@@ -449,7 +490,7 @@ function winSpellingRefusal(given, roots) {
   if (parts.length && isDevicePart(parts[parts.length - 1])) return DEVICE_NAME;
   if (roots && !share) {
     const d = driveOf(given);
-    if (!d || !roots.drives.has(d)) return NOT_YOURS;
+    if (!d || !rootReaches(roots, d)) return NOT_YOURS;
   }
   return null;
 }
@@ -484,12 +525,12 @@ function winLinkRefusal(p, roots, hops = 0) {
          asked, a local read: an entry under that name is a link this walk cannot follow, refused rather than handed
          to realpath; no entry is really missing, and the realpath that follows says so. Any other error (EACCES,
          EPERM) is a part that cannot be read, said as that (review 1 finding 4). */
-      if (!err || err.code !== 'ENOENT') return 'that file could not be read';
+      if (!err || err.code !== 'ENOENT') return CANNOT_READ;
       return listed(cur) ? UNREADABLE_LINK : null;
     }
     if (!lst.isSymbolicLink()) continue;
     let to;
-    try { to = fs.readlinkSync(cur); } catch { return 'that file could not be read'; }
+    try { to = fs.readlinkSync(cur); } catch { return CANNOT_READ; }
     const target = followableLinkTarget(to);
     if (target === null) return unfollowedLinkRefusal(to);
     const next = path.win32.resolve(path.win32.dirname(cur), target, ...parts.slice(i + 1));
@@ -523,18 +564,18 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
   }
   let real;
   try { real = realOf(given); } catch (err) {
-    return { ok: false, because: err && err.code === 'ENOENT' ? 'there is no file at ' + given : 'that file could not be read' };
+    return { ok: false, because: err && err.code === 'ENOENT' ? 'there is no file at ' + given : CANNOT_READ };
   }
   if (win) {
     const why = winRealRefusal(real, given, roots.folders);
     if (why) return { ok: false, because: why };
   }
   let st;
-  try { st = fs.statSync(real); } catch { return { ok: false, because: 'that file could not be read' }; }
+  try { st = fs.statSync(real); } catch { return { ok: false, because: CANNOT_READ }; }
   if (st.isDirectory()) return { ok: false, because: 'that is a folder; attach one file at a time' };
   if (!st.isFile()) return { ok: false, because: 'that is not an ordinary file, so it cannot be attached' };
   if (st.nlink > 1) return { ok: false, because: HARD_LINK };
-  const where = allowedRoot(sessionName, real, roster, given, filesDir, { projectList, win });
+  const where = allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win });
   if (!where) return { ok: false, because: NOT_YOURS };
   if (where.refused) return { ok: false, because: where.refused };
   if (st.size > attachments.MAX_BYTES) {
@@ -616,7 +657,7 @@ function readOwn(real, st, given, out) {
     if (n > attachments.MAX_BYTES || n !== open.size) return { ok: false, because: CHANGED };
     return { ok: true, size: n };
   } catch {
-    return { ok: false, because: 'that file could not be read' };
+    return { ok: false, because: CANNOT_READ };
   } finally {
     if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
   }

@@ -32,6 +32,12 @@ const projects = require('./projects');
 const WIN = process.platform === 'win32';
 const SHARE = '\\\\10.255.255.1\\share\\x';
 const WHO = 'win7221';
+/* A drive letter no drive here uses, picked in random order so two runs at once rarely want the same one; null when
+   Q to Z are all taken, and the arm that needs one skips (review 5 finding 3). */
+function freeDriveLetter() {
+  const letters = 'QRSTUVWXYZ'.split('').sort(() => Math.random() - 0.5);
+  return letters.find((d) => !fs.existsSync(d + ':' + path.sep)) || null;
+}
 
 const realFilesDir = dmfiles.filesDir;
 const realReadAll = projects.readAll;
@@ -156,9 +162,9 @@ test('#7221: a chain of links that ends at a share is followed link by link and 
   try { refusedUnresolved(first, replyfile.ON_NETWORK, 'a link to a link to a share'); } finally { fs.rmSync(first, { force: true }); fs.rmSync(last, { force: true }); }
 });
 
-test('#7221: a link that points at another drive no root is on is refused without resolving it', winOnly, () => {
-  const here = path.parse(FILES).root[0].toUpperCase();
-  const other = 'QRSTUVWXYZ'.split('').find((d) => d !== here);
+test('#7221: a link that points at another drive no root is on is refused without resolving it', winOnly, (t) => {
+  const other = freeDriveLetter();
+  if (!other) { t.skip('no free drive letter'); return; }
   const link = path.join(FILES, 'to-other-drive.txt');
   fs.symlinkSync(other + ':\\f.txt', link, 'file');
   try { refusedUnresolved(link, replyfile.NOT_YOURS, 'a link to drive ' + other); } finally { fs.rmSync(link, { force: true }); }
@@ -174,9 +180,9 @@ test('#7221: an alternate data stream on a file in Files is refused before it is
   refusedUnresolved(path.join(FILES, 'report.txt') + ':secret', replyfile.STREAM, 'a stream');
 });
 
-test('#7221: a drive no root is on (a mapped drive is a share under a letter) is refused before it is touched', winOnly, () => {
-  const here = path.parse(FILES).root[0].toUpperCase();
-  const other = 'QRSTUVWXYZ'.split('').find((d) => d !== here);
+test('#7221: a drive no root is on (a mapped drive is a share under a letter) is refused before it is touched', winOnly, (t) => {
+  const other = freeDriveLetter();
+  if (!other) { t.skip('no free drive letter'); return; }
   refusedUnresolved(other + ':\\Files\\report.txt', replyfile.NOT_YOURS, 'drive ' + other);
 });
 
@@ -194,12 +200,12 @@ test('#7221: a real path that turns out to be a share, or a device, is refused b
   if (r.ok) replyfile.discard(r.rec);
 });
 
-test('#7221 review 1-2: a file named on one of the agent\'s project drives may resolve to a share (a mapped drive); one named on its Files drive may not', winOnly, () => {
+test('#7221 review 1-2: a file named on one of the agent\'s project drives may resolve to a share (a mapped drive); one named on its Files drive may not', winOnly, (t) => {
   /* The project's drive is one no real folder here is on, and the walk finds nothing on it to follow; the seam then
      answers the share path a mapped drive resolves to. 127.0.0.1 with no such share fails fast, so the read after the
      guard refuses for its own reason, and the arm asserts only that the NETWORK guard let the project file through. */
-  const here = path.parse(FILES).root[0].toUpperCase();
-  const mapped = 'QRSTUVWXYZ'.split('').find((d) => d !== here && !fs.existsSync(d + ':\\'));
+  const mapped = freeDriveLetter();
+  if (!mapped) { t.skip('no free drive letter'); return; }
   PROJECTS = [{ id: 'p-7221', name: 'Mapped', folder: mapped + ':\\proj', agents: [WHO] }];
   const shareReal = '\\\\127.0.0.1\\nosuchshare7221\\proj\\f.txt';
   replyfile.setRealpathForTests(() => shareReal);
@@ -352,9 +358,12 @@ test('#7221 review 4-1: a project written on C: that lives on another local driv
   const ddrive = path.join(SANDBOX, 'ddrive');
   fs.mkdirSync(path.join(ddrive, 'proj'), { recursive: true });
   fs.writeFileSync(path.join(ddrive, 'proj', 'f.txt'), 'on the other drive\n');
-  const here = path.parse(FILES).root[0].toUpperCase();
-  const letter = 'QRSTUVWXYZ'.split('').find((d) => d !== here && !fs.existsSync(d + ':\\'));
+  const letter = freeDriveLetter();
+  if (!letter) { t.skip('no free drive letter'); return; }
   try { execFileSync('subst', [letter + ':', ddrive], { stdio: 'ignore' }); } catch { t.skip('subst is not available here'); return; }
+  /* A subst drive outlives the process that made it, so it is removed on exit too, should the arm be cut off. */
+  const unsubst = () => { try { execFileSync('subst', [letter + ':', '/D'], { stdio: 'ignore' }); } catch { /* already gone */ } };
+  process.once('exit', unsubst);
   const view = path.join(SANDBOX, 'cview');
   try {
     fs.symlinkSync(letter + ':\\', view, 'dir');
@@ -370,6 +379,59 @@ test('#7221 review 4-1: a project written on C: that lives on another local driv
     try { refusedUnresolved(out, replyfile.NOT_YOURS, 'a Files link onto a drive no root reaches'); } finally { fs.rmSync(out, { force: true }); }
   } finally {
     fs.rmSync(view, { force: true });
-    try { execFileSync('subst', [letter + ':', '/D'], { stdio: 'ignore' }); } catch { /* already gone */ }
+    unsubst();
   }
+});
+
+/* ---------- review 5 ---------- */
+
+test('#7221 review 5-1: a nested project of another agent that is left unresolved still keeps its files from the outer project', winOnly, () => {
+  const outer = path.join(SANDBOX, 'outer');
+  const nested = path.join(outer, 'nested');
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(path.join(nested, 'secret.txt'), 'not for the outer project\n');
+  fs.writeFileSync(path.join(outer, 'open.txt'), 'for the outer project\n');
+  // the nested project written in the long \\?\ form, which a project record accepts as absolute
+  PROJECTS = [
+    { id: 'p-outer', name: 'Outer', folder: outer, agents: [WHO] },
+    { id: 'p-nested', name: 'Nested', folder: '\\\\?\\' + nested, agents: ['someone-else'] },
+  ];
+  const r = replyfile.attach(WHO, path.join(nested, 'secret.txt'), { platform: 'win32' });
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as on main: ' + JSON.stringify(r));
+  // CONTROL: a file of the outer project outside the nested one still attaches
+  const ok = replyfile.attach(WHO, path.join(outer, 'open.txt'), { platform: 'win32' });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  replyfile.discard(ok.rec);
+});
+
+test('#7221 review 5-1: a nested share project written with another name for the server still keeps its files from the outer one', winOnly, (t) => {
+  const outer = path.join(SANDBOX, 'souter');
+  const nested = path.join(outer, 'nested');
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(path.join(nested, 'secret.txt'), 'not for the outer project\n');
+  const outerUnc = adminShareOf(outer);
+  if (!outerUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  // the outer project on \\127.0.0.1, the nested one written on \\localhost: one server, two spellings
+  PROJECTS = [
+    { id: 'p-souter', name: 'Outer', folder: outerUnc, agents: [WHO] },
+    { id: 'p-snested', name: 'Nested', folder: path.join(outerUnc.replace('\\\\127.0.0.1\\', '\\\\localhost\\'), 'nested'), agents: ['someone-else'] },
+  ];
+  const r = replyfile.attach(WHO, path.join(outerUnc, 'nested', 'secret.txt'), { platform: 'win32' });
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it by identity: ' + JSON.stringify(r));
+});
+
+test('#7221 review 5-2: a file directly in Files touches no project folder, even one the agent is on', winOnly, () => {
+  const proj = path.join(SANDBOX, 'untouched-proj');
+  fs.mkdirSync(proj, { recursive: true });
+  PROJECTS = [{ id: 'p-untouched', name: 'Untouched', folder: proj, agents: [WHO] }];
+  const touched = [];
+  const realLstat = fs.lstatSync;
+  fs.lstatSync = (p, ...rest) => { touched.push(String(p)); return realLstat(p, ...rest); };
+  try {
+    const r = replyfile.attach(WHO, path.join(FILES, 'report.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    replyfile.discard(r.rec);
+  } finally { fs.lstatSync = realLstat; }
+  const lower = proj.toLowerCase();
+  assert.deepEqual(touched.filter((p) => p.toLowerCase().startsWith(lower)), [], 'no lstat under the project folder');
 });

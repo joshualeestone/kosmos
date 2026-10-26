@@ -53,7 +53,9 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
      or reaches through its own links. A mapped drive is a share under a letter, and a file on a drive no root reaches
      cannot be inside a root. The drives a root reaches are collected by walking its links, lstat and readlink only
      (review 4 finding 1: `C:\Users\me\work` as a junction to `D:\work` put a project's files on D:, which a written-
-     only drive rule refused where main attached them).
+     only drive rule refused where main attached them), and only when the written drives do not answer, once per
+     attach (review 5 finding 2): a file directly in Files touches no project folder, as on main, so a project on a
+     mapped drive whose server is down never stalls it.
 2. **The links, by lstat and readlink only** (`winLinkRefusal`): each part of the path is lstat'd; a link's target is
    read and followed ONLY when it is a drive path (`X:\...`, also written `\\?\X:\` or `\??\X:\`) or a plain relative
    one (`followableLinkTarget`, an allow-list). Anything else is refused unfollowed: review 2 finding 1 measured a
@@ -72,8 +74,15 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    3, review 2 finding 3): any agent can register such a project (`kosmos project create`), and allowedRoot resolves
    every project folder to judge containment. A share's real path cannot be a folder above a local file or a file on
    another share, so skipping it changes no answer; one on the file's own share may hold it, so it is still resolved.
-   A project folder written on a drive is walked by rule 2 first (lstat and readlink, no drive rule), and skipped when
-   its links leave for a share (review 3 finding 1: `C:\x\proj` as a link to `\\host\share` was still resolved).
+   A project folder written on a drive is walked by rule 2 first (lstat and readlink, no drive rule; a `\\?\C:\` or
+   `\??\C:\` spelling read as its drive path), and skipped when its links leave for a share (review 3 finding 1:
+   `C:\x\proj` as a link to `\\host\share` was still resolved).
+5. **A skipped project fails closed** (review 5 finding 1, a fail-open found in this branch): a nested project the
+   agent is NOT on exists to keep its files from the outer project's agents, so skipping it must not let the outer
+   project answer. When a project of another agent is skipped by rule 4 and its folder may hold the file by spelling
+   (inside it as given or as resolved, or on a share whose path below the server matches whatever the server is
+   called), the attach is refused. Erring toward refusal can refuse a file main allowed in one rare layout (another
+   agent's OUTER project skipped while the agent's own nested one holds the file); refusing is the safe direction.
 
 On Windows `attach` reads `dmfiles.filesDir` and the projects list once and hands both on, so an attach still reads
 each agent's instructions path once (#6726 r5-3) and parses the projects file once.
@@ -139,15 +148,21 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   while a local project file attaches.
 - Review 4-1: with a second local drive made by `subst` for the arm (removed after; skipped where subst is missing), a
   project written under a C: link onto that drive attaches its files; once no root reaches the drive, a Files link
-  onto it is refused unresolved (the control).
+  onto it is refused unresolved (the control). The subst letter is picked at random among free ones, removed in
+  `finally` and on process exit too (review 5 finding 3); every arm needing a free letter skips if Q to Z are taken.
+- Review 5-1: a nested project of another agent written `\\?\C:\...\outer\nested` keeps its file from the agent on
+  the outer project (refused, as on main; the outer project's own file still attaches); through the admin share, a
+  nested share project written on `\\localhost` inside an outer one on `\\127.0.0.1` does the same.
+- Review 5-2: an attach of a file directly in Files lstats nothing under the agent's project folder.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
-(5f08d3d): all 3 fail. The review-4 arm against iteration 3's (d5bced0): fails.
+(5f08d3d): all 3 fail. The review-4 arm against iteration 3's (d5bced0): fails. The three review-5 arms against
+iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested project's file: the fail-open, shown).
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 22/22 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 25/25 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours).
