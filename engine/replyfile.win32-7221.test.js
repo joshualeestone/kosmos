@@ -856,3 +856,62 @@ test('#7221 review 17-1: a connected agent whose Files folder is on a share atta
     refusedUnresolved(path.join(adminShareOf(SANDBOX), 'connected', 'r.txt'), replyfile.ON_NETWORK, 'a share path beside Files');
   } finally { dmfiles.filesDir = realFiles; }
 });
+
+/* ---------- review 19 ---------- */
+
+test('#7221 review 19-2: the NT \\??\\ spellings of a share are network spellings; a local drive or volume in that form is not', () => {
+  assert.equal(winpath.isNetworkSpelling('\\??\\UNC\\host\\share\\x'), true);
+  assert.equal(winpath.isNetworkSpelling('\\??\\GLOBALROOT\\Device\\Mup\\host\\share'), true);
+  assert.equal(winpath.isNetworkSpelling('\\??\\GLOBALROOT\\Device\\LanmanRedirector\\host\\share'), true);
+  assert.equal(winpath.isNetworkSpelling('\\??\\C:\\x'), false, 'a local drive in the NT spelling');
+  assert.equal(winpath.isNetworkSpelling('\\??\\Volume{8567e582-9e23-4c72-a97e-1fbdfc2f255f}\\x'), false, 'a local volume in the NT spelling');
+  assert.equal(winpath.isNetworkSpelling('C:\\x'), false);
+  assert.equal(winpath.mayHold('\\??\\GLOBALROOT\\GLOBAL??\\C:\\work', 'C:\\work\\f.txt', 'C:\\work\\f.txt'), true, 'the object manager root, NT spelling');
+});
+
+test('#7221 review 19-2: another agent\'s project folder written \\??\\UNC\\... is never resolved', winOnly, () => {
+  const mine = path.join(SANDBOX, 'mine-beside-ntunc');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'notes.txt'), 'mine\n');
+  const ntUnc = '\\??\\UNC\\10.255.255.1\\share\\proj';
+  PROJECTS = [
+    { id: 'p-ntunc', name: 'NT UNC', folder: ntUnc, agents: ['someone-else'] },
+    { id: 'p-mine-ntunc', name: 'Mine', folder: mine, agents: [WHO] },
+  ];
+  const resolved = [];
+  projects.folderState = (folder) => { resolved.push(folder); return realFolderState(folder); };
+  const started = Date.now();
+  const r = replyfile.attach(WHO, path.join(mine, 'notes.txt'), { platform: 'win32' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  replyfile.discard(r.rec);
+  assert.deepEqual(resolved, [mine], 'the \\??\\UNC folder was not resolved');
+  assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
+});
+
+test('#7221 review 19-1: another agent\'s folder written as a local volume, with a link below it to a share, is never resolved', linkOnly, (t) => {
+  const { execFileSync } = require('node:child_process');
+  let volume = null;
+  try { volume = (/\\\\\?\\Volume\{[0-9a-f-]+\}\\/i.exec(execFileSync('mountvol', [path.parse(SANDBOX).root.slice(0, 2), '/L'], { encoding: 'utf8' })) || [null])[0]; } catch { volume = null; }
+  if (!volume) { t.skip('mountvol gave no volume name here'); return; }
+  const under = path.join(SANDBOX, 'vol-under');
+  fs.mkdirSync(under, { recursive: true });
+  fs.symlinkSync('\\\\10.255.255.1\\share\\proj', path.join(under, 'lnk'), 'dir');
+  const mine = path.join(SANDBOX, 'mine-beside-vol');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'notes.txt'), 'mine\n');
+  const theirs = volume + path.join(under, 'lnk').slice(3);
+  PROJECTS = [
+    { id: 'p-vol-link', name: 'Volume link', folder: theirs, agents: ['someone-else'] },
+    { id: 'p-mine-vol', name: 'Mine', folder: mine, agents: [WHO] },
+  ];
+  const resolved = [];
+  projects.folderState = (folder) => { resolved.push(folder); return realFolderState(folder); };
+  const started = Date.now();
+  try {
+    const r = replyfile.attach(WHO, path.join(mine, 'notes.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    replyfile.discard(r.rec);
+    assert.deepEqual(resolved, [mine], 'the volume folder whose link leads to a share was not resolved');
+    assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
+  } finally { fs.rmSync(path.join(under, 'lnk'), { force: true }); }
+});

@@ -272,9 +272,10 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
        same share; one written on a drive is walked first, by lstat and readlink (its \\?\C:\ and \\.\C:\ spellings
        read as the drive path they are), and left unresolved only when the walk says its links lead to a share (review
        3 finding 1). Every other folder, a local link the walk will not follow included, is resolved as on main, so
-       identity decides; skipping those let a nested project's files through (review 11 finding 1). A local volume
-       written without a letter (\\?\Volume{GUID}\) is resolved too: it is on this computer. */
-    if (win && !(p.agents || []).includes(sessionName) && !isLocalVolumeSpelling(p.folder)) {
+       identity decides; skipping those let a nested project's files through (review 11 finding 1). A folder written
+       as a local volume (\\?\Volume{GUID}\) is walked like a drive path and resolved unless its links lead to a share
+       (review 19 finding 1). */
+    if (win && !(p.agents || []).includes(sessionName)) {
       const skipped = otherFolderSkip(p.folder, fileShare);
       if (skipped) { skippedOthers.push(skipped); continue; }
     }
@@ -340,7 +341,11 @@ function otherFolderSkip(folder, fileShare) {
     if (shareOf(to)) leadsTo = asShareSpelling(path.win32.resolve(asShareSpelling(to), ...rest));
     return false;
   };
-  const walked = walkLinks(asDrivePath(folder), (reached) => winSpellingRefusal(reached, null), 0, noteShare);
+  /* A folder written as a local volume (\\?\Volume{GUID}\...) is walked too: it is on this computer, but a link below
+     its root can still lead to a share (review 19 finding 1), so the volume spelling is accepted where the walk meets
+     it and its parts are lstat'd like a drive path's. */
+  const onPath = (reached) => (isLocalVolumeSpelling(reached) ? null : winSpellingRefusal(reached, null));
+  const walked = walkLinks(asDrivePath(folder), onPath, 0, noteShare);
   if (walked === ON_NETWORK) return { folder, kind: 'share', leadsTo };
   if (walked === DEAD_LINK || walked === TOO_MANY_LINKS) return { folder, kind: 'nowhere', leadsTo: null };
   /* Anything else is resolved as on main, CANNOT_READ included (review 17 finding 3, kept on purpose): lstat refusing

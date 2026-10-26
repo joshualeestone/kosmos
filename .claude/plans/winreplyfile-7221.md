@@ -298,6 +298,14 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   agent's folder whose link cannot be read is resolved as on main, by decision (comment in `otherFolderSkip`).
 - Review 18: `\??\C:\...` is refused with the long-form sentence, not as a stream. No behaviour arm otherwise: the
   round changed shape (predicates for winpath's regexes, `inOwnShareFolder` named), and every arm still passes.
+- Review 19: `isNetworkSpelling` counts the NT `\??\` spellings of a share (`\??\UNC\`, `\??\GLOBALROOT\...`) as
+  network, a local drive or volume in that form not; another agent's folder written `\??\UNC\...` is never resolved;
+  another agent's folder written as a local volume (`\\?\Volume{GUID}\...`) is now WALKED like a drive path, and one
+  with a link below its root to a share is never resolved. Against 7d8c913: all 3 fail, two by resolving the folder.
+  Named, not changed (review 19 NIT): a project written `C:\link\proj` where `C:\link` is itself a link to `D:\real`
+  and `D:\real\proj` links to a share is refused (only a link written exactly as the project folder is followed onto
+  a share); the safe direction. A single path classifier (one `{kind}` for any spelling, unknown = network) would
+  replace the growing set of predicates; a good follow-up, not this card.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -306,7 +314,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 46/46 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 49/49 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

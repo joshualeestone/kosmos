@@ -18,12 +18,16 @@ const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|l
 function isDevicePart(part) {
   return WINDOWS_DEVICE_NAME.test(String(part).replace(/[ .]+$/, ''));   // Windows drops trailing dots and spaces: "NUL. " is NUL
 }
-/* A \\ or // spelling that is not this computer's own drive or volume: a share, or a namespace that cannot be placed
-   (\\.\pipe\..., another device), which every caller treats as not local, the safe reading. A local drive's \\?\C:\
-   and \\.\C:\ spellings and a local volume's \\?\Volume{GUID}\ are not (review 10 finding 1: a link to a local volume
-   had been refused as "on another computer"). */
+/* A \\ or // spelling, or an NT \??\ one, that is not this computer's own drive or volume: a share (\\host\share,
+   \??\UNC\..., \??\GLOBALROOT\Device\Mup\...), or a namespace that cannot be placed (\\.\pipe\..., another device),
+   which every caller treats as not local, the safe reading. A local drive's \\?\C:\, \\.\C:\ and \??\C:\ spellings and
+   a local volume's \\?\Volume{GUID}\ are not (review 10 finding 1: a link to a local volume had been refused as "on
+   another computer"; review 19 finding 2: the NT \??\ spellings of a share had read as local). */
+const NT_PREFIX = /^\\\?\?\\/;
 function isNetworkSpelling(p) {
-  return NAMESPACE.test(p) && !LOCAL_LONG.test(p) && !isLocalVolumeSpelling(p);
+  const s = String(p);
+  const namespaced = (NAMESPACE.test(s) && !LOCAL_LONG.test(s)) || (NT_PREFIX.test(s) && !NT_LOCAL.test(s));
+  return namespaced && !isLocalVolumeSpelling(s);
 }
 function driveOf(p) {
   const m = /^([A-Za-z]):/.exec(asDrivePath(p));   // C:\, and its \\?\C:\ and \??\C:\ spellings
@@ -100,7 +104,7 @@ function shareTail(p) {
    reads) can name any drive's files, so it answers yes (review 8 finding 1): refuse rather than let through. Any other
    namespace a skip cannot place (\\.\pipe\..., \\.\COM1) holds no files and answers no, so one such project row cannot
    make every agent's project attach refuse (review 12 finding 2). */
-const OBJECT_MANAGER_ROOT = /^[\\/]{2}[?.][\\/]GLOBALROOT[\\/]/i;
+const OBJECT_MANAGER_ROOT = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)GLOBALROOT[\\/]/i;
 function mayHold(folder, given, real) {
   if (writtenInside(given, folder) || writtenInside(real, folder)) return true;
   if (isNetworkSpelling(folder) && !shareOf(folder)) return OBJECT_MANAGER_ROOT.test(String(folder));
