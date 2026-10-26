@@ -3694,7 +3694,10 @@ function blockBody(projects, sessionName) {
       // Review 1: an agent's pause is lifted on the screen (no verb resumes one), so say so rather than "taken off hold".
       // Review 2: held AND paused needs both undone, so both are named.
       if (isPaused(p) && T.isOnHold(t)) return ' [on hold: the project is paused and the task is on hold; do not start it until both are lifted]';
-      return isPaused(p) ? ' [on hold: the project is paused; do not start it until your person resumes it]'
+      if (isPaused(p)) return ' [on hold: the project is paused; do not start it until your person resumes it]';
+      // kosmos#7180: an agent's hold that waits for something says what, so the agent knows what it is waiting for.
+      const until = T.holdUntilState(p, t);
+      return until ? ' [on hold until ' + until.words + ': do not start it until it is taken off hold]'
         : ' [on hold: do not start it until it is taken off hold]';
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');

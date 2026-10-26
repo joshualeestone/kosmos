@@ -220,7 +220,7 @@ test('#4889 review 5 Windows: a word after the last slot project/agent create re
 const PAST_THE_END = [
   [['task', 'close', 'proj', '3', '--note', 'done'], '--note is not an option of kosmos task close'],
   [['task', 'close', 'proj', '3', 'shipped', 'it'], 'kosmos task close takes no more words than its usage shows'],
-  [['task', 'hold', 'proj', '3', '--until', 'friday'], '--until is not an option of kosmos task hold'],
+  [['task', 'hold', 'proj', '3', '--after', 'friday'], '--after is not an option of kosmos task hold'],   // kosmos#7180: --until is an option now
   [['task', 'unhold', 'proj', '3', 'now'], 'kosmos task unhold takes no more words than its usage shows'],
   [['react', 'proj', 'm5', 'x', '--remove'], '--remove is not an option of kosmos react'],
   [['project', 'create', 'N', 'C:\\f', 'd', '--private'], '--private is not an option of kosmos project create'],

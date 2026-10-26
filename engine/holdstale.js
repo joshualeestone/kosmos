@@ -16,6 +16,11 @@
  * Once: the task stores, per owner, the hold it was told about (holdStaleTold: { <owner>: <hold time> }). A new hold
  * (taken off and put back) can be told about again. A delivery that reached nothing is tried again on later sweeps, up
  * to MAX_TRIES for one hold, then recorded as not reached. Nothing in a paused project is told about.
+ *
+ * kosmos#7180: a hold with a checkable reopening condition (tasks.holdUntilState) is tested, not counted. While the
+ * condition is not met the hold is parked on it and nobody is told. Once it is met, each owner is told once (the same
+ * holdStaleTold mark) that the task can come off hold, whatever its age or the owner's posts. Those lines go apart from
+ * the posts lines: an owner's held tasks in one project are told together only when told for the same reason.
  */
 
 const MAX_TRIES = 3;
@@ -69,7 +74,10 @@ function owed(projects, log, now = Date.now(), o = {}) {
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (!t || typeof t.number !== 'number' || !tasks.isOnHold(t) || tasks.progressOf(t).closed) continue;
       const hold = holdSet(p.id, t.number, read);
-      if (!hold || now - hold.at < MIN_AGE_MS) continue;
+      if (!hold) continue;
+      const until = tasks.holdUntilState(p, t, now);
+      if (until && !until.met) continue;   // kosmos#7180: parked on its condition, which is not met yet
+      if (!until && now - hold.at < MIN_AGE_MS) continue;
       const told = t.holdStaleTold && typeof t.holdStaleTold === 'object' ? t.holdStaleTold : {};
       /* As missedtell's review 4: only holders of an open part. One whose part is done is not working this task. */
       const owners = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))];
@@ -77,8 +85,9 @@ function owed(projects, log, now = Date.now(), o = {}) {
         if (typeof owner !== 'string' || !owner) continue;
         if (Date.parse(told[owner]) === hold.at) continue;
         const posts = (posted.get(p.id + '\u0000' + owner) || []).filter((at) => at > hold.at).length;
-        if (posts < MIN_POSTS) continue;
+        if (!until && posts < MIN_POSTS) continue;
         out.push({
+          ...(until ? { met: until.words } : {}),
           projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
           owner, holdAt: hold.at, byPerson: hold.byPerson || t.onHoldByPerson === true, posts,
           members: Array.isArray(p.agents) ? p.agents.slice() : [],
@@ -102,6 +111,7 @@ function agoWords(at, now) {
    each task, its hold and the one way off it, and the owner's posts since the earliest hold. */
 function tellText(group, now = Date.now()) {
   const items = (Array.isArray(group) ? group : [group]).slice().sort((x, y) => x.n - y.n);
+  if (items[0] && typeof items[0].met === 'string') return metText(items, now);
   const first = items[0];
   const posts = Math.max(...items.map((x) => x.posts));
   /* As the nudge's review 3: a project id is typed into a command only when it is one the CLI takes as it is. */
@@ -126,6 +136,18 @@ function tellText(group, now = Date.now()) {
     + liftText + '. If ' + (items.length === 1 ? 'it' : 'one') + ' should stay on hold, say why on the task.';
 }
 
+/* kosmos#7180: the line for held tasks whose reopening condition is met (owed()'s items with `met`, one owner and
+   project). Names each task and its condition, and the one way off the hold. */
+function metText(items, now = Date.now()) {
+  const idOf = (x) => (typeof x.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(x.projectId) && /[^.]/.test(x.projectId) ? x.projectId : '<project-id>');
+  const one = (x) => 'task #' + x.n + ', "' + plain(x.sentence, 120) + '", was put on hold ' + agoWords(x.holdAt, now)
+    + ' ago until ' + plain(x.met, 80) + ', and that has now happened';
+  const way = (x) => (x.byPerson ? 'ask the person to take #' + x.n + ' off hold (only they can lift their own hold, on the screen)'
+    : 'take #' + x.n + ' off hold: kosmos task unhold ' + idOf(x) + ' ' + x.n);
+  return 'Kosmos: in ' + plain(items[0].project, 80) + ', ' + items.map(one).join('; ') + '. '
+    + 'If its work can go on now, ' + items.map(way).join('; ') + '. If it should stay on hold, say why on the task.';
+}
+
 /* Store that `owner` was told about this hold, and record it in the task's history. */
 function markTold(item, outcome) {
   const projects = require('./projects');
@@ -137,7 +159,7 @@ function markTold(item, outcome) {
       ? { ...x, holdStaleTold: { ...(x.holdStaleTold && typeof x.holdStaleTold === 'object' ? x.holdStaleTold : {}), [item.owner]: at } }
       : x)),
   }));
-  taskchat.record(item.projectId, item.n, { kind: 'hold-stale', hold: at, told: item.owner, posts: item.posts, reached: outcome === 'reached' });
+  taskchat.record(item.projectId, item.n, { kind: 'hold-stale', hold: at, told: item.owner, posts: item.posts, ...(item.met ? { met: item.met } : {}), reached: outcome === 'reached' });
 }
 
 /**
@@ -172,7 +194,8 @@ function sweep(o) {
     const say = (r) => { if (typeof o.log === 'function') { try { o.log(r); } catch { /* never breaks a pass */ } } };
     const items = Array.isArray(o.items) ? o.items : owed(o.projects, o.rows, now, { read: o.read });
     const groups = new Map();
-    for (const it of items) { const k = it.owner + '\u0000' + it.projectId; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
+    // kosmos#7180: a met condition and a posts count are different reasons, so they are never told in one line.
+    for (const it of items) { const k = it.owner + '\u0000' + it.projectId + '\u0000' + (it.met ? 'met' : 'posts'); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
     for (const group of groups.values()) {
       const item = group[0];
       try {
@@ -214,4 +237,4 @@ function sweep(o) {
   return { results };
 }
 
-module.exports = { owed, tellText, markTold, sweep, holdSet, MAX_TRIES, MIN_POSTS, MIN_AGE_MS };
+module.exports = { owed, tellText, metText, markTold, sweep, holdSet, MAX_TRIES, MIN_POSTS, MIN_AGE_MS };

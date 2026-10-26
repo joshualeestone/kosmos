@@ -99,3 +99,47 @@ test('#4771 Mac CLI: task list marks held work "[on hold]"; a plain task is the 
     assert.ok(lines.includes('[4] [done] finished while held'), r.stdout);
   });
 });
+
+test('#7180 Mac CLI: task hold --until-task / --until send the condition and say what it waits for; bad values are sent nowhere', async () => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env, writes) => {
+    const t = await runCli(['task', 'hold', 'p1', '3', '--until-task', '5'], env);
+    assert.equal(t.code, 0, t.stdout + t.stderr);
+    assert.match(t.stdout, /Put task 3 on p1 on hold/);
+    assert.match(t.stdout, /It waits for task 5 to be closed/);
+    const at = await runCli(['task', 'hold', 'p1', '3', '--until', '2026-11-02T09:00Z'], env);
+    assert.equal(at.code, 0, at.stdout + at.stderr);
+    assert.match(at.stdout, /It waits until 2026-11-02T09:00Z/);
+    assert.deepEqual(writes.map((x) => x.body), [{ onHold: true, until: { task: 5 } }, { onHold: true, until: { at: '2026-11-02T09:00Z' } }]);
+    for (const args of [['--until-task', 'five'], ['--until-task', '05'], ['--until', 'friday'], ['--until-task', '5', '--until', '2026-11-02'], ['--until-task']]) {
+      const r = await runCli(['task', 'hold', 'p1', '3', ...args], env);
+      assert.equal(r.code, 2, args.join(' ') + ': ' + r.stdout + r.stderr);
+    }
+    assert.equal(writes.length, 2, 'a refused condition was sent');
+  });
+});
+
+test('#7180 Mac CLI: task list says what a hold waits for', async () => {
+  const b = board(() => [200, {}]);
+  b.server.removeAllListeners('request');
+  b.server.on('request', (req, res) => {
+    if (req.method === 'GET' && req.url.startsWith('/api/tasks')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ project: 'p1', tasks: [
+        { number: 1, sentence: 'waits for a task', onHold: true, onHoldUntil: { task: 5 } },
+        { number: 2, sentence: 'waits for a time', onHold: true, onHoldUntil: { at: '2026-11-02T09:00:00.000Z' } },
+        { number: 3, sentence: 'a bare hold', onHold: true },
+      ] }));
+    }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    return res.end('<title>Kosmos</title>Agent Workforce');
+  });
+  await new Promise((r) => b.server.listen(0, '127.0.0.1', r));
+  const env = { ...process.env, KOSMOS_HOME: HOME, KOSMOS_PORT: String(b.server.address().port), TMUX_PANE: '%42', KOSMOS_NO_LEGACY_MIGRATION: '1' };
+  try {
+    const r = await runCli(['task', 'list', 'p1'], env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /\[1\] \[on hold until task 5 is closed\] waits for a task/);
+    assert.match(r.stdout, /\[2\] \[on hold until 2026-11-02T09:00:00\.000Z\] waits for a time/);
+    assert.match(r.stdout, /\[3\] \[on hold\] a bare hold/, 'CONTROL: a bare hold');
+  } finally { await new Promise((r) => b.server.close(r)); }
+});

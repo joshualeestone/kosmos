@@ -285,7 +285,7 @@ test('#4889 review 5: a word after the last slot project/agent create reads is r
 const PAST_THE_END = [
   [['task', 'close', 'zzq-project', '3', '--note', 'done'], '--note is not an option of kosmos task close'],
   [['task', 'close', 'zzq-project', '3', 'shipped', 'it'], 'kosmos task close takes no more words than its usage shows'],
-  [['task', 'hold', 'zzq-project', '3', '--until', 'friday'], '--until is not an option of kosmos task hold'],
+  [['task', 'hold', 'zzq-project', '3', '--after', 'friday'], '--after is not an option of kosmos task hold'],   // kosmos#7180: --until is an option now
   [['task', 'unhold', 'zzq-project', '3', 'now'], 'kosmos task unhold takes no more words than its usage shows'],
   [['react', 'zzq-project', 'm5', 'x', '--remove'], '--remove is not an option of kosmos react'],
   [['project', 'create', 'N', '/tmp/zzq-4889', 'd', '--private'], '--private is not an option of kosmos project create'],
