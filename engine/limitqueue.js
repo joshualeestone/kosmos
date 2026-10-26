@@ -151,10 +151,12 @@ let flushingSince = 0;
 let runToken = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
 /* #7212: what a kept message was held for: 'input' (text sat unsent in the agent's input box, or the box could not be
-   read), 'signin' (its account was signed out), else 'limit' (its usage limit). */
+   read), 'signin' (its account was signed out), 'behind' (kept behind earlier messages that were held), else 'limit'
+   (its usage limit). */
 function heldWhy(e) {
   if (e && e.input === true) return 'input';
   if (e && e.signin === true) return 'signin';
+  if (e && e.behind === true) return 'behind';
   return 'limit';
 }
 /* #7212: agents with messages held behind their input box for at least `afterMs`, as [{ name, since, count }] (since:
@@ -169,25 +171,27 @@ function heldBehindInput(now, afterMs) {
   }
   return out;
 }
-/* #7212: which of `heldBehindInput`'s agents to say now: once per held stretch. `said` (a Set the caller keeps) holds
-   the agents already said; an agent leaves it only when it has no input-held message at all, so delivering or dropping
-   the oldest message of a stretch (a backlog drains five a minute; a week-long hold drops one a day) never says it
-   again. Keyed on the stretch, not on its oldest message, for that reason (review of slice 1). A file that cannot be
-   read this minute (a write in progress) ends nothing: only a read that worked and found no input-held message, or
-   no file at all, ends a stretch (review 2). */
+/* #7212: which of `heldBehindInput`'s agents to say now: once per held stretch, and again each HELD_INPUT_RESAY_MS it
+   lasts, so a hold of a week is a line a day rather than one line on its first half hour (review 3). `said` (a Map the
+   caller keeps: name -> when it was last said) ends a stretch only when the agent has no input-held message at all,
+   so delivering or dropping the oldest message of a stretch (a backlog drains five a minute; a week-long hold drops
+   one a day) never says it early. Keyed on the stretch, not on its oldest message, for that reason (review 1). A
+   file that cannot be read this minute (a write in progress) ends nothing: only a read that worked and found no
+   input-held message, or no file at all, ends a stretch (review 2). */
 function heldInputToSay(now, afterMs, said) {
-  for (const n of [...said]) {
+  for (const n of [...said.keys()]) {
     const read = readEntries(n);
     if (read.ok && !read.entries.some((e) => e && e.input === true)) said.delete(n);
   }
-  const out = heldBehindInput(now, afterMs).filter((h) => !said.has(h.name));
-  for (const h of out) said.add(h.name);
+  const out = heldBehindInput(now, afterMs).filter((h) => !said.has(h.name) || now - said.get(h.name) >= HELD_INPUT_RESAY_MS);
+  for (const h of out) said.set(h.name, now);
   return out;
 }
+const HELD_INPUT_RESAY_MS = 24 * 60 * 60 * 1000;
 /* #7212: after this long, messages held behind an input box are said in the board log (a usage limit is reported at
    the same half hour). */
 const HELD_INPUT_SAY_MS = 30 * 60 * 1000;
-const HELD_FOR = { input: 'once its input box was empty', signin: 'once it was signed in again', limit: 'after its usage reset' };
+const HELD_FOR = { input: 'once its input box was empty', signin: 'once it was signed in again', behind: 'once the messages kept ahead of it were given', limit: 'after its usage reset' };
 /* #7212: the board log's line for a held message the sweep typed, with the reason it was held. */
 function deliveredLine(d) {
   return 'limit-queue: ' + d.name + ' was given held message ' + d.id + ' ' + (HELD_FOR[d.why] || HELD_FOR.limit) + ', delivery=' + d.state + '\n';
@@ -307,4 +311,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
 
-module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
+module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
