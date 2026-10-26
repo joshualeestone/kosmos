@@ -919,7 +919,9 @@ const SCREENS = [
         if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) el.scrollTop = el.scrollHeight;
       }
     });
-    await page.evaluate(() => { const c = document.querySelector('.pjmid .composer'); if (c) c.scrollIntoView({ block: 'end' }); });
+    /* The room column, not the composer: a sticky composer already stuck to the foot of the screen reads as in view, so
+       scrolling IT moves nothing (#7196). The column's own end puts the composer back in its place after the newest row. */
+    await page.evaluate(() => { const c = document.querySelector('.pjmid'); if (c) c.scrollIntoView({ block: 'end' }); });
     await page.waitForTimeout(150);
   } },
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
