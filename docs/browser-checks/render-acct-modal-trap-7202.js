@@ -21,8 +21,13 @@
  *   - the Sign in again ask showing over the dialog: its buttons are stops after the dialog's, and every
  *     step through dialog and ask lands on the neighbour (the ask sits far from the dialog in the page);
  *   - a focused element that is not a stop and sits after the last stop: Tab from it wraps to the first
- *     stop, Shift+Tab from it goes to the last (a default step would leave the dialog either way);
+ *     stop (a default Tab would leave), Shift+Tab from it goes to the last;
  *   - the note (focusable, not a stop): Shift+Tab from it lands on the stop just before it;
+ *   - a focused container (the dialog box made focusable, as Grok's and Google's sub-steps are): Tab goes
+ *     to its first stop, Shift+Tab wraps to the last;
+ *   Some of these give the same answer as a native Tab in Chromium (the Shift+Tab halves, the note, the
+ *   radio group), so there they guard against a wrong trap rather than against no trap; WebKit's default
+ *   Tab, which skips buttons, is what makes them red with no trap at all.
  *   - the OpenAI and Grok key steps (stand-in runners, so hermetic): walked from every stop, and Shift+Tab
  *     back into a typed key selects it;
  *   - sent key events: composing, Ctrl+Tab, Cmd+Tab, an inert dialog and an already-prevented press are
@@ -108,7 +113,19 @@ async function pickProvider(p, value) {
   await p.click('#acct-provider-field .pcombo-trigger');
   await p.waitForTimeout(150);
   await p.click('#acct-provider-field .pcombo-opt[data-value="' + value + '"]');
-  await p.waitForTimeout(250);
+  await settle(p);
+}
+/* Wait for the dialog to stop changing (the Muse read and the runners read repaint it after opening): the same stops,
+   in the same order, across two reads 200 ms apart, rather than a fixed sleep a loaded runner can outrun. */
+async function settle(p) {
+  const sig = () => p.evaluate(() => window.__stops7202().map((el) => el.id || el.className || el.tagName).join('|'));
+  let last = await sig();
+  for (let k = 0; k < 25; k++) {
+    await p.waitForTimeout(200);
+    const now = await sig();
+    if (now === last) return;
+    last = now;
+  }
 }
 
 /* Tab and Shift+Tab from every stop: each lands on its neighbour, wrapping. Returns the first miss, or null. */
@@ -157,7 +174,7 @@ async function walk(p) {
             const tag = eng + ', ' + where + ', ' + OPENERS[i];
             say(await focusPage(p), tag + ': before opening, focus is on a page control outside the dialog');
             await open(p, i);
-            await p.waitForTimeout(400);
+            await settle(p);
             say(await p.isVisible('#acct-add-modal'), tag + ': the dialog is open');
             /* The trap stands down while another dialog shows: on an ordinary page nothing else may read as showing,
                or the trap would be off for the whole visit and look like it never worked. */
@@ -182,7 +199,7 @@ async function walk(p) {
 
         /* The Sign in again ask showing over the open dialog. */
         await open(p, 0);
-        await p.waitForTimeout(400);
+        await settle(p);
         await p.evaluate(() => { document.getElementById('stepup-words').textContent = 'Sign in again to do that.'; document.getElementById('stepup-ask').hidden = false; });
         const askStops = await p.evaluate(() => window.__stops7202().filter((el) => el.closest('#stepup-ask')).length);
         say(askStops === 2, eng + ', the ask: its two buttons are stops while it shows', String(askStops));
@@ -229,7 +246,7 @@ async function walk(p) {
            step and the Grok key step, each walked from every stop, the password field included. */
         for (const [prov, keyBtn, field] of [['openai', '#acct-openai-pick-key', '#acct-openai-key'], ['xai', '#acct-grok-pick-key', '#acct-apikey-key']]) {
           await open(p, 0);
-          await p.waitForTimeout(400);
+          await settle(p);
           await pickProvider(p, prov);
           const keyUp = await p.waitForSelector(keyBtn, { state: 'visible', timeout: 5000 }).then(() => true, () => false);
           say(keyUp, eng + ', the ' + prov + ' key step: its Use an API key button shows (the stand-in runner reads as present)');
@@ -257,7 +274,7 @@ async function walk(p) {
            a screen over it. A key event is sent to the focused stop and its defaultPrevented read: the trap must not
            take it. A plain Tab sent the same way is the control (the trap takes it). */
         await open(p, 0);
-        await p.waitForTimeout(400);
+        await settle(p);
         const taken = await p.evaluate(() => {
           const send = (init) => { const s = window.__stops7202(); s[0].focus(); const ev = new KeyboardEvent('keydown', Object.assign({ key: 'Tab', bubbles: true, cancelable: true }, init)); s[0].dispatchEvent(ev); return ev.defaultPrevented; };
           const plain = send({});
@@ -283,9 +300,25 @@ async function walk(p) {
         await p.keyboard.press('Escape');
         await p.waitForTimeout(300);
 
+        /* A focused container: the dialog box itself made focusable, as Grok's and Google's sub-steps are when shown. */
+        await open(p, 0);
+        await settle(p);
+        const boxed = await p.evaluate(() => { const d = document.getElementById('acct-add-dialog'); d.tabIndex = -1; d.focus(); return { on: document.activeElement === d, n: window.__stops7202().length }; });
+        say(boxed.on, eng + ', a focused container: focus is on the dialog box before the key press');
+        await p.keyboard.press('Tab');
+        const fc = await focusNow(p);
+        say(fc.at === 0, eng + ', a focused container: Tab goes to its first stop', JSON.stringify(fc));
+        await p.evaluate(() => document.getElementById('acct-add-dialog').focus());
+        await p.keyboard.press('Shift+Tab');
+        const fcb = await focusNow(p);
+        say(fcb.at === boxed.n - 1, eng + ', a focused container: Shift+Tab from it wraps to the last stop', JSON.stringify(fcb));
+        await p.evaluate(() => document.getElementById('acct-add-dialog').removeAttribute('tabindex'));
+        await p.keyboard.press('Escape');
+        await p.waitForTimeout(300);
+
         /* Option+Tab is how WebKit moves between buttons: it must not walk out either. From the last stop, forward. */
         await open(p, 0);
-        await p.waitForTimeout(400);
+        await settle(p);
         const nOpt = await p.evaluate(() => { const s = window.__stops7202(); s[s.length - 1].focus(); return s.length; });
         await p.keyboard.press('Alt+Tab');
         const fo = await focusNow(p);

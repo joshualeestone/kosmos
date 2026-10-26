@@ -20,7 +20,7 @@
   its notice slot inerts the dialog's ancestors while it opens the dialog, the dialog is inert and this trap stands
   down entirely.
 - `docs/browser-checks/render-acct-modal-trap-7202.js`: hermetic board with one agent; real key presses on the
-  Agents tab and on an agent's page for all four openers, in Chromium and WebKit; wired in gated.txt, the README and
+  Agents tab, an agent's page and Settings > AI Models for four openers, in Chromium and WebKit, with stand-in runners; wired in gated.txt, the README and
   SITE_COUNTS. Reds on origin/main in both engines, and in WebKit on an ends-only trap.
 
 ## Rejected
@@ -93,3 +93,10 @@
    date fields have no select() (none in the dialog). Deferred as duplicates: a stray visible dialog switching the
    trap off (round 6; every opener arm asserts none reads as showing), and the other-dialog arm's scope (rounds 4, 6;
    measured to red with the stand-down deleted).
+9. (default model) W: the header implied every once-per-engine arm reds with no trap in both engines; three give the
+   native answer in Chromium (Shift+Tab halves, the note, the radio group), so the header now says WebKit is what
+   makes them red. Nits taken: my round 8 comment was wrong (the dialog has focusable containers, Grok's and Google's
+   sub-steps and the terms line, and the behaviour is native; corrected, and an arm tabs from a focused container);
+   a textarea's text is no longer selected (a native Tab keeps its caret); fixed sleeps after opening are now a wait
+   for the stops to stop changing; this plan named two pages, the check has three. Deferred as duplicate: the plan
+   file name's timestamp (round 2).
