@@ -45,7 +45,7 @@ const MAX_BRIEF_TOTAL = 32 * 1024 * 1024;         // brief bytes read across one
 const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);   // Windows: a scanner holding a just-written file
 /* What in a folder a provider may read or run when it starts there: every dot-entry at its top (settings, hooks,
    skills, MCP servers, an environment file, any provider's own folder, git) except HARMLESS, and these plain names. */
-const PLAIN_AT_START = ['CLAUDE.local.md', 'opencode.json', 'opencode.jsonc'];   // compared folded, as APFS and NTFS open them
+const PLAIN_AT_START = ['CLAUDE.local.md', 'opencode.json', 'opencode.jsonc', 'node_modules'];   // compared folded, as APFS and NTFS open them
 /* A git folder's config (core.fsmonitor, core.hooksPath) runs commands when git runs there, which a provider does as
    soon as an agent starts. So an agent folder holding one is not offered, and one in the workers folder blocks all. */
 const GIT = '.git';
@@ -56,8 +56,9 @@ const BARE = 'HEAD (git can read a folder holding it as a repository)';
 const CUT = '(the folder holds more entries than were checked)';
 const UNREADABLE = '(the folder could not be read)';
 const GIT_WHY = 'git runs its settings here (hooks, fsmonitor) when an agent uses git in this folder';
-/* Fillers and blanks that draw nothing, beside the Cc/Cf/Zl/Zp and private-use classes: braille blank, Hangul fillers. */
-const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x034f].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
+/* Characters that draw nothing or only alter the one before, beside the classes cleanText drops: braille blank,
+   Hangul and Khmer fillers, Mongolian and other variation selectors, the object replacement character. */
+const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x034f, 0xfffc, ...Array.from({ length: 16 }, (_, i) => 0xfe00 + i)].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
 
 /* Attacker-written text made safe to show: control, format, bidi, private-use and blank characters dropped, at most
    two combining marks per character, spaces collapsed, cut at `max` code points; `fallback` when nothing visible is
@@ -283,9 +284,10 @@ function heldIn(held) {
   if (!held) return [];
   const out = [];
   for (const name of MOVED) {
-    let names = [];
-    try { names = fs.readdirSync(path.join(held, name)); } catch { continue; }
-    for (const n of names.sort()) out.push(`${name}/${labelOf(n)}`);
+    const listed = namesIn(path.join(held, name), MAX_LISTED);
+    if (!listed) continue;
+    for (const n of listed.names) out.push(`${name}/${labelOf(n)}`);
+    if (listed.cut) out.push(`${name}/(more not listed)`);
   }
   return out;
 }

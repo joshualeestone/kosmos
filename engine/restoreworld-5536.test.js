@@ -733,3 +733,17 @@ test('fetchProblems past twenty say more were not listed', (t) => {
   assert.equal(r.fetchProblems.length, 21);
   assert.equal(r.fetchProblems[20], '(more not listed)');
 });
+
+test('a node_modules in an agent folder is named in runs, and heldBack is capped with a marker', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  for (let i = 0; i < 1001; i++) fs.mkdirSync(path.join(p.restoreDir, 'workers', `.d${String(i).padStart(4, '0')}`), { recursive: true });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann', 'node_modules'), { recursive: true });
+  fs.writeFileSync(path.join(p.restoreDir, 'workers', 'ann', 'CLAUDE.md'), '# ann\n');
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.heldBack.length, 1001);
+  assert.equal(r.heldBack[1000], 'workers/(more not listed)');
+  const a = rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.find((x) => x.folder === 'ann');
+  assert.deepEqual(a.runs, ['node_modules']);
+});
