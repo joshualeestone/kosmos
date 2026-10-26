@@ -156,7 +156,7 @@ test('a new computer identity (a Forget and a new sign-in) links every agent aga
   assert.equal(ownerCalls().length, n + 1);
 });
 
-test('a new agent key (rotated) links that agent again; the marker never holds the key itself', async () => {
+test('a new agent key (as from registering again) links that agent again; the marker never holds the key itself', async () => {
   await registered('ava');
   await cs.sweep();
   const n = ownerCalls().length;
@@ -164,7 +164,7 @@ test('a new agent key (rotated) links that agent again; the marker never holds t
   const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
   const digest = require('node:crypto').createHash('sha256').update(keys.ava.apiKey).digest('hex').slice(0, 16);
   assert.equal(keys.ava.ownerLinked, 'mac-1:' + digest, 'the marker is the mac id and a key digest, never the key');
-  // The service rotates the key; the board now holds the new one.
+  // The board holds a new key for the agent (in the product only a new registration writes one).
   const a = agentNamed('ava');
   a.key = 'rotated-' + a.key;
   keys.ava.apiKey = a.key;
