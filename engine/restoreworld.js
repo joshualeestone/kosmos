@@ -18,6 +18,8 @@
  *                         unless something is mounted inside it, which then shows as a failed move)
  *   listRestoredAgents    the agent folders the review screen offers, each with why it cannot be enabled if it cannot,
  *                         and the files in it that run or load something when the agent starts
+ *   isRestoredWorld       whether a world is one prepare made; every agent start path asks it (4c) and starts git
+ *                         with hooks and fsmonitor off when it says yes
  *
  * ⚠️ NOT REQUIRED BY worlds.js, and create.js only lazily, for the same reason as engine/worldimport.js: create freezes
  * store.ROOT at require.
@@ -180,16 +182,17 @@ function renameRetrying(src, dst) {
 
 /* Whether `world` was made by prepareRestoreWorld: the mark it writes in the world folder, which a snapshot never
    writes. What an agent start path checks before starting an agent in that world (git hooks and fsmonitor off).
-   Fails closed: a world folder swapped for a link or a file cannot be vouched for, so it reads as Restored and
-   agents there start with hooks off (finish refuses such a folder before it asks this). No folder at all reads as
-   not Restored: there is nothing to start in. */
+   Fails closed: only a world folder or a mark that is certainly absent (ENOENT, ENOTDIR) reads as not Restored.
+   A folder swapped for a link or a file, a mark of any kind, and any other error (EACCES, EMFILE, ELOOP) read as
+   Restored, so agents there start with hooks off (finish refuses a linked folder before it asks this). */
+const certainlyAbsent = (e) => !!(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'));
 function isRestoredWorld(base, world) {
   const dir = worldDirOf(base, world);
   if (!dir) return false;
   let st;
-  try { st = fs.lstatSync(dir); } catch { return false; }
+  try { st = fs.lstatSync(dir); } catch (e) { return !certainlyAbsent(e); }
   if (!st.isDirectory()) return true;
-  try { return fs.lstatSync(path.join(dir, RESTORED_MARK)).isFile(); } catch { return false; }
+  try { fs.lstatSync(path.join(dir, RESTORED_MARK)); return true; } catch (e) { return !certainlyAbsent(e); }
 }
 
 /* After a restore that SUCCEEDED, and after its sink is closed. opts: { base, world, restoreDir, result } where
@@ -593,6 +596,8 @@ function listRestoredAgents(opts = {}) {
   const worldDir = worldDirOf(opts.base, opts.world);
   const listable = worldDir && realDir(worldDir) && onTheList(opts.base, opts.world.id);
   if (!listable) return { agents: [], shared: [], more: false, because: 'this is not a Kosmos on your list, so nothing in it is offered' };
+  // An ordinary world's own agents are not restored ones: only a world prepare made is listed.
+  if (!isRestoredWorld(opts.base, opts.world)) return { agents: [], shared: [], more: false, because: 'this Kosmos was not made for a restore, so nothing in it is offered' };
   const roots = worlds.envOverridesFor(opts.base, opts.world);
   const budget = { left: Number.isSafeInteger(opts.briefTotal) && opts.briefTotal >= 0 ? Math.min(opts.briefTotal, MAX_BRIEF_TOTAL) : MAX_BRIEF_TOTAL };
   const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;
