@@ -56,6 +56,7 @@ function backend() {
         if (st.mode.unauthorized) return send(401, { detail: 'invalid or expired token' });
         if (st.mode.status) return send(st.mode.status, { detail: 'no' }, st.mode.headers);
         if (st.mode.refuseName && a.name === st.mode.refuseName) return send(403, { detail: 'pass refused' });
+        if (st.mode.statusFor && a.name === st.mode.statusFor.name) return send(st.mode.statusFor.status, { detail: 'no' });
         // The site's own check: the pass must name the agent whose key presents it.
         if (!body || body.pass !== 'pass-for:' + a.name) return send(400, { detail: 'pass refused' });
         a.owner = body.pass;
@@ -380,4 +381,15 @@ test('Community switched off during a mint: the pass is not sent', async () => {
   await cs.sweep();
   assert.equal(R.mints.length, 1);
   assert.equal(ownerCalls().length, 0, 'switched off after the mint: nothing sent');
+});
+
+test('a site 422 about one agent does not hold the agents after it', async () => {
+  R.on = false;
+  await registered('ava');
+  await registered('bo');
+  R.on = true;
+  be.st.mode.statusFor = { name: keyName('ava'), status: 422 };
+  await cs.sweep();
+  assert.equal(agentNamed('ava').owner, null);
+  assert.ok(agentNamed('bo').owner, 'linked although the agent before it got a 422');
 });

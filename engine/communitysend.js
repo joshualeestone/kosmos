@@ -1477,7 +1477,7 @@ async function sweepInstallGroup(keys, on) {
  * agent's old account and a name being retired are not (#4994), and nothing is linked while the retire list is
  * unreadable.
  * What a failure does:
- *   a refusal about one agent (the coordinator's 400, or the site's 400 or 403): that agent waits 15 minutes and
+ *   a refusal about one agent (the coordinator's 400, or a site 4xx other than 401, 404, 405 and 429): that agent waits 15 minutes and
  *   the pass goes on, so the order needs no rotation (the install-group pass has one, for refusals that hit all);
  *   a coordinator 403 (this computer is not allowed, or the account lapsed): the pass pauses 15 minutes;
  *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
@@ -1492,8 +1492,9 @@ const OWNER_LINK_UNKNOWN_MS = 60 * 60 * 1000;   // a pause when the route does n
 const OWNER_LINK_PASS_MS = 30 * 1000;   // the owner pass's share of one sweep
 const ownerLinkPassAt = new Map();    // endpointDir -> ms: the whole pass is paused until then
 const ownerLinkAgentAt = new Map();   // endpointDir + agentKey -> ms: this one agent is skipped until then
+// #6488's own test for "Kosmos+ is live here" (signed in AND switched on), shared with phone notifications.
 function ownerLinkLive() {
-  try { const remote = require('./remote'); return remote.enrolled() === true && remote.read().on === true; } catch { return false; }
+  try { return require('./phonenotify').plusLive() === true; } catch { return false; }
 }
 function ownerLinkMarker(mac, apiKey) {
   return mac + ':' + crypto.createHash('sha256').update(String(apiKey)).digest('hex').slice(0, 16);
@@ -1507,9 +1508,9 @@ function ownerPassUnknown(minted) {
   if (minted.refusal && (minted.refusal.status === 404 || minted.refusal.status === 405)) return true;
   return /mac-request does not sign/.test(String(minted.because || ''));
 }
-/* A refusal about this agent only (the coordinator or the site answered 400 or 403 for it): the agent waits, the pass
-   goes on to the next one, so one agent the service will not vouch for cannot hold every agent after it. */
 const ownerLinkWait = (ms) => (ms >= 60000 ? Math.round(ms / 60000) + ' min' : Math.round(ms / 1000) + ' s');
+/* A refusal about one agent only: the agent waits, the pass goes on to the next one, so one agent the service will
+   not take cannot hold every agent after it. */
 // Returns true when it changed what is saved (the reason, written once per reason), so the caller saves the keys.
 function ownerLinkSkipAgent(ep, agentKey, k, why) {
   ownerLinkAgentAt.set(ep + '\n' + agentKey, Date.now() + OWNER_LINK_RETRY_MS);
@@ -1575,6 +1576,8 @@ async function sweepOwnerLink(keys, on) {
         log(`owner link: the service asked to slow down (429); the pass waits ${waitS} s`);
         break;
       }
+      // Any other 4xx (a 409 or 422, say) is about this agent too, so it does not hold the rest.
+      if (r.status >= 400 && r.status < 500 && r.status !== 401) { marks = ownerLinkSkipAgent(ep, agentKey, k, `the community refused the pass (${r.status})`) || marks; continue; }
       // No answer, a 5xx (the site's 503 while it is not ready), a 401 logging in again could not clear: the service.
       ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
       log(`owner link: the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
