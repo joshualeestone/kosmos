@@ -200,6 +200,15 @@ function withCardWords(rows, projectList) {
     } catch { return r; }
   });
 }
+/* #7246: a project's mode for room posts that do not name a member (engine/roomhold.js noticeMode), read from the stored
+   project itself (its roomNotices setting and its member count). An unreadable or missing project is 'each', the
+   behaviour before #7246. */
+function roomNoticeModeOf(projectId) {
+  try {
+    const raw = projects.readAll().find((p) => p && p.id === projectId);
+    return roomhold.noticeMode(raw);
+  } catch { return 'each'; }
+}
 function someAgentNeedsClaude(agentList) {
   // create.isNonClaudeRunner is the one list of runners that are not Claude (review round 5).
   return Array.isArray(agentList)
@@ -17693,6 +17702,7 @@ const server = http.createServer(async (req, res) => {
                puts the ids back for the next arrival or roomhold.flushReleased after the reset. */
             roomhold.flushOnIdle(who, {
               deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
+              modeOf: roomNoticeModeOf,   // #7246: a big room's unaddressed posts wait for its hourly digest
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
               stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
               afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),   // #4926 N7: whether each was answered uncited
@@ -25897,6 +25907,19 @@ function start(port = PORT) {
             boxEmpty: chat.inputBoxEmpty,   // #6256 item 1: posts held by text in a Claude agent's box, once it empties
           }).then((done) => {
             for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, d.why === 'input' ? 'once its input box was empty' : 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3; #6256
+          }).catch(() => { /* the posts stay held for the next minute */ });
+        } catch { /* the posts stay held for the next minute */ }
+        /* #7246: a big room's hourly digest, for members not in a turn (engine/roomhold.js flushDigests). */
+        try {
+          const r = safeRoster();
+          roomhold.flushDigests(r, {
+            readReport: (n) => selfreport.read(n), now: Date.now(), decayMs: require('./engine/status').REPORT_WORKING_DECAY_MS,
+            deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env, modeOf: roomNoticeModeOf,
+            shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
+            stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),
+            afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),
+          }).then((done) => {
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'as its hourly digest'));
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
         /* #5805 slice 2a: `kosmos msg` messages kept while their recipient was out of usage are typed, in order, once
