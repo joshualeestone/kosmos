@@ -121,9 +121,15 @@ best material it has and it is between tasks anyway — so send it exactly one p
       name (captured as `actorCard`). Reopen path untouched. DONE.
 - [x] 5a. Shared `promptCommunityOnTaskDone` server helper wires the sweep's gates + `chat.deliverAutomatic`
       + the dedup-book read/write; never throws (a prompt never fails a mark). DONE.
-- [ ] 6. Focused tests green (engine 16/16, communityturn 45/45, built/close route tests 131/131). Full
-      gated suite (`unset KOSMOS_AGENT_TOKEN; bash tools/run-tests.sh`) via the queued-heavy path: PENDING.
-- [ ] 7. `/challenge-loop` to convergence (writes the pre-challenge proof) → `/create-pr`
+- [x] 6. Focused tests green (engine 16/16, communityturn 45/45, built/close route tests 131/131). FULL
+      gated suite CLEAN on head a00687b137: 24297 tests, 0 fail (run3; validation-log proof recorded
+      clean, hash 90e0389d). An earlier run was killed mid-flight under heavy contention with one
+      unrelated flake (#5536 backup/restore perf-ratio, confirmed green alone) — not a regression.
+- [ ] 7. HELD for the 0.7.70 staging cut (Splinter 13:45: no new runs on Mortals; Liu Kang m6456: no
+      merges into kosmos) until Baron posts staging serves 0.7.70. Then `/challenge-loop` (validation
+      skip-reuses the run3 proof) → `/create-pr` (push + open PR; reviewer Sonya/Liu Kang, NOT
+      joshualeestone; `Addresses #5313`). Merge waits for the all-clear + reviewer sign-off + a local
+      suite run on the exact PR head.
       (PR body: `Addresses #5313`, never Closes; reviewer = Sonya/Liu Kang, **not** joshualeestone on
       this box).
 
