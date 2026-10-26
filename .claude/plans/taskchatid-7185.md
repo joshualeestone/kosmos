@@ -22,7 +22,12 @@ old task 1's conversation (a person's words included), and its room showed the o
   log, direct messages included, though the log itself is fine. The room post, react and free-claim paths, which used
   rows without checking ok, refuse as could-not-read when the STAMPS are unknown (record()'s stampsUnknown), so
   nothing is posted, folded, reacted or freed against an empty room. An unreadable message LOG still fails open on
-  the send path, the recorded trade above readLog (review 5 caught the first guard reversing it). The direct-message send path keeps going: its rows carry no project. A receipt is never kept from a
+  the send path, the recorded trade above readLog (review 5 caught the first guard reversing it).
+- Accepted, while the projects file cannot be read (review 6): taskchat.read() answers [] and taskseen.seenAt() null,
+  the same as "no history" and "not seen", so undo runs without the task's hold history, a task sorts and is offered
+  as quiet, and the progress count is empty until the file reads again. A signal would change every caller for a
+  state in which most routes already refuse at projects.get. record() returns partial rows then (direct messages
+  stay); a few display-only readers use them unchecked and show nothing for a room rather than "unknown". The direct-message send path keeps going: its rows carry no project. A receipt is never kept from a
   read made while the stamps were unknown, and the room-held memo keys on the stamps as well as the row count.
 - Cost: the stamps are cached until the projects file changes (inode, size, mtime, ctime); record()'s filtered rows
   are cached until the log or the stamps change.

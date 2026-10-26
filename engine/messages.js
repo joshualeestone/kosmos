@@ -960,7 +960,10 @@ function record() {
   /* #7185: a room row stamped before its project's createdAt was written by an earlier project of that name (ids come
      from names). It stays in the log, and in `parsed` so its id stays reserved, but no reader is given it. When the
      projects file cannot be read the stamps are unknown: every project-tagged row is left out and the answer is ok:
-     false, the "could not read" every careful caller already handles (a misroute guard, an unread count). The filtered
+     false, the "could not read" every careful caller already handles (a misroute guard, an unread count). The rows are
+     then PARTIAL (direct messages, which carry no project, stay: the send path reads them unchecked for its valve and
+     dedupe); a few display-only readers use them unchecked too (reactions and claims on the page, the phone notice) and
+     show nothing for a room then rather than "unknown", which leaks nothing. The filtered
      rows are kept until the log or the projects file changes, so a reader called N+1 times per sweep filters once. */
   const born = require('./projectborn').snapshot();
   const key = cache.size + ':' + cache.mtimeMs + ':' + cache.offset + ':' + cache.fragment;
@@ -1001,7 +1004,9 @@ function lastPostAt(projectId) {
   if (t && (!best || t > best)) best = t;
   /* #7185: the map is kept over the RAW rows (scanned once), so the answer is filtered here: when the newest post is
      older than the project, every post is an earlier project's, and this room has had none. */
-  if (best && require('./projectborn').snapshot().earlier(String(projectId), new Date(best).toISOString())) best = null;
+  const born = require('./projectborn').snapshot();
+  if (!born.ok) return undefined;   // the stamps went unknown since record() above: could not read, not "no post"
+  if (best && born.earlier(String(projectId), new Date(best).toISOString())) best = null;
   return best;
 }
 

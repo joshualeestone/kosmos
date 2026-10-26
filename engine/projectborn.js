@@ -8,7 +8,7 @@
  * still holds the deleted project's rows. They stay on disk: nothing here deletes a person's words, and an owner may
  * want them back. They are simply not the new project's, and a row stamped before the project's createdAt cannot be.
  *
- * The projects file is read once and kept until the file itself changes (inode, size, mtime, ctime), because the readers
+ * The projects file is read once and kept until the file itself changes (path, inode, size, mtime, ctime), because the readers
  * call this per row and per task.
  *
  * Fails CLOSED: when the projects file exists but cannot be read, every project-tagged row counts as earlier, so a
@@ -24,13 +24,14 @@ const UNREADABLE = { ok: false };                     // the same, while the pro
 
 function births() {
   const projects = require('./projects');
+  const f = projects.file();
   let st;
   try {
-    st = fs.statSync(projects.file());
+    st = fs.statSync(f);
   } catch (err) {
     return err && err.code === 'ENOENT' ? NO_PROJECTS : UNREADABLE;
   }
-  if (CACHE && CACHE.ino === st.ino && CACHE.size === st.size && CACHE.mtimeMs === st.mtimeMs && CACHE.ctimeMs === st.ctimeMs) return CACHE.value;
+  if (CACHE && CACHE.file === f && CACHE.ino === st.ino && CACHE.size === st.size && CACHE.mtimeMs === st.mtimeMs && CACHE.ctimeMs === st.ctimeMs) return CACHE.value;
   let all;
   try {
     all = projects.readAll();
@@ -43,7 +44,7 @@ function births() {
     if (p && typeof p.id === 'string' && Number.isFinite(t)) born.set(p.id, t);
   }
   const value = { ok: true, born };
-  CACHE = { ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, value };
+  CACHE = { file: f, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, value };
   return value;
 }
 

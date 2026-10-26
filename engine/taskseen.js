@@ -60,6 +60,7 @@ function seenAt(projectId, number) {
     const o = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!(o && typeof o.at === 'string' && Number.isFinite(Date.parse(o.at)))) return null;
     // #7185: a view recorded before the project was made was of an earlier project's task with this name and number.
+    // While the projects file cannot be read no view counts, so this answers null then (as "not seen yet").
     return require('./projectborn').olderThanProject()(projectId, o.at) ? null : o.at;
   } catch {
     return null;
