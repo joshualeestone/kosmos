@@ -496,3 +496,12 @@ test('a site refusal for a second agent in one pass means the site no longer tak
   await cs.sweep();
   assert.equal(ownerCalls().length, 2, 'and the pass waits');
 });
+
+test('a mint that throws is treated as no answer: the pass waits', async () => {
+  await registered('ava');
+  R.mint = () => { throw new Error('boom'); };
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(R.mints.length, 1, 'asked once, then the pass waits');
+  assert.equal(ownerCalls().length, 0);
+});
