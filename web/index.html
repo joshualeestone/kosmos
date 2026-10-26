@@ -72519,7 +72519,7 @@ function pjCiteKey(core, names) {
  */
 function pjLinkPaths(text, names) {
   const raw = String(text == null ? '' : text);
-  if (!names || !names.size) return pjInline(raw);
+  if (!names || !names.size) return pjInline(raw, { bare: false });   // a code block's path label: never a website (kosmos#7239)
   /* Split on whitespace RUNS but keep them, so the reassembled body preserves
      the spacing the person typed. A body is not a sentence: agents paste
      columns and indentation, and collapsing it would edit what they said. */
@@ -72534,15 +72534,15 @@ function pjLinkPaths(text, names) {
     const m = /^(.*?)([.,;:!?)\]]*)$/.exec(tok);
     const core = m[1];
     const tail = m[2];
-    if (!core) return pjInline(tok);
+    if (!core) return pjInline(tok, { bare: false });
     /* A cited path may be written with folders in front of it. It is matched
        by pjCiteKey (#2245) -- but only
        when the whole token has no `..` in it, because a token that walks up
        is not describing a file in this project and should not be dressed as
        one even if its basename collides. */
-    if (core.includes('..')) return pjInline(tok);
+    if (core.includes('..')) return pjInline(tok, { bare: false });
     const key = pjCiteKey(core, names);
-    if (key === null) return pjInline(tok);
+    if (key === null) return pjInline(tok, { bare: false });
     hit = true;
     return '<span class="ref">' + esc(core)
       + '<button class="refgo" type="button" data-ref="' + esc(key)
@@ -72551,7 +72551,7 @@ function pjLinkPaths(text, names) {
   /* ⚠️ Identical output to the old path when nothing matched, byte for byte:
      the reassembly above escapes every token and every whitespace run, so a
      body with no citation is unchanged rather than merely equivalent. */
-  return hit ? out : pjInline(raw);
+  return hit ? out : pjInline(raw, { bare: false });
 }
 
 /**
@@ -72820,13 +72820,37 @@ function pjBody(text, names, agentNames) {
    ending must be lowercase (GitHub.com links, store.ROOT does not).
    Returns the https:// address, or '' when the token is not a bare web address. */
 function pjBareWeb(tok) {
-  // Not info, store, page, link, live, news: they are also code properties (logger.info). Built once, kept on the function.
-  const endings = pjBareWeb.endings || (pjBareWeb.endings = new Set(['com', 'net', 'org', 'io', 'ai', 'dev', 'co', 'me', 'us', 'uk', 'ca', 'au', 'nz', 'ie',
-  'de', 'fr', 'nl', 'es', 'it', 'se', 'no', 'dk', 'fi', 'ch', 'at', 'be', 'eu', 'jp', 'in', 'br', 'mx', 'biz', 'xyz',
-  'tech', 'online', 'cloud', 'gg', 'tv', 'fm', 'studio', 'agency', 'software', 'world', 'gov', 'edu']));
-  const m = /^((?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+([a-z]{2,24}))(:\d{1,5})?([/?#][^\s\uFFFC]*)?$/.exec(String(tok || ''));
+  // Not info, store, page, link, live, news, in: they are also code properties or file names (logger.info,
+  // requirements.in). Built once, kept on the function.
+  const endings = pjBareWeb.endings || (pjBareWeb.endings = new Set(['com', 'net', 'org', 'io', 'ai', 'dev', 'co', 'me',
+    'us', 'uk', 'ca', 'au', 'nz', 'ie', 'de', 'fr', 'nl', 'es', 'it', 'se', 'no', 'dk', 'fi', 'ch', 'at', 'be', 'eu', 'jp',
+    'br', 'mx', 'biz', 'xyz', 'tech', 'online', 'cloud', 'gg', 'tv', 'fm', 'studio', 'agency', 'software', 'world', 'gov',
+    'edu']));
+  // Endings that are also a file extension or a code member (logo.ai, settings.dev, self.me, done.it): a bare
+  // one-dot name with one of these links only with a stronger sign, www., a subdomain, a path or a port. So
+  // claude.ai/settings and docs.example.dev link, and bare claude.ai does not (review 1, the trade recorded on the card).
+  const ambiguous = pjBareWeb.ambiguous || (pjBareWeb.ambiguous = new Set(['ai', 'dev', 'me', 'at', 'it', 'no', 'co']));
+  const t = String(tok || '');
+  if (t.length > 2048) return '';   // no real address is this long, and the pattern below is not linear on a dot run
+  const m = /^((?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+([a-z]{2,24}))(:\d{1,5})?([/?#][^\s￼]*)?$/.exec(t);
   if (!m || !endings.has(m[2])) return '';
+  if (ambiguous.has(m[2]) && !m[3] && !m[4] && m[1].split('.').length === 2) return '';
   return 'https://' + m[0];
+}
+/* kosmos#7239 review 1: one word, split into what goes before a bare address, the address, and what goes after:
+   quotes, angle brackets, an opening paren, emphasis marks, a possessive 's and sentence punctuation stay outside.
+   Works on raw text (pjInline) and on escaped text (pjRich: &quot; &lt; &gt; arrive whole). A ")" stays in the
+   address when the address opened one (en.wikipedia.org/wiki/Foo_(bar)). Returns null when the middle is not one. */
+function pjBareSplit(tok) {
+  const t = String(tok || '');
+  if (t.length > 2048 || t.indexOf('.') === -1) return null;
+  const lead = (/^(?:&quot;|&lt;|["'<(*~_])+/.exec(t) || [''])[0];
+  let rest = t.slice(lead.length);
+  let tail = (/(?:&quot;|&gt;|&#39;s|'s|["'>.,;:!?\])*~_])+$/.exec(rest) || [''])[0];
+  let core = rest.slice(0, rest.length - tail.length);
+  while (tail[0] === ')' && (core.split('(').length - 1) > (core.split(')').length - 1)) { core += ')'; tail = tail.slice(1); }
+  const web = typeof pjBareWeb === 'function' ? pjBareWeb(core) : '';
+  return web ? { lead, core, tail, web } : null;
 }
 
 /* 🔑 EVERY PLACE A PERSON'S MESSAGE IS DRAWN GOES THROUGH THIS (#355). It was
@@ -72834,17 +72858,18 @@ function pjBareWeb(tok) {
    same pasted URL was a link in one box and dead characters in the next box
    along; nobody chose that. Escaping is still done here, token by token, so a
    message with no URL in it renders exactly as before. */
-function pjInline(text) {
+function pjInline(text, opts) {
   const raw = String(text == null ? '' : text);
+  // A code block's path label is a file name by construction: never a website (review 1).
+  const bareOk = !(opts && opts.bare === false);
   if (raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1 && raw.indexOf('.') === -1) return esc(raw);
   return raw.split(/(\s+)/).map((tok) => {
     if (!tok || /^\s+$/.test(tok)) return esc(tok);
-    // kosmos#7239: a bare web address, its leading "(" and trailing punctuation kept outside the link.
-    const bare = /^(\(?)(.*?)([.,;:!?)\]]*)$/.exec(tok);
-    const bareUrl = bare && typeof pjBareWeb === 'function' ? pjBareWeb(bare[2]) : '';   // guarded: tests lift pjInline alone
-    if (bareUrl) {
-      return esc(bare[1]) + '<a class="xlink" href="' + esc(bareUrl) + '" target="_blank" rel="noreferrer noopener">'
-        + esc(bare[2]) + '</a>' + esc(bare[3]);
+    // kosmos#7239: a bare web address, with what surrounds it kept outside the link. Guarded: tests lift pjInline alone.
+    const bare = bareOk && typeof pjBareSplit === 'function' ? pjBareSplit(tok) : null;
+    if (bare) {
+      return esc(bare.lead) + '<a class="xlink" href="' + esc(bare.web) + '" target="_blank" rel="noreferrer noopener">'
+        + esc(bare.core) + '</a>' + esc(bare.tail);
     }
     if (!/^https?:\/\/[^\s]+$/.test(tok)) return esc(tok);
     /* Trailing punctuation is not part of the link: "see https://x.test." */
@@ -72952,8 +72977,10 @@ function pjRichSpans(seg, names, agentNames) {
      url is escaped text, the same form the bare-URL autolink below puts in its href. */
   s = s.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (mm, label, url) => {
     const u = url.trim();
-    const shown = /^https?:\/\/[^\s\uFFFC]+$/.test(u)
-      ? hold('<a class="xlink" href="' + u + '" target="_blank" rel="noreferrer noopener">' + u + '</a>')
+    // kosmos#7239 review 1: a bare address as the target ([site](example.com)) is a link too, to https://.
+    const bareTarget = !/^https?:/.test(u) && typeof pjBareWeb === 'function' ? pjBareWeb(u) : '';
+    const shown = /^https?:\/\/[^\s\uFFFC]+$/.test(u) || bareTarget
+      ? hold('<a class="xlink" href="' + (bareTarget || u) + '" target="_blank" rel="noreferrer noopener">' + u + '</a>')
       /* Held so the emphasis pass leaves it alone, unless it already carries a held span (inline code
          inside the address): restoring is one pass, so a placeholder held inside another would leak. */
       : (u.includes('\uFFFC') ? u : hold(u));
@@ -72977,14 +73004,6 @@ function pjRichSpans(seg, names, agentNames) {
     const core = mm[1];
     if (/^https?:\/\/[^\s￼]+$/.test(core)) {
       return hold('<a class="xlink" href="' + core + '" target="_blank" rel="noreferrer noopener">' + core + '</a>') + mm[2];
-    }
-    /* kosmos#7239: a bare web address. `core` is already escaped, and a host, port and path carry no character esc
-       changes except & in a query, which stays escaped in the href as the https arm above leaves it. A leading "("
-       or emphasis marker stays outside the link. */
-    {
-      const lead = (core.match(/^[*~(]+/) || [''])[0];
-      const web = typeof pjBareWeb === 'function' ? pjBareWeb(core.slice(lead.length)) : '';   // guarded: tests lift pjRich alone
-      if (web) return lead + hold('<a class="xlink" href="' + web + '" target="_blank" rel="noreferrer noopener">' + core.slice(lead.length) + '</a>') + mm[2];
     }
     /* #2922: @<agent> mention. `core` is already esc()'d; agent keys are [A-Za-z0-9._-], which esc
        leaves unchanged, so resolving the escaped word against the keys is exact. Leading emphasis markers and
@@ -73029,6 +73048,13 @@ function pjRichSpans(seg, names, agentNames) {
           + '<button class="refgo" type="button" data-ref="' + esc(key)
           + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>') + mm[2];
       }
+    }
+    /* kosmos#7239: a bare web address, AFTER the cited-file chip, so a project file named like a host (brand.ai) keeps
+       its Show me (review 1). The token is already escaped; a host, port and path carry nothing esc changes except &
+       in a query, which stays escaped in the href as the https arm above leaves it. Guarded: tests lift pjRich alone. */
+    if (!tok.includes('\uFFFC')) {
+      const bare = typeof pjBareSplit === 'function' ? pjBareSplit(tok) : null;
+      if (bare) return bare.lead + hold('<a class="xlink" href="' + bare.web + '" target="_blank" rel="noreferrer noopener">' + bare.core + '</a>') + bare.tail;
     }
     return tok;
   }).join('');
@@ -73082,8 +73108,7 @@ function pjRich(text) {
       && raw.indexOf('|') === -1
       && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1
       // kosmos#7239: a bare web address (example.com) takes the slow path, where it becomes a link.
-      && !(typeof pjBareWeb === 'function' && raw.indexOf('.') !== -1
-        && raw.split(/\s+/).some((t) => pjBareWeb(t.replace(/^[(*~]+/, '').replace(/[.,;:!?)\]*~]+$/, ''))))) {
+      && !(typeof pjBareSplit === 'function' && raw.indexOf('.') !== -1 && raw.split(/\s+/).some((t) => pjBareSplit(t)))) {
     return esc(raw);
   }
   const src = raw.split(/\r?\n/);   // #3679: a CRLF text (a task's detail) still closes its fences

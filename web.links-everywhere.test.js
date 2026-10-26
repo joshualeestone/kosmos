@@ -225,7 +225,7 @@ test('a message with several files draws every card, and hides the joined names 
 
 /* kosmos#7239 (Josh 10-26): a bare web address, written without https://, is a link too, opened as https://. Things
    that only look like one stay plain: a file name, a version, a dotted code name, an email, anything in code. */
-const BARE = 'go to meridianworks.kosmosplus.com, or example.com/path. Not notes.md, 0.7.70, store.ROOT, Kosmos.app, logger.info or a@b.com';
+const BARE = 'go to meridianworks.kosmosplus.com, or example.com/path. Not notes.md, 0.7.70, store.ROOT, Kosmos.app, logger.info, requirements.in, logo.ai, settings.dev, claude.ai or a@b.com';
 const expectBare = (html, where) => {
   assert.match(html, /<a class="xlink" href="https:\/\/meridianworks\.kosmosplus\.com" target="_blank" rel="noreferrer noopener">meridianworks\.kosmosplus\.com<\/a>,/,
     where + ': a bare host is not a link, or its comma went into it');
@@ -233,17 +233,34 @@ const expectBare = (html, where) => {
     where + ': a bare host with a path is not a link, or its full stop went into it');
   const anchors = html.match(/<a class="xlink"/g) || [];
   assert.equal(anchors.length, 2, where + ': something that only looks like an address was linked: ' + html);
-  for (const plain of ['notes.md', '0.7.70', 'store.ROOT', 'Kosmos.app', 'logger.info']) assert.ok(html.includes(plain), where + ': ' + plain + ' went missing');
+  for (const plain of ['notes.md', '0.7.70', 'store.ROOT', 'Kosmos.app', 'logger.info', 'requirements.in', 'logo.ai', 'settings.dev', 'claude.ai']) assert.ok(html.includes(plain), where + ': ' + plain + ' went missing');
 };
 
 test('kosmos#7239: a bare web address is a link everywhere a message is drawn, look-alikes stay plain', () => {
-  const inline = new Function(lift(['esc', 'pjBareWeb', 'pjInline']) + '\nreturn pjInline;')();
+  const inline = new Function(lift(['esc', 'pjBareWeb', 'pjBareSplit', 'pjInline']) + '\nreturn pjInline;')();
   expectBare(inline(BARE), 'pjInline');
-  const rich = new Function(lift(['esc', 'pjBareWeb', 'pjRich', 'pjRichSpans', 'pjListDepth']) + '\nreturn pjRich;')();
+  const rich = new Function(lift(['esc', 'pjBareWeb', 'pjBareSplit', 'pjRich', 'pjRichSpans', 'pjListDepth', 'pjCiteKey']) + '\nreturn pjRich;')();
   expectBare(rich(BARE), 'pjRich');
   // Code is never linked, in a span or a block.
   const inCode = rich('run `example.com` now');
   assert.doesNotMatch(inCode, /<a /, 'an address inside a code span was linked: ' + inCode);
   // CONTROL: the https:// form still links, as #355 has it.
   assert.match(rich('see https://example.com.'), /href="https:\/\/example\.com"/);
+  // Review 1: a stronger sign links an ambiguous ending; a markdown link target is a link; quotes stay outside.
+  assert.match(inline('see claude.ai/settings'), /href="https:\/\/claude\.ai\/settings"/);
+  assert.match(rich('[the dashboard](meridianworks.kosmosplus.com)'), /<a class="xlink" href="https:\/\/meridianworks\.kosmosplus\.com"[^>]*>meridianworks\.kosmosplus\.com<\/a>/);
+  assert.match(inline('"example.com"'), /^&quot;<a class="xlink" href="https:\/\/example\.com"[^>]*>example\.com<\/a>&quot;$/);
+  // Review 1: a cited project file keeps its Show me, even when its name looks like a host.
+  const spans = new Function(lift(['esc', 'pjBareWeb', 'pjBareSplit', 'pjRichSpans', 'pjCiteKey', 'pjListDepth']) + '\nreturn pjRichSpans;')();
+  const cited = spans('see brand.io and example.com', new Set(['brand.io']));
+  assert.match(cited, /<span class="ref">brand\.io<button class="refgo"/, 'a cited file lost its Show me chip: ' + cited);
+  assert.doesNotMatch(cited, /href="https:\/\/brand\.io"/, 'a cited file became a website link');
+  assert.match(cited, /href="https:\/\/example\.com"/, 'CONTROL: the address beside it is still a link');
+});
+
+test('kosmos#7239 review 1: a code block\'s path label is never a website', () => {
+  const links = new Function(lift(['esc', 'pjBareWeb', 'pjBareSplit', 'pjInline', 'pjCiteKey', 'pjLinkPaths', 'pjListDepth']) + '\nreturn pjLinkPaths;')();
+  assert.doesNotMatch(links('Makefile.in', new Set()), /<a /);
+  assert.doesNotMatch(links('deploy.dev', null), /<a /);
+  assert.doesNotMatch(links('example.com', null), /<a /, 'a path label shaped like a host became a link');
 });

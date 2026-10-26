@@ -29,3 +29,14 @@ In a DM and a project room, example.com, example.com/path and https://example.co
   target=_blank, look-alikes plain, a click opens a new window asking for the https:// address. 7 red on main.
 
 ## Review
+- Round 1 (.claude/plans/barelinks-7239-review1.md): 1 blocker, 3 warnings, 5 nits. All taken:
+  - BLOCKER: the bare arm ran before the cited-file chip, so a project file named like a host lost its Show me. Now
+    after it. Unit and browser cases with brand.io in the room's doc names: red with the old order.
+  - "in" is off the list (requirements.in). Ambiguous endings (ai, dev, me, at, it, no, co) on a one-dot name link
+    only with www., a subdomain, a path or a port: claude.ai/settings and docs.example.dev link; bare claude.ai,
+    logo.ai, settings.dev, self.me do not. The trade (bare claude.ai stays plain) is recorded on the card.
+  - A code block's path label (pjLinkPaths) is never a website: pjInline(text, { bare: false }).
+  - [site](example.com) links to https://example.com.
+  - Nits: a 2048-character cap (a 50,000-dot token now costs 0 ms); quotes, angle brackets, emphasis and 's stay
+    outside the link (pjBareSplit, for raw and escaped text alike); a ")" the address opened stays in it; README row
+    corrected; the check's room half has a cited file and an @mention in play.

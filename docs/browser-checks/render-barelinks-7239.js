@@ -21,7 +21,7 @@ const chk = (ok, label, extra) => {
 };
 
 const TEXT = 'The site is up at meridianworks.kosmosplus.com, the notes at example.com/path. and the old one at https://example.org.'
-  + ' Not links: notes.md, 0.7.70, store.ROOT, Kosmos.app, logger.info, a@b.com and `example.net` in code.';
+  + ' Not links: notes.md, 0.7.70, store.ROOT, Kosmos.app, logger.info, requirements.in, logo.ai, claude.ai, a@b.com and `example.net` in code.';
 const FX = {
   messages: [{ from: 'april', at: new Date(Date.now() - 60e3).toISOString(), text: TEXT }],
   olderCount: 0, historyBecause: null, historyUnfilable: false,
@@ -70,24 +70,36 @@ const FX = {
     chk(!!by('https://example.org'), 'CONTROL: an https:// address is still a link (#355)', JSON.stringify(got.links));
     chk(got.links.length === 3, 'nothing that only looks like an address is a link (notes.md, 0.7.70, store.ROOT, Kosmos.app, logger.info, an email, code)',
       JSON.stringify(got.links.map((l) => l.text)));
-    chk(['notes.md', '0.7.70', 'store.ROOT', 'Kosmos.app', 'logger.info', 'a@b.com', 'example.net'].every((w) => got.text.includes(w)),
+    chk(['notes.md', '0.7.70', 'store.ROOT', 'Kosmos.app', 'logger.info', 'requirements.in', 'logo.ai', 'claude.ai', 'a@b.com', 'example.net'].every((w) => got.text.includes(w)),
       'and every one of them is still shown');
 
     // The project room: an agent's room post goes through the room's own body renderer (pjRoomBody, what paintRoom
     // draws in each bubble), put into a room bubble on the page.
+    // Review 1: with the room's own interplay in play, a cited project file named like a host (brand.io) and an
+    // @mention keep their chips and are never website links.
     const room = await page.evaluate((text) => {
-      const html = pjRoomBody({ kind: 'post', id: 'r1', from: 'april', at: new Date().toISOString(), text }, { id: 'p', agents: [] });
+      PJ_DOC_NAMES = new Set(['brand.io']);
+      const html = pjRoomBody({ kind: 'post', id: 'r1', from: 'you', operator: true, at: new Date().toISOString(),
+        text: text + ' See brand.io, @april.' }, { id: 'p', agents: [{ sessionName: 'april', name: 'April' }] });
+      PJ_DOC_NAMES = null;
       const box = document.createElement('div');
       box.className = 'msg-bd';
       box.innerHTML = html;
       document.getElementById('pj-room').appendChild(box);
-      return { links: [...box.querySelectorAll('a')].map((a) => ({ text: a.textContent, href: a.getAttribute('href'), target: a.getAttribute('target') })), text: box.textContent };
+      return {
+        links: [...box.querySelectorAll('a')].map((a) => ({ text: a.textContent, href: a.getAttribute('href'), target: a.getAttribute('target') })),
+        text: box.textContent,
+        chip: !!box.querySelector('.ref .refgo[data-ref="brand.io"]'),
+        mention: [...box.querySelectorAll('.pjmention')].map((x) => x.textContent),
+      };
     }, TEXT);
     const rby = (t) => room.links.find((l) => l.text === t);
     chk(!!rby('meridianworks.kosmosplus.com') && rby('meridianworks.kosmosplus.com').href === 'https://meridianworks.kosmosplus.com' && rby('meridianworks.kosmosplus.com').target === '_blank',
       'room: a bare host is a link to https://, in a new window', JSON.stringify(room.links));
     chk(!!rby('example.com/path') && rby('example.com/path').href === 'https://example.com/path', 'room: a bare host with a path is a link');
     chk(room.links.length === 3, 'room: nothing that only looks like an address is a link', JSON.stringify(room.links.map((l) => l.text)));
+    chk(room.chip, 'room: a cited project file named like a host (brand.io) keeps its Show me (review 1)', JSON.stringify(room));
+    chk(room.mention.length === 1 && /@april/i.test(room.mention[0]), 'room: an @mention keeps its chip', JSON.stringify(room.mention));
 
     // The click: a new window to the https:// address (in the Mac app this is what goes to the system browser). The
     // check has no network, so that request is answered here and its address recorded.
