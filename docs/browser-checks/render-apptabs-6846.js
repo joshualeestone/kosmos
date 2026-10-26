@@ -279,6 +279,23 @@ const teardownFails = [];
             T + 'S5 a long computer name is cut short before the face, which stays 16px from the right, and the page does not scroll sideways', JSON.stringify({ comp: l.comp, me: l.me, face: l.face, cut }));
           await shut(ctx, page);
         }
+        /* kosmos#7266: the phone's + buttons ask the door for a create. On the real page: new-agent opens the create form,
+           new-project the add-project form's name field; an unknown name (CONTROL) is refused and opens neither. */
+        {
+          const { ctx, page } = await open('remote.test', theme, { computers: ONE });
+          const vis = (sel) => page.evaluate((s) => { const e = document.querySelector(s); return !!e && e.getClientRects().length > 0; }, sel);
+          const ctl = await page.evaluate(() => window.kosmosAppTab('new-thing'));
+          chk(ctl === false && !(await vis('#panel-create')) && !(await vis('#pj-name')), T + 'C7266 CONTROL: a name the door does not know is refused and opens no form', String(ctl));
+          const agent = await page.evaluate(() => window.kosmosAppTab('new-agent'));
+          await page.waitForTimeout(300);
+          chk(agent === true && await vis('#panel-create'), T + 'N1 new-agent opens the board\'s create-agent form', String(agent));
+          await page.goto(page.url(), { waitUntil: 'networkidle' });
+          if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(200); }
+          const proj = await page.evaluate(() => window.kosmosAppTab('new-project'));
+          await page.waitForTimeout(300);
+          chk(proj === true && await vis('#pj-name'), T + 'N2 new-project opens the board\'s add-project form', String(proj));
+          await shut(ctx, page);
+        }
       }
     } finally {
       for (const [ctx, page] of [...live]) { live.delete(ctx); await unroute(ctx, page); }
