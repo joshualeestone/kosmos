@@ -212,7 +212,8 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const skippedAtBackup = (Array.isArray(manifest.skipped) ? manifest.skipped : [])
     .filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').slice(0, MAX_SKIPPED_REPORTED)
     .map(({ path, why }) => ({ path: forReport(path), why: forReport(why) }));
-  // alreadyHeld only for a sink that can hold files, so every existing caller sees the shape it always did.
+  // alreadyHeld only for a sink with has() (engine/restoresink.js has one, holding nothing unless resumed), so a sink
+  // without it sees the shape it always did.
   return Object.assign({ restored }, holds ? { alreadyHeld } : {}, { failed: failed.slice(0, MAX_FAILED_REPORTED), failedNotListed: Math.max(0, failed.length - MAX_FAILED_REPORTED), skippedAtBackup });
 }
 

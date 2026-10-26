@@ -16,13 +16,14 @@ const devkeyhist = require('./devkeyhist');
 const snap = require('./backupsnapshot');
 const rr = require('./restorerun');
 const rf = require('./restorefetch');
-const { createRestoreSink, RECORD_NAME } = require('./restoresink');
+const { createRestoreSink, RECORD_NAME, setRecordMaxBytesForTests } = require('./restoresink');
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const PERIOD = '2026-W41';
 const LOCK = Date.parse('2026-11-11T00:15:00Z');
 const SNAP_ID = '20261008T115500Z-0a1b2c3d';
 const GRANTED = Math.floor(NOW / 1000);
+const SNAP = `${SNAP_ID} test-manifest`;   // what a caller names the restore by
 const escrow = crypto.generateKeyPairSync('ed25519');
 devkeyhist.setVerifyingKeyForTests(escrow.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32));
 const rawPub = (k) => k.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex');
@@ -109,7 +110,7 @@ test('#5536 slice 3: a restore stopped part way continues into the same folder, 
   const root = fresh(t);
   // Run 1: two files' chunks are missing at the store, so they fail; the rest restore and are recorded.
   const w1 = world(s.objects, s.record);
-  const sink1 = createRestoreSink(root, { record: true });
+  const sink1 = createRestoreSink(root, { record: true, snapshot: SNAP });
   const all = [...s.objects.keys()].filter((k) => k !== s.record.key);
   w1.dropKeys = new Set(all.slice(0, 2));
   const r1 = await run(s, w1, sink1);
@@ -121,7 +122,7 @@ test('#5536 slice 3: a restore stopped part way continues into the same folder, 
   assert.deepEqual(first, [...r1.result.restored].sort());
   // Run 2: the same folder, resumed. Every file comes back, and only the missing files' chunks are asked for.
   const w2 = world(s.objects, s.record);
-  const sink2 = createRestoreSink(root, { resume: true });
+  const sink2 = createRestoreSink(root, { resume: true, snapshot: SNAP });
   for (const rel of first) assert.equal(sink2.has(rel, sha(s.files[rel]), s.files[rel].length), true, rel);
   const r2 = await run(s, w2, sink2);
   sink2.close();
@@ -140,7 +141,7 @@ test('#5536 slice 3: a restore stopped part way continues into the same folder, 
 /* A root a stopped restore left: files a.txt and d/b.txt committed through a recording sink, record kept. */
 function stoppedRoot(t) {
   const root = fresh(t);
-  const sink = createRestoreSink(root, { record: true });
+  const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
   for (const [rel, text] of [['a.txt', 'alpha'], ['d/b.txt', 'beta']]) { const o = sink.begin(rel); o.write(Buffer.from(text)); o.commit(); }
   sink.close({ keepRecord: true });
   return root;
@@ -148,7 +149,7 @@ function stoppedRoot(t) {
 
 test('#5536 slice 3: a resumed folder must hold only what the record names; each change refuses, by name (control: untouched resumes)', (t) => {
   const ok = stoppedRoot(t);
-  const control = createRestoreSink(ok, { resume: true });
+  const control = createRestoreSink(ok, { resume: true, snapshot: SNAP });
   assert.equal(control.has('a.txt', sha(Buffer.from('alpha')), 5), true);
   assert.equal(control.has('d/b.txt', sha(Buffer.from('beta')), 4), true);
   assert.equal(control.has('a.txt', sha(Buffer.from('other')), 5), false, 'another content is not held');
@@ -173,7 +174,7 @@ test('#5536 slice 3: a resumed folder must hold only what the record names; each
   for (const [label, change, why] of cases) {
     const r = stoppedRoot(t);
     change(r);
-    assert.throws(() => createRestoreSink(r, { resume: true }), why, label);
+    assert.throws(() => createRestoreSink(r, { resume: true, snapshot: SNAP }), why, label);
   }
   // And a fresh sink still refuses a stopped root (it is not empty): resuming is only ever asked for.
   assert.throws(() => createRestoreSink(stoppedRoot(t)), /empty/);
@@ -181,7 +182,7 @@ test('#5536 slice 3: a resumed folder must hold only what the record names; each
 
 test('#5536 slice 3: the record is written before each file is published, so a refused or interrupted commit never poisons a resume', (t) => {
   const root = fresh(t);
-  const sink = createRestoreSink(root, { record: true });
+  const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
   const o1 = sink.begin('a.txt'); o1.write(Buffer.from('first')); o1.commit();
   // The same name again (two manifest entries the collision check missed): refused, and the first file kept.
   const o2 = sink.begin('a.txt'); o2.write(Buffer.from('second'));
@@ -191,9 +192,10 @@ test('#5536 slice 3: the record is written before each file is published, so a r
   fs.appendFileSync(path.join(root, RECORD_NAME), `${JSON.stringify({ path: 'gone/c.txt', size: 3, sha256: sha(Buffer.from('ccc')) })}\n`);
   sink.close({ keepRecord: true });
   const lines = fs.readFileSync(path.join(root, RECORD_NAME), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.deepEqual(lines.map((l) => l.path), ['a.txt', 'a.txt', 'gone/c.txt'], 'written before the link, refused or not');
-  assert.equal(lines[0].sha256, sha(Buffer.from('first')), 'the hash of the bytes the sink wrote');
-  const r = createRestoreSink(root, { resume: true });
+  assert.deepEqual(lines[0], { snapshot: SNAP }, 'the first line names the snapshot');
+  assert.deepEqual(lines.slice(1).map((l) => l.path), ['a.txt', 'a.txt', 'gone/c.txt'], 'written before the link, refused or not');
+  assert.equal(lines[1].sha256, sha(Buffer.from('first')), 'the hash of the bytes the sink wrote');
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
   assert.equal(r.has('a.txt', sha(Buffer.from('first')), 5), true, 'the file on disk matches one of its lines');
   assert.equal(r.has('a.txt', sha(Buffer.from('second')), 6), false, 'not the refused one');
   assert.equal(r.has('gone/c.txt', sha(Buffer.from('ccc')), 3), false, 'an absent file is dropped, not held');
@@ -208,11 +210,11 @@ test('#5536 slice 3: a stopped run\'s temp folder is cleared on resume, the reco
   fs.mkdirSync(stale, { mode: 0o700 });
   fs.writeFileSync(path.join(stale, 'half'), 'x');
   if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(root, RECORD_NAME)).mode & 0o777, 0o600);
-  const r = createRestoreSink(root, { resume: true });
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
   assert.equal(fs.existsSync(stale), false, 'cleared');
   r.close({ keepRecord: true });
   assert.ok(fs.existsSync(path.join(root, RECORD_NAME)), 'kept when asked');
-  createRestoreSink(root, { resume: true }).close();
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close();
   assert.equal(fs.existsSync(path.join(root, RECORD_NAME)), false, 'removed by default');
   // Without record or resume the sink writes no record at all (every existing caller).
   const plain = fresh(t);
@@ -221,4 +223,63 @@ test('#5536 slice 3: a stopped run\'s temp folder is cleared on resume, the reco
   assert.equal(p.has('x.txt', sha(Buffer.from('x')), 1), false, 'a fresh sink holds nothing');
   p.close({ keepRecord: true });
   assert.deepEqual(fs.readdirSync(plain), ['x.txt']);
+});
+
+test('#5536 slice 3 review 1: a record names its snapshot, and a resume of another snapshot refuses (control: the same one resumes)', (t) => {
+  assert.throws(() => createRestoreSink(fresh(t), { record: true }), /must name its snapshot/);
+  assert.throws(() => createRestoreSink(fresh(t), { resume: true }), /must name its snapshot/);
+  const root = stoppedRoot(t);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: 'another snapshot' }), /another backup/);
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close();
+  const noHead = stoppedRoot(t);
+  const rec = path.join(noHead, RECORD_NAME);
+  fs.writeFileSync(rec, fs.readFileSync(rec, 'utf8').split('\n').slice(1).join('\n'));
+  assert.throws(() => createRestoreSink(noHead, { resume: true, snapshot: SNAP }), /damaged/, 'a record with no snapshot line');
+  const long = stoppedRoot(t);
+  fs.appendFileSync(path.join(long, RECORD_NAME), `${JSON.stringify({ path: 'a/'.repeat(2100) + 'b', size: 1, sha256: 'a'.repeat(64) })}\n`);
+  assert.throws(() => createRestoreSink(long, { resume: true, snapshot: SNAP }), /damaged/, 'a path past 4096');
+});
+
+test('#5536 slice 3 review 1: names compare in NFC, so a name the filesystem stored in another form still resumes', (t) => {
+  const root = fresh(t);
+  const nfc = 'café.md', nfd = 'café.md';
+  const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
+  const o = sink.begin(nfc); o.write(Buffer.from('coffee')); o.commit();
+  sink.close({ keepRecord: true });
+  // As HFS+ would hand it back: the same file under its NFD spelling.
+  const [only] = fs.readdirSync(root).filter((n) => n !== RECORD_NAME);
+  if (only === nfc) { fs.renameSync(path.join(root, nfc), path.join(root, `${nfd}.tmp`)); fs.renameSync(path.join(root, `${nfd}.tmp`), path.join(root, nfd)); }
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.equal(r.has(nfc, sha(Buffer.from('coffee')), 6), true, 'found by its NFC name');
+  assert.equal(r.has(nfd, sha(Buffer.from('coffee')), 6), true, 'and asked for in either form');
+  r.close();
+});
+
+test('#5536 slice 3 review 1: a recorded file with a second name, or a file or folder open to others, refuses', { skip: process.platform === 'win32' && 'POSIX modes' }, (t) => {
+  const hard = stoppedRoot(t);
+  fs.linkSync(path.join(hard, 'a.txt'), path.join(fresh(t), 'elsewhere'));
+  assert.throws(() => createRestoreSink(hard, { resume: true, snapshot: SNAP }), /another name/);
+  const open = stoppedRoot(t);
+  fs.chmodSync(path.join(open, 'a.txt'), 0o644);
+  assert.throws(() => createRestoreSink(open, { resume: true, snapshot: SNAP }), /open to other users/);
+  const dir = stoppedRoot(t);
+  fs.chmodSync(path.join(dir, 'd'), 0o755);
+  assert.throws(() => createRestoreSink(dir, { resume: true, snapshot: SNAP }), /open to other users/);
+  createRestoreSink(stoppedRoot(t), { resume: true, snapshot: SNAP }).close();   // control
+});
+
+test('#5536 slice 3 review 1: a record that would pass its cap is dropped, and the sink says the restore cannot be continued', (t) => {
+  setRecordMaxBytesForTests(400);
+  try {
+    const root = fresh(t);
+    const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
+    for (let i = 0; i < 3; i += 1) { const o = sink.begin(`f${i}.txt`); o.write(Buffer.from('x')); o.commit(); }
+    assert.equal(sink.recordLost, false, 'three lines fit');
+    for (let i = 3; i < 6; i += 1) { const o = sink.begin(`f${i}.txt`); o.write(Buffer.from('x')); o.commit(); }
+    assert.equal(sink.recordLost, true);
+    sink.close({ keepRecord: true });
+    assert.equal(fs.existsSync(path.join(root, RECORD_NAME)), false, 'no record a resume would refuse as too large');
+    assert.equal(fs.readdirSync(root).filter((n) => /^f\d\.txt$/.test(n)).length, 6, 'the restore itself went on');
+    assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /no restore record/);
+  } finally { setRecordMaxBytesForTests(256 * 1024 * 1024); }
 });
