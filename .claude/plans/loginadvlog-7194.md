@@ -15,10 +15,14 @@ agents on a login they had left, and nothing recorded what it had read, so the c
 - No change to what the notice shows or who it names.
 
 ## Decided
-- On change only (a signature of service, email, days or expired, and agents): a standing notice writes its lines once
-  a day as its days count down, and every raise or change is on record. A board with no notice writes nothing.
-- The line names the program read (the base name of `ps eww`'s COMMAND, from the same output, never its arguments or
-  environment), so a pid that has since exited still says what it was.
+- On change only (a signature of service, email, days or expired, and each named agent with the folder and pid read
+  for it): a standing notice writes its lines once a day as its days count down, and every raise, change, move or
+  restart is on record. A board with no notice writes nothing. (Review 3: the agents alone missed #7194's own case,
+  where the notice reads the same while what was read changed.)
+- The line names the program the pid runs (the base name of `ps -o comm=`, never its arguments or environment). It is
+  a second read of that pid, made only when a line is written, so a pid reused between the two reads could pair one
+  process's folder with another's name; accepted, as pids are not reused within seconds here.
+- The email comes from a file, so control characters are stripped before it reaches the line.
 - The log, not /api/status: the record must outlive the moment, and a person should not have to fetch it.
 - No secret is written: a folder path, a process id, a pane name, the email the notice already shows, and the keychain
   service name (not its contents).
