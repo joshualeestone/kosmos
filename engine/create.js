@@ -4612,6 +4612,21 @@ async function accountConnectable({ provider, accountDir } = {}) {
     }
     return { ok: true };
   }
+  /* #7206: a vendor account (DeepSeek), checked the way Qwen's is: its own live check (the vendor's model list, free),
+     never the Claude sign-in probe. Only while the switch is on: off, createAgentInner refuses it right after. */
+  { const compat = require('./anthropiccompat'); const v = compat.vendorOf(prov);
+    if (v) {
+      if (!dir || !compat.enabled()) return { ok: true };
+      try {
+        const listed = compat.list(prov).find((a) => a.dir === require('path').resolve(dir));
+        if (!listed) return { ok: true };   // createAgentInner refuses an unknown account with its own words
+        const live = await compat.checkLive(listed.dir);
+        if (live && live.state === compat.STATE.NONE) return { ok: false, because: `that ${v.name} account cannot be used: ${live.because}` };
+      } catch (err) {
+        console.error('#1916: account liveness precheck errored in ' + prov + ' (failing open):', (err && err.stack) || err);
+      }
+      return { ok: true };
+    } }
   if (prov !== 'anthropic' && prov !== 'openai' && prov !== 'google' && prov !== 'xai') return { ok: true };
 
   /* #3566: Gemini and Grok, now creatable from the page. A NAMED account is checked live
