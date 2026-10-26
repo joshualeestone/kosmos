@@ -30,3 +30,13 @@ silently failed can never photograph an empty room again.
   badge (3 unread), clock text, and cons-* rail state that comes from run order (on their own, this branch is
   pixel-identical to dc4b4e81fc, the commit before #7185). main cannot shoot project-room-held-5800 or
   project-room-held-summary-6925 at all; this branch can. The full list is on the card.
+
+## Challenge loop
+- Iteration 1 (opus): CONVERGED, no BLOCKER or WARNING. Checked: projects.mutate writes the throwaway board's data
+  root (seedFiles sets AGENT_WORKFORCE_DATA before any engine module loads; the same store.ROOT the room log uses),
+  never the person's; the readback compares two strings from one toISOString; projectborn re-reads on the renamed
+  file; every createdAt reader (sort order, roomLive's 24 h, the #7185 filter, tasks) is unchanged or only shows
+  more; the leak guard and preflight still run before any shot.
+  N3 a board-side write racing seed's could put createdAt back after the readback -> accepted: under a millisecond
+  with fake panes, and the worst case is today's empty room. N4 the hold allowance's created-at file slack moves with
+  the date -> accepted: both held screens shoot correctly, and main has no baseline for them.
