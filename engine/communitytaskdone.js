@@ -11,14 +11,20 @@
  * This is the EVENT path, fired from the task-built and task-close server routes, not a timer. It
  * reuses the sweep's gates (the live-execution opt-in, the operator brake, the global community
  * switch, the per-agent community-block membership, the Prompter's switch) and the same block
- * numbers, and is delivered through the same chat.deliverAutomatic the sweep uses (so a busy pane
- * holds it as Queued, #5216 / inputHold). It differs from the sweep in two deliberate ways:
+ * numbers, and is delivered through the same chat.deliverAutomatic the sweep uses. It differs from
+ * the sweep in ONE deliberate way:
  *   - dedup is per TASK, not per cadence: one prompt per (project, task) ever (within a retention
  *     window), so a second built mark on the same task, or a later close of an already-built task,
- *     sends nothing (the card's named test);
- *   - a HELD/queued delivery COUNTS as the prompt (it was placed in the busy agent's box and is
- *     visible as Queued), so it books the dedup. The sweep does the opposite because it retries the
- *     same agent next pass; there is no retry here, and reaching a busy agent is the whole point.
+ *     sends nothing (the card's named test).
+ * Booking otherwise FOLLOWS the sweep. A prompt counts (and books the dedup) only when it actually
+ * reaches the pane: a PLACED delivery, including one typed into a busy, mid-turn composer and
+ * submitted when the turn ends (visible as Queued, #5216). A HELD verdict means chat typed NOTHING:
+ * the agent is paused on a quota/cap/menu/usage-limit/signed-out hold, or its composer already holds
+ * the person's own unsent text (deliverAutomatic's inputHold, heldBy 'input'). The "keep it for the
+ * member's next arrival" that a hold carries is a ROOM-post behaviour; this direct event path posts no
+ * room and never retries, so a HELD delivery does NOT book -- exactly as the sweep leaves a held/busy
+ * delivery unbooked -- and a later mark of the same task may still reach the agent. Reaching a BUSY
+ * (mid-turn, Queued) agent is the whole point; an agent that is paused cannot act on a prompt anyway.
  *
  * "Respect the same daily limits and the community switch" (card): the community switch (global +
  * per-agent), the daily post ceiling (POSTS_PER_DAY_MAX, same as the sweep's `due`), and a per-agent
@@ -126,17 +132,19 @@ function promptOnTaskDone(o) {
     let v = null;
     try { v = o.deliver(session, text); } catch { v = { state: D.UNCONFIRMED }; }   // a throw after the paste is UNCONFIRMED (reached), as chat's contract reads
     const state = v && v.state;
-    const held = Boolean(v && v.held === true);   // inputHold: queued for the busy agent's next arrival (#5216) -> the prompt DID land
+    const reached = state === D.PLACED || state === D.UNCONFIRMED;   // the states where text actually reached the pane
+    const queued = reached && Boolean(v && v.queued === true);   // #5216: PLACED into a busy, mid-turn composer; submitted when the turn ends -> it DID land
+    const held = Boolean(v && v.held === true);   // COULD_NOT + held: the agent is paused (quota/cap/menu/usage-limit/signed-out), or its composer holds the person's own text (inputHold, heldBy 'input'). chat typed NOTHING; the hold's "keep for next arrival" is a room-post behaviour this direct path lacks, so nothing landed and nothing will.
     const busy = Boolean(v && v.busy === true);    // a transient collision placing another line: nothing landed this instant
-    const reached = state === D.PLACED || state === D.UNCONFIRMED;
 
-    // Book the dedup only when the prompt actually landed or was queued (reached OR held). A bare
-    // COULD_NOT (safe to re-send per chat's contract) or a busy collision did NOT land, so leave the
-    // task un-booked: a later mark of the same task may still prompt.
-    if (reached || held) book.set(key, { at: now, session });
+    // Book the dedup ONLY when the prompt actually landed (reached). A HELD verdict (agent paused,
+    // nothing typed), a busy collision, or a bare COULD_NOT did NOT land and chat says re-sending is
+    // safe, so leave the task un-booked: a later mark of the same task (e.g. a close after the build)
+    // may still reach it. This matches the idle sweep, which also leaves a held/busy delivery unbooked.
+    if (reached) book.set(key, { at: now, session });
 
-    const act = held ? 'queued' : (busy ? 'pane-busy' : (reached ? 'prompted' : 'not-reached'));
-    return { session, name, act, delivery: state || null, recorded: reached || held };
+    const act = reached ? (queued ? 'queued' : 'prompted') : (held ? 'held' : (busy ? 'pane-busy' : 'not-reached'));
+    return { session, name, act, delivery: state || null, recorded: reached };
   } catch {
     return skip('error');   // never throws: a prompt is best-effort
   }

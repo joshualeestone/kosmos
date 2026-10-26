@@ -131,12 +131,35 @@ test('the per-agent daily event cap stops a burst', () => {
   assert.equal(td.promptOnTaskDone(setup({ book: old }).o).act, 'prompted');
 });
 
-test('a HELD (queued) delivery counts as the prompt and books the task (#5216 busy agent)', () => {
-  const { o } = setup({ deliver: () => ({ state: D.COULD_NOT, held: true, heldBy: 'input' }) });
+test('a PLACED-into-a-busy-composer (Queued, #5216) delivery DID land: counts and books', () => {
+  // The real "visible as Queued" case: chat types into a mid-turn composer and it is submitted when
+  // the turn ends -> state PLACED with queued:true. This is what reaches a BUSY agent (the card's point).
+  const { o } = setup({ deliver: () => ({ state: D.PLACED, queued: true }) });
   const r = td.promptOnTaskDone(o);
   assert.equal(r.act, 'queued');
   assert.equal(r.recorded, true);
-  assert.equal(o.book.has('proj1\t7'), true, 'a queued prompt must dedup so a second mark sends none');
+  assert.equal(o.book.has('proj1\t7'), true, 'a landed (Queued) prompt must dedup so a second mark sends none');
+});
+
+test('a HELD delivery (agent paused: chat typed NOTHING, no retry on the event path) does NOT book', () => {
+  // deliverAutomatic returns held:true with state COULD_NOT for a quota/cap/menu/usage-limit/signed-out
+  // hold, and via inputHold() for the composer-holds-the-person's-text case (heldBy 'input', also busy:true).
+  // In EVERY one nothing was typed; the hold's "keep for the member's next arrival" is a room-post
+  // behaviour this direct path lacks. Booking it would burn the per-task dedup for a prompt that never
+  // landed and will never be retried -- the defect this test guards. The sweep likewise leaves held unbooked.
+  const heldShapes = [
+    { state: D.COULD_NOT, held: true, heldBy: 'quota' },
+    { state: D.COULD_NOT, held: true, heldBy: 'menu' },
+    { state: D.COULD_NOT, held: true, heldBy: 'limit' },
+    { state: D.COULD_NOT, inputHeld: true, busy: true, held: true, heldBy: 'input' },
+  ];
+  for (const shape of heldShapes) {
+    const { o } = setup({ deliver: () => ({ ...shape }) });
+    const r = td.promptOnTaskDone(o);
+    assert.equal(r.act, 'held', `heldBy=${shape.heldBy} should report act 'held'`);
+    assert.equal(r.recorded, false, `heldBy=${shape.heldBy} must not record`);
+    assert.equal(o.book.has('proj1\t7'), false, `held (heldBy=${shape.heldBy}) must NOT book so a later mark can retry`);
+  }
 });
 
 test('a busy collision does NOT book the task (safe to try again on a later mark)', () => {

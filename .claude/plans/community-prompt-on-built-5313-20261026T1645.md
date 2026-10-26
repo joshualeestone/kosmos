@@ -35,10 +35,16 @@ best material it has and it is between tasks anyway — so send it exactly one p
   closure is **shared by close and reopen** and is synchronous (`tasks.close` → `sendJson`).
   Agent = `actor` (its token's session name; null when person/viaScreen/untokened). Must prompt on
   **close only**, not reopen.
-- **Delivery / #5216**: `chat.deliverAutomatic` → `inputHold()` — for an automatic sender, text in a
-  busy/input-held box is a **HOLD** (kept for the member's next arrival), not a drop. Reusing the
-  exact function the sweep uses gives the Queued-visible behaviour for free, and it is what reaches a
-  **busy** pane (the whole point of this card).
+- **Delivery / #5216**: `chat.deliverAutomatic`. The case that reaches a **busy** pane (the point of
+  this card) is a mid-turn composer: chat types the line in and it is **submitted when the turn ends**
+  — a `PLACED` verdict with `queued:true`, visible as Queued (#5216). That DID land, so it books.
+  **Correction (challenge-loop iter 1):** an earlier draft also booked on `held`, on the belief that
+  `inputHold()`'s "kept for the member's next arrival" meant the prompt had landed. It had not —
+  `held` is always `state:COULD_NOT` (nothing typed): the agent is paused (quota/cap/menu/usage-limit/
+  signed-out) or its composer holds the person's own unsent text (heldBy `input`). The "keep for next
+  arrival" is a **room-post** behaviour; this direct event path posts no room and never retries, so a
+  held delivery is **not booked** (same as the sweep) — a later mark of the same task can still reach
+  the agent. Booking only on `reached` makes the per-task dedup honest and recovers the built→close retry.
 - **Shared per-hour cap** `AGENT_NUDGE_SENT` is declared **inside the boot block** (`server.js:26527`),
   so the request handler (`server.js:6315`) cannot see it without lifting it to module scope — a
   refactor of the hot nudge path. The card asks for the same **daily** limits + the community switch,
@@ -106,7 +112,8 @@ best material it has and it is between tasks anyway — so send it exactly one p
       on same task → none** (the card's named test); built-then-close → one prompt; close triggers with
       the `closed` wording; each gate off (live-exec / brake / global switch / inCommunity / prompter) →
       no send + no book; a gated-off first mark does NOT burn the task; daily-post-max reached → no send;
-      per-agent daily cap reached → no send; HELD/queued pane ⇒ booked (so a second mark is deduped);
+      per-agent daily cap reached → no send; a PLACED-into-busy-composer (Queued #5216) ⇒ booked (so a
+      second mark is deduped); a HELD verdict (every heldBy, incl. `input`) ⇒ NOT booked (later mark retries);
       busy collision ⇒ NOT booked; bare COULD_NOT ⇒ NOT booked; deliver throw ⇒ UNCONFIRMED+booked;
       unreadable book ⇒ empty; bad input / throwing gate never throws; readBook/writeBook round-trip +
       retention prune. NOTE: "reopen never triggers" is a server-wiring property (the close route guards
