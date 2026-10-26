@@ -46,7 +46,7 @@ Per-iteration findings and decisions: .claude/plans/anthrocompat-7206.md, "Slice
 - [NIT] redirect:'manual' has no test --> ACCEPTED (fetch drops Authorization cross-origin anyway)
 
 #### Iteration 2
-- [BLOCKER] a vendor file naming "constructor" took GET /api/accounts down for every provider --> FIXED (own-key lookups; red-checked)
+- [WARNING] a vendor file naming "constructor" took GET /api/accounts down for every provider --> FIXED (own-key lookups; red-checked)
 - [WARNING] the reclaim could race --> FIXED (rename aside, one winner)
 - [WARNING] a launch whose key handoff cannot be built still started --> FIXED (refused; red-checked)
 
