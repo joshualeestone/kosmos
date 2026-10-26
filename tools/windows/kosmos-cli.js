@@ -570,8 +570,10 @@ async function verbMsg(ctx, args) {
 /* #6726: the path sent for --file, made absolute by joining text as install/kosmos's "$PWD/$path" does. Never
    path.resolve: it removes `..` and `.` by text, so the board would not see a `..` it refuses, and through a link or
    junction the shortened path names another file. On Windows only a path on a drive (C:\x or C:/x) is taken. A
-   drive with no folder (C:foo), a folder with no drive (\foo, /foo), a network or device path (\\host\share, \\?\,
-   \\.\), and a relative path from a folder that is not on a drive, are refused (null). p is path.win32 or path.posix,
+   drive with no folder (C:foo), a folder with no drive (\foo, /foo), a network or device namespace path (\\host\share, \\?\,
+   \\.\), and a relative path from a folder that is not on a drive, are refused (null). A device or a
+   stream on a drive (C:\x\NUL, C:\x:s) is spelled like any drive path and goes to the board, which refuses it only
+   once #7221 lands. p is path.win32 or path.posix,
    so both are tested on any machine. */
 function replyFileAbsolute(file, cwd, p) {
   if (p.sep === '\\') {
@@ -581,10 +583,14 @@ function replyFileAbsolute(file, cwd, p) {
     const native = (s) => s.replace(/\//g, '\\');
     if (/^[A-Za-z]:[\\/]/.test(file)) return native(file);
     if (/^[A-Za-z]:/.test(file) || /^[\\/]/.test(file)) return null;
-    const joined = cwd().replace(/[\\/]+$/, '') + '\\' + file;
+    const here = cwd();
+    if (!here) return null;   // the folder could not be read
+    const joined = here.replace(/[\\/]+$/, '') + '\\' + file;
     return /^[A-Za-z]:[\\/]/.test(joined) ? native(joined) : null;
   }
-  return file.startsWith('/') ? file : cwd().replace(/\/+$/, '') + '/' + file;
+  if (file.startsWith('/')) return file;
+  const here = cwd();
+  return here ? here.replace(/\/+$/, '') + '/' + file : null;   // no folder: refused, never joined onto /
 }
 /* #6726: the second usage line install/kosmos prints for reply (tools.windows-kosmos-cli-reply-file-6726.test.js pins it to install/kosmos's). */
 const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
@@ -626,13 +632,17 @@ async function verbReply(ctx, args) {
       /* Review 6726 r7: the typed path first, so a refusal below never echoes an escape sequence or a carriage
          return to the agent's terminal; the joined path is checked again after (the folder can carry one too). */
       if (REPLY_FILE_CONTROL.test(given)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
-      file = replyFileAbsolute(given, ctx.cwd, ctx.pathRules);   // the folder is read only for a relative path
+      // The folder is read only for a relative path; one deleted under the command reads as '' and is refused.
+      const here = () => { try { return ctx.cwd(); } catch { return ''; } };
+      file = replyFileAbsolute(given, here, ctx.pathRules);
       if (file === null) {
         // A relative path refused because the folder it is joined onto is not on a drive: say so, naming that folder.
         const rel = !/^[A-Za-z]:/.test(given) && !/^[\\/]/.test(given);
-        ctx.err(rel
-          ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + ctx.cwd().replace(REPLY_FILE_CONTROL_ALL, '?') + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:\\...).'
-          : 'Give the file\'s full path on this computer, starting with its drive (C:\\...), so nothing was sent: ' + given + ' is not one.');
+        ctx.err(rel && !here()
+          ? 'The folder this command runs in could not be read, so ' + given + ' cannot be joined onto it and nothing was sent. Give the file\'s full path.'
+          : rel
+            ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + here().replace(REPLY_FILE_CONTROL_ALL, '?') + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:/... or C:\\...).'
+            : 'Give the file\'s full path on this computer, starting with its drive (C:/... or C:\\...), so nothing was sent: ' + given + ' is not one.');
         return 2;
       }
       /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. C1 too (U+0080 to U+009F),

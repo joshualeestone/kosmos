@@ -89,6 +89,8 @@ test('#6726 review 1: the Windows path forms, with the Windows path rules on any
   assert.equal(cli.replyFileAbsolute('Files/sub/x.txt', () => cwd, W), 'C:\\Users\\a\\Files\\sub\\x.txt', 'review 10: a joined path is sent with backslashes only');
   assert.equal(cli.replyFileAbsolute('C:/a/../x.txt', () => cwd, W), 'C:\\a\\..\\x.txt', 'the .. survives the swap');
   assert.equal(cli.replyFileAbsolute('C:\\x.txt', () => { throw new Error('the folder was read'); }, W), 'C:\\x.txt', 'review 10: an absolute path never reads the folder');
+  assert.equal(cli.replyFileAbsolute('x.txt', () => '', W), null, 'review 12: no folder, refused');
+  assert.equal(cli.replyFileAbsolute('x.txt', () => '', path.posix), null, 'review 12: no folder is never joined onto /');
   assert.equal(cli.replyFileAbsolute('\\\\srv\\share\\x.txt', () => cwd, W), null, 'a network path was sent (review 3)');
   assert.equal(cli.replyFileAbsolute('//srv/share/x.txt', () => cwd, W), null, 'a network path was sent (review 3)');
   assert.equal(cli.replyFileAbsolute('\\\\?\\C:\\x.txt', () => cwd, W), null, 'a device path was sent (review 3)');
@@ -124,6 +126,11 @@ test('#6726 review 3: under the Windows path rules, reply refuses a path with no
   const escDir = await run(['reply', '--file', 'Files\\x.txt', 'x'], kept, undefined, { ...win, cwd: () => '\\\\host\\s\u001b[2J' });
   assert.equal(escDir.code, 2, escDir.err);
   assert.ok(!escDir.err.includes('\u001b'), 'the folder\'s escape sequence reached the terminal');
+  /* Review 12: a working folder deleted under the command is a refusal, not a crash. */
+  const gone = await run(['reply', '--file', 'Files/x.txt', 'x'], kept, undefined, { cwd: () => { const e = new Error('uv_cwd'); e.code = 'ENOENT'; throw e; } });
+  assert.equal(gone.code, 2, gone.err);
+  assert.match(gone.err, /could not be read/);
+  assert.equal(replies(gone).length, 0);
   /* Review 6: a relative path from a folder that is not on a drive is refused, and the refusal names that folder. */
   const share = await run(['reply', '--file', 'Files\\notes.md', 'x'], kept, undefined, { ...win, cwd: () => '\\\\host\\share\\w' });
   assert.equal(share.code, 2, share.err);
@@ -283,5 +290,10 @@ test('#6726 review 3: the Git Bash shim converts reply --file\'s value, and noth
     assert.equal(sh(['post', 'p1', '--file', '/c/q']), '[post]\n[p1]\n[--file]\n[/c/q]\n');
     assert.equal(sh(['community', 'post', '--body-file', '/tmp/b']), '[community]\n[post]\n[--body-file]\n[CONV:/tmp/b]\n');
     assert.equal(sh(['reply', '--body-file', '/tmp/b', 'x']), '[reply]\n[--body-file]\n[/tmp/b]\n[x]\n');
+    /* Review 12: a reply --file value with a .. is not converted (cygpath would shorten it), in either form; the same
+       value without .. is (the control above). */
+    assert.equal(sh(['reply', '--file', '/c/Users/a/Files/sub/../x.txt', 'x']), '[reply]\n[--file]\n[/c/Users/a/Files/sub/../x.txt]\n[x]\n');
+    assert.equal(sh(['reply', '--file=/c/a/..', 'x']), '[reply]\n[--file=/c/a/..]\n[x]\n');
+    assert.equal(sh(['reply', '--file', '/c/a/..b/x', 'x']), '[reply]\n[--file]\n[CONV:/c/a/..b/x]\n[x]\n', 'a name that only starts with .. is still converted');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

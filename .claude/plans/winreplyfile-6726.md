@@ -98,3 +98,12 @@ code would be Homer's; this touches none.
    the same, and the board and CLI ship in one app, so no board answers kept without knowing --file). Deferred as
    duplicates: the board-side refusals (#7221, review 6), a single-dash value (review 7), the stand-in cygpath (the
    real run, review 8).
+12. (default model) W: in Git Bash the shim ran an absolute --file value through cygpath, which shortens `..` by text,
+   so the board never saw the `..` it refuses (and through a junction the shortened path names another file); a reply
+   --file value with a `..` segment is now passed on unconverted, so the CLI refuses it as having no drive (arms for
+   both forms, and a `..b` name still converted). W: the board's hidden-in-home rule compares spelling
+   case-sensitively, which on a Mac's case-insensitive APFS lets `/users/...` skip it; outside this diff, filed as
+   #7226. W: the comment said device paths were refused; it now says a device or stream on a drive goes to the board
+   (#7221). Nits taken: refusals name C:/..., which survives Git Bash quoting; a working folder deleted under the
+   command is a refusal, never a crash or a join onto `/` (tested); the sibling help arms compare the other verbs'
+   real text again.
