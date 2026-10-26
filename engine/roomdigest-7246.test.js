@@ -142,3 +142,19 @@ test('#7246 review 1: a digest the gate refuses is tried again ten minutes later
     assert.equal(typed.length, 1, 'CONTROL: once the gate lets it through, the digest is told');
   } finally { board.restore(); }
 });
+
+test('#7246 review 2: over KEEP, the oldest posts that ask nothing go first; an old @ post that asks is kept', () => {
+  const plain = Array.from({ length: roomhold.KEEP + 5 }, (_, i) => 'm' + (i + 2));
+  const kept = roomhold.capKept([roomhold.addressedId('m1'), ...plain]);
+  assert.equal(kept.length, roomhold.KEEP);
+  assert.equal(kept[0], roomhold.addressedId('m1'), 'the oldest post, which asks for an answer, was trimmed');
+  assert.ok(!kept.includes('m2') && kept.includes('m' + (roomhold.KEEP + 6)), 'the oldest unasked posts were not the ones dropped');
+  // CONTROL: under the cap nothing changes, order included.
+  assert.deepEqual(roomhold.capKept(['m1', roomhold.addressedId('m2'), 'm3']), ['m1', roomhold.addressedId('m2'), 'm3']);
+  // Through hold itself: a busy hour does not push out the ask.
+  roomhold.hold('kai', 'big', roomhold.addressedId('a1'));
+  for (let i = 0; i < roomhold.KEEP + 3; i += 1) roomhold.hold('kai', 'big', 'p' + i);
+  const held = roomhold.heldIn('kai', 'big');
+  assert.equal(held.length, roomhold.KEEP);
+  assert.equal(held[0], roomhold.addressedId('a1'), 'hold trimmed the ask');
+});

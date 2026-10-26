@@ -225,6 +225,20 @@ function writeAll(name, all) {
 
 /* Keep one post id for this member. Returns false when it could not be kept, so the caller types
    the post as before rather than losing it. */
+/* #7246 review 2: keep at most KEEP ids, oldest first, dropping the oldest that ask NOTHING before any @ post that asks
+   for an answer. A digest room now holds up to an hour of posts, so a busy hour must not push out the one class that
+   has to be told. */
+function capKept(ids) {
+  if (ids.length <= KEEP) return ids;
+  let over = ids.length - KEEP;
+  const out = [];
+  for (const x of ids) {
+    if (over > 0 && !isAddressed(x)) { over -= 1; continue; }
+    out.push(x);
+  }
+  return out.slice(-KEEP);   // only when more than KEEP of them ask: the oldest asks go then
+}
+
 function hold(name, projectId, id) {
   try {
     const all = readAll(name);
@@ -234,7 +248,7 @@ function hold(name, projectId, id) {
     const bare = plainId(id);
     ids.push(isAddressed(id) || prior.includes(addressedId(bare)) ? addressedId(bare)
       : isCapped(id) || prior.includes(cappedId(bare)) ? cappedId(bare) : bare);
-    all[projectId] = ids.slice(-KEEP);
+    all[projectId] = capKept(ids);
     return writeAll(name, all);
   } catch { return false; }
 }
@@ -270,7 +284,7 @@ function restore(name, projectId, ids) {
     const all = readAll(name);
     const back = new Set(ids.map(plainId));
     const since = Array.isArray(all[projectId]) ? all[projectId].filter((x) => !back.has(plainId(x))) : [];
-    all[projectId] = ids.concat(since).slice(-KEEP);
+    all[projectId] = capKept(ids.concat(since));
     return writeAll(name, all);
   } catch { return false; }
 }
@@ -651,4 +665,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
+module.exports = { capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
