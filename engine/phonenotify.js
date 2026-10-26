@@ -507,8 +507,6 @@ function defaultSend(url, headers, body) {
   req.end(body);
 }
 
-/** Tell the coordinator something happened. Never throws, never awaited. Sends
-    only when on, connected, holding a token, and the kind is one we send. */
 /* #7210: a project's notification level, asked of the board's project store (server.js sets it; engine/projects.js
    notifyLevel). Never set (a test, a board that has not wired it): every project reads as 'all'. */
 let projectLevel = null;
@@ -526,6 +524,8 @@ function levelAllows(event, route) {
   return true;
 }
 
+/** Tell the coordinator something happened. Never throws, never awaited. Sends
+    only when on, connected, holding a token, and the kind is one we send. */
 function happened(event) {
   try {
     if (!available) return;

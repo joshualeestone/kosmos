@@ -9793,6 +9793,9 @@ function projectsUnreadTotal(projects, unreadMap) {
   let total = 0;
   for (const p of projects) {
     if (!p || p.archived === true) continue;
+    /* kosmos#7210: a project on Mentions only or Muted keeps its own row's count but adds nothing to the Dock badge or
+       the Projects badge, as a muted conversation does in a messaging app. The page's pjDmTotal leaves it out too. */
+    if (p.notify === 'mentions' || p.notify === 'muted') continue;
     const v = Number(unreadMap[p.id]);
     if (Number.isFinite(v) && v > 0) total += v;
   }
