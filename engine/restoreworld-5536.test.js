@@ -26,6 +26,7 @@ const { createRestoreSink, RECORD_NAME, LOCK_NAME } = require('./restoresink');
 const NOW = new Date(2026, 9, 26, 0, 30).getTime();   // local time, as the world name is
 const DAY = '2026-10-26';
 const nameOk = (n) => /^[a-z0-9][a-z0-9_-]{1,31}$/.test(n);
+const OK = { ok: true };   // runRestore's answer for a restore that succeeded
 
 /* A base the sink accepts (inside the profile on Windows, as restoresink.test.js makes them). */
 const insideHome = (dir) => {
@@ -64,7 +65,7 @@ test('a restore lands in a new "Restored" Kosmos, its workers and projects becom
   writeThrough(sink, 'elsewhere/client/plan.md', 'plan\n');
   sink.close();
 
-  const f = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir });
+  const f = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(f.ok, true, f.because);
   assert.deepEqual(f.moved, ['workers', 'projects']);
   assert.deepEqual(f.kept, ['agents', 'elsewhere']);
@@ -78,7 +79,8 @@ test('a restore lands in a new "Restored" Kosmos, its workers and projects becom
   assert.deepEqual([by.ann.name, by.ann.brief, by.ann.because, by.ann.from, by.ann.runs], ['ann', 'CLAUDE.md', null, 'workers', []]);
   // Offerable, but every file that runs or loads something at start is named for the screen.
   assert.equal(by.eve.because, null);
-  assert.deepEqual(by.eve.runs, ['.claude/settings.json', '.mcp.json', 'CLAUDE.md imports']);
+  assert.deepEqual(by.eve.runs, ['.claude', '.mcp.json', 'CLAUDE.md imports']);
+  assert.equal(by.ann.label, 'ann');
   assert.equal(by.Shouty.name, null);
   assert.match(by.Shouty.because, /folder name cannot be used/);
   assert.match(by.notes.because, /no instructions file/);
@@ -149,14 +151,14 @@ test('finish moves nothing when any check fails, and only from the folder made f
   // Another folder, even one shaped the same, is refused.
   const other = fresh(t);
   fs.mkdirSync(path.join(other, 'workers'));
-  let r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: other });
+  let r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: other, result: OK });
   assert.equal(r.ok, false);
   assert.match(r.because, /not the one made for this Kosmos/);
   assert.ok(fs.existsSync(path.join(other, 'workers')));
 
   // A non-empty target refuses before anything moves: workers is checked first, but projects stays put too.
   fs.writeFileSync(path.join(roots.AGENT_WORKFORCE_PROJECTS, 'already.txt'), 'x');
-  r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir });
+  r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, false);
   assert.match(r.because, /already has files in its projects folder/);
   assert.deepEqual(r.moved, []);
@@ -166,7 +168,7 @@ test('finish moves nothing when any check fails, and only from the folder made f
   // A restored root that is a file is refused.
   fs.rmSync(path.join(p.restoreDir, 'projects'), { recursive: true });
   fs.writeFileSync(path.join(p.restoreDir, 'projects'), 'x');
-  r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir });
+  r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, false);
   assert.match(r.because, /restored projects is not a folder/);
   assert.deepEqual(r.moved, []);
@@ -176,15 +178,15 @@ test('a restore that stopped (its record kept) or is still open (its lock) is ne
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
   fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
-  for (const entry of [RECORD_NAME, LOCK_NAME]) {
+  for (const entry of [RECORD_NAME, LOCK_NAME, RECORD_NAME.toUpperCase()]) {
     fs.writeFileSync(path.join(p.restoreDir, entry), '');
-    const stopped = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir });
+    const stopped = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
     assert.equal(stopped.ok, false, entry);
     assert.match(stopped.because, /has not finished/);
     assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), `${entry}: nothing moved`);
     fs.rmSync(path.join(p.restoreDir, entry));
   }
-  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir });
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, true, r.because);
   assert.deepEqual(r.moved, ['workers']);
   assert.deepEqual(r.kept, []);
@@ -211,4 +213,68 @@ test('listing reads only the restore folder made for the world, refuses links (a
   assert.match(by.linked.because, /link/);
   assert.equal(by.linked.brief, null, 'a link is not opened');
   assert.deepEqual([by['ok-name'].name, by['ok-name'].brief, by['ok-name'].because], ['ok-name', 'AGENTS.md', null]);
+});
+
+test('finish moves nothing unless the restore itself says it succeeded', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  for (const result of [undefined, { ok: false, partial: true }, { ok: 'yes' }]) {
+    const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result });
+    assert.equal(r.ok, false, JSON.stringify(result));
+    assert.match(r.because, /did not succeed/);
+    assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')));
+  }
+});
+
+test('imports anywhere in a line, in any brief, and a brief too big to read in full are all named; a .claude folder of skills alone counts', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  const agent = (name, files) => {
+    for (const [rel, text] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(w, name, rel)), { recursive: true });
+      fs.writeFileSync(path.join(w, name, rel), text);
+    }
+  };
+  agent('inline', { 'CLAUDE.md': '# Inline\r\nsee @~/.ssh/config for details\r\n' });
+  agent('second', { 'CLAUDE.md': '# clean, mail me at a@b.example\n', 'AGENTS.md': '# Codex\n@../../secret\n' });
+  agent('skills', { 'CLAUDE.md': '# skills only\n', '.claude/skills/x/SKILL.md': 'x\n' });
+  agent('big', { 'CLAUDE.md': '# big\n' + 'x'.repeat(512 * 1024) + '\n@tail\n' });
+  agent('plain', { 'CLAUDE.md': '# plain, nothing to load\n' });
+  const by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => [a.folder, a]));
+  assert.deepEqual(by.inline.runs, ['CLAUDE.md imports']);
+  assert.deepEqual(by.second.runs, ['AGENTS.md imports'], 'an e-mail address is not an import; the second brief is read');
+  assert.deepEqual(by.skills.runs, ['.claude']);
+  assert.deepEqual(by.big.runs, ['CLAUDE.md (too large to check in full)']);
+  assert.deepEqual(by.plain.runs, []);
+});
+
+test('a name written to spoof the screen gets a safe label, kept entries too; a linked brief and a linked agents folder are not read', { skip: process.platform === 'win32' ? 'a file symlink needs privileges on Windows' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  const rlo = String.fromCodePoint(0x202e);
+  const spoof = `ann${rlo}dm.exe`;
+  fs.mkdirSync(path.join(w, spoof));
+  fs.writeFileSync(path.join(w, spoof, 'CLAUDE.md'), '# x\n');
+  const outside = fresh(t);
+  fs.writeFileSync(path.join(outside, 'CLAUDE.md'), '# outside\n@~/.ssh/id\n');
+  fs.mkdirSync(path.join(w, 'linkbrief'));
+  fs.symlinkSync(path.join(outside, 'CLAUDE.md'), path.join(w, 'linkbrief', 'CLAUDE.md'));
+  fs.mkdirSync(path.join(outside, 'x9'));
+  fs.symlinkSync(outside, path.join(p.restoreDir, 'agents'));
+  const l = rw.listRestoredAgents({ base, world: p.world, restoreDir: p.restoreDir, nameOk });
+  const by = Object.fromEntries(l.agents.map((a) => [a.folder, a]));
+  assert.deepEqual(Object.keys(by).sort(), [spoof, 'linkbrief'].sort(), 'the linked agents folder was not scanned');
+  assert.equal(by[spoof].label, 'anndm.exe');
+  assert.equal(by.linkbrief.brief, null);
+  assert.match(by.linkbrief.because, /no instructions file/);
+  assert.deepEqual(by.linkbrief.runs, []);
+  // A kept entry is shown by its label as well.
+  fs.rmSync(path.join(p.restoreDir, 'agents'));
+  fs.mkdirSync(path.join(p.restoreDir, `elsewhere${rlo}`));
+  const f = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(f.ok, true, f.because);
+  assert.deepEqual(f.kept, ['elsewhere']);
 });

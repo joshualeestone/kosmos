@@ -36,19 +36,26 @@ const MAX_LISTED = 1000;
 const BRIEFS = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'];
 const MAX_BRIEF_BYTES = 512 * 1024;
 const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);   // Windows: a scanner holding a just-written file
-/* Paths in an agent folder that a provider runs or reads as settings when the agent starts: hooks, MCP servers, an
-   environment file, another provider's settings. Written by whoever made the backup, so the screen must show them. */
-const RUNS_AT_START = ['.claude/settings.json', '.claude/settings.local.json', '.claude/hooks', '.mcp.json', '.envrc',
-  '.codex', '.gemini'];
+/* Paths in an agent folder a provider reads when the agent starts (settings, hooks, skills, commands, MCP servers,
+   local memory, an environment file, another provider's settings). Written by whoever made the backup, so the screen
+   shows them. A starting point, not a complete list of what a provider may read. */
+const RUNS_AT_START = ['.claude', 'CLAUDE.local.md', '.mcp.json', '.envrc', '.codex', '.gemini'];
+/* Fillers and blanks that draw nothing, beside the Cc/Cf/Zl/Zp and private-use classes: braille blank, Hangul fillers. */
+const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
 
-function cleanMember(member) {
-  const s = String(member == null ? '' : member).normalize('NFC')
-    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '')
+/* Attacker-written text made safe to show: control, format, bidi, private-use and blank characters dropped, at most
+   two combining marks per character, spaces collapsed, cut at `max` code points; `fallback` when nothing visible is
+   left. */
+function cleanText(text, max, fallback) {
+  const s = String(text == null ? '' : text).normalize('NFC')
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}]/gu, '')
+    .replace(BLANKS, '')
     .replace(/(\p{M}{2})\p{M}+/gu, '$1')
     .replace(/\s+/g, ' ').trim();
-  const cut = Array.from(s).slice(0, MAX_MEMBER_CHARS).join('').trim();
-  return cut || 'a member';
+  const cut = Array.from(s).slice(0, max).join('').trim();
+  return cut || fallback;
 }
+const cleanMember = (member) => cleanText(member, MAX_MEMBER_CHARS, 'a member');
 
 function dayOf(now) {
   const d = new Date(Number.isFinite(now) ? now : Date.now());
@@ -111,13 +118,15 @@ function renameRetrying(src, dst) {
   }
 }
 
-/* After a restore that SUCCEEDED, and after its sink is closed. opts: { base, world, restoreDir }.
-   { ok, moved: [name], kept: [entry], because? }. Every check runs before anything moves, so a refusal moves nothing;
+/* After a restore that SUCCEEDED, and after its sink is closed. opts: { base, world, restoreDir, result } where
+   `result` is engine/restorerun.js runRestore's answer, which must be ok. { ok, moved: [name], kept: [label],
+   because? }. Every check runs before anything moves, so a refusal moves nothing;
    only a rename failing part way leaves one root moved, and `moved` says which. */
 function finishRestoreWorld(opts = {}) {
   const { base, world, restoreDir } = opts;
   const dir = worldDirOf(base, world);
   if (!dir) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
+  if (!opts.result || opts.result.ok !== true) return { ok: false, moved: [], kept: [], because: 'the restore did not succeed, so its files stay where it can continue' };
   if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) {
     return { ok: false, moved: [], kept: [], because: 'the restore folder is not the one made for this Kosmos' };
   }
@@ -126,7 +135,7 @@ function finishRestoreWorld(opts = {}) {
   let names;
   try { names = fs.readdirSync(restoreDir); } catch { names = null; }
   if (!names) return { ok: false, moved: [], kept: [], because: 'the restore folder could not be read' };
-  if (names.some((n) => n.startsWith(TEMP_PREFIX))) {
+  if (names.some((n) => n.toLowerCase().startsWith(TEMP_PREFIX))) {   // folded, as the sink reserves them
     return { ok: false, moved: [], kept: [], because: 'this restore has not finished, so its files stay where it can continue' };
   }
   const roots = worlds.envOverridesFor(base, world);
@@ -152,9 +161,12 @@ function finishRestoreWorld(opts = {}) {
       fs.rmdirSync(dst);
       renameRetrying(src, dst);
       moved.push(name);
-    } catch {
-      try { fs.mkdirSync(dst); } catch { /* it may still be there */ }
-      return { ok: false, moved, kept: keptIn(restoreDir), because: `the restored ${name} could not be moved into the new Kosmos` };
+    } catch (e) {
+      let back = true;
+      try { if (!realDir(dst)) fs.mkdirSync(dst); } catch { back = false; }
+      const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
+      return { ok: false, moved, kept: keptIn(restoreDir),
+        because: `the restored ${name} could not be moved into the new Kosmos${code}${back ? '' : `, and its empty ${name} folder could not be put back`}` };
     }
   }
   return { ok: true, moved, kept: keptIn(restoreDir) };
@@ -163,37 +175,37 @@ function finishRestoreWorld(opts = {}) {
 function keptIn(restoreDir) {
   let names = [];
   try { names = fs.readdirSync(restoreDir); } catch { return []; }
-  return names.sort();
+  return names.sort().map((n) => cleanText(n, MAX_MEMBER_CHARS, '(a name that cannot be shown)'));
 }
 
-function briefIn(folder) {
-  for (const b of BRIEFS) {
-    try { if (fs.lstatSync(path.join(folder, b)).isFile()) return b; } catch { /* next */ }
-  }
-  return null;
+/* Every brief in the folder that is a plain file (a link is not one), in BRIEFS order. */
+function briefsIn(folder) {
+  return BRIEFS.filter((b) => { try { return fs.lstatSync(path.join(folder, b)).isFile(); } catch { return false; } });
 }
 
 /* What in an agent folder runs or loads something at start: RUNS_AT_START paths that exist (a link counts, unopened),
-   and `@` import lines in its brief. */
-function runsIn(folder, brief) {
+   and `@` imports (at a line start or after a space) in any brief. */
+function runsIn(folder, briefs) {
   const out = [];
   for (const rel of RUNS_AT_START) {
-    try { fs.lstatSync(path.join(folder, ...rel.split('/'))); out.push(rel); } catch { /* absent */ }
+    try { fs.lstatSync(path.join(folder, rel)); out.push(rel); } catch { /* absent */ }
   }
-  if (brief) {
+  for (const brief of briefs) {
     try {
-      const fd = fs.openSync(path.join(folder, brief), 'r');   // briefIn found it a plain file with lstat
+      const fd = fs.openSync(path.join(folder, brief), 'r');   // briefsIn found it a plain file with lstat
       try {
-        const buf = Buffer.alloc(MAX_BRIEF_BYTES);
-        const n = fs.readSync(fd, buf, 0, MAX_BRIEF_BYTES, 0);
-        if (/^[ \t]*@\S/m.test(buf.subarray(0, n).toString('utf8'))) out.push(`${brief} imports`);
+        const buf = Buffer.alloc(MAX_BRIEF_BYTES + 1);
+        const n = fs.readSync(fd, buf, 0, MAX_BRIEF_BYTES + 1, 0);
+        if (/(^|\s)@[^\s@]/.test(buf.subarray(0, Math.min(n, MAX_BRIEF_BYTES)).toString('utf8'))) out.push(`${brief} imports`);
+        if (n > MAX_BRIEF_BYTES) out.push(`${brief} (too large to check in full)`);
       } finally { fs.closeSync(fd); }
     } catch { out.push(`${brief} (could not be read)`); }
   }
   return out;
 }
 
-/* opts: { base, world, restoreDir, nameOk? }. { agents: [{ folder, from, name, dir, brief, runs, because }], more }.
+/* opts: { base, world, restoreDir, nameOk? }. { agents: [{ folder, label, from, name, dir, brief, runs, because }],
+   more }. `folder` is the name on disk, as written by whoever made the backup; `label` is it made safe to show.
    `because` null means the screen may offer to enable it (create.installJob on that name, under this world's roots);
    otherwise it is the plain reason it cannot be. `runs` lists what would run or load at start, for the screen to show
    before any enable. Nothing is registered, started or written. */
@@ -212,15 +224,17 @@ function listRestoredAgents(opts = {}) {
       const at = path.join(parent, folder);
       let st;
       try { st = fs.lstatSync(at); } catch { continue; }
-      if (st.isSymbolicLink()) { agents.push({ folder, from, name: null, dir: at, brief: null, runs: [], because: 'it is a link to somewhere else, so it was not opened' }); continue; }
+      const label = cleanText(folder, MAX_MEMBER_CHARS, '(a name that cannot be shown)');
+      if (st.isSymbolicLink()) { agents.push({ folder, label, from, name: null, dir: at, brief: null, runs: [], because: 'it is a link to somewhere else, so it was not opened' }); continue; }
       if (!st.isDirectory()) continue;
-      const brief = briefIn(at);
+      const briefs = briefsIn(at);
+      const brief = briefs[0] || null;
       let because = null, name = null;
       if (from === 'elsewhere') because = 'its folder was kept outside the workers folder, so it cannot be started from where it is';
       else if (!nameOk(folder)) because = 'its folder name cannot be used to start it here';
       else name = folder;
       if (!because && !brief) because = 'it has no instructions file, so it may not be an agent';
-      agents.push({ folder, from, name, dir: at, brief, runs: runsIn(at, brief), because });
+      agents.push({ folder, label, from, name, dir: at, brief, runs: runsIn(at, briefs), because });
     }
   };
   scan(roots.AGENT_WORKFORCE_WORKERS, 'workers');
