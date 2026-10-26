@@ -134,7 +134,8 @@ function shareTail(p) {
    one such project row cannot make every agent's project attach refuse (reviews 8, 12 and 23). */
 function mayHold(folder, given, real) {
   if (writtenInside(given, folder) || writtenInside(real, folder)) return true;
-  if (isNetworkSpelling(folder) && !shareOf(folder)) return !isNoFileNamespace(folder);
+  const cf = classify(folder);
+  if (cf.networkSpelled && !cf.share) return cf.kind !== 'no-file-namespace';
   const f = asWritten(folder);
   if ((!!driveOf(f) || isPlainShare(f)) && [given, real].some((p) => insideAllowingShortNames(asWritten(p), f))) return true;
   const ft = shareTail(folder);
