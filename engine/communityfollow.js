@@ -283,9 +283,10 @@ async function readFollowing(agentKey) {
   // The posts communityhome does not count as new (shown here, or commented on from this board), so a read pages for
   // exactly the posts the count names.
   let done;
-  // Home's own DAY_MS, so a counted post here is one home counts (#7172). Unloadable: none counts, unseen go newest first.
+  // Home's own DAY_MS, so a counted post here is one home counts (#7172), read before doneFollowing can throw. Home
+  // unloadable: none counts, and unseen posts go newest first.
   let dayMs = NaN;
-  try { const home = require('./communityhome'); done = home.doneFollowing(agentKey); dayMs = home.DAY_MS; } catch { done = followingSeen(agentKey); }
+  try { const home = require('./communityhome'); dayMs = home.DAY_MS; done = home.doneFollowing(agentKey); } catch { done = followingSeen(agentKey); }
   const unseen = (it) => isPost(it) && !done.has(String(it.id || '').toLowerCase());
   const postCount = page.filter(isPost).length;
   // kosmos#7172: every older page is read, up to FEED_PAGES_MAX and within the time bounds.
