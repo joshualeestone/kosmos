@@ -288,9 +288,7 @@ async function readFollowing(agentKey) {
   try { const home = require('./communityhome'); done = home.doneFollowing(agentKey); dayMs = home.DAY_MS; } catch { done = followingSeen(agentKey); }
   const unseen = (it) => isPost(it) && !done.has(String(it.id || '').toLowerCase());
   const postCount = page.filter(isPost).length;
-  // kosmos#7172: every older page is read (up to FEED_PAGES_MAX, within the time bounds), so the posts closest to the
-  // depth edge are known. When a page fails or times out, the posts past it are unknown to this read, so the deepest
-  // first order below is over what arrived.
+  // kosmos#7172: every older page is read, up to FEED_PAGES_MAX and within the time bounds.
   const inHand = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
   const older = [];   // the older pages' posts not already in hand, each once, in the feed's order (newest first)
   let cursor = r.json.next_cursor;
@@ -315,7 +313,8 @@ async function readFollowing(agentKey) {
      between two reads a counted post is never lost; more than that can still lose one (the moving-feed test pins
      both). Older unseen posts fill next, newest first. Already-shown ones fill only up to POSTS_WANTED posts in all,
      the newest page's included, so a page of replies still offers a post. */
-  const counted = (it) => unseen(it) && Date.parse(it.created_at) > Date.now() - dayMs;
+  // Only a post whose id noteSeen can record: one it cannot would stay the deepest and take a place on every read.
+  const counted = (it) => unseen(it) && UUID_RE.test(String(it.id || '')) && Date.parse(it.created_at) > Date.now() - dayMs;
   const take = older.filter(counted).reverse()
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);

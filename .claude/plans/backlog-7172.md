@@ -18,7 +18,9 @@ at the same depth, so the loss was invisible.
 Guarantee: depth is counted in feed ITEMS (replies included). With at most POSTS_WANTED new items between two reads, no
 counted post is lost: the bottom slots that sink past the depth before the next read hold at most that many counted
 unseen posts, and the read just took the deepest ones. It holds only when every page was read: a page that fails or
-times out ends the paging, and the posts past it are unknown to that read.
+times out ends the paging, and the posts past it are unknown to that read. Paging now runs on every read, so a busy
+call chain or a limited service bucket ends it early more often, on exactly the tail this protects. A counted post must
+have a UUID id (one noteSeen can record): one that cannot be recorded would stay the deepest and take a place every read.
 
 ## Rejected
 - A larger POSTS_WANTED: makes every read longer and still loses at a higher arrival rate.

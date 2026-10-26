@@ -710,8 +710,9 @@ test('#7150 read --following: posts already shown give way to the next unseen on
     // The same feed again: the newest page is shown as it was.
     b.st.feedCalls = [];
     const second = await cf.readFollowing('mara');
-    assert.deepEqual(b.st.feedCalls, [null, 'c1']);
+    assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the page behind the newest was not read again');
     assert.ok(second.text.includes('POST1'), 'CONTROL: the newest page is still shown as it was');
+    assert.ok(!second.text.includes('POST4'), 'a shown older post filled a page that already has POSTS_WANTED posts: ' + second.text);
     // All six shown: an already-shown older post does not fill a page that already has POSTS_WANTED posts.
     b.st.feedCalls = [];
     const third = await cf.readFollowing('mara');
@@ -756,6 +757,12 @@ test('#7172 read --following: behind the newest page, the DEEPEST counted posts 
     assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [1, 2, 6], 'counted first, then the newest older unseen post');
     // Again: 7 is the only unseen one; already-shown posts fill up to POSTS_WANTED, newest first.
     assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [1, 2, 7], 'shown posts did not fill after the last unseen one');
+    // A post whose id cannot be recorded as shown is never counted, so it cannot keep the deepest place: the three
+    // counted ones above it are taken first.
+    fresh(); await cf.follow('mara', 'quill');
+    const odd = { ...post(14, 7), id: 'not-a-uuid' };
+    b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(11, 2), post(12, 3)], [post(13, 4), odd]];
+    assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [11, 12, 13], 'a post with no recordable id took a counted place');
   } finally { await b.close(); }
 });
 
