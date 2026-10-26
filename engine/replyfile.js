@@ -229,16 +229,21 @@ function libraryOpen(chain, k, rootDepth) {
   return false;
 }
 
-function allowedRoot(sessionName, real, roster, given, filesDir = dmfiles.filesDir(sessionName)) {
+function allowedRoot(sessionName, real, roster, given, filesDir = dmfiles.filesDir(sessionName), { projectList, win = false } = {}) {
   const chain = chainOf(real);
   const filesReal = filesRoot(sessionName, filesDir);
   if (filesReal && chain[1] && chain[1].id && chain[1].id === idOf(filesReal)) return { root: filesReal };
-  let all = [];
-  try { all = projects.readAll(); } catch { all = []; }
+  let all = projectList;
+  if (!Array.isArray(all)) { try { all = projects.readAll(); } catch { all = []; } }
+  /* #7221 review 1 finding 3: on Windows, a project folder written as a share (\\host\share, which any agent can
+     register with `kosmos project create`) is not resolved for a file that is not itself on a share: its real path
+     is a share path, so it cannot be a folder above a local file, and resolving it is the SMB contact this guards. */
+  const localFile = !(win && isNetworkSpelling(real));
   /* The deepest project holding the file, by identity: the one whose folder is nearest the file in its chain. */
   let best = null;
   for (const p of all) {
     if (!p || typeof p.folder !== 'string' || !p.folder) continue;
+    if (win && localFile && NAMESPACE.test(p.folder)) continue;
     let root = null;
     try { root = projects.folderState(p.folder).real; } catch { root = null; }
     const rid = root ? idOf(root) : null;
@@ -314,9 +319,15 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    2. The links: each part of the path is lstat'd; a link's target is read (readlink), refused when it is a network
       or device path or on a drive outside the roots, and otherwise followed the same way, part by part. Only then is
       the path resolved.
-   3. The real path, once resolved: a network path or a device name there is refused too (a second guard).
-   ⚠️ What this does not close: a link swapped to point at a share between the walk and the realpath. The open is
-   still refused (the real path is checked before it), but the realpath may already have made the contact. */
+   3. The real path, once resolved: a network path or a device name there is refused too (a second guard), except
+      for a file named on one of the agent's own project drives, since a project may live on a mapped drive.
+   And allowedRoot does not resolve a project folder written as a share for a local file (review 1 finding 3).
+   ⚠️ What this does not close (review 1 finding 3, named): (a) a link swapped to point at a share between the walk
+   and the realpath: the open is still refused, but the realpath may already have made the contact; (b) the OTHER
+   folders an attach resolves to judge containment: a project folder on a drive letter that is mapped to a share
+   (only a written \\ is skipped; telling a mapped letter apart needs a call Node does not have), and the folders
+   Kosmos itself made (the Files folder and its parent, each agent's folder, ~/.ssh, ~/.config), which a person or
+   a process of this user would have to replace with a link to a share. */
 const ON_NETWORK = 'that path is on another computer on the network, or names a device, so it cannot be attached; copy the file into your Files folder and attach it from there';
 const DEVICE_NAME = 'that name belongs to a Windows device, not a file, so it cannot be attached';
 const NAMESPACE = /^[\\/]{2}/;                                   // \\host\share, //host/share, \\?\..., \\.\...
@@ -332,15 +343,26 @@ function driveOf(p) {
   const m = /^([A-Za-z]):/.exec(String(p).replace(LOCAL_LONG, ''));
   return m ? m[1].toUpperCase() : null;
 }
-/* The drive letters the agent's roots are on, read from how they are written, with no filesystem call. */
-function rootDrives(sessionName, filesDir) {
-  const out = new Set();
-  const add = (p) => { const d = typeof p === 'string' ? driveOf(p) : null; if (d) out.add(d); };
-  add(filesDir);
-  let all = [];
-  try { all = projects.readAll(); } catch { all = []; }
-  for (const p of all) if (p && (p.agents || []).includes(sessionName)) add(p.folder);
-  return out;
+/* The drive letters the agent's roots are on, read from how they are written, with no filesystem call: `all` for
+   every root, `projects` for the agent's project folders alone. A project may live on a mapped drive (projects.js
+   opens "a Z:\ record whose realpath is \\server\share"), and a file there resolves to a network path; that is the
+   person's own choice of folder, so winRealRefusal lets a network real path through only when the file was named on
+   one of these project drives (review 1 finding 2). A Files folder Kosmos made is never on a share. */
+function rootDrives(sessionName, filesDir, projectList) {
+  const all = new Set();
+  const projectDrives = new Set();
+  const driveOfString = (p) => (typeof p === 'string' ? driveOf(p) : null);
+  const filesDrive = driveOfString(filesDir);
+  if (filesDrive) all.add(filesDrive);
+  for (const p of projectList) {
+    if (!p || !(p.agents || []).includes(sessionName)) continue;
+    const d = driveOfString(p.folder);
+    if (d) { all.add(d); projectDrives.add(d); }
+  }
+  return { all, projects: projectDrives };
+}
+function readProjects() {
+  try { return projects.readAll(); } catch { return []; }
 }
 /* The refusal for a Windows path by its spelling alone, or null. Called before anything touches the path. */
 function winSpellingRefusal(given, drives) {
@@ -370,11 +392,13 @@ function winLinkRefusal(p, drives, hops = 0) {
   for (let i = 0; i < parts.length; i++) {
     cur = path.win32.join(cur, parts[i]);
     let lst;
-    try { lst = fs.lstatSync(cur); } catch {
-      /* Missing, or there but unreadable. A junction aimed at a share (Windows lets a junction name only a local
-         volume) lstats ENOENT and readlinks EINVAL, yet its folder lists it as a link (measured 2026-10-26). So the
-         folder is asked, a local read: an entry under that name is a link this walk cannot follow, and is refused
-         rather than handed to realpath. No entry: really missing, and the realpath that follows says so. */
+    try { lst = fs.lstatSync(cur); } catch (err) {
+      /* ENOENT: missing, or a junction aimed at a share (Windows lets a junction name only a local volume), which
+         lstats ENOENT and readlinks EINVAL while its folder lists it as a link (measured 2026-10-26). So the folder is
+         asked, a local read: an entry under that name is a link this walk cannot follow, refused rather than handed
+         to realpath; no entry is really missing, and the realpath that follows says so. Any other error (EACCES,
+         EPERM) is a part that cannot be read, said as that (review 1 finding 4). */
+      if (!err || err.code !== 'ENOENT') return 'that file could not be read';
       return listed(cur) ? UNREADABLE_LINK : null;
     }
     if (!lst.isSymbolicLink()) continue;
@@ -386,8 +410,8 @@ function winLinkRefusal(p, drives, hops = 0) {
   }
   return null;
 }
-function winRealRefusal(real) {
-  if (isNetworkSpelling(real)) return ON_NETWORK;
+function winRealRefusal(real, given, projectDrives) {
+  if (isNetworkSpelling(real) && !projectDrives.has(driveOf(given))) return ON_NETWORK;
   if (isDevicePart(path.win32.basename(real))) return DEVICE_NAME;
   return null;
 }
@@ -401,10 +425,13 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
   if (!path.isAbsolute(given)) return { ok: false, because: 'give the full path of the file to attach' };
   if (given.split(/[\\/]/).includes('..')) return { ok: false, because: 'a path with .. in it cannot be attached; give the file\'s own full path' };
   const win = platform === 'win32';
-  /* Read once on Windows and handed on, so an attach still reads each agent's instructions path once (r5-3). */
+  /* Read once on Windows and handed on: an attach still reads each agent's instructions path once (r5-3), and the
+     projects list once (review 1 finding 6). Elsewhere allowedRoot reads both itself, as before. */
   const filesDir = win ? dmfiles.filesDir(sessionName) : undefined;
+  const projectList = win ? readProjects() : undefined;
+  const drives = win ? rootDrives(sessionName, filesDir, projectList) : null;
   if (win) {
-    const why = winLinkRefusal(given, rootDrives(sessionName, filesDir));
+    const why = winLinkRefusal(given, drives.all);
     if (why) return { ok: false, because: why };
   }
   let real;
@@ -412,7 +439,7 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
     return { ok: false, because: err && err.code === 'ENOENT' ? 'there is no file at ' + given : 'that file could not be read' };
   }
   if (win) {
-    const why = winRealRefusal(real);
+    const why = winRealRefusal(real, given, drives.projects);
     if (why) return { ok: false, because: why };
   }
   let st;
@@ -420,7 +447,7 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
   if (st.isDirectory()) return { ok: false, because: 'that is a folder; attach one file at a time' };
   if (!st.isFile()) return { ok: false, because: 'that is not an ordinary file, so it cannot be attached' };
   if (st.nlink > 1) return { ok: false, because: HARD_LINK };
-  const where = allowedRoot(sessionName, real, roster, given, filesDir);
+  const where = allowedRoot(sessionName, real, roster, given, filesDir, { projectList, win });
   if (!where) return { ok: false, because: NOT_YOURS };
   if (where.refused) return { ok: false, because: where.refused };
   if (st.size > attachments.MAX_BYTES) {

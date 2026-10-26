@@ -95,11 +95,18 @@ test.before(() => {
   fs.mkdirSync(FILES, { recursive: true });
   fs.mkdirSync(OUTSIDE, { recursive: true });
   fs.writeFileSync(path.join(FILES, 'report.txt'), 'the report\n');
-  // The agent's Files folder and its (empty) projects, as the board would answer them for this agent.
+  // The agent's Files folder and its projects (none unless an arm sets PROJECTS), as the board would answer them.
   dmfiles.filesDir = (name) => (name === WHO ? FILES : null);
-  projects.readAll = () => [];
+  projects.readAll = () => PROJECTS;
 });
-test.afterEach(() => { if (WIN) replyfile.setRealpathForTests(null); });
+let PROJECTS = [];
+const realFolderState = projects.folderState;
+test.afterEach(() => {
+  if (!WIN) return;
+  replyfile.setRealpathForTests(null);
+  PROJECTS = [];
+  projects.folderState = realFolderState;
+});
 
 const winOnly = { skip: !WIN && 'the Windows board rule; links and device names mean this only on win32' };
 
@@ -179,4 +186,39 @@ test('#7221: a real path that turns out to be a share, or a device, is refused b
   r = replyfile.attach(WHO, path.join(FILES, 'report.txt'), { platform: 'win32' });
   assert.notEqual(r.because, replyfile.ON_NETWORK, 'a \\\\?\\C:\\ real path is not refused as a network path: ' + JSON.stringify(r));
   if (r.ok) replyfile.discard(r.rec);
+});
+
+test('#7221 review 1-2: a file named on one of the agent\'s project drives may resolve to a share (a mapped drive); one named on its Files drive may not', winOnly, () => {
+  /* The project's drive is one no real folder here is on, and the walk finds nothing on it to follow; the seam then
+     answers the share path a mapped drive resolves to. 127.0.0.1 with no such share fails fast, so the read after the
+     guard refuses for its own reason, and the arm asserts only that the NETWORK guard let the project file through. */
+  const here = path.parse(FILES).root[0].toUpperCase();
+  const mapped = 'QRSTUVWXYZ'.split('').find((d) => d !== here && !fs.existsSync(d + ':\\'));
+  PROJECTS = [{ id: 'p-7221', name: 'Mapped', folder: mapped + ':\\proj', agents: [WHO] }];
+  const shareReal = '\\\\127.0.0.1\\nosuchshare7221\\proj\\f.txt';
+  replyfile.setRealpathForTests(() => shareReal);
+  const onProject = replyfile.attach(WHO, mapped + ':\\proj\\f.txt', { platform: 'win32' });
+  assert.equal(onProject.ok, false);
+  assert.notEqual(onProject.because, replyfile.ON_NETWORK, 'a mapped-drive project file is not refused as a network path: ' + JSON.stringify(onProject));
+  // CONTROL: the same share real path for a file named in Files (Kosmos's own folder, never on a share) is refused
+  const inFiles = replyfile.attach(WHO, path.join(FILES, 'report.txt'), { platform: 'win32' });
+  assert.deepEqual([inFiles.ok, inFiles.because], [false, replyfile.ON_NETWORK]);
+});
+
+test('#7221 review 1-3: a project folder written as a share is never resolved to judge a local file', winOnly, () => {
+  const proj = path.join(SANDBOX, 'proj');
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'notes.txt'), 'project notes\n');
+  PROJECTS = [
+    { id: 'p-share', name: 'Share', folder: '\\\\10.255.255.1\\share\\proj', agents: ['someone-else'] },
+    { id: 'p-local', name: 'Local', folder: proj, agents: [WHO] },
+  ];
+  const resolved = [];
+  projects.folderState = (folder) => { resolved.push(folder); return realFolderState(folder); };
+  const t = Date.now();
+  const r = replyfile.attach(WHO, path.join(proj, 'notes.txt'), { platform: 'win32' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(resolved, [proj], 'only the local project folder was resolved');
+  assert.ok(Date.now() - t < 2000, 'no network attempt on the way');
+  replyfile.discard(r.rec);
 });
