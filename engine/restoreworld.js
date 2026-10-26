@@ -49,6 +49,8 @@ const HARMLESS = new Set(['.DS_Store']);   // Finder's own metadata, which no pr
    default), or HEAD with a commondir file naming where they are. A top-level HEAD is therefore treated as git. */
 const BARE = 'HEAD (git can read a folder holding it as a repository)';
 const CUT = '(the folder holds more entries than were checked)';
+const UNREADABLE = '(the folder could not be read)';
+const GIT_WHY = 'git runs its settings here (hooks, fsmonitor) when an agent uses git in this folder';
 /* Fillers and blanks that draw nothing, beside the Cc/Cf/Zl/Zp and private-use classes: braille blank, Hangul fillers. */
 const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
 
@@ -106,7 +108,9 @@ function prepareRestoreWorld(base, opts = {}) {
     // under the hidden row and is never handed to this restore: only a world whose folders are all new and empty is.
     if (!freshWorld(worlds.worldBaseDir(base, world))) {
       // Set aside before the next name is tried: left on the list, its unreviewed folders would be one switch away.
-      try { hide(base, world.id); } catch { return { ok: false, because: 'a Kosmos folder already on this computer under that name could not be set aside' }; }
+      try { hide(base, world.id); } catch {
+        return { ok: false, because: `a Kosmos folder already on this computer under that name could not be set aside, so "${world.name}" is on your list holding files from before this restore; hide it before you open it` };
+      }
       world = null;
     }
   }
@@ -116,8 +120,10 @@ function prepareRestoreWorld(base, opts = {}) {
   try {
     fs.mkdirSync(restoreDir, { mode: 0o700 });   // not recursive: it must be new, and the sink refuses a non-empty root
   } catch {
-    try { hide(base, world.id); } catch { /* the refusal is the news */ }
-    return { ok: false, because: 'the folder for the restore could not be made, so the new Kosmos was hidden again' };
+    let hidden = true;
+    try { hide(base, world.id); } catch { hidden = false; }
+    return { ok: false, because: hidden ? 'the folder for the restore could not be made, so the new Kosmos was hidden again'
+      : `the folder for the restore could not be made, and the new, empty Kosmos "${world.name}" could not be hidden again` };
   }
   return { ok: true, world, dir, restoreDir };
 }
@@ -193,7 +199,7 @@ function finishRestoreWorld(opts = {}) {
     const dst = target[name];
     if (!realDir(dst)) return { ok: false, moved: [], kept: [], because: `the new Kosmos has no ${name} folder to receive it` };
     let inside;
-    try { inside = fs.readdirSync(dst); } catch { inside = null; }
+    try { inside = fs.readdirSync(dst).filter((n) => !HARMLESS.has(n)); } catch { inside = null; }   // Finder's own file does not count
     if (!inside || inside.length) return { ok: false, moved: [], kept: [], because: `the new Kosmos already has files in its ${name} folder` };
     plan.push({ name, src, dst });
   }
@@ -202,6 +208,7 @@ function finishRestoreWorld(opts = {}) {
   const moved = [];
   for (const { name, src, dst } of plan) {
     try {
+      for (const n of HARMLESS) { try { fs.unlinkSync(path.join(dst, n)); } catch { /* absent */ } }
       fs.rmdirSync(dst);
       renameRetrying(src, dst);
       moved.push(name);
@@ -280,7 +287,7 @@ const isGit = (runs) => runs.some((r) => r === BARE || r.toLowerCase() === GIT);
    `@` imports in any brief. `budget.left` is the brief bytes the whole listing may still read. */
 function runsIn(folder, budget) {
   const listed = namesIn(folder, MAX_ENTRIES_READ);
-  if (!listed) return ['(the folder could not be read)'];
+  if (!listed) return [UNREADABLE, ...gitIn(folder)];   // git still finds what lstat can see
   const out = [];
   for (const n of listed.names.filter((x) => x.startsWith('.') && !HARMLESS.has(x))) out.push(labelOf(n));
   if (listed.cut) out.push(CUT);
@@ -377,6 +384,7 @@ function listRestoredAgents(opts = {}) {
       // NTFS aliases of .git (a trailing dot or space, an 8.3 short name) are refused by restoresink.js plainSegments
       // for anything the restore wrote; gitIn's lstat answers for what else is there.
       if (!because && isGit(runs)) because = 'it holds a git folder, whose settings can run commands as soon as it starts';
+      if (!because && runs.includes(UNREADABLE)) because = 'its folder could not be read, so what it loads at start could not be seen';
       if (runs.includes(CUT)) {
         more = true;
         if (!because) because = 'it holds more entries than were checked, so what it loads at start could not all be seen';
@@ -387,6 +395,7 @@ function listRestoredAgents(opts = {}) {
   const pr = roots.AGENT_WORKFORCE_PROJECTS;
   const projectsTop = pr && realDir(pr) ? runsIn(pr, budget) : [];
   if (projectsTop.includes(CUT)) more = true;
+  if (isGit(projectsTop)) projectsTop.push(GIT_WHY);
   if (projectsTop.length) shared.push({ where: 'projects', label: '(the projects folder itself)', runs: projectsTop });
   scan(roots.AGENT_WORKFORCE_WORKERS, 'workers', workersNames);
   if (listable && opts.restoreDir === path.join(worldDir, RESTORE_DIR)) {
@@ -398,6 +407,7 @@ function listRestoredAgents(opts = {}) {
     if (!isTopFolder(pr, n)) { shared.push({ where: 'projects', label: labelOf(n), runs: gitRow(n) }); continue; }
     const runs = realDir(path.join(pr, n)) ? runsIn(path.join(pr, n), budget) : ['it is a link'];
     if (runs.includes(CUT)) more = true;
+    if (isGit(runs)) runs.push(GIT_WHY);
     if (runs.length) shared.push({ where: 'projects', label: labelOf(n), runs });
   }
   if (gitAbove) {   // folded: APFS and NTFS read .GIT as .git

@@ -98,6 +98,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    Deferred as duplicates: nested folders (round 5's residual); git at the world folder (Kosmos-made, fresh-checked at
    creation, same-user residual, added below).
 
+11. W: a leftover world that could not be hidden stayed on the list unnamed (the refusal now names it, and the test
+   checks the registry); runsIn failed open on a folder it could not list (git is now asked by lstat anyway, and such
+   an agent is refused); a project's git row carried no reason (now it says git runs its settings there). Nits: the
+   "hidden again" sentence is now true on both paths; a lone .DS_Store in an empty target no longer blocks finish.
+   Deferred: finish and keptIn read the restore folder unbounded (the restore wrote every entry first).
+
 ## Residuals, stated
 - Git discovery walks above the workers folder into the world folder and its base. Both are made by Kosmos and the
   world folder is checked fresh when created; nothing re-checks them after the move.
