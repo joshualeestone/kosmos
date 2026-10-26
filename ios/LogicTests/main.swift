@@ -266,6 +266,11 @@ check(Shell.notUpdatingLine("tmnt") == "Not updating. tmnt isn't answering." && 
 check(BoardClient.Phase.unreachable(mac: "10102026").macName == "10102026" && BoardClient.Phase.live(mac: Board.Mac(name: "tmnt", address: "tmnt.kosmosplus.com", usable: true)).macName == "tmnt"
       && BoardClient.Phase.starting.macName == nil, "a phase names its Mac, or none")
 check(Board.sessionRequest(mac: URL(string: "https://studio.kosmosplus.com")!, handoffToken: "t").timeoutInterval == 8, "a session request waits 8 s, so three tries take about 30 s")
+// Review 3: a shown list and its chat belong to their Mac, even after the app moved on to the account's other one.
+check(Board.failingMacName(shown: "tmnt", phase: "10102026") == "tmnt", "the shown Mac is named, not the one the app moved on to")
+check(Board.failingMacName(shown: nil, phase: "10102026") == "10102026" && Board.failingMacName(shown: "", phase: "10102026") == "10102026",
+      "with nothing shown, the phase's Mac")
+check(Board.failingMacName(shown: nil, phase: nil) == nil, "neither: no name (the old words)")
 check(!Shell.offersOtherComputer(.other), "any other failure: no computer was at fault")
 check(Shell.otherComputerURL(coordinator: URL(string: "https://login.kosmosplus.com")!).absoluteString == "https://login.kosmosplus.com/account", "Choose another computer opens /account, which never opens a computer by itself")
 check(Shell.otherComputerURL(coordinator: URL(string: "https://login.kosmosplus.com/")!).absoluteString == "https://login.kosmosplus.com/account", "a coordinator with a trailing slash gives the same address")
