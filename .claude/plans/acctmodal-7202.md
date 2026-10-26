@@ -88,3 +88,8 @@
    W: Settings > AI Models, where the dialog is mostly opened from, was not a page in the check (now the third).
    Nits taken: Ctrl+Tab and Cmd+Tab are proved left alone; the header lists every arm; the check's own stop list says
    when it must widen to the trap's rules.
+8. (sonnet) Nits taken (comments): the ask's buttons stop being stops under the restart and update screens because
+   CSS hides it there; a focusable container would skip its own stops on Shift+Tab (none in the dialog); number and
+   date fields have no select() (none in the dialog). Deferred as duplicates: a stray visible dialog switching the
+   trap off (round 6; every opener arm asserts none reads as showing), and the other-dialog arm's scope (rounds 4, 6;
+   measured to red with the stand-down deleted).

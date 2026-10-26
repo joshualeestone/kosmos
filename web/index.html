@@ -33702,7 +33702,7 @@ function acctAddInert(el) {
 }
 function acctAddTabStops() {
   const dlg = document.getElementById('acct-add-dialog');
-  const ask = document.getElementById('stepup-ask');
+  const ask = document.getElementById('stepup-ask');   // CSS hides it under the restart and update screens: no box, no stop
   const sel = 'button, [href], input, select, textarea, summary, [contenteditable]:not([contenteditable="false"]), [tabindex]';
   const stops = Array.from(dlg.querySelectorAll(sel))
     .concat(ask && !ask.hidden ? Array.from(ask.querySelectorAll('button')) : [])
@@ -33717,7 +33717,8 @@ function acctAddTabStops() {
   });
 }
 // A text field reached by Tab has its text selected, as a native Tab does, so typing replaces a mistyped key rather than
-// adding to it; script focus alone leaves the caret where it was.
+// adding to it; script focus alone leaves the caret where it was. (number and date fields have no select(); the
+// dialog has none.)
 function acctAddFocus(el) {
   el.focus();
   const text = el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|password|search|email|url|tel)$/.test(el.type));
@@ -33741,7 +33742,8 @@ document.addEventListener('keydown', (e) => {
   if (i !== -1) { acctAddFocus(stops[(i + (e.shiftKey ? -1 : 1) + n) % n]); return; }
   // Focus behind the dialog (Sign in again for OpenAI opens without moving it): the next Tab goes in at an end.
   // Focus on something in it that is not a stop (the note a failed start focuses): on to the next stop in that
-  // direction, in page order, wrapping.
+  // direction, in page order, wrapping. (A focusable container holding stops would, on Shift+Tab, skip its own
+  // stops; the dialog has none.)
   const ask = document.getElementById('stepup-ask');
   if (!modal.contains(at) && !(ask && ask.contains(at))) { acctAddFocus(stops[e.shiftKey ? n - 1 : 0]); return; }
   const ahead = e.shiftKey
