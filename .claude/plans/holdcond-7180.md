@@ -17,6 +17,11 @@ Owner: Ice Cream Kitty. From agent feedback; split from #7149 ask 2, which left 
 - Shown: the CLI list (both CLIs: "[on hold until task 5 is closed]"), the assignees' instructions' held mark, the task
   activity phrasing (hold-set "until ...", hold-stale "What its hold waited for happened").
 
+- The person's hold: an agent cannot change what it waits for (403, as unhold). Its mark is dropped only when the held
+  state flips, never by a changed condition (review 1 found that path let an agent strip the mark, then lift the hold).
+- Times: a bare date is midnight UTC; a time of day must carry Z or an offset (refused otherwise, since the board's zone
+  may not be the agent's). Both CLIs say back the time the board stored, not the one typed.
+
 ## Rejected
 - "File P exists": an agent-given path read by the board is a new surface; not observed today.
 - "Flag F set": there is no general flag store.
@@ -25,6 +30,7 @@ Owner: Ice Cream Kitty. From agent feedback; split from #7149 ask 2, which left 
 
 ## Weakest premise
 That one line when met is enough. An owner that ignores it is covered only by the posts rule once it works in the room.
+Also: a cycle (A waits for B, B for A) is never met and parks both with no reminder; not refused in this slice.
 
 ## Not in this slice
 - The screen (web/index.html) still shows a plain "on hold"; the condition is in the CLI, instructions and activity.
@@ -36,5 +42,7 @@ That one line when met is enough. An owner that ignores it is covered only by th
   holdstale park (with a CONTROL that the same hold without a condition is owed), met told once at any age, the met
   line and the person's variant, met and posts never in one line; instructions' mark; activity phrasing with controls.
 - Mutations, each red: unmet not skipped; met needing posts; one group for both reasons; mark without the condition.
+- Route (server.test.js): stored and answered, 400/409 kept, zoneless refused by name, unhold-with-condition refused, an
+  agent's change to the person's hold 403 with the mark kept (CONTROL: a bare re-hold keeps it). Red without the 403.
 - CLI: both CLIs send the condition, say what it waits for, refuse bad values unsent, list "[on hold until ...]".
   The #4889 unknown-flag rows used `--until friday` as an unknown flag; moved to `--after friday`.

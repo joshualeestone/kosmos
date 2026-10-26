@@ -5819,24 +5819,28 @@ cmd_task() {
       done
       [ "$_twant" = 0 ] || { say "--value needs the words. $_toldusage"; exit 2; } ;;
     unhold)
+      _hold_until=""   # kosmos#7180: never a condition with taking a hold off, whatever the environment holds
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task $sub <project-id> <task-number>"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _no_more_words "task $sub" 2 "Usage: kosmos task $sub <project-id> <task-number>" "$@" ;;   # kosmos#4889 review 6
     hold)
       # kosmos#7180: an optional checkable reopening condition, one of --until-task <n> or --until <date or time>.
-      local _holdusage="Usage: kosmos task hold <project-id> <task-number> [--until-task <task-number> | --until <date or time, like 2026-11-02 or 2026-11-02T09:00Z>]"
+      local _holdusage="Usage: kosmos task hold <project-id> <task-number> [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_holdusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _hold_until=""
       if [ $# -gt 2 ]; then
-        [ $# -eq 4 ] || { say "kosmos task hold takes at most one condition, so nothing was done."; say "$_holdusage"; exit 2; }
         case "$3" in
-          --until-task)
-            case "$4" in ''|*[!0-9]*|0*) say "--until-task needs a task number, from: kosmos task list <project-id>."; exit 2 ;; esac
-            _hold_until="{\"task\":$4}" ;;
-          --until)
-            case "$4" in ''|*[!0-9TZ:.+-]*) say "--until needs a date or time, like 2026-11-02 or 2026-11-02T09:00Z."; exit 2 ;; esac
-            _hold_until="{\"at\":\"$4\"}" ;;
+          --until-task|--until)
+            { [ $# -ge 4 ] && [ -n "$4" ]; } || { say "$3 needs a value, so nothing was done."; say "$_holdusage"; exit 2; }
+            [ $# -eq 4 ] || { say "kosmos task hold takes at most one condition, so nothing was done."; say "$_holdusage"; exit 2; }
+            if [ "$3" = --until-task ]; then
+              case "$4" in *[!0-9]*|0*) say "--until-task needs a task number, from: kosmos task list <project-id>."; exit 2 ;; esac
+              _hold_until="{\"task\":$4}"
+            else
+              case "$4" in *[!0-9TZ:.+-]*) say "--until needs a date or time, like 2026-11-02 or 2026-11-02T09:00Z."; exit 2 ;; esac
+              _hold_until="{\"at\":\"$4\"}"
+            fi ;;
           *) _no_more_words "task hold" 2 "$_holdusage" "$@" ;;
         esac
       fi ;;
@@ -6054,7 +6058,10 @@ cmd_task() {
             # kosmos#7180: say what it waits for, as the board recorded it.
             case "$_hold_until" in
               '{"task":'*) say "It waits for task ${4:-} to be closed; Kosmos tells its owner when it is." ;;
-              '{"at":'*) say "It waits until ${4:-}; Kosmos tells its owner when that time has passed." ;;
+              '{"at":'*)
+                # The time as the board stored it (UTC), not as typed: a bare date is midnight UTC.
+                local _hat; _hat=$(printf '%s' "$body" | sed -n 's/.*"onHoldUntil":{"at":"\([0-9TZ:.+-]*\)".*/\1/p')
+                say "It waits until ${_hat:-${4:-}}; Kosmos tells its owner when that time has passed." ;;
             esac
           else say "Took task $num on ${project:-the project} off hold."; fi ;;
         '{"error":'*)

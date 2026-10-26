@@ -1060,6 +1060,9 @@ function holdUntilOf(raw, p, self, now = Date.now()) {
   }
   const at = typeof raw.at === 'string' ? Date.parse(raw.at) : NaN;
   if (!Number.isFinite(at)) throw bad('the time a hold waits for must be a date or time, for example 2026-11-02 or 2026-11-02T09:00:00Z');
+  /* A time of day with no zone is read in the board's own zone, which the agent may not share: ask for the zone. A bare
+     date is midnight UTC (Date.parse's reading), which the CLI says back as the stored time. */
+  if (/T/i.test(raw.at) && !/(Z|[+-]\d{2}:?\d{2})$/i.test(raw.at.trim())) throw bad('a time of day must say its zone: end it with Z (UTC) or an offset, like 2026-11-02T09:00-05:00');
   if (at <= now) throw bad('that time has already passed, so there is nothing to wait for', 409);
   if (at - now > HOLD_UNTIL_MAX_MS) throw bad('a hold waits for a time at most a year ahead');
   return { at: new Date(at).toISOString() };
@@ -1113,6 +1116,13 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
     }
     const want = onHold && until != null ? holdUntilOf(until, p, t.number) : null;
     const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
+    /* kosmos#7180: what the person's hold waits for is theirs too, so an agent cannot change it (that change would
+       also count as a new hold and drop the person's mark below). */
+    if (onHold && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true && !sameUntil) {
+      const refused = new Error('the person put this task on hold, so only they can change what it waits for, on the screen');
+      refused.status = 403;
+      throw refused;
+    }
     didChange = isOnHold(t) !== onHold || (onHold && !sameUntil);
     changed = { ...t };
     if (onHold) {
@@ -1121,7 +1131,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
       /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
          an agent's hold never takes the person's away. */
       if (viaScreen === true) changed.onHoldByPerson = true;
-      else if (didChange) delete changed.onHoldByPerson;
+      else if (isOnHold(t) !== onHold) delete changed.onHoldByPerson;   // kosmos#7180: only a new hold, never a changed condition
     } else { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; }
     return {
       ...p,

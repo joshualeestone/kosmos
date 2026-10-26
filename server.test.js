@@ -17024,6 +17024,43 @@ test('#4632: only the picker\'s ?catalogue=1, and a create for a role not held, 
   }
 });
 
+test('#7180: a hold\'s condition goes through the route; refusals keep their status; an agent cannot change the person\'s', async () => {
+  const projects = require('./engine/projects');
+  const tasks = require('./engine/tasks');
+  const p = projects.create({ name: 'Hold Until Route 7180' });
+  const a = tasks.create(p.id, { sentence: 'order the parts', made: { via: 'screen' } });
+  const b = tasks.create(p.id, { sentence: 'approve the price', made: { via: 'screen' } });
+  const url = '/api/project/' + encodeURIComponent(p.id) + '/task/' + a.number + '/hold';
+  const stored = () => tasks.byNumber(projects.readAll().find((x) => x.id === p.id), a.number);
+  const on = await postJson(url, { onHold: true, until: { task: b.number } });
+  assert.equal(on.status, 200, on.body);
+  assert.deepEqual(JSON.parse(on.body).task.onHoldUntil, { task: b.number }, 'the answer does not carry the condition the CLI reads');
+  assert.deepEqual(stored().onHoldUntil, { task: b.number }, 'the route did not store the condition');
+  const self = await postJson(url, { onHold: true, until: { task: a.number } });
+  assert.equal(self.status, 400, self.body);
+  const past = await postJson(url, { onHold: true, until: { at: '2020-01-01' } });
+  assert.equal(past.status, 409, past.body);
+  const soon = new Date(Date.now() + 48 * 3600000).toISOString().slice(0, 10);   // a date two days out, inside the year
+  const zoneless = await postJson(url, { onHold: true, until: { at: soon + 'T09:00' } });
+  assert.equal(zoneless.status, 400, 'a time of day with no zone was accepted: ' + zoneless.body);
+  assert.match(JSON.parse(zoneless.body).error, /must say its zone/, 'refused for another reason');
+  const withOff = await postJson(url, { onHold: false, until: { task: b.number } });
+  assert.equal(withOff.status, 400, 'a condition was accepted with taking the hold off: ' + withOff.body);
+  assert.deepEqual(stored().onHoldUntil, { task: b.number }, 'a refused write changed the condition');
+  // The person's hold: an agent cannot change what it waits for, and so cannot strip the person's mark and lift it.
+  const screen = (body) => req(url, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });
+  assert.equal((await screen({ onHold: true })).status, 200);
+  assert.equal(stored().onHoldByPerson, true);
+  const change = await postJson(url, { onHold: true, until: { task: b.number } });
+  assert.equal(change.status, 403, 'an agent changed the person\'s hold: ' + change.body);
+  assert.match(JSON.parse(change.body).error, /only they can change what it waits for/);
+  assert.equal(stored().onHoldByPerson, true, 'the person\'s mark was dropped');
+  assert.equal((await postJson(url, { onHold: false })).status, 403, 'the agent could lift the person\'s hold');
+  // CONTROL: an agent's bare re-hold of the person's hold is accepted and keeps the person's mark.
+  assert.equal((await postJson(url, { onHold: true })).status, 200);
+  assert.equal(stored().onHoldByPerson, true, 'CONTROL: a bare re-hold dropped the person\'s mark');
+});
+
 test('#4771: a task is put on hold and taken off through its route; a project is paused and resumed through its edit', async () => {
   const projects = require('./engine/projects');
   const tasks = require('./engine/tasks');
