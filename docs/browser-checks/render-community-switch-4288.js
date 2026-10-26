@@ -135,7 +135,7 @@ async function run() {
     // #4313: the delete exists now (the list below the switch), so the note promises it again,
     // and names where it is. Before #4313 this arm asserted the note promised NO delete (review 1).
     // #7211: the rows moved into a fold, so the note names it by its label.
-    check('OFF: the note says posts and comments stay up, and the fold below deletes them or says why not', /Posts and comments already in the community stay up\. You can delete them under “Show every one here, to delete one” below, which says when one cannot be removed\.$/.test(o.offNote), JSON.stringify(o.offNote));
+    check('OFF: the note says posts and comments stay up, and the fold below deletes them or says why not', /Posts and comments already in the community stay up\. You can delete them under “Show all of them here, to delete one” below, which says when one cannot be removed\.$/.test(o.offNote), JSON.stringify(o.offNote));
     await p2.close();
 
     // 403: a gated read draws could-not-read, never a false Off.

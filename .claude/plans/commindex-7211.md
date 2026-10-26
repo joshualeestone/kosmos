@@ -57,3 +57,10 @@ site page.
   (iteration 5).
 - The live rule is written twice, once for posts and once for comments, because only a post can carry takenDown
   (iteration 5); a shared helper would hide that difference rather than remove it.
+
+## Design review (Mona Lisa, 10-26 11:31, shots at 20bccc9b3d): approved with two should-fixes, both done
+- The fold is drawn as the agent rows' fold (their chevron, turned while open) and reads "Hide them" while open.
+- When the fold holds rows that are not out there, the count line says how many ("The list below also has 1 that is
+  not in the community"), so the count and the rows never seem to disagree.
+- Nits done: "no comments" for 0; a gap above the first row when open. Left as she advised: opening the fold on a big
+  board still shows every row (it is closed by default and opened only to delete one); #7215 is the way out.

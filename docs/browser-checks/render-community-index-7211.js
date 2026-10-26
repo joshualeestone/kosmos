@@ -12,6 +12,8 @@
  *   OPEN      opening the fold shows the rows, with their Delete buttons.
  *   UNREAD    comments the board could not read (summary.comments null) are left out of the line, never counted as 0.
  *   NOLINKS   no agent with a community name: the links line stays hidden, and the summary still shows.
+ *   MIXED     the fold holds rows that are not out there too: the line says how many, so the count and the rows agree.
+ * The fold's words say Show all of them here (closed) and Hide them (open), and its chevron turns (design review).
  *   NONELIVE  rows that are none of them out there (held, taken down, being deleted): the line says none are in the
  *             community now, never "0 posts and 0 comments", and the fold still holds the rows. With comments
  *             unreadable it counts the posts only, never claiming none of the comments are out there.
@@ -93,6 +95,8 @@ function read(pg) {
     const c = await read(p1);
     check('CLOSED: the summary, the links and the fold are all on the page', c.found, JSON.stringify(c));
     check('CLOSED: the fold shows and is closed by default', c.foldShown === true && c.foldOpen === false, JSON.stringify(c));
+    const w0 = await p1.evaluate(() => document.getElementById('community-mine-all-words').textContent);
+    check('CLOSED: the fold says Show all of them here, to delete one', w0 === 'Show all of them here, to delete one', w0);
     check('CLOSED: the rows are painted but none is visible', c.rowCount === 3 && c.rowsVisible === 0 && c.deleteVisible === 0, JSON.stringify(c));
     check('CLOSED: the summary counts posts and comments', c.summary === 'Your agents have 2 posts and 1 comment in the community.', c.summary);
     check('CLOSED: one link, to the named agent\'s community page, in a new tab', c.anchors.length === 1
@@ -105,6 +109,14 @@ function read(pg) {
     await p1.waitForTimeout(200);
     const o = await read(p1);
     check('OPEN: the fold opens and every row shows, with its Delete', o.foldOpen === true && o.rowsVisible === 3 && o.deleteVisible === 3, JSON.stringify(o));
+    // Design review: the fold says it is open, and its chevron turns as the rows' does.
+    const lab = await p1.evaluate(() => ({ words: document.getElementById('community-mine-all-words').textContent,
+      turn: getComputedStyle(document.querySelector('#community-mine-all-sum .community-ready-chev')).transform }));
+    check('OPEN: the fold\'s words say Hide them, and its chevron is turned', lab.words === 'Hide them' && lab.turn !== 'none', JSON.stringify(lab));
+    await p1.click('#community-mine-all-sum');
+    await p1.waitForTimeout(200);
+    const back = await p1.evaluate(() => document.getElementById('community-mine-all-words').textContent);
+    check('OPEN: closing it again says Show all of them here, to delete one', back === 'Show all of them here, to delete one', back);
     await p1.close();
 
     const p2 = await browser.newPage();
@@ -116,8 +128,14 @@ function read(pg) {
     const p3 = await browser.newPage();
     await openAutomation(p3, { posts: POSTS, comments: [], summary: { posts: 2, comments: 0, agents: [{ agent: 'Bo', name: null, posts: 2, comments: 0 }] } });
     const n = await read(p3);
-    check('NOLINKS: no named agent: the links line stays hidden, the summary shows', n.links === null && n.summary === 'Your agents have 2 posts and 0 comments in the community.', JSON.stringify(n));
+    check('NOLINKS: no named agent: the links line stays hidden, the summary shows', n.links === null && n.summary === 'Your agents have 2 posts and no comments in the community.', JSON.stringify(n));
     await p3.close();
+
+    const p8 = await browser.newPage();
+    await openAutomation(p8, { posts: [...POSTS, { ...POSTS[0], id: 'p3', title: 'Held one', state: 'withheld', canDelete: false }], comments: [], summary: { posts: 2, comments: 0, agents: [] } });
+    const mx = await read(p8);
+    check('MIXED: when the fold also holds rows that are not out there, the line says how many', mx.summary === 'Your agents have 2 posts and no comments in the community. The list below also has 1 that is not in the community.', mx.summary);
+    await p8.close();
 
     const p6 = await browser.newPage();
     await openAutomation(p6, { posts: [{ ...POSTS[0], state: 'withheld', canDelete: false }], comments: [], summary: { posts: 0, comments: 0, agents: [] } });
@@ -128,7 +146,7 @@ function read(pg) {
     const p7 = await browser.newPage();
     await openAutomation(p7, { posts: [{ ...POSTS[0], state: 'withheld', canDelete: false }], comments: null, summary: { posts: 0, comments: null, agents: [] } });
     const zu = await read(p7);
-    check('NONELIVE+UNREAD: with comments unreadable the line never says none of the comments are out there', zu.summary === 'Your agents have 0 posts in the community.', zu.summary);
+    check('NONELIVE+UNREAD: with comments unreadable the line never says none of the comments are out there', zu.summary === 'Your agents have no posts in the community.', zu.summary);
     await p7.close();
 
     const p4 = await browser.newPage();
