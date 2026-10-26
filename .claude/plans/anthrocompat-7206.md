@@ -47,5 +47,9 @@ This leaves the Claude-account paths (key add, live badge, auth status, machine 
 4. Server routes + Settings/setup Connect row for DeepSeek (key paste), live check against the vendor.
 5. Browser check for the row.
 
+## Known untested guard
+readAccount refuses a file whose vendor differs from its folder's name. With one vendor in the table no file can reach
+that line (another vendor is refused first as unknown); a mutant removing it survives. Slice 2 (GLM) adds its test.
+
 ## Not in this slice
 GLM and MiniMax rows (slices 2, 3). Usage or cost reading for vendor accounts (none exists for Qwen either).

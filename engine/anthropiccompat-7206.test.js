@@ -90,7 +90,9 @@ test('storeAccount refuses a bad account, a folder named for another vendor, and
   assert.equal(fs.existsSync(nodePath.join(real, compat.ENDPOINT_BASENAME)), false, 'the key landed through the link');
 });
 
-test('readAccount keeps absent, unreadable and invalid apart, and a file naming another vendor than its folder is invalid', () => {
+/* The folder-versus-file vendor check in readAccount cannot be reached while the table has one vendor (any other
+   vendor is refused first as unknown). It gets its test in slice 2, when GLM is the second row. */
+test('readAccount keeps absent, unreadable and invalid apart (a hand-edited model the vendor lacks is invalid)', () => {
   const empty = nodePath.join(SANDBOX, '.kosmos-deepseek-empty');
   fs.mkdirSync(empty);
   assert.deepEqual(compat.readAccount(empty), { kind: 'absent' });
