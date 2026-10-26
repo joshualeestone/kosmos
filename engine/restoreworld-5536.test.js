@@ -828,3 +828,22 @@ test('a lone surrogate never reaches a label or the world name', (t) => {
   const labels = rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => a.label);
   assert.ok(labels.every((l) => !/[\uD800-\uDFFF]/.test(l)), labels.join(','));
 });
+
+test('lock and record temp files a crash left are swept once old, and kept while young', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  const oldLock = path.join(p.dir, 'restore-finishing.new-1-aaaa');
+  const oldRec = path.join(p.dir, 'restore-held-back.json.1.tmp');
+  const youngLock = path.join(p.dir, 'restore-finishing.new-2-bbbb');
+  fs.mkdirSync(oldLock);
+  fs.writeFileSync(oldRec, '{}');
+  fs.mkdirSync(youngLock);
+  const old = (Date.now() - 11 * 60 * 1000) / 1000;
+  fs.utimesSync(oldLock, old, old);
+  fs.utimesSync(oldRec, old, old);
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  assert.ok(!fs.existsSync(oldLock) && !fs.existsSync(oldRec), 'old leftovers swept');
+  assert.ok(fs.existsSync(youngLock), 'a young one may belong to a finish under way');
+});
