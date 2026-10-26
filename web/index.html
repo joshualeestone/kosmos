@@ -37902,6 +37902,18 @@ if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
   const tabs = document.getElementById('tabs');
   if (!tabs || tabs.closest('[inert]')) return false;
   if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return false;
+  /* kosmos#7266: the phone's + buttons. The section's own tab first, then its own create button, as a person's two
+     presses would: the agent form (#new-agent) or the add-project form (#pj-new). */
+  if (name === 'new-agent' || name === 'new-project') {
+    const tab = tabs.querySelector('.tab[data-tab="' + (name === 'new-agent' ? 'agents' : 'projects') + '"]');
+    const make = document.getElementById(name === 'new-agent' ? 'new-agent' : 'pj-new');
+    if (!tab || !make) return false;
+    const open = document.getElementById('pnav');
+    if (open && !open.hidden) pnavClose(true);
+    tab.click();
+    make.click();
+    return true;
+  }
   const press = name === 'settings' ? document.getElementById('userpop-go-you')
     : ['agents', 'projects', 'tasks'].includes(name) && tabs.querySelector('.tab[data-tab="' + name + '"]');
   if (!press) return false;
