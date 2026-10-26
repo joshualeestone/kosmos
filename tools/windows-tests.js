@@ -92,6 +92,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/loginadvlog-7194.test.js': 'its win32 branch only skips the real `ps -o comm=` capture (Windows has no ps, and the login-notice log reads tmux panes, which Kosmos does not run there); every other arm is string parsing that runs the same on the Mac',
   'engine/tmux-kill-helper-6857.test.js': 'its win32 branches skip every arm that needs tmux or a uid: killServerAt ends a tmux server by its socket path, and Kosmos runs no tmux on Windows; its fake tmux is a /bin/sh script. The one arm with no tmux (an empty socket path throws) runs everywhere',
   'server.attachment-stream-6734.test.js': 'it counts open descriptors through /dev/fd, which Windows does not have, and its win32 branches skip the FIFO and file-mode arms (no FIFOs or POSIX modes there); the stream lifecycle it covers that matters on Windows is run there by engine/attachments-stream-6734.test.js (#6734)',
   'server.remotestepup-6595.test.js': 'its win32 branch only skips the R01c orphaned-tunnel arm (kosmos#6669), which reads the real process table with ps, a Mac and Linux tool; the rest of the file tests the remote step-up routes, which take no platform branch',

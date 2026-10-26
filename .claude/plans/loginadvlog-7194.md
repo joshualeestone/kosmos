@@ -16,8 +16,9 @@ agents on a login they had left, and nothing recorded what it had read, so the c
 
 ## Decided
 - On change only (a signature of service, email, days or expired, and each named agent with the folder and pid read
-  for it): a standing notice writes its lines once a day as its days count down, and every raise, change, move or
-  restart is on record. A board with no notice writes nothing. (Review 3: the agents alone missed #7194's own case,
+  for it): a standing notice writes its lines once a day as its days count down (the stable case), and every raise,
+  change, move or restart is on record. A pane whose agent keeps restarting writes at every recompute (every 5
+  minutes, review 4); the pid stays in the key, since a restart is what a later reader needs. A board with no notice writes nothing. (Review 3: the agents alone missed #7194's own case,
   where the notice reads the same while what was read changed.)
 - The line names the program the pid runs (the base name of `ps -o comm=`, never its arguments or environment). It is
   a second read of that pid, made only when a line is written, so a pid reused between the two reads could pair one
@@ -36,3 +37,12 @@ a folder that process does not hold, `ps eww <pid>` at that time is the next ins
   a change writes again; clearing writes one line, once; a missing variable reads as the default login; nothing while
   there is no notice. Mutations, each red: the log call removed; the change check removed; the pid dropped.
 - engine/loginexpiry-snapshot-3532.test.js and engine/loginexpiry.test.js unchanged and green.
+
+## Review 4 (sonnet)
+- W1 control characters in the folder, service, pane or program could split a log line (only the email was cleaned)
+  -> FIXED: the whole assembled line is cleaned in one place; a test covers the other fields (mutation red).
+- W2 a churning pane writes every 5 minutes -> plan wording above; pid kept.
+- W3 the export masks the email AND the home folder (engine/diagredact) -> the comment says so.
+- N paneProgOf pid-reuse race -> one clause in its comment.
+- Validation 6 found engine/loginadvlog-7194.test.js branching on win32 with nothing running it on Windows -> added to
+  HOST_BRANCH_EXCLUDED with why (only the real ps capture is skipped; the rest is string parsing).

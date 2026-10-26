@@ -124,3 +124,13 @@ test('#7194 review 3: the program is looked up only for the lines written, and a
   status.logLoginAdvReads(adv, reads, (l) => lines.push(l), state, (pid) => { asked.push(pid); return 'claude'; });
   assert.deepEqual(asked, ['7'], 'the program was looked up for a notice that wrote nothing');
 });
+
+test('#7194 review 4: a control character in the folder, service, pane or program cannot split or forge a line either', () => {
+  const lines = [];
+  const reads = new Map([['casey', { ccd: '/x\n[loginadv] forged folder', pid: '7', target: 'casey\r-discord:0.0' }]]);
+  const adv = [{ service: 's\u0000\n[loginadv] forged service', email: 'a@example.com', daysLeft: 3, expired: false, agents: ['casey'] }];
+  status.logLoginAdvReads(adv, reads, (l) => lines.push(l), { sig: '' }, () => 'claude\u001b[2J');
+  assert.equal(lines.length, 1);
+  assert.ok(!/[\u0000-\u001f\u007f]/.test(lines[0]), 'a control character reached the log line: ' + JSON.stringify(lines[0]));
+  assert.match(lines[0], /CLAUDE_CONFIG_DIR=\/x\[loginadv\] forged folder/, 'CONTROL: the folder text itself is kept, only the control characters go');
+});

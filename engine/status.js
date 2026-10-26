@@ -8832,7 +8832,8 @@ function paneCcdRead(target) {
 }
 
 /* kosmos#7194 review 3: the program a pid runs, by a second `ps` of that pid, for the board log only (null when it
-   cannot be read). Never its arguments or environment. */
+   cannot be read). Never its arguments or environment. A pid that exits and is reused between the two reads names the
+   new program; accepted for a log line, which also records the pid. */
 function paneProgOf(pid) {
   if (!/^\d+$/.test(String(pid || ''))) return null;
   try {
@@ -8850,9 +8851,11 @@ function cmdFromPsComm(text) {
 /* kosmos#7194: Josh's board once named eight agents on a login they had left the evening before, and nothing recorded
    what it had read, so the cause could not be found. When the notices change (raised, changed, or cleared), the board
    log gets one line per named agent: the folder read, from which process (pid and program), in which pane. Only on a
-   change; a notice's days left are part of it, so a standing notice writes its lines once a day as it counts down.
-   `state` holds the last notices logged, set after its lines are written. The lines hold the login's email; a
-   diagnostics export masks it (engine/diagredact). */
+   change; a notice's days left are part of it, so a standing notice writes its lines once a day as it counts down
+   (the stable case). Each agent's pid is in the change key too, so a pane whose agent keeps restarting writes at each
+   recompute (every 5 minutes); kept, since a restart is what a later reader needs on record. `state` holds the last
+   notices logged, set after its lines are written. The lines hold the login's email and folder paths; a diagnostics
+   export masks the email and the home folder (engine/diagredact). */
 const LOGIN_ADV_LOGGED = { sig: '' };
 function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED, progOf = paneProgOf) {
   const list = Array.isArray(out) ? out : [];
@@ -8872,10 +8875,12 @@ function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED, progOf = pa
       const r = reads.get(name) || {};
       const dir = r.ccd == null ? 'no CLAUDE_CONFIG_DIR (the default login)' : 'CLAUDE_CONFIG_DIR=' + r.ccd;
       const cmd = r.cmd !== undefined ? r.cmd : (r.pid ? progOf(r.pid) : null);
-      // Review 3: the email comes from a file; a control character in it must not split or forge a log line.
-      const email = typeof a.email === 'string' ? a.email.replace(/[\u0000-\u001f\u007f]/g, '') : '';
-      say('[loginadv] #7194: ' + name + ' read ' + dir + ' from ps eww of pid ' + (r.pid || 'unknown') + (cmd ? ' (' + cmd + ')' : '') + ' (pane '
-        + (r.target || 'unknown') + '), in the notice for ' + (email || 'an unread email') + ' (' + (a.service || '') + '), ' + when);
+      const email = typeof a.email === 'string' ? a.email : '';
+      /* Review 3 and 4: the email, folder, service and pane come from files and the process table; a control character
+         in any of them must not split or forge a log line, so the whole assembled line is cleaned, in one place. */
+      say(('[loginadv] #7194: ' + name + ' read ' + dir + ' from ps eww of pid ' + (r.pid || 'unknown') + (cmd ? ' (' + cmd + ')' : '') + ' (pane '
+        + (r.target || 'unknown') + '), in the notice for ' + (email || 'an unread email') + ' (' + (a.service || '') + '), ' + when)
+        .replace(/[\u0000-\u001f\u007f]/g, ''));
       n += 1;
     }
   }
