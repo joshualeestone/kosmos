@@ -115,7 +115,8 @@ one: against iteration 8's code, a file in a folder whose number id equals a pro
 project's, outside every project. This is on main too (#6726 code, Windows only in practice: macOS ids are small). Now
 `idOf`, `attach`'s stat and readOwn's fstat and stat read `{ bigint: true }`; `sameFile` compares exactly when both sides
 are BigInt and as numbers when a caller passes number stats (tests of readOwn do), as before. Other engine modules
-compare `ino` as numbers too; they are a follow-up card, not this branch.
+compare `ino` as numbers too; they are #7229 (filed), not this branch, with refusing odd namespace folders at
+`kosmos project create` (review 9 NIT).
 
 ## Rejected
 
