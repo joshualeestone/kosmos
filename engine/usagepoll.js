@@ -218,15 +218,27 @@ function readRaw(dir) {
    one at a time so a slow or hung read never stacks requests. A failed read keeps the last good figures and the moment
    they were measured (`measuredAt`) beside its own state, so one refused or rate-limited read does not throw away a
    reading that is still fresh. Resolves the number of accounts MEASURED this time (state ok). */
+/* Review 11: whether a record was written for the login an account has now. The email must match, and so must the
+   organization when both name one, since one email can sign in to two organizations (review 9). */
+function sameLogin(prev, a, org) {
+  if (!prev || typeof prev.email !== 'string' || typeof a.email !== 'string') return false;
+  if (prev.email.toLowerCase() !== a.email.toLowerCase()) return false;
+  return !(typeof prev.org === 'string' && prev.org && typeof org === 'string' && org && prev.org !== org);
+}
+
 async function pollAll(list, deps = {}) {
+  const identityOf = deps.identityOf || ((dir) => require('./accounts').identityOf(dir));
   let measured = 0;
   for (const a of Array.isArray(list) ? list : []) {
     let rec = null;
     try { rec = await readOne(a, deps); } catch { rec = null; }
     if (!rec) continue;
+    let org = null;
+    try { const who = identityOf(a.dir); org = who && who.organizationUuid; } catch { org = null; }
     if (rec.state === 'ok') {
       rec.measuredAt = rec.at;
       rec.email = a.email;   // review 9: whose figures these are, so a later failed read keeps them only for the same login
+      if (typeof org === 'string' && org) rec.org = org;   // review 11: and in which organization
       /* Review 3: each window carries when its figure last CHANGED, as the status line's `at` means (it is written
          only when the figure moves). A read that finds the same figure and reset keeps the earlier changedAt, so an
          idle account does not claim a fresh change every ten minutes, and accountsweekly compares like with like. */
@@ -236,7 +248,7 @@ async function pollAll(list, deps = {}) {
         if (!w) continue;
         const p = prev && prev[key];
         const same = p && p.usedPct === w.usedPct && typeof p.changedAt === 'number'
-          && typeof prev.email === 'string' && prev.email.toLowerCase() === String(a.email).toLowerCase()
+          && sameLogin(prev, a, org)
           && (p.resetsAt === w.resetsAt || (typeof p.resetsAt === 'number' && typeof w.resetsAt === 'number'
             && Math.abs(p.resetsAt - w.resetsAt) <= SAME_RESET_SECONDS));
         w.changedAt = same ? p.changedAt : rec.at;
@@ -245,10 +257,9 @@ async function pollAll(list, deps = {}) {
       const prev = readRaw(a.dir);
       const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
       /* Review 9: a folder signed in again as another login must not show the old login's figures under the new one. */
-      const sameLogin = prev && typeof prev.email === 'string' && typeof a.email === 'string'
-        && prev.email.toLowerCase() === a.email.toLowerCase();
-      if (sameLogin && typeof prevAt === 'number' && Number.isFinite(prevAt)) {
+      if (sameLogin(prev, a, org) && typeof prevAt === 'number' && Number.isFinite(prevAt)) {
         rec.email = prev.email;   // review 10: so a second failed read in a row still knows whose figures these are
+        if (typeof prev.org === 'string') rec.org = prev.org;
         rec.measuredAt = prevAt;
         rec.weekly = prev.weekly || null;
         rec.fiveHour = prev.fiveHour || null;
@@ -271,7 +282,7 @@ function readUsage(dir, nowMs = Date.now()) {
   if (nowMs - j.at > FRESH_MS || j.at - nowMs > 60000) return null;
   const measuredAt = typeof j.measuredAt === 'number' && Number.isFinite(j.measuredAt) ? j.measuredAt
     : (j.state === 'ok' ? j.at : null);   // a record from a read that worked was measured when it was read
-  const fresh = measuredAt !== null && nowMs - measuredAt <= FRESH_MS;
+  const fresh = measuredAt !== null && nowMs - measuredAt <= FRESH_MS && measuredAt - nowMs <= 60000;   // review 11: not from the future either
   const live = (w) => {
     if (!fresh || !w || typeof w.usedPct !== 'number') return null;
     const changedAt = typeof w.changedAt === 'number' && Number.isFinite(w.changedAt) ? w.changedAt : measuredAt;

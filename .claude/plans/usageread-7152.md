@@ -63,6 +63,8 @@ at 0%, had no reading at all (the card's opening).
   Accepted premise, not fixed: within one window the higher figure wins, which assumes usage never falls inside a
   window. If Anthropic ever revises a figure down without moving the reset, the old higher one stays shown until
   the window ends or a later status line moves.
+- Review 11: a record also names the organization it was measured in, and the kept-figures and change-time rules
+  require it to match when both sides name one. A measured time in the future is not fresh.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -109,10 +111,14 @@ So `utilization` is a PERCENTAGE (56.0, matching the page's 55% and the response
 the same way that evening, and every readable one had a non-null `resets_at`, even at 0% (so the null-reset branch is
 defensive, and is kept because its cost is one line).
 
+The profile (`/api/oauth/profile`, review 11 asked) was measured the same way, 2026-10-25 19:00 CDT, by the fleet
+reader recording only the field's type, never the address: on all four accounts whose token was usable,
+`account.email` was a string and `organization.uuid` was present. The other two had no usable token, so sent nothing.
+
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 21 tests (counted from a run; 2 added in review 6: the identity check, and the reason coming back; 2 added in review 5: the test gate, and the cross-window rule; 3 added in review 4: reset jitter, the higher figure within a window, the expiry margin and weekly cap; 2 added in review 3: the change time, and the cleared "will not update"; 3 added in review 1: the null reset and the five-hour bound; a failed read keeping
-  its figures, dated when measured; the hard deadline), with an injected Keychain reader and request, no real credential and no network.
+- engine/usagepoll-7152.test.js, 32 tests (counted from a run after review 11), with an injected Keychain reader and
+  request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.
 - The five existing tests that read the weekly shapes (accountsweekly, win32usage-6570, server.accountsweekly-6178,

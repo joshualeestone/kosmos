@@ -415,3 +415,29 @@ test('#7152 review 10: a new login with the same figure is a change, not the old
   await ok(NOW + 20 * 60000, EMAIL);
   assert.equal(usagepoll.readUsage(d, NOW + 20 * 60000).weekly.changedAt, NOW + 10 * 60000, 'CONTROL: the same login keeps its change time');
 });
+
+test('#7152 review 11: the same email in another organization does not keep the old organization\'s figures', async (t) => {
+  const d = tmpDir(t);
+  const resets = Math.floor((NOW + 86400000) / 1000);
+  const old = { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: EMAIL, org: 'org-personal', weekly: { usedPct: 12, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null };
+  const failing = (org) => ({ now: NOW, platform: 'darwin', readCred: async () => cred(), request: fakeRequest({ code: 429, body: '' }, {}),
+    identityOf: () => ({ email: EMAIL, organizationUuid: org }) });
+  usagepoll.write(d, old);
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], failing('org-team'));
+  assert.equal(usagepoll.readUsage(d, NOW).weekly, null, 'the old organization\'s figure is shown under the new one');
+  usagepoll.write(d, old);
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], failing('org-personal'));
+  assert.equal(usagepoll.readUsage(d, NOW).weekly.usedPct, 12, 'CONTROL: the same organization keeps its figures');
+  assert.equal(usagepoll.readUsage(d, NOW).measuredAt, NOW - 60000);
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], failing('org-personal'));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(d, usagepoll.FILE), 'utf8')).org, 'org-personal', 'a failed read lost the organization, so the next would drop the figures');
+});
+
+test('#7152 review 11: a measured time in the future is not fresh', (t) => {
+  const d = tmpDir(t);
+  const w = { usedPct: 12, resetsAt: Math.floor((NOW + 86400000) / 1000), changedAt: NOW };
+  usagepoll.write(d, { at: NOW, measuredAt: NOW + 86400000, state: 'http-429', email: EMAIL, weekly: w, fiveHour: null });
+  assert.equal(usagepoll.readUsage(d, NOW).weekly, null, 'a figure stamped tomorrow stays fresh for ever');
+  usagepoll.write(d, { at: NOW, measuredAt: NOW - 1000, state: 'http-429', email: EMAIL, weekly: w, fiveHour: null });
+  assert.equal(usagepoll.readUsage(d, NOW).weekly.usedPct, 12, 'CONTROL: a recent measured time is fresh');
+});
