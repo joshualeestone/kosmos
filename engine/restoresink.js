@@ -5,6 +5,8 @@
  *
  *  - The root is a fresh folder the person chose: absolute, a real directory (not a symlink), and empty, on a
  *    volume that supports hard links (checked when the sink is created; exFAT, FAT32 and some network shares do not).
+ *    The one exception is a resume (slice 3, opts.resume): a root an earlier recording sink of the same snapshot
+ *    filled, re-proved by its record (verifyResumable) after every other check here.
  *  - Bytes go to a temp file in a folder inside the root, never at the final path, until commit.
  *  - Commit publishes with link(), which never replaces anything: a name already there (a file this restore
  *    committed, or one a case-insensitive volume treats as the same name) refuses the commit.
@@ -35,7 +37,8 @@
  * only the plain-relative shape and a few Windows hazards, not device names (on Windows a name such as CON would be
  * made as a literal, hard-to-delete file) or invisible characters.
  * A crash mid-restore leaves the temp folder (hidden on a Mac, not on Windows) in the root, which then is not empty:
- * restore into a new folder, or remove the old one first. Only a file's own folder is fsynced after it is published,
+ * restore into a new folder, or remove the old one first, or, when the sink kept a record (opts.record), continue it
+ * with opts.resume. Only a file's own folder is fsynced after it is published,
  * so after a power loss a folder made by that commit may need its parent re-synced (a re-run restores it). close()
  * expects every begun file to be committed or aborted first (restoreSnapshot always does), and throws if the temp
  * folder cannot be removed (an open handle on Windows), so call it outside a finally that must not throw.
@@ -55,6 +58,12 @@ let RECORD_MAX_BYTES = 256 * 1024 * 1024;   // written AND read to this cap (rev
 function setRecordMaxBytesForTests(n) { RECORD_MAX_BYTES = n; }
 const RESUME_MAX_ENTRIES = 1000000;   // files and folders walked when a root is resumed
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
+// Files a file browser writes into a folder a person opens (review 3: looking at a half-restored folder in Finder must
+// not make it impossible to continue). Left where they are when the record does not name them.
+const OS_METADATA = new Set(['.ds_store', 'desktop.ini', 'thumbs.db']);
+// slice 3 review 3: one recording sink per root at a time. The lock file holds the owner's pid; one whose process is
+// gone is stale (a crash) and is taken over.
+const LOCK_NAME = `${TEMP_PREFIX}lock`;
 // The shape of an NTFS 8.3 short name, the same rule backuprestore.js's pathProblem uses: on Windows such a name can
 // alias another folder, the temp folder included (.kosmos-restore-... answers to KOSMOS~1).
 const { SHORT_NAME_RE, collisionKey } = require('./backuprestore');
@@ -185,9 +194,12 @@ function readRecord(rootReal) {
   const o = openSame(file, at, fs.constants.O_RDONLY);
   if (!o) throw new Error('restoresink: this folder holds no restore record to continue from (it changed while it was opened)');
   let text;
-  try { text = fs.readFileSync(o.fd, 'utf8'); } finally { fs.closeSync(o.fd); }
-  const end = text.lastIndexOf('\n') + 1;
-  const lines = text.slice(0, end).split('\n').filter((l) => l !== '');
+  let raw;
+  try { raw = fs.readFileSync(o.fd); } finally { fs.closeSync(o.fd); }
+  // Measured in bytes, not decoded text (review 3: a damaged byte decodes to three, and the truncate would miss).
+  const validBytes = raw.lastIndexOf(0x0a) + 1;
+  text = raw.subarray(0, validBytes).toString('utf8');
+  const lines = text.split('\n').filter((l) => l !== '');
   let head;
   try { head = JSON.parse(lines[0] || 'null'); } catch { head = null; }
   if (!head || typeof head !== 'object' || typeof head.snapshot !== 'string' || !head.snapshot || head.snapshot.length > 512) {
@@ -207,7 +219,7 @@ function readRecord(rootReal) {
     if (!held.has(k)) held.set(k, []);
     held.get(k).push({ size: e.size, sha256: e.sha256 });
   }
-  return { snapshot: head.snapshot, held, at, validBytes: Buffer.byteLength(text.slice(0, end)) };
+  return { snapshot: head.snapshot, held, at, validBytes };
 }
 
 /* Resume (slice 3): the root must hold only what the record says this restore put there. Old temp folders (a stopped
@@ -243,6 +255,7 @@ function verifyResumable(rootReal, held, recordAt) {
       const at = fs.lstatSync(abs, { bigint: true });
       const key = collisionKey(rel);   // looked up folded; the two-names check above stays NFC, so a case-sensitive disk's A and a pass
       // The record itself, and only the very file readRecord read (review 1: on Windows a link there was never looked at).
+      if (!dirRel && name === LOCK_NAME && at.isFile() && !at.isSymbolicLink() && !untrusted(at, true)) continue;   // ours, taken before the walk
       if (!dirRel && name === RECORD_NAME) {
         if (at.isSymbolicLink() || at.dev !== recordAt.dev || at.ino !== recordAt.ino) throw new Error('restoresink: the restore record changed while it was read');
         continue;
@@ -256,6 +269,7 @@ function verifyResumable(rootReal, held, recordAt) {
         continue;
       }
       const lines = held.get(key);
+      if (!lines && OS_METADATA.has(name.toLowerCase()) && at.isFile() && !untrusted(at, true)) continue;
       if (!at.isFile() || !lines) throw new Error(`restoresink: this folder holds something the restore did not put there, so it cannot be continued (${rel})`);
       const why = untrusted(at, true);
       if (why) throw new Error(`restoresink: a restored file ${why}, so it cannot be continued (${rel})`);
@@ -269,6 +283,29 @@ function verifyResumable(rootReal, held, recordAt) {
   return kept;
 }
 
+/* slice 3 review 3: take this root's lock, or refuse while another live process holds it. A lock left by a process
+   that is gone (a crash) is stale and taken over. Returns the release function. */
+function acquireLock(rootReal) {
+  const file = path.join(rootReal, LOCK_NAME);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let fd;
+    try { fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600); } catch (e) {
+      if (e.code !== 'EEXIST') throw new Error(`restoresink: could not take this folder's restore lock (${e.code || e.message})`);
+      const at = fs.lstatSync(file, { bigint: true });
+      if (at.isSymbolicLink() || !at.isFile() || untrusted(at, true)) throw new Error('restoresink: this folder\'s restore lock is not a private file of yours');
+      const pid = Number(fs.readFileSync(file, 'utf8').trim());
+      let alive = false;
+      if (Number.isSafeInteger(pid) && pid > 0) { try { process.kill(pid, 0); alive = true; } catch (k) { alive = k.code === 'EPERM'; } }
+      if (alive) throw new Error(`restoresink: another restore is running in this folder (process ${pid}); if none is, remove ${LOCK_NAME} from it`);
+      fs.rmSync(file, { force: true });
+      continue;
+    }
+    try { fs.writeSync(fd, `${process.pid}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    return () => { fs.rmSync(file, { force: true }); };
+  }
+  throw new Error('restoresink: could not take this folder\'s restore lock (it kept reappearing)');
+}
+
 /** A sink over the empty folder at root. Throws unless root is a fresh folder. Call close() when the restore ends.
     opts (slice 3, both off by default, so a sink made without them behaves exactly as before):
       record: keep a resume record in the root, a line per file written (and fsynced) before the file is published
@@ -280,6 +317,14 @@ function verifyResumable(rootReal, held, recordAt) {
     recordLost: true once the record passed RECORD_MAX_BYTES and was dropped, so this restore cannot be continued.
     close({ keepRecord }) removes the record unless keepRecord: keep it when the restore stopped part way. */
 function createRestoreSink(root, opts = {}) {
+  const lock = { release: null };
+  try { return createSink(root, opts, lock); } catch (e) {
+    if (lock.release) { try { lock.release(); } catch { /* the refusal is the news */ } }
+    throw e;
+  }
+}
+
+function createSink(root, opts, lock) {
   const resume = !!(opts && opts.resume);
   const keepRecordOn = resume || !!(opts && opts.record);
   const snapshot = opts && opts.snapshot;
@@ -340,7 +385,10 @@ function createRestoreSink(root, opts = {}) {
     if (process.platform === 'darwin') stripAclDarwin(rootReal);
     if (!resume && fs.readdirSync(rootReal).length) throw new Error('restoresink: something appeared in the root while it was being made private');
   }
-  // slice 3: a resumed root is proved by its record, after the root itself passed every check above.
+  // slice 3: one recording sink per root at a time (review 3: two resumes cleared each other's temp folders), taken
+  // after the root itself passed every check above.
+  if (keepRecordOn) lock.release = acquireLock(rootReal);
+  // slice 3: a resumed root is proved by its record.
   let rec = null;
   if (resume) {
     rec = readRecord(rootReal);
@@ -384,12 +432,24 @@ function createRestoreSink(root, opts = {}) {
     }
     // Every byte, or the next line would be glued to a fragment (review 2: a short write near a full disk).
     const buf = Buffer.from(line);
-    for (let off = 0; off < buf.length;) {
-      const w = fs.writeSync(recordFd, buf, off, buf.length - off);
-      if (w <= 0) throw new Error('restoresink: the restore record write made no progress');
-      off += w;
+    try {
+      for (let off = 0; off < buf.length;) {
+        const w = fs.writeSync(recordFd, buf, off, buf.length - off);
+        if (w <= 0) throw new Error('restoresink: the restore record write made no progress');
+        off += w;
+      }
+      fs.fsyncSync(recordFd);
+    } catch (e) {
+      // review 3: a write that put part of a line down and then failed (a full disk) is cut back to the last whole
+      // line, so the next line never lands on a fragment; if even that fails the record is dropped. The commit fails
+      // either way, so no file is published without its line.
+      try { fs.ftruncateSync(recordFd, recordBytes); } catch {
+        const f = recordFd; recordFd = null; recordLost = true;
+        try { fs.closeSync(f); } catch { /* dropped below */ }
+        try { fs.rmSync(path.join(rootReal, RECORD_NAME), { force: true }); } catch { /* best effort */ }
+      }
+      throw e;
     }
-    fs.fsyncSync(recordFd);
     recordBytes += n;
   };
   if (keepRecordOn) {
@@ -499,6 +559,7 @@ function createRestoreSink(root, opts = {}) {
     close(o = {}) {
       if (recordFd !== null) { const f = recordFd; recordFd = null; fs.closeSync(f); if (!(o && o.keepRecord)) fs.rmSync(path.join(rootReal, RECORD_NAME), { force: true }); }
       removeTree(tempDir);
+      if (lock.release) { const r = lock.release; lock.release = null; r(); }
     },
   };
 }
@@ -506,6 +567,7 @@ function createRestoreSink(root, opts = {}) {
 module.exports = {
   createRestoreSink,
   RECORD_NAME,
+  LOCK_NAME,
   setRecordMaxBytesForTests,
   isPrivateGroup,  // exported for its test only
 };
