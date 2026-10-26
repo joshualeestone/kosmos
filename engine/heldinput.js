@@ -15,16 +15,31 @@ const store = require('./store');
 
 const seen = new Map();
 
+/* Replace the readings with this minute's. Rows naming one card (two queue names can resolve to it) are one reading:
+   their counts added, the oldest `since` kept (review 3). A box read as 'text' says so only when the last reading for
+   that card read text too: one read can catch a delivery mid-typing (a room post, a nudge), which is not text left
+   unsent, and the real case lasts days, so a minute's wait costs nothing (review 3). Until then the card keeps the
+   last reading's word, or 'unread' (which only asks the person to look). */
 function setAll(rows) {
+  const before = new Map(seen);
   seen.clear();
   for (const r of Array.isArray(rows) ? rows : []) {
-    if (r && typeof r.name === 'string' && r.name) seen.set(r.name, { since: r.since, count: r.count, box: r.box });
+    if (!r || typeof r.name !== 'string' || !r.name) continue;
+    const had = seen.get(r.name);
+    if (!had) { seen.set(r.name, { since: r.since, count: Number(r.count) || 0, read: r.box }); continue; }
+    if (Date.parse(r.since) < Date.parse(had.since)) had.since = r.since;
+    had.count += Number(r.count) || 0;
+    if (r.box === 'text' || (r.box === 'empty' && had.read === 'unread')) had.read = r.box;   // the word that asks most
+  }
+  for (const [name, v] of seen) {
+    const last = before.get(name);
+    v.box = v.read !== 'text' ? v.read : last && last.read === 'text' ? 'text' : (last ? last.box : 'unread');
   }
 }
 
 function peek(name) {
   const v = seen.get(String(name));
-  return v ? { ...v } : null;
+  return v ? { since: v.since, count: v.count, box: v.box } : null;
 }
 
 /* The held stretches already said (name -> when last said, ms), kept on disk so a board restart or update does not say

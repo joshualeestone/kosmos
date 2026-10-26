@@ -2,10 +2,10 @@
 require('../test-support/tmpscope');   // #4273: this file's temp dirs are removed when it exits
 
 /**
- * kosmos#7212 slice 2: the person is told when Kosmos's messages to an agent have waited half an hour behind its input
- * box. The minute sweep records it (engine/heldinput.js), the status row carries it (heldInput), both "needs the person"
- * rules count it, and the card says how long, what the box reads and what to do. Slice 1 (heldwarn-7212.test.js) is the
- * log line.
+ * kosmos#7212 slice 2a: the card says when Kosmos's messages to an agent have waited half an hour behind its input box.
+ * The minute sweep records it (engine/heldinput.js), the status row carries it (heldInput), and the card says how long,
+ * what the box reads and what to do. Counting it as needing the person, and the phone, are slice 2b. Slice 1
+ * (heldwarn-7212.test.js) is the log line.
  *
  *   node --test engine/heldnotice-7212.test.js
  */
@@ -99,14 +99,30 @@ test('#7212 s2: a more urgent sentence keeps its place', () => {
   assert.match(reasonOf({ state: 'idle', heldInput: held }), /Kosmos has held/);
 });
 
-test('#7212 s2: the first saying of a stretch is marked, so the phone is told once per stretch', () => {
-  const now = Date.parse('2026-10-26T12:00:00Z');
-  const at = new Date(now - 40 * MIN).toISOString();
-  assert.ok(limitqueue.add('phoned', { id: 'p1', from: 'x', envelope: 'e', at, reset: at, input: true }));
-  const said = new Map();
-  const say = (t) => limitqueue.heldInputToSay(t, limitqueue.HELD_INPUT_SAY_MS, said).filter((h) => h.name === 'phoned');
-  assert.deepEqual(say(now).map((h) => h.first), [true]);
-  assert.deepEqual(say(now + limitqueue.HELD_INPUT_RESAY_MS).map((h) => h.first), [false], 'the daily line told the phone again');
+test('#7212 s2a review 3: two queue names for one card are one reading, counted whole', () => {
+  heldinput.resetForTests();
+  heldinput.setAll([
+    { name: 'casey', since: ago(40), count: 2, box: 'unread' },
+    { name: 'casey', since: ago(90), count: 3, box: 'empty' },
+  ]);
+  const got = heldinput.peek('casey');
+  assert.equal(got.count, 5, 'one queue overwrote the other');
+  assert.equal(Date.parse(got.since) <= Date.now() - 89 * MIN, true, 'the older queue\'s time was lost');
+  assert.equal(got.box, 'empty');
+});
+
+test('#7212 s2a review 3: one read of text is not called unsent text until the next minute reads it too', () => {
+  heldinput.resetForTests();
+  const row = (box) => [{ name: 'tina', since: ago(40), count: 1, box }];
+  heldinput.setAll(row('text'));
+  assert.equal(heldinput.peek('tina').box, 'unread', 'a delivery caught mid-typing was called unsent text');
+  heldinput.setAll(row('text'));
+  assert.equal(heldinput.peek('tina').box, 'text', 'text read two minutes running was not said');
+  heldinput.setAll(row('empty'));
+  assert.equal(heldinput.peek('tina').box, 'empty');
+  // From empty, one read of text keeps the last word.
+  heldinput.setAll(row('text'));
+  assert.equal(heldinput.peek('tina').box, 'empty');
 });
 
 test('#7212 s2a: the minute sweep records under the card\'s key, says once, and a restart does not say it again', () => {
@@ -119,6 +135,7 @@ test('#7212 s2a: the minute sweep records under the card\'s key, says once, and 
   const deps = (said, box = () => 'text') => ({ said, readBox: box, cardKey: (n) => (n === 'swept' ? 'swept-session' : n), log: (l) => lines.push(l) });
   const mine = (xs) => xs.filter((x) => x.includes('swept'));
   heldinput.sweep(deps(heldinput.loadSaid()));
+  heldinput.sweep(deps(heldinput.loadSaid()));   // text is said on its second minute (one read can be a delivery typing)
   assert.deepEqual(heldinput.peek('swept-session'), { since: at, count: 2, box: 'text' }, 'the card reading was not recorded under the card');
   assert.equal(heldinput.peek('swept'), null, 'recorded under the queue name, which the card row never asks for');
   assert.equal(mine(lines).length, 1);
@@ -146,7 +163,8 @@ test('#7212 s2a: while a flush run is typing, the sweep reads no box and keeps t
   heldinput.resetForTests();
   const chat = require('./chat');
   const fleet = require('../test-support/fleet');
-  heldinput.setAll([{ name: 'kept', since: ago(40), count: 1, box: 'text' }]);
+  heldinput.setAll([{ name: 'kept', since: ago(40), count: 1, box: 'empty' }]);
+  const kept = heldinput.peek('kept');
   const now = new Date().toISOString();
   assert.ok(limitqueue.add('typer', { id: 'ty1', from: 'x', envelope: 'e', at: now, reset: now }));
   let finish;
@@ -162,5 +180,5 @@ test('#7212 s2a: while a flush run is typing, the sweep reads no box and keeps t
   await run;
   assert.deepEqual(said, []);
   assert.equal(reads, 0, 'a box was read while a delivery was typing');
-  assert.equal(heldinput.peek('kept').box, 'text', 'the last reading was dropped');
+  assert.deepEqual(heldinput.peek('kept'), kept, 'the last reading was dropped or changed');
 });
