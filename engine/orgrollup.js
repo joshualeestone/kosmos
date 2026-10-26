@@ -425,6 +425,18 @@ function defaultSources() {
           if (fromProfile === 'alibaba') return 'alibaba';
         }
       }
+      /* #7206 (follow-up review 1): a claude agent on a vendor account (DeepSeek) is read off its job; with no job (a
+         stopped agent whose job was lost, the case Repair is for), its profile names the vendor, as Qwen's does above.
+         Without this the runner's default answered, and a DeepSeek agent went as anthropic: a guess (review 22). */
+      if (runner === 'claude' && sessionName) {
+        let fromJob = null;
+        try { fromJob = create.claudeJobProvider(sessionName); } catch { fromJob = null; }
+        if (!fromJob) {
+          let fromProfile = null;
+          try { fromProfile = require('./store').readProfile(sessionName).provider; } catch { fromProfile = null; }
+          if (require('./anthropiccompat').vendorOf(fromProfile)) return KNOWN_PROVIDERS.has(fromProfile) ? fromProfile : null;
+        }
+      }
       const p = create.agentProvider(sessionName, runner);
       return KNOWN_PROVIDERS.has(p) ? p : null;
     },

@@ -32965,7 +32965,7 @@ function worldAddClose() {
    is said rather than left blank; an unreadable task list is said, never shown as 0; and there is no quota figure,
    because no provider gives Kosmos one. */
 const WV_PROVIDER = { claude: 'Claude', codex: 'OpenAI Codex', gemini: 'Gemini', grok: 'Grok',
-  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse', qwen: 'Qwen' };   // #5977: qwen is the overview's own word (worldview)
+  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse', qwen: 'Qwen', deepseek: 'DeepSeek' };   // #5977, #7206: the overview's own words (worldview)
 function wvCount(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 function wvTime(iso, now = new Date()) {
   const d = new Date(iso);

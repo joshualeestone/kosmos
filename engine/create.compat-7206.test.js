@@ -65,6 +65,23 @@ test('the org rollup sends a DeepSeek agent as deepseek, never as anthropic or a
   assert.equal(src.providerOf('claude', CL), 'anthropic', 'CONTROL: a Claude agent beside it');
 });
 
+test('the org rollup sends a stopped DeepSeek agent whose job was lost as deepseek, from its profile', () => {
+  const rollup = require('./orgrollup');
+  const src = rollup.defaultSources();
+  const store = require('./store');
+  const jobless = (name, provider) => {
+    fs.mkdirSync(create.workerDir(name), { recursive: true });
+    store.writeProfile(name, { provider });
+    assert.equal(fs.existsSync(jobfix.jobPath(name)), false, 'PRE-CONTROL: ' + name + ' has a job');
+    return name;
+  };
+  const ds = jobless('c7206-ds-nojob', 'deepseek');
+  assert.equal(src.recordedRunner(ds), 'claude', 'PRE-CONTROL: the profile names a claude provider');
+  assert.equal(src.providerOf('claude', ds), 'deepseek', 'a jobless DeepSeek agent went as a guess');
+  assert.equal(src.providerOf('claude', jobless('c7206-cl-nojob', 'anthropic')), 'anthropic', 'CONTROL: a jobless Claude agent');
+  assert.equal(src.providerOf('codex', jobless('c7206-qw-nojob', 'alibaba')), 'alibaba', 'CONTROL: the Qwen arm this mirrors');
+});
+
 test('jobProvider: a claude job on a vendor folder is that vendor; a Claude folder and a codex job are unchanged', () => {
   assert.equal(create.jobProvider({ runner: 'claude', configDir: DS_HOME }), 'deepseek');
   // A vendor folder whose account file went missing is still the vendor's (it fails closed at launch).
