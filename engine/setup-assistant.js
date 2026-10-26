@@ -2937,8 +2937,8 @@ function isGuideFolder(agentName) {
 }
 
 /* kosmos#7152 slice 3: isGuideFolder for a caller that must fail CLOSED (an automatic account move). Only "the marker is
-   not there" is an answer of no; a folder that cannot be found, or a marker that cannot be read, THROWS, where
-   isGuideFolder reads both as "not the guide". */
+   not there" is an answer of no (a folder that does not exist has no marker either); an agent whose instructions file
+   cannot be named, or a marker that cannot be read, THROWS, where isGuideFolder reads both as "not the guide". */
 function isGuideFolderStrict(agentName) {
   const file = require('./instructions').fileFor(agentName);
   if (typeof file !== 'string' || !file) throw new Error('the agent folder could not be found');
@@ -2953,6 +2953,16 @@ function guideName() {
     const rec = JSON.parse(fs.readFileSync(flagPath(), 'utf8'));
     return rec && typeof rec.name === 'string' && rec.name ? rec.name : null;
   } catch { return null; }
+}
+
+/* kosmos#7152 slice 3: guideName for a caller that must fail CLOSED. Never seeded (no record) is null; a record that
+   cannot be read or parsed THROWS, where guideName reads it as never seeded. */
+function guideNameStrict() {
+  let raw;
+  try { raw = fs.readFileSync(flagPath(), 'utf8'); }
+  catch (err) { if (err && err.code === 'ENOENT') return null; throw err; }
+  const rec = JSON.parse(raw);
+  return rec && typeof rec.name === 'string' && rec.name ? rec.name : null;
 }
 
 /*
@@ -3413,6 +3423,7 @@ module.exports = {
   GUIDE_MARKER,
   isGuideFolder,
   isGuideFolderStrict,
+  guideNameStrict,
   GUIDE_AVATAR_BASE,
   guideAvatarPath,
   refreshGuideAvatar,

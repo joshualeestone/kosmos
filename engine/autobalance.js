@@ -166,16 +166,19 @@ function markTargets(rows, nowMs) {
    whose record cannot be read, is not movable.
    Slice 3 (slice 2's review 11): the guide FAILS CLOSED here. The route's walk leaves it out too (skipGuide), but that
    test reads a check that throws as "not the guide", which is wrong for a move. `isGuide(session)` throws when it
-   cannot tell; `guideName()` is the name the guide was seeded under. */
+   cannot tell; `guideName()` is the name the guide was seeded under, and throws when its record cannot be read. */
 function movableFor({ cards, records, readCommitment, assigner = require('./assigner'),
   isGuide = (s) => require('./setup-assistant').isGuideFolderStrict(s),
-  guideName = () => require('./setup-assistant').guideName() }) {
+  guideName = () => require('./setup-assistant').guideNameStrict() }) {
   /* Review 3: a roster that could not be read is not an empty one: the caller says "could not work out". */
   if (!Array.isArray(cards)) throw new Error('the roster could not be read');
   const bySession = new Map(cards.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
   return (session) => {
     const c = bySession.get(session);
     if (!c || !assigner.idleCard(c)) return false;
+    /* Review 2 (slice 3): words sitting unsent in its box are a person's or a peer's, and a restart would drop them. A
+       card that cannot say is not movable. */
+    try { if (c.unsentInput) return false; } catch { return false; }
     /* Not from the card: a roster card carries no isGuide (only the status rows are marked); a test pins that. */
     try {
       if (isGuide(session) !== false) return false;
@@ -194,18 +197,21 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
 
 /* Slice 3: the Claude rows a timer may build, with no live check (listLive must never run on a timer). From
    accounts.list() (`list`) and slice 1's usage record (`readUsage(dir, nowMs)`, fresh only): a fresh record whose
-   state is 'ok' is a real usage call that worked for this login, so it stands for signed in; a fresh refusal
-   (`isRefusal(state)`) stands for a login that stopped working; anything else says nothing (no badge: not a target, and
-   not at risk by login). `agentsOn(dir, isDefault)` gives { names, complete, moving }. The record's resets are seconds;
-   rows carry ms, as /api/accounts does. A row that cannot be read is left out. */
-function rowsFromReadings({ list, readUsage, isRefusal, agentsOn, nowMs }) {
+   state is 'ok' is a real usage call that worked for this login, so it stands for signed in; a fresh 401 or 403 (on the
+   usage or the profile call) stands for a login that stopped working. Anything else says nothing (no badge: not a
+   target, and not at risk by login). Review 2: that includes usagepoll's other refusals, a 429 above all (the usage
+   endpoint's own rate limit, held for an hour), an answer it could not read, and a token that belongs to another
+   login: none of them says the agents' login has stopped. `agentsOn(dir, isDefault)` gives { names, complete, moving }.
+   The record's resets are seconds; rows carry ms, as /api/accounts does. */
+const LOGIN_REFUSED = /^(profile-)?http-40[13]$/;
+function rowsFromReadings({ list, readUsage, agentsOn, nowMs }) {
   const ms = (w) => (w && Number.isFinite(w.usedPct) ? { usedPct: w.usedPct, resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null } : null);
   const out = [];
   for (const a of Array.isArray(list) ? list : []) {
     if (!a || typeof a.dir !== 'string' || !a.dir || a.apiKey) continue;
     let rec = null;
     try { rec = readUsage(a.dir, nowMs); } catch { rec = null; }
-    const badge = rec && rec.state === 'ok' ? 'working' : (rec && isRefusal(rec.state) ? 'rejected' : null);
+    const badge = rec && rec.state === 'ok' ? 'working' : (rec && LOGIN_REFUSED.test(String(rec.state)) ? 'rejected' : null);
     let here = { names: [], complete: false };
     try { here = agentsOn(a.dir, a.isDefault === true) || here; } catch { here = { names: [], complete: false }; }
     out.push({ provider: 'anthropic', dir: a.dir, label: a.label || null, isDefault: a.isDefault === true,
