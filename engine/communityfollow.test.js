@@ -782,6 +782,25 @@ test('#7168 read --following: an old unseen post on the newest page does not sto
     b.st.feedCalls = [];
     await cf.readFollowing('mara', { now: NOW_7168 });
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the proof was not taken from the last page read');
+    /* Review 4: the age half of the proof. Page 2 is newest first but recent (shown posts from two hours ago), so it
+       proves nothing about what lies behind it, and the read must go on to the counted post on page 3. */
+    fresh(); await cf.follow('mara', 'quill');
+    const recentShown = [post(76, '2026-10-12T18:00:00Z'), post(77, '2026-10-12T17:00:00Z')];
+    b.st.pages = [recentShown];
+    await cf.readFollowing('mara', { now: NOW_7168 });   // marks 76 and 77 shown
+    b.st.pages = [[post(73, '2026-10-10T10:00:00Z'), post(74, '2026-10-10T11:00:00Z'), post(75, '2026-10-10T09:00:00Z')], recentShown, [post(78, '2026-10-12T16:00:00Z')]];
+    b.st.feedCalls = [];
+    const aged = await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'a recent, ordered page was taken as proof nothing counted lies behind it');
+    assert.ok(aged.text.includes('POST78'), 'the counted post behind a recent page was not reached: ' + aged.text);
+    /* Review 4: a post that shifted pages between calls (on page 2 and again on page 3) takes ONE slot, so the third
+       slot goes to the next post (groupByPost would fold a twice-added post into one entry anyway, so what the fill's
+       own once-only check protects is the slot count). */
+    fresh(); await cf.follow('mara', 'quill');
+    const twice = post(79, '2026-10-10T08:00:00Z');
+    b.st.pages = [[reply(24, '2026-10-12T19:00:00Z')], [twice], [twice, post(80, '2026-10-10T07:00:00Z'), post(81, '2026-10-10T06:00:00Z')]];
+    const dedup = await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.ok(dedup.text.includes('POST81'), 'a post on two pages took two slots, so the third went unused: ' + dedup.text);
     // An item with no readable date on the newest page does not stop the early stop (it can never be counted).
     fresh(); await cf.follow('mara', 'quill');
     b.st.pages = [[q(91, 0), { ...q(92, 1), created_at: 'not a date' }, q(93, 2), q(94, 3)], [q(95, 4)]];

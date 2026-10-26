@@ -253,9 +253,7 @@ function noteSeen(agentKey, ids) {
    best effort: each waits at most PAGE_WAIT_MS for the agent's call chain, and none starts READ_PAGES_MS or more after
    the read began. A later page that fails or is busy costs only its posts.
    kosmos#7150: the pages are read until POSTS_WANTED posts this agent has NOT been shown yet are in hand, and the older
-   pages' unseen posts are added first (already-shown ones only fill what is left). kosmos#7168: "unseen" there now
-   means what home counts first (communityhome.countedFollowing: unseen and from the last 24 hours); older unseen
-   posts come next, then already-shown ones (readFollowing). Before, a busy follow list showed
+   pages' unseen posts are added first (already-shown ones only fill what is left). Before, a busy follow list showed
    the same newest page every time: its posts were marked shown, and the posts behind them were counted as new (home,
    the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new" is
    communityhome.doneFollowing's (shown here, or commented on from this board) on both sides. The cost: once the newest
@@ -264,7 +262,14 @@ function noteSeen(agentKey, ids) {
    agent itself runs read --following (home's count is a public read, outside that bucket). The bucket's size is the
    service's and is not measured here. It
    does not stop at an all-done older page: a new post can sit behind one for good (an older shown page pushed back by
-   newer items), and home counts it, so the read must reach it. */
+   newer items), and home counts it, so the read must reach it. 
+   kosmos#7168 (#7150 follow-ups 2 and 3): the read now pages for the posts home COUNTS (communityhome.countedFollowing:
+   unseen and from the last 24 hours), gives them the slots first, then older unseen posts up to POSTS_WANTED unseen in
+   all, then already-shown ones. It stops early once POSTS_WANTED unseen posts are in hand and the last page read is
+   newest first with its last item older than 24 hours, which rests on the service feed being newest first across
+   pages (its keyset cursor, by created_at then id). With fewer than POSTS_WANTED new posts between reads, repeated
+   reads reach every counted post; with more, older ones can pass FEED_ITEMS_MAX unread, where home stops counting
+   them too, so the count never names a post no read can reach. */
 const POSTS_WANTED = 3;
 const FEED_PAGES_MAX = 3;
 /** The deepest the Following feed is ever read, in items (communityhome counts no deeper). */
@@ -299,7 +304,9 @@ async function readFollowing(agentKey, { now = Date.now() } = {}) {
      the paging, so a counted post behind it was never reached, and an old one could take a slot a counted one needed
      (#7150 follow-up 2). Without communityhome, every unseen post counts, as before. */
   const counted = (it) => (home && typeof home.countedFollowing === 'function' ? home.countedFollowing(it, done, now) : unseen(it));
-  const DAY_MS_OF = () => (home && Number.isFinite(home.FOLLOWING_DAY_MS) ? home.FOLLOWING_DAY_MS : 24 * 60 * 60 * 1000);
+  // Home's own 24 hours. Without communityhome (it always loads in the app), every unseen post counts, as before
+  // #7168, and the early stop never fires, so a read only pages more, never less.
+  const dayMs = home && Number.isFinite(home.FOLLOWING_DAY_MS) ? home.FOLLOWING_DAY_MS : 24 * 60 * 60 * 1000;
   let postCount = page.filter(isPost).length;
   let fresh = page.filter(counted).length;   // counted posts in hand
   const olderSeen = [];
@@ -309,16 +316,15 @@ async function readFollowing(agentKey, { now = Date.now() } = {}) {
      last page read shows no counted post can lie further back: that page is newest first and its last item is older
      than 24 hours, so, ON A FEED THAT IS NEWEST FIRST ACROSS PAGES (the service's keyset cursor; the premise this
      rests on), everything behind it is older still. That keeps a quiet follow list at main's request count.
-     A page that is not newest first proves nothing, so the read pages on (at most FEED_PAGES_MAX - 1 more requests than
-     main, each bounded as below), rather than assume the order and miss a counted post (groupByPost re-sorts the feed
-     itself, so this code never relied on it). */
+     A page that is not newest first, or whose last item is from the last 24 hours, proves nothing, so the read pages
+     on (at most FEED_PAGES_MAX - 1 more requests than main, each bounded as below). */
   const ms = (it) => Date.parse(it && it.created_at);
   const nothingCountedBehind = (items) => {
     // An item with no readable date can never be counted, so it is left out of the order check (review 3).
     const t = items.map(ms).filter((x) => Number.isFinite(x));
     if (!t.length) return false;
     for (let i = 1; i < t.length; i += 1) if (t[i] > t[i - 1]) return false;
-    return t[t.length - 1] <= now - DAY_MS_OF();
+    return t[t.length - 1] <= now - dayMs;
   };
   const unseenInHandNow = () => page.filter(unseen).length + olderUncounted.length;
   let lastPage = page;

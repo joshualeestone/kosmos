@@ -63,3 +63,12 @@ POSTS_WANTED or adding paging is the lever if it ever matters.
   page read is tested (a newest page with a reply from today, page 2 all old): dropping the older unseen posts from
   the count, or not updating the last page, now go red. Nits: an item with no readable date is left out of the order
   check (it can never be counted; tested); the code comment states the newest-first premise itself.
+- Round 4: 0 blockers, 1 warning, 4 nits. The reviewer ran 6,000 random and 400 moving feeds against main: never
+  worse; newest-first feeds at main's request count; and confirmed the premise from the service itself
+  (following_feed pages newest first by created_at then id). Warning fixed: the age half of the early stop had no
+  test; a recent, ordered page with a counted post behind it is now tested (removing the age check goes red). Nits:
+  the "never relied on the order" comment removed (the early stop does rely on it, as stated); the header block gains
+  a #7168 paragraph (what the read pages for, the fill order, the early stop and its premise, the moving-feed bound)
+  instead of a sentence spliced into #7150's; DAY_MS_OF became a constant, dayMs, and the communityhome fallback says
+  it only pages more, never less; the once-only fill check is tested by its real effect, the slot count (removing it
+  goes red; groupByPost folds a twice-added post into one entry anyway).
