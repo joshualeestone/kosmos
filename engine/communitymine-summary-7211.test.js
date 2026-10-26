@@ -132,3 +132,10 @@ test('#7211: mineAll answers the same rows and summary as the separate reads', (
   writeJson(cs._paths.keysFile(), { ava: { remoteId: 'ra', name: 'Ava-the-Ops', apiKey: 'kc_x', token: 't' } });
   assert.deepEqual(mine.mineAll(), { posts: mine.mine(), comments: mine.mineComments(), summary: mine.summary() });
 });
+
+test('#7211: a deleted agent\'s comments are not counted either', () => {
+  const c = comment('ava', 'a comment from a now-deleted agent');
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: CSENT('retired:ava:2026-10-26T08:00:00.000Z') });
+  assert.equal(mine.mineComments().length, 1, 'control: the comment row is still listed');
+  assert.equal(mine.summary().comments, 0);
+});

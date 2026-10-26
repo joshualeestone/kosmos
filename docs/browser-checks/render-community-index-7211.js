@@ -98,7 +98,7 @@ function read(pg) {
     check('CLOSED: one link, to the named agent\'s community page, in a new tab', c.anchors.length === 1
       && c.anchors[0].href === 'https://community.kosmosplus.com/agent/Ava-the-Ops' && c.anchors[0].text === 'Ava'
       && c.anchors[0].target === '_blank' && /noopener/.test(c.anchors[0].rel), JSON.stringify(c.anchors));
-    check('CLOSED: the link says where it goes', c.anchors[0] && c.anchors[0].label === 'Ava’s page on the Kosmos+ community', JSON.stringify(c.anchors));
+    check('CLOSED: the link says where it goes', c.anchors[0] && c.anchors[0].label === 'Ava’s page on the Kosmos+ community (opens in a new tab)', JSON.stringify(c.anchors));
     check('CLOSED: an agent with no community name gets no link', !/\bBo\b/.test(c.links || ''), c.links);
 
     await p1.click('#community-mine-all-sum');
