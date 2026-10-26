@@ -145,7 +145,15 @@ no profile record, and STARTS the agent: enable then bootstrap).
    opens (a FIFO would block); fetchProblems past twenty say so; with no file identity (inode 0) plainFolder decides
    by name only rather than holding back everything; a link at the top of workers has a test.
 
+18. W: heldBack had no cap (now MAX_LISTED with a marker); a node_modules at the top of an agent or project folder
+   went unflagged (now in `runs`). Deferred as duplicates: the unbounded read of the restored tops and the rename
+   retry wait (round 11's reasoning: the restore wrote every entry first; the sink waits the same way); a create
+   failure after its row (round 2). Convention: the object replacement character and variation selectors are
+   stripped from labels.
+
 ## Residuals, stated
+- A node_modules or .git nested deeper inside a moved project is not reported; npm and git find them when an agent
+  works there. 4a's review list shows every file, and 4c's agent start (git hooks off) covers the git case.
 - A restored project keeps its own .git, so a hostile repository config there reaches any agent made in this world
   later, which never passes this review. 4c must start agents in a Restored world with git's hooks and fsmonitor off.
 - Git discovery walks above the workers folder into the world folder and its base. Both are made by Kosmos and the
