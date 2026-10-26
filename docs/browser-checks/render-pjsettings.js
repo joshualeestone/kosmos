@@ -84,7 +84,7 @@ const PORT = freePort();
     if (!(await p.locator('#pjs-notices').isVisible())) die('#7246: the notices select is missing from settings');
     if ((await p.inputValue('#pjs-notices')) !== 'auto') die('#7246: a new project\'s notices setting did not paint as Automatic');
     const noticesHint = (await shown(p.locator('#pjs-notices-hint'))).trim();
-    if (!/For this project now: each agent is told after its turn\./.test(noticesHint)) die('#7246: the hint did not say what Automatic gives this project: ' + noticesHint);
+    if (!/For this project now: each agent is told at the end of its next turn\./.test(noticesHint)) die('#7246: the hint did not say what Automatic gives this project: ' + noticesHint);
 
     // Save round trip: rename, verify it lands, confirm, and #3134 returns to it.
     // #2923: delay the PUT so the in-flight Sweep spinner is observable (the

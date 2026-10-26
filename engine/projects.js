@@ -1331,7 +1331,7 @@ function describe(project, roster, all) {
     pausedByPerson: project.paused === true && project.pausedByPerson === true,
     // #7246 slice 2: the stored setting for room posts that do not name a member ('auto' when none), and the mode it
     // gives now (engine/roomhold.js noticeMode: auto is an hourly digest above 8 members), so the page can say both.
-    roomNotices: ['each', 'digest', 'named'].includes(project.roomNotices) ? project.roomNotices : 'auto',
+    roomNotices: require('./roomhold').NOTICE_MODES.includes(project.roomNotices) ? project.roomNotices : 'auto',
     roomNoticesNow: require('./roomhold').noticeMode(project),
     // Gated on the healed flag AND the value: a hand-edited record carrying
     // a date beside archived:false must not publish an "archived at", and a
@@ -3161,7 +3161,7 @@ function edit(id, fields = {}) {
   if (fields.parent !== undefined) parentWant = cleanParent(fields.parent, id);
   /* #7246 slice 2: how members hear about room posts that do not name them (engine/roomhold.js noticeMode). 'auto' or
      null removes the setting, so the size default applies (an hourly digest above 8 members). Anything else refused. */
-  const ROOM_NOTICES = ['each', 'digest', 'named'];
+  const ROOM_NOTICES = require('./roomhold').NOTICE_MODES;
   if (fields.roomNotices !== undefined && fields.roomNotices !== null && fields.roomNotices !== 'auto' && !ROOM_NOTICES.includes(fields.roomNotices)) {
     throw new Error('roomNotices must be auto, each, digest or named');
   }

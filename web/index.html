@@ -17904,7 +17904,7 @@ window.kosmosMeasureScrollbarWidth();
       <label class="flabel" for="pjs-notices">Posts that do not name an agent</label>
       <select class="tk-inp" id="pjs-notices" aria-describedby="pjs-notices-hint">
         <option value="auto">Automatic</option>
-        <option value="each">Tell each agent after its turn</option>
+        <option value="each">Tell each agent at the end of its next turn</option>
         <option value="digest">One summary an hour</option>
         <option value="named">Only when an agent is named</option>
       </select>
@@ -70908,12 +70908,21 @@ function pjPaintNoticesSelect(p) {
   if (!sel) return;
   const v = ['auto', 'each', 'digest', 'named'].includes(p.roomNotices) ? p.roomNotices : 'auto';
   sel.value = v;
+  /* Review 1: the save compares the select with the value it was PAINTED with, not the poll's latest: another tab's
+     choice arrives by poll, and comparing with it made an untouched select send its stale value back. */
+  sel.dataset.painted = v;
+  pjPaintNoticesHint(p);
+}
+/* The hint, repainted by the poll too (paintSettingsFacts), so it follows the member count across 8. Reads the
+   select's current value, so it never resets a choice in progress. */
+function pjPaintNoticesHint(p) {
+  const sel = document.getElementById('pjs-notices');
   const hint = document.getElementById('pjs-notices-hint');
-  if (hint) {
-    const now = p.roomNoticesNow === 'digest' ? 'one summary an hour' : p.roomNoticesNow === 'named' ? 'only when an agent is named' : 'each agent is told after its turn';
-    hint.textContent = (v === 'auto' ? 'Automatic means one summary an hour on a project of more than 8 agents. For this project now: ' + now + '. ' : '')
-      + 'A post that names an agent always reaches it at once. Telling every idle agent about every other post costs them a turn each, which adds up on a busy project.';
-  }
+  if (!hint) return;
+  const v = sel ? sel.value : 'auto';
+  const now = p.roomNoticesNow === 'digest' ? 'one summary an hour' : p.roomNoticesNow === 'named' ? 'only when an agent is named' : 'each agent is told at the end of its next turn';
+  hint.textContent = (v === 'auto' ? 'Automatic means one summary an hour on a project of more than 8 agents. For this project now: ' + now + '. ' : '')
+    + 'A post that names an agent always reaches it at once. Telling every idle agent about every other post costs them a turn each, which adds up on a busy project.';
 }
 function pjPaintParentSelect(p) {
   const sel = document.getElementById('pjs-parent');
@@ -71374,6 +71383,7 @@ function paintSettingsMembers(p) {
 
 function paintSettingsFacts(p) {
   paintSettingsMembers(p);
+  pjPaintNoticesHint(p);   // #7246 review 1: the hint follows the member count; the select's value is left alone
   const folder = String(p.folder || '');
   const base = folder.split('/').filter(Boolean).pop() || folder;
   document.getElementById('pjs-folder-name').textContent = base;
@@ -71628,7 +71638,7 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
     // #7246 slice 2: the notices mode, only when it changed ('auto' clears the setting).
     const noticesSel = document.getElementById('pjs-notices');
     const noticesVal = noticesSel ? noticesSel.value : (p.roomNotices || 'auto');
-    if (noticesVal !== (p.roomNotices || 'auto')) body.roomNotices = noticesVal;
+    if (noticesSel && noticesVal !== (noticesSel.dataset.painted || 'auto')) body.roomNotices = noticesVal;   // changed HERE, not by another tab
     if (!Object.keys(body).length) { msg.textContent = 'Nothing has changed.'; return; }
     // #2923: the Sweep spinner (#2236) beside the button while the save is in
     // flight, so pressing Save shows something happened. Injected only once a

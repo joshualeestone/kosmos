@@ -50,15 +50,41 @@ test('#7246 s2: edit carries roomNotices; auto clears it; anything else is refus
 
 test('#7246 s2: the page paints the setting and says what Automatic gives this project now', () => {
   const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8'));
-  const paint = new Function('document', page.lift(SCRIPT, 'pjPaintNoticesSelect') + '\nreturn pjPaintNoticesSelect;');
-  const els = { 'pjs-notices': { value: '' }, 'pjs-notices-hint': { textContent: '' } };
+  const paint = new Function('document', page.lift(SCRIPT, 'pjPaintNoticesHint') + '\n' + page.lift(SCRIPT, 'pjPaintNoticesSelect') + '\nreturn pjPaintNoticesSelect;');
+  const els = { 'pjs-notices': { value: '', dataset: {} }, 'pjs-notices-hint': { textContent: '' } };
   const fn = paint({ getElementById: (id) => els[id] || null });
   fn({ roomNotices: 'auto', roomNoticesNow: 'digest' });
   assert.equal(els['pjs-notices'].value, 'auto');
+  assert.equal(els['pjs-notices'].dataset.painted, 'auto', 'the painted value was not kept for the save to compare with');
   assert.match(els['pjs-notices-hint'].textContent, /For this project now: one summary an hour\./);
   fn({ roomNotices: 'named', roomNoticesNow: 'named' });
   assert.equal(els['pjs-notices'].value, 'named');
   assert.doesNotMatch(els['pjs-notices-hint'].textContent, /For this project now/, 'a chosen mode still explained Automatic');
   fn({ roomNotices: 'weird' });
   assert.equal(els['pjs-notices'].value, 'auto', 'an unknown value was shown as chosen');
+});
+
+test('#7246 s2 review 1: the hint follows the member count by poll, without touching a choice in progress', () => {
+  const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8'));
+  const hintFn = new Function('document', page.lift(SCRIPT, 'pjPaintNoticesHint') + '\nreturn pjPaintNoticesHint;');
+  const els = { 'pjs-notices': { value: 'auto', dataset: { painted: 'auto' } }, 'pjs-notices-hint': { textContent: '' } };
+  const hint = hintFn({ getElementById: (id) => els[id] || null });
+  hint({ roomNotices: 'auto', roomNoticesNow: 'each' });
+  assert.match(els['pjs-notices-hint'].textContent, /each agent is told at the end of its next turn/);
+  hint({ roomNotices: 'auto', roomNoticesNow: 'digest' });   // a member joined: the project crossed 8
+  assert.match(els['pjs-notices-hint'].textContent, /For this project now: one summary an hour/);
+  els['pjs-notices'].value = 'named';   // the person is choosing
+  hint({ roomNotices: 'auto', roomNoticesNow: 'digest' });
+  assert.equal(els['pjs-notices'].value, 'named', 'a poll repaint reset a choice in progress');
+  // The poll calls it, so the hint follows: pinned on the source, as paintSettingsFacts needs the whole page to run.
+  const facts = page.lift(SCRIPT, 'paintSettingsFacts');
+  assert.match(facts, /pjPaintNoticesHint\(p\)/, 'the poll repaint does not repaint the hint');
+  assert.doesNotMatch(facts, /pjPaintNoticesSelect\(/, 'the poll repaint resets the select');
+});
+
+test('#7246 s2 review 1: the save sends roomNotices only when THIS page changed it, never another tab\'s value back', () => {
+  const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8'));
+  // The save compares with what the select was painted with (pinned on the source; the save needs the live page).
+  assert.match(SCRIPT, /if \(noticesSel && noticesVal !== \(noticesSel\.dataset\.painted \|\| 'auto'\)\) body\.roomNotices = noticesVal;/,
+    'the save compares with the poll\'s value, so a stale tab sends its old choice back');
 });

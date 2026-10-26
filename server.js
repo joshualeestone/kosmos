@@ -21572,7 +21572,19 @@ const server = http.createServer(async (req, res) => {
            description applies whole or not at all. null or '' un-groups. */
         if (body.parent !== undefined) fields.parent = body.parent;
         if (body.roomNotices !== undefined) fields.roomNotices = body.roomNotices;   // #7246 slice 2, validated by the engine
+        const noticesBefore = body.roomNotices !== undefined ? roomhold.noticeMode(before) : null;
         projects.edit(id, fields);
+        /* #7246 review 1: a change of how members hear about un-named posts that did not come from the screen is said in
+           the room, as a pause is: switching a room to 'named' silences every member's background notices. */
+        if (body.roomNotices !== undefined && !isViaScreen(req, body)) {
+          try {
+            const after = roomhold.noticeMode(projects.readAll().find((x) => x.id === id));
+            if (after !== noticesBefore) {
+              const words = { each: 'each member is told after its own turn', digest: 'one summary an hour', named: 'only posts that name a member reach it' };
+              messages.roomNote(id, 'Someone changed how members hear about posts that do not name them, not from the project\'s page: now ' + words[after] + '.');
+            }
+          } catch { /* the setting stands; the note is best effort */ }
+        }
         if (fields.paused !== undefined && fields.viaScreen !== true && fields.paused !== wasPaused) {
           let who = null;
           try {
