@@ -139,3 +139,11 @@ test('a re-made project\'s room has had no post, though the deleted one\'s did (
   projects.create({ name: 'Last post name' });
   assert.equal(messages.lastPostAt(id), null, 'the new room has had none');
 });
+
+test('an id spelled another way still finds its project\'s createdAt (the task files key by store.safeKey)', async () => {
+  const id = await madeAndRemoved('Spelled name', 'from the first project');
+  projects.create({ name: 'Spelled name' });
+  const n = 1;
+  assert.deepEqual(said(id, n), [], 'CONTROL: the canonical id hides the old row');
+  assert.deepEqual(said(id.toUpperCase(), n), [], 'the upper-cased id reads the same file and must hide it too');
+});

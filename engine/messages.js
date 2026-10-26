@@ -778,8 +778,9 @@ function externalPost(projectId, { from, fromKind, text, member, unverified }) {
    and cuts them), which is never more than fedseats charged live (the raw words
    plus the cut name, and a refused row is charged but never stored). So a
    restart can only give back bytes that were never kept: what is stored stays
-   within the day. null when the log cannot be read (the caller then counts from
-   zero, the send path's fail-open trade). */
+   within the day. null when the log cannot be read, and (#7185) when the projects
+   file cannot be read (the caller then counts from zero for that day, the send
+   path's fail-open trade; its own live count still charges every post after). */
 function externalKeptOn(projectId, day) {
   const r = record();
   if (!r.ok) return null;
