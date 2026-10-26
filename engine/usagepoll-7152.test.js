@@ -588,3 +588,33 @@ test('#7152 review 17: the same figure under another organization the profile na
   await read(NOW + 20 * 60000, 'org-y');
   assert.equal(usagepoll.readUsage(d, NOW + 20 * 60000).weekly.changedAt, NOW + 20 * 60000, 'another organization inherited the old one\'s change time');
 });
+
+test('#7152 review 18: a refusal stamped in the future does not hold the account back', async (t) => {
+  const d = tmpDir(t);
+  const seen = {};
+  const exp = NOW + 10 * 3600000;
+  usagepoll.write(d, { at: NOW, state: 'http-429', refusedAt: NOW + 6 * 3600000, refusedEmail: EMAIL, refusedExpiresAt: exp });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: exp }), request: fakeRequest({ code: 200, body: BODY }, seen) });
+  assert.equal(seen.calls.length, 2, 'a refusal from the future held the account back');
+  usagepoll.write(d, { at: NOW, state: 'http-429', refusedAt: NOW - 60000, refusedEmail: EMAIL, refusedExpiresAt: exp });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: exp }), request: fakeRequest({ code: 200, body: BODY }, seen) });
+  assert.equal(seen.calls.length, 0, 'CONTROL: a refusal a minute ago holds it back');
+});
+
+test('#7152 review 18: the organization is parsed once per version of the account file, and a change is seen', (t) => {
+  const d = tmpDir(t);
+  const file = path.join(d, '.claude.json');
+  const resets = Math.floor((NOW + 86400000) / 1000);
+  usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: EMAIL, org: 'org-a', weekly: { usedPct: 70, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null });
+  fs.writeFileSync(file, JSON.stringify({ oauthAccount: { emailAddress: EMAIL, organizationUuid: 'org-a' } }));
+  const accounts = require('./accounts');
+  const real = accounts.identityOf;
+  let parses = 0;
+  accounts.identityOf = (dir) => { parses += 1; return real(dir); };
+  t.after(() => { accounts.identityOf = real; });
+  for (let i = 0; i < 5; i += 1) accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW);
+  assert.equal(parses, 1, 'the account file was parsed on every call');
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).usedPct, 70, 'CONTROL: the same organization is shown');
+  fs.writeFileSync(file, JSON.stringify({ oauthAccount: { emailAddress: EMAIL, organizationUuid: 'org-bb' } }));
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), null, 'a changed organization was not seen');
+});

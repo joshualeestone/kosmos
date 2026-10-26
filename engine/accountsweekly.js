@@ -45,8 +45,22 @@ const SAME_WINDOW_MS = 3600 * 1000;
 /* The endpoint's figure for one window, dated when it last CHANGED (usagepoll's changedAt), which is what the status
    line's `at` means and what the page shows as "last saw it change". A window with no reset time yet is left to the
    status line: the /api/status shape carries a reset time. */
+/* Review 18: the account's .claude.json can be large (the default one measured 571 KB here) and this runs on request
+   paths, so the organization is parsed once per version of the file, keyed by its size and change time. */
+const orgCache = new Map();
 function accountOrg(a) {
-  try { const who = require('./accounts').identityOf(a.dir); return who && who.organizationUuid; } catch { return null; }
+  try {
+    const accounts = require('./accounts');
+    const file = accounts.configFile(a.dir);
+    const st = fs.statSync(file);
+    const key = `${st.size}:${st.mtimeMs}`;
+    const hit = orgCache.get(file);
+    if (hit && hit.key === key) return hit.org;
+    const who = accounts.identityOf(a.dir);
+    const org = (who && who.organizationUuid) || null;
+    orgCache.set(file, { key, org });
+    return org;
+  } catch { return null; }
 }
 
 function polledOf(a, nowMs, key) {

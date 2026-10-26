@@ -254,7 +254,8 @@ async function pollAll(list, deps = {}) {
     if (a && typeof a.dir === 'string' && a.dir && !a.apiKey) {
       try { t = await tokenStateFor(a, deps); } catch { t = { state: 'no-credential' }; }
     }
-    if (t && before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number' && nowMs - before.refusedAt < BACKOFF_MS
+    if (t && before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number'
+      && nowMs - before.refusedAt >= 0 && nowMs - before.refusedAt < BACKOFF_MS   // review 18: a refusal stamped in the future has expired
       && typeof before.refusedEmail === 'string' && before.refusedEmail === a.email
       && t.state === 'ok' && t.expiresAt === before.refusedExpiresAt) {   // a token that is not usable sends nothing anyway
       write(a.dir, { ...before, at: nowMs });

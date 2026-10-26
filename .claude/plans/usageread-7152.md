@@ -92,6 +92,12 @@ at 0%, had no reading at all (the card's opening).
   when both name one) it was measured for, so a folder signed in again shows nothing from the old login, even in the
   minutes before the next read. The credential is read once per account per sweep, and that one read decides the
   backoff, is the token sent, and keys a refusal, so a token renewed mid-request is never the one held back.
+- Review 18: the organization the display checks is parsed once per version of the account's `.claude.json` (keyed
+  by size and change time; the default one is 571 KB here and the check runs on request paths). A refusal stamped
+  in the future (a clock stepped back) has expired rather than holding the account back. Not taken: asking the
+  profile before the usage (saves one request per other-account hour; the backoff already bounds it), and the
+  integer status line beating a fractional endpoint figure by under a point within a window (a display flip
+  between two sources that agree to the point, not a wrong figure).
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -144,7 +150,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 42 tests (counted from a run after review 17), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 44 tests (counted from a run after review 18), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.
