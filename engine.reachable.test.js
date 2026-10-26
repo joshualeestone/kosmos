@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setRecordMaxBytesForTests: 'test seam (#5536 slice 3): engine/restoresink.js\'s cap on the resume record, which engine/restoreresume-5536.test.js lowers to reach the dropped-record path without writing 256 MB. Production keeps the cap.',
   setTokenFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s path for agy\'s sign-in file, so engine/agyusage-6176.test.js and server.agyusage-6176.test.js can stand a file in for it; production checks the real path in the person\'s home folder.',
   setStoppedFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s record that asking stopped after a failed run, so engine/agyusage-6176.test.js can show it outlives a restart without touching the person\'s Kosmos folder (production refuses it in a test process).',
   setKillMsForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s kill time for a hung agy run, which engine/agyusage-6176.test.js shortens to reach the cap path in milliseconds instead of fifty seconds.',
