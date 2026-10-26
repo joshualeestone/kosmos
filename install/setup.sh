@@ -482,12 +482,6 @@ file_owner_uid() {
   /usr/bin/stat -f %u "$1" 2>/dev/null
 }
 
-# #5913: can this install REUSE the sealed icon at $1 instead of making a second icon in ~/Applications? Only a real
-# bundle (never a link) that is a sealed Kosmos app we built (no per-install file, and bundle_is_sealed), owned by
-# ANOTHER account, and only when this run would place the sealed app itself (sealed_placeable: this account's config
-# is written where that app reads it). The sealed app reads the CLICKING account's own config, so the icon already
-# there opens this install. Its version does not gate reuse: every sealed app (slice 2 onward) reads that config, and
-# asks the board for everything else.
 # #7203: the version a Kosmos.app says it is (CFBundleShortVersionString), or nothing when it cannot be read.
 app_bundle_version() {
   /usr/bin/plutil -extract CFBundleShortVersionString raw "$1/Contents/Info.plist" 2>/dev/null
@@ -502,6 +496,12 @@ version_at_least() {
     for (i = 1; i <= k; i++) { p = x[i] + 0; q = y[i] + 0; if (p > q) exit 0; if (p < q) exit 1 } exit 0 }'
 }
 
+# #5913: can this install REUSE the sealed icon at $1 instead of making a second icon in ~/Applications? Only a real
+# bundle (never a link) that is a sealed Kosmos app we built (no per-install file, and bundle_is_sealed), owned by
+# ANOTHER account, and only when this run would place the sealed app itself (sealed_placeable: this account's config
+# is written where that app reads it). The sealed app reads the CLICKING account's own config, so the icon already
+# there opens this install. #7203: and only when it is not older than the app this install ships (a newer one is
+# fine: the window only warns when it is BEHIND its board).
 sealed_icon_reusable() {
   [ -d "$1" ] && [ ! -L "$1" ] || return 1
   # Review 1: a per-install bundle opens its own baked home, never the clicking account's, so it is never reused.
@@ -511,9 +511,8 @@ sealed_icon_reusable() {
   [ -n "$owner" ] && [ "$owner" != "$(/usr/bin/id -u)" ] || return 1
   sealed_placeable "$1" || return 1
   bundle_is_sealed "$1" || return 1
-  # #7203: and not OLDER than the app this install ships. A fresh account on a Mac whose shared icon was left by an
-  # earlier install reused a 0.7.61 window against a 0.7.63 board; an older icon is left in place (it is not ours) and
-  # this account gets its own current one in ~/Applications instead.
+  # #7203: a fresh account on a Mac whose shared icon was left by an earlier install reused a 0.7.61 window against a
+  # 0.7.63 board; an older icon is left in place (it is not ours) and this account gets its own in ~/Applications.
   version_at_least "$(app_bundle_version "$1")" "$(app_bundle_version "$KOSMOS_HOME/app/Kosmos.app")"
 }
 
@@ -710,6 +709,10 @@ resolve_app_dir() {
       APP_SKIP_REASON=shared-sealed
       return 0
     fi
+    # #7203: not reused this time (an older shared icon, most often), so this account no longer depends on it: take
+    # back its own reuse marker, or the owner's uninstall keeps an icon nobody here opens. Only ever this account's own
+    # marker naming this install (sealed_icon_unmark), so a no-op for an account that never reused it.
+    [ "$APP_OWN_SEALED" = no ] && { sealed_icon_unmark || true; }
     # ⚠️ THE DIVERT ITSELF NEEDS THE ALIASING GUARD. "Send the icon to the
     # per-user folder instead" is only an escape if the per-user folder is
     # a DIFFERENT folder: with ~/Applications symlinked to the system one,
