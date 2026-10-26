@@ -64,7 +64,9 @@ const ZIP64_MARKER_32 = 0xffffffff;
    no Kosmos build carries one. */
 const CLOCK_DEVICE_NAME = /^clock\$ *(\..*)?$/i;
 const WINDOWS_DEVICE_NAME = require('./winpath').WINDOWS_DEVICE_NAME;
-const WINDOWS_RESERVED_NAME = { test: (segment) => WINDOWS_DEVICE_NAME.test(segment) || CLOCK_DEVICE_NAME.test(segment) };
+function isReservedSegment(segment) {
+  return WINDOWS_DEVICE_NAME.test(segment) || CLOCK_DEVICE_NAME.test(segment);
+}
 /* Characters Windows cannot store in a file name. `\` and `:` are refused separately, with their
    own sentences, because each is a known trick rather than a mere impossibility. */
 const WINDOWS_FORBIDDEN_CHARACTERS = /[<>"|?*]/;
@@ -113,7 +115,7 @@ function checkEntryName(name, allowedTopLevel) {
     if (segment === '.' || segment === '..') refuse(`the archive entry ${quoted(name)} climbs out of its folder with ${quoted(segment)}`);
     /* Windows drops trailing dots and spaces, so `app.` and `app ` would land on `app`. */
     if (/[. ]$/.test(segment)) refuse(`the archive entry ${quoted(name)} has a name ending in a dot or a space, which Windows would silently change`);
-    if (WINDOWS_RESERVED_NAME.test(segment)) refuse(`the archive entry ${quoted(name)} uses ${quoted(segment)}, which Windows reserves for a device`);
+    if (isReservedSegment(segment)) refuse(`the archive entry ${quoted(name)} uses ${quoted(segment)}, which Windows reserves for a device`);
     if (WINDOWS_FORBIDDEN_CHARACTERS.test(segment)) refuse(`the archive entry ${quoted(name)} contains a character Windows cannot store in a file name`);
     if (SHORT_NAME_ALIAS.test(segment)) refuse(`the archive entry ${quoted(name)} looks like a Windows short name, which can stand for a different file`);
   }

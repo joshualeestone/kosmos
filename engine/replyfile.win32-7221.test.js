@@ -466,6 +466,34 @@ test('#7221 review 5-2: a file directly in Files touches no project folder, even
   assert.deepEqual(touched.filter((p) => p.toLowerCase().startsWith(lower)), [], 'no lstat under the project folder');
 });
 
+/* ---------- review 9: file ids past 2^53 ---------- */
+
+/* Two different folders whose number ids are equal: NTFS file ids are 64-bit, and a number ino keeps 53 bits. On the
+   Windows box 19 pairs of 2000 fresh files collided. Up to 4000 folders are made to find a pair; null if none did. */
+function collidingFolders(where) {
+  fs.mkdirSync(where, { recursive: true });
+  const byNumber = new Map();
+  for (let i = 0; i < 4000; i++) {
+    const dir = path.join(where, 'd' + i);
+    fs.mkdirSync(dir);
+    const big = fs.statSync(dir, { bigint: true });
+    const key = Number(big.dev) + ':' + Number(big.ino);
+    const prior = byNumber.get(key);
+    if (prior && prior.ino !== big.ino) return [prior.dir, dir];
+    byNumber.set(key, { dir, ino: big.ino });
+  }
+  return null;
+}
+test('#7221 review 9: a folder whose number id equals a project folder\'s is not taken for that project (BigInt ids)', winOnly, (t) => {
+  const pair = collidingFolders(path.join(SANDBOX, 'ids'));
+  if (!pair) { t.skip('no two folders here had equal number ids'); return; }
+  const [projectFolder, elsewhere] = pair;
+  fs.writeFileSync(path.join(elsewhere, 'f.txt'), 'not in any project\n');
+  PROJECTS = [{ id: 'p-ids', name: 'Ids', folder: projectFolder, agents: [WHO] }];
+  const r = replyfile.attach(WHO, path.join(elsewhere, 'f.txt'), { platform: 'win32' });
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'a file outside every project is refused: ' + JSON.stringify(r));
+});
+
 /* ---------- review 8 ---------- */
 
 test('#7221 review 8-1: the namespace spellings of a drive, a share and a local volume are read for what they are', () => {

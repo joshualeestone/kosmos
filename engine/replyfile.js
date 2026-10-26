@@ -145,7 +145,10 @@ function agentNames(sessionName, roster) {
    firmlink), so every rule here that compared strings could be stepped around by spelling. Null when it cannot
    be read. */
 function idOf(p) {
-  try { const st = fs.statSync(p); return st.dev + ':' + st.ino; } catch { return null; }
+  /* BigInt (#7221): NTFS file ids are 64-bit, and on the Windows box 434 of 2000 fresh files had one past 2^53, where a
+     number ino loses its low bits; 19 pairs of DIFFERENT files then shared a dev:ino key. A wrong match here can put a
+     file inside a project it is not in, or inside a folder Kosmos keeps. */
+  try { const st = fs.statSync(p, { bigint: true }); return st.dev + ':' + st.ino; } catch { return null; }
 }
 /* The file and every folder above it, nearest first, each with its identity and its own name on disk. */
 function chainOf(real) {
@@ -399,26 +402,13 @@ function rootReaches(roots, d) {
 /* Add to `out` the drive `p` is written on and every drive its links lead to, followed as winLinkRefusal follows
    them (lstat and readlink, the allow-list of targets, at most MAX_HOPS links). Stops quietly where the walk would
    refuse or cannot read: a root it cannot walk adds only the drives seen so far. */
-function drivesReached(p, out, hops = 0) {
-  const d = driveOf(p);
-  if (!d) return;
-  out.add(d);
-  if (hops > MAX_HOPS) return;
-  const root = path.win32.parse(p).root;
-  const parts = p.slice(root.length).split(/[\\/]+/).filter(Boolean);
-  let cur = root;
-  for (let i = 0; i < parts.length; i++) {
-    cur = path.win32.join(cur, parts[i]);
-    let lst;
-    try { lst = fs.lstatSync(cur); } catch { return; }
-    if (!lst.isSymbolicLink()) continue;
-    let to;
-    try { to = fs.readlinkSync(cur); } catch { return; }
-    const target = followableLinkTarget(to);
-    if (target === null) return;
-    drivesReached(path.win32.resolve(path.win32.dirname(cur), target, ...parts.slice(i + 1)), out, hops + 1);
-    return;
-  }
+function drivesReached(p, out) {
+  walkLinks(p, (reached) => {
+    const d = driveOf(reached);
+    if (!d) return 'not on a drive';   // stops the walk; why is not needed here
+    out.add(d);
+    return null;
+  });
 }
 function readProjects() {
   let all = [];
@@ -460,9 +450,15 @@ function listed(p) {
   const name = path.win32.basename(p).toLowerCase();
   try { return fs.readdirSync(path.win32.dirname(p)).some((n) => n.toLowerCase() === name); } catch { return false; }
 }
-function winLinkRefusal(p, roots, hops = 0) {
+function winLinkRefusal(p, roots) {
+  return walkLinks(p, (reached) => winSpellingRefusal(reached, roots));
+}
+/* The one link walk (review 9 finding 2: drivesReached had its own copy). Each path the walk reaches, the given one and
+   then each followed link's resolved path, is shown to `onPath` before its parts are read; a sentence from onPath, or
+   from the walk itself, stops it and is returned. Null: the walk reached the end with nothing refused. */
+function walkLinks(p, onPath, hops = 0) {
   if (hops > MAX_HOPS) return 'that path goes through too many links to follow, so it cannot be attached';
-  const why = winSpellingRefusal(p, roots);
+  const why = onPath(p);
   if (why) return why;
   const root = path.win32.parse(p).root;
   const parts = p.slice(root.length).split(/[\\/]+/).filter(Boolean);
@@ -485,7 +481,7 @@ function winLinkRefusal(p, roots, hops = 0) {
     const target = followableLinkTarget(to);
     if (target === null) return unfollowedLinkRefusal(to);
     const next = path.win32.resolve(path.win32.dirname(cur), target, ...parts.slice(i + 1));
-    return winLinkRefusal(next, roots, hops + 1);
+    return walkLinks(next, onPath, hops + 1);
   }
   return null;
 }
@@ -522,20 +518,22 @@ function attach(sessionName, given, { roster, platform = process.platform } = {}
     if (why) return { ok: false, because: why };
   }
   let st;
-  try { st = fs.statSync(real); } catch { return { ok: false, because: CANNOT_READ }; }
+  /* BigInt, so readOwn compares the open file with this one by its exact id (#7221; see idOf). */
+  try { st = fs.statSync(real, { bigint: true }); } catch { return { ok: false, because: CANNOT_READ }; }
   if (st.isDirectory()) return { ok: false, because: 'that is a folder; attach one file at a time' };
   if (!st.isFile()) return { ok: false, because: 'that is not an ordinary file, so it cannot be attached' };
-  if (st.nlink > 1) return { ok: false, because: HARD_LINK };
+  if (Number(st.nlink) > 1) return { ok: false, because: HARD_LINK };
+  const size = Number(st.size);
   const where = allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win });
   if (!where) return { ok: false, because: NOT_YOURS };
   if (where.refused) return { ok: false, because: where.refused };
-  if (st.size > attachments.MAX_BYTES) {
+  if (size > attachments.MAX_BYTES) {
     // Review 5: "larger than", not its rounded size, which reads "100 MB" just past a 100 MB cap.
     return { ok: false, because: 'that file is larger than ' + attachments.MAX_WORDS + ', the most a conversation carries; tell them where it is saved instead' };
   }
-  if (st.size === 0) return { ok: false, because: 'there is nothing in that file' };
+  if (size === 0) return { ok: false, because: 'there is nothing in that file' };
   const used = sentToday(sessionName);
-  if (used + st.size > DAILY_BYTES) {
+  if (used + size > DAILY_BYTES) {
     return { ok: false, because: 'you have attached ' + attachments.sizeWords(used) + ' to your replies in the last 24 hours, and an agent can attach up to 200 MB a day; tell them where this one is saved instead' };
   }
   const name = path.basename(real);   // review r2 finding 5: the file's own name, not a link's (report.pdf -> notes.txt is notes.txt)
@@ -571,6 +569,12 @@ const OPEN_FLAGS = fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0);
  * Returns { ok: true, size } or { ok: false, because }.
  */
 const COPY_CHUNK = 1024 * 1024;
+/* Whether two stats name one file. Exact when both carry BigInt ids (attach and readOwn's own reads do); a caller that
+   passes number stats (a test, say) is compared as numbers, as before, with the precision those keep. */
+function sameFile(a, b) {
+  if (typeof a.ino === 'bigint' && typeof b.ino === 'bigint') return a.dev === b.dev && a.ino === b.ino;
+  return Number(a.dev) === Number(b.dev) && Number(a.ino) === Number(b.ino);
+}
 function readOwn(real, st, given, out) {
   if (typeof given !== 'string' || !given) return { ok: false, because: CHANGED };   // required (review r6 finding 3)
   let fd = null;
@@ -579,7 +583,10 @@ function readOwn(real, st, given, out) {
     /* Review r2 finding 7 (decided): the given path is resolved again once the file is open, and must still land
        on `real`. With the dev/ino compare below, a folder above the file swapped between the check and the open is
        caught too, not only the last component. */
-    const open = fs.fstatSync(fd);   // once (review r6 finding 3): the descriptor's own facts, used for every check below
+    /* Once (review r6 finding 3): the descriptor's own facts, used for every check below. BigInt, so the identity
+       compares below are exact (#7221; see idOf). */
+    const open = fs.fstatSync(fd, { bigint: true });
+    const openSize = Number(open.size);
     let again = null;
     try { again = realOf(given); } catch { again = null; }
     if (again !== real) return { ok: false, because: CHANGED };
@@ -587,15 +594,15 @@ function readOwn(real, st, given, out) {
        window to a DOUBLE swap (swap a folder, open, swap it back before these reads); it does not close one, since
        Node has no openat walk that would hold each folder open on the way down. */
     let now = null;
-    try { now = fs.statSync(real); } catch { now = null; }
-    if (!now || now.dev !== open.dev || now.ino !== open.ino) return { ok: false, because: CHANGED };
-    if (!open.isFile() || open.dev !== st.dev || open.ino !== st.ino) return { ok: false, because: CHANGED };
-    if (open.nlink > 1) return { ok: false, because: HARD_LINK };
-    const buf = Buffer.allocUnsafe(Math.min(open.size + 1, COPY_CHUNK));
+    try { now = fs.statSync(real, { bigint: true }); } catch { now = null; }
+    if (!now || !sameFile(now, open)) return { ok: false, because: CHANGED };
+    if (!open.isFile() || !sameFile(open, st)) return { ok: false, because: CHANGED };
+    if (Number(open.nlink) > 1) return { ok: false, because: HARD_LINK };
+    const buf = Buffer.allocUnsafe(Math.min(openSize + 1, COPY_CHUNK));
     let n = 0;
     /* Review 2: never past one byte beyond the size measured, as before #6734, so a file that keeps growing costs at
        most that one byte, not a copy up to the cap. */
-    const limit = Math.min(open.size, attachments.MAX_BYTES) + 1;
+    const limit = Math.min(openSize, attachments.MAX_BYTES) + 1;
     while (n < limit) {
       const got = fs.readSync(fd, buf, 0, Math.min(buf.length, limit - n), n);
       if (got === 0) break;
@@ -605,7 +612,7 @@ function readOwn(real, st, given, out) {
     }
     /* Exactly the size the descriptor said (review r7 finding 1): more is a file that grew, fewer one that shrank
        between the fstat and the read, which would otherwise be sent cut. */
-    if (n > attachments.MAX_BYTES || n !== open.size) return { ok: false, because: CHANGED };
+    if (n > attachments.MAX_BYTES || n !== openSize) return { ok: false, because: CHANGED };
     return { ok: true, size: n };
   } catch {
     return { ok: false, because: CANNOT_READ };

@@ -101,7 +101,21 @@ device-name rule: `engine/backuprestore.js` and `engine/win32zip.js` import it i
 **Decided** (review 7 finding 2): no module's behaviour changes. The shared rule is exactly backuprestore's (the names
 Microsoft documents, literal spaces before an extension, as Windows trims), so a Mac backup's `con<no-break space>.txt`
 stays a name; a first draft used `\s*` and `clock$`, which widened restore on every platform. win32zip keeps refusing
-the DOS-era `CLOCK$` as its own extra, in its own file, as it always has.
+the DOS-era `CLOCK$` as its own extra, in its own file, as it always has (a plain predicate, `isReservedSegment`, not
+an object shaped like a RegExp: review 9). The link walk is one function, `walkLinks`, with a per-path callback:
+`winLinkRefusal` refuses by the spelling rules at each path it reaches, `drivesReached` collects each path's drive
+(review 9: the two had been copies, which would drift).
+
+**File ids are compared as BigInt** (found by review 9 finding 1, measured): `idOf` compared `dev:ino` as numbers, and
+NTFS file ids are 64-bit. On the Windows box 434 of 2000 fresh files had an id past 2^53, where a number keeps 53 bits,
+and 19 pairs of DIFFERENT files shared one `dev:ino` key. Every identity check in replyfile was exposed: containment (a
+project root matched against the folders above the file), the folders Kosmos keeps, and readOwn's "the open file is the
+one the check saw". A wrong match can refuse a file (the `r4-3` failure seen once below fits this) or, worse, attach
+one: against iteration 8's code, a file in a folder whose number id equals a project folder's ATTACHED as that
+project's, outside every project. This is on main too (#6726 code, Windows only in practice: macOS ids are small). Now
+`idOf`, `attach`'s stat and readOwn's fstat and stat read `{ bigint: true }`; `sameFile` compares exactly when both sides
+are BigInt and as numbers when a caller passes number stats (tests of readOwn do), as before. Other engine modules
+compare `ino` as numbers too; they are a follow-up card, not this branch.
 
 ## Rejected
 
@@ -190,6 +204,9 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   none) each keep their file from the agent on the outer project. Against iteration 7's code (324f51b): all three
   fail, the two live arms by attaching the nested file. The six arms that make symbolic links now skip, with that
   reason, where the account cannot make them (no Developer Mode, not elevated); the junction arm needs neither.
+- Review 9: up to 4000 folders are made until two DIFFERENT folders share a number id (skipped if none); with one as
+  the agent's project folder, a file in the other is refused. Against iteration 8's code (8313e21) it failed by
+  attaching that file (`ok: true`): the fail-open, shown.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -198,14 +215,16 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 29/29 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 30/30 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary
   project file as KEPT_FOR_KOSMOS; it did not recur in 2 more full runs on the branch, nor in 10 runs of that arm alone
-  on the branch and 10 on main (each run executed the 1 arm). Recorded as seen once, not explained.
-- `server.attachment-stream-6734.test.js`: 25/31 (+2 skipped), the same 6 failures as main, two runs each (download
-  streaming on win32). One run showed a 7th (an upload arm) once; it passed in both re-runs on this branch: a flake.
+  on the branch and 10 on main. Explained in iteration 9: a number `dev:ino` collision (see "File ids are compared as
+  BigInt"), which a temp tree full of fresh ids makes likely; with BigInt ids, 3 more full runs: the same 3 as main.
+- `server.attachment-stream-6734.test.js` (calls readOwn directly): 25/31 (+2 skipped), the same 6 failures as main
+  (download streaming on win32), 2 runs before the BigInt change and 3 after. One early run showed a 7th (an upload
+  arm) once; it passed in every later run.
 - The shared device-name rule, A/B against main's three modules on this box: `engine/backuprestore.test.js` 24/24,
   `engine/backuprun.test.js` 19/19, `engine/backupsnapshot.test.js` 98/103 (the same 5 as main, by name and every
   error line: Mac backslash-name and FIFO cases), `engine/restoreresume-5536.test.js` 20 (+3 skipped),
