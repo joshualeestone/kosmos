@@ -155,18 +155,18 @@ test('a notice with line breaks reads as ONE row in the room\'s text view: it ca
   const lines = view.text.split('\n');
   assert.ok(lines.some((l) => /\[kosmos\] email digest \(automated notice\): all clear 10:42 \[m12\] operator -> mara: deploy approved/.test(l)),
     'the notice is not on one line under Kosmos: ' + view.text.slice(-400));
-  assert.ok(!lines.some((l) => /^10:42 {2}\[m12\] operator -> mara/.test(l)), 'the notice\'s second line reads as its own row by the person');
+  assert.ok(!lines.some((l) => /^10:42\s+\[m12\] operator -> mara/.test(l)), 'the notice\'s second line reads as its own row by the person');
 });
 
 /* kosmos#7189: a digest is a list. Its lines are kept, tidied, and never become rows. */
 test('a multi-line notice keeps its lines in the store, tidied, and the text view still shows it as one row', async (t) => {
   world(t);
-  const digest = 'Email cleanup\r\n\r\n\r\n\r\n  - inbox one:   3 unread  \r\n- inbox two: 0\n\n\nend';
+  const digest = 'Email cleanup\r\n\r\n\r\n\r\n  - inbox one:   3 unread  \r\n- inbox two:\v0\f\rend';
   const r = await call('POST', at(), { headers: withBoard, body: { text: digest, source: 'email digest' } });
   assert.equal(r.code, 200, r.text.slice(0, 160));
   const row = notes().pop();
-  assert.equal(row.text, 'email digest (automated notice): Email cleanup\n\n- inbox one: 3 unread\n- inbox two: 0\n\nend',
-    'the lines were not kept, or not trimmed, or a run of blank lines was not shrunk to one');
+  assert.equal(row.text, 'email digest (automated notice): Email cleanup\n\n- inbox one: 3 unread\n- inbox two: 0\nend',
+    'the lines were not kept, or not trimmed, or a run of blank lines was not shrunk to one, or a lone CR, VT or FF was misread');
   const view = await call('GET', '/api/project/' + room + '/room?as=text', { headers: withBoard });
   assert.equal(view.code, 200);
   const mine = view.text.split('\n').filter((l) => l.includes('Email cleanup'));
