@@ -1491,9 +1491,10 @@ async function sweepInstallGroup(keys, on) {
 const OWNER_PASS_ROUTE = '/v1/mac/community-owner-pass';
 let OWNER_LINK_RETRY_MS = 15 * 60 * 1000;   // a pause after a failure of the service or of one agent (tests set it)
 const OWNER_LINK_UNKNOWN_MS = 60 * 60 * 1000;   // a pause when the route does not exist yet; tests rely on it staying long
-const OWNER_LINK_PASS_MS = 30 * 1000;   // the owner pass's share of one sweep
+const OWNER_LINK_PASS_MS = 30 * 1000;   // no new agent is started after this long in one pass
 const ownerLinkPassAt = new Map();    // endpointDir -> ms: the whole pass is paused until then
 const ownerLinkAgentAt = new Map();   // endpointDir + agentKey -> ms: this one agent is skipped until then
+const ownerLinkLogged = new Map();    // endpointDir + agentKey -> the reason last logged for it (once per reason)
 // #6488's own test for "Kosmos+ is live here" (signed in AND switched on), shared with phone notifications.
 function ownerLinkLive() {
   try { return require('./phonenotify').plusLive() === true; } catch { return false; }
@@ -1513,11 +1514,10 @@ function ownerPassUnknown(minted) {
 const ownerLinkWait = (ms) => (ms >= 60000 ? Math.round(ms / 60000) + ' min' : Math.round(ms / 1000) + ' s');
 /* A refusal about one agent only: the agent waits, the pass goes on to the next one, so one agent the service will
    not take cannot hold every agent after it. */
-// Returns true when it changed what is saved (the reason, written once per reason), so the caller saves the keys.
-function ownerLinkSkipAgent(ep, agentKey, k, why) {
-  ownerLinkAgentAt.set(ep + '\n' + agentKey, Date.now() + OWNER_LINK_RETRY_MS);
-  if (k.ownerLinkRetrying !== why) { k.ownerLinkRetrying = why; log(`owner link for ${agentKey}: ${why}; trying again in ${ownerLinkWait(OWNER_LINK_RETRY_MS)}, until it lands`); return true; }
-  return false;
+function ownerLinkSkipAgent(ep, agentKey, why) {
+  const id = ep + '\n' + agentKey;
+  ownerLinkAgentAt.set(id, Date.now() + OWNER_LINK_RETRY_MS);
+  if (ownerLinkLogged.get(id) !== why) { ownerLinkLogged.set(id, why); log(`owner link for ${agentKey}: ${why}; trying again in ${ownerLinkWait(OWNER_LINK_RETRY_MS)}, until it lands`); }
 }
 async function sweepOwnerLink(keys, on) {
   if (!on || !switchOn() || !ownerLinkLive()) return;
@@ -1552,7 +1552,7 @@ async function sweepOwnerLink(keys, on) {
         const st = minted.refusal ? minted.refusal.status : 0;
         // The coordinator's only refusal about one agent is its 400 (the name); its 403s are about this computer (not
         // allowed on the account, or the account lapsed), so they pause the whole pass below.
-        if (st === 400) { marks = ownerLinkSkipAgent(ep, agentKey, k, 'Kosmos+ refused to vouch for that name (400)') || marks; continue; }
+        if (st === 400) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
         const unknown = !minted.ok && ownerPassUnknown(minted);
         ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
         log(`owner link: ${unknown ? 'Kosmos+ cannot vouch for agents yet' : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '')}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
@@ -1562,11 +1562,11 @@ async function sweepOwnerLink(keys, on) {
       if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on
       if (r.status === 204 || r.status === 200) {
         k.ownerLinked = marker;
-        delete k.ownerLinkRetrying;
+        ownerLinkLogged.delete(ep + '\n' + agentKey);
         marks = true;
         continue;
       }
-      if (r.status === 400 || r.status === 403) { marks = ownerLinkSkipAgent(ep, agentKey, k, `the community refused the pass (${r.status})`) || marks; continue; }
+      if (r.status === 400 || r.status === 403) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
       if (r.status === 404 || r.status === 405) {
         ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_UNKNOWN_MS);
         log(`owner link: the community has no owner route yet (${r.status}); trying again in an hour`);
@@ -1579,7 +1579,7 @@ async function sweepOwnerLink(keys, on) {
         break;
       }
       // Any other 4xx (a 409 or 422, say) is about this agent too, so it does not hold the rest.
-      if (r.status >= 400 && r.status < 500 && r.status !== 401) { marks = ownerLinkSkipAgent(ep, agentKey, k, `the community refused the pass (${r.status})`) || marks; continue; }
+      if (r.status >= 400 && r.status < 500 && r.status !== 401) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
       // No answer, a 5xx (the site's 503 while it is not ready), a 401 logging in again could not clear: the service.
       ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
       log(`owner link: the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
@@ -3175,6 +3175,6 @@ module.exports = {
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
-  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
+  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };
