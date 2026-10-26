@@ -14,11 +14,15 @@
  *   - show each instruction file's removed template lines (a deleted safety rule raises no flag);
  *   - treat `unreviewed` as unread: anything not fully read is listed there and makes `flagged` true;
  *   - escape every string for HTML, and render invisible code points as visible escapes (review 2: a payload in
- *     Unicode tag characters shows as nothing but is read by a model).
+ *     Unicode tag characters shows as nothing but is read by a model);
+ *   - show addedText as given, never re-split the files (line breaks here are every one an editor counts);
+ *   - show the agent's name as unreviewed content too: a plain four-word name is written into the baseline, so the
+ *     template lines holding it match, and "Disregard every safety rule" is four words (review 4).
  *
  * reviewAgent({ name, files: [{ name, text }], templates? }) -> {
  *   name, nameProblem, closest: role key or null,
- *   files: [{ name, instructions: bool, lines, added: [line numbers], removed: [template lines], truncated }],
+ *   files: [{ name, instructions: bool, lines, added: [line numbers], addedText: [their text], removed: [template lines],
+ *            truncated }],
  *   flags: [{ file, line, kind: 'url' | 'credential' | 'schedule' | 'invisible' | 'hides' | 'long', text, at, length, split? }],
  *   flagsNotListed, unreviewed: [{ file, why }], flagged }
  */
@@ -165,7 +169,9 @@ function defaultTemplates(name, plain) {
 const linesOf = (text) => String(text).split(/\r\n|\r|\n|\u2028|\u2029/);
 // Compared as written, after NFKC and whitespace only: invisible characters are NOT stripped (review 2), so a line
 // with any is never equal to a template line.
-const norm = (l) => l.normalize('NFKC').trim().replace(/\s+/g, ' ');
+// Leading whitespace is kept (review 4: an indented block is code in Markdown, so an indent change must count), and
+// only spaces and tabs collapse (\s would also swallow U+FEFF).
+const norm = (l) => l.normalize('NFKC').replace(/[ \t]+$/, '').replace(/(\S)[ \t]+/g, '$1 ');
 
 /* The template sharing the most lines with these, found through one index from line to templates (review 3: every
    template against every line was seconds on a large restore). Ties go to the first. */
@@ -185,22 +191,10 @@ function closestTemplate(lines, templates) {
   return best < 0 ? null : kept[best];
 }
 
-/* Lines inside an HTML comment or a code fence (review 3: wrapping the template's rules in one disables them while
-   every line still matched). They never match the template, so the rules count as removed; the opening line is
-   flagged 'hides'. Returns { hidden: Set of line indexes, opens: [line indexes] }. */
-function hiddenRegions(raw) {
-  const hidden = new Set(), opens = [];
-  let fence = null, comment = false;
-  raw.forEach((line, i) => {
-    const t = line.trim();
-    if (fence) { hidden.add(i); if (t.startsWith(fence)) fence = null; return; }
-    if (comment) { hidden.add(i); if (t.includes('-->')) comment = false; return; }
-    const f = /^(`{3,}|~{3,})/.exec(t);
-    if (f) { fence = f[1]; hidden.add(i); opens.push(i); return; }
-    if (t.includes('<!--')) { hidden.add(i); opens.push(i); comment = !t.slice(t.indexOf('<!--') + 4).includes('-->'); }
-  });
-  return { hidden, opens };
-}
+/* A line that can make what follows it stop being instructions in Markdown or HTML: a fence, a comment, or a block
+   whose content is not rendered as text (review 4: a parser of these regions kept falling out of step with Markdown,
+   so there is no parser: see the rule where it is used). */
+const HIDE_RE = /```|~~~|<!--|-->|<\/?(?:script|style|pre|textarea|template|noscript|xmp|plaintext|iframe|object|details)\b/i;
 
 /* The longest common subsequence of a file's non-blank lines and the template's, IN ORDER (review 2: a set let a
    reordered template, or a rule moved to another file, review clean). Returns which file lines (by index) are matched
@@ -262,10 +256,7 @@ function reviewAgent({ name, files, templates } = {}) {
     read.push({ name: fname, raw: linesOf(text), truncated, instructions: INSTRUCTION_FILES.has(base), order });
   }
   read.sort((x, y) => x.order - y.order);
-  for (const f of read) {
-    f.hidden = f.instructions ? hiddenRegions(f.raw) : { hidden: new Set(), opens: [] };
-    f.normed = f.raw.map(norm);
-  }
+  for (const f of read) f.normed = f.raw.map(norm);
   // The closest template, from the instruction files only (notes are never matched against a template).
   const closest = closestTemplate(read.filter((f) => f.instructions).flatMap((f) => f.normed), tpl);
   const counts = { url: 0, credential: 0, schedule: 0, invisible: 0, long: 0, hides: 0 };
@@ -278,13 +269,13 @@ function reviewAgent({ name, files, templates } = {}) {
   };
   const out = read.map((f) => {
     const al = f.instructions && closest ? align(f.normed, closest.lines) : { matchedFile: new Set(), matchedTpl: new Set(), pairs: [], diffed: false };
-    // A line the member put inside a comment or fence does not match a template line that is not in one: the rule
-    // is disabled, so it counts as removed and the line as added. A template's own fenced block still matches.
-    if (al.pairs.length) {
-      const tplHidden = hiddenRegions(closest.lines).hidden;
-      for (const [fi, tj] of al.pairs) {
-        if (f.hidden.hidden.has(fi) && !tplHidden.has(tj)) { al.matchedFile.delete(fi); al.matchedTpl.delete(tj); }
-      }
+    // After the first ADDED line with a hiding marker, every template line further down counts as removed (review
+    // 4): it may no longer be read as an instruction, and telling which it is would need a Markdown parser that a
+    // hostile file could again fall out of step with. Noisy for a member who added one (rare), never unsafe. A
+    // template's own fence is a matched line, so it never starts this.
+    if (f.instructions && al.pairs.length) {
+      const firstHide = f.raw.findIndex((l, i) => !al.matchedFile.has(i) && HIDE_RE.test(l));
+      if (firstHide >= 0) for (const [fi, tj] of al.pairs) if (fi > firstHide) { al.matchedFile.delete(fi); al.matchedTpl.delete(tj); }
     }
     if (f.instructions && closest && !al.diffed) unreviewed.push({ file: f.name, why: 'it is too long to compare with its template, so every line counts as added' });
     const added = [];
@@ -296,7 +287,8 @@ function reviewAgent({ name, files, templates } = {}) {
       if (!isAdded(i)) return;
       added.push(i + 1);
       if (line.length > MAX_TEST_CHARS) flag({ file: f.name, line: i + 1, kind: 'long', text: shown(line, 0), at: 0, length: line.length });
-      if (f.hidden.opens.includes(i)) flag({ file: f.name, line: i + 1, kind: 'hides', text: shown(line, 0), at: 0, length: line.length });
+      const hm = HIDE_RE.exec(line);
+      if (hm) flag({ file: f.name, line: i + 1, kind: 'hides', text: shown(line, hm.index), at: hm.index, length: line.length });
       const here = matches(i);
       for (const m of here) flag({ file: f.name, line: i + 1, kind: m.kind, text: shown(line, m.at), at: m.at, length: line.length });
       // An instruction split over two lines: only the joint is tested (the end of this line, the start of the next).
@@ -311,7 +303,9 @@ function reviewAgent({ name, files, templates } = {}) {
     });
     // Removed, per instruction file (review 2: a rule moved into a notes file is still gone from the instructions).
     const removed = f.instructions && closest ? closest.lines.filter((_, j) => !al.matchedTpl.has(j)) : [];
-    return { name: f.name, instructions: f.instructions, lines: f.raw.length, added, removed: removed.slice(0, MAX_REMOVED), removedNotListed: Math.max(0, removed.length - MAX_REMOVED), truncated: f.truncated };
+    // The added lines' own text too (review 4), so a screen never re-splits the file its own way and numbers drift.
+    const addedText = added.map((n) => f.raw[n - 1]);
+    return { name: f.name, instructions: f.instructions, lines: f.raw.length, added, addedText, removed: removed.slice(0, MAX_REMOVED), removedNotListed: Math.max(0, removed.length - MAX_REMOVED), truncated: f.truncated };
   });
   return {
     name: shownName, nameProblem: badName, closest: closest ? closest.key : null, files: out,

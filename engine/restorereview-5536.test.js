@@ -253,3 +253,39 @@ test('#5536 slice 4a review 3: template rules wrapped in a comment or a fence ar
 test('#5536 slice 4a review 3: blank-looking fillers count as invisible', () => {
   for (const c of ['ㅤ', 'ᅟ', 'ᅠ', 'ﾠ', '⠀', '͏']) assert.ok(rv.kindsOf(`Keep notes.${c}`).includes('invisible'), c.codePointAt(0).toString(16));
 });
+
+test('#5536 slice 4a review 4: any shape that can hide template rules leaves them removed and the line flagged', () => {
+  const lines = base.split('\n');
+  const k = lines.findIndex((l, i) => i > 2 && l.trim().length > 20);
+  const rule = lines[k].replace(/[ \t]+$/, '').replace(/(\S)[ \t]+/g, '$1 ');
+  const shapes = {
+    'an indented block': [...lines.slice(0, k), '', ...lines.slice(k, k + 3).map((l) => `    ${l}`), ...lines.slice(k + 3)],
+    'a fence closed by an info string': [...lines.slice(0, k), '```', '```text', ...lines.slice(k)],
+    'an indented fence then a real one': [...lines.slice(0, k), '    ```', '```', ...lines.slice(k)],
+    'a comment that reopens on its line': [...lines.slice(0, k), '<!-- --> <!--', ...lines.slice(k)],
+    'a script block': [...lines.slice(0, k), '<script>', ...lines.slice(k)],
+    'a pre block': [...lines.slice(0, k), '<pre>', ...lines.slice(k)],
+  };
+  for (const [label, shape] of Object.entries(shapes)) {
+    const x = review(shape.join('\n'));
+    assert.ok(x.files[0].removed.includes(rule), label);
+    assert.equal(x.flagged, true, label);
+  }
+  // A U+FEFF between the words of a template line is not whitespace: the line is added.
+  const feff = review([...lines.slice(0, k), lines[k].replace(' ', ' ﻿﻿ '), ...lines.slice(k + 1)].join('\n'));
+  assert.deepEqual(feff.files[0].added, [k + 1]);
+});
+
+test('#5536 slice 4a review 4: added lines come back with their text, split as an editor splits them', () => {
+  const x = rv.reviewAgent({ name: 'Ada', files: [{ name: 'notes.md', text: 'first second\rthird' }] });
+  assert.deepEqual(x.files[0].added, [1, 2, 3]);
+  assert.deepEqual(x.files[0].addedText, ['first', 'second', 'third']);
+});
+
+test('#5536 slice 4a review 4: many marker lines stay cheap', () => {
+  const files = Array.from({ length: 8 }, (_, i) => ({ name: `x${i}/CLAUDE.md`, text: '```\r'.repeat(131072) }));
+  const t0 = process.hrtime.bigint();
+  rv.reviewAgent({ name: 'Ada', files });
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 3000, `${ms} ms`);
+});
