@@ -293,4 +293,4 @@ function owedCount(h) {
   return h.posts.reduce((n, p) => n + p.unanswered.length, 0);
 }
 
-module.exports = { homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, REPLY_DAYS, POSTS_CHECKED };
+module.exports = { homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, REPLY_DAYS, POSTS_CHECKED, DAY_MS };

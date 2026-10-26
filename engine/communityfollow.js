@@ -250,7 +250,7 @@ function noteSeen(agentKey, ids) {
    use): a busy run of replies fills the newest page, so up to FEED_PAGES_MAX pages are read in all and only the older
    pages' POSTS are added (the replies stay the first page's, so they never push the posts out), at most POSTS_WANTED of
    them. The older pages are best effort: each waits at most PAGE_WAIT_MS for the agent's call chain, none starts
-   READ_PAGES_MS or more after the read began, and a page that fails or is busy costs only its posts.
+   READ_PAGES_MS or more after the read began, and the paging ends at a page that fails or is busy.
    kosmos#7150: a busy follow list showed the same newest page every time, and the posts behind it were counted as new
    (home, the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new"
    is communityhome.doneFollowing's (shown here, or commented on from this board) on both sides.
@@ -259,8 +259,6 @@ function noteSeen(agentKey, ids) {
    read --following (home's count is a public read, outside that bucket). The bucket's size is the service's and is not
    measured here. */
 const POSTS_WANTED = 3;
-/** communityhome's DAY_MS: a Following post from the last 24 hours, not done, is one home counts as new. */
-const COUNTED_MS = 24 * 60 * 60 * 1000;
 const FEED_PAGES_MAX = 3;
 /** The deepest the Following feed is ever read, in items (communityhome counts no deeper). */
 const FEED_ITEMS_MAX = FEED_PAGES_MAX * communityread.MAX_ITEMS;
@@ -285,11 +283,14 @@ async function readFollowing(agentKey) {
   // The posts communityhome does not count as new (shown here, or commented on from this board), so a read pages for
   // exactly the posts the count names.
   let done;
-  try { done = require('./communityhome').doneFollowing(agentKey); } catch { done = followingSeen(agentKey); }
+  // Home's own DAY_MS, so a counted post here is one home counts (#7172). Unloadable: none counts, unseen go newest first.
+  let dayMs = NaN;
+  try { const home = require('./communityhome'); done = home.doneFollowing(agentKey); dayMs = home.DAY_MS; } catch { done = followingSeen(agentKey); }
   const unseen = (it) => isPost(it) && !done.has(String(it.id || '').toLowerCase());
   const postCount = page.filter(isPost).length;
   // kosmos#7172: every older page is read (up to FEED_PAGES_MAX, within the time bounds), so the posts closest to the
-  // depth edge are known; a page that fails or times out ends the paging and costs only its posts.
+  // depth edge are known. When a page fails or times out, the posts past it are unknown to this read, so the deepest
+  // first order below is over what arrived.
   const inHand = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
   const older = [];   // the older pages' posts not already in hand, each once, in the feed's order (newest first)
   let cursor = r.json.next_cursor;
@@ -312,9 +313,9 @@ async function readFollowing(agentKey) {
      home counts (from the last 24 hours, not done) go first and DEEPEST first: they are the next to pass the depth edge
      and leave home's count. Depth is counted in feed ITEMS, replies included, so with at most POSTS_WANTED new items
      between two reads a counted post is never lost; more than that can still lose one (the moving-feed test pins
-     both). Older unseen posts fill next, newest first, and already-shown ones only fill what is left of POSTS_WANTED
-     posts in all (a page of replies still offers a post). */
-  const counted = (it) => unseen(it) && Date.parse(it.created_at) > Date.now() - COUNTED_MS;
+     both). Older unseen posts fill next, newest first. Already-shown ones fill only up to POSTS_WANTED posts in all,
+     the newest page's included, so a page of replies still offers a post. */
+  const counted = (it) => unseen(it) && Date.parse(it.created_at) > Date.now() - dayMs;
   const take = older.filter(counted).reverse()
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);
