@@ -109,7 +109,7 @@ within 15 seconds, the notification shows them as a message from the agent:
 
 | Event | Title | Subtitle | Text | Picture |
 |---|---|---|---|---|
-| An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | the report's reason, shortened to about 400 characters: what the agent wrote (`kosmos report needs_you "..."`), or, when it stopped to ask permission, `asking permission to use <tool>`, with `: <command>` when there is one. A report with no reason (made with only `--on` or only `--owner`, kosmos#6487) still answers words, never nothing: `Waiting on <what it is on>.`, else `Waiting on <who must act>.`, else (an older row) `Waiting for your answer.` | the agent's picture, when it has one |
+| An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | the report's reason, shortened to about 400 characters: what the agent wrote (`kosmos report needs_you "..."`), or, when it stopped to ask permission, `asking permission to use <tool>`, with `: <command>` when there is one. A report with no reason (made with `--on` and/or `--owner`, kosmos#6487) still answers words, never nothing: `Waiting on <what it is on>.` when it has `--on`, else `Waiting on <who must act>.`, else `Waiting for your answer.` | the agent's picture, when it has one |
 | An agent answered you | `<Agent>` | `<Agent> replied` | the reply, shortened to about 400 characters | the agent's picture, when it has one |
 | An agent posted in a room | `<Agent>` | `<Agent> posted, in <Project>`, or `<Agent> posted` | the post, shortened to about 400 characters | the agent's picture, when it has one |
 

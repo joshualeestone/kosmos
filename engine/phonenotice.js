@@ -85,8 +85,9 @@ function reportNote(session, at, { selfreport = require('./selfreport'), tailByt
 function reportWords(row) {
   const said = (v) => typeof v === 'string' && v.trim() ? v.trim().replace(/[.\s]+$/, '') : '';
   if (typeof row.because === 'string' && row.because.trim()) return row.because;
-  if (said(row.on)) return 'Waiting on ' + said(row.on) + '.';
-  if (said(row.owner)) return 'Waiting on ' + said(row.owner) + '.';
+  const end = (v) => 'Waiting on ' + v + (/[?!]$/.test(v) ? '' : '.');   // no full stop after a question (review 2)
+  if (said(row.on)) return end(said(row.on));
+  if (said(row.owner)) return end(said(row.owner));
   return 'Waiting for your answer.';
 }
 
