@@ -79,3 +79,6 @@ seat concluded the file had changed.
 - Iteration 5 (sonnet): CONVERGED, no BLOCKER or WARNING. N1 "nothing in it was left out" for a PDF over 64 MB is true
   -> accepted. N2 an older CLI given the notice's two-argument form gets a usage error -> accepted (CLI and board ship
   in one install; listed under Deliberate gaps). N3 working rules -> already DEFERRED above.
+- Validation 1 (Mortals, 4e7c835f01): one failure, comment-deferral.test.js (#147): the comment "a mark sent between
+  #6849 and #7213" reads as work assigned to a number -> reworded "after #6849 and before this change" (both places).
+  The same guard passes on #7210, #7192 and #7198 (checked before revalidating).

@@ -266,7 +266,7 @@ function pdfHeadOf(p) {
  * a bare 64-hex value (case ignored), which is how an approval usually cites a plain sha256 and is read as one. Returns
  * { ok, match, kind, got, words } where `got` is this file's value of the kind compared, or { ok: false, words } when
  * the expected value is not a hash or the file cannot be read. A `sha256:` value that misses the plain bytes of a PDF
- * is tried against its PDF fingerprint too (a mark sent between #6849 and #7213 labelled that sha256:), and a match
+ * is tried against its PDF fingerprint too (a mark sent after #6849 and before this change labelled that sha256:), and a match
  * there says the bytes differ; a bare value never is, so a bare shasum check stays byte for byte. */
 function compare(p, expected) {
   let want = String(expected == null ? '' : expected).trim().toLowerCase();
@@ -292,7 +292,7 @@ function compare(p, expected) {
     return { ok: true, match: false, kind, got, words: 'differs: that value is a PDF fingerprint, and ' + why + ': ' + got };
   }
   if (got === want) return { ok: true, match: true, kind, got, words: 'matches ' + kindWords(want) };
-  /* A mark sent between #6849 and #7213 carries a PDF's normalized hash under the sha256: label (review 1, finding 1).
+  /* A mark sent after #6849 and before this change carries a PDF's normalized hash under the sha256: label (review 1, finding 1).
      Its plain bytes do not match, so try the PDF fingerprint too, and say that is what matched. */
   const fp = fingerprint(p);
   /* Review 4: a bare value stays a byte-for-byte check (review 2), but when it is this PDF's own fingerprint with its
