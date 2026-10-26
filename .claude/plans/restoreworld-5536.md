@@ -284,6 +284,10 @@ no profile record, and STARTS the agent: enable then bootstrap).
    isTopFolder and the projects loop both read a linked folder as a link; a rename-aside folder rm could not remove is
    swept after ten minutes. Deferred as duplicate: the stale takeover compares pids, so same-pid lockers are the
    three-taker race already stated (round 26; ownership itself is a token since round 36). Converged.
+   Arms after convergence (rounds 34 to 36 code, 92 arms): 90 red; two aimed at the gates round 34 moved to
+   markCertainlyPresent (re-aimed); one green, the listing's own link check, because markCertainlyPresent also refuses
+   a linked world folder and the test asserted only "nothing listed". The test now pins the contract's reason for a
+   link ("not a Kosmos on your list"), so that check is what answers.
 
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
