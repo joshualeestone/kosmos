@@ -36,10 +36,9 @@ const MAX_LISTED = 1000;
 const BRIEFS = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'];
 const MAX_BRIEF_BYTES = 512 * 1024;
 const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);   // Windows: a scanner holding a just-written file
-/* Paths in an agent folder a provider reads when the agent starts (settings, hooks, skills, commands, MCP servers,
-   local memory, an environment file, another provider's settings). Written by whoever made the backup, so the screen
-   shows them. A starting point, not a complete list of what a provider may read. */
-const RUNS_AT_START = ['.git', '.claude', 'CLAUDE.local.md', '.mcp.json', '.envrc', '.codex', '.gemini'];
+/* What in a folder a provider may read or run when it starts there: every dot-entry at its top (settings, hooks,
+   skills, MCP servers, an environment file, any provider's own folder, git) except HARMLESS, and these plain names. */
+const PLAIN_AT_START = ['CLAUDE.local.md', 'opencode.json'];
 /* A git folder's config (core.fsmonitor, core.hooksPath) runs commands when git runs there, which a provider does as
    soon as an agent starts. So an agent folder holding one is not offered, and one in the workers folder blocks all. */
 const GIT = '.git';
@@ -93,7 +92,8 @@ function prepareRestoreWorld(base, opts = {}) {
     // createWorld reuses a world folder already on disk (its mkdirs are recursive), so one left behind would hand its
     // store and agents to this restore. Only a world whose folders are all new and empty is used.
     if (!freshWorld(worlds.worldBaseDir(base, world))) {
-      try { hide(base, world.id); } catch { /* the next name is tried either way */ }
+      // Set aside before the next name is tried: left on the list, its unreviewed folders would be one switch away.
+      try { hide(base, world.id); } catch { return { ok: false, because: 'a Kosmos folder already on this computer under that name could not be set aside' }; }
       world = null;
     }
   }
@@ -111,6 +111,7 @@ function prepareRestoreWorld(base, opts = {}) {
 
 function freshWorld(dir) {
   const leaves = [store.APP, 'projects', 'workers'];
+  if (!realDir(dir)) return false;
   try {
     if (!fs.readdirSync(dir).every((n) => leaves.includes(n))) return false;
     return leaves.every((leaf) => realDir(path.join(dir, leaf)) && fs.readdirSync(path.join(dir, leaf)).length === 0);
@@ -143,7 +144,7 @@ function renameRetrying(src, dst) {
 function finishRestoreWorld(opts = {}) {
   const { base, world, restoreDir } = opts;
   const dir = worldDirOf(base, world);
-  if (!dir) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
+  if (!dir || !realDir(dir)) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
   if (!opts.result || opts.result.ok !== true) return { ok: false, moved: [], kept: [], because: 'the restore did not succeed, so its files stay where it can continue' };
   if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) {
     return { ok: false, moved: [], kept: [], because: 'the restore folder is not the one made for this Kosmos' };
@@ -221,19 +222,24 @@ function readBrief(file) {
   } finally { fs.closeSync(fd); }
 }
 
-/* What in a folder runs or loads something when a provider starts there: RUNS_AT_START paths that exist (a link
-   counts, unopened), linked briefs, and `@` imports (at a line start or after a space) in any brief. */
+/* What in a folder runs or loads something when a provider starts there: its dot-entries and PLAIN_AT_START names (a
+   link counts, unopened), linked briefs, briefs that are not plain UTF-8 text, and `@` imports in any brief. */
 function runsIn(folder) {
   const out = [];
-  for (const rel of RUNS_AT_START) {
-    try { fs.lstatSync(path.join(folder, rel)); out.push(rel); } catch { /* absent */ }
-  }
+  let names = [];
+  try { names = fs.readdirSync(folder); } catch { return ['(the folder could not be read)']; }
+  for (const n of names.filter((x) => x.startsWith('.') && !HARMLESS.has(x)).sort()) out.push(labelOf(n));
+  for (const n of PLAIN_AT_START) if (names.includes(n)) out.push(n);
   const briefs = briefsIn(folder);
   for (const b of briefs.linked) out.push(`${b} is a link`);
   for (const brief of briefs.plain) {
     let bytes;
     try { bytes = readBrief(path.join(folder, brief)); } catch { out.push(`${brief} (could not be read)`); continue; }
-    if (/(^|\s)@[^\s@]/.test(bytes.subarray(0, MAX_BRIEF_BYTES).toString('utf8'))) out.push(`${brief} imports`);
+    const head = bytes.subarray(0, MAX_BRIEF_BYTES);
+    // UTF-16 (a byte-order mark, or NUL bytes) cannot be checked as text here; a provider may still read it.
+    if (head.includes(0) || (head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff)) out.push(`${brief} (not plain text, so not checked)`);
+    // An @ that starts a word, after a space, a line start or punctuation; not inside an address (a@b) or a word.
+    else if (/(^|[^\p{L}\p{N}_@.])@[^\s@]/u.test(head.toString('utf8'))) out.push(`${brief} imports`);
     if (bytes.length > MAX_BRIEF_BYTES) out.push(`${brief} (too large to check in full)`);
   }
   return out;
@@ -248,7 +254,9 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    it (create.installJob on that name, under this world's roots); otherwise it is the plain reason it cannot be.
    `runs` lists what would run or load at start. `shared` is what every agent below it would read: entries at the top
    of the workers and projects folders other than plain-named folders, and each project with something in its `runs`.
-   Nothing is registered, started or written. */
+   Contract for the screen (slice 4c): show `label`, never `folder`; show `runs` and `shared`; and enable an agent whose
+   `runs` is not empty, or while `shared` is not empty, only after the person acknowledges them, since a hook or an MCP
+   server there runs the moment the agent starts. Nothing is registered, started or written. */
 function listRestoredAgents(opts = {}) {
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
   const worldDir = worldDirOf(opts.base, opts.world);
@@ -271,7 +279,7 @@ function listRestoredAgents(opts = {}) {
       const label = labelOf(folder);
       if (from === 'workers' && !isTopFolder(parent, folder)) {
         if (HARMLESS.has(folder)) continue;
-        if (folder === GIT) gitAbove = true;
+        if (folder.toLowerCase() === GIT) gitAbove = true;   // folded: APFS and NTFS read .GIT as .git
         shared.push({ where: 'workers', label, runs: [] });
         continue;
       }
@@ -286,7 +294,7 @@ function listRestoredAgents(opts = {}) {
       else if (!nameOk(folder)) because = 'its folder name cannot be used to start it here';
       else name = folder;
       if (!because && !brief) because = 'it has no instructions file, so it may not be an agent';
-      if (!because && runs.includes(GIT)) because = 'it holds a git folder, whose settings can run commands as soon as it starts';
+      if (!because && runs.some((r) => r.toLowerCase() === GIT)) because = 'it holds a git folder, whose settings can run commands as soon as it starts';
       agents.push({ folder, label, from, name, dir: at, brief, runs, because });
     }
   };
