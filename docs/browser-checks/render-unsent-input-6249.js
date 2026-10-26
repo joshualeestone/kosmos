@@ -4,7 +4,7 @@
 /**
  * #6249: an agent whose input box has held unsent text for a few minutes says so (since #6716 on its card's pill: the
  * hover and a screen reader's hidden text, never a line on the tile), "Text has been sitting
- * unsent in its input box for about N minutes, and Kosmos's messages to it may wait behind it. Open it to send it with Enter." (engine/status.js
+ * unsent in its message box for about N minutes, and Kosmos's messages to it may wait behind it. Open it to send it with Enter." (engine/status.js
  * unsentInputOf sets the card's unsentInput.since).
  *
  * Drives the real card() builder with the golden card shape, in Chromium and WebKit, at desktop and phone width, and
@@ -56,7 +56,7 @@ const BASE = require('./fixtures/agent-card.json');
         const cards = [...host.querySelectorAll('.acard')];
         if (cards.length !== 2) return { error: 'expected 2 cards, got ' + cards.length };
         /* #6716 (Josh, 2026-10-20): no sentence on a tile. The words are the pill's hover and its visually hidden text. */
-        const shown = (c) => [...c.querySelectorAll('*')].filter((e) => e.children.length === 0 && /sitting unsent in its input box/.test(e.textContent))
+        const shown = (c) => [...c.querySelectorAll('*')].filter((e) => e.children.length === 0 && /sitting unsent in its message box/.test(e.textContent))
           .filter((e) => { const b = e.getBoundingClientRect(); return b.width > 2 && b.height > 2; });
         const pill = cards[0].querySelector('.astate');
         return { texts: cards.map((c) => c.textContent.replace(/\s+/g, ' ').trim()),
@@ -64,11 +64,11 @@ const BASE = require('./fixtures/agent-card.json');
       }, BASE);
       if (r.error) { chk(false, tag + ' ' + r.error); await page.close(); continue; }
       const [left, clear] = r.texts;
-      chk(/Text has been sitting unsent in its input box for about 7 minutes, and Kosmos's messages to it may wait behind it\./.test(r.title),
+      chk(/Text has been sitting unsent in its message box for about 7 minutes, and Kosmos's messages to it may wait behind it\./.test(r.title),
         tag + ' #6716: the pill hover says it, with the minutes', r.title);
-      chk(/sitting unsent in its input box/.test(left), tag + ' a screen reader still hears it (the pill\'s hidden text)', left);
+      chk(/sitting unsent in its message box/.test(left), tag + ' a screen reader still hears it (the pill\'s hidden text)', left);
       chk(r.visibleOnTile === 0, tag + ' #6716: no sentence is drawn on the tile', String(r.visibleOnTile));
-      chk(!/input box/.test(clear), tag + ' NEGATIVE: an idle card with an empty box says nothing about it', clear);
+      chk(!/(input|message) box/.test(clear), tag + ' NEGATIVE: an idle card with an empty box says nothing about it', clear);
       chk(errs.length === 0, tag + ' no page errors', errs.join(' | '));
       await page.close();
     }

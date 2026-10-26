@@ -795,10 +795,10 @@ const SCREENS = [
     });
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
-    await page.waitForFunction(() => /behind its input box/.test(document.getElementById('panel-detail').innerText), null, { timeout: 8000 });
+    await page.waitForFunction(() => /behind its message box/.test(document.getElementById('panel-detail').innerText), null, { timeout: 8000 });
   }, verify: async (page) => {
     const text = await page.evaluate(() => document.getElementById('panel-detail').innerText);
-    if (!/held 12 messages to it for about 6 days behind its input box/.test(text)) throw new Error('the held sentence is not on the agent page');
+    if (!/held 12 messages to it for about 6 days behind its message box/.test(text)) throw new Error('the held sentence is not on the agent page');
   } })),
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);

@@ -22110,7 +22110,7 @@ function stateReason(a, opts) {
     const n = Number(a.heldInput.count);
     /* Minutes up to two hours, then hours up to two days, then days: a week-long hold reads as days. */
     const forWords = mins < 120 ? 'about ' + mins + ' minutes' : mins < 2880 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + Math.round(mins / 1440) + ' days';
-    const lead = 'Kosmos has held ' + (n === 1 ? '1 message' : n + ' messages') + ' to it for ' + forWords + ' behind its input box. ';
+    const lead = 'Kosmos has held ' + (n === 1 ? '1 message' : n + ' messages') + ' to it for ' + forWords + ' behind its message box. ';
     if (a.heldInput.box === 'text') return lead + 'Something sits unsent there. Open it and read it, then send it with Enter or clear it, and they will follow.';
     /* An empty box with messages still held after the minute's try: something else holds them (a limit, a sign-in, a
        menu), so this never promises they are about to go. */
@@ -22124,7 +22124,7 @@ function stateReason(a, opts) {
   if (a && a.state === 'idle' && a.unsentInput && typeof a.unsentInput.since === 'string') {
     const since = Date.parse(a.unsentInput.since);
     const mins = Number.isFinite(since) ? Math.max(3, Math.round((Date.now() - since) / 60000)) : 3;
-    return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.';
+    return 'Text has been sitting unsent in its message box for about ' + mins + ' minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.';
   }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists

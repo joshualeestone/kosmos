@@ -17,7 +17,7 @@ const stateReason = new Function(src('quotaResetWords') + src('waitingLine') + s
 test('#6249: an idle card with text left in its box says so, with the minutes and what to do', () => {
   const since = new Date(Date.now() - 7 * 60e3).toISOString();
   assert.equal(stateReason({ state: 'idle', unsentInput: { since } }),
-    'Text has been sitting unsent in its input box for about 7 minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.');
+    'Text has been sitting unsent in its message box for about 7 minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.');
   assert.doesNotMatch(String(stateReason({ state: 'idle', unsentInput: null })), /input box/, 'CONTROL: nothing about the box when it is empty');
   assert.match(stateReason({ state: 'idle', unsentInput: { since: 'not a time' } }), /for about 3 minutes/, 'an unreadable time says the floor');
 });

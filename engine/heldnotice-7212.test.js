@@ -69,7 +69,7 @@ test('#7212 s2a: the stretches already said survive a board restart, so nothing 
 
 test('#7212 s2: the card says how long, what the box reads, and what to do', () => {
   const unread = reasonOf({ state: 'idle', heldInput: { since: ago(45), count: 3, box: 'unread' } });
-  assert.match(unread, /^Kosmos has held 3 messages to it for about 45 minutes behind its input box\. /);
+  assert.match(unread, /^Kosmos has held 3 messages to it for about 45 minutes behind its message box\. /);
   assert.match(unread, /cannot read the box.*restart it there/);
   // A working agent is never told to restart: that would cut its turn.
   const busy = reasonOf({ state: 'working', heldInput: { since: ago(45), count: 3, box: 'unread' } });
