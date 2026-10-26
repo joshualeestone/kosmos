@@ -34,3 +34,9 @@ Never the words, never the id's time; the agent's session name, control characte
   asked or says "a unknown"; a post ask is in the route test; the doc says <session>. KEPT: no route test for
   borrowed-name (it needs a stranger's pane claiming a name, the 6487 route test's borrowedName case covers the 404;
   the log branch is one ternary arm, read).
+- Round 3 (noticelog-6487-review3.md): 0 blockers, 1 warning, 4 nits, all fixed. The doc says a sent line is written
+  when the notice leaves for Kosmos+, so a "can ask" line with no ask names both possibilities (the push never reached
+  an iPhone with the extension, or that iPhone could not reach the computer); `ref <6 hex of the id's hash>` pairs an
+  ask with its send; the older "posts are not asked about" sentence fixed (#7032 made them asked); the route test now
+  covers malformed-id and the stranger's-pane test reads the borrowed-name line; logName blanks zero-width and
+  direction marks too.

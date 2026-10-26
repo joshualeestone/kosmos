@@ -123,16 +123,18 @@ notice has no room in it and a tap opens the agent's page, as before.
 
 The words are never in the push: the coordinator's notification and Apple still carry only who and what, and the
 phone fetches the words from the computer over Kosmos+ remote. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that
-computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, posts, work
+computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, work
 ready) is not asked about and always shows as there. Android and the browser do not ask yet: they show Sent today's words.
 
 **Why a notice showed plain, from the board's log (kosmos#6487).** The sending computer's `logs/board.log` has one
-`phonenotify: sent <kind> (<id kind>) for <session>` line per notification, saying whether the phone can ask for its
-words, and one `phonenotice: asked for the words of a notice (<id kind>)` line per ask, saying whether it answered
-them or why not (`unaskable`, `malformed-id`, `no-report-words`, `no-reply`, `no-post`, `mask-failed`,
-`borrowed-name`). A sent line ending `the phone can ask for its words` with no ask after it, and no
-`could not reach Kosmos+` or `answered <status>` line beside it, means an iPhone with the extension never reached the
-computer (Android, the browser and older iPhone builds never ask). Neither line carries the words.
+`phonenotify: sent <kind> (<id kind>) ref <ref> for <session>` line per notification handed to Kosmos+, saying whether
+the phone can ask for its words, and one `phonenotice: asked for the words of a notice (<id kind>) ref <ref>` line per
+ask, saying whether it answered them or why not (`unaskable`, `malformed-id`, `no-report-words`, `no-reply`,
+`no-post`, `mask-failed`, `borrowed-name`). The same `<ref>` (six characters of the id's hash) pairs an ask with its
+send. A sent line is written when the notification leaves for Kosmos+, not when a phone gets it, so a "can ask" line
+with no ask after it says only that this computer was never asked: the push did not reach an iPhone with the
+extension (refused, lost, Android, the browser, an older build, or no phone registered), or that iPhone could not
+reach the computer. Neither line carries the words.
 
 **A permission request puts the command on the lock screen.** When an agent stops to ask permission, its report's
 reason names the tool and the command (up to 200 characters of it), and that is the text an iPhone shows. The

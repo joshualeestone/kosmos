@@ -100,8 +100,16 @@ test('#6487 a name a stranger\'s pane is holding answers 404, as the thread read
   const at = new Date().toISOString();
   chat.appendMessage(chat.DIRECT, 'vivi', { text: 'Whose words are these?', at, from: 'vivi' });
   fleet.install([fleet.stranger('vivi')]);
-  const held = await ask('reply:' + at + ':vivi');
+  const logged = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (s, ...rest) {
+    if (String(s).startsWith('phonenotice:')) { logged.push(String(s)); return true; }
+    return realWrite.call(this, s, ...rest);
+  };
+  let held;
+  try { held = await ask('reply:' + at + ':vivi'); } finally { process.stderr.write = realWrite; }
   assert.equal(held.status, 404, JSON.stringify(held.json));
+  assert.match(logged.join(''), /\(reply\) ref [0-9a-f]{6} for vivi; answered nothing \(borrowed-name\), so it shows plain\n$/);   // kosmos#6487
   // CONTROL: the same name tied to its own pane is served, so the 404 is the borrowed name and not the row.
   fleet.install([fleet.agent('vivi')]);
   const tied = await ask('reply:' + at + ':vivi');
@@ -140,12 +148,16 @@ test('#6487 each ask writes one board-log line saying what the phone was answere
     assert.equal((await ask('report:2020-01-01T00:00:00.000Z:irma')).status, 404);
     assert.equal((await ask('crashloop:irma:2026-10-26T17:23:00.000Z')).status, 404);
     assert.equal((await ask('post:m999999999')).status, 404);
+    assert.equal((await ask('report:not-a-time:irma')).status, 404);
   } finally { process.stderr.write = realWrite; }
+  const ref = (id) => require('./engine/phonenotice').idRef(id);
   assert.deepEqual(lines, [
-    'phonenotice: asked for the words of a notice (report) for irma; answered them\n',
-    'phonenotice: asked for the words of a notice (report); answered nothing (no-report-words), so it shows plain\n',
-    'phonenotice: asked for the words of a notice (crashloop); answered nothing (unaskable), so it shows plain\n',
-    'phonenotice: asked for the words of a notice (post); answered nothing (no-post), so it shows plain\n',
+    'phonenotice: asked for the words of a notice (report) ref ' + ref('report:' + kept.at + ':irma') + ' for irma; answered them\n',
+    'phonenotice: asked for the words of a notice (report) ref ' + ref('report:2020-01-01T00:00:00.000Z:irma') + '; answered nothing (no-report-words), so it shows plain\n',
+    'phonenotice: asked for the words of a notice (crashloop) ref ' + ref('crashloop:irma:2026-10-26T17:23:00.000Z') + '; answered nothing (unaskable), so it shows plain\n',
+    'phonenotice: asked for the words of a notice (post) ref ' + ref('post:m999999999') + '; answered nothing (no-post), so it shows plain\n',
+    'phonenotice: asked for the words of a notice (report) ref ' + ref('report:not-a-time:irma') + '; answered nothing (malformed-id), so it shows plain\n',
   ]);
+  assert.match(ref('x'), /^[0-9a-f]{6}$/);
   assert.ok(!lines.join('').includes('Logged words'), 'the words reached the log');
 });

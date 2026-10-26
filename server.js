@@ -7808,7 +7808,7 @@ const server = http.createServer(async (req, res) => {
     /* kosmos#6487: say in the board's log what was answered, so a plain notice explains itself. The id's kind and the
        session only, never the words. Any caller of this gated route is logged, not only a phone. */
     const pnotice = require('./engine/phonenotice');
-    process.stderr.write('phonenotice: asked for the words of a notice (' + pnotice.idKind(noticeId) + ')' +
+    process.stderr.write('phonenotice: asked for the words of a notice (' + pnotice.idKind(noticeId) + ') ref ' + pnotice.idRef(noticeId) +
       (got ? ' for ' + pnotice.logName(got.session) : '') + '; ' + (got && !borrowed ? 'answered them' : 'answered nothing (' + (borrowed ? 'borrowed-name' : why) + '), so it shows plain') + '\n');
     if (!got || borrowed) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
     const roster = safeRoster();

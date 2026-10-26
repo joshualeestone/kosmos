@@ -542,7 +542,7 @@ function happened(event) {
       : sentId !== event.id ? '; its id was cut to fit, so the phone\'s ask finds no words and it shows plain'
         : '; the phone can ask for its words';
     const who = notice.logName(event.session);
-    process.stderr.write('phonenotify: sent ' + event.kind + ' (' + notice.idKind(event.id) + ')' + (who ? ' for ' + who : '') + can + '\n');
+    process.stderr.write('phonenotify: sent ' + event.kind + ' (' + notice.idKind(event.id) + ') ref ' + notice.idRef(sentId) + (who ? ' for ' + who : '') + can + '\n');
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 

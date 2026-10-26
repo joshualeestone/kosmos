@@ -107,9 +107,16 @@ function idKind(id) {
 }
 
 /** An agent's session name for one board-log line: C0 and C1 controls and the line and paragraph separators blanked
- *  (a terminal tailing the log acts on them), at most 80 characters. */
+ *  (a terminal tailing the log acts on them), and the zero-width and direction marks (they reorder a shown line), at
+ *  most 80 characters. */
 function logName(v) {
-  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').slice(0, 80);
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, ' ').slice(0, 80);
+}
+
+/** Six hex characters of the id's hash, so a board-log "asked" line pairs with its "sent" line without logging the id
+ *  (which holds the time and the session). */
+function idRef(id) {
+  return require('node:crypto').createHash('sha256').update(String(id == null ? '' : id)).digest('hex').slice(0, 6);
 }
 
 /** kosmos#6487: wordsFor, and why it answered nothing: { got, why }. `why` is null when there are words, else
@@ -148,4 +155,4 @@ function wordsFor(id, deps = {}) {
   return explain(id, deps).got;
 }
 
-module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, idKind, logName, shorten, reportNote, replyText, postWords, explain, wordsFor };
+module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, idKind, logName, idRef, shorten, reportNote, replyText, postWords, explain, wordsFor };

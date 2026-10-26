@@ -132,3 +132,10 @@ test('#6487 explain says why there are no words, and idKind names only the id\'s
   assert.equal(pn.idKind('report:' + at + ':leo'), 'report');
   for (const bad of ['', 'nonsense', 'Report:x', 'a b:c', null, 42, 'x'.repeat(21) + ':y']) assert.equal(pn.idKind(bad), 'unknown', String(bad));
 });
+
+test('#6487 logName blanks controls, separators, zero-width and direction marks, and keeps 80 characters', () => {
+  assert.equal(pn.logName('a\n\u009bb c‮d​e⁦f﻿g'), 'a  b c d e f g');
+  assert.equal(pn.logName('Roo Pixel'), 'Roo Pixel', 'CONTROL: a plain name is untouched');
+  assert.equal(pn.logName('z'.repeat(100)).length, 80);
+  assert.equal(pn.logName(null), '');
+});

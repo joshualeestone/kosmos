@@ -119,7 +119,7 @@ test('the real send is the request the coordinator expects, under a self-hosted 
     assert.ok(!req.body.includes('the words of the report'), 'the report\'s words left the Mac');
     // kosmos#6487: the one line a send writes names the id's kind and the agent, never the words; a 2xx adds nothing.
     assert.equal(r.stderr.match(/phonenotify:/g).length, 1, r.stderr);
-    assert.match(r.stderr, /phonenotify: sent needs_you \(report\) for leo; the phone can ask for its words\n/);
+    assert.match(r.stderr, /phonenotify: sent needs_you \(report\) ref [0-9a-f]{6} for leo; the phone can ask for its words\n/);
     assert.ok(!r.stderr.includes('the words of the report') && !r.stderr.includes('2026-09-27'), 'the log carries the words or the id\'s time');
   } finally { c.srv.close(); }
 });
@@ -129,7 +129,7 @@ test('#6487 a needs-you the phone cannot ask about says so in the log, with the 
   try {
     const r = await runChild(`http://127.0.0.1:${c.port}`, { ...EVENT, id: 'crashloop:leo:2026-09-27T11:00:00Z', session: 'le\no\u009b\u2028' + 'x'.repeat(100) });
     assert.equal(c.seen.length, 1);
-    assert.match(r.stderr, /phonenotify: sent needs_you \(crashloop\) for le o  x{74}; the phone cannot ask for its words, so it shows plain\n/);
+    assert.match(r.stderr, /phonenotify: sent needs_you \(crashloop\) ref [0-9a-f]{6} for le o  x{74}; the phone cannot ask for its words, so it shows plain\n/);
   } finally { c.srv.close(); }
 });
 
@@ -141,12 +141,12 @@ test('#6487 an id cut to fit says the phone will find no words; a send with no s
     const r = await runChild(`http://127.0.0.1:${c.port}`, { ...EVENT, id: 'report:2026-09-27T11:00:00Z:' + long, session: long });
     assert.equal(c.seen.length, 1);
     assert.notEqual(JSON.parse(c.seen[0].body).id, 'report:2026-09-27T11:00:00Z:' + long, 'CONTROL: the id was not cut, so this proves nothing');
-    assert.match(r.stderr, /phonenotify: sent needs_you \(report\) for r+; its id was cut to fit, so the phone's ask finds no words and it shows plain\n/);
+    assert.match(r.stderr, /phonenotify: sent needs_you \(report\) ref [0-9a-f]{6} for r+; its id was cut to fit, so the phone's ask finds no words and it shows plain\n/);
   } finally { c.srv.close(); }
   const d = await coordinator(204);
   try {
     const r = await runChild(`http://127.0.0.1:${d.port}`, { ...EVENT, session: null });
-    assert.match(r.stderr, /phonenotify: sent needs_you \(report\); the phone can ask for its words\n/);
+    assert.match(r.stderr, /phonenotify: sent needs_you \(report\) ref [0-9a-f]{6}; the phone can ask for its words\n/);
   } finally { d.srv.close(); }
 });
 

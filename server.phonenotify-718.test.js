@@ -1002,7 +1002,7 @@ test('#6487 a send that throws writes no "sent" line; the same send that goes wr
     assert.deepEqual(lines, [], 'a send that threw was logged as sent');
     phonenotify.setSender((url, headers, body) => sent.push({ url, headers, body: JSON.parse(body) }));
     phonenotify.happened(ev);   // CONTROL: the same event, sent, is logged
-    assert.deepEqual(lines, ['phonenotify: sent replied (reply) for roo; the phone can ask for its words\n']);
+    assert.deepEqual(lines, ['phonenotify: sent replied (reply) ref ' + require('./engine/phonenotice').idRef(ev.id) + ' for roo; the phone can ask for its words\n']);
   } finally {
     process.stderr.write = realWrite;
     phonenotify.setSender((url, headers, body) => sent.push({ url, headers, body: JSON.parse(body) }));
