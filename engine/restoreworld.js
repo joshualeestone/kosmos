@@ -74,10 +74,9 @@ function prepareRestoreWorld(base, opts = {}) {
   let world = null;
   for (let n = 1; n <= MAX_NAME_TRIES && !world; n++) {
     const name = worldName(opts.member, opts.now, n);
-    const id = store.safeKey(name);
-    if (takenIds(base).has(id)) continue;
     try { world = create(base, name); } catch {
-      if (takenIds(base).has(id)) continue;   // made by someone else since the registry was read: try the next name
+      // Taken (a hidden Kosmos keeps its id too): try the next name. Anything else is a failure.
+      if (takenIds(base).has(store.safeKey(name))) continue;
       return { ok: false, because: 'the Kosmos for the restore could not be made' };
     }
   }
@@ -164,7 +163,7 @@ function finishRestoreWorld(opts = {}) {
 function keptIn(restoreDir) {
   let names = [];
   try { names = fs.readdirSync(restoreDir); } catch { return []; }
-  return names.filter((n) => !n.startsWith(TEMP_PREFIX)).sort();
+  return names.sort();
 }
 
 function briefIn(folder) {
@@ -183,7 +182,7 @@ function runsIn(folder, brief) {
   }
   if (brief) {
     try {
-      const fd = fs.openSync(path.join(folder, brief), fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+      const fd = fs.openSync(path.join(folder, brief), 'r');   // briefIn found it a plain file with lstat
       try {
         const buf = Buffer.alloc(MAX_BRIEF_BYTES);
         const n = fs.readSync(fd, buf, 0, MAX_BRIEF_BYTES, 0);
