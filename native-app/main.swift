@@ -2252,6 +2252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // first screen or the menu. `modeHome` is the install it was read from and is written back to;
     // nil under the KOSMOS_URL test path, where there is no install and the app behaves as today.
     private(set) var computerMode: ComputerMode = .unset
+    private var modeAskedThisLaunch = false   // kosmos#7205: the page asked this computer's choice in this launch
     private var modeHome: String?
     private var modePort: Int?   // the resolved install's port, for `kosmos stop` (stopBoard)
     // #4356: how many `kosmos stop`s of ours are running: the switch to connect, a connect launch
@@ -2858,6 +2859,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         modeHome = home
         modePort = install.port
         computerMode = readComputerMode(kosmosHome: home)
+        modeAskedThisLaunch = computerMode == .unset || computerMode == .unreadable
         logLine("#4356: this computer's mode is \(computerMode.rawValue)")
     }
 
@@ -2899,7 +2901,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         DispatchQueue.global(qos: .utility).async {
             let result = startBoard(kosmosHome: home, port: port)
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.boardStartGeneration == generation else { return }
+                guard let self else { return }
+                // kosmos#7205: Welcome's Back makes Run, then Connect possible in one launch, so this start can finish
+                // after switchToConnect, which does not bump boardStartGeneration. Undo it as reclaimStuckBoard does,
+                // before the generation guard, or a board is left running on a connect computer (or its failure
+                // alert lands over Kosmos+ sign-in).
+                if self.computerMode == .connect {
+                    logLine("#7205: the start after the choice finished after Connect; stopping it again")
+                    self.boardStartInFlight = false
+                    self.boardStartGeneration += 1
+                    self.stopsInFlight += 1
+                    DispatchQueue.global(qos: .utility).async { [weak self] in
+                        _ = stopBoard(kosmosHome: home, port: port)
+                        DispatchQueue.main.async { self?.stopsInFlight -= 1 }
+                    }
+                    return
+                }
+                guard self.boardStartGeneration == generation else { return }
                 self.boardStartInFlight = false
                 if case .failed(let why) = result {
                     logLine("#4356: start after the choice failed: \(why)")
@@ -2946,13 +2964,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         boardLoadNavigation = webView.load(URLRequest(url: kosmosPlusSignIn))
     }
 
-    /// The first screen's button. Heard only while no choice is saved (unset or unreadable): once one
-    /// is, no page can change it. An install from before #4356 has no file until its next update
+    /// The first screen's button. Heard while no choice is saved (unset or unreadable), and for the rest of a
+    /// launch that asked (kosmos#7205, Welcome's Back), until this computer switches to connect. An install from before #4356 has no file until its next update
     /// writes `run` (install/setup.sh, when its first run is done); only the board's own page in the
     /// main frame can post here.
     func pageChoseMode(_ body: Any) {
+        /* kosmos#7205: Welcome's Back returns to the choice, so a second answer in the same launch is taken too (run and
+           both write their mode again; connect switches as ever). Not once this computer has switched to connect: the
+           window is Kosmos+'s then, and no board page is left to ask. */
         guard let choice = body as? String, let home = modeHome,
-              computerMode == .unset || computerMode == .unreadable
+              computerMode == .unset || computerMode == .unreadable || (modeAskedThisLaunch && computerMode != .connect)
         else { logLine("#4356: ignored a mode message while not asking (\(body))"); return }
         switch choice {
         case "run":
@@ -2970,7 +2991,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("#4356: this computer runs agents and connects to other computers")
         case "connect":
             guard writeComputerMode(.connect, kosmosHome: home) else {
-                showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again. Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not switch")
+                // kosmos#7205: after Welcome's Back, run or both is already saved, so nothing asks again; say what stays.
+                let stays = computerMode == .run || computerMode == .both
+                    ? "so this computer still runs agents" : "so it will ask again"
+                showStartupFailureAlert(detail: "Kosmos could not save your choice, \(stays). Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not switch")
                 loadBoard()
                 return
             }
@@ -2985,6 +3009,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// after the stop has finished either way, and a stop that failed is said (showBoardStillRunning).
     private func switchToConnect(home: String) {
         computerMode = .connect
+        modeAskedThisLaunch = false   // kosmos#7205: no later page answer in this launch, even after Run agents here
+
         stopsInFlight += 1
         logLine("#4356: switching this computer to connect")
         // The local board's port stops being this window's: #4347's stale-app check keys on it, and
