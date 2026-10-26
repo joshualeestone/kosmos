@@ -176,6 +176,18 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         const r2 = await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
         const j = await r2.json().catch(() => null);
         if (j && j.delivery && j.delivery.state === 'could_not') return { error: 'post refused: ' + j.delivery.because };
+        /* kosmos#7214, Josh's shape: words, then a table of file names and 64-character hashes, with NO block before the
+           table. A block before it (the code fence above) closes the room's <p> first and hides the defect. */
+        const hashes = 'Here are the files and their checksums.\n\n| File | sha256 |\n|---|---|\n'
+          + '| `catalogue-proof-final.pdf` (214,952 bytes, 4 pages) | `3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b2907e5c` |\n\nBoth match.';
+        await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: hashes }) });
+        // kosmos#7214 review 1: a table of short names in code spans keeps them whole and scrolls (#718), never chops them.
+        const names = 'Six commands:\n\n| a | b | c | d | e | f |\n|---|---|---|---|---|---|\n'
+          + '| `install-agent` | `refresh-token` | `kosmos-open` | `workforce` | `sessionName` | `fleet-builders` |\n\nThat is all.';
+        await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: names }) });
+        // Review 2: two tables stay two (stacked), a rule beside a block survives, a code block keeps its first blank line.
+        const two = 'Two tables\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n| c | d |\n|---|---|\n| 3 | 4 |\n\n```\n\n\nfirst line after a blank\n```\n\n---';
+        await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: two }) });
         return { id };
       }, pjName);
       if (made.error) { bad(t + ' Layer 2 fixture posted a room message', made.error); await p.close(); continue; }
@@ -188,6 +200,8 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         const bubbles = document.querySelectorAll('#pj-room .msg-b');
         return Array.from(bubbles).some((b) => b.querySelector('.mdh'));
       }, null, { timeout: 15000 }).catch(() => {});
+      // kosmos#7214: and the second post, the table of hashes.
+      await p.waitForFunction(() => Array.from(document.querySelectorAll('#pj-room .msg-b')).some((b) => /checksums/.test(b.textContent) && b.querySelector('table.mdtable')), null, { timeout: 15000 }).catch(() => {});
 
       const dom = await p.evaluate(() => {
         const bubbles = Array.from(document.querySelectorAll('#pj-room .msg-b'));
@@ -223,6 +237,15 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           codeBg: csC ? csC.backgroundColor : null,
           // #2701
           hasTable: !!(b && b.querySelector('table.mdtable')),
+          // kosmos#7214: the table stays in its scroll wrapper (a room <p> used to throw it out) and inside the bubble.
+          ...(() => {
+            const hb = bubbles.find((x) => /checksums/.test(x.textContent) && x.querySelector('table.mdtable'));
+            const tb = hb && hb.querySelector('table.mdtable'), bd = hb && hb.querySelector('.msg-bd');
+            if (!tb || !bd) return { tableWrapped: false, tableSpill: null };
+            const wrap = tb.closest('.mdtablewrap');
+            const seen = wrap ? Math.min(tb.getBoundingClientRect().right, wrap.getBoundingClientRect().right) : tb.getBoundingClientRect().right;
+            return { tableWrapped: !!(tb.parentElement && tb.parentElement.classList.contains('mdtablewrap')), tableSpill: Math.round(seen - bd.getBoundingClientRect().right) };
+          })(),
           h1px: h1 ? parseFloat(getComputedStyle(h1).fontSize) : null,
           h6px: h6 ? parseFloat(getComputedStyle(h6).fontSize) : null,
         };
@@ -238,6 +261,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       if (dom.hasLi) ok(t + ' DOM: list rendered in room'); else bad(t + ' DOM: list rendered', dom.html);
       // #2701: a real table element painted (not literal piped text).
       if (dom.hasTable) ok(t + ' DOM: table rendered in room (#2701)'); else bad(t + ' DOM: table rendered', dom.html);
+      if (dom.tableWrapped) ok(t + ' DOM: the room table sits in its scroll wrapper (kosmos#7214)'); else bad(t + ' DOM: room table in its scroll wrapper', dom.html);
+      if (dom.tableSpill !== null && dom.tableSpill <= 0) ok(t + ' DOM: a table with a 64-character hash stays inside the bubble (kosmos#7214, ' + dom.tableSpill + 'px)');
+      else bad(t + ' DOM: table inside the bubble', 'spills ' + dom.tableSpill + 'px past the bubble edge');
       // #2701: the level-1 heading paints LARGER than the level-6 -- the "different
       // sizes" complaint, proven by computed CSS rather than by the emitted class.
       if (dom.h1px && dom.h6px && dom.h1px > dom.h6px) ok(t + ' DOM: heading levels render at different sizes (#2701, ' + dom.h1px + 'px > ' + dom.h6px + 'px)');
@@ -251,6 +277,40 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       // CSS wired to .msg-b: heading bold, code has a ground
       if (dom.headingWeight === '700' || Number(dom.headingWeight) >= 700) ok(t + ' CSS: room heading is bold (' + dom.headingWeight + ')'); else bad(t + ' CSS: room heading is bold', String(dom.headingWeight));
       if (dom.codeBg && dom.codeBg !== 'rgba(0, 0, 0, 0)' && dom.codeBg !== 'transparent') ok(t + ' CSS: room code has a background (' + dom.codeBg + ')'); else bad(t + ' CSS: room code has a background', String(dom.codeBg));
+
+      /* kosmos#7214 review 1: at phone width too. Each table in its wrapper and inside its bubble; the short names whole
+         (at most two pieces, at their hyphen) with the table scrolling; the hash wrapping in a column of real width. */
+      await p.setViewportSize({ width: 393, height: 852 });
+      await p.waitForTimeout(300);
+      const phone = await p.evaluate(() => {
+        const bubbles = Array.from(document.querySelectorAll('#pj-room .msg-b'));
+        const one = (re) => {
+          const b = bubbles.find((x) => re.test(x.textContent) && x.querySelector('table.mdtable'));
+          const tb = b && b.querySelector('table.mdtable'), bd = b && b.querySelector('.msg-bd'), wrap = tb && tb.closest('.mdtablewrap');
+          if (!tb || !bd || !wrap) return null;
+          return {
+            wrapped: tb.parentElement === wrap,
+            spill: Math.round(wrap.getBoundingClientRect().right - bd.getBoundingClientRect().right),
+            scrolls: wrap.scrollWidth > wrap.clientWidth + 1,
+            pieces: Array.from(tb.querySelectorAll('td .mdc')).map((c) => c.getClientRects().length),
+            narrowest: Math.min(...Array.from(tb.querySelectorAll('td')).map((c) => Math.round(c.getBoundingClientRect().width))),
+          };
+        };
+        const twoB = bubbles.find((x) => /Two tables/.test(x.textContent));
+        const wraps = twoB ? [...twoB.querySelectorAll('.mdtablewrap')].map((w) => Math.round(w.getBoundingClientRect().top)) : [];
+        const pre = twoB && twoB.querySelector('figure.codeb pre');
+        return { names: one(/Six commands/), hashes: one(/checksums/), two: { wraps, rules: twoB ? twoB.querySelectorAll('.mdhr').length : -1, preStart: pre ? JSON.stringify(pre.textContent.slice(0, 3)) : null } };
+      });
+      const pn = phone.names, ph = phone.hashes;
+      if (pn && pn.wrapped && pn.spill <= 0 && pn.scrolls && pn.pieces.every((n) => n <= 2)) ok(t + ' phone: short names stay whole and the table scrolls (kosmos#7214, #718) ' + JSON.stringify(pn.pieces));
+      else bad(t + ' phone: short names whole, table scrolls', JSON.stringify(pn));
+      if (ph && ph.wrapped && ph.spill <= 0 && !ph.scrolls && ph.narrowest >= 80 && Math.max(...ph.pieces) > 1) ok(t + ' phone: the hash wraps inside the bubble in a column ' + ph.narrowest + 'px wide or more (kosmos#7214)');
+      else bad(t + ' phone: hash wraps inside the bubble', JSON.stringify(ph));
+      const tw = phone.two;
+      if (tw.wraps.length === 2 && tw.wraps[1] > tw.wraps[0] + 10) ok(t + ' phone: two tables in one post stack, not side by side (review 2) ' + JSON.stringify(tw.wraps)); else bad(t + ' two tables stack', JSON.stringify(tw));
+      if (tw.rules === 1) ok(t + ' a rule after a block, at the end, survives (review 2)'); else bad(t + ' a rule after a block survives', JSON.stringify(tw));
+      if (tw.preStart === JSON.stringify('\nfi')) ok(t + ' a code block keeps its first blank line (review 2)'); else bad(t + ' code block first blank line', JSON.stringify(tw));
+      await p.setViewportSize({ width: 1280, height: 800 });
 
       if (errs.length) bad(t + ' no page errors', errs.join(' | ')); else ok(t + ' no page errors');
       await p.close();

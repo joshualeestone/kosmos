@@ -98,7 +98,7 @@ const USAGE = {
   records: 'Usage: kosmos records <project-id> | kosmos records set <project-id> "<name>" [--status "<status>"] [--confirmed YYYY-MM-DD] [--source "<link or file>"] | kosmos records remove <project-id> "<name>" | kosmos records label <project-id> "<what the rows are>"',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
-  fingerprint: 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)',
+  fingerprint: 'Usage: kosmos fingerprint <file> [expected]   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: sha256:<hex> is the plain sha256 of the file, what shasum prints; pdf-normalized:<hex> is a PDF with its creation and change dates and document ID left out, so the same source rendered twice matches, and is not what shasum prints; a PDF over 64 MB is hashed as plain bytes. With an expected value it compares like with like and says which kind: a bare 64-hex value or sha256: is checked against the plain sha256)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
@@ -122,7 +122,7 @@ const USAGE = {
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time, and whether the person has viewed it',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
-    '      --file <path>                                            send the delivered file\'s fingerprint (its sha256; for a PDF, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
@@ -567,10 +567,95 @@ async function verbMsg(ctx, args) {
   return 1;
 }
 
+/* #6726: the path sent for --file, made absolute by joining text as install/kosmos's "$PWD/$path" does. Never
+   path.resolve: it removes `..` and `.` by text, so the board would not see a `..` it refuses, and through a link or
+   junction the shortened path names another file. On Windows only a path on a drive (C:\x or C:/x) is taken. A
+   drive with no folder (C:foo), a folder with no drive (\foo, /foo), a path SPELLED as a network or device namespace
+   (\\host\share, \\?\, \\.\), and a relative path from a folder that is not on a drive, are refused (null). This is
+   spelling only, not a guard: a mapped or subst drive, a junction or link out to a share, and a device or stream on a
+   drive (C:\x\NUL, C:\x:s) all look like drive paths and go to the board, which refuses them only once #7221 lands. p is path.win32 or path.posix,
+   so both are tested on any machine. */
+function replyFileAbsolute(file, cwd, p) {
+  if (p.sep === '\\') {
+    // Review 10: sent with backslashes only. The board's hidden-in-home check reads the path as written and splits on
+    // the native separator, so C:/Users/a/.aws/x would pass it where C:\Users\a\.aws\x is refused. Swapping
+    // separators rewrites no `..`, so the board still sees and refuses one.
+    const native = (s) => s.replace(/\//g, '\\');
+    if (/^[A-Za-z]:[\\/]/.test(file)) return native(file);
+    if (/^[A-Za-z]:/.test(file) || /^[\\/]/.test(file)) return null;
+    const here = cwd();
+    if (!here) return null;   // the folder could not be read
+    const joined = here.replace(/[\\/]+$/, '') + '\\' + file;
+    return /^[A-Za-z]:[\\/]/.test(joined) ? native(joined) : null;
+  }
+  if (file.startsWith('/')) return file;
+  const here = cwd();
+  return here ? here.replace(/\/+$/, '') + '/' + file : null;   // no folder: refused, never joined onto /
+}
+/* #6726: the second usage line install/kosmos prints for reply (tools.windows-kosmos-cli-reply-file-6726.test.js pins it to install/kosmos's). */
+const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
+/* #6726 review 8: --file is named (help, and the usage a bare reply prints) only where the board's checks of which
+   files may go have run. On Windows they have not, and #7221 shows the board there resolves a network or device path
+   before refusing it, so on Windows the flag works when typed (the real run needs it) but is not taught, as
+   engine/dmfiles.js leaves it out of the instructions. Keyed on the path rules, so a test drives either side. */
+const replyFileTaught = (rules) => rules.sep !== '\\';
+/* What --help prints for a verb: its usage, and for reply the --file line too where it is taught, as install/kosmos's
+   help does on a Mac. */
+function helpFor(verb, rules = path) { return verb === 'reply' && replyFileTaught(rules) ? USAGE.reply + '\n' + USAGE_REPLY_FILE : USAGE[verb]; }
+/* #6726: a control character in a --file path (C1 too, as bash's [[:cntrl:]] in UTF-8), and what the refusal says. */
+const REPLY_FILE_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+const REPLY_FILE_CONTROL_ALL = /[\u0000-\u001f\u007f-\u009f]/g;
+const REPLY_FILE_CONTROL_SAYS = 'That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.';
+const USAGE_REPLY_FILE_NEEDS_PATH = '--file needs the path of the file to attach, so nothing was sent: kosmos reply --file <path> "what it is"';
 async function verbReply(ctx, args) {
   /* #4582: --stdin (leading) reads the reply from standard input, as msg and post do (#2909), via
      the shared readPipedMessage; every failure after the read keeps the piped reply in a private
      file, since it may have no other copy. Parity with install/kosmos. */
+  /* #6726, as install/kosmos: --file <path> (or --file=<path>) attaches one of the agent's own files, as the
+     attachment a person's upload is. Taken out of the args before `--`, wherever it sits, so the rest parse as
+     before; past `--` it is words. The board decides which files may go (engine/replyfile.js); this only makes a
+     relative path absolute and refuses one it cannot send as written. */
+  let file = '';
+  {
+    const rest = [];
+    let past = false;
+    let got = false;
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (!past && a === '--') { past = true; rest.push(a); continue; }
+      if (past || !(a === '--file' || a.startsWith('--file='))) { rest.push(a); continue; }
+      if (got) { ctx.err('--file was given twice, so nothing was sent. Attach one file per reply.'); return 2; }
+      got = true;
+      if (a === '--file') { file = i + 1 < args.length ? args[++i] : ''; } else file = a.slice('--file='.length);
+      if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(USAGE_REPLY_FILE_NEEDS_PATH); return 2; }
+      const given = file;
+      /* Review 6726 r7: the typed path first, so a refusal below never echoes an escape sequence or a carriage
+         return to the agent's terminal; the joined path is checked again after (the folder can carry one too). */
+      if (REPLY_FILE_CONTROL.test(given)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
+      // The folder is read only for a relative path; one deleted under the command reads as '' and is refused.
+      const here = () => { try { return ctx.cwd(); } catch { return ''; } };
+      file = replyFileAbsolute(given, here, ctx.pathRules);
+      if (file === null) {
+        // A relative path refused because the folder it is joined onto is not on a drive: say so, naming that folder.
+        const rel = !/^[A-Za-z]:/.test(given) && !/^[\\/]/.test(given);
+        // Review 13: the Git Bash shim leaves a /c/... path with a `..` unconverted (cygpath would shorten it), so here
+        // it has no drive; the reason to give is the `..`, which the board refuses wherever it is.
+        const dotdot = given.split(/[\\/]/).includes('..');
+        ctx.err(rel && !here()
+          ? 'The folder this command runs in could not be read, so ' + given + ' cannot be joined onto it and nothing was sent. Give the file\'s full path.'
+          : dotdot
+          ? 'A path with .. in it cannot be attached, so nothing was sent: give the file\'s own full path, without ..'
+          : rel
+            ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + here().replace(REPLY_FILE_CONTROL_ALL, '?') + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:/... or C:\\...).'
+            : 'Give the file\'s full path on this computer, starting with its drive (C:/... or C:\\...), so nothing was sent: ' + given + ' is not one.');
+        return 2;
+      }
+      /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. C1 too (U+0080 to U+009F),
+         as bash's [[:cntrl:]] matches them in a UTF-8 locale. */
+      if (REPLY_FILE_CONTROL.test(file)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
+    }
+    args = rest;
+  }
   const fromStdin = args[0] === '--stdin';
   if (fromStdin) args.shift();
   let text = args.join(' ');
@@ -582,9 +667,9 @@ async function verbReply(ctx, args) {
     if (got.code !== undefined) return got.code;
     text = got.text;
   }
-  if (!text) { ctx.err(USAGE.reply); return 2; }
+  if (!text && !file) { ctx.err(USAGE.reply); if (replyFileTaught(ctx.pathRules)) ctx.err(USAGE_REPLY_FILE); return 2; }
   const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
-  const body = { text, from_pane: '' };
+  const body = file ? { text, from_pane: '', file } : { text, from_pane: '' };
   /* The board drops a request body over its read limit, which would read as unreachable. */
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was kept: that reply is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/reply', body);
@@ -595,13 +680,26 @@ async function verbReply(ctx, args) {
     return code;
   }
   if (ctx.wrongWorld(r)) {
+    /* #6726: a reply with a file is not kept for later: the file is read when it is sent, and it may change before then. */
+    if (file) { ctx.err('Not sent: your Kosmos is not the one open right now, and a reply with a file is not kept for later. Send it again once your Kosmos is open.'); keepPiped(); return 1; }
     let kept = 1;
     try { kept = ctx.keepForLater('reply', body); } catch (e) { ctx.err('This Kosmos could not keep that for later (' + String((e && e.message) || e) + ').'); }
     if (kept !== 0) keepPiped();
     return kept;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
-  if (r.json && r.json.kept === true) { ctx.out('Sent. It is in their conversation with you.'); return 0; }
+  if (r.json && r.json.kept === true) {
+    /* #6726: the name the board saved it under (a link's target's name), else the given one. */
+    if (file) {
+      // The saved name is the link's TARGET's, which the control check on the typed path never saw (review 10).
+      const saved = typeof r.json.attached === 'string' && r.json.attached && !REPLY_FILE_CONTROL.test(r.json.attached) ? r.json.attached : '';
+      const named = saved || ctx.pathRules.basename(file);
+      ctx.out('Sent, with ' + named + ' attached. It is in their conversation with you.');
+      return 0;
+    }
+    ctx.out('Sent. It is in their conversation with you.');
+    return 0;
+  }
   ctx.err('That was not kept: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
   tokenRefusedHint(ctx, r);   // #5333: a refused reply is {kept:false, because}, not an error
   keepPiped();
@@ -1106,7 +1204,7 @@ async function taskList(ctx, args) {
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);
     // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
-    if (x.builtAt && /^sha256:[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
+    if (x.builtAt && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
   }
   return 0;
 }
@@ -2446,9 +2544,15 @@ async function verbHandoff(ctx, args) {
 /* kosmos#6849, as install/kosmos cmd_fingerprint: a file's fingerprint, the one `kosmos task built --file` sends and
    `kosmos handoff` prints (engine/fileprint.js), so an agent checking a handed-off copy compares like with like. */
 async function verbFingerprint(ctx, args) {
-  if (args.length !== 1 || !args[0]) { ctx.err(USAGE.fingerprint); return 2; }
+  if (args.length < 1 || args.length > 2 || !args[0]) { ctx.err(USAGE.fingerprint); return 2; }
   let fileprint;
   try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
+  if (args.length === 2) {   // #7213, as install/kosmos: compare like with like and say which kind
+    const c = fileprint.compare(args[0], args[1]);
+    if (!c.ok) { ctx.err(args[0] + ': ' + c.words); return 2; }
+    ctx.out(args[0] + ' ' + c.words);
+    return c.match ? 0 : 1;
+  }
   const got = fileprint.fingerprint(args[0]);
   if (!fileprint.isPrint(got)) { ctx.err(args[0] + ': ' + got); return 2; }
   ctx.out(got);
@@ -2649,7 +2753,7 @@ const DESCRIBE = {
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
-  fingerprint: 'print the fingerprint of a file, to check a handed-off copy (the dates and ID inside a PDF are left out)',
+  fingerprint: 'print the fingerprint of a file, or compare one with it, to check a handed-off copy (the dates and ID inside a PDF are left out)',
   room: 'read a project room',
   notice: "a job on this computer writes a line in a room, in Kosmos's voice",
   task: "a project's tasks: list, add, close, reopen, message, mark built",
@@ -2697,7 +2801,7 @@ async function main(argv, io) {
   }
   /* #1674: BEFORE any handler, so a verb added to the table later is covered
      without anyone remembering. No request of any kind, whoami included. */
-  if (asksForHelp) { out(USAGE[verb]); return 0; }
+  if (asksForHelp) { out(helpFor(verb, o.pathRules || path)); return 0; }
 
   const doFetch = o.fetch || fetch;
   const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));
@@ -2901,6 +3005,8 @@ async function main(argv, io) {
     },
     url,
     agentToken: () => hook.agentToken(env),
+    pathRules: o.pathRules || path,   // #6726: path.win32 in a test, so the Windows path rules run on any machine
+    cwd: o.cwd || (() => process.cwd()),
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,
     /* The board is serving another Kosmos than this agent's. */
     wrongWorld: (r) => r.reached && r.status === WRONG_WORLD_STATUS && Boolean(r.json) && r.json.wrongWorld === true,
@@ -2960,7 +3066,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, DESCRIBE, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, DESCRIBE, USAGE_REPLY_FILE, replyFileAbsolute, helpFor, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 

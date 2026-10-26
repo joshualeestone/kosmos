@@ -37,7 +37,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { fingerprint, firstLine } = require('./fileprint');   // #6849: the shared fingerprint
+const { fingerprint, plain, firstLine } = require('./fileprint');   // #6849: the shared fingerprint
 
 /* A sane calendar year floors "cannot tell": an mtime at or before the epoch, or
  * one that does not parse, is not a date to show (#6506 axis 3: never 1970). */
@@ -151,7 +151,15 @@ function gitFact(cwd) {
 }
 
 /* The fingerprint, or an honest reason, for one artifact path (#6506 axis 5): engine/fileprint.js since #6849, the
-   one `kosmos task built --file` and `kosmos fingerprint` give, so a PDF re-rendered from the same source matches. */
+   one `kosmos task built --file` and `kosmos fingerprint` give, so a PDF re-rendered from the same source matches.
+   #7213: a PDF's fingerprint (pdf-normalized:) is not what shasum prints, and an approval usually cites a plain sha256,
+   so the line gives both, each labelled, and a reader compares like with like. */
+function artifactPrint(p) {
+  const fp = fingerprint(p);
+  if (!fp.startsWith('pdf-normalized:')) return fp;
+  const raw = plain(p);
+  return fp + ' (plain ' + (raw.startsWith('sha256:') ? raw : 'sha256 ' + raw) + ')';
+}
 
 /** The agent's live state from the self-report, "never reported" when absent
  * (#6506 axis 2). Never defaults to idle. */
@@ -359,7 +367,7 @@ function render(opts) {
     lines.push('- Artifacts you named:');
     // The echoed path is cleaned so a newline in it cannot inject lines into the pasted
     // handoff; fingerprint() still uses the RAW path for the filesystem read.
-    for (const p of artifacts) lines.push('  - `' + cleanPath(p) + '`: ' + fingerprint(p));
+    for (const p of artifacts) lines.push('  - `' + cleanPath(p) + '`: ' + artifactPrint(p));
   } else {
     lines.push('- Artifacts you named: none (pass artifact paths as arguments to fingerprint them)');
   }
@@ -369,7 +377,7 @@ function render(opts) {
   return lines.join('\n') + '\n';
 }
 
-module.exports = { render, gitFact, fingerprint, stateFact, instructionFact, tasksFact, handoffPath, contractBullets, saneIso, cleanPath, MIN_SANE_YEAR };
+module.exports = { render, gitFact, fingerprint, artifactPrint, stateFact, instructionFact, tasksFact, handoffPath, contractBullets, saneIso, cleanPath, MIN_SANE_YEAR };
 
 /* Run as the CLI entry (install/kosmos cmd_handoff runs this file with the
  * artifact paths as arguments; the Windows CLI calls render directly). Session

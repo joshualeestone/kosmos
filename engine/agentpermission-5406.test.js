@@ -111,7 +111,8 @@ test('#5406 the macOS and Linux supervisor passes --settings from the shim, befo
   assert.match(sup, /"\$NODE_BIN" "\$_eng\/agent-permission-config\.js"/);
   assert.match(sup, /case "\$_perm" in \/\*\) if \[ -f "\$_perm" \]; then PERM_ARGS=\(--settings "\$_perm"\)/, 'absolute and existing only');
   // The Claude arm's two launches (with and without a model) are the ones that carry the agent browser's MCP_ARGS.
-  const launches = sup.split('\n').filter((l) => /launch_pane "\$CLAUDE"/.test(l) && /MCP_ARGS/.test(l));
+  // #7206: a vendor account's env prefix (empty for a Claude account) may come between launch_pane and "$CLAUDE".
+  const launches = sup.split('\n').filter((l) => /launch_pane (\$\{COMPAT_PREFIX\[@\]\+"\$\{COMPAT_PREFIX\[@\]\}"\} )?"\$CLAUDE"/.test(l) && /MCP_ARGS/.test(l));
   assert.equal(launches.length, 2);
   for (const l of launches) assert.ok(l.indexOf('PERM_ARGS') > 0 && l.indexOf('PERM_ARGS') < l.indexOf('--dangerously-skip-permissions'), l);
   const out = spawnSync(process.execPath, [path.join(__dirname, 'agent-permission-config.js')], { encoding: 'utf8', env: process.env });

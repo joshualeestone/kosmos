@@ -8783,6 +8783,9 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   // #5977 review 2: a Qwen agent's home holds an endpoint, not a Claude sign-in; asking the Claude check about it could
   // only be wrong, and a HEALTHY answer would hide the endpoint's real refusal. auth_failed stands.
   if (job.configDir && require('./qwenaccounts').isQwenHome(job.configDir)) return undefined;
+  // #7206: nor a vendor account (~/.kosmos-deepseek-<label>): a claude agent there holds the vendor's key, not a Claude
+  // sign-in, so `claude auth status` on it could only be wrong, and a HEALTHY answer would hide the vendor's refusal.
+  if (job.configDir && require('./anthropiccompat').isCompatHome(job.configDir)) return undefined;
   // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
   // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
   try { return verdictFn(job.configDir || null); } catch { return undefined; }

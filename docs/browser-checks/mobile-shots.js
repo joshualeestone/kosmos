@@ -948,6 +948,34 @@ const SCREENS = [
        that message's hover bar. Park it in the corner, as the other screens here do. */
     await page.mouse.move(1, 1);
   } },
+  /* kosmos#7214 (Mona Lisa): an agent's room post holding a markdown table of file names and sha256 hashes in code spans,
+     the shape Josh saw run past the bubble. The room the board serves gets the post added on the way to the page, from
+     chatAgent; nothing is written to the board. Scrolled to it, as room-notice-7189. */
+  { name: 'room-table-7214', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/api/project/*/room', async (r) => {
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || typeof body !== 'object') { await r.fulfill({ response: res }); return; }
+        const rows = Array.isArray(body.rows) ? body.rows : [];
+        const hex = (n) => Array.from({ length: 64 }, (_, i) => '0123456789abcdef'[(i * 7 + n * 3) % 16]).join('');
+        rows.push({ kind: 'post', id: 'table-7214', from: data.chatAgent, fromKind: 'agent', at: new Date().toISOString(),
+          text: 'Here are the two files and their checksums, so you can confirm the copies match.\n\n'
+            + '| File | sha256 |\n|---|---|\n'
+            + '| `catalogue-proof-final.pdf` (214,952 bytes, 4 pages) | `' + hex(1) + '` |\n'
+            + '| `price-list-2026.xlsx` (38,410 bytes) | `' + hex(2) + '` |\n\n'
+            + 'Both match what the printer sent.' });
+        body.rows = rows;
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await SCREENS.find((s) => s.name === 'project-room').go(page, data);
+    await page.waitForSelector('#pj-room .mdtable', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { const t = document.querySelector('#pj-room .mdtable'); if (t) t.scrollIntoView({ block: 'center' }); });
+    await page.waitForTimeout(150);
+  } },
   /* kosmos#7189 (Angel): a room notice from a job (an email digest) keeps its lines in the room's note band. Posted
      once through the board's own notice route (the board lives across themes and sizes), then the room is opened as
      project-room does and the note is scrolled into view. */
@@ -1625,6 +1653,28 @@ const SCREENS = [
   { name: 'first-run', owner: 'unowned', go: async (page) => {
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
+  } },
+  /* kosmos#7205: the setup choice screen the Mac app shows first (its dot field, the two-computer drawings, the three
+     options). The app's bridge is stood in for (it only records), and ?mode=unreadable asks even after first run. */
+  { name: 'setup-choice-7205', owner: 'Mona Lisa', go: async (page) => {
+    await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
+    await at(page, '?mode=unreadable');
+    await page.waitForSelector('#fr-choice', { state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(600);   // the dot field settles in
+  } },
+  /* kosmos#7205: Welcome with Back to the setup choice (as after the choice screen in the app). */
+  { name: 'setup-welcome-back-7205', owner: 'Mona Lisa', go: async (page) => {
+    // Back is offered only on the Mac app's bridge (frBackOffered), so the bridge is stood in, as setup-choice-7205 does.
+    await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
+    await at(page, '?first-run=1');
+    await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => { FR_CHOSE_HERE = true; FR_FORCED = false; frGo(1); });
+    await page.waitForSelector('#fr-alt:not([hidden])', { timeout: 5000 });
+  } },
+  /* kosmos#7205: Help make Kosmos better (pane 6), the Community switch in Josh's words. */
+  { name: 'setup-community-7205', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?first-run=1&fr-step=6');
+    await page.waitForSelector('#fr-s6-community-lbl', { state: 'visible', timeout: 5000 });
   } },
   /* #5977: first run's Model step (pane 5), scrolled to the Qwen row, which says it is added in Settings (or, on
      Windows, that it is coming there). */
