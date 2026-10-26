@@ -393,6 +393,13 @@ if (require.main === module) {
   try {
     const [verb, dir] = process.argv.slice(2);
     if (verb !== 'launch-env') process.exit(64);
+    /* 1b review 2: the switch is a kill switch too. An agent made while it was on does not start with its key once it is
+       off (a restart, a crash loop, a hand-edited job): the supervisor refuses the launch with this sentence. */
+    if (!enabled()) {
+      const v = vendorOf(vendorOfName(dir));
+      process.stdout.write(`${notYet(v ? v.id : '')}, so this agent was not started on it`);
+      process.exit(2);
+    }
     const r = launchEnv(dir);
     if (!r.ok) { process.stdout.write(r.because); process.exit(2); }
     process.stdout.write(Object.entries(r.env).map(([k, val]) => k + '=' + val).join('\0') + '\0');

@@ -31199,6 +31199,7 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   document.getElementById('acct-openai-flow').hidden = true;
   acctApikeyShow(null);
   acctQwenShow(false);   // #5977
+  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek key form too, and its in-flight add stops
   acctAddPickSay('');   // #3939 slice 3c-2 (round 5): going back to "Choose a provider" is a choice too
 });
 /* #770: the door opens the dialog; the dialog remembers nothing between
@@ -33680,6 +33681,7 @@ function closeAcctAdd() {
   acctOpenaiSubReset();   // hides the sub affordances and re-enables the Sign-in button
   acctApikeyShow(null);   // #3566: a pasted Gemini/Grok key does not stay in a hidden field after close
   acctQwenShow(false);   // #5977: the Qwen key and name too, and its download poll stops
+  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek key form too, and its in-flight add stops
   acctMuseShow(false);   // #3939: a Muse sign-in left running is stopped, not left polling a closed dialog
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
@@ -60219,7 +60221,7 @@ function applyCreateProviderUI() {
     const modelRow = document.getElementById('create-model-row');
     if (modelRow) modelRow.hidden = true;
     if (why) {
-      why.textContent = (pv === 'alibaba' ? 'The Qwen account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
+      why.textContent = (pv === 'alibaba' ? 'The Qwen account names the model.' : pv === 'deepseek' ? 'The DeepSeek account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
         + (pv === 'antigravity' && !FR_AGY_READY
           ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : '');
       why.hidden = false;
@@ -60680,7 +60682,7 @@ function tcPaintModel(pv, ac) {
   };
   if (vendorPicksModel(pv)) {
     row.hidden = true;
-    show('<option value="" selected></option>', true, (pv === 'alibaba' ? 'The Qwen account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
+    show('<option value="" selected></option>', true, (pv === 'alibaba' ? 'The Qwen account names the model.' : pv === 'deepseek' ? 'The DeepSeek account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
       + (pv === 'antigravity' && !FR_AGY_READY   // the single create's own hint, word for word
         ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : ''), false);
     return;

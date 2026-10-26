@@ -231,7 +231,8 @@ test('launchEnv refuses an account file that is a link', () => {
 
 test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal with exit 2', () => {
   const script = nodePath.join(__dirname, 'anthropiccompat.js');
-  const out = execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: { ...process.env } });
+  const on = { ...process.env, AGENT_WORKFORCE_COMPAT_PROVIDERS: '1' };   // slice 1b: launch-env obeys the switch
+  const out = execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: on });
   const pairs = out.split('\0').filter(Boolean);
   assert.ok(pairs.includes('ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic'));
   assert.ok(pairs.includes('ANTHROPIC_AUTH_TOKEN=' + KEY));
@@ -239,7 +240,7 @@ test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal
   const empty = nodePath.join(SANDBOX, '.kosmos-deepseek-cli-none');
   fs.mkdirSync(empty);
   let rc = 0; let said = '';
-  try { execFileSync(process.execPath, [script, 'launch-env', empty], { encoding: 'utf8' }); } catch (e) { rc = e.status; said = String(e.stdout); }
+  try { execFileSync(process.execPath, [script, 'launch-env', empty], { encoding: 'utf8', env: on }); } catch (e) { rc = e.status; said = String(e.stdout); }
   assert.equal(rc, 2);
   assert.equal(said, 'this DeepSeek account cannot be used: it has no key set up');
 });
@@ -274,4 +275,14 @@ test('slice 1b: the switch is OFF by default, on by the variable or the marker, 
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; else process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev;
   }
   assert.equal(compat.notYet('deepseek'), 'DeepSeek is not available in Kosmos yet');
+});
+
+test('1b review 2: launch-env refuses while the switch is off (a kill switch for an agent made while it was on)', () => {
+  const script = nodePath.join(__dirname, 'anthropiccompat.js');
+  const off = { ...process.env }; delete off.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  let rc = 0; let said = '';
+  try { execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: off }); } catch (e) { rc = e.status; said = String(e.stdout); }
+  assert.equal(rc, 2);
+  assert.equal(said, 'DeepSeek is not available in Kosmos yet, so this agent was not started on it');
+  assert.equal(said.includes(KEY), false);
 });

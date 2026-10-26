@@ -167,3 +167,16 @@ Accepted, not changed:
   measurement: the switch, not the failover, is the gate on unproven paths.
 - "Name (optional)" in the form becomes the account's label (its folder name, cleaned), not a separate display name:
   the vendor module has no display name, and the label is what the row shows.
+
+## Slice 1b review 2 (2026-10-26 15:3x)
+BLOCKER FIXED: my vendor block in setProvider was inserted inside Qwen's account block, so a switch onto Qwen lost its
+codex trust write and a switch onto DeepSeek wrote a codex config.toml into its (Claude Code) folder. Restored; pinned
+by a test that is red with the misplacement put back. (The test also needs its own runner stub: setRunner(null) in an
+earlier test turns dry-run back on, which skips the Qwen block silently.)
+FIXED: the switch is a kill switch (launch-env refuses while off, so an agent made while it was on does not start with
+its key; pinned in the supervisor and CLI tests); the dialog puts the DeepSeek form away on "Choose a provider" and on
+close; "The DeepSeek account names the model"; vendorAccount written only when a vendor is involved.
+OPEN, needed before the switch is turned on (not reachable while off): the agent page treats a DeepSeek agent as
+Claude (server accountForAgent provider, page providerOf, RUNNER.deepseek and CURRENT.account), so switching it back to
+Claude from the page is disabled and the account picker lists Claude accounts (setAccount refuses them, safely).
+Accepted: the hidden test's ON controls prove the gate opens, not that the full vendor path works (the engine tests do).
