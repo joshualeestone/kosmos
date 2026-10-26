@@ -20,7 +20,9 @@ Owner: Ice Cream Kitty. From agent feedback; split from #7149 ask 2, which left 
 - The person's hold: an agent cannot change what it waits for (403, as unhold). Its mark is dropped only when the held
   state flips, never by a changed condition (review 1 found that path let an agent strip the mark, then lift the hold).
 - A wait that leads back to the held task (A waits for B, B for A, or longer) is refused: it would never be met.
-- Times: only an ISO date or date-time is taken (not "2026-11-02 09:00" or "Nov 2", which Date.parse reads in the
+- An agent's bare re-hold of the person's hold leaves it whole (condition and mark); an agent changing its condition
+  is 403. The person's screen hold sets exactly what it says, so it drops an agent's earlier condition.
+- Times: only a real ISO date or date-time is taken (2026-11-31 or T24:00 are refused, not rolled over) (not "2026-11-02 09:00" or "Nov 2", which Date.parse reads in the
   board's zone); a bare date is midnight UTC; a time of day must carry Z or an offset (refused otherwise, since the board's zone
   may not be the agent's). Both CLIs say back the time the board stored, not the one typed.
 
@@ -47,6 +49,8 @@ and the list and instructions show what it waits for. A task waited for that nev
   holdstale park (with a CONTROL that the same hold without a condition is owed), met told once at any age, the met
   line and the person's variant, met and posts never in one line; instructions' mark; activity phrasing with controls.
 - Mutations, each red: unmet not skipped; met needing posts; one group for both reasons; mark without the condition.
+- Sweep with one shared book: a met line, then a posts line for the same hold, both delivered (red with the reason left
+  out of the book key; review 3 found the met line blocked every later line until a restart).
 - Route (server.test.js): stored and answered, 400/409 kept, zoneless refused by name, unhold-with-condition refused, an
   agent's change to the person's hold 403 with the mark kept (CONTROL: a bare re-hold keeps it). Red without the 403.
 - CLI: both CLIs send the condition, say what it waits for, refuse bad values unsent, list "[on hold until ...]".

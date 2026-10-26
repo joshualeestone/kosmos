@@ -146,8 +146,10 @@ function metText(items, now = Date.now()) {
     + ' ago until ' + plain(x.met, 80) + ', and that has now happened';
   const way = (x) => (x.byPerson ? 'ask the person to take #' + x.n + ' off hold (only they can lift their own hold, on the screen)'
     : 'take #' + x.n + ' off hold: kosmos task unhold ' + idOf(x) + ' ' + x.n);
+  const many = items.length > 1;
   return 'Kosmos: in ' + plain(items[0].project, 80) + ', ' + items.map(one).join('; ') + '. '
-    + 'If its work can go on now, ' + items.map(way).join('; ') + '. If it should stay on hold, say why on the task.';
+    + (many ? 'If their work can go on now, ' : 'If its work can go on now, ') + items.map(way).join('; ') + '. '
+    + (many ? 'If one should stay on hold, say why on that task.' : 'If it should stay on hold, say why on the task.');
 }
 
 /* Store that `owner` was told about this hold, and record it in the task's history. */
@@ -204,7 +206,8 @@ function sweep(o) {
     for (const group of groups.values()) {
       const item = group[0];
       try {
-        const key = item.projectId + ':' + item.owner + '@' + group.map((x) => x.n + '/' + x.holdAt).sort().join(',');
+        // kosmos#7180: the reason is part of the key, as it is of the group, so a met line never blocks a later posts line.
+        const key = item.projectId + ':' + item.owner + (item.met ? ':met' : '') + '@' + group.map((x) => x.n + '/' + x.holdAt).sort().join(',');
         const markAll = (outcome) => { for (const x of group) markTold(x, outcome); };
         if ((book.get(key) || {}).told === true) { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         if (!item.members.includes(item.owner)) { markAll('not reached'); results.push({ ...item, act: 'unreachable', because: 'the owner is no longer on the project' }); continue; }
