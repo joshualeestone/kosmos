@@ -182,7 +182,16 @@ no profile record, and STARTS the agent: enable then bootstrap).
    surrogate strip now has a test. Accepted as fail-closed: a transient registry read error during naming reports
    "could not be made" rather than trying the next name.
 
+24. W: the Restored world is on the list from prepare, so an agent or project the person makes there before finish
+   fills the folders finish needs empty, and finish refuses for good. worlds.js has no way to un-hide a world, so
+   hiding it until finish is not open to this slice: the 4c contract now says to keep the person out of a Restored
+   world until its finish has run, and the refusal says what happened. Nits: the lock comment says a rename replaces
+   an empty folder on POSIX; the lock's first rename is plain, so a held lock answers busy without the Windows retry
+   wait; the contract names shell-hook files (direnv, mise) as outside `runs`.
+
 ## Residuals, stated
+- A Restored world opened and used before its finish cannot be finished (its folders are no longer empty); the 4c
+  screen must keep the person out until then.
 - The import pattern flags an @ after a letter only before a path (/, ./, ../, ~/). A provider that accepts an @
   inside a word for a file in the same folder (x@notes.md) is not flagged; such a file is inside the agent's own
   folder, which 4a's review list shows.
