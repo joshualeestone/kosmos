@@ -1,15 +1,16 @@
 // Browser-check-surface: acct-add-modal acct-add-dialog acct-add-note acct-provider-pick acct-claude-pick-sub stepup-ask stepup-words
 'use strict';
 /**
- * #7202: while the account dialog is open (Add a provider, and every Sign in again), Tab and
+ * #7202: while the account dialog is open (Add a provider, and each Sign in again), Tab and
  * Shift+Tab stay inside it. Before this, the dialog had aria-modal and nothing else, so Tab walked
  * out of it onto the page behind.
  *
  * Hermetic: boots its own sandboxed board with one agent and no sign-in. Real key presses, both
  * directions, in Chromium AND WebKit (the Mac app is a WKWebView, whose default Tab skips buttons, so
  * a trap that acts only at the ends leaks between them there and not in Chromium). On two pages (the
- * board's Agents tab and an agent's own page), for each of the four openers (openAcctAdd,
- * openAcctReauth, openAcctReauthOpenai, openAcctReauthGrok). Per arm:
+ * board's Agents tab and an agent's own page), for four openers (openAcctAdd, openAcctReauth,
+ * openAcctReauthOpenai, openAcctReauthGrok; the trap keys on the dialog being open, so the others, Gemini's and
+ * Meta's Sign in again and the Model tab's Connect an API key, share it). Per arm:
  *   - before opening, focus is on a page control outside the dialog (asserted, so the arm cannot pass
  *     with focus already inside);
  *   - one Tab goes INTO the dialog (Sign in again for OpenAI opens without moving focus);
@@ -141,7 +142,7 @@ async function walk(p) {
             await focusPage(p);
             await p.keyboard.press('Tab');
             const f0 = await focusNow(p);
-            say(f0.at !== -1, tag + ': one Tab from the page behind puts focus on a stop in the dialog', JSON.stringify(f0));
+            say(f0.at === 0, tag + ': one Tab from the page behind puts focus on the first stop in the dialog', JSON.stringify(f0));
 
             const miss = await walk(p);
             say(!miss, tag + ': from every stop, Tab and Shift+Tab land on its neighbour in the dialog', miss ? JSON.stringify(miss) : '');
@@ -165,7 +166,7 @@ async function walk(p) {
         /* A focused element that is not a stop, after the last stop. */
         const placed = await p.evaluate(() => {
           const x = document.createElement('p');
-          x.id = 'trap7202-tail'; x.tabIndex = -1; x.textContent = 'tail';
+          window.__tail7202 = x; x.tabIndex = -1; x.textContent = 'tail';
           document.getElementById('acct-add-dialog').appendChild(x);
           x.focus();
           return document.activeElement === x;
@@ -174,12 +175,12 @@ async function walk(p) {
         await p.keyboard.press('Tab');
         const ft = await focusNow(p);
         say(ft.at === 0, eng + ', a non-stop after the last stop: Tab wraps to the first stop', JSON.stringify(ft));
-        await p.evaluate(() => document.getElementById('trap7202-tail').focus());
+        await p.evaluate(() => window.__tail7202.focus());
         await p.keyboard.press('Shift+Tab');
         const fb = await focusNow(p);
         const nStops = await p.evaluate(() => window.__stops7202().length);
         say(fb.at === nStops - 1, eng + ', a non-stop after the last stop: Shift+Tab goes to the last stop', JSON.stringify(fb));
-        await p.evaluate(() => document.getElementById('trap7202-tail').remove());
+        await p.evaluate(() => window.__tail7202.remove());
 
         /* The note: focusable, not a stop. It sits in Claude's sign-in step. */
         await pickProvider(p, 'claude');
@@ -229,14 +230,20 @@ async function walk(p) {
           const send = (init) => { const s = window.__stops7202(); s[0].focus(); const ev = new KeyboardEvent('keydown', Object.assign({ key: 'Tab', bubbles: true, cancelable: true }, init)); s[0].dispatchEvent(ev); return ev.defaultPrevented; };
           const plain = send({});
           const composing = send({ isComposing: true });
+          // A press a handler that ran first already took: sent already prevented, it must not move focus.
+          const s0 = window.__stops7202(); s0[0].focus();
+          const pre = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }); pre.preventDefault();
+          s0[0].dispatchEvent(pre);
+          const preLeft = document.activeElement === s0[0];
           const modal = document.getElementById('acct-add-modal');
           modal.inert = true;
           const inert = send({});
           modal.inert = false;
-          return { plain, composing, inert };
+          return { plain, composing, inert, preLeft };
         });
         say(taken.plain === true, eng + ', the control: a plain Tab sent to a stop is taken by the trap', JSON.stringify(taken));
         say(taken.composing === false, eng + ', composing: a Tab while an input method composes is left alone', JSON.stringify(taken));
+        say(taken.preLeft === true, eng + ', taken already: a Tab another handler prevented does not move focus', JSON.stringify(taken));
         say(taken.inert === false, eng + ', inert: a Tab while the dialog is inert under another screen is left alone', JSON.stringify(taken));
         await p.keyboard.press('Escape');
         await p.waitForTimeout(300);
@@ -267,18 +274,18 @@ async function walk(p) {
 
         /* A radio group is one stop, as the browser tabs it (none in the dialog today; one is put in to see the rule). */
         await p.evaluate(() => {
-          const g = document.createElement('div'); g.id = 'trap7202-radios';
-          g.innerHTML = '<label><input type="radio" name="trap7202" value="a">a</label><label><input type="radio" name="trap7202" value="b" checked>b</label><label><input type="radio" name="trap7202" value="c">c</label><button type="button" id="trap7202-after">after</button>';
+          const g = document.createElement('div'); window.__radios7202 = g;
+          g.innerHTML = '<label><input type="radio" name="trap7202" value="a">a</label><label><input type="radio" name="trap7202" value="b" checked>b</label><label><input type="radio" name="trap7202" value="c">c</label><button type="button" data-after7202="1">after</button>';
           document.getElementById('acct-add-dialog').appendChild(g);
-          document.querySelector('#trap7202-radios input[value="b"]').focus();
+          g.querySelector('input[value="b"]').focus();
         });
         await p.keyboard.press('Tab');
-        const fr = await p.evaluate(() => (document.activeElement && (document.activeElement.id || document.activeElement.value)) || '');
-        say(fr === 'trap7202-after', eng + ', a radio group: Tab from its checked radio leaves the group', fr);
+        const fr = await p.evaluate(() => { const a = document.activeElement; return (a && (a.dataset.after7202 ? 'after' : a.value)) || ''; });
+        say(fr === 'after', eng + ', a radio group: Tab from its checked radio leaves the group', fr);
         await p.keyboard.press('Shift+Tab');
-        const fr2 = await p.evaluate(() => (document.activeElement && (document.activeElement.id || document.activeElement.value)) || '');
+        const fr2 = await p.evaluate(() => { const a = document.activeElement; return (a && (a.dataset.after7202 ? 'after' : a.value)) || ''; });
         say(fr2 === 'b', eng + ', a radio group: Shift+Tab back lands on the checked radio, not the last of the group', fr2);
-        await p.evaluate(() => document.getElementById('trap7202-radios').remove());
+        await p.evaluate(() => window.__radios7202.remove());
 
         /* Another dialog shown over this one: Tab is left to it. This runs on the first step, which has no text field;
            on a step with one, WebKit's default Tab from the other dialog's middle button would reach that field (the
