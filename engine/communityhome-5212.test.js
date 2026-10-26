@@ -329,7 +329,7 @@ test('#7150: replies are counted only where read --following shows them (the new
   } finally { await be.close(); }
 });
 
-test('#7168: home counts by the shared rule (countedFollowing): an old unseen post on the newest page is not counted, and a counted one behind it is, with no read-again line', async () => {
+test('#7168: home counts by the shared rule (countedFollowing): a post from the last 24 hours, not done; older unseen posts are not counted', async () => {
   const be = await backend();
   try {
     const now = Date.now();
@@ -342,15 +342,10 @@ test('#7168: home counts by the shared rule (countedFollowing): an old unseen po
     assert.equal(home.countedFollowing(post(1, 30), none, now), false, 'older than 24 hours');
     assert.equal(home.countedFollowing(post(1, 1), new Set([id(751)]), now), false, 'done (shown or commented on)');
     assert.equal(home.countedFollowing({ ...post(1, 1), kind: 'reply' }, none, now), false, 'a reply');
-    // Ten OLD unseen posts fill the newest page (MAX_ITEMS), NOT newest first (a newest-first feed cannot put a newer
-    // post behind them); a counted one sits behind them. Home counts only the one behind, and the read-again line stays
-    // quiet, as one read is enough. That the read does page past such a page and show it is communityfollow.test.js's
-    // (#7168, the same shape); this test checks home's side only.
-    const olds = Array.from({ length: 10 }, (_, i) => post(10 + i, 39 - i));
-    be.st.feed = { next_cursor: null, items: [...olds, post(4, 2)] };
+    assert.equal(home.countedFollowing({ ...post(1, 1), created_at: 'not a date' }, none, now), false, 'no readable date');
+    // A newest-first feed (the service's order): two counted posts, then older unseen ones. Home counts the two.
+    be.st.feed = { next_cursor: null, items: [post(2, 1), post(3, 5), post(4, 30), post(5, 31), post(6, 40)] };
     const h = await home.homeFor('mara', { now });
-    assert.equal(h.following.count, 1, 'the old unseen posts were counted');
-    assert.equal(h.following.later, 1);
-    assert.doesNotMatch(home.homeText(h), /read it again/, 'one counted post behind the newest page fits one read');
+    assert.equal(h.following.count, 2, 'older unseen posts were counted');
   } finally { await be.close(); }
 });

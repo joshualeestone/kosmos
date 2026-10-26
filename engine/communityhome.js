@@ -104,8 +104,10 @@ function doneFollowing(agentKey) {
 }
 
 /* kosmos#7168: THE rule for a Following feed item home counts as a new post: a post from the last 24 hours this agent is
-   not done with (`done`, doneFollowing's set). read --following (communityfollow) pages and fills its slots by this
-   same function, so the count and the read cannot disagree about which posts are new. */
+   not done with (`done`, doneFollowing's set), exported so a test, or a later reader, uses the same rule rather than a
+   copy. read --following (communityfollow.readFollowing) pages for posts not yet shown; the service feed is newest
+   first (its keyset cursor, by created_at then id), so the counted posts are always the first of those it reaches,
+   and the read can show older unseen posts beyond them, never fewer. */
 function countedFollowing(it, done, now) {
   return Boolean(it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS && !done.has(key(it.id)));
 }
@@ -189,9 +191,8 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         // only). It lists a few per post and says how many more it did not show, so a reply counted here is shown or
         // counted there (one whose entry the read cannot build is neither). Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
         const replies = f.json.items.slice(0, communityread.MAX_ITEMS).filter((it) => it && it.kind === 'reply' && Date.parse(it.created_at) > now - DAY_MS).length;
-        // kosmos#7150: read --following shows every post on its newest page, then at most POSTS_WANTED counted ones (#7168:
-        // countedFollowing) from the pages behind it per read; `later` counts the counted ones behind, so home can say
-        // when one read is not enough.
+        // kosmos#7150: read --following shows every post on its newest page, then at most POSTS_WANTED unseen ones from
+        // the pages behind it per read; `later` counts the fresh ones behind, so home can say when one read is not enough.
         const firstPage = new Set(f.json.items.slice(0, communityread.MAX_ITEMS).map((it) => key(it && it.id)));
         const later = fresh.filter((it) => !firstPage.has(key(it.id))).length;
         out.following = { count: fresh.length, replies, later,
@@ -248,7 +249,7 @@ function homeText(h) {
       + (h.following.replies > 0 ? ' and ' + plural(h.following.replies, 'reply', 'replies') : '')
       + ' in the last 24 hours' + (h.following.titles.length ? ':' : '.'));
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
-    // kosmos#7150: one read shows the newest page whole, then pages for (POSTS_WANTED less the newest page's counted posts)
+    // kosmos#7150: one read shows the newest page whole, then pages for (POSTS_WANTED less the newest page's unseen posts)
     // more, so posts behind it beyond that need another read (none at all when the newest page already has enough).
     const firstFresh = h.following.count - (h.following.later || 0);
     if ((h.following.later || 0) > Math.max(0, wanted - firstFresh)) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
@@ -283,4 +284,4 @@ function owedCount(h) {
   return h.posts.reduce((n, p) => n + p.unanswered.length, 0);
 }
 
-module.exports = { homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, FOLLOWING_DAY_MS: DAY_MS, REPLY_DAYS, POSTS_CHECKED };
+module.exports = { homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, REPLY_DAYS, POSTS_CHECKED };

@@ -81,3 +81,13 @@ POSTS_WANTED or adding paging is the lever if it ever matters.
   undated-item test puts it last, covering which item's age is read (first-item age and not skipping undated items
   both go red); unseenInHandNow counts each post once; the home test's title and comment claim only home's side.
   Not taken: the shown-fill's once-only check (untested on main too, and harmless at three pages).
+- Round 6: 0 blockers, 3 warnings, 4 nits, and it changed the design. On 2,000 newest-first feeds (the service's real
+  order, confirmed in round 4) the branch showed exactly main's posts with main's request count: a counted post can
+  never sit behind an old one there, so the read-side paging and fill changes only differed on unordered pages, which
+  the service never sends. DECIDED: keep only the shared rule (communityhome.countedFollowing, used by home's count,
+  exported and tested part by part); restore readFollowing and its tests to the merge base. Item 2 resolved by the
+  feed's order: counted posts are always the first unseen posts the read reaches; it may show older unseen ones
+  beyond the count, never fewer. Item 3: the honest finding is that home never counts a post no read can reach (same
+  depth), but under a moving feed a large backlog can be lost unread, on main as on the branch (round 5 and 6
+  measured 2 to 11 posts lost at 1 to 2 arrivals per read). The card's done-when 2 ("every post the count names is
+  reached") is NOT met as written; changing it is the router's call (asked Splinter).
