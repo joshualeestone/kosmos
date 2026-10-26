@@ -1456,6 +1456,73 @@ if [ -z "$adopt" ]; then
     launch_pane "$NODE_BIN" "$_eng/musefront.js" "$WORKDIR" || exit 1
     unset _MUSE_ENV _MUSE_DIR
   else
+    # #7206: an account home named for a vendor whose endpoint speaks Claude Code's API (~/.kosmos-deepseek-<label>,
+    # engine/anthropiccompat.js) points this agent at that vendor with the person's key. Every ANTHROPIC_* variable the
+    # launch owns is first dropped from what this pane would inherit (a -e pair, a launch secret, or the tmux server's
+    # global environment through env -u), so nothing inherited can send the agent or its key somewhere else. The key
+    # travels as a launch secret, never in tmux's environment. A folder named for a vendor whose settings cannot be used
+    # stops the launch with the reason: starting Claude Code against Anthropic with no sign-in would only fail later,
+    # in words about Claude.
+    COMPAT_PREFIX=()
+    case "$(basename "${EFFECTIVE_CCD:-}")" in
+      .kosmos-deepseek-?*)
+        if [ -z "${_eng:-}" ] || [ -z "${NODE_BIN:-}" ] || [ ! -f "$_eng/anthropiccompat.js" ]; then
+          say "$SESSION: Kosmos could not load its provider helper; the agent was not started"
+          exit 1
+        fi
+        _cx_file="$(mktemp)" || { say "$SESSION: could not read its provider account; the agent was not started"; exit 1; }
+        _cx_rc=0
+        "$NODE_BIN" "$_eng/anthropiccompat.js" launch-env "$EFFECTIVE_CCD" > "$_cx_file" 2>/dev/null || _cx_rc=$?
+        if [ "$_cx_rc" -ne 0 ]; then
+          _cx_why="$(head -c 300 "$_cx_file" | tr -d '\n')"
+          say "$SESSION: ${_cx_why:-Kosmos could not read this provider account}; the agent was not started"
+          rm -f -- "$_cx_file"
+          exit 1
+        fi
+        _cx_set=()
+        while IFS= read -r -d '' _cx_pair; do _cx_set+=("$_cx_pair"); done < "$_cx_file"
+        rm -f -- "$_cx_file"
+        if [ "${#_cx_set[@]}" -eq 0 ]; then
+          say "$SESSION: its provider account gave no launch settings; the agent was not started"
+          exit 1
+        fi
+        # Drop every inherited ANTHROPIC_* -e pair and launch secret (the forwarding loop and the env door can add them).
+        _kept=()
+        _i=0
+        _n=${#PANE_ENV[@]}
+        while [ "$_i" -lt "$_n" ]; do
+          if [ "${PANE_ENV[$_i]}" = "-e" ] && [ $((_i + 1)) -lt "$_n" ]; then
+            case "${PANE_ENV[$((_i + 1))]}" in
+              ANTHROPIC_*=*) ;;
+              *) _kept+=(-e "${PANE_ENV[$((_i + 1))]}") ;;
+            esac
+            _i=$((_i + 2))
+          else
+            _kept+=("${PANE_ENV[$_i]}")
+            _i=$((_i + 1))
+          fi
+        done
+        PANE_ENV=(${_kept[@]+"${_kept[@]}"})
+        for _cx_var in ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_MODEL ANTHROPIC_SMALL_FAST_MODEL \
+          ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_CUSTOM_HEADERS; do
+          remove_launch_secret "$_cx_var"
+        done
+        # Set what the account names: the key as a launch secret, the rest as -e pairs (a -e pair beats tmux's global
+        # environment). The model also goes to --model, since $MODEL would otherwise send a claude-* id to the vendor.
+        _cx_unset=(ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS)
+        for _cx_pair in "${_cx_set[@]}"; do
+          case "$_cx_pair" in
+            ANTHROPIC_AUTH_TOKEN=*) add_launch_secret ANTHROPIC_AUTH_TOKEN "${_cx_pair#ANTHROPIC_AUTH_TOKEN=}" ;;
+            ANTHROPIC_MODEL=*) MODEL="${_cx_pair#ANTHROPIC_MODEL=}"; PANE_ENV+=(-e "$_cx_pair") ;;
+            ANTHROPIC_*=*) PANE_ENV+=(-e "$_cx_pair") ;;
+          esac
+        done
+        # The variables the account does not set are removed outright, so a server-global value cannot reach the pane.
+        COMPAT_PREFIX=(/usr/bin/env)
+        for _cx_var in "${_cx_unset[@]}"; do COMPAT_PREFIX+=(-u "$_cx_var"); done
+        unset _cx_file _cx_rc _cx_why _cx_set _cx_pair _cx_var _cx_unset _kept _i _n
+        ;;
+    esac
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs
     # THIS script, not create.js, and --dangerously-skip-permissions does NOT answer the
@@ -1500,9 +1567,9 @@ if [ -z "$adopt" ]; then
       unset _perm
     fi
     if [ -n "$MODEL" ]; then
-      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
+      launch_pane ${COMPAT_PREFIX[@]+"${COMPAT_PREFIX[@]}"} "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
     else
-      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions || exit 1
+      launch_pane ${COMPAT_PREFIX[@]+"${COMPAT_PREFIX[@]}"} "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions || exit 1
     fi
   fi
 fi
