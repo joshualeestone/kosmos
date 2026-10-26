@@ -128,3 +128,14 @@ test('a re-made project\'s task does not read the deleted project\'s "seen"', as
   assert.ok(taskseen.markSeen(id, 1));
   assert.ok(taskseen.seenAt(id, 1), 'a view in the new project counts');
 });
+
+test('a re-made project\'s room has had no post, though the deleted one\'s did (lastPostAt)', async () => {
+  const id = projects.create({ name: 'Last post name' }).id;
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm71851', project: id, from: 'dana', to: [], outcomes: {}, text: 'old post', at: new Date().toISOString() }) + '\n');
+  assert.ok(messages.lastPostAt(id), 'CONTROL: the first project\'s room has a post');
+  projects.remove(id);
+  await new Promise((r) => setTimeout(r, 5));
+  projects.create({ name: 'Last post name' });
+  assert.equal(messages.lastPostAt(id), null, 'the new room has had none');
+});

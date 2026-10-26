@@ -34,10 +34,17 @@ const messages = require('./engine/messages');
 let base;
 let pid;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/* #7185: these rooms are planted with rows dated before the project was made, and such a row belongs to an earlier
+   project of that name. So each project is dated back first. */
+function datedBack(id) {
+  projects.writeAll(projects.readAll().map((q) => (q.id === id ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q)));
+  return id;
+}
+
 test.before(async () => {
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
-  pid = projects.create({ name: 'Paged Room' }).id;
+  pid = datedBack(projects.create({ name: 'Paged Room' }).id);
   for (let i = 1; i <= 7; i++) {   // seven rows, each a later millisecond: room times are the cursor
     if (i === 4) messages.externalPost(pid, { from: 'Mallory', fromKind: 'person', text: 'row ' + i });
     else messages.roomNote(pid, 'row ' + i);
@@ -145,7 +152,7 @@ test('#7032 review 3: three posts at one moment with the page edge after the fir
   assert.deepEqual(texts(newest.json), ['three B', 'three C'], 'premise: the edge falls inside the tie');
   assert.deepEqual(texts((await room('?n=1&cursor=' + encodeURIComponent(newest.json.olderCursor))).json), ['three A']);
   // An older row's time with no milliseconds (record() takes any time that parses): its cursor must work.
-  const other = projects.create({ name: 'Old Times Room' }).id;
+  const other = datedBack(projects.create({ name: 'Old Times Room' }).id);
   const put = (row) => fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', project: other, from: 'dana', to: [], outcomes: {}, ...row }) + '\n');
   put({ id: 'm7301', text: 'old', at: '2026-01-01T00:00:00.000Z' });
   put({ id: 'm7302', text: 'bare', at: '2026-01-02T00:00:00Z' });
@@ -185,7 +192,7 @@ test('#7032 review 4: every paged row carries its exact place, the cursor is the
 });
 
 test('#7032 review 4: a post dated inside the newest page but written after it was read is in the newest page when re-read', async () => {
-  const own = projects.create({ name: 'Late Post Room' }).id;
+  const own = datedBack(projects.create({ name: 'Late Post Room' }).id);
   const put = (row) => fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', project: own, from: 'dana', to: [], outcomes: {}, ...row }) + '\n');
   put({ id: 'm7411', text: 'one', at: '2026-02-01T10:00:00.000Z' });
   put({ id: 'm7412', text: 'two', at: '2026-02-01T10:00:02.000Z' });

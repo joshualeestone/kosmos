@@ -34,15 +34,22 @@ let roster;
 let pid;
 let other;
 const WHO = 'grokseat';
+/* #7185: these rooms are planted with rows dated before the project was made, and such a row belongs to an earlier
+   project of that name. So each project is dated back first. */
+function datedBack(id) {
+  projects.writeAll(projects.readAll().map((q) => (q.id === id ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q)));
+  return id;
+}
+
 test.before(async () => {
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
   roster = fleet.install([fleet.agent(WHO, { state: 'idle' }), fleet.agent('poster', { state: 'idle' })]).agents;
-  const p = projects.create({ name: 'Seen4926' });
+  const p = projects.create({ name: 'Seen4926' }); datedBack(p.id);
   projects.addAgent(p.id, WHO, roster);
   projects.addAgent(p.id, 'poster', roster);
   pid = p.id;
-  const q = projects.create({ name: 'Other4926' });
+  const q = projects.create({ name: 'Other4926' }); datedBack(q.id);
   projects.addAgent(q.id, WHO, roster);
   other = q.id;
 });
