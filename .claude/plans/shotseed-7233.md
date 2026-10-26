@@ -26,3 +26,7 @@ silently failed can never photograph an empty room again.
   as they did before #7185).
 - Full screen set (140 screens, desktop light): main twice (to find screens that differ by themselves) and this
   branch once; results below.
+- Result: 132 screens in all three runs; 92 identical, 10 noisy (main vs main), 30 changed: room content, the Projects
+  badge (3 unread), clock text, and cons-* rail state that comes from run order (on their own, this branch is
+  pixel-identical to dc4b4e81fc, the commit before #7185). main cannot shoot project-room-held-5800 or
+  project-room-held-summary-6925 at all; this branch can. The full list is on the card.
