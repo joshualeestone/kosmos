@@ -396,13 +396,13 @@ test('#5536 slice 3 review 3: Finder and Explorer metadata in a half-restored fo
 test('#5536 slice 3 review 3: one recording sink per folder at a time; a lock left by a process that is gone is taken over', (t) => {
   const root = stoppedRoot(t);
   const first = createRestoreSink(root, { resume: true, snapshot: SNAP });
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /left open in this process/);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
   const o = first.begin('later.txt'); o.write(Buffer.from('still mine')); o.commit();   // the first sink was not disturbed
   first.close({ keepRecord: true });
   assert.equal(fs.existsSync(path.join(root, LOCK_NAME)), false, 'released at close');
   // Another process that is alive holds it (this one's parent stands in): refused, by name.
   fs.writeFileSync(path.join(root, LOCK_NAME), `${process.ppid}\n`, { mode: 0o600 });
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /another restore is running in this folder/);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
   // A crash: the lock names a process that has exited.
   const gone = spawnSync(process.execPath, ['-e', '0']).pid;
   fs.writeFileSync(path.join(root, LOCK_NAME), `${gone}\n`, { mode: 0o600 });
@@ -461,16 +461,43 @@ test('#5536 slice 3 review 4: a .DS_Store the backup held that Finder then rewro
 test('#5536 slice 3 review 4: a lock this process left open says so, and a lock that cannot be written does not stay behind', (t) => {
   const root = stoppedRoot(t);
   const open = createRestoreSink(root, { resume: true, snapshot: SNAP });
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /left open in this process/);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
   open.close({ keepRecord: true });
+  // A lock of this thread whose token no open sink holds (a sink that was never closed and is gone): stale.
+  const { threadId } = require('worker_threads');
+  fs.writeFileSync(path.join(root, LOCK_NAME), `${process.pid} ${threadId} ${'0'.repeat(24)}\n`, { mode: 0o600 });
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
+  // An empty lock (one caught before it was written, in the old scheme): busy while new, stale once old.
+  fs.writeFileSync(path.join(root, LOCK_NAME), '', { mode: 0o600 });
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
+  const old = new Date(Date.now() - 60000);
+  fs.utimesSync(path.join(root, LOCK_NAME), old, old);
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
+  assert.deepEqual(fs.readdirSync(root).filter((n) => n.startsWith(LOCK_NAME)), [], 'no lock and no pending lock left');
   const real = fs.writeSync;
   try {
     fs.writeSync = function (fd, buf) {
-      if (typeof buf === 'string' && buf === `${process.pid}\n`) { const e = new Error('no space'); e.code = 'ENOSPC'; throw e; }
+      if (typeof buf === 'string' && buf.startsWith(`${process.pid} `)) { const e = new Error('no space'); e.code = 'ENOSPC'; throw e; }
       return real.apply(fs, arguments);
     };
     const empty = fresh(t);
     assert.throws(() => createRestoreSink(empty, { record: true, snapshot: SNAP }), /restore lock \(ENOSPC\)/);
     assert.deepEqual(fs.readdirSync(empty), [], 'the fresh folder is left as given');
   } finally { fs.writeSync = real; }
+});
+
+test('#5536 slice 3 review 5: a pending lock a crash left is cleared, and close releases the lock even when its cleanup fails', (t) => {
+  const root = stoppedRoot(t);
+  fs.writeFileSync(path.join(root, `${LOCK_NAME}.0123456789abcdef01234567`), '1 0 x\n', { mode: 0o600 });
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
+  assert.deepEqual(fs.readdirSync(root).filter((n) => n.startsWith(LOCK_NAME)), []);
+  const sink = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  const real = fs.rmSync;
+  try {
+    // The temp folder cannot be removed (as an open handle on Windows does): close throws, and still releases the lock.
+    fs.rmSync = function (p, o) { if (typeof p === 'string' && path.basename(p).startsWith('.kosmos-restore-') && !path.basename(p).startsWith(LOCK_NAME) && path.basename(p) !== RECORD_NAME) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; } return real.call(fs, p, o); };
+    assert.throws(() => sink.close({ keepRecord: true }), /busy/);
+  } finally { fs.rmSync = real; }
+  assert.equal(fs.existsSync(path.join(root, LOCK_NAME)), false, 'released');
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close();
 });
