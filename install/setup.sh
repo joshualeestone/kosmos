@@ -502,6 +502,14 @@ version_at_least() {
 # is written where that app reads it). The sealed app reads the CLICKING account's own config, so the icon already
 # there opens this install. #7203: and only when it is not older than the app this install ships (a newer one is
 # fine: the window only warns when it is BEHIND its board).
+# #7203: called once this install has PLACED its own icon (APP_MADE=yes): the account no longer depends on a shared
+# icon it reused on an earlier run, so its own reuse marker is taken back, or the owner's uninstall keeps an icon nobody
+# here opens. Never before the icon exists: an icon step that skips or fails leaves the marker, and the shared icon with
+# it. Only ever this account's own marker naming this install (sealed_icon_unmark); a no-op without one.
+own_icon_placed() {
+  sealed_icon_unmark || true
+}
+
 sealed_icon_reusable() {
   [ -d "$1" ] && [ ! -L "$1" ] || return 1
   # Review 1: a per-install bundle opens its own baked home, never the clicking account's, so it is never reused.
@@ -709,11 +717,6 @@ resolve_app_dir() {
       APP_SKIP_REASON=shared-sealed
       return 0
     fi
-    # #7203: not reused this time (an older shared icon, a filled home slot, an icon this run cannot place, a stranger's
-    # app), so this account no longer depends on it: take back its own reuse marker, or the owner's uninstall keeps an
-    # icon nobody here opens. Only ever this account's own marker naming this install (sealed_icon_unmark), so a no-op
-    # for an account that never reused it.
-    [ "$APP_OWN_SEALED" = no ] && { sealed_icon_unmark || true; }
     # ⚠️ THE DIVERT ITSELF NEEDS THE ALIASING GUARD. "Send the icon to the
     # per-user folder instead" is only an escape if the per-user folder is
     # a DIFFERENT folder: with ~/Applications symlinked to the system one,
@@ -4971,6 +4974,7 @@ elif [ -z "${KOSMOS_APP_DIR:-}" ] && [ "$APP_DIR" = "$SYS_APP_DIR" ]; then
     fi
   fi
 fi
+[ "$APP_MADE" = "yes" ] && own_icon_placed   # #7203
 if [ "$APP_MADE" = "yes" ]; then
   # The sentence names where the icon ACTUALLY went. "you will find it in
   # Applications" was printed on the run that put it in ~/Applications, and
