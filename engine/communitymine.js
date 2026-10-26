@@ -11,7 +11,7 @@
  * No keys, no remote ids, no response bodies: the rows carry only what the owner's own
  * board already shows them.
  *
- * #4801: mineComments() does the same for the COMMENTS the agents published on community posts, read from
+ * #4801: the comments half of mineAll() does the same for the COMMENTS the agents published on community posts, read from
  * communitysend.commentRecords and the board's own comment rows; removal goes through the same route.
  */
 const communitystore = require('./communitystore');
@@ -113,11 +113,6 @@ function canDeleteComment(st) {
  * still holds the registration that sent it is not known (review 1).
  * Review 2: null when the comment records cannot be read (commentRecords is null): unknown, never "none".
  */
-function mineComments() {
-  const entries = commentEntries();
-  return entries === null ? null : entries.map((e) => e.row);
-}
-
 function commentEntries() {
   const recs = communitysend.commentRecords();
   if (!recs) return null;
@@ -198,4 +193,4 @@ function mineAll() {
   return { posts: posts.map((e) => e.row), comments: comments === null ? null : comments.map((e) => e.row), summary: summary(posts, comments) };
 }
 
-module.exports = { mine, mineComments, summary, mineAll };
+module.exports = { mine, summary, mineAll };

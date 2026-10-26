@@ -85,7 +85,7 @@ test('#7211: counts only what is in the community now, per agent, with its regis
   ]);
   // Control: the full list still has every row, so the summary is what leaves them out.
   assert.equal(mine.mine().length, 7);
-  assert.equal(mine.mineComments().length, 3);
+  assert.equal(mine.mineAll().comments.length, 3);
 });
 
 test('#7211: the community name comes from the registration, never from the display name', () => {
@@ -130,12 +130,15 @@ test('#7211: mineAll answers the same rows and summary as the separate reads', (
   writeJson(cs._paths.sentFile(), { [id]: SENT('ava') });
   writeJson(cs._paths.commentsSentFile(), { [c.id]: CSENT('ava') });
   writeJson(cs._paths.keysFile(), { ava: { remoteId: 'ra', name: 'Ava-the-Ops', apiKey: 'kc_x', token: 't' } });
-  assert.deepEqual(mine.mineAll(), { posts: mine.mine(), comments: mine.mineComments(), summary: mine.summary() });
+  const all = mine.mineAll();
+  assert.deepEqual(all.posts, mine.mine());
+  assert.deepEqual(all.summary, mine.summary());
+  assert.equal(all.comments.length, 1);
 });
 
 test('#7211: a deleted agent\'s comments are not counted either', () => {
   const c = comment('ava', 'a comment from a now-deleted agent');
   writeJson(cs._paths.commentsSentFile(), { [c.id]: CSENT('retired:ava:2026-10-26T08:00:00.000Z') });
-  assert.equal(mine.mineComments().length, 1, 'control: the comment row is still listed');
+  assert.equal(mine.mineAll().comments.length, 1, 'control: the comment row is still listed');
   assert.equal(mine.summary().comments, 0);
 });

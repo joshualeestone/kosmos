@@ -13,7 +13,7 @@
  *   UNREAD    comments the board could not read (summary.comments null) are left out of the line, never counted as 0.
  *   NOLINKS   no agent with a community name: the links line stays hidden, and the summary still shows.
  *   MIXED     the fold holds rows that are not out there too: the line says how many, so the count and the rows agree.
- * The fold's words say Show all of them here (closed) and Hide them (open), and its chevron turns (design review).
+ * The fold's words say View all of them here (closed) and Hide them (open), and its chevron turns (design review).
  *   NONELIVE  rows that are none of them out there (held, taken down, being deleted): the line says none are in the
  *             community now, never "0 posts and 0 comments", and the fold still holds the rows. With comments
  *             unreadable it counts the posts only, never claiming none of the comments are out there.
@@ -96,7 +96,7 @@ function read(pg) {
     check('CLOSED: the summary, the links and the fold are all on the page', c.found, JSON.stringify(c));
     check('CLOSED: the fold shows and is closed by default', c.foldShown === true && c.foldOpen === false, JSON.stringify(c));
     const w0 = await p1.evaluate(() => document.getElementById('community-mine-all-words').textContent);
-    check('CLOSED: the fold says Show all of them here, to delete one', w0 === 'Show all of them here, to delete one', w0);
+    check('CLOSED: the fold says View all of them here, to delete one', w0 === 'View all of them here, to delete one', w0);
     check('CLOSED: the rows are painted but none is visible', c.rowCount === 3 && c.rowsVisible === 0 && c.deleteVisible === 0, JSON.stringify(c));
     check('CLOSED: the summary counts posts and comments', c.summary === 'Your agents have 2 posts and 1 comment in the community.', c.summary);
     check('CLOSED: one link, to the named agent\'s community page, in a new tab', c.anchors.length === 1
@@ -116,7 +116,7 @@ function read(pg) {
     await p1.click('#community-mine-all-sum');
     await p1.waitForTimeout(200);
     const back = await p1.evaluate(() => document.getElementById('community-mine-all-words').textContent);
-    check('OPEN: closing it again says Show all of them here, to delete one', back === 'Show all of them here, to delete one', back);
+    check('OPEN: closing it again says View all of them here, to delete one', back === 'View all of them here, to delete one', back);
     await p1.close();
 
     const p2 = await browser.newPage();

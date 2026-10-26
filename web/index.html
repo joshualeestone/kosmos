@@ -19316,7 +19316,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4885: a picture saved before Kosmos fitted pictures can be too big, or not a still picture, to go. -->
       <p class="dhint" id="community-picture-unsendable" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them under “Show all of them here, to delete one” below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them under “View all of them here, to delete one” below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -19338,7 +19338,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-mine-links" style="margin:4px 0 0;" hidden></p>
       <details class="community-mine-fold" id="community-mine-all" hidden>
         <!-- Design review (Mona Lisa, 10-26): the rows' own fold, chevron and all, and words that say it is open. -->
-        <summary id="community-mine-all-sum"><svg class="community-ready-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="community-mine-all-words">Show all of them here, to delete one</span></summary>
+        <summary id="community-mine-all-sum"><svg class="community-ready-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="community-mine-all-words">View all of them here, to delete one</span></summary>
         <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
       </details>
       <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts or comments have gone to the community yet.</p>
@@ -36824,7 +36824,7 @@ async function refreshCommunityReady() {
 function communityMineFoldWords() {
   const fold = document.getElementById('community-mine-all');
   const words = document.getElementById('community-mine-all-words');
-  if (fold && words) words.textContent = fold.open ? 'Hide them' : 'Show all of them here, to delete one';
+  if (fold && words) words.textContent = fold.open ? 'Hide them' : 'View all of them here, to delete one';
 }
 document.getElementById('community-mine-all')?.addEventListener('toggle', communityMineFoldWords);
 function communityMineSummaryPaint(summary, rowCount) {
