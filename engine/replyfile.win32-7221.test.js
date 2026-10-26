@@ -222,3 +222,67 @@ test('#7221 review 1-3: a project folder written as a share is never resolved to
   assert.ok(Date.now() - t < 2000, 'no network attempt on the way');
   replyfile.discard(r.rec);
 });
+
+/* ---------- review 2 ---------- */
+
+test('#7221 review 2-1: a link target is followed only when it is a drive path or a relative one', () => {
+  const follow = replyfile.followableLinkTarget;
+  assert.equal(follow('C:\\Users\\a\\f.txt'), 'C:\\Users\\a\\f.txt');
+  assert.equal(follow('\\\\?\\C:\\Users\\a\\f.txt'), 'C:\\Users\\a\\f.txt', 'the long spelling of a local drive');
+  assert.equal(follow('\\??\\C:\\Users\\a\\f.txt'), 'C:\\Users\\a\\f.txt', 'the NT spelling of a local drive');
+  assert.equal(follow('..\\other\\f.txt'), '..\\other\\f.txt', 'a relative target');
+  assert.equal(follow('f.txt'), 'f.txt');
+  for (const t of ['\\??\\GLOBALROOT\\Device\\Mup\\10.255.255.1\\share\\x', '\\\\?\\GLOBALROOT\\Device\\Mup\\h\\s',
+    '\\\\host\\share\\x', '//host/share/x', '\\\\?\\UNC\\host\\share', '\\\\.\\NUL', '\\??\\UNC\\host\\share',
+    '\\Device\\Mup\\host\\share', '\\Users\\a\\f.txt', 'C:f.txt', 'f.txt:stream', 'C:\\a\\f.txt:stream',
+    '\\\\?\\Volume{0b1c2d3e-0000-0000-0000-100000000000}\\x']) {
+    assert.equal(follow(t), null, t + ' is not followed');
+  }
+});
+
+test('#7221 review 2-1: a link in Files aimed at a share through \\\\?\\GLOBALROOT\\Device\\Mup is refused without resolving it', winOnly, () => {
+  const link = path.join(FILES, 'mup-link.txt');
+  fs.symlinkSync('\\\\?\\GLOBALROOT\\Device\\Mup\\10.255.255.1\\share\\x', link, 'file');
+  try { refusedUnresolved(link, replyfile.ON_NETWORK, 'a GLOBALROOT link to a share'); } finally { fs.rmSync(link, { force: true }); }
+});
+
+test('#7221 review 2-2: with Files and a project on the same drive, a Files file that resolves to a share is still refused; a project file is not', winOnly, () => {
+  const proj = path.join(SANDBOX, 'sameproj');
+  fs.mkdirSync(proj, { recursive: true });
+  assert.equal(path.parse(proj).root, path.parse(FILES).root, 'the project and Files share a drive, the usual setup');
+  PROJECTS = [{ id: 'p-same', name: 'Same', folder: proj, agents: [WHO] }];
+  replyfile.setRealpathForTests(() => '\\\\127.0.0.1\\nosuchshare7221\\x\\f.txt');
+  const inFiles = replyfile.attach(WHO, path.join(FILES, 'report.txt'), { platform: 'win32' });
+  assert.deepEqual([inFiles.ok, inFiles.because], [false, replyfile.ON_NETWORK], 'the second guard holds on the same drive');
+  const inProject = replyfile.attach(WHO, path.join(proj, 'f.txt'), { platform: 'win32' });
+  assert.equal(inProject.ok, false);
+  assert.notEqual(inProject.because, replyfile.ON_NETWORK, 'a file written inside the project may be on a share: ' + JSON.stringify(inProject));
+});
+
+/* This box's own admin share (\\127.0.0.1\C$) gives a real share path to a real file, so the share-file branch of
+   allowedRoot runs for real. Skipped where the admin share is not reachable. */
+function adminShareOf(p) {
+  const unc = '\\\\127.0.0.1\\' + p[0] + '$' + p.slice(2);
+  try { fs.statSync(unc); return unc; } catch { return null; }
+}
+test('#7221 review 2-3: a file on a share resolves only the share-written project folders on that same share', winOnly, (t) => {
+  const proj = path.join(SANDBOX, 'shareproj');
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'f.txt'), 'on the share\n');
+  const projUnc = adminShareOf(proj);
+  if (!projUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  const sameShare = adminShareOf(SANDBOX);
+  PROJECTS = [
+    { id: 'p-mine', name: 'Mine', folder: proj, agents: [WHO] },
+    { id: 'p-other-share', name: 'Elsewhere', folder: '\\\\10.255.255.1\\share\\proj', agents: ['someone-else'] },
+    { id: 'p-same-share', name: 'Same share', folder: sameShare, agents: ['someone-else'] },
+  ];
+  replyfile.setRealpathForTests((p) => (p === path.join(proj, 'f.txt') ? path.join(projUnc, 'f.txt') : fs.realpathSync.native(p)));
+  const resolved = [];
+  projects.folderState = (folder) => { resolved.push(folder); return realFolderState(folder); };
+  const started = Date.now();
+  replyfile.attach(WHO, path.join(proj, 'f.txt'), { platform: 'win32' });
+  assert.ok(!resolved.includes('\\\\10.255.255.1\\share\\proj'), 'a project on another share is never resolved: ' + JSON.stringify(resolved));
+  assert.ok(resolved.includes(sameShare), 'a project on the file\'s own share still is (it may hold the file): ' + JSON.stringify(resolved));
+  assert.ok(Date.now() - started < 2000, 'no network attempt to another share');
+});

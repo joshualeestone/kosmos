@@ -49,17 +49,23 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
      A mapped drive is a share under a letter, and a file on a drive no root is written on cannot be inside a root.
      Read from how the roots are written, with no filesystem call.
 2. **The links, by lstat and readlink only** (`winLinkRefusal`): each part of the path is lstat'd; a link's target is
-   read and refused when it is a network spelling, otherwise resolved and walked the same way (rule 1 applied to each
-   target, so a link to another drive is refused too). More than 32 links: refused. A part that lstats ENOENT but its
-   folder lists (the junction above): refused, never handed to realpath. Any other lstat error: "could not be read".
+   read and followed ONLY when it is a drive path (`X:\...`, also written `\\?\X:\` or `\??\X:\`) or a plain relative
+   one (`followableLinkTarget`, an allow-list). Anything else is refused unfollowed: review 2 finding 1 measured a
+   target written `\\?\GLOBALROOT\Device\Mup\<host>\<share>` reading back as `\??\GLOBALROOT\...` (one backslash, past
+   a `\\` deny rule) whose realpath stalled 21 s. A followed target is resolved and walked the same way (rule 1
+   applied to each, so a link to another drive is refused too). More than 32 links: refused. A part that lstats
+   ENOENT but its folder lists (the junction above): refused, never handed to realpath. Any other lstat error: "could
+   not be read".
 3. **The real path, once resolved** (`winRealRefusal`): a device name there is refused before the open, and so is a
-   network path, EXCEPT for a file named on one of the agent's project drives (review 1 finding 2): projects.js
-   supports a project on a mapped drive ("a Z:\ record whose realpath is \\server\share opens"), and those files
-   attached on main. A Files folder Kosmos made is never on a share, so a file named there that resolves to one is
-   refused. `\\?\C:\` (realpath's long local spelling) is local and passes.
-4. **allowedRoot does not resolve a project folder written as a share for a local file** (review 1 finding 3): any
-   agent can register such a project (`kosmos project create`), and allowedRoot resolves every project folder to judge
-   containment. A share's real path cannot be a folder above a local file, so skipping it changes no answer.
+   network path, EXCEPT for a file written inside one of the agent's own project folders (review 1 finding 2, narrowed
+   by review 2 finding 2 from "on a project drive", which on the usual box with Files and projects all on C: exempted
+   every attach): projects.js supports a project on a mapped drive ("a Z:\ record whose realpath is \\server\share
+   opens"), and those files attached on main. A Files folder Kosmos made is never on a share, so a file named there
+   that resolves to one is refused. `\\?\C:\` (realpath's long local spelling) is local and passes.
+4. **allowedRoot resolves a project folder written as a share only for a file on that same share** (review 1 finding
+   3, review 2 finding 3): any agent can register such a project (`kosmos project create`), and allowedRoot resolves
+   every project folder to judge containment. A share's real path cannot be a folder above a local file or a file on
+   another share, so skipping it changes no answer; one on the file's own share may hold it, so it is still resolved.
 
 On Windows `attach` reads `dmfiles.filesDir` and the projects list once and hands both on, so an attach still reads
 each agent's instructions path once (#6726 r5-3) and parses the projects file once.
@@ -75,9 +81,10 @@ each agent's instructions path once (#6726 r5-3) and parses the projects file on
 
 ## Weakest part, named
 
-1. A link swapped to point at a share between the walk and the realpath: the open is still refused (rule 3), but the
-   realpath may already have made the contact. Node has no openat-style walk to hold each folder open. Same class as
-   the double-swap the file header already names.
+1. A link swapped to point at a share between the walk and the realpath: the realpath may already have made the
+   contact. The open is refused (rule 3) everywhere except inside the agent's own project folders, where a share path
+   is allowed by design (a mapped-drive project). Node has no openat-style walk to hold each folder open. Same class
+   as the double-swap the file header already names.
 2. The OTHER folders an attach resolves to judge containment (review 1 finding 3): a project folder on a drive letter
    that is mapped to a share is still resolved on every attach (only a written `\\` is skipped; telling a mapped letter
    apart needs a call Node does not have), and so are the folders Kosmos itself made (the Files folder and its parent,
@@ -104,12 +111,20 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   path; the same share real path for a file named in Files is (the control).
 - Review 1-3: with a share-written project of another agent and a local project of this one, a project file attaches
   and only the local project folder is resolved.
+- Review 2-1: the link-target allow-list (drive, long, NT and relative forms followed; GLOBALROOT, `\??\UNC`, `\\.\`,
+  root-relative, drive-relative, streams and volume GUIDs not); a GLOBALROOT symlink to a share in Files is refused
+  unresolved.
+- Review 2-2: with Files and a project on the SAME drive, a Files file that resolves to a share is refused, a file
+  written inside the project is not.
+- Review 2-3: through this box's own admin share (`\\127.0.0.1\C$`, a real share; skipped where unreachable), a file on
+  a share resolves the share-written project on its own share and never one on another share.
 
-Negative control: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes).
+Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
+review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail.
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 14/14. `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 18/18 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours).
