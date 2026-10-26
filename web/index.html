@@ -78282,8 +78282,9 @@ function dmHeldWords(name, d, a) {
   else if (st === 'connection_lost') said = name + ' lost its connection.' + after('when ' + name + ' is connected again' + (box ? ' and its message box is clear' : ''));
   // Ahead of it are other messages to this agent, from anyone (other agents, task notices), not only the person's.
   else if (d.behind === true) said = 'Queued behind earlier messages to ' + name + '.';
-  // #6774: its message box holds text not yet sent; the minute sweep sends this once the box reads empty.
-  else if (box) said = 'Waiting to deliver: ' + name + "'s message box has unsent text in it. Yours goes through as soon as that is cleared.";
+  // #6774: held until its message box reads empty. That includes a box Kosmos cannot read (chat.inputBoxEmpty is false
+  // for unread, #6256), so the words never claim there is text in it (PigeonPete, m459): only that Kosmos waits.
+  else if (box) said = 'Waiting for ' + name + "'s message box to be clear. Yours goes through as soon as it is.";
   // Released on the card and not failing: the minute sweep types it. Otherwise no time is promised (a question or
   // permission menu on its screen also keeps the sweep waiting: engine/chat.js menuHeldVerdict).
   else if (released && !stuck) said = name + ' is back. This goes through in a minute or so.';

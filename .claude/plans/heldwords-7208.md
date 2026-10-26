@@ -79,3 +79,8 @@ again under the composer.
 - Round 6 (.claude/plans/heldwords-7208-review6.md): 0 blockers, 0 warnings, 1 nit; converged. The nit (the "you"
   search case's row-hidden half read an older row) is fixed by dropping that half: the line under the box is the
   assertion, and it is red with round 4's test shape.
+- After convergence, PigeonPete (m459): a box hold also covers a box Kosmos cannot read (chat.inputBoxEmpty is false
+  for unread, #6256), so "has unsent text in it" could be untrue (likely the Dario case). The words now claim nothing
+  about text: "Waiting for X's message box to be clear. Yours goes through as soon as it is." The browser check's
+  control now refuses "unsent text" on every row. Word: "message box" (plain for a non-technical reader), not "input
+  box"; asked PigeonPete to match.

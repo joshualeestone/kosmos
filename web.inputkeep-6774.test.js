@@ -39,7 +39,7 @@ function body(name) {
 test('#6774: a row kept for the box says so, and one behind such messages says what it waits behind', () => {
   const words = lift('dmHeldWords', { quotaResetWords: undefined });
   // kosmos#7208: plain words, no "Held:".
-  assert.equal(words('casey', { state: 'held', heldFor: 'input' }), "Waiting to deliver: casey's message box has unsent text in it. Yours goes through as soon as that is cleared.");
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }), "Waiting for casey's message box to be clear. Yours goes through as soon as it is.");
   assert.equal(words('casey', { state: 'held', behind: true, behindFor: 'input' }), 'Queued behind earlier messages to casey.');
   // CONTROLS: the usage-limit words.
   assert.equal(words('casey', { state: 'held', behind: true }), 'Queued behind earlier messages to casey.');
@@ -54,7 +54,7 @@ test('#6774: a row kept for the box says so, and one behind such messages says w
   assert.equal(words('casey', { state: 'held', heldUntil: new Date(Date.now() - 60e3).toISOString() }, { running: true, state: 'idle' }), 'casey is back. This goes through in a minute or so.');
   assert.match(words('casey', { state: 'held', heldUntil: new Date(Date.now() - 60e3).toISOString() }), /^casey is out of usage/, 'CONTROL: with no card, the hold says it');
   // Review 1: restarting is not "not running"; signed out on the card wins over the box and over a scraped limit.
-  assert.match(words('casey', { state: 'held', heldFor: 'input' }, { running: false, state: 'restarting' }), /^Waiting to deliver/);
+  assert.match(words('casey', { state: 'held', heldFor: 'input' }, { running: false, state: 'restarting' }), /^Waiting for /);
   assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'auth_failed' }), 'casey is signed out. This delivers once casey is signed in again.');
   // Review 3: the server keeps a sign-in hold only while the card reads signed out; a card out of usage is held for that.
   assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'rate_limited' }), 'casey is out of usage. This delivers when casey is back.');
@@ -81,7 +81,7 @@ test('#6774: a row kept for the box says so, and one behind such messages says w
   // Review 1: a limit the card only read off the screen is said as the card says it, a guess.
   assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'rate_limited', stateConfidence: 'scraped' }), 'casey looks to be out of usage. This delivers once casey is back and its message box is clear.');
   assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { running: false, state: 'stopped' }), 'casey is not running. This delivers when casey is running again.');
-  assert.match(words('casey', { state: 'held', heldFor: 'input' }, { running: true, state: 'idle' }), /^Waiting to deliver/, 'CONTROL: a running agent with room is the box');
+  assert.match(words('casey', { state: 'held', heldFor: 'input' }, { running: true, state: 'idle' }), /^Waiting for /, 'CONTROL: a running agent with room is the box');
   assert.ok(!/Held:/.test(words('casey', { state: 'held', heldFor: 'input' })), 'no "Held:" left');
 });
 

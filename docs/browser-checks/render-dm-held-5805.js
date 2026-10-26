@@ -166,7 +166,7 @@ function readRow(page, words) {
       await page.waitForTimeout(200);
       return (await readRow(page, 'the words row')).pill || '';
     };
-    const BOX = "Waiting to deliver: April's message box has unsent text in it. Yours goes through as soon as that is cleared.";
+    const BOX = "Waiting for April's message box to be clear. Yours goes through as soon as it is.";
     /* 4a. Review 3: the poll's card, not the card as it was when the chat was opened. */
     const stale = await page.evaluate(async () => {
       CURRENT = { sessionName: 'april', name: 'April', state: 'idle', running: true };
@@ -191,7 +191,7 @@ function readRow(page, words) {
     chk(w === 'Queued behind earlier messages to April.', 'a later message: queued behind the earlier one', w);
     w = await wordsFor({ state: 'held', heldFor: 'signin' }); seen.push(w);
     chk(w === 'April is signed out. This delivers once April is signed in again.', 'signed out: says so', w);
-    chk(seen.length === 5 && seen.every((x) => !/Held:|input box|your earlier message/.test(x)), 'CONTROL: none of the old words, on every row', JSON.stringify(seen));
+    chk(seen.length === 5 && seen.every((x) => !/Held:|input box|your earlier message|unsent text/.test(x)), 'CONTROL: none of the old words, on every row', JSON.stringify(seen));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
