@@ -173,21 +173,27 @@ test('kosmos#7198 review 3: with no rowDirs seam, the folders come from accounts
   const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'le-rowdirs-'));
   const listed = nodePath.join(home, '.claude-listed');
   const unlisted = nodePath.join(home, '.claude-unlisted');
-  fs.mkdirSync(listed); fs.mkdirSync(unlisted);
+  const keyed = nodePath.join(home, '.claude-keyed');   // review 6: an API-key account (a stored key, no OAuth sign-in)
+  fs.mkdirSync(listed); fs.mkdirSync(unlisted); fs.mkdirSync(keyed);
+  fs.writeFileSync(require('./claudeaccounts').keyFile(keyed), 'sk-ant-api03-example');
   fs.writeFileSync(nodePath.join(listed, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'listed@example.com' } }));
   const was = process.env.AGENT_WORKFORCE_HOME;
   process.env.AGENT_WORKFORCE_HOME = home;
   try {
-    const dirs = require('./accounts').list().map((a) => a.dir);
+    const rows = require('./accounts').list();
+    const dirs = rows.map((a) => a.dir);
     assert.ok(dirs.includes(listed) && !dirs.includes(unlisted), 'CONTROL: accounts.list lists one folder and not the other: ' + JSON.stringify(dirs));
-    const panes = [paneOf({ session: 'roo-discord', pane: '0.0' }), paneOf({ session: 'cleo-discord', pane: '0.1' })];
-    const ccdByName = { roo: listed, cleo: unlisted };
+    assert.ok(rows.some((a) => a.dir === keyed && a.apiKey === true), 'CONTROL: accounts.list lists the API-key folder as an API-key row: ' + JSON.stringify(rows));
+    const panes = [paneOf({ session: 'roo-discord', pane: '0.0' }), paneOf({ session: 'cleo-discord', pane: '0.1' }), paneOf({ session: 'pixel-discord', pane: '0.2' })];
+    const ccdByName = { roo: listed, cleo: unlisted, pixel: keyed };
     const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
     const out = status.computeLoginAdvisories(panes, now, { readCcd: (a) => ccdByName[a.name], readCred, emailOf: () => null, cache: { at: 0, value: [] } });
     const of = (agent) => out.find((a) => a.agents.includes(agent));
     assert.ok(of('roo') && of('cleo'), 'CONTROL: both folders raise a notice: ' + JSON.stringify(out));
     assert.strictEqual(of('roo').dir, listed, 'a folder accounts.list lists is named');
     assert.strictEqual(of('cleo').dir, null, 'a folder accounts.list does not list was named');
+    assert.ok(of('pixel'), 'CONTROL: the API-key folder raises a notice too');
+    assert.strictEqual(of('pixel').dir, null, 'an API-key row was named: it has no sign-in to redo (#2433)');
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = was;
     fs.rmSync(home, { recursive: true, force: true });
