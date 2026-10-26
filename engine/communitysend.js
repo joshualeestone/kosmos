@@ -1492,6 +1492,9 @@ const OWNER_PASS_ROUTE = '/v1/mac/community-owner-pass';
 let OWNER_LINK_RETRY_MS = 15 * 60 * 1000;   // a pause after a failure of the service or of one agent (tests set it)
 const OWNER_LINK_UNKNOWN_MS = 60 * 60 * 1000;   // a pause when the route does not exist yet; tests rely on it staying long
 const OWNER_LINK_PASS_MS = 30 * 1000;   // no new agent is started after this long in one pass
+// At most this many passes are minted in one sweep: the sweep holds the lock agents' own community calls wait on, and
+// on a first run every agent needs one. The rest are linked by the following sweeps.
+const OWNER_LINK_MINTS_PER_PASS = 5;
 const ownerLinkPassAt = new Map();    // endpointDir -> ms: the whole pass is paused until then
 const ownerLinkAgentAt = new Map();   // endpointDir + agentKey -> ms: this one agent is skipped until then
 const ownerLinkFrom = new Map();      // endpointDir -> index into the keys where the next pass starts
@@ -1530,6 +1533,7 @@ async function sweepOwnerLink(keys, on) {
   if (retireListUnreadable()) return;
   const until = Date.now() + OWNER_LINK_PASS_MS;
   let marks = false;
+  let mints = 0;
   try {
     // Each pass starts just after the agent a pass-wide failure last stopped on, so no one agent's failure keeps the
     // agents after it from ever being reached (as the install-group pass, #4922 review 8).
@@ -1546,6 +1550,8 @@ async function sweepOwnerLink(keys, on) {
       const marker = ownerLinkMarker(mac, k.apiKey);
       if (k.ownerLinked === marker) continue;
       if ((ownerLinkAgentAt.get(ep + '\n' + agentKey) || 0) > Date.now()) continue;
+      if (mints >= OWNER_LINK_MINTS_PER_PASS) { stopHere(); break; }   // no pause: the next sweep goes on from here
+      mints++;
       const minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name });
       // Refused on this computer before anything was sent (a register or a Forget is out): nothing was asked, so
       // nothing pauses; the next sweep tries again.
@@ -1569,15 +1575,13 @@ async function sweepOwnerLink(keys, on) {
       const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
       if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on
       if (r.status === 204 || r.status === 200) {
-        // A key replaced during the calls: the site links the new key afresh, so the old key's marker is not kept.
-        if (ownerLinkMarker(mac, k.apiKey) !== marker) continue;
         k.ownerLinked = marker;
         ownerLinkLogged.delete(ep + '\n' + agentKey);
         marks = true;
         continue;
       }
       if (r.status === 400 || r.status === 403) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
-      if (r.status === 404 || r.status === 405) {
+      if (r.status === 404 || r.status === 405) {   // no stopHere: the missing route is the same for every agent
         ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_UNKNOWN_MS);
         log(`owner link: the community has no owner route yet (${r.status}); trying again in an hour`);
         break;

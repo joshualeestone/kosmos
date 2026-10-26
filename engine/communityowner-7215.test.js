@@ -110,7 +110,10 @@ async function registered(agent) {
   communitystore.grantTrust(agent);
   const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), topic: 't', body: 'hello from ' + agent }, { agentId: agent });
   assert.equal(r.status, 'published');
-  await cs.sweep();
+  // Registered with Kosmos+ off, so linking happens only in the sweeps a test runs itself.
+  const was = R.on;
+  R.on = false;
+  try { await cs.sweep(); } finally { R.on = was; }
   assert.ok(agentNamed(agent), 'the agent was not registered');
 }
 const ownerCalls = () => be.st.seen.filter((s) => s.url === '/agents/me/owner');
@@ -154,7 +157,8 @@ test('a new agent key (rotated) links that agent again; the marker never holds t
   const n = ownerCalls().length;
   assert.ok(n >= 1);
   const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
-  assert.ok(typeof keys.ava.ownerLinked === 'string' && !keys.ava.ownerLinked.includes(keys.ava.apiKey), 'the marker is a digest');
+  const digest = require('node:crypto').createHash('sha256').update(keys.ava.apiKey).digest('hex').slice(0, 16);
+  assert.equal(keys.ava.ownerLinked, 'mac-1:' + digest, 'the marker is the mac id and a key digest, never the key');
   // The service rotates the key; the board now holds the new one.
   const a = agentNamed('ava');
   a.key = 'rotated-' + a.key;
@@ -209,7 +213,8 @@ test('a coordinator from before the route answers 404: the same hour-long wait',
 
 test('a coordinator that fails for another reason (a 503): the pass waits 15 minutes, not an hour', async () => {
   R.mint = () => ({ ok: false, because: 'coordinator answered 503', refusal: { status: 503, code: null, currentEpoch: null } });
-  await registered('ava');   // its sweep asks once, then the 15-minute pause starts
+  await registered('ava');
+  await cs.sweep();   // asks once, then the 15-minute pause starts
   assert.equal(R.mints.length, 1);
   await cs.sweep();
   assert.equal(R.mints.length, 1, 'inside the 15-minute pause nothing is asked');
@@ -321,7 +326,6 @@ test('an agent whose key the community refuses is not tried again', async () => 
 test('a new computer identity during the mint: the pass is not sent, and the next sweep links under the new one', async () => {
   await registered('ava');
   const n = ownerCalls().length;
-  // (registered()'s sweep already linked ava; force a fresh link by a new identity whose mint swaps it again.)
   R.mac = 'mac-2';
   R.mint = (body) => { R.mac = 'mac-3'; return { ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } }; };
   await cs.sweep();
@@ -429,4 +433,13 @@ test('a pass-wide failure on one agent does not keep the agents after it from ev
   await cs.sweep();
   assert.ok(agentNamed('bo').owner, 'the next pass starts after ava and reaches bo');
   cs._ownerLinkRetry(15 * 60 * 1000);
+});
+
+test('at most 5 passes are minted in one sweep; the next sweep goes on from there', async () => {
+  for (const a of ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7']) await registered(a);
+  await cs.sweep();
+  assert.equal(R.mints.length, 5, 'five in the first sweep');
+  await cs.sweep();
+  assert.equal(R.mints.length, 7, 'the other two in the next, with no pause between');
+  for (const a of ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7']) assert.ok(agentNamed(a).owner, a + ' linked');
 });
