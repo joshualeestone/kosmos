@@ -1568,6 +1568,8 @@ const instructions = require('./engine/instructions');
 const instructionadds = require('./engine/instructionadds'); // #5293: an agent proposes an addition, the person applies it
 const personalinstr = require('./engine/personalinstr'); // #4446: a personal instructions file the agent's CLI also loads
 const projects = require('./engine/projects');
+// #7210: a phone notification from a project asks that project's level (All / Mentions only / Muted) before it is sent.
+phonenotify.setProjectLevel((pid) => projects.notifyLevel(pid));
 const autoretell = require('./engine/autoretell');
 /* #3923: when each agent-made Try again (`?retell=1`) happened, for its own hourly bound. */
 const RETELL_RECENT = [];
@@ -17746,13 +17748,16 @@ const server = http.createServer(async (req, res) => {
           // The project this report stands under, stated or carried forward (a
           // permission hook's needs_you names none), shown by its name.
           let projectName = null;
+          /* #7210: levelProjectId is board-only (never in the payload): a muted project's agent does not buzz the phone. */
+          let levelProjectId = null;
           try {
             const now = selfreport.read(who);
             const pid = now && typeof now.project === 'string' ? now.project.trim() : '';
+            levelProjectId = pid || null;
             const pj = pid ? projects.get(pid, roster) : null;
             projectName = pj ? pj.name : null;
           } catch { projectName = null; }
-          phonenotify.happened({ kind: 'needs_you', id: 'report:' + kept.at + ':' + who, agent: sender.card.name || who, session: who, project: projectName });
+          phonenotify.happened({ kind: 'needs_you', id: 'report:' + kept.at + ':' + who, agent: sender.card.name || who, session: who, project: projectName, levelProjectId });
         }
         /* #5318: a blocked report whose owner is a person is recorded as sent, with a note pointing at needs_you
            (the only state Kosmos follows up). Both CLIs print the note under "Recorded." */
@@ -21557,6 +21562,16 @@ const server = http.createServer(async (req, res) => {
            before its single write, so a body mixing parent with name or
            description applies whole or not at all. null or '' un-groups. */
         if (body.parent !== undefined) fields.parent = body.parent;
+        /* #7210: what reaches the person's phone and speakers from this project is theirs alone, as the folder is: an
+           agent's token cannot quiet the person's project (it could hide its own needs_you). */
+        if (body.notify !== undefined) {
+          if (!isViaScreen(req, body)) {
+            const notYours = new Error('a project\'s notifications are the person\'s to set, on the project\'s page in Kosmos');
+            notYours.status = 403;
+            throw notYours;
+          }
+          fields.notify = body.notify;
+        }
         projects.edit(id, fields);
         if (fields.paused !== undefined && fields.viaScreen !== true && fields.paused !== wasPaused) {
           let who = null;
@@ -24122,7 +24137,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const pj = projects.get(id, roster);
           phonenotify.happened({ kind: 'ready', id: 'built:' + id + ':' + taskBuilt[2] + ':' + Date.now(),
-            agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null });
+            agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null, levelProjectId: id });   // #7210, board-only
         } catch { /* a notification is never a reason to fail the mark */ }
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
