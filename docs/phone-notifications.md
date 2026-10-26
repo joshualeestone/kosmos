@@ -126,6 +126,12 @@ phone fetches the words from the computer over Kosmos+ remote. If the computer d
 computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, posts, work
 ready) is not asked about and always shows as there. Android and the browser do not ask yet: they show Sent today's words.
 
+**Why a notice showed plain, from the board's log (kosmos#6487).** The sending computer's `logs/board.log` has one
+`phonenotify: sent <kind> (<id kind>) for <agent>` line per notification, saying whether the phone can ask for its
+words, and one `phonenotice: the phone asked about a <id kind> notice` line per ask, saying whether it answered words
+or why not (`unaskable`, `no-report-words`, `no-reply`, `no-post`, `mask-failed`, `borrowed-name`). A sent line with
+no ask after it means the phone never reached the computer. Neither line carries the words.
+
 **A permission request puts the command on the lock screen.** When an agent stops to ask permission, its report's
 reason names the tool and the command (up to 200 characters of it), and that is the text an iPhone shows. The
 picture is fetched after the words with its own 8 seconds; a notice whose picture is late shows without one. Whether

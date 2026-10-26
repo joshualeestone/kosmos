@@ -462,6 +462,9 @@ let sender = null;
 function setSender(fn) { sender = typeof fn === 'function' ? fn : null; }
 let clock = () => Date.now();
 function setClock(fn) { clock = typeof fn === 'function' ? fn : () => Date.now(); }
+// kosmos#6487: one board-log line per notification sent (a test seam like the sender).
+let log = (line) => process.stderr.write(line);
+function setLog(fn) { log = typeof fn === 'function' ? fn : (line) => process.stderr.write(line); }
 const lastSent = new Map();   // "<cooldownClass>:<key>" -> when it last buzzed
 
 /** #6254: which master-kind sub-switch gates an event, and its cooldown (a
@@ -532,8 +535,13 @@ function happened(event) {
     }
     const url = coordinatorUrl(NOTIFY_ROUTE);
     const body = JSON.stringify(payload(s.notifyId, event));
+    // kosmos#6487: a plain lock-screen notice is explained by this line and the phonenotice line after it (or its
+    // absence: the phone never asked). The id's kind and the agent only, never the words.
+    const askable = require('./phonenotice').parseId(event.id) !== null;
+    log('phonenotify: sent ' + event.kind + ' (' + require('./phonenotice').idKind(event.id) + ') for ' + String(event.session || '').replace(/[\x00-\x1f\x7f]/g, ' ') +
+      (askable ? '; the phone can ask for its words\n' : '; the phone cannot ask for its words, so it shows plain\n'));
     (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body);
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, setLog, readState, resetCooldownForTests: () => lastSent.clear() };

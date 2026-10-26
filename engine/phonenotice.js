@@ -99,32 +99,46 @@ function postWords(postId, { messages = require('./messages') } = {}) {
   return { session: m.from, text: m.text, project: typeof m.project === 'string' && m.project ? m.project : null };
 }
 
-/** What the phone shows for an event: { kind, session, text } with the words shortened (and, for a room post, the
- *  `project` it was posted in), or null when the id is not
- *  one of ours or its words are not (or no longer) here. `deps.mask(session, text)` runs on the whole words BEFORE
- *  they are shortened (server.js passes the setup guide's secret mask: a cut first could leave half a key the mask no
- *  longer recognises). Never throws. */
-function wordsFor(id, deps = {}) {
+/** The kind an event id names (`report`, `reply`, `post`, or a kind the phone cannot ask about, such as `crashloop`),
+ *  for the board's log: lowercase letters only, never the rest of the id. */
+function idKind(id) {
+  const m = typeof id === 'string' ? /^([a-z]{1,20}):/.exec(id) : null;
+  return m ? m[1] : 'unknown';
+}
+
+/** kosmos#6487: wordsFor, and why it answered nothing: { got, why }. `why` is null when there are words, else
+ *  'unaskable' (not an id this board answers, such as crashloop:), 'no-report-words' (no needs_you report with words
+ *  at that time), 'no-reply', 'no-post', or 'mask-failed'. The board logs `why` so a plain notice explains itself. */
+function explain(id, deps = {}) {
   const p = parseId(id);
-  if (!p) return null;
+  if (!p) return { got: null, why: 'unaskable' };
   let raw;
   if (p.kind === 'post') {
     const w = postWords(p.postId, deps);
-    if (!w) return null;
+    if (!w) return { got: null, why: 'no-post' };
     p.session = w.session;   // the post's own author, never anything the id says
     p.project = w.project;
     raw = w.text;
   } else {
     raw = p.kind === 'report' ? reportNote(p.session, p.at, deps) : replyText(p.session, p.at, deps);
   }
-  if (raw === null) return null;
+  if (raw === null) return { got: null, why: p.kind === 'report' ? 'no-report-words' : 'no-reply' };
   if (typeof deps.mask === 'function') {
-    try { raw = deps.mask(p.session, raw); } catch { return null; }   // a mask that fails must not serve the words unmasked
-    if (typeof raw !== 'string') return null;
+    try { raw = deps.mask(p.session, raw); } catch { return { got: null, why: 'mask-failed' }; }   // a mask that fails must not serve the words unmasked
+    if (typeof raw !== 'string') return { got: null, why: 'mask-failed' };
   }
   const out = { kind: p.kind, session: p.session, text: shorten(raw) };
   if (p.project) out.project = p.project;
-  return out;
+  return { got: out, why: null };
 }
 
-module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, shorten, reportNote, replyText, postWords, wordsFor };
+/** What the phone shows for an event: { kind, session, text } with the words shortened (and, for a room post, the
+ *  `project` it was posted in), or null when the id is not
+ *  one of ours or its words are not (or no longer) here. `deps.mask(session, text)` runs on the whole words BEFORE
+ *  they are shortened (server.js passes the setup guide's secret mask: a cut first could leave half a key the mask no
+ *  longer recognises). Never throws. */
+function wordsFor(id, deps = {}) {
+  return explain(id, deps).got;
+}
+
+module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, idKind, shorten, reportNote, replyText, postWords, explain, wordsFor };

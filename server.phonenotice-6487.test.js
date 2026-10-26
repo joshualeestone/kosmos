@@ -126,3 +126,24 @@ test('#6487 the setup guide\'s words are masked on the way out, as its message t
   chat.appendMessage(chat.DIRECT, 'helper', { text: 'Your key is ' + KEY + ' now.', at, from: 'helper' });
   assert.ok((await ask('reply:' + at + ':helper')).json.text.includes(KEY));
 });
+
+test('#6487 each ask writes one board-log line saying what the phone was answered, never the words', async () => {
+  const kept = selfreport.record('irma', { state: 'needs_you', because: 'Logged words stay out of the log.' });
+  const lines = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (s, ...rest) {
+    if (String(s).startsWith('phonenotice:')) { lines.push(String(s)); return true; }
+    return realWrite.call(this, s, ...rest);
+  };
+  try {
+    assert.equal((await ask('report:' + kept.at + ':irma')).status, 200);
+    assert.equal((await ask('report:2020-01-01T00:00:00.000Z:irma')).status, 404);
+    assert.equal((await ask('crashloop:irma:2026-10-26T17:23:00.000Z')).status, 404);
+  } finally { process.stderr.write = realWrite; }
+  assert.deepEqual(lines, [
+    'phonenotice: the phone asked about a report notice for irma; answered its words\n',
+    'phonenotice: the phone asked about a report notice; answered nothing (no-report-words), so it shows plain\n',
+    'phonenotice: the phone asked about a crashloop notice; answered nothing (unaskable), so it shows plain\n',
+  ]);
+  assert.ok(!lines.join('').includes('Logged words'), 'the words reached the log');
+});
