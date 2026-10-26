@@ -114,9 +114,12 @@ function doneFollowing(agentKey) {
    THE PREMISE THIS RESTS ON is that order, and nothing in this repo would notice it change. It is pinned on the
    service side: kosmos-community app/routers/follows.py sorts the feed by (created_at, id) descending, and
    tests/test_follows_4774.py test_the_feed_pages_posts_and_replies_together_newest_first_each_item_once fails if it
-   does not. Change that order and this count can name a post the read reaches late or not at all. */
+   does not. Change that order and this count can name a post the read reaches late or not at all.
+   The id must be one a read can record as shown: readFollowing's noteSeen keeps only ids matching UUID_RE as they
+   arrive (lower-cased, not trimmed), so a post with any other id would be counted on every check and never cleared.
+   Service ids are UUIDs today; this keeps home's rule and the read's the same (Ice Cream Kitty, on #7172). */
 function countedFollowing(it, done, now) {
-  return Boolean(it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS && done instanceof Set && !done.has(key(it.id)));
+  return Boolean(it && it.kind === 'post' && UUID_RE.test(String(it.id == null ? '' : it.id)) && Date.parse(it.created_at) > now - DAY_MS && done instanceof Set && !done.has(key(it.id)));
 }
 
 /* One post's thread: { score, comments, unanswered: [{ id, by }] } from public reads, or null when unreadable.
