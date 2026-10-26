@@ -9,6 +9,7 @@
  *
  *   node --test cli.notice-7153.test.js
  */
+require('./test-support/tmpscope');   // #4273: first, so the kosmos-unsent copies a refused piped notice saves are contained and removed
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
