@@ -18564,11 +18564,11 @@ window.kosmosMeasureScrollbarWidth();
       <div id="set-accounts" tabindex="-1"></div>
       <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
       <!-- kosmos#7152 slice 2: usage auto-balance. The lines say what it WOULD do; slice 3's box under them (#ab-recent)
-           says whether Kosmos moves them itself on this computer, and what it did. Shown only when /api/accounts?agents=1 reports two or more Claude subscription
+           shows the record of what it would have moved. Nothing moves on its own yet. Shown only when /api/accounts?agents=1 reports two or more Claude subscription
            accounts; the switch, as every status control here, stays hidden until a read says on or off. -->
       <div class="setrow" id="ab-row" style="margin-top:14px;" hidden>
         <div><b>Move agents off an account that is running out</b>
-          <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 90% of its weekly limit and does not reset within 6 hours, Kosmos picks the idle agents on it to move to the account with the most room (one Kosmos has measured, under 70%). If an account's login stops working, it says which agents could move, but does not move them itself.</p>
+          <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 90% of its weekly limit and does not reset within 6 hours, Kosmos picks the idle agents on it to move to the account with the most room (one Kosmos has measured, under 70%, and not near its five-hour limit). If an account's login stops working, it says which agents could move. For now it only says what it would do. Nothing is moved.</p>
           <div id="ab-lines"></div>
           <div id="ab-recent"></div>
           <p class="dhint" id="ab-msg" role="status" style="margin:8px 0 0;"></p></div>
@@ -28856,11 +28856,7 @@ function paintAutobalance(ab, list) {
     const moves = Array.isArray(ab.moves) ? ab.moves : [];
     const held = Array.isArray(ab.held) ? ab.held : [];
     const short = Array.isArray(ab.short) ? ab.short : [];
-    /* Slice 3 review 5: a move off a stopped login is said, never made, so its line says so. */
-    const loginFrom = new Set((Array.isArray(ab.atRisk) ? ab.atRisk : []).filter((x) => x.kind === 'login').map((x) => x.from));
-    html = moves.map((m) => (loginFrom.has(m.from)
-      ? line(esc(who(m.agent)) + ' could move from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '. Kosmos does not move agents off a stopped login itself.')
-      : line('Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.'))).join('')
+    html = moves.map((m) => line('Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.')).join('')
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
       + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
       /* Review 5: with the reason, so an account whose list is short still says why it is running out (review 7: unless
@@ -28873,22 +28869,22 @@ function paintAutobalance(ab, list) {
       .map((x) => line(opening(x) + ', but none of its agents is idle, so there is nothing to move yet.')).join('');
     if (!html) html = line('Nothing to move right now.');
   }
-  /* Slice 3: whether Kosmos moves them itself on this computer, and what it did or would have done lately. Review 6:
-     also when the current decision could not be worked out, since the history is what a person needs then. */
+  /* Slice 3: what Kosmos would have moved lately, from the sweep's record. Shown also when the current decision could
+     not be worked out, since the history is what a person needs then. Worded from the sweep's own gate (recording), so
+     the page never says it keeps a record where it does not. Nothing moves on its own in this slice. */
   if (recentBox && known && ab.on === true) {
-    /* Review 2: from the sweep's own gate (recording), so the page never says it moves or records where it cannot. */
-    recentBox.innerHTML = (ab.recording !== true ? line('Kosmos does not check these accounts on a schedule on this computer, so it does not move agents or keep a record of what it would move.')
-      : ab.movesOn !== true ? line('Moving agents on its own is not switched on for this computer yet, so Kosmos keeps a record of what it would move.')
-      : line('Kosmos moves them itself, one agent at a time, and says each move here.'))
-      + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
+    recentBox.innerHTML = ab.recording !== true
+      ? line('Kosmos does not check these accounts on a schedule on this computer, so it keeps no record of what it would move.')
+      : line('Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.')
+        + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
   }
   if (lines) lines.innerHTML = html;
 }
-/* Slice 3: the newest record entries (engine/automove.js), newest first, one line each. Accounts by the name the list
-   shows, or the record's own label when the account is gone from the list. */
+/* Slice 3: the newest recorded decisions (engine/autobalance-sweep.js), newest first, a line per would-move. Accounts by
+   the name the list shows, or the record's own label when the account is gone from the list. An entry from another day
+   says which day. */
 function abRecentHtml(recent, label, who, line) {
   const name = (dir, kept) => { const l = label(dir); return l === 'another account' && kept ? kept : l; };
-  /* Review 2: an entry from another day says which day, so an old one does not read as today's. */
   const at = (ms) => {
     const d = new Date(ms);
     if (isNaN(d)) return '';
@@ -28897,27 +28893,12 @@ function abRecentHtml(recent, label, who, line) {
   };
   const out = [];
   for (const e of recent) {
-    if (!e || typeof e !== 'object') continue;
-    const agent = esc(who(e.agent));
-    const from = esc(name(e.from, e.fromLabel));
-    const to = esc(name(e.to, e.toLabel));
-    if (e.kind === 'decision') {
-      /* A move off a stopped login is never made, so it is said whether moves are on or not (review 5). */
-      for (const m of Array.isArray(e.moves) ? e.moves : []) {
-        const mv = esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel));
-        if (m.kind === 'login') out.push(at(e.at) + 'it would have moved ' + mv + ', but its login had stopped, and Kosmos does not move agents off a stopped login itself.');
-        else if (!e.live) out.push(at(e.at) + 'it would have moved ' + mv + '.');
-      }
-    } else if (e.kind === 'move' && e.outcome === 'stopped') out.push(at(e.at) + 'the move of ' + agent + ' to ' + to + ' was stopped, so it stays on ' + from + '.');
-    else if (e.kind === 'move' && e.outcome === 'changed') out.push(at(e.at) + 'Kosmos moved ' + agent + ' from ' + from + ' to ' + to + ', because ' + esc(e.why || 'its account was running out') + '.');
-    else if (e.kind === 'move' && e.outcome === 'unknown') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ' and could not tell whether it went through. Check which account it is on above.');
-    else if (e.kind === 'move' && e.outcome === 'partial') out.push(at(e.at) + 'Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.');
-    else if (e.kind === 'move' && e.outcome === 'refused') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused.');
-    else if (e.kind === 'released') out.push(at(e.at) + agent + ' is no longer on ' + to + ' (it was moved or removed), so Kosmos leaves it where it is for a day.');
-    else if (e.kind === 'skipped') out.push(at(e.at) + 'Kosmos did not move ' + agent + ', because it was no longer idle.');
-    else if (e.kind === 'works' && e.works === 'yes') out.push(at(e.at) + agent + ' was seen working on ' + to + '.');
-    else if (e.kind === 'works' && e.works === 'no') out.push(at(e.at) + agent + '\u2019s first request on ' + to + ' was refused. Move it back here if it needs to work now; Kosmos will not move agents to ' + to + ' for a day.');
-    else if (e.kind === 'works') out.push(at(e.at) + agent + ' has not been seen working on ' + to + ' in the day since it moved, so Kosmos waits a day before moving another agent there.');
+    if (!e || typeof e !== 'object' || e.kind !== 'decision') continue;
+    for (const m of Array.isArray(e.moves) ? e.moves : []) {
+      if (!m || typeof m !== 'object') continue;
+      const mv = esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel));
+      out.push(at(e.at) + 'it would have moved ' + mv + (m.why ? ', because ' + esc(m.why) : '') + '.');
+    }
   }
   return out.length ? '<p class="dhint" style="margin:12px 0 0;font-weight:600;">Lately</p>' + out.map(line).join('') : '';
 }
