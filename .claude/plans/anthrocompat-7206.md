@@ -219,3 +219,15 @@ No blockers; no route to DeepSeek with the switch off; other providers unchanged
 slow vendor holds the accounts list (LIST_TIMEOUT_MS); an imported vendor entry whose folder is not on this computer
 should not be started (worldstarts records entry.configDir as given); the marker is a rollout switch, not a security
 boundary (any process running as the person can create it).
+
+## Slice 1b review 6 (2026-10-26 16:5x): CONVERGED, no blockers, no warnings
+
+Three nits:
+1. FIXED: engine/anthropiccompat-7206.test.js wrote and removed the marker at store.ROOT directly, bypassing the
+   helper's temp-folder guard. It now goes through test-support/compat-switch.js set().
+2. DOCUMENTED, not changed: accountConnectable reads the switch for this computer's platform while createAgentInner
+   reads opts.platform. No production caller passes a platform, so they agree outside tests; the key can still only
+   go to DeepSeek.
+3. ACCEPTED, cosmetic: the late repaint of the detail panel's provider menu (after compatAsk answers) uses the
+   `current` captured when the panel opened; opening a second agent within that fetch's latency can briefly show the
+   first agent's provider. The 5s cache makes it rare and the next paint corrects it. Unreachable while the switch is off.

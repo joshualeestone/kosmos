@@ -255,23 +255,22 @@ test('a vendor account folder is never a Qwen home (the two keep different accou
 });
 
 test('slice 1b: the switch is OFF by default, ON only by the marker (no variable), and never on off a Mac', () => {
-  const store = require('./store');
-  const marker = nodePath.join(store.ROOT, compat.ON_MARKER);
+  // Round 6: every marker write goes through the helper, whose guard refuses a folder outside the temp folder.
+  const sw = require('../test-support/compat-switch');
   const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
   try {
-    try { fs.rmSync(marker, { force: true }); } catch { /* absent */ }
+    sw.set(false);
     assert.equal(compat.enabled('darwin'), false, 'on by default');
     // Review 3: the old variable is gone; it reached the board but never an agent's launch, so it must do nothing.
     process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
     assert.equal(compat.enabled('darwin'), false, 'the environment variable still turns it on');
     delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
-    fs.mkdirSync(store.ROOT, { recursive: true });
-    fs.writeFileSync(marker, '');
+    sw.set(true);
     assert.equal(compat.enabled('darwin'), true, 'the marker does not turn it on');
     assert.equal(compat.enabled('win32'), false, 'on on Windows, whose launch does not point an agent at a vendor');
     assert.equal(compat.enabled('linux'), false);
   } finally {
-    try { fs.rmSync(marker, { force: true }); } catch { /* best effort */ }
+    sw.set(false);
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; else process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev;
   }
   assert.equal(compat.notYet('deepseek'), 'DeepSeek is not available in Kosmos yet');
