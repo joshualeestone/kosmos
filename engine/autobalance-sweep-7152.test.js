@@ -255,3 +255,29 @@ test('#7152 slice 3 review 12: a would-move off a stopped login is kept in the r
   assert.deepEqual(sweep.recent(file).map((l) => l.moves[0].agent), ['ada'], 'a move slice 3b will never make reached Settings');
   assert.equal(sweep.readLines(file).length, 2, 'CONTROL: it is kept in the file');
 });
+
+test('#7152 slice 3 review 14: only a blip keeps a target signed in; a signed-out account with old figures is not a target', () => {
+  const at = (spareRec) => ab.decide({ rows: ab.rowsFromReadings({ list: LIST, nowMs: NOW,
+    readUsage: (dir) => (dir === '/u/.claude-spare' ? spareRec : USAGE[dir]),
+    agentsOn: (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true }) }), movable: () => true, nowMs: NOW });
+  for (const state of ['no-credential', 'no-token', 'other-account', 'identity-unknown', 'profile-unreadable', 'unreadable-response']) {
+    assert.equal(at({ ...reading(10, 100), state }).moves.length, 0, `a target whose latest read was ${state} was still a target`);
+  }
+  for (const state of ['http-503', 'profile-http-502', 'profile-unreachable']) {
+    assert.equal(at({ ...reading(10, 100), state }).moves.length, 1, `CONTROL: ${state} is a blip`);
+  }
+});
+
+test('#7152 slice 3 review 14: an at-risk account that goes unmeasured is a gap, not the end of the risk', async () => {
+  const file = fileFor();
+  const run = sweep.create({ file });
+  await run.tick(deps(), NOW);
+  const gap = deps({ usage: { '/u/.claude-spare': USAGE['/u/.claude-spare'] } });   // work has no fresh reading at all
+  assert.equal((await run.tick(gap, NOW + 1000)).did, 'unmeasured', 'a gap in the readings was taken for a change');
+  assert.equal(sweep.readLines(file).length, 1, 'a gap in the readings was written as the risk ending');
+  assert.equal((await run.tick(deps(), NOW + 2000)).did, 'nothing', 'the same risk, measured again, was written again');
+  const again = sweep.create({ file, nowMs: NOW + 3000 });
+  assert.equal((await again.tick(gap, NOW + 3000)).did, 'unmeasured', 'a restart forgot which account was at risk');
+  /* CONTROL: an account measured again below the line does end the risk. */
+  assert.equal((await run.tick(deps({ usage: { ...USAGE, '/u/.claude-work': reading(40, 35) } }), NOW + 4000)).did, 'cleared');
+});
