@@ -785,11 +785,17 @@ test('one finish at a time: a live lock refuses, a dead process\'s lock is taken
   assert.ok(!fs.existsSync(lock), 'the lock is released after the finish');
 });
 
-test('a lock left with no pid, or one that cannot be made, does not block or mislabel the finish', { skip: process.platform === 'win32' ? 'POSIX modes' : false }, (t) => {
+test('a lock with no pid blocks only while young, and one that cannot be made does not mislabel the finish', { skip: process.platform === 'win32' ? 'POSIX modes' : false }, (t) => {
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
   fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
-  fs.mkdirSync(path.join(p.dir, 'restore-finishing'));   // a crash between making the lock and writing its pid
+  const pidless = path.join(p.dir, 'restore-finishing');
+  fs.mkdirSync(pidless);   // no pid in it, as an older writer's crash could leave
+  const young = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(young.ok, false, 'a young lock with no pid may be one still being made: busy');
+  assert.match(young.because, /already under way/);
+  const old = (Date.now() - 60 * 1000) / 1000;
+  fs.utimesSync(pidless, old, old);
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, true, r.because);
   const q = rw.prepareRestoreWorld(base, { member: 'Bo', now: NOW });

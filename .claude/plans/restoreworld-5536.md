@@ -164,6 +164,13 @@ no profile record, and STARTS the agent: enable then bootstrap).
    code). Nits: a stale lock is renamed aside before removal so one taker wins; .opencode joins the exact-name list;
    dir is computed once; the tests' name rule is create.js's own.
 
+21. W: the finish lock could be stolen in the moment between making it and writing its pid (now made whole in a
+   temporary folder and renamed into place, so it never exists without its pid; a pid-less lock is stale only after
+   30 s); release removed whatever lock was there (now only one still holding its own pid; no test, it needs two
+   finishes overlapping across the ten-minute stale line). Nit: why the held-back folder is recorded before the
+   moves. Deferred as duplicates: a project's own .git (round 15) and other providers' instruction names (rounds 4,
+   12).
+
 ## Residuals, stated
 - A node_modules or .git nested deeper inside a moved project is not reported; npm and git find them when an agent
   works there. 4a's review list shows every file, and 4c's agent start (git hooks off) covers the git case.
