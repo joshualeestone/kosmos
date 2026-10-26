@@ -58,8 +58,8 @@ function fakeRequest(answer, seen) {
 test('#7152: the default account reads the bare Keychain entry and any other account its own folder\'s entry', async () => {
   const asked = [];
   const readCred = async (svc) => { asked.push(svc); return cred(); };
-  await usagepoll.tokenStateFor({ dir: '/u/.claude', isDefault: true }, { now: NOW, platform: 'darwin', realHome: '/', readCred, realHome: '/u' });
-  await usagepoll.tokenStateFor({ dir: '/u/.claude-account-d' }, { now: NOW, platform: 'darwin', realHome: '/', readCred, realHome: '/u' });
+  await usagepoll.tokenStateFor({ dir: '/u/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: '/u' });
+  await usagepoll.tokenStateFor({ dir: '/u/.claude-account-d' }, { now: NOW, platform: 'darwin', readCred, realHome: '/u' });
   assert.deepEqual(asked, [loginexpiry.DEFAULT_SERVICE, loginexpiry.serviceNameFor('/u/.claude-account-d')]);
   assert.notEqual(asked[1], loginexpiry.DEFAULT_SERVICE, 'CONTROL: a non-default account must not read the bare entry');
 });
@@ -282,12 +282,12 @@ test('#7152 review 7: a sandboxed board never reads the bare Keychain entry, wha
   const readCred = async (svc) => { asked.push(svc); return cred(); };
   /* The shape a harness board has: a sandbox HOME whose .claude is listed as the default account, and the real
      Keychain, whose bare entry is the operator's own login. */
-  const st = await usagepoll.tokenStateFor({ dir: '/tmp/sandbox/.claude', isDefault: true }, { now: NOW, platform: 'darwin', realHome: '/', readCred, realHome: '/Users/op' });
+  const st = await usagepoll.tokenStateFor({ dir: '/tmp/sandbox/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: '/Users/op' });
   assert.equal(st.state, 'no-credential');
   assert.deepEqual(asked, [], 'the operator\'s real login was read for a sandbox account');
-  await usagepoll.tokenStateFor({ dir: '/Users/op/.claude', isDefault: true }, { now: NOW, platform: 'darwin', realHome: '/', readCred, realHome: '/Users/op' });
+  await usagepoll.tokenStateFor({ dir: '/Users/op/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: '/Users/op' });
   assert.deepEqual(asked, [loginexpiry.DEFAULT_SERVICE], 'CONTROL: the real home\'s default account reads the bare entry');
-  await usagepoll.tokenStateFor({ dir: '/tmp/sandbox/.claude', isDefault: true }, { now: NOW, platform: 'darwin', realHome: '/', readCred, realHome: null });
+  await usagepoll.tokenStateFor({ dir: '/tmp/sandbox/.claude', isDefault: true }, { now: NOW, platform: 'darwin', readCred, realHome: null });
   assert.equal(asked.length, 1, 'an unknown real home read the bare entry');
 });
 
@@ -301,7 +301,7 @@ test('#7152 review 7: a failed profile read keeps the last good figures and is n
   });
   assert.equal(n, 0, 'a reading with an unread profile was counted as measured');
   const r = usagepoll.readUsage(d, NOW);
-  assert.equal(r.state, 'profile-unreadable');
+  assert.equal(r.state, 'profile-http-429');
   assert.equal(r.weekly.usedPct, 12, 'the endpoint figure replaced the kept one without its profile checked');
   assert.equal(r.measuredAt, NOW - 60000, 'CONTROL: the kept figure keeps its own measured time');
 });
@@ -498,4 +498,31 @@ test('#7152 review 14: after a refusal the token is not sent again for an hour',
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW, { code: 500, body: '' }));
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 2, 'CONTROL: a server error is not a refusal, so the next poll reads');
+});
+
+test('#7152 review 15: a refused profile request backs off too, and a new login ends the backoff', async (t) => {
+  const d = tmpDir(t);
+  const seen = {};
+  const profile429 = (opts) => (opts.path === '/api/oauth/profile' ? { code: 429, body: '' } : { code: 200, body: BODY });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, profile429));
+  assert.equal(usagepoll.readUsage(d, NOW).state, 'profile-http-429');
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'a token whose profile was refused was sent again ten minutes later');
+  await usagepoll.pollAll([{ dir: d, email: 'new@example.test' }], at(NOW + 20 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 2, 'a folder signed in again stayed in the old login\'s backoff');
+});
+
+test('#7152 review 15: the real home comes from the user database, so a sandboxed HOME cannot pass for it', async (t) => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'usagepoll-home-'));
+  const saved = process.env.HOME;
+  t.after(() => { process.env.HOME = saved; fs.rmSync(sandbox, { recursive: true, force: true }); });
+  process.env.HOME = sandbox;
+  assert.equal(os.homedir(), sandbox, 'CONTROL: the sandbox HOME took effect');
+  const asked = [];
+  const readCred = async (svc) => { asked.push(svc); return cred(); };
+  await usagepoll.tokenStateFor({ dir: path.join(sandbox, '.claude'), isDefault: true }, { now: NOW, platform: 'darwin', readCred });
+  assert.deepEqual(asked, [], 'a sandboxed HOME\'s .claude read the operator\'s bare Keychain entry');
+  await usagepoll.tokenStateFor({ dir: path.join(os.userInfo().homedir, '.claude'), isDefault: true }, { now: NOW, platform: 'darwin', readCred });
+  assert.deepEqual(asked, [loginexpiry.DEFAULT_SERVICE], 'CONTROL: the real home\'s .claude reads the bare entry');
 });

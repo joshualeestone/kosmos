@@ -51,7 +51,7 @@ const EXPIRY_MARGIN_MS = 60 * 1000;
 /* Review 14: after a refusal (401, 403 or 429) the same token is not sent again for an hour. The token is the one
    Claude Code itself uses, so repeated refused requests must not put the operator's live agents at risk. */
 const BACKOFF_MS = 60 * 60 * 1000;
-const BACKOFF_STATES = new Set(['http-401', 'http-403', 'http-429']);
+const BACKOFF_STATES = new Set(['http-401', 'http-403', 'http-429', 'profile-http-401', 'profile-http-403', 'profile-http-429']);
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
 
@@ -177,6 +177,8 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (
      another login's figure in, and the higher-figure rule would keep it on screen. So it is a failed read, and
      pollAll keeps the last good figures as it does for any other. */
   const p = await getUsage(t.token, { request, path: PROFILE_PATH, ...(timeoutMs ? { timeoutMs } : {}) });
+  /* Review 15: a refused profile request is a refusal of the same token, so it backs off as the usage request does. */
+  if ([401, 403, 429].includes(p.code)) return { at: now, state: `profile-http-${p.code}` };
   let email = null;
   let org = null;
   try {
@@ -241,7 +243,9 @@ async function pollAll(list, deps = {}) {
   for (const a of Array.isArray(list) ? list : []) {
     const before = a && typeof a.dir === 'string' ? readRaw(a.dir) : null;
     const nowMs = typeof deps.now === 'number' ? deps.now : Date.now();
-    if (before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number' && nowMs - before.refusedAt < BACKOFF_MS) continue;
+    /* Review 15: the hour belongs to the login that was refused, so signing the folder in again ends it. */
+    if (before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number' && nowMs - before.refusedAt < BACKOFF_MS
+      && typeof before.refusedEmail === 'string' && before.refusedEmail === a.email) continue;
     let rec = null;
     try { rec = await readOne(a, deps); } catch { rec = null; }
     if (!rec) continue;
@@ -267,7 +271,7 @@ async function pollAll(list, deps = {}) {
       }
     } else {
       const prev = readRaw(a.dir);
-      if (BACKOFF_STATES.has(rec.state)) rec.refusedAt = rec.at;   // review 14: the hour runs from the refusal
+      if (BACKOFF_STATES.has(rec.state)) { rec.refusedAt = rec.at; rec.refusedEmail = a.email; }   // review 14: the hour runs from the refusal
       const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
       /* Review 9: a folder signed in again as another login must not show the old login's figures under the new one. */
       if (sameLogin(prev, a, org) && typeof prevAt === 'number' && Number.isFinite(prevAt)) {

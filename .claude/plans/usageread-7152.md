@@ -80,6 +80,9 @@ at 0%, had no reading at all (the card's opening).
   Weakest premise, stated: this reads an endpoint Anthropic has not documented, with the subscription token. The
   endpoint and its beta header are the ones Claude Code's own usage view reads (reasoned, not measured from its
   traffic). If Anthropic objects, the failure is a refusal, which now backs off, and the status line still works.
+- Review 15: a refused profile request (`profile-http-401/403/429`) backs off as the usage request does, and the
+  hour belongs to the login that was refused, so a folder signed in again is read at once. A test now uses the real
+  home lookup with a sandboxed HOME, so swapping the user database for $HOME turns it red.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -132,7 +135,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 36 tests (counted from a run after review 14), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 38 tests (counted from a run after review 15), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.
