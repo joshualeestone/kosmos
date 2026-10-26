@@ -85,7 +85,7 @@ test('kosmos#7193: one refusal alert on screen at a time, and the minute counts 
   // A second alert begun while one is up waits behind it (macOS queues sheets): Josh pressed OK seven times on 0.7.63.
   // Review 1: held back only while the window really has a sheet (a dropped sheet must not leave the mark set), and said.
   const showing = code.indexOf('if tlsPinAlertShowing, window == nil || window?.attachedSheet != nil {');
-  assert.match(code, /attachedSheet != nil \{\n\s+logLine\("tls-pin: an alert is already on screen/);
+  assert.match(code, /attachedSheet != nil \{\n\s+logToSystem\("tls-pin: an alert is already on screen/);
   assert.match(code, /if now - tlsPinDismissedAt < 60 \{ return \}/, 'one minute after the last dismissal, whichever computer');
   const quiet = code.indexOf('if let at = tlsPinToldAt[host], now - at < 60 { return }');
   const set = code.indexOf('tlsPinAlertShowing = true');

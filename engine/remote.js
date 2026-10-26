@@ -3087,8 +3087,11 @@ function tlsPinSayWhy(address, said, now) {
   if (at !== undefined && now - at < 60 * 1000) return;
   tlsPinSaidAt.set(address, now);
   const home = require('os').homedir();
+  /* Review 2: an unreachable computer's reason carries its address (the tunnel's HTTP client prints the URL first), so
+     the address is taken out, in any case, after the home folder: the line names no computer. */
+  const addr = new RegExp(String(address).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
   const why = String(said || '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 2).join(' / ')
-    .split(home).join('~').slice(0, 300) || 'no reason given';
+    .split(home).join('~').replace(addr, 'that computer').slice(0, 300) || 'no reason given';
   console.error('remote: tls-pin answered required for another computer: ' + why);
 }
 const SPKI = /^[0-9a-f]{64}$/;

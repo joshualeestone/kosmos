@@ -41,6 +41,8 @@ if (args[0] === 'tls-pin') {
   if (mode === 'old') { process.stderr.write("error: unrecognized subcommand 'tls-pin'\\n"); process.exit(2); }
   if (mode === 'none') { console.log(JSON.stringify({ state: 'none', because: 'the computer answered 404' })); process.exit(0); }
   if (mode === 'required') { console.log(JSON.stringify({ state: 'required', because: 'statement refused: other_peer' })); process.exit(0); }
+  // kosmos#7193 review 2: what tlspin.rs fetch() says when it cannot reach the computer (ureq's Transport puts the URL first).
+  if (mode === 'unreach') { console.log(JSON.stringify({ state: 'required', because: 'pinned here, and no statement: could not reach the computer: ' + args[args.indexOf('--to') + 1].toUpperCase() + '/_kosmos/tls-pin: Dns Failed: no record' })); process.exit(0); }
   if (mode === 'badkey') { console.log(JSON.stringify({ state: 'pinned', spki: ['ABC'], from: 'mac-b' })); process.exit(0); }
   if (mode === 'nokey') { console.log(JSON.stringify({ state: 'pinned', spki: [], from: 'mac-b' })); process.exit(0); }
   if (mode === 'odd') { console.log(JSON.stringify({ state: 'maybe' })); process.exit(0); }
@@ -103,9 +105,13 @@ test('kosmos#7193: a required answer says why in the board log, once a minute pe
     await remote.tlsPin('f.kosmosplus.com');   // another address: said
     mode('none');
     await remote.tlsPin('g.kosmosplus.com');   // CONTROL: a definite answer says nothing
+    mode('unreach');
+    await remote.tlsPin('tmnt2.kosmosplus.com');   // review 2: the reason carries the address (here in capitals)
   } finally { console.error = was; }
   const said = lines.filter((l) => l.startsWith('remote: tls-pin answered required'));
-  assert.equal(said.length, 2, JSON.stringify(lines));
+  assert.equal(said.length, 3, JSON.stringify(lines));
+  assert.match(said[2], /could not reach the computer: HTTPS:\/\/that computer\/_kosmos\/tls-pin: Dns Failed/, said[2]);
+  assert.ok(!/tmnt2/i.test(said[2]), 'the unreachable computer\'s address (or its first label) is in the line: ' + said[2]);
   assert.match(said[0], /statement refused: other_peer/, 'the tunnel\'s own reason is in the line');
   assert.match(said[1], /boom at/, 'a crash says what the tunnel printed');
   assert.ok(said.every((l) => !l.includes('kosmosplus.com')), 'no computer name in the line');

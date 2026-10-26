@@ -64,3 +64,11 @@ covers both, since the mark is app-wide.
   - Nits taken: "check that both computers are on and connected to the internet" (several causes, not one); one minute
     after the last dismissal for every computer (tlsPinDismissedAt), so two failing computers do not take turns; the
     test strips block comments before matching.
+- Round 2: 1 blocker, 0 warnings, 1 nit.
+  - [BLOCKER] an unreachable computer's reason carries its address (kosmos-relay tlspin.rs fetch(): "could not reach the
+    computer: {e}", and ureq 2.12.1's Transport Display prints the URL first), so the "no computer name" line would have
+    named it in exactly this card's case. The address is now taken out, in any case, after the home folder; the fake
+    tunnel prints the real shape (in capitals) and the test asserts neither the address nor its first label is left.
+    Without the strip it goes red.
+  - Nit taken: the held-back line goes to the unified log (logToSystem, fixed words), so a held-back refusal is
+    recorded on the person's Mac; native-app.applog-5481.test.js counts 5 callers and names it.

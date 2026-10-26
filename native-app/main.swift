@@ -3667,7 +3667,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            its completion (#2807), which would leave the mark set for good; so the mark holds an alert back only while a
            sheet is really attached (or a runModal one is up, which clears its own mark). Held back is said, not silent. */
         if tlsPinAlertShowing, window == nil || window?.attachedSheet != nil {
-            logLine("tls-pin: an alert is already on screen, so this refusal is not shown again")
+            logToSystem("tls-pin: an alert is already on screen, so this refusal is not shown again")
             return
         }
         tlsPinAlertShowing = false
