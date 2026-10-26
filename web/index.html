@@ -71322,6 +71322,11 @@ async function pjsOwnCopy() {
   msg.textContent = ok ? 'Code copied.' : copyRefusedLine(focused);
 }
 document.getElementById('pjs-own-add').addEventListener('click', pjsOwnAdd);
+/* #7246 review 3: the hint follows the select as the person chooses, not only at the next poll. */
+document.getElementById('pjs-notices').addEventListener('change', () => {
+  const p = typeof pjById === 'function' && typeof PJ_CURRENT !== 'undefined' ? pjById(PJ_CURRENT) : null;
+  if (p) pjPaintNoticesHint(p);
+});
 document.getElementById('pjs-own-copy').addEventListener('click', pjsOwnCopy);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {
   const b = e.target.closest('button');

@@ -85,6 +85,8 @@ test('#7246 s2 review 1: the hint follows the member count by poll, without touc
   const facts = page.lift(SCRIPT, 'paintSettingsFacts');
   assert.match(facts, /pjPaintNoticesHint\(p\)/, 'the poll repaint does not repaint the hint');
   assert.doesNotMatch(facts, /pjPaintNoticesSelect\(/, 'the poll repaint resets the select');
+  // Review 3: and it follows the person's own choice at once (a change listener on the select).
+  assert.match(SCRIPT, /getElementById\('pjs-notices'\)\.addEventListener\('change', \(\) => \{[^}]*pjPaintNoticesHint\(p\)/, 'the hint waits for the poll while the person chooses');
 });
 
 test('#7246 s2 review 1: the save sends roomNotices only when THIS page changed it, never another tab\'s value back', () => {
