@@ -217,25 +217,27 @@ async function project7196(page, name, agent) {
       p = (await (await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json()).project;
       await fetch('/api/project/' + p.id + '/agent/' + encodeURIComponent(agent), { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     }
-    return p.id;
+    return { id: p.id, createdAt: p.createdAt };
   }, { name, agent });
 }
 /* The posts go straight into the store's log, as the seed writes the sample room (the room's POST refuses on this
    board: the design-shots run's first pass showed both rooms empty, "Nothing here yet"). Once per project id. */
 const SEEDED_7196 = new Set();
-function seedPosts7196(pid, from, texts) {
+function seedPosts7196({ id: pid, createdAt }, from, texts) {
   if (SEEDED_7196.has(pid)) return;
   SEEDED_7196.add(pid);
-  const t0 = Date.now() - 3600e3;
+  /* After the project's own createdAt: since #7185 no reader is given a room row stamped before it (#7233 is the
+     shared seed's half of this). One second apart from there. */
+  const t0 = (Date.parse(createdAt) || Date.now()) + 1000;
   const lines = texts.map((text, i) => ({ kind: 'post', id: 'r7196-' + pid + '-' + (i + 1), project: pid, from, to: [], text,
-    at: new Date(t0 + i * 60e3).toISOString(), outcomes: {} }));
+    at: new Date(t0 + i * 1000).toISOString(), outcomes: {} }));
   const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
   fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 }
 async function busyProject7196(page, agent) {
-  const pid = await project7196(page, BUSY_7196, agent);
-  seedPosts7196(pid, agent, Array.from({ length: 24 }, (_, i) => 'Room busy 7196 post ' + (i + 1) + ': a line or two of ordinary project talk, so the room scrolls.'));
-  return pid;
+  const made = await project7196(page, BUSY_7196, agent);
+  seedPosts7196(made, agent, Array.from({ length: 24 }, (_, i) => 'Room busy 7196 post ' + (i + 1) + ': a line or two of ordinary project talk, so the room scrolls.'));
+  return made.id;
 }
 async function roomFloor7196(page) {
   await page.evaluate(() => { window.scrollTo(0, 0); const r = document.querySelector('#pj-room'); if (r) r.scrollTop = r.scrollHeight; });
@@ -1080,8 +1082,9 @@ const SCREENS = [
   }, verify: async (page) => { await newestAbove7196(page, 24); },
   after: async (page) => { await throwawayProjectGone(page, BUSY_7196); } },
   { name: 'room-short-7196', owner: 'Angel', go: async (page, data) => {
-    const id = await project7196(page, 'Short room', data.chatAgent);
-    seedPosts7196(id, data.chatAgent, ['Just one message so far.']);
+    const made = await project7196(page, 'Short room', data.chatAgent);
+    seedPosts7196(made, data.chatAgent, ['Just one message so far.']);
+    const id = made.id;
     await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
     await roomFloor7196(page);
   }, verify: async (page) => { await newestAbove7196(page, 1); },
