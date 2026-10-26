@@ -237,3 +237,57 @@ test('#7180 task activity says what a hold waits for, and that it was met', () =
   assert.match(fn({ kind: 'hold-stale', told: 'rex', met: 'task #5 is closed', reached: true }), /What its hold waited for happened .*task #5 is closed.*was told it can come off hold/);
   assert.match(fn({ kind: 'hold-stale', told: 'rex', posts: 4, reached: true }), /worked in its project room/, 'CONTROL: a posts line');
 });
+
+test('#7180 sweep: a met line delivered through the sweep never blocks a later posts line for the same hold (one shared book)', () => {
+  const f = fixture();
+  tasks.setOnHold(f.id, f.a, true, { until: { task: f.b } });
+  tasks.close(f.id, f.b);
+  const now = Date.now();
+  const holdAt = iso(now - 5 * HOUR);
+  const read = () => [{ kind: 'hold-set', at: holdAt, via: 'agent' }];
+  const only = () => projects.readAll().filter((x) => x.id === f.id);
+  const book = new Map();
+  const lines = [];
+  const pass = (rows, at) => hs.sweep({
+    projects: only(), rows, now: at, read, roster: BASE, allowed: true, limit: { on: false }, book,
+    idleSince: () => at - 10 * 60000, DELIVERY: { PLACED: 'placed' },
+    deliver: (who, text) => { lines.push(text); return { state: 'placed' }; },
+  });
+  pass([], now);
+  assert.equal(lines.length, 1, 'the met line was not delivered');
+  assert.match(lines[0], /and that has now happened/);
+  const posts = Array.from({ length: 3 }, (_, i) => ({ kind: 'post', id: 'z' + i, project: f.id, from: REX, to: [ADA], text: 'on it', at: iso(Date.parse(holdAt) + (i + 1) * 60000) }));
+  const second = pass(posts, now + 2 * 60000);
+  assert.equal(lines.length, 2, 'the posts line was blocked by the met line\'s book entry: ' + JSON.stringify(second.results));
+  assert.match(lines[1], /posted 3 times/);
+});
+
+test('#7180 holdUntilOf: an impossible date or time is refused, not rolled over', () => {
+  const f = fixture();
+  // A 30-day month inside the next year, and its day 31.
+  const d = new Date();
+  let y = d.getUTCFullYear(); let m = d.getUTCMonth() + 1;
+  for (;;) { m += 1; if (m > 12) { m = 1; y += 1; } if ([4, 6, 9, 11].includes(m)) break; }
+  const bad31 = y + '-' + String(m).padStart(2, '0') + '-31';
+  const soon = new Date(Date.now() + 48 * HOUR).toISOString().slice(0, 10);
+  for (const at of [bad31, soon + 'T24:00Z']) {
+    const r = status(() => tasks.setOnHold(f.id, f.a, true, { until: { at } }));
+    assert.ok(r, at + ' was accepted (rolled over to another day)');
+    assert.match(r.message, /date or time/, at);
+  }
+  assert.equal(status(() => tasks.setOnHold(f.id, f.a, true, { until: { at: soon + 'T23:59Z' } })), null, 'CONTROL: a real time was refused');
+});
+
+test('#7180 the person\'s hold: an agent\'s bare re-hold keeps it whole; the person\'s screen hold sets exactly what it says', () => {
+  const f = fixture();
+  tasks.setOnHold(f.id, f.a, true, { viaScreen: true, until: { task: f.b } });
+  const t = tasks.setOnHold(f.id, f.a, true);   // an agent, no condition
+  assert.deepEqual(t.onHoldUntil, { task: f.b }, 'an agent\'s bare re-hold cleared the person\'s condition');
+  assert.equal(t.onHoldByPerson, true, 'an agent\'s bare re-hold dropped the person\'s mark');
+  // An agent's own conditioned hold, taken over on the screen with no condition: the person's hold is theirs, as given.
+  const g = fixture();
+  tasks.setOnHold(g.id, g.a, true, { until: { task: g.b } });
+  const s = tasks.setOnHold(g.id, g.a, true, { viaScreen: true });
+  assert.equal(s.onHoldByPerson, true);
+  assert.equal(s.onHoldUntil, undefined, 'the person\'s hold kept the agent\'s condition');
+});

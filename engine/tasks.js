@@ -1057,10 +1057,11 @@ function holdUntilOf(raw, p, self, now = Date.now()) {
     if (!other) throw bad('there is no task #' + m + ' on this project to wait for');
     if (progressOf(other).closed) throw bad('task #' + m + ' is already closed, so there is nothing to wait for', 409);
     // A wait that leads back to this task would never be met: follow what each awaited task waits for.
-    const seen = new Set([Number(self)]);
+    const seen = new Set([m]);
     for (let at = other; at && isOnHold(at) && at.onHoldUntil && Number.isInteger(at.onHoldUntil.task);) {
       const next = at.onHoldUntil.task;
-      if (seen.has(next)) throw bad('task #' + m + ' waits, through its own hold, for this task, so neither would ever be met');
+      if (next === Number(self)) throw bad('task #' + m + ' waits, through its own hold, for this task, so neither would ever be met');
+      if (seen.has(next)) break;   // a loop that does not come back here: not this hold's to refuse
       seen.add(next);
       at = byNumber(p, next);
     }
@@ -1069,7 +1070,14 @@ function holdUntilOf(raw, p, self, now = Date.now()) {
   /* Only an ISO date or date-time: Date.parse also takes forms like "2026-11-02 09:00" or "Nov 2", read in the board's
      own zone, which the agent may not share. */
   const ISO = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?)?$/i;
-  const at = typeof raw.at === 'string' && ISO.test(raw.at.trim()) ? Date.parse(raw.at.trim()) : NaN;
+  /* And a real date and time: Date.parse rolls 2026-02-30 to March 2 and T24:00 to the next day, silently. */
+  const parts = typeof raw.at === 'string' ? /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?/i.exec(raw.at.trim()) : null;
+  const real = parts && (() => {
+    const [y, mo, d, h = 0, mi = 0, sec = 0] = parts.slice(1).map((v) => (v === undefined ? undefined : Number(v)));
+    const u = new Date(Date.UTC(y, mo - 1, d, h, mi, sec));
+    return u.getUTCFullYear() === y && u.getUTCMonth() === mo - 1 && u.getUTCDate() === d && u.getUTCHours() === h && u.getUTCMinutes() === mi && u.getUTCSeconds() === sec;
+  })();
+  const at = typeof raw.at === 'string' && ISO.test(raw.at.trim()) && real ? Date.parse(raw.at.trim()) : NaN;
   if (!Number.isFinite(at)) throw bad('the time a hold waits for must be a date or time, for example 2026-11-02 or 2026-11-02T09:00:00Z');
   /* A time of day with no zone is read in the board's own zone, which the agent may not share: ask for the zone. A bare
      date is midnight UTC (Date.parse's reading), which the CLI says back as the stored time. */
@@ -1125,7 +1133,10 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
       closed.status = 409;
       throw closed;
     }
-    const want = onHold && until != null ? holdUntilOf(until, p, t.number) : null;
+    /* kosmos#7180: an agent's bare re-hold of the person's hold leaves it as it is, condition included (only the person
+       changes their hold); an agent's own hold, or any screen hold, is set to exactly what it is given. */
+    const keepPersons = onHold && until == null && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true;
+    const want = keepPersons ? (t.onHoldUntil || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
     const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
     /* kosmos#7180: what the person's hold waits for is theirs too, so an agent cannot change it (that change would
        also count as a new hold and drop the person's mark below). */
