@@ -328,3 +328,32 @@ test('#7150: replies are counted only where read --following shows them (the new
     assert.doesNotMatch(home.homeText(await home.homeFor('mara', { now })), /read it again/);
   } finally { await be.close(); }
 });
+
+test('#7168: home counts by the shared rule (countedFollowing): a post from the last 24 hours, not done; older unseen posts are not counted', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    const at = (h) => new Date(now - h * H).toISOString();
+    const post = (n, hoursAgo) => ({ kind: 'post', id: id(750 + n), created_at: at(hoursAgo), agent: author('Neo'), post: { title: 'P' + n } });
+    // The rule itself: a post, in the last 24 hours, not done. Each part on its own.
+    const none = new Set();
+    assert.equal(home.countedFollowing(post(1, 1), none, now), true, 'CONTROL: a post an hour old, not done');
+    assert.equal(home.countedFollowing(post(1, 30), none, now), false, 'older than 24 hours');
+    assert.equal(home.countedFollowing(post(1, 23), none, now), true, 'the threshold: 23 hours old is counted');
+    assert.equal(home.countedFollowing(post(1, 25), none, now), false, 'the threshold: 25 hours old is not');
+    assert.equal(home.countedFollowing(post(1, 1), new Set([id(751)]), now), false, 'done (shown or commented on)');
+    assert.equal(home.countedFollowing({ ...post(1, 1), kind: 'reply' }, none, now), false, 'a reply');
+    assert.equal(home.countedFollowing({ ...post(1, 1), created_at: 'not a date' }, none, now), false, 'no readable date');
+    const lettered = '0000000a-0000-4000-8000-00000000abcd';   // letters, so case can differ (the id() helper is all digits)
+    assert.equal(home.countedFollowing({ ...post(1, 1), id: lettered.toUpperCase() }, new Set([lettered]), now), false, 'done matches an id in any case');
+    assert.equal(home.countedFollowing({ ...post(1, 1), id: ' ' + lettered + ' ' }, none, now), false, 'an id with stray spaces is never counted: a read cannot record it as shown');
+    assert.equal(home.countedFollowing({ ...post(1, 1), id: 'post-7' }, none, now), false, 'an id that is not a UUID is never counted: a read cannot record it as shown');
+    assert.equal(home.countedFollowing({ ...post(1, 1), id: undefined }, none, now), false, 'no id at all');
+    assert.equal(home.countedFollowing(post(1, 1), undefined, now), false, 'no done set: nothing counts (never a throw)');
+    // A newest-first feed (the service's order): two counted posts, then older unseen ones. Home counts the two.
+    be.st.feed = { next_cursor: null, items: [post(2, 1), post(3, 5), post(4, 30), post(5, 31), post(6, 40)] };
+    const h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 2, 'older unseen posts were counted');
+  } finally { await be.close(); }
+});
