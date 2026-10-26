@@ -747,6 +747,13 @@ if [ -z "$adopt" ]; then
 
   launch_pane() {
     prepare_secret_entry
+    # #7206 review 2: a vendor account's key travels only as a launch secret. If that handoff could not be built, the
+    # pane would run with the vendor's address and NO key of its own, and any token in tmux's global environment would
+    # be sent to the vendor instead. Refuse rather than launch.
+    if [ "${COMPAT_KEYED:-0}" = 1 ] && [ "${#SECRET_ENTRY[@]}" -eq 0 ]; then
+      say "$SESSION: its provider key could not be handed to the agent privately; the agent was not started"
+      return 1
+    fi
     # #4530: marked started BEFORE new-session and unmarked if it fails. bash holds a trapped
     # SIGTERM until new-session returns, so marking after it would let a stop during the call
     # (long when it starts the tmux server) retire a run that now exists. Marked early, the
@@ -1492,10 +1499,10 @@ if [ -z "$adopt" ]; then
         fi
         # Set what the account names: the key as a launch secret, the rest as -e pairs (a -e pair beats tmux's global
         # environment). The model also goes to --model, since $MODEL would otherwise send a claude-* id to the vendor.
-        _cx_unset=(ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_OAUTH_TOKEN)
+        _cx_unset=(ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_BETAS CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_OAUTH_TOKEN)
         for _cx_pair in "${_cx_set[@]}"; do
           case "$_cx_pair" in
-            ANTHROPIC_AUTH_TOKEN=*) add_launch_secret ANTHROPIC_AUTH_TOKEN "${_cx_pair#ANTHROPIC_AUTH_TOKEN=}" ;;
+            ANTHROPIC_AUTH_TOKEN=*) add_launch_secret ANTHROPIC_AUTH_TOKEN "${_cx_pair#ANTHROPIC_AUTH_TOKEN=}"; COMPAT_KEYED=1 ;;
             ANTHROPIC_MODEL=*) MODEL="${_cx_pair#ANTHROPIC_MODEL=}"; PANE_ENV+=(-e "$_cx_pair") ;;
             ANTHROPIC_*=*|CLAUDE_CODE_*=*) PANE_ENV+=(-e "$_cx_pair") ;;
           esac

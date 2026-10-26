@@ -38,6 +38,13 @@ const VENDORS = Object.freeze({
   }),
 });
 
+/* Review 2: the vendor for an id, from the table's OWN keys only. A plain lookup also finds inherited names
+   ("constructor", "toString"), so a hand-edited file naming one would have thrown inside list() and taken the whole
+   account list down. */
+function vendorOf(id) {
+  return typeof id === 'string' && Object.prototype.hasOwnProperty.call(VENDORS, id) ? VENDORS[id] : null;
+}
+
 /* A function, not a const (the #1337 rule): a caller may set AGENT_WORKFORCE_HOME after requiring this module. */
 function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
 
@@ -62,7 +69,7 @@ function vendorOfName(dir) {
  */
 function accountProblem(ep) {
   const e = ep && typeof ep === 'object' ? ep : {};
-  const v = VENDORS[e.vendor];
+  const v = vendorOf(e.vendor);
   if (!v) return 'it names no provider Kosmos knows';
   if (!v.models.includes(e.model)) return `${v.name} has no model called ${String(e.model || '').slice(0, 60) || '(none)'}`;
   const k = String(e.key == null ? '' : e.key);
@@ -106,7 +113,7 @@ function rowFor(dir) {
   if (!vendor) return null;
   const got = readAccount(dir);
   if (got.kind === 'absent') return null;
-  const v = VENDORS[vendor];
+  const v = vendorOf(vendor);
   const acct = got.kind === 'ok' ? got.account : null;
   return {
     provider: vendor,
@@ -134,7 +141,9 @@ function list(vendor) {
     let st = null;
     try { st = fs.lstatSync(dir); } catch { st = null; }
     if (!st || !st.isDirectory()) continue; // a symlink or a file named like an account is not one
-    const row = rowFor(dir);
+    /* Review 2: one folder Kosmos cannot read never takes the list down with it. */
+    let row = null;
+    try { row = rowFor(dir); } catch { row = null; }
     if (row) out.push(row);
   }
   return out;
@@ -146,7 +155,7 @@ function cleanLabel(label) {
 
 /** The account folder for a vendor and label, or a refusal. */
 function dirForLabel(vendor, label) {
-  if (!VENDORS[vendor]) return { ok: false, because: 'Kosmos does not know that provider' };
+  if (!vendorOf(vendor)) return { ok: false, because: 'Kosmos does not know that provider' };
   const slug = cleanLabel(label);
   if (!slug) return { ok: false, because: 'give this account a name using letters, numbers or dashes' };
   return { ok: true, label: slug, dir: path.join(homeDir(), dirPrefix(vendor) + slug) };
@@ -187,7 +196,7 @@ async function askModels(vendor, key, timeoutMs) {
     } finally { clearTimeout(t); }
   });
   try {
-    return await f(VENDORS[vendor].checkUrl, { method: 'GET', headers: { authorization: 'Bearer ' + key } }, timeoutMs);
+    return await f(vendorOf(vendor).checkUrl, { method: 'GET', headers: { authorization: 'Bearer ' + key } }, timeoutMs);
   } catch (err) {
     return { status: 0, body: null, unreachable: true, timedOut: !!(err && err.name === 'AbortError') };
   }
@@ -199,7 +208,7 @@ async function askModels(vendor, key, timeoutMs) {
  * UNKNOWN, never a guessed NONE.
  */
 async function validateLive(ep, opts) {
-  const v = VENDORS[ep.vendor];
+  const v = vendorOf(ep.vendor);
   const r = await askModels(ep.vendor, ep.key, opts && opts.timeoutMs);
   if (r.unreachable && r.timedOut) return { state: STATE.UNKNOWN, because: v.name + ' did not answer in time' };
   if (r.unreachable) return { state: STATE.UNKNOWN, because: 'we could not reach ' + v.name };
@@ -308,7 +317,7 @@ function removeAccount(dir, usedBy) {
 const LAUNCH_VARS = Object.freeze([
   'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL',
   'ANTHROPIC_SMALL_FAST_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL',
-  'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_CUSTOM_HEADERS',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_CUSTOM_HEADERS', 'ANTHROPIC_BETAS', 'CLAUDE_CODE_SUBAGENT_MODEL',
   /* Review 1: Claude Code's other provider switches (any one makes it ignore the base URL) and its own sign-in token. */
   'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_OAUTH_TOKEN',
   /* Set, not removed: Claude Code's own background requests (updates, error reports) are not sent to Anthropic. */
@@ -322,14 +331,14 @@ const LAUNCH_VARS = Object.freeze([
  */
 function launchEnv(dir) {
   const named = vendorOfName(dir);
-  const refuse = (because) => ({ ok: false, because: `this ${named ? VENDORS[named].name + ' ' : ''}account cannot be used: ${because}` });
+  const refuse = (because) => ({ ok: false, because: `this ${named ? vendorOf(named).name + ' ' : ''}account cannot be used: ${because}` });
   try { if (fs.lstatSync(endpointFile(dir)).isSymbolicLink()) return refuse('its settings file is a link'); } catch { /* absent: below */ }
   const got = readAccount(dir);
   if (got.kind !== 'ok') {
     return refuse(got.kind === 'invalid' ? got.because : (got.kind === 'absent' ? 'it has no key set up' : 'its settings file could not be read'));
   }
   const a = got.account;
-  const v = VENDORS[a.vendor];
+  const v = vendorOf(a.vendor);
   return {
     ok: true,
     model: a.model,
@@ -341,6 +350,7 @@ function launchEnv(dir) {
       ANTHROPIC_DEFAULT_SONNET_MODEL: a.model,
       ANTHROPIC_DEFAULT_OPUS_MODEL: a.model,
       ANTHROPIC_DEFAULT_HAIKU_MODEL: a.model,
+      CLAUDE_CODE_SUBAGENT_MODEL: a.model,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     },
   };
@@ -363,7 +373,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  STATE, VENDORS, ENDPOINT_BASENAME, LAUNCH_VARS,
+  STATE, VENDORS, ENDPOINT_BASENAME, LAUNCH_VARS, vendorOf,
   homeDir, dirPrefix, forgottenPrefix, endpointFile, vendorOfName, isCompatHome, accountProblem, readAccount,
   list, cleanLabel, dirForLabel, storeAccount,
   setFetcher, askModels, validateLive, checkLive, listLive, resetLiveCacheForTest,

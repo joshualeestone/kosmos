@@ -3370,7 +3370,7 @@ function handleCompatAccountStore(req, res) {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-      const v = compatAccounts.VENDORS[body.vendor];
+      const v = compatAccounts.vendorOf(body.vendor);   // review 2: own keys only, never an inherited name
       if (!v) { sendJson(res, 400, { error: 'Kosmos does not know that provider' }); return; }
       if (!runners.resolveBin('claude').present || runners.installing('claude')) {   // filed under 'claude' (engine/runners.js)
         sendJson(res, 400, { error: `we could not find Claude Code, the runner ${v.name} agents use, on this computer`, needsRunner: true, provider: 'claude' });
@@ -3400,7 +3400,18 @@ function handleCompatAccountStore(req, res) {
             && fs.readdirSync(named.dir).length === 0;
         } catch { leftover = false; }
         if (leftover) {
-          try { fs.rmdirSync(named.dir); claimErr = claim(); } catch (e) { claimErr = e || claimErr; }
+          /* Review 2: renamed aside, not removed in place. A rename is atomic, so of two adds that both found the same
+             leftover exactly one moves it; the other's rename fails and it keeps its "already there" answer. Removing
+             in place let the second remove the first's fresh claim and both believe they owned the name. The aside
+             name is a removed-account name, which the list never shows. */
+          const aside = path.join(path.dirname(named.dir),
+            `${compatAccounts.forgottenPrefix(v.id)}${named.label}.reclaimed-${process.pid}-${Date.now()}`);
+          let moved = false;
+          try { fs.renameSync(named.dir, aside); moved = true; } catch { moved = false; }
+          if (moved) {
+            try { fs.rmdirSync(aside); } catch { /* best effort: an empty, hidden folder */ }
+            claimErr = claim();
+          }
         }
       }
       if (claimErr) {
