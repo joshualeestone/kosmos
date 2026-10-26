@@ -41,8 +41,9 @@ function followableLinkTarget(to) {
   if (t.includes(':') || t.includes('?')) return null;
   /* A root-relative target (\dir\x, what mklink writes for a target typed without a drive) is a path on the link's own
      drive, resolved against it like a relative one (review 11 finding 3). Not one that names the object manager's own
-     folders (\Device\..., \GLOBAL??\...), which only the NT spellings above may reach. */
-  if (/^[\\/](?![\\/])/.test(t)) return /^[\\/](device|global)/i.test(t) ? null : t;
+     folders (\Device\...; \GLOBAL??\ has a `?`, refused above), which only the NT spellings above may reach. The word
+     is matched whole (review 12 NIT), so \devices\x or \Global-share\x is a folder like any other. */
+  if (/^[\\/](?![\\/])/.test(t)) return /^[\\/]device(?:[\\/]|$)/i.test(t) ? null : t;
   if (/^[\\/]/.test(t)) return null;
   return t;
 }
@@ -86,13 +87,16 @@ function shareTail(p) {
 }
 /* Whether a project folder left unresolved may hold the file, by spelling, erring toward yes: inside it as given or as
    resolved, or on a share whose path below the server matches, whatever the server is called (review 5 finding 1).
-   A folder in a namespace this cannot place (not a drive, a share or a local volume: \\.\pipe\..., another device)
-   answers yes (review 8 finding 1): unknown is treated as "may hold", so it refuses rather than lets through. */
+   A folder written through the object manager's root (\\?\GLOBALROOT\..., not a share and not a local volume this
+   reads) can name any drive's files, so it answers yes (review 8 finding 1): refuse rather than let through. Any other
+   namespace a skip cannot place (\\.\pipe\..., \\.\COM1) holds no files and answers no, so one such project row cannot
+   make every agent's project attach refuse (review 12 finding 2). */
+const OBJECT_MANAGER_ROOT = /^[\\/]{2}[?.][\\/]GLOBALROOT[\\/]/i;
 function mayHold(folder, given, real) {
   if (writtenInside(given, folder) || writtenInside(real, folder)) return true;
-  if (isNetworkSpelling(folder) && !shareOf(folder)) return true;
+  if (isNetworkSpelling(folder) && !shareOf(folder)) return OBJECT_MANAGER_ROOT.test(String(folder));
   const ft = shareTail(folder);
   return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && t.startsWith(ft + '\\'); });
 }
 
-module.exports = { NAMESPACE, WINDOWS_DEVICE_NAME, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, mayHold };
+module.exports = { NAMESPACE, WINDOWS_DEVICE_NAME, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, mayHold };

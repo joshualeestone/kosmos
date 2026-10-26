@@ -514,7 +514,10 @@ test('#7221 review 8-1: the namespace spellings of a drive, a share and a local 
   assert.equal(winpath.isLocalVolumeSpelling('\\\\?\\GLOBALROOT\\Device\\HarddiskVolume3\\work'), true);
   assert.equal(winpath.isLocalVolumeSpelling('\\\\host\\share\\x'), false);
   // a folder in a namespace mayHold cannot place answers "may hold", so a skip of it refuses rather than lets through
-  assert.equal(winpath.mayHold('\\\\.\\pipe\\x', 'C:\\work\\f.txt', 'C:\\work\\f.txt'), true);
+  // review 12 finding 2: a pipe or device namespace holds no files, so it answers no; the object manager's root can
+  // name any drive's files, so it answers yes
+  assert.equal(winpath.mayHold('\\\\.\\pipe\\x', 'C:\\work\\f.txt', 'C:\\work\\f.txt'), false);
+  assert.equal(winpath.mayHold('\\\\?\\GLOBALROOT\\GLOBAL??\\C:\\work', 'C:\\work\\f.txt', 'C:\\work\\f.txt'), true);
   assert.equal(winpath.mayHold('\\\\.\\C:\\work\\inner', 'C:\\work\\inner\\f.txt', 'C:\\work\\inner\\f.txt'), true, 'read as C:\\work\\inner');
   assert.equal(winpath.mayHold('\\\\.\\C:\\work\\inner', 'C:\\work\\other\\f.txt', 'C:\\work\\other\\f.txt'), false);
 });
@@ -639,4 +642,50 @@ test('#7221 review 11-2: the agent\'s own project folder that is a link to a sha
     PROJECTS = [{ id: 'p-other-share', name: 'Other share', folder: proj, agents: ['someone-else'] }];
     refusedUnresolved(path.join(proj, 'f.txt'), replyfile.ON_NETWORK, 'another agent\'s link to a share');
   } finally { fs.rmSync(proj, { force: true }); }
+});
+
+/* ---------- review 12 ---------- */
+
+test('#7221 review 12-1: past the agent\'s own project link to a share, a link further down to another share is refused unresolved', linkOnly, (t) => {
+  const target = path.join(SANDBOX, 'own-share-target2');
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, 'f.txt'), 'on the share\n');
+  const targetUnc = adminShareOf(target);
+  if (!targetUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  fs.symlinkSync('\\\\10.255.255.1\\share2', path.join(target, 'elsewhere'), 'dir');   // on the share, a link out
+  const proj = path.join(SANDBOX, 'own-share-link2');
+  fs.symlinkSync(targetUnc, proj, 'dir');
+  try {
+    PROJECTS = [{ id: 'p-own-share2', name: 'Own share', folder: proj, agents: [WHO] }];
+    refusedUnresolved(path.join(proj, 'elsewhere', 'f.txt'), replyfile.ON_NETWORK, 'a link on the share to another server');
+    // CONTROL: the project's own file, beside that link, still attaches
+    const r = replyfile.attach(WHO, path.join(proj, 'f.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    replyfile.discard(r.rec);
+  } finally { fs.rmSync(proj, { force: true }); fs.rmSync(path.join(target, 'elsewhere'), { force: true }); }
+});
+
+test('#7221 review 12-2: another agent\'s project written in a pipe namespace does not make this agent\'s project files refuse', winOnly, () => {
+  const proj = path.join(SANDBOX, 'mine-beside-pipe');
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'notes.txt'), 'mine\n');
+  PROJECTS = [
+    { id: 'p-pipe', name: 'Pipe', folder: '\\\\.\\pipe\\kosmos-7221', agents: ['someone-else'] },
+    { id: 'p-mine-pipe', name: 'Mine', folder: proj, agents: [WHO] },
+  ];
+  const r = replyfile.attach(WHO, path.join(proj, 'notes.txt'), { platform: 'win32' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  replyfile.discard(r.rec);
+});
+
+test('#7221 review 12 NIT: the agent\'s own project written \\\\?\\UNC\\host\\share attaches a file named by its plain share path', winOnly, (t) => {
+  const proj = path.join(SANDBOX, 'uncproj-long');
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'f.txt'), 'on the share project\n');
+  const projUnc = adminShareOf(proj);
+  if (!projUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  PROJECTS = [{ id: 'p-unc-long', name: 'Unc long', folder: '\\\\?\\UNC\\' + projUnc.slice(2), agents: [WHO] }];
+  const r = replyfile.attach(WHO, path.join(projUnc, 'f.txt'), { platform: 'win32' });
+  assert.equal(r.ok, true, 'attaches as on main: ' + JSON.stringify(r));
+  replyfile.discard(r.rec);
 });

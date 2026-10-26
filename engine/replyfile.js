@@ -51,7 +51,7 @@ const dmfiles = require('./dmfiles');
 const projects = require('./projects');
 const store = require('./store');
 /* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
-const { NAMESPACE, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, mayHold } = require('./winpath');
+const { NAMESPACE, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, mayHold } = require('./winpath');
 
 /* The type a stored file is described by, from its extension. The page words the
    card from it (pjFileWord) and the download carries it with nosniff, an attachment
@@ -385,7 +385,11 @@ function agentRoots(sessionName, filesDir, projectList) {
     if (!p || typeof p.folder !== 'string' || !(p.agents || []).includes(sessionName)) continue;
     const d = driveOf(p.folder);
     if (d) addDrivePath(p.folder);
-    if (d || isPlainShare(p.folder)) folders.push(p.folder);
+    /* A share written \\?\UNC\host\share is read as \\host\share (review 12 NIT). A local volume written without a
+       letter adds nothing here: its files named by a drive path on a drive no other root reaches are refused, the safe
+       direction (named in the plan). */
+    if (d) folders.push(p.folder);
+    else if (shareOf(p.folder)) folders.push(asShareSpelling(p.folder));
   }
   return { drives, folders, walkFrom, reached: null };
 }
@@ -456,12 +460,18 @@ function listed(p) {
   try { return fs.readdirSync(path.win32.dirname(p)).some((n) => n.toLowerCase() === name); } catch { return false; }
 }
 function winLinkRefusal(p, roots) {
-  /* One link the walk stops at without refusing: one of the agent's own project folders that is itself a link to a
-     plain share (C:\x\proj -> \\host\share\proj), the person's choice of folder as a mapped drive is (review 11
-     finding 2). The path is then resolved, and winRealRefusal lets its share real path through as a project file. */
-  const ownShareProject = (linkPath, to) => !!roots && isPlainShare(to)
-    && roots.folders.some((f) => !!driveOf(f) && sameWrittenPath(linkPath, f));
-  return walkLinks(p, (reached) => winSpellingRefusal(reached, roots), 0, ownShareProject);
+  /* One link the walk follows that the allow-list would not: one of the agent's own project folders that is itself a
+     link to a plain share (C:\x\proj -> \\host\share\proj), the person's choice of folder as a mapped drive is (review
+     11 finding 2). The share it names is then treated as one of the agent's project folders for the rest of the walk,
+     so the walk goes on down it and still refuses a link further down that leaves for another share (review 12
+     finding 1). winRealRefusal later lets the share real path through as a project file. */
+  const view = roots ? { ...roots, folders: roots.folders.slice() } : null;
+  const ownShareProject = (linkPath, to) => {
+    if (!view || !isPlainShare(to) || !roots.folders.some((f) => !!driveOf(f) && sameWrittenPath(linkPath, f))) return false;
+    view.folders.push(to);
+    return true;
+  };
+  return walkLinks(p, (reached) => winSpellingRefusal(reached, view), 0, ownShareProject);
 }
 /* Whether two drive paths are written the same, as Windows compares them (case-insensitively, either slash). */
 function sameWrittenPath(a, b) {
@@ -494,7 +504,10 @@ function walkLinks(p, onPath, hops = 0, acceptLink = null) {
     let to;
     try { to = fs.readlinkSync(cur); } catch { return CANNOT_READ; }
     const target = followableLinkTarget(to);
-    if (target === null) return (acceptLink && acceptLink(cur, to)) ? null : unfollowedLinkRefusal(to);
+    if (target === null) {
+      if (!acceptLink || !acceptLink(cur, to)) return unfollowedLinkRefusal(to);
+      return walkLinks(path.win32.resolve(to, ...parts.slice(i + 1)), onPath, hops + 1, acceptLink);
+    }
     const next = path.win32.resolve(path.win32.dirname(cur), target, ...parts.slice(i + 1));
     return walkLinks(next, onPath, hops + 1, acceptLink);
   }

@@ -62,7 +62,9 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    link's own drive, review 11 finding 3), but not `\Device\...` or `\GLOBAL...` (`followableLinkTarget`, an
    allow-list). One more link is followed no further and not refused: one of the agent's OWN project folders that is
    itself a link to a plain share (`C:\x\proj -> \\host\share\proj`), the person's choice of folder as a mapped drive
-   is (review 11 finding 2, **decided**: it attached on main). Anything else is refused unfollowed: review 2 finding 1 measured a
+   is (review 11 finding 2, **decided**: it attached on main); the share it names then counts as one of the agent's
+   project folders for the rest of the walk, which goes on down it and still refuses a link there that leaves for
+   another server (review 12 finding 1). Anything else is refused unfollowed: review 2 finding 1 measured a
    target written `\\?\GLOBALROOT\Device\Mup\<host>\<share>` reading back as `\??\GLOBALROOT\...` (one backslash, past
    a `\\` deny rule) whose realpath stalled 21 s. A followed target is resolved and walked the same way (rule 1
    applied to each, so a link to another drive is refused too). More than 32 links: refused. A part that lstats
@@ -94,8 +96,10 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    `\\?\GLOBALROOT\Device\HarddiskVolumeN\`) was skipped and could not be placed by spelling. Now `\\.\C:\` reads as
    the drive path it is (like `\\?\C:\`); the Mup device and `\??\UNC` read as the shares they name; a local volume
    written without a letter is resolved as on main (local, no other computer is reached), so identity decides; and
-   any other namespace a skip cannot place counts as "may hold", so it refuses. That last rule lets an agent that
-   registers such a folder make another agent's project attach refuse: a nuisance, in the safe direction.
+   a folder written through the object manager's root (`\\?\GLOBALROOT\...`), which can name any drive's files,
+   counts as "may hold", so it refuses. Any other namespace (`\\.\pipe\`, `\\.\COM1`) holds no files and answers
+   "no", so one such project row cannot make every agent's project attach refuse (review 12 finding 2; refusing those
+   rows at create time, existing rows included, is on #7229).
 
 On Windows `attach` reads `dmfiles.filesDir` and the projects list once and hands both on, so an attach still reads
 each agent's instructions path once (#6726 r5-3) and parses the projects file once.
@@ -150,6 +154,10 @@ compare `ino` as numbers too; they are #7229 (filed), not this branch, with refu
    whose files' real paths read `\\10.0.0.5\x` (or a DFS path, or another name for the server) is not matched to them,
    and they are refused where main matched by identity. Narrow; the remedy is to write the project folder as Windows
    resolves it. Named in the code comment too.
+6. The agent's own project written as a local volume without a letter (`\\?\Volume{GUID}\...`) adds no drive to
+   its roots, so a file in it named by a drive-letter path on a drive no other root reaches is refused, where main
+   attached it by identity (review 12 NIT). Rare; the safe direction. A share written `\\?\UNC\host\share` is read
+   as the plain share it is.
 4. A path on a drive no root is written on (any caller of `/api/reply` can name `Q:\x`) walks the agent's OWN roots'
    links to learn the drives they reach (review 6 finding 2). One of the agent's own projects on a mapped drive whose
    server is down then stalls that attach, as any attach of a file in that project already would. Named in the code.
@@ -226,6 +234,11 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   attaches; the agent's own project folder that is a link to a share (through the admin share) attaches, and the same
   link as another agent's project is refused unresolved. Against iteration 10's code (8126391): all 5 fail, both
   repros by attaching the nested file (`ok: true`).
+- Review 12: past the agent's own project link to a share (through the admin share), a link on that share to another
+  server is refused unresolved while the project's own file beside it attaches; another agent's project written in a
+  pipe namespace no longer makes this agent's project files refuse; the agent's own project written
+  `\\?\UNC\host\share` attaches a file named by its plain share path; `mayHold` answers no for a pipe and yes for
+  `GLOBALROOT`. Against iteration 11's code (11d4bec): all 4 fail.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -234,7 +247,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 36/36 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 39/39 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary
