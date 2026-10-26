@@ -78,12 +78,19 @@ no profile record, and STARTS the agent: enable then bootstrap).
    projects was shown without its reason. Nits taken: the listing requires a registry row, a busy registry lock asks
    to try again, lone surrogates are stripped, the contract says `more` can be forced. Deferred to 4c: showing the
    commands a hook or MCP file runs (engine/startcommands.js commandsIn), and starting agents with
-   safe.bareRepository=explicit as a second guard. Not armed by a test: the 32 MB budget and the lone-surrogate strip.
+   safe.bareRepository=explicit as a second guard. Not armed by a test: the lone-surrogate strip (the budget gained one in round 9).
 
 8. W: finish read any lstat failure on a restored root as "no such root" and could finish an unreadable restore as
    empty (now only ENOENT skips); finish and the listing accepted a hidden world (now refused: it is off the list); a
    folder padded past the read limit could hide its start-time files (such an agent is now refused and the list says
    `more`). Nit: a comment had moved to the wrong constant.
+
+9. B: git also reads HEAD plus a commondir file naming objects and refs elsewhere as a repository, past round 7's
+   check; any top-level HEAD now counts as git (stricter than git, which errs toward refusing). W: briefs and
+   start-time files at the top of workers and projects load for every agent below and were shown with no reason; both
+   tops now get the full runs check in a "folder itself" row. The NTFS alias comment now says it holds for what the
+   restore wrote. Nits: a reflowed doc line; the lstat check named as the one that counts; the brief budget now has a
+   test through opts.briefTotal.
 
 ## Residuals, stated
 - Between finish's emptiness check and its rename, another process of the person's own (an agent already running in

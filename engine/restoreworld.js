@@ -45,9 +45,9 @@ const PLAIN_AT_START = ['CLAUDE.local.md', 'opencode.json', 'opencode.jsonc'];  
    soon as an agent starts. So an agent folder holding one is not offered, and one in the workers folder blocks all. */
 const GIT = '.git';
 const HARMLESS = new Set(['.DS_Store']);   // Finder's own metadata, which no provider reads
-/* Git also reads a folder holding HEAD, objects and refs as a repository (a bare layout, accepted by default), with no
-   .git at all. */
-const BARE = 'HEAD, objects and refs (git reads a folder holding them as a repository)';
+/* Git also reads a folder as a repository with no .git at all: HEAD with objects and refs (a bare layout, accepted by
+   default), or HEAD with a commondir file naming where they are. A top-level HEAD is therefore treated as git. */
+const BARE = 'HEAD (git can read a folder holding it as a repository)';
 const CUT = '(the folder holds more entries than were checked)';
 /* Fillers and blanks that draw nothing, beside the Cc/Cf/Zl/Zp and private-use classes: braille blank, Hangul fillers. */
 const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
@@ -152,9 +152,9 @@ function renameRetrying(src, dst) {
 
 /* After a restore that SUCCEEDED, and after its sink is closed. opts: { base, world, restoreDir, result } where
    `result` is engine/restorerun.js runRestore's answer, which must be ok. { ok, moved: [name], kept: [label],
-   failedFiles, because? }: `failedFiles` counts the files runRestore listed as failed (it answers ok with some failed,
-   since one damaged file does not fail the rest), for the screen to say. Every check runs before anything moves, so a refusal moves nothing;
-   only a rename failing part way leaves one root moved, and `moved` says which. */
+   failedFiles, because? }: `failedFiles` counts the files runRestore listed as failed (it answers ok with some
+   failed, since one damaged file does not fail the rest), for the screen to say. Every check runs before anything
+   moves, so a refusal moves nothing; only a rename failing part way leaves one root moved, and `moved` says which. */
 function finishRestoreWorld(opts = {}) {
   const { base, world, restoreDir } = opts;
   const dir = worldDirOf(base, world);
@@ -258,13 +258,14 @@ function namesIn(folder, limit) {
   return { names: names.sort(), cut };
 }
 
-/* What makes git treat `folder` itself as a repository: a .git entry, or the bare layout. Asked by lstat on exact
-   names, so the filesystem's own case rule decides, as it does for git. */
+/* What makes git treat `folder` itself as a repository: a .git entry, or a HEAD. Asked by lstat on exact names, so the
+   filesystem's own case and normalisation rules decide, as they do for git. This is the check that counts; the
+   name comparisons elsewhere only add to it. */
 function gitIn(folder) {
   const has = (n) => { try { fs.lstatSync(path.join(folder, n)); return true; } catch { return false; } };
   const out = [];
   if (has(GIT)) out.push(GIT);
-  if (has('HEAD') && has('objects') && has('refs')) out.push(BARE);
+  if (has('HEAD')) out.push(BARE);
   return out;
 }
 const isGit = (runs) => runs.some((r) => r === BARE || r.toLowerCase() === GIT);
@@ -316,13 +317,13 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    (projects are usually repositories; one at the top reaches every project without its own); one in an agent folder
    or at the top of workers refuses. A backup can force `more` with enough empty folders, so the screen should let the
    person review past the cap rather than stop. Nothing is registered, started or written.
-   opts.maxListed lowers MAX_LISTED (tests). */
+   opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL (tests). */
 function listRestoredAgents(opts = {}) {
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
   const worldDir = worldDirOf(opts.base, opts.world);
   const listable = worldDir && realDir(worldDir) && onTheList(opts.base, opts.world.id);
   const roots = listable ? worlds.envOverridesFor(opts.base, opts.world) : {};
-  const budget = { left: MAX_BRIEF_TOTAL };
+  const budget = { left: Number.isSafeInteger(opts.briefTotal) && opts.briefTotal >= 0 ? Math.min(opts.briefTotal, MAX_BRIEF_TOTAL) : MAX_BRIEF_TOTAL };
   const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;
   const agents = [], shared = [];
   let more = false;
@@ -343,7 +344,10 @@ function listRestoredAgents(opts = {}) {
   const workersGit = roots.AGENT_WORKFORCE_WORKERS && realDir(roots.AGENT_WORKFORCE_WORKERS) ? gitIn(roots.AGENT_WORKFORCE_WORKERS) : [];
   const workersNames = entriesOf(roots.AGENT_WORKFORCE_WORKERS);
   const gitAbove = workersGit.length > 0 || workersNames.some((n) => n.toLowerCase() === GIT);
-  if (workersGit.length) shared.push({ where: 'workers', label: '(the workers folder itself)', runs: workersGit });
+  // What the top of workers holds is read by every agent below it (briefs walked up to, start-time files, git).
+  const workersTop = roots.AGENT_WORKFORCE_WORKERS && realDir(roots.AGENT_WORKFORCE_WORKERS) ? runsIn(roots.AGENT_WORKFORCE_WORKERS, budget) : [];
+  if (workersTop.includes(CUT)) more = true;
+  if (workersTop.length) shared.push({ where: 'workers', label: '(the workers folder itself)', runs: workersTop });
   const scan = (parent, from, names) => {
     for (const folder of names) {
       if (full()) return;
@@ -365,8 +369,8 @@ function listRestoredAgents(opts = {}) {
       else if (!nameOk(folder)) because = 'its folder name cannot be used to start it here';
       else name = folder;
       if (!because && !brief) because = 'it has no instructions file, so it may not be an agent';
-      // NTFS aliases of .git (a trailing dot or space, an 8.3 short name) never get this far: restoresink.js
-      // plainSegments refuses them.
+      // NTFS aliases of .git (a trailing dot or space, an 8.3 short name) are refused by restoresink.js plainSegments
+      // for anything the restore wrote; gitIn's lstat answers for what else is there.
       if (!because && isGit(runs)) because = 'it holds a git folder, whose settings can run commands as soon as it starts';
       if (runs.includes(CUT)) {
         more = true;
@@ -376,8 +380,9 @@ function listRestoredAgents(opts = {}) {
     }
   };
   const pr = roots.AGENT_WORKFORCE_PROJECTS;
-  const projectsGit = pr && realDir(pr) ? gitIn(pr) : [];
-  if (projectsGit.length) shared.push({ where: 'projects', label: '(the projects folder itself)', runs: projectsGit });
+  const projectsTop = pr && realDir(pr) ? runsIn(pr, budget) : [];
+  if (projectsTop.includes(CUT)) more = true;
+  if (projectsTop.length) shared.push({ where: 'projects', label: '(the projects folder itself)', runs: projectsTop });
   scan(roots.AGENT_WORKFORCE_WORKERS, 'workers', workersNames);
   if (listable && opts.restoreDir === path.join(worldDir, RESTORE_DIR)) {
     const agentsDir = path.join(opts.restoreDir, 'agents');

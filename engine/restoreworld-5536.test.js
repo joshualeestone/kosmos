@@ -306,6 +306,7 @@ test('a git folder in an agent makes it not offered; one at the top of workers b
   assert.match(by.gitty.because, /git folder/);
   assert.ok(by.gitty.runs.includes('.git'));
   assert.deepEqual(l.shared, [
+    { where: 'workers', label: '(the workers folder itself)', runs: ['CLAUDE.md imports'] },
     { where: 'workers', label: 'CLAUDE.md', runs: [] },
     { where: 'projects', label: 'site', runs: ['.git', 'CLAUDE.md imports'] },
   ], '.DS_Store is not listed and a plain project is not shared');
@@ -524,4 +525,34 @@ test('a restored root that cannot be checked is refused, not read as absent', { 
   assert.equal(r.ok, false, 'an unreadable root must not finish as an empty restore');
   assert.match(r.because, /restored workers could not be checked/);
   assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), 'nothing moved');
+});
+
+test('a HEAD with a commondir pointing elsewhere is git too: refused in an agent, blocking at the top of workers', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  const commondir = (dir) => {
+    fs.writeFileSync(path.join(dir, 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(path.join(dir, 'commondir'), 'c\n');
+    for (const sub of ['c/objects', 'c/refs']) fs.mkdirSync(path.join(dir, sub), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'c', 'config'), '[core]\n');
+  };
+  for (const n of ['ann', 'cora']) { fs.mkdirSync(path.join(w, n)); fs.writeFileSync(path.join(w, n, 'CLAUDE.md'), '# x\n'); }
+  commondir(path.join(w, 'cora'));
+  let by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => [a.folder, a]));
+  assert.equal(by.ann.because, null);
+  assert.match(by.cora.because, /git folder/);
+  fs.writeFileSync(path.join(w, 'HEAD'), 'ref: refs/heads/main\n');
+  by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => [a.folder, a]));
+  assert.match(by.ann.because, /workers folder holds a git folder/);
+});
+
+test('briefs past the listing\'s byte budget are named as not checked', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  for (const n of ['ann', 'bob']) { fs.mkdirSync(path.join(w, n)); fs.writeFileSync(path.join(w, n, 'CLAUDE.md'), '# ' + 'x'.repeat(100) + '\n'); }
+  const by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk, briefTotal: 50 }).agents.map((a) => [a.folder, a]));
+  assert.deepEqual(by.ann.runs, [], 'the first brief is read while budget is left');
+  assert.deepEqual(by.bob.runs, ['CLAUDE.md (not checked: the listing has read as much as it may)']);
 });
