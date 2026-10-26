@@ -283,10 +283,14 @@ async function readFollowing(agentKey) {
   // The posts communityhome does not count as new (shown here, or commented on from this board), so a read takes
   // exactly the posts the count names.
   let done;
-  // Home's own rule (#7168's countedFollowing), so a counted post here is one home counts (#7172), taken before
-  // doneFollowing can throw. Home unloadable: none counts, and unseen posts go newest first.
+  // Home's own rule (communityhome.countedFollowing, #7175), so a counted post here is one home counts (#7172), taken
+  // before doneFollowing can throw. Home unloadable, or without that rule: none counts, unseen posts go newest first.
   let countedByHome = () => false;
-  try { const home = require('./communityhome'); countedByHome = home.countedFollowing; done = home.doneFollowing(agentKey); } catch { done = followingSeen(agentKey); }
+  try {
+    const home = require('./communityhome');
+    if (typeof home.countedFollowing === 'function') countedByHome = home.countedFollowing;
+    done = home.doneFollowing(agentKey);
+  } catch { done = followingSeen(agentKey); }
   // #7172: a post whose id noteSeen cannot record is never unseen here: it would stay first in its tier on every read.
   const unseen = (it) => isPost(it) && UUID_RE.test(String(it.id || '')) && !done.has(String(it.id || '').toLowerCase());
   const postCount = page.filter(isPost).length;
@@ -313,8 +317,8 @@ async function readFollowing(agentKey) {
      home counts (from the last 24 hours, not done) go first and DEEPEST first: they are the next to pass the depth edge
      and leave home's count. Depth is counted in feed ITEMS, replies included, so with at most POSTS_WANTED new items
      between two reads, and every page read, a counted post is never lost; more than that can still lose one (the
-     moving-feed test pins both). Older unseen posts fill next, newest first. Already-shown ones fill only up to POSTS_WANTED posts in all,
-     the newest page's included, so a page of replies still offers a post. */
+     moving-feed test pins both). Older unseen posts fill next, newest first. Already-shown ones fill only up to
+     POSTS_WANTED posts in all, the newest page's included, so a page of replies still offers a post. */
   const nowMs = Date.now();
   const counted = (it) => unseen(it) && countedByHome(it, done, nowMs);
   const take = older.filter(counted).reverse()

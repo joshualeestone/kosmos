@@ -757,6 +757,27 @@ test('#7172 read --following: behind the newest page, the DEEPEST counted posts 
     assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [1, 2, 6], 'counted first, then the newest older unseen post');
     // Again: 7 is the only unseen one; already-shown posts fill up to POSTS_WANTED, newest first.
     assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [1, 2, 7], 'shown posts did not fill after the last unseen one');
+    // The guarantee needs every page: when the page holding the deepest counted posts fails, this read takes the
+    // deepest of what arrived (2, 1) and the posts on the failed page wait for a later read.
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(21, 2), post(22, 3)], [post(23, 4), post(24, 5), post(25, 6)]];
+    b.st.failPage = 2;
+    try {
+      assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [21, 22], 'a failed page changed what the read takes from the pages that came');
+    } finally { b.st.failPage = undefined; }
+    assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [23, 24, 25], 'CONTROL: once the page answers, its counted posts are taken');
+    // Home without countedFollowing (a stub, an older module): nothing counts and unseen posts go newest first; the read
+    // does not fail.
+    fresh(); await cf.follow('mara', 'quill');
+    const home = require('./communityhome');
+    const rule = home.countedFollowing;
+    delete home.countedFollowing;
+    try {
+      b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(31, 2), post(32, 3)], [post(33, 4), post(34, 5)]];
+      const bare = await cf.readFollowing('mara');
+      assert.equal(bare.ok, true, bare.because);
+      assert.deepEqual(shownIn(bare.text), [31, 32, 33], 'without home\'s rule the read did not fall back to newest first');
+    } finally { home.countedFollowing = rule; }
     // A post whose id cannot be recorded as shown is never counted, so it cannot keep the deepest place: the three
     // counted ones above it are taken first.
     fresh(); await cf.follow('mara', 'quill');
