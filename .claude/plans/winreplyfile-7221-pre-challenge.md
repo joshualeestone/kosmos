@@ -2,23 +2,23 @@
 pre_challenge: true
 method: challenge-loop
 branch: winreplyfile-7221
-diff_hash: 3ee744a2bbba75b001fce14b6006f692425d0f4e240b4a64ebc57266dda57f7e
+diff_hash: 726cfd9cde41b2c4b216872e7fa31e8c693cb1023032c6ded63704fe7bb29e35
 validation: targeted Windows suites passed on the box (full suite via CI: npm test makes real schtasks calls on this box, not run here; the validation-log helper was not run)
 subdir_audit: passed
-timestamp: 2026-10-26T20:27:12Z
-iterations: 25
-converged: true
+timestamp: 2026-10-26T21:11:02Z
+iterations: 28
+converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 25
-**Converged:** Yes (iteration 25: no BLOCKER, no WARNING; its one CONVENTION duplicates a deferred entry)
-**Total actionable findings:** 60 (7 BLOCKERs, 41 WARNINGs, 12 CONVENTIONs), plus NITs
-**Fixed:** 52 | **Deferred:** 8 | **Asked (awaiting user):** 0
+**Iterations:** 28
+**Converged:** No. It converged at iteration 25. Windows CI then failed two arms and the code changed, so the loop re-opened. It STOPPED after iteration 28 by the fleet's review-loop rule: Splinter's HEADS-UP over Slack, 2026-10-26 16:08 CDT, says: "a review loop stops at 8 rounds unless a BLOCKER is still open; past 8, WARNINGs go to a follow-up card, not another round ... apply it from the next loop (including #7243's re-run)". Iteration 28 had no BLOCKER; its WARNINGs are on #7250.
+**Total actionable findings:** 68 (8 BLOCKERs, 47 WARNINGs, 13 CONVENTIONs), plus NITs
+**Fixed:** 56 | **Deferred:** 12 | **Asked (awaiting user):** 0
 
 Validation, stated as it happened: on the Windows box, with the runtime node and the no-schtasks preload, on the final
-code: engine/replyfile.win32-7221.test.js 55/55 (none skipped), engine/winpath.test.js 2/2, engine/windows-tests-1777
+code: engine/replyfile.win32-7221.test.js 58/58 with CI=1 and an 8.3 short-name TMP (57 + 1 CI-only skip without CI), engine/winpath.test.js 3/3, engine/windows-tests-1777
 23/23, engine/windows-coupling-audit-1732 8/8, engine.reachable 8/8, engine/win32zip 22/22, engine/backuprestore 24/24,
 server.reply-file-6726 53/56 and server.attachment-stream-6734 25/31: the same failures as origin/main on this box, by
 name and error line (Mac-only FIFO/NFD/O_NONBLOCK, download streaming). Each review round's new arms were run against
@@ -136,6 +136,32 @@ windows.yml for the win32-named files).
 #### Iteration 25
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 new CONVENTIONs (1 duplicate of the deferred comment-style entry), 4 NITs
 **Converged.**
+
+#### After iteration 25: Windows CI on PR #7243
+**New findings:** 1 BLOCKER (a fail-open)
+- [BLOCKER] engine/winpath.js mayHold: another agent's link written with an 8.3 short name (CI's temp is
+  C:\Users\RUNNER~1) never matched the long real path, so their file attached --> FIXED (82513cdbf2; short-name
+  segment stands for any one segment on the refusing side; reproduced with an 8.3 TMP; the previous winpath fails
+  exactly that arm). The 21-2 arm's failure was test-only (fixed in the same commit).
+
+#### Iteration 26
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs (1 WARNING duplicating the main baseline), 4 NITs
+- [WARNING] engine/replyfile.js skippedMayHold: an unplaceable other-agent folder refused with NOT_YOURS, false
+  and undiagnosable --> FIXED (d427e56bf5; OTHER_FOLDER_UNPLACED; arm with Files and row-removed controls)
+
+#### Iteration 27
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 1 CONVENTION (1 duplicate CONVENTION), 4 NITs
+- [WARNING] engine/winpath.js LOCAL_VOLUME: shadow-copy volumes read as unplaceable --> FIXED (8b2e0aa672)
+- [WARNING] test arms skip silently when setup is missing --> FIXED (8b2e0aa672; setupSkip fails on Windows CI;
+  control: admin share made unreachable, CI mode fails 8 arms, plain mode skips them)
+- [WARNING] growing predicate set; single classifier unfiled --> DEFERRED (filed #7249, linked from plan and header)
+- [CONVENTION] plan name has no timestamp --> DEFERRED (repo plans are named <branch>.md; proof lookup is by branch)
+
+#### Iteration 28 (last: fleet round cap)
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
+- [WARNING] ownShareProject matches roots.folders (Files included): a Files folder that is a symlink to a share
+  is resolved before filesRoot refuses it --> DEFERRED to #7250 (fleet rule; also a NIT in 25 and 26)
+- [WARNING] setupSkip unproven on a real windows-latest runner --> DEFERRED to #7250; PR #7243's CI run answers it
 
 ### Deferred (with reasons)
 - Shares matched by spelling (iteration 4): narrow; named in code and plan.
