@@ -14,7 +14,7 @@ Design call posted on #7184 (comment 6414143491) before the build.
 - engine/projects.js (joinTaskClaims, withParts): every served task carries `holdUntil`, tasks.holdUntilState's
   { words, met } or null, so the page never works out "met" (a task that is gone counts as met, the engine's rule).
 - web/index.html, the task page's hold row:
-  - a line, only while held with a condition: "Waiting for task 2 to close." (a link), "Waiting until Wed, Oct 28,
+  - a line, only while held with a condition: "Waiting for task 2 to close." (plain words since the first shots; the Until choice names the task), "Waiting until Wed, Oct 28,
     9:30 AM." (the person's own clock), "Task 2 is closed, so this can come off hold.", "That time has passed, so this
     can come off hold.", "Task 2 is no longer on this project, so this can come off hold.";
   - "Wait for" (Nothing in particular / Another task to close / A date and time), the project's other open tasks or the
@@ -22,7 +22,7 @@ Design call posted on #7184 (comment 6414143491) before the build.
     person has an unsaved change (the Repeats controls' rule), compared to the minute; Save sends exactly what it shows;
   - "Saving makes this hold yours, so only you can take it off." when the hold is not the person's (what the engine does);
   - "Put on hold" reads the task again first: if it is already on hold (an agent's, unseen by this page), it changes
-    nothing and says "This was put on hold a moment ago, so nothing changed." (done-when 3);
+    nothing and says "This is already on hold, so nothing changed." (done-when 3; round 1 also made it a fresh read, and Save reads first too);
   - the page's activity words gain #7182's: "Put on hold until task #N is closed", ", no longer waiting for anything",
     "What its hold waited for happened (...)". The parity test held only because no fixture carried a condition.
 
@@ -97,3 +97,11 @@ what fires, wherever the board runs.
     new task starts both fields empty (tested with a fifth task; without the reset the check goes red, showing "5").
   - Nits taken: "We could not check that task just now, so nothing changed." matches its sibling lines; Put on hold's
     refusal lines go through tkHoldSay too.
+- Round 5: 1 blocker, 0 warnings, 3 nits.
+  - [BLOCKER] browser-checks-teardown-guard-6022.test.js: the slowed-read route handler called route.fallback()
+    outside a try (a poll held in its timer at teardown would crash the check after every PASS, as aborted 0.7.42 and
+    0.7.44). Both route handlers in the check now run inside a try with an abort fallback; the root browser-check
+    guards pass (78/78), and root web plus wiring tests 3308/3308.
+  - Nits taken: this plan's top section describes what ships (plain words, the fresh reads); the README row lists every
+    arm and says it boots its own board and is gated; the two hold buttons are never in flight together (Save disables
+    Put on hold / Take off hold and the reverse).

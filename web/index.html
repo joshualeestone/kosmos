@@ -70232,8 +70232,10 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
   const btn = document.getElementById('tk-hold-save');
   const msg = document.getElementById('tk-hold-msg');
   const key = p.id + '#' + t.number;
+  const holdBtn = document.getElementById('tk-hold');
   btn.disabled = true;
   btn.dataset.busy = '1';
+  holdBtn.disabled = true;   // round 5: never both in flight (a take-off between Save's read and its POST would be undone)
   if (msg) { msg.textContent = ''; msg.dataset.task = key; }
   try {
     /* Review 1: Save is a screen hold, which would put back on hold (as the person's) a task an agent has just taken off.
@@ -70263,6 +70265,7 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
     tkHoldSay(key, 'we could not reach Kosmos to change that task');
   } finally {
     delete btn.dataset.busy;
+    holdBtn.disabled = false;
     tkHoldDirty();
   }
 });
@@ -70275,7 +70278,9 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
   const btn = document.getElementById('tk-hold');
   const msg = document.getElementById('tk-hold-msg');
   const key = p.id + '#' + t.number;
+  const save = document.getElementById('tk-hold-save');
   btn.disabled = true;
+  save.dataset.busy = '1'; save.disabled = true;   // round 5: Save waits while this is in flight
   if (msg) { msg.textContent = ''; msg.dataset.task = key; }   // whose message it is (the page repaint clears another's)
   try {
     /* kosmos#7184: a screen hold sets exactly what it sends, so a page that has not yet seen an agent's hold would
@@ -70304,6 +70309,8 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
     tkHoldSay(key, 'we could not reach Kosmos to change that task');
   } finally {
     btn.disabled = false;
+    delete save.dataset.busy;
+    tkHoldDirty();
   }
 });
 

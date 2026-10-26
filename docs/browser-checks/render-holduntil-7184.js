@@ -160,7 +160,9 @@ function chk(ok, label, extra) {
 
       /* Review 1: when the task cannot be read again, Put on hold changes nothing (the poll's old list is not a reading). */
       let refuse = true;
-      await page.route('**/api/projects', (route) => (refuse && route.request().method() === 'GET' ? route.fulfill({ status: 500, body: '{}' }) : route.fallback()));
+      await page.route('**/api/projects', async (route) => {   // #6022: inside a try
+        try { if (refuse && route.request().method() === 'GET') await route.fulfill({ status: 500, body: '{}' }); else await route.fallback(); } catch { await route.abort().catch(() => {}); }
+      });
       await page.click('#tk-hold');
       await waitText(page, '#tk-hold-msg', /could not check/);
       chk(await text(page, '#tk-hold-msg') === 'We could not check that task just now, so nothing changed.' && stored(p.id, 3).onHold !== true,
@@ -184,7 +186,9 @@ function chk(ok, label, extra) {
       await page.selectOption('#tk-hold-for', 'at');
       await page.fill('#tk-hold-at', local);
       let slow = true;
-      await page.route('**/api/projects', async (route) => { if (slow && route.request().method() === 'GET') await new Promise((r) => setTimeout(r, 1200)); return route.fallback(); });
+      await page.route('**/api/projects', async (route) => {   // #6022: every route call inside a try, so teardown cannot crash the check
+        try { if (slow && route.request().method() === 'GET') await new Promise((r) => setTimeout(r, 1200)); await route.fallback(); } catch { await route.abort().catch(() => {}); }
+      });
       await page.click('#tk-hold-save');
       await page.evaluate(() => openTaskPage(4));
       await page.waitForTimeout(2500);
