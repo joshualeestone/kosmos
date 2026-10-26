@@ -58,6 +58,10 @@ test('the same boot answering never went away (the press may not have reached it
 test('with nothing known from before, an answer is never read as done or restarted', () => {
   assert.equal(v({ reached: true, before: null, now: '0.7.69', bootBefore: null, bootNow: 'boot-B' }), 'answering');
   assert.equal(v({ reached: true, now: null, bootNow: null }), 'answering');
+  // Version from before unknown, boots known and different: the new boot may BE the update, so never "restarted".
+  assert.equal(v({ reached: true, before: null, now: '0.7.69', bootNow: 'boot-B' }), 'answering');
+  // CONTROL: the same answer with the version from before known is "restarted" (same version) or "done" (new one).
+  assert.equal(v({ reached: true, now: '0.7.68', bootNow: 'boot-B' }), 'restarted');
 });
 
 test('the dialog waits instead of offering the button again (wiring, text only)', () => {
@@ -66,6 +70,22 @@ test('the dialog waits instead of offering the button again (wiring, text only)'
     'a press with no answer does not go to the wait');
   const wait = lift('waitForUnansweredPress');
   assert.match(wait, /go\.disabled = true;/, 'the button is not turned off while waiting');
-  assert.match(wait, /if \(dlg\.hidden\) \{[^}]*return; \}/, 'closing the dialog does not stop the asking');
+  assert.equal((wait.match(/if \(gen !== UPD_WAIT_GEN \|\| dlg\.hidden\) return;/g) || []).length, 2,
+    'closing or reopening the dialog does not stop the asking, before and after each status read');
+  for (const fn of ['openUpdConfirm', 'closeUpdConfirm']) {
+    assert.match(lift(fn), /UPD_WAIT_GEN \+= 1;/, fn + ' does not end a wait still writing into the dialog');
+  }
   assert.match(wait, /unansweredPressVerdict\(/, 'the wait does not decide through the pure function');
+});
+
+test('a button turned into Reload only reloads, it never also presses Update', () => {
+  const press = script.slice(script.indexOf("document.getElementById('uc-go').addEventListener('click'"));
+  const head = press.slice(0, press.indexOf('fetch(endpoint'));
+  assert.match(head, /if \(go\.dataset\.reloadOnly === '1'\) return;/, 'the press listener does not stand down for Reload');
+  // Every place that turns the button into Reload marks it so, and every opening clears the mark.
+  const reloads = script.match(/go\.onclick = \(\) => window\.location\.reload\(\);/g) || [];
+  const marks = script.match(/go\.dataset\.reloadOnly = '1';[^\n]*\n\s*go\.onclick = \(\) => window\.location\.reload\(\);/g) || [];
+  assert.ok(reloads.length >= 2, 'expected both Reload sites (the 409 and the deadline), found ' + reloads.length);
+  assert.equal(marks.length, reloads.length, 'a Reload site does not mark the button reload-only');
+  assert.match(lift('openUpdConfirm'), /delete go\.dataset\.reloadOnly;/, 'opening the dialog keeps an old Reload mark');
 });
