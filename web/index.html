@@ -58318,7 +58318,9 @@ const agentShown = () => (CURRENT && (CURRENT.name || CURRENT.sessionName)) || '
 /* #5977: a Qwen agent runs on codex too; the board marks its account provider 'alibaba' (server accountForAgent). */
 const providerOf = (a) => ((a && a.runner === 'codex') ? ((a.account && a.account.provider === 'alibaba') ? 'alibaba' : 'openai') : (a && a.runner === 'gemini') ? 'google' : (a && a.runner === 'grok') ? 'xai'
   : (a && a.runner === 'antigravity') ? 'antigravity'   // #3568: Gemini on a Google subscription
-  : (a && a.runner === 'muse') ? 'meta' : 'anthropic');   // #3939 3c-3b: an agent on Meta Muse is not a Claude agent
+  : (a && a.runner === 'muse') ? 'meta'   // #3939 3c-3b: an agent on Meta Muse is not a Claude agent
+  /* #7206: a claude agent on a DeepSeek account is DeepSeek's (the board marks its account, accountForAgent). */
+  : (a && a.account && a.account.provider === 'deepseek') ? 'deepseek' : 'anthropic');
 
 function paintProviderPicker(a) {
   const sel = document.getElementById('d-provider');
@@ -59494,7 +59496,7 @@ async function changeProviderNow(say) {
        repaints an open panel, so the open agent takes the runner (and the Claude account) the switch just confirmed, and
        the account and model rows are repainted from it, as Move does after its own success. */
     if (moved && CURRENT && CURRENT.sessionName === forAgent) {
-      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '', alibaba: 'codex' };   // #5977: Qwen runs on codex
+      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '', alibaba: 'codex', deepseek: '' };   // #5977: Qwen runs on codex; #7206: DeepSeek on claude ('' as anthropic)
       if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
       /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
       CURRENT.modelName = null;
@@ -59510,7 +59512,8 @@ async function changeProviderNow(say) {
       /* #5977 UI review 2: a Qwen agent is told apart from an OpenAI one only by its account's provider, so the switch
          says so even when the landed folder is not in the page's list yet. */
       CURRENT.account = want === 'alibaba' ? { ...(chosenDir ? { dir: chosenDir } : {}), provider: 'alibaba' }
-        : chosenDir ? { dir: chosenDir } : null;
+        : want === 'deepseek' ? { ...(chosenDir ? { dir: chosenDir } : {}), provider: 'deepseek' }   // #7206, as Qwen
+          : chosenDir ? { dir: chosenDir } : null;
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');

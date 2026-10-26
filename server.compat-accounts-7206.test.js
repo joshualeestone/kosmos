@@ -220,3 +220,33 @@ test('delete: forget sets the folder aside, remove deletes it; a Claude folder i
   assert.notEqual(r.status, 200);
   assert.equal(fs.existsSync(claudeDir), true, 'a Claude folder was deleted through the vendor route');
 });
+
+test('1b review 2: a DeepSeek agent reads as DeepSeek on the board (accountForAgent) and on the page (providerOf)', () => {
+  const jobfix = require('./test-support/jobfixture');
+  const create = require('./engine/create');
+  const { accountForAgent } = require('./server');
+  const bin = nodePath.join(SANDBOX, 'claude-7206'); fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const tmux = nodePath.join(SANDBOX, 'tmux-7206'); fs.writeFileSync(tmux, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const seed = (name, home) => {
+    fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    fs.mkdirSync(create.workerDir(name), { recursive: true });
+    fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, bin, tmux, null, home, 'claude'), 'utf8');
+  };
+  const dsHome = nodePath.join(SANDBOX, '.kosmos-deepseek-board');
+  compat.storeAccount(dsHome, { vendor: 'deepseek', model: 'deepseek-chat', key: KEY });
+  const claudeHome = nodePath.join(SANDBOX, '.claude-board'); fs.mkdirSync(claudeHome, { recursive: true });
+  seed('b7206-ds', dsHome);
+  seed('b7206-claude', claudeHome);
+  assert.equal((accountForAgent('b7206-ds', []) || {}).provider, 'deepseek');
+  assert.equal((accountForAgent('b7206-claude', []) || {}).provider, undefined, 'CONTROL: a Claude agent carries no provider');
+
+  const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const script = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const at = script.indexOf('const providerOf = (a) =>');
+  assert.ok(at > -1, 'providerOf moved in the page');
+  // eslint-disable-next-line no-new-func
+  const providerOf = new Function(script.slice(at, script.indexOf(';\n', at) + 1) + '\nreturn providerOf;')();
+  assert.equal(providerOf({ runner: 'claude', account: { provider: 'deepseek' } }), 'deepseek');
+  assert.equal(providerOf({ runner: 'claude', account: { dir: '/x/.claude-a' } }), 'anthropic', 'CONTROL');
+  assert.equal(providerOf({ runner: 'codex', account: { provider: 'alibaba' } }), 'alibaba', 'CONTROL: Qwen unchanged');
+});

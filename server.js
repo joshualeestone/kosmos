@@ -2535,6 +2535,8 @@ function accountForAgent(name, known) {
   /* #5977 UI review 2: Qwen is decided from the job (a codex job on a Qwen home), the one fact every other surface
      reads, so an agent whose Qwen account was disconnected (no row any more) still reads as Qwen, not OpenAI. */
   const qwenJob = job.runner === 'codex' && create.jobProvider(job) === 'alibaba';
+  /* #7206: a vendor agent (claude on a DeepSeek folder) likewise, decided from the job, so the page reads DeepSeek. */
+  const vendorJob = job.runner === 'claude' && compatAccounts.vendorOf(create.jobProvider(job)) ? create.jobProvider(job) : null;
   const dir = job.configDir;
   const list = Array.isArray(known) ? known : [];
   /* 🛑 THE PROVIDER GATES THE DIR-LESS MATCH, AND WITHOUT IT THIS IS THE CARD'S
@@ -2566,7 +2568,7 @@ function accountForAgent(name, known) {
      OpenAI's: "a codex dir cannot equal a claude row's dir" held while codex was the only
      foreign runner. Claude rows carry no provider, keyed rows carry theirs. */
   const wantProvider = ({ codex: 'openai', gemini: 'google', grok: 'xai' })[job.runner] || null;
-  const isKeyedRow = (x) => !!(x && (x.provider === 'openai' || x.provider === 'google' || x.provider === 'xai' || x.provider === 'alibaba'));   // #5977
+  const isKeyedRow = (x) => !!(x && (x.provider === 'openai' || x.provider === 'google' || x.provider === 'xai' || x.provider === 'alibaba' || !!compatAccounts.vendorOf(x.provider)));   // #5977, #7206
   const found = dir
     ? list.find((x) => x.dir === dir)
     : list.find((x) => x.isDefault && (foreign ? (!!wantProvider && x.provider === wantProvider) : !isKeyedRow(x)));
@@ -2576,6 +2578,7 @@ function accountForAgent(name, known) {
       /* #5977: a Qwen agent runs on codex, so its runner says OpenAI; its account is the only thing that says Qwen.
          Only a Qwen row carries it: every other runner already names its provider, and their shape stays as it was. */
       ...(qwenJob || found.provider === 'alibaba' ? { provider: 'alibaba' } : {}),
+      ...(vendorJob ? { provider: vendorJob } : {}),   // #7206
       keyTail: found.keyTail || null,   // #4603: an xAI/Google key account names itself by its last four
       /* #2225: the human-chosen account name (`.kosmos-name` sidecar), the same
          value the pickers/Settings row have shown since #2095. Read here off the
@@ -2614,7 +2617,7 @@ function accountForAgent(name, known) {
      both providers. */
   return dir
     ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir), keyTail: null,
-      ...(qwenJob ? { provider: 'alibaba' } : {}) }
+      ...(qwenJob ? { provider: 'alibaba' } : {}), ...(vendorJob ? { provider: vendorJob } : {}) }
     : null;
 }
 
