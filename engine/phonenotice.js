@@ -78,14 +78,15 @@ function reportNote(session, at, { selfreport = require('./selfreport'), tailByt
   return null;
 }
 
-/** kosmos#6487 (Josh's lock screen, TestFlight build 3: "Jonah Ellis needs you", no picture, no words): a needs_you report
- *  may carry no reason (`kosmos report needs_you --on X`, or a permission hook's automatic report), and with no words
- *  the phone showed the bare push. So a recorded report always answers something true: its reason, else what it waits
- *  on, else that it is a permission ask, else that it waits for an answer. */
+/** kosmos#6487: a needs_you report may carry no reason when it was made with only `--on` (what it waits on) or only
+ *  `--owner` (who must act); an older row may carry nothing (before the #2001 rule). With no words the phone shows the
+ *  bare push, so a recorded report answers something true: its reason, else what it waits on, else who must act, else
+ *  that it waits for an answer. (A permission hook's report always carries a reason, so it is not this case.) */
 function reportWords(row) {
+  const said = (v) => typeof v === 'string' && v.trim() ? v.trim().replace(/[.\s]+$/, '') : '';
   if (typeof row.because === 'string' && row.because.trim()) return row.because;
-  if (typeof row.on === 'string' && row.on.trim()) return 'Waiting on ' + row.on.trim().replace(/[.\s]+$/, '') + '.';
-  if (row.auto) return 'Asking your permission to go on.';
+  if (said(row.on)) return 'Waiting on ' + said(row.on) + '.';
+  if (said(row.owner)) return 'Waiting on ' + said(row.owner) + '.';
   return 'Waiting for your answer.';
 }
 

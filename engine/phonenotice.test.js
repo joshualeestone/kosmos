@@ -36,7 +36,7 @@ test('#6487 a report\'s words are found by its exact time; another time is nothi
     'not json',
     JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:30:00.000Z' }),
     JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:31:00.000Z', on: 'the lease from Hana.' }),
-    JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:32:00.000Z', auto: true }),
+    JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:32:00.000Z', owner: 'Angel', by: 'agent' }),
   ].join('\n') + '\n');
   const selfreport = { fileFor: () => file };
   try {
@@ -45,7 +45,8 @@ test('#6487 a report\'s words are found by its exact time; another time is nothi
     // kosmos#6487: a report with no reason still answers true words, so the phone shows the agent and something said.
     assert.equal(pn.reportNote('irma', '2026-10-22T18:30:00.000Z', { selfreport }), 'Waiting for your answer.', 'a report with no reason');
     assert.equal(pn.reportNote('irma', '2026-10-22T18:31:00.000Z', { selfreport }), 'Waiting on the lease from Hana.', 'a report waiting on something');
-    assert.equal(pn.reportNote('irma', '2026-10-22T18:32:00.000Z', { selfreport }), 'Asking your permission to go on.', 'a permission hook\'s report');
+    // Review 1: an --owner-only report names who must act, never "waiting for your answer" when it is someone else.
+    assert.equal(pn.reportNote('irma', '2026-10-22T18:32:00.000Z', { selfreport }), 'Waiting on Angel.', 'an --owner-only report');
     assert.equal(pn.reportNote('irma', 'x', { selfreport: { fileFor: () => path.join(dir, 'none.jsonl') } }), null, 'no file');
     assert.equal(pn.reportNote('irma', '2026-10-22T18:00:00.000Z', { selfreport }), null, 'a working row at that time is not a needs_you report');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
