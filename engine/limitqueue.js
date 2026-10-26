@@ -154,6 +154,33 @@ const FLUSH_STUCK_MS = 15 * 60 * 1000;
    when `isReleased(card, roster, live)` (the card for the agent in `roster`, and the messages still kept), type the
    rest in order with `deliver`. A message typed (placed or unconfirmed) is removed and reported (onDelivered); the
    first that is not stops that agent's run and stays. Returns [{ name, id, state }] for what was typed. */
+/* #7212: what a kept message was held for: 'input' (text sat unsent in the agent's input box, or the box could not be
+   read), 'signin' (its account was signed out), else 'limit' (its usage limit). */
+function heldWhy(e) {
+  if (e && e.input === true) return 'input';
+  if (e && e.signin === true) return 'signin';
+  return 'limit';
+}
+/* #7212: agents with messages held behind their input box for at least `afterMs`, as [{ name, since, count }] (since:
+   the oldest such message's arrival, ISO). The board says so once per held stretch rather than leaving it silent. */
+function heldBehindInput(now, afterMs) {
+  const out = [];
+  for (const name of names()) {
+    const held = list(name).filter((e) => e && e.input === true && Number.isFinite(Date.parse(e.at)));
+    if (!held.length) continue;
+    const oldest = held.reduce((a, e) => (Date.parse(e.at) < Date.parse(a.at) ? e : a));
+    if (now - Date.parse(oldest.at) >= afterMs) out.push({ name, since: oldest.at, count: held.length });
+  }
+  return out;
+}
+/* #7212: after this long, messages held behind an input box are said in the board log (a usage limit is reported at
+   the same half hour). */
+const HELD_INPUT_SAY_MS = 30 * 60 * 1000;
+const HELD_FOR = { input: 'once its input box was empty', signin: 'once it was signed in again', limit: 'after its usage reset' };
+/* #7212: the board log's line for a held message the sweep typed, with the reason it was held. */
+function deliveredLine(d) {
+  return 'limit-queue: ' + d.name + ' was given held message ' + d.id + ' ' + (HELD_FOR[d.why] || HELD_FOR.limit) + ', delivery=' + d.state + '\n';
+}
 async function flush(roster, opts) {
   // One run at a time: a run still typing a backlog when the next minute starts would type each message twice. A run
   // that has not finished in FLUSH_STUCK_MS (a delivery that never settled) no longer blocks the next one.
@@ -207,7 +234,8 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         }
         if (!remove(name, e.id)) done.add(e.id);
         try { if (onDelivered) onDelivered(e, v); } catch { /* it was typed */ }
-        out.push({ name, id: e.id, state });
+        /* #7212: why it was held, so the log says the true reason (a held input box is not a usage limit). */
+        out.push({ name, id: e.id, state, why: heldWhy(e) });
         // Unconfirmed: it may still be in the composer; the next one waits a minute rather than type on top of it.
         if (state === DELIVERY.UNCONFIRMED) break;
       }
@@ -262,4 +290,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
 
-module.exports = { TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
+module.exports = { heldWhy, heldBehindInput, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
