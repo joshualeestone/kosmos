@@ -131,3 +131,19 @@ test('#7210 review 2: going back to the held level while a save is on its way is
   assert.equal(t.project.notify, 'all');
   assert.equal(t.checked(), 'all');
 });
+
+test('#7210 design review: while not on All the sound switch keeps its value but is dimmed and not pressable, and says why', () => {
+  const t = load({ id: 'p8', name: 'P' });
+  const sound = { disabled: false, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
+  const note = { hidden: true };
+  t.els['pjs-sound-toggle'] = sound;
+  t.els['pjs-sound-off-note'] = note;
+  t.api.pjNotifyPaint('mentions');
+  assert.equal(sound.disabled, true, 'the sound switch could be pressed while the project is quiet');
+  assert.equal(note.hidden, false);
+  assert.equal(sound.attrs['aria-describedby'], 'pjs-sound-off-note', 'the switch does not point at why it is off');
+  t.api.pjNotifyPaint('all');
+  assert.equal(sound.disabled, false, 'CONTROL: on All the switch is pressable again');
+  assert.equal(note.hidden, true);
+  assert.equal(sound.attrs['aria-describedby'], undefined);
+});
