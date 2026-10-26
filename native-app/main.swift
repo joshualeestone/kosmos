@@ -6668,7 +6668,9 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                     let order = ((CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? [])
                         .compactMap { $0[kCGWindowNumber as String] as? Int }
                     let pAt = order.firstIndex(of: p.windowNumber), wAt = order.firstIndex(of: win.windowNumber)
-                    let above = pAt != nil && wAt != nil && pAt! < wAt!
+                    /* The level is checked too, so the arm cannot pass on a reorder that never landed
+                       (the picker then simply stays in front because it was shown last). */
+                    let above = pAt != nil && wAt != nil && pAt! < wAt! && p.level.rawValue > win.level.rawValue
                     print("press:window-clicked-over-the-picker\tpicker-stays-in-front:\(above ? "yes" : "no")")
                     guard above else { exit(1) }
                     // Dismiss it, or the build hangs behind a dialog.
