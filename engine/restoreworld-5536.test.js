@@ -375,8 +375,14 @@ test('finish and listing refuse a world folder swapped for a link', { skip: proc
   fs.mkdirSync(path.join(p.dir, 'workers', 'bob'));
   fs.writeFileSync(path.join(p.dir, 'workers', 'bob', 'CLAUDE.md'), '# bob\n');
   assert.equal(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.length, 1, 'control: bob is listed through the real folder');
+  assert.equal(rw.isRestoredWorld(base, p.world), true, 'control: the real folder carries the mark');
+  fs.rmSync(path.join(p.dir, 'restored-world.json'));
+  assert.equal(rw.isRestoredWorld(base, p.world), false, 'control: a real folder without the mark is not Restored');
+  fs.writeFileSync(path.join(p.dir, 'restored-world.json'), '{}');
   fs.renameSync(p.dir, `${p.dir}-real`);
   fs.symlinkSync(`${p.dir}-real`, p.dir);
+  fs.rmSync(path.join(`${p.dir}-real`, 'restored-world.json'));   // the link's target has no mark either
+  assert.equal(rw.isRestoredWorld(base, p.world), true, 'a world folder swapped for a link cannot be vouched for, so it reads as Restored (hooks off)');
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, false);
   assert.match(r.because, /did not name its Kosmos/);
