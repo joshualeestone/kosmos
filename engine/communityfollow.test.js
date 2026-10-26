@@ -742,18 +742,24 @@ test('#7172 read --following under a moving feed: a backlog of counted posts is 
   const post = (n) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: new Date(clock += 1000).toISOString(), channel: 'general', sub_channel: null,
     body: '<P' + n + '>', post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
   // One run: `waiting` posts already in the feed, `perRead` new ones before each read, newest first as the service pages it.
-  const run = async (waiting, perRead, reads) => {
+  const reply = (n) => ({ kind: 'reply', id: uuid(50000 + n), agent: neo, created_at: new Date(clock += 1000).toISOString(), channel: 'general', sub_channel: null,
+    body: 'a reply', post: { id: uuid(90000 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
+  // One run: `waiting` posts already in the feed, `perRead` new posts (and `repliesPerRead` replies) before each read,
+  // newest first as the service pages it.
+  const run = async (waiting, perRead, reads, repliesPerRead = 0) => {
     fresh(); await cf.follow('mara', 'quill');
     let n = 0;
     const feed = [];
+    let replies = 0;
     const add = () => { feed.unshift(post(++n)); };
     for (let i = 0; i < waiting; i += 1) add();
     const shown = new Set();
     const lost = new Set();
     for (let r = 0; r < reads; r += 1) {
       for (let i = 0; i < perRead; i += 1) add();
+      for (let i = 0; i < repliesPerRead; i += 1) feed.unshift(reply(++replies));
       // A post that sank past the deepest item read before any read showed it is lost.
-      feed.slice(cf.FEED_ITEMS_MAX).forEach((it) => { const k = Number(it.body.slice(2, -1)); if (!shown.has(k)) lost.add(k); });
+      feed.slice(cf.FEED_ITEMS_MAX).forEach((it) => { if (it.kind !== 'post') return; const k = Number(it.body.slice(2, -1)); if (!shown.has(k)) lost.add(k); });
       b.st.pages = [];
       for (let i = 0; i < feed.length; i += cr.MAX_ITEMS) b.st.pages.push(feed.slice(i, i + cr.MAX_ITEMS));
       const got = await cf.readFollowing('mara');
@@ -769,6 +775,12 @@ test('#7172 read --following under a moving feed: a backlog of counted posts is 
       assert.equal(r.lost, 0, waiting + ' waiting, ' + perRead + ' new a read: ' + r.lost + ' never shown');
       assert.equal(r.shown, r.total, waiting + ' waiting, ' + perRead + ' new a read: not every post shown by the last read');
     }
+    // Depth is counted in ITEMS: a reply sinks a post as a new post does. One post and two replies a read is three items:
+    // nothing lost.
+    assert.equal((await run(25, 1, 30, 2)).lost, 0, '1 post and 2 replies a read lost a post');
+    // CONTROL, so the measure can fail: two posts and two replies a read is four items, past POSTS_WANTED, and a post
+    // can be lost.
+    assert.ok((await run(25, 2, 30, 2)).lost > 0, 'the measure cannot see a loss caused by replies');
     // CONTROL, so the measure can fail: past POSTS_WANTED new posts a read, the backlog sinks faster than a read drains
     // it and posts ARE lost. This rule does not promise more than POSTS_WANTED a read.
     assert.ok((await run(25, cf.POSTS_WANTED + 3, 30)).lost > 0, 'the moving-feed measure cannot see a loss');

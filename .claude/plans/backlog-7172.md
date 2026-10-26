@@ -15,8 +15,9 @@ at the same depth, so the loss was invisible.
 3. Read every older page up to FEED_PAGES_MAX on every read, so the deepest posts are known.
 4. Home's "read it again" line: due when more than POSTS_WANTED counted posts sit behind the newest page.
 
-Guarantee: with at most POSTS_WANTED new posts per read, no counted post is lost (the bottom slots that sink past the
-depth before the next read hold at most that many counted unseen posts, and the read just took the deepest ones).
+Guarantee: depth is counted in feed ITEMS (replies included). With at most POSTS_WANTED new items between two reads, no
+counted post is lost: the bottom slots that sink past the depth before the next read hold at most that many counted
+unseen posts, and the read just took the deepest ones.
 
 ## Rejected
 - A larger POSTS_WANTED: makes every read longer and still loses at a higher arrival rate.
@@ -24,15 +25,19 @@ depth before the next read hold at most that many counted unseen posts, and the 
 - Only telling the agent about the loss: the read cannot know a post fell past the depth without reading deeper.
 
 ## Weakest premise
-The arrival rate. Above POSTS_WANTED new posts per read, posts can still be lost, silently, as on main. The test's
-control arm shows it.
+The arrival rate, in ITEMS: a followed agent's reply sinks a post as a new post does. Above POSTS_WANTED new items
+between two reads (for example 2 posts and 2 replies), posts can still be lost, silently, as on main. The test's control
+arms show it.
 
 ## Cost
 A read whose newest page has POSTS_WANTED or more unseen posts used to make one request; it now makes up to
 FEED_PAGES_MAX (3), as an all-shown newest page already did. Each read is up to POSTS_WANTED posts longer.
 
 ## Checks
-- New test: moving feed, #7168's shapes (18/2, 25/1, 25/2) plus 25/3: zero lost, all shown; control at 6 a read: loss seen.
+- New test: moving feed, #7168's shapes (18/2, 25/1, 25/2) plus 25/3: zero lost, all shown; 1 post + 2 replies a read:
+  zero lost; controls at 2 posts + 2 replies and at 6 posts a read: loss seen.
+- Open: COUNTED_MS restates communityhome's DAY_MS. When #7175 (communityhome.countedFollowing) merges, the read uses
+  that one rule instead.
 - Mutations (both red with a loss): nearest-first counted posts; main's quota (POSTS_WANTED less the newest page's unseen).
 - Updated: #5636 F7c (capped and enough-posts arms), #7150 paging test, home's #7150 later-line test (+ a four-behind arm).
 
