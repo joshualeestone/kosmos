@@ -229,3 +229,10 @@ test('#7152 slice 3 review 9: a five-hour reading with no reset time still keeps
   assert.equal(rows[1].fiveHour.resetsAt, null, 'CONTROL: the reading has no reset time');
   assert.deepEqual(ab.decide({ rows, movable: () => true, nowMs: NOW }).moves, [], 'a 99% five-hour window with no reset time was a target');
 });
+
+test('#7152 slice 3 review 10: Settings is not handed a record line stamped in the future', () => {
+  const file = fileFor();
+  sweep.append(file, { kind: 'decision', at: NOW - 1000, moves: [{ agent: 'ada' }], held: [], atRisk: [] });
+  sweep.append(file, { kind: 'decision', at: Date.now() + 10 * sweep.CLOCK_SLACK_MS, moves: [{ agent: 'bo' }], held: [], atRisk: [] });
+  assert.deepEqual(sweep.recent(file).map((l) => l.moves[0].agent), ['ada'], 'a line from the future reached Settings as the newest');
+});
