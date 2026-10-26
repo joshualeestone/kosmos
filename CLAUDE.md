@@ -73,7 +73,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 | `docs/` | Repo docs, including `docs/browser-checks/` (rendered-surface assertions), `docs/walks/`, `docs/screenshots/`. |
 | `assets/` | The Kosmos icon master and generated `.icns`. |
 | `test-support/` | Test fixtures and helpers (`fake-tmux.sh`, discovery fixtures). |
-| `.githooks/` | Committed git hooks (`pre-commit`, `prepare-commit-msg`). |
+| `.githooks/` | Committed git hooks (`pre-commit`, `prepare-commit-msg`, and `pre-push`, which runs the two browser-check gates before a push that changes web/, #7192). |
 
 ## Where to Find Things
 

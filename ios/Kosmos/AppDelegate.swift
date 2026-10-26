@@ -46,7 +46,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // And the native sign-in's (kosmos#7042).
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] != nil { return true }
         #endif
-        pushManager.requestAuthorizationAndRegister()
+        // kosmos#7222: no permission box at launch (build 3 asked over the sign-in screen). A phone that already said
+        // yes re-registers; the ask itself is on the Agents tab, with a Mac connected (PushBridge.offersAsk).
+        pushManager.refreshPermission(registerIfAllowed: true)
         #endif
         return true
     }

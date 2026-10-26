@@ -38,11 +38,51 @@ function body(name) {
 
 test('#6774: a row kept for the box says so, and one behind such messages says what it waits behind', () => {
   const words = lift('dmHeldWords', { quotaResetWords: undefined });
-  assert.equal(words('casey', { state: 'held', heldFor: 'input' }), "Held: casey's input box holds text not yet sent. Kosmos sends it once the box is clear.");
-  assert.equal(words('casey', { state: 'held', behind: true, behindFor: 'input' }), 'Held: Kosmos sends this after the messages kept for casey while its input box held text not yet sent.');
-  // CONTROLS: the usage-limit words are unchanged.
-  assert.match(words('casey', { state: 'held', behind: true }), /while it was out of usage\.$/);
-  assert.match(words('casey', { state: 'held', heldUntil: null }), /is out of usage\. Kosmos sends it after the reset\.$/);
+  // kosmos#7208: plain words, no "Held:".
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }), "Waiting for casey's message box to be clear. Yours goes through as soon as it is.");
+  assert.equal(words('casey', { state: 'held', behind: true, behindFor: 'input' }), 'Queued behind earlier messages to casey.');
+  // CONTROLS: the usage-limit words.
+  assert.equal(words('casey', { state: 'held', behind: true }), 'Queued behind earlier messages to casey.');
+  assert.equal(words('casey', { state: 'held', heldUntil: null }), 'casey is out of usage. This delivers when casey is back.');
+  // kosmos#7208: the REAL reason wins: a box-held message to an agent out of usage, or not running, says that.
+  // Review 1: the box still blocks it once casey is back, so the row does not promise more than that.
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'rate_limited' }), 'casey is out of usage. This delivers once casey is back and its message box is clear.');
+  // Review 1: a queued row leads with the real reason too, and never claims the messages ahead are the person's.
+  assert.equal(words('casey', { state: 'held', behind: true }, { state: 'rate_limited' }), 'casey is out of usage. This delivers after the messages ahead of it, when casey is back.');
+  assert.equal(words('casey', { state: 'held', behind: true }, { running: false, state: 'stopped' }), 'casey is not running. This delivers after the messages ahead of it, when casey is running again.');
+  // Review 1: a usage hold past its reset, casey running on the card: not "out of usage".
+  assert.equal(words('casey', { state: 'held', heldUntil: new Date(Date.now() - 60e3).toISOString() }, { running: true, state: 'idle' }), 'casey is back. This goes through in a minute or so.');
+  assert.match(words('casey', { state: 'held', heldUntil: new Date(Date.now() - 60e3).toISOString() }), /^casey is out of usage/, 'CONTROL: with no card, the hold says it');
+  // Review 1: restarting is not "not running"; signed out on the card wins over the box and over a scraped limit.
+  assert.match(words('casey', { state: 'held', heldFor: 'input' }, { running: false, state: 'restarting' }), /^Waiting for /);
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'auth_failed' }), 'casey is signed out. This delivers once casey is signed in again.');
+  // Review 3: the server keeps a sign-in hold only while the card reads signed out; a card out of usage is held for that.
+  assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'rate_limited' }), 'casey is out of usage. This delivers when casey is back.');
+  // Review 2: "back" is the card's release state, as the server types on it: idle, and nothing failing.
+  const ago = new Date(Date.now() - 60e3).toISOString(), ahead = new Date(Date.now() + 3600e3).toISOString();
+  // Review 3: a question on screen may or may not hold the sweep (a menu does, prose does not), so no promise either way.
+  assert.equal(words('casey', { state: 'held', heldUntil: ago }, { state: 'needs_you', running: true }), 'casey is back. This goes through when Kosmos can type it.');
+  // Review 3: a card that knows decides: a stopped card on a sign-in hold, a working card on a usage hold.
+  assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'stopped', running: false }), 'casey is not running. This delivers when casey is running again.');
+  assert.equal(words('casey', { state: 'held', heldUntil: ahead }, { state: 'working', running: true }), 'casey is back. This goes through when Kosmos can type it.');
+  assert.match(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'unknown' }), /^casey is signed out/, 'CONTROL: a card that cannot say leaves the sign-in hold its words');
+  // Review 4: a sign-in hold's heldUntil is a one-minute relook, never said as a reset; a lost connection says so.
+  assert.equal(words('casey', { state: 'held', heldFor: 'signin', heldUntil: new Date(Date.now() + 50e3).toISOString() }, { state: 'rate_limited' }), 'casey is out of usage. This delivers when casey is back.');
+  assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'connection_lost' }), 'casey lost its connection. This delivers when casey is connected again.');
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'connection_lost' }), 'casey lost its connection. This delivers when casey is connected again and its message box is clear.');
+  assert.equal(words('casey', { state: 'held', heldUntil: ago, stuck: { because: 'no window' } }, { state: 'idle', running: true }), 'casey is back. This goes through when Kosmos can type it. Kosmos tried to send it and could not: no window.');
+  assert.match(words('casey', { state: 'held', heldUntil: ago }, { state: 'unknown', running: true }), /^casey is out of usage/, 'a card that does not know leaves the hold its words');
+  assert.equal(words('casey', { state: 'held', heldUntil: ahead }, { state: 'idle', running: true }), 'casey is back. This goes through in a minute or so.', 'released on the card, whatever heldUntil says');
+  assert.match(words('casey', { state: 'held', heldUntil: ago }, { state: 'idle', running: true, screenRead: 'remembered' }), /^casey is out of usage/, 'a remembered screen is not a release');
+  // Review 2: a stopped agent outranks a usage hold, so one agent's held rows give one reason.
+  assert.equal(words('casey', { state: 'held', heldUntil: ahead }, { state: 'stopped', running: false }), 'casey is not running. This delivers when casey is running again.');
+  // Review 2: a sign-in hold whose card is idle again is back, not still signed out.
+  assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'idle', running: true }), 'casey is back. This goes through in a minute or so.');
+  // Review 1: a limit the card only read off the screen is said as the card says it, a guess.
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'rate_limited', stateConfidence: 'scraped' }), 'casey looks to be out of usage. This delivers once casey is back and its message box is clear.');
+  assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { running: false, state: 'stopped' }), 'casey is not running. This delivers when casey is running again.');
+  assert.match(words('casey', { state: 'held', heldFor: 'input' }, { running: true, state: 'idle' }), /^Waiting for /, 'CONTROL: a running agent with room is the box');
+  assert.ok(!/Held:/.test(words('casey', { state: 'held', heldFor: 'input' })), 'no "Held:" left');
 });
 
 test('#6774: Send now anyway is not offered on a row kept for the box, and the line under the box does not point at it', () => {
@@ -51,10 +91,14 @@ test('#6774: Send now anyway is not offered on a row kept for the box, and the l
   assert.ok(button, 'CONTROL: the Send now anyway button and its condition were not found in dmRow');
   assert.match(button[1], /m\.delivery\.heldFor !== 'input'/, 'the button is offered on a row kept for the box');
   assert.match(button[1], /m\.delivery\.behindFor !== 'input'/, 'the button is offered on a row kept behind messages kept for the box');
-  const line = PAGE.match(/line = dmHeldWords\(name, d\) \+ \(([^?]*)\? '' : ' To send it now, use Send now anyway on the message\.'\)/);
-  assert.ok(line, 'the held line under the box still offers Send now anyway on a row kept for the box');
-  assert.match(line[1], /d\.heldFor === 'input'/);
-  assert.match(line[1], /d\.behindFor === 'input'/);
+  // kosmos#7208: nothing is said under the box for a held message: the row says it once.
+  // Anchored on the code, not its comment (review 1): the held arm clears the box and says nothing under it.
+  const heldArm = PAGE.slice(PAGE.indexOf("if (d.state === 'held' && inThread) {"));
+  assert.notEqual(PAGE.indexOf("if (d.state === 'held' && inThread) {"), -1, 'CONTROL: the held arm of sendTalk was not found');
+  // Review 3: nothing under the box unless a search hides the row; the reason is announced once, in the quiet region.
+  assert.match(heldArm.slice(0, 900), /clearSent\(\);[\s\S]*?line = TALK_QUERY\.trim\(\) && !talkFilterRows\(\[\{ text \}\], name, TALK_QUERY\)\.length \? DM_KEPT_HIDDEN : '';/, 'the held line under the box is not empty');
+  assert.match(heldArm.slice(0, 900), /if \(!flightMoved\(\)\) dmReplyAnnounce\(dmHeldWords\(/, 'a held send tells a screen reader nothing');
+  assert.doesNotMatch(PAGE, /line = dmHeldWords\(/, 'a held message is still repeated under the box');
 });
 
 test('#6774: a re-send answered as the kept copy empties the box and is not worded as "could not get that to"', () => {
@@ -105,4 +149,31 @@ test('#6774: a re-send row is drawn as not sent, not as "Could not deliver", on 
   const fail = verdict({ at: 'x', delivery: { state: 'could_not', because: 'it is not running' } }, 'casey');
   assert.equal(fail.mark, ' failed');
   assert.match(fail.said, /^Could not deliver: /);
+});
+
+test('kosmos#7208 review 2: the held row reads its own agent\'s card, by session, when two agents share a name', (t) => {
+  const fleet = require('./test-support/fleet');
+  // Real cards (fixture discipline): two agents both shown as Gemini, and one shown by the other's session name.
+  const board = fleet.install([
+    fleet.agent('gemini', { displayName: 'Gemini' }),
+    fleet.agent('gemini2', { displayName: 'Gemini' }),
+    fleet.agent('raph', { displayName: 'Raph Old' }),
+    fleet.agent('raph2', { displayName: 'raph' }),
+  ]);
+  t.after(() => board.restore());
+  const all = board.agents.slice();
+  const card = (s) => { const c = all.find((a) => a.sessionName === s); assert.ok(c, 'CONTROL: the fleet card ' + s + ' among ' + all.map((a) => a.sessionName)); return c; };
+  const find = (cur, session, name) => lift('dmHeldAgent', { CURRENT: cur, LAST: all })(null, name, session);
+  assert.equal(find(null, 'gemini2', 'Gemini'), card('gemini2'), 'the panel for the second Gemini borrowed the first one\'s card');
+  assert.equal(find(card('gemini'), 'gemini2', 'Gemini'), card('gemini2'), 'the open chat\'s card won over the session asked for');
+  // Review 3: the poll's card wins over CURRENT, which is the card as it was when the chat was opened.
+  const stale = Object.assign({}, card('gemini2'), { state: 'idle' });
+  assert.equal(find(stale, 'gemini2', 'Gemini'), card('gemini2'), 'the card frozen at open time won over the polled one');
+  assert.equal(lift('dmHeldAgent', { CURRENT: stale, LAST: [] })(null, 'Gemini', 'gemini2'), stale, 'CONTROL: with no polled card, the open one');
+  assert.equal(find(null, 'raph2', 'raph'), card('raph2'), 'another agent\'s session name matched this one\'s display name');
+  assert.equal(find(null, null, 'raph'), card('raph2'), 'with no session, the display name finds the card');
+  assert.equal(find(null, null, 'Raph Old'), card('raph'), 'CONTROL: the other name finds the other card');
+  // Both callers pass the session: the DM thread's rows and the project panel's.
+  assert.match(PAGE, /const v = pjVerdict\(m, name, typeof DM_ROWS_OF !== 'undefined' \? DM_ROWS_OF : null\);/);
+  assert.match(PAGE, /body\.messages\.map\(\(m\) => pjMsg\(m, name, body\.agent && body\.agent\.sessionName\)\)/);
 });

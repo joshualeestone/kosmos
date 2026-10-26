@@ -37,6 +37,7 @@ render-autohello-2686
 render-autohello-switch-2716
 render-avatar-4038
 render-avatar-crop-6722
+render-barelinks-7239
 render-brief-note-agents
 render-bubblepop-2407
 render-build-marker-2066
@@ -131,6 +132,7 @@ render-handoff-restart-3492
 render-head-row
 render-health-line-5959
 render-help-tips-3574
+render-holduntil-7184
 render-home-discovery-removed-3048
 render-home-phone-718
 render-import-add-inplace-2419

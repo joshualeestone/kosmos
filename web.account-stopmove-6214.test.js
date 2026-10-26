@@ -187,7 +187,7 @@ test('#6214: the moving row draws Stop the move, and each board-restart refusal 
     'a Kosmos switch does not offer the stop');
   const ucAt = SCRIPT.indexOf("document.getElementById('uc-go').addEventListener('click'");
   assert.ok(ucAt > 0, 'the Update dialog button is not in the page');
-  const uc = SCRIPT.slice(ucAt, ucAt + 4000);
+  const uc = SCRIPT.slice(ucAt, SCRIPT.indexOf('\n});\n', ucAt));   // the whole listener: a fixed window drifts as it grows
   assert.match(uc, /if \(res && res\.status === 409 && body && body\.moveStoppable\) offerStopMove\(err, err\);/, 'Update and Roll back do not offer the stop');
   /* A fresh press of each refused action takes the old offer away (it would outlive the move otherwise). */
   assert.match(page.lift(SCRIPT, 'openUpdConfirm'), /clearStopMoveOffers\(\);/, 'a reopened Update dialog shows the old offer with no sentence');

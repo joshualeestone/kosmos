@@ -176,6 +176,7 @@ const OVERFLOW_SELECTORS = ['html', 'body', 'main', '.view', '.panel', '[role="m
    take the chat agent off it (its tasks stay with it). Answers the project's id. offProject6895Gone deletes it. */
 const OFFPROJECT_6895 = 'Plan the autumn launch';
 const ROLLUP_6501 = 'Autumn brochure';   // kosmos#6501: the task-rollup-6501 screen's throwaway project
+const HOLDUNTIL_7184 = { task: 'Supplier order', at: 'Courier booking' };   // kosmos#7184: each hold screen's own throwaway project (#7185: a reused name inherits the last one's task activity)
 async function offProject6895(page, data) {
   return page.evaluate(async ([name, chat, ask]) => {
     const call = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -202,6 +203,33 @@ async function throwawayProjectGone(page, projectName) {
   if (st !== 200) throw new Error('could not delete the throwaway project "' + projectName + '" after the shot (' + st + ')');
 }
 async function offProject6895Gone(page) { await throwawayProjectGone(page, OFFPROJECT_6895); }
+/* kosmos#7184: a throwaway project with three tasks; task 1 held from the screen until task 2 closes ('task') or until a
+   time ('at'), then its page opened and scrolled to the hold row. */
+async function holdUntil7184(page, data, kind) {
+  const id = await page.evaluate(async ([name, chat, k]) => {
+    const call = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const made = await (await call('POST', '/api/projects', { name, agents: [chat] })).json().catch(() => ({}));
+    const pid = made && made.project && made.project.id;
+    if (!pid) throw new Error('task-holduntil-7184: the board made no project');
+    const base = '/api/project/' + encodeURIComponent(pid);
+    for (const sentence of ['Order the parts', 'Get the price approved', 'Book the courier']) {
+      const r = await call('POST', base + '/tasks', { sentence });
+      if (r.status !== 200 && r.status !== 201) throw new Error('task-holduntil-7184: adding a task answered ' + r.status);
+    }
+    const d = new Date(Date.now() + 2 * 86400000); d.setHours(9, 30, 0, 0);
+    const until = k === 'task' ? { task: 2 } : { at: d.toISOString() };
+    const h = await call('POST', base + '/task/1/hold', { onHold: true, until });
+    if (h.status !== 200) throw new Error('task-holduntil-7184: the hold answered ' + h.status);
+    return pid;
+  }, [HOLDUNTIL_7184[kind], data.chatAgent, kind]);
+  await openTab(page, 'projects');
+  await page.click(`#pj-list .pj-row[data-project="${id}"]`);
+  await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+  await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+  await page.waitForSelector('#tk-hold-until:not([hidden])', { state: 'visible', timeout: 8000 });
+  await page.evaluate(() => document.getElementById('tk-hold-row').scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(300);
+}
 async function openTab(page, tab) {
   // kosmos#6846 (--app-tabs): the iPhone app opens a section from its native tab bar, through the board's own door.
   if (await page.evaluate(() => document.documentElement.classList.contains('kapptabs') && typeof window.kosmosAppTab === 'function')) {
@@ -819,6 +847,30 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
   } },
+  /* kosmos#7208 (Mona Lisa): two of the person's messages Kosmos is holding, as their rows say it now: the first waits
+     for the agent's message box to clear, the second is queued behind it. The thread the board serves gets the two
+     rows added on the way to the page; nothing is written to the board. */
+  { name: 'agent-chat-held-7208', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/thread*', async (r) => {
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || typeof body !== 'object') { await r.fulfill({ response: res }); return; }
+        const now = Date.now();
+        body.messages = (Array.isArray(body.messages) ? body.messages : []).concat([
+          { at: new Date(now - 90e3).toISOString(), text: 'Can you send me the draft when it is ready?', delivery: { state: 'held', heldFor: 'input' } },
+          { at: new Date(now - 30e3).toISOString(), text: 'And the notes from this morning too.', delivery: { state: 'held', behind: true, behindFor: 'input' } },
+        ]);
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await at(page, '?agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+    await page.waitForSelector('#d-dmthread .delivery.held', { state: 'visible', timeout: 5000 });
+  } },
   { name: 'agent-perm-card', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, null) },
   { name: 'agent-perm-card-allowed', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Allow') },
   { name: 'agent-perm-card-denied', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Deny') },
@@ -895,6 +947,34 @@ const SCREENS = [
     /* #5782: the click on the project row leaves the pointer where the room's first message lands, so every shot showed
        that message's hover bar. Park it in the corner, as the other screens here do. */
     await page.mouse.move(1, 1);
+  } },
+  /* kosmos#7214 (Mona Lisa): an agent's room post holding a markdown table of file names and sha256 hashes in code spans,
+     the shape Josh saw run past the bubble. The room the board serves gets the post added on the way to the page, from
+     chatAgent; nothing is written to the board. Scrolled to it, as room-notice-7189. */
+  { name: 'room-table-7214', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/api/project/*/room', async (r) => {
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || typeof body !== 'object') { await r.fulfill({ response: res }); return; }
+        const rows = Array.isArray(body.rows) ? body.rows : [];
+        const hex = (n) => Array.from({ length: 64 }, (_, i) => '0123456789abcdef'[(i * 7 + n * 3) % 16]).join('');
+        rows.push({ kind: 'post', id: 'table-7214', from: data.chatAgent, fromKind: 'agent', at: new Date().toISOString(),
+          text: 'Here are the two files and their checksums, so you can confirm the copies match.\n\n'
+            + '| File | sha256 |\n|---|---|\n'
+            + '| `catalogue-proof-final.pdf` (214,952 bytes, 4 pages) | `' + hex(1) + '` |\n'
+            + '| `price-list-2026.xlsx` (38,410 bytes) | `' + hex(2) + '` |\n\n'
+            + 'Both match what the printer sent.' });
+        body.rows = rows;
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await SCREENS.find((s) => s.name === 'project-room').go(page, data);
+    await page.waitForSelector('#pj-room .mdtable', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { const t = document.querySelector('#pj-room .mdtable'); if (t) t.scrollIntoView({ block: 'center' }); });
+    await page.waitForTimeout(150);
   } },
   /* kosmos#7189 (Angel): a room notice from a job (an email digest) keeps its lines in the room's note band. Posted
      once through the board's own notice route (the board lives across themes and sizes), then the room is opened as
@@ -1574,6 +1654,28 @@ const SCREENS = [
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
   } },
+  /* kosmos#7205: the setup choice screen the Mac app shows first (its dot field, the two-computer drawings, the three
+     options). The app's bridge is stood in for (it only records), and ?mode=unreadable asks even after first run. */
+  { name: 'setup-choice-7205', owner: 'Mona Lisa', go: async (page) => {
+    await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
+    await at(page, '?mode=unreadable');
+    await page.waitForSelector('#fr-choice', { state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(600);   // the dot field settles in
+  } },
+  /* kosmos#7205: Welcome with Back to the setup choice (as after the choice screen in the app). */
+  { name: 'setup-welcome-back-7205', owner: 'Mona Lisa', go: async (page) => {
+    // Back is offered only on the Mac app's bridge (frBackOffered), so the bridge is stood in, as setup-choice-7205 does.
+    await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
+    await at(page, '?first-run=1');
+    await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => { FR_CHOSE_HERE = true; FR_FORCED = false; frGo(1); });
+    await page.waitForSelector('#fr-alt:not([hidden])', { timeout: 5000 });
+  } },
+  /* kosmos#7205: Help make Kosmos better (pane 6), the Community switch in Josh's words. */
+  { name: 'setup-community-7205', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?first-run=1&fr-step=6');
+    await page.waitForSelector('#fr-s6-community-lbl', { state: 'visible', timeout: 5000 });
+  } },
   /* #5977: first run's Model step (pane 5), scrolled to the Qwen row, which says it is added in Settings (or, on
      Windows, that it is coming there). */
   { name: 'first-run-model', owner: 'PigeonPete', go: async (page) => {
@@ -1813,6 +1915,12 @@ const SCREENS = [
     await page.evaluate(() => document.getElementById('tk-subs-built').scrollIntoView({ block: 'center' }));
     await page.waitForTimeout(300);
   }, after: async (page) => { await throwawayProjectGone(page, ROLLUP_6501); } },
+  /* kosmos#7184: what a held task waits for, on its page: held (from the screen) until task 2 closes, or until a time two
+     days ahead at 9:30 in the shot's own clock. A throwaway project, deleted after the shot. */
+  { name: 'task-holduntil-7184', owner: 'Mona Lisa', go: async (page, data) => { await holdUntil7184(page, data, 'task'); },
+    after: async (page) => { await throwawayProjectGone(page, HOLDUNTIL_7184.task); } },
+  { name: 'task-holdtime-7184', owner: 'Mona Lisa', go: async (page, data) => { await holdUntil7184(page, data, 'at'); },
+    after: async (page) => { await throwawayProjectGone(page, HOLDUNTIL_7184.at); } },
   /* kosmos#4787 slice 1b: the task page's Repeats control with a rule set (every Tuesday at 10:30am), scrolled to it. */
   { name: 'task-repeat', owner: 'Mona Lisa', go: async (page, data) => {
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ every: 'week', on: 'tue', at: '10:30' }) }).then((r) => r.status), data.projectId);

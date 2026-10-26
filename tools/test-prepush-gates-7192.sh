@@ -1,0 +1,162 @@
+#!/bin/bash
+# kosmos#7192: .githooks/pre-push runs the two browser-check gates (#1720 coarse, #2518 surface) before a push.
+# Builds a throwaway repo with an origin, copies in the hook and the gate libraries, and drives the hook the way git
+# does (pushed refs on stdin). Each refusal has a passing twin, and a push with no web/ change, or of another branch,
+# never reaches the gates.
+#   bash tools/test-prepush-gates-7192.sh
+set -u
+# Review 1: the throwaway repos must not read the person's own git config (a global hooksPath or commit signing).
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+# Review 6: nor the environment the hook and the gates read (an exported one would turn correct arms red).
+unset GIT_SSH_COMMAND GIT_SSH KOSMOS_BCG_BASE KOSMOS_BCG_FILES KOSMOS_BCG_MSGS KOSMOS_BCSG_WEBDIFF KOSMOS_BCSG_DIR
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/prepush-gates-7192.XXXXXXXXXX")"
+trap 'rm -rf "$T"' EXIT
+fails=0
+ok() { printf 'OK    %s\n' "$1"; }
+bad() { printf 'FAIL  %s\n' "$1"; fails=$((fails + 1)); }
+
+git init -q --bare "$T/origin.git"
+git init -q -b main "$T/w"
+cd "$T/w" || exit 1
+git config user.email t@example.com; git config user.name t
+mkdir -p web docs/browser-checks tools/lib .githooks
+cp "$REPO/.githooks/pre-push" .githooks/pre-push
+cp "$REPO"/tools/lib/browser-check-gate.sh "$REPO"/tools/lib/browser-check-surface-gate.sh "$REPO"/tools/lib/browser-check-surface-lib.sh tools/lib/
+printf '<div class="seat-chip">a</div>\n' > web/index.html
+printf "// Browser-check-surface: seat-chip\n'use strict';\n" > docs/browser-checks/render-seat-1.js
+printf "'use strict';\n" > docs/browser-checks/render-other-1.js
+git add -A && git commit -qm base
+git remote add origin "$T/origin.git"
+git push -q origin main
+git fetch -q origin
+
+# The hook as git calls it: "<local ref> <local sha> <remote ref> <remote sha>" per pushed ref.
+hook() { printf 'refs/heads/%s %s refs/heads/%s %s\n' "$1" "$(git rev-parse "$1")" "$1" 0000000000000000000000000000000000000000 \
+  | bash .githooks/pre-push origin "$T/origin.git" >"$T/out" 2>&1; }
+
+# 1. No web/ change: passes without asking either gate.
+git checkout -qb docs-only main
+printf 'x\n' > README.md; git add README.md; git commit -qm 'docs only'
+if hook docs-only; then ok 'a branch with no web/ change passes'; else bad 'a branch with no web/ change was refused: '"$(cat "$T/out")"; fi
+
+# 2. #1720: a web/ change with no browser-check change and no trailer is refused, naming the gate.
+git checkout -qb web-bare main
+printf '<div class="seat-chip">b</div>\n' > web/index.html; git add web; git commit -qm 'web change'
+if hook web-bare; then bad 'a web/ change with no check and no trailer was let through'
+elif grep -q 'browser-check-gate' "$T/out"; then ok 'the coarse gate refuses a web/ change with no check, and says which gate'
+else bad 'refused, but without naming the gate: '"$(cat "$T/out")"; fi
+# ...and its twin: the same change with a Browser-check trailer passes the coarse gate. The surface gate still reads
+# the touched token (seat-chip), so this twin carries both trailers: it proves the coarse refusal above was the gate's.
+git commit -q --amend -m 'web change
+
+Browser-check: copy only
+Browser-check-surface: render-seat-1.js copy only, the chip is unchanged'
+if hook web-bare; then ok 'CONTROL: the same change with both trailers passes'; else bad 'CONTROL: trailers did not let it through: '"$(cat "$T/out")"; fi
+
+# 3. #2518: a web/ change that touches a check's surface token, with another check updated (so the coarse gate
+#    passes) but not that one, is refused by the surface gate.
+git checkout -qb web-surface main
+printf '<div class="seat-chip">c</div>\n' > web/index.html
+printf "'use strict';\n// touched\n" > docs/browser-checks/render-other-1.js
+git add -A; git commit -qm 'web change, wrong check updated'
+if hook web-surface; then bad 'a surface-token change with its own check untouched was let through'
+elif grep -q 'browser-check-surface-gate' "$T/out"; then ok 'the surface gate refuses a token change whose check was not updated'
+else bad 'refused, but not by the surface gate: '"$(cat "$T/out")"; fi
+# ...and its twin: updating the check that owns the token passes.
+printf "// Browser-check-surface: seat-chip\n'use strict';\n// updated\n" > docs/browser-checks/render-seat-1.js
+git add -A; git commit -qm 'and its check'
+if hook web-surface; then ok 'CONTROL: updating the owning check passes'; else bad 'CONTROL: the owning check did not let it through: '"$(cat "$T/out")"; fi
+
+# 4. A push of a branch that is not the one checked out is not checked here (the gates read HEAD). The checkout is a
+#    branch the coarse gate refuses, so checking HEAD by mistake would refuse this push.
+git checkout -qb web-bad main
+printf '<div class="seat-chip">d</div>\n' > web/index.html; git add web; git commit -qm 'web change, no trailer'
+if hook docs-only; then ok 'a push of another branch is not checked against the checkout'
+else bad 'a push of another branch was checked against the checkout: '"$(cat "$T/out")"; fi
+if hook web-bad; then bad 'CONTROL: the checked-out bad branch was let through'; else ok 'CONTROL: the checked-out bad branch is refused'; fi
+
+# 5. Review 1: the other shapes git sends. A delete of the checked-out branch (local sha all zeros) sends no commit.
+Z=0000000000000000000000000000000000000000
+raw() { printf '%s\n' "$@" | bash .githooks/pre-push origin "$T/origin.git" >"$T/out" 2>&1; }
+if raw "(delete) $Z refs/heads/web-bad $(git rev-parse web-bad)"; then ok 'a delete is not checked'; else bad 'a delete was checked: '"$(cat "$T/out")"; fi
+# Several refs, the checked-out branch's not first: still checked.
+if raw "refs/heads/docs-only $(git rev-parse docs-only) refs/heads/docs-only $Z" "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/web-bad $Z"; then
+  bad 'a push of several refs let the checked-out bad branch through (only the first line read?)'
+else ok 'a push of several refs checks the line that sends HEAD, wherever it is'; fi
+# A tag at HEAD sends HEAD's commit, so it is checked the same.
+git tag t-bad web-bad
+if raw "refs/tags/t-bad $(git rev-parse web-bad) refs/tags/t-bad $Z"; then bad 'a tag at HEAD was let through'; else ok 'a tag at HEAD is checked like the branch'; fi
+
+# 5b. Review 3: a backup push to wip/ is not checked, even of the checked-out bad branch.
+if raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/wip/web-bad $Z"; then ok 'a wip/ backup push is not checked'
+else bad 'a wip/ backup push was refused: '"$(cat "$T/out")"; fi
+# 5b'. Review 4: a wip/ backup and the real branch in one push: the real branch is still checked.
+if raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/wip/web-bad $Z" "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/web-bad $Z"; then
+  bad 'a wip/ ref beside the real branch let the real branch through'
+else ok 'a wip/ ref beside the real branch: the real branch is still checked'; fi
+# Review 4: an annotated tag at HEAD arrives as the tag object's id, and is still checked.
+git tag -a -m 'annotated' t-bad-annotated web-bad
+if raw "refs/tags/t-bad-annotated $(git rev-parse t-bad-annotated) refs/tags/t-bad-annotated $Z"; then bad 'an annotated tag at HEAD was let through'
+else ok 'an annotated tag at HEAD is checked like the branch'; fi
+[ "$(git rev-parse t-bad-annotated)" != "$(git rev-parse web-bad)" ] && ok 'CONTROL: the annotated tag is its own object, not the commit' || bad 'CONTROL: the tag is lightweight, so the arm proves nothing'
+
+# 5c. Review 3: a stale origin/main. Someone else's web/ change lands on origin main; this branch is rebased onto it
+#     and changes only a README, but this clone's origin/main still points at the old main. Without the hook's own
+#     fetch the gates would count that web/ commit as this branch's and refuse it.
+git clone -q -b main "$T/origin.git" "$T/other" && ( cd "$T/other" && git config user.email o@example.com && git config user.name o \
+  && printf '<div class="seat-chip">theirs</div>\n' > web/index.html && git add web && git commit -qm "their web change, no trailer (their gate is not ours to answer)" && git push -q origin main )
+old=$(git rev-parse origin/main)
+git fetch -q origin && git checkout -qb stale-base origin/main
+printf 'y\n' > README.md; git add README.md; git commit -qm 'readme only'
+git update-ref refs/remotes/origin/main "$old"   # this clone has not seen their change
+if raw "refs/heads/stale-base $(git rev-parse stale-base) refs/heads/stale-base $Z"; then ok 'a stale origin/main does not refuse a branch that changes no web/ itself (the hook fetches)'
+else bad 'a stale origin/main refused a branch for someone else'"'"'s web/ change: '"$(cat "$T/out")"; fi
+[ "$(git rev-parse origin/main)" != "$old" ] && ok 'CONTROL: the hook moved origin/main forward' || bad 'CONTROL: origin/main was not fetched, so the arm above proves nothing'
+git checkout -q web-bad
+# Review 4: a fetch that fails (here: origin unreachable) is said beside the refusal, so a stale base can be suspected.
+git remote set-url origin "$T/nowhere.git"
+if raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/web-bad $Z"; then bad 'CONTROL: the bad branch passed with origin unreachable'
+elif grep -q 'origin main could not be fetched just now' "$T/out"; then ok 'a failed fetch is said beside the refusal'
+else bad 'a failed fetch was not said: '"$(cat "$T/out")"; fi
+git remote set-url origin "$T/origin.git"
+# Review 5: the fetch builds on the person's own ssh setting (core.sshCommand) and never replaces it. A fake ssh, named
+# by core.sshCommand, records how it was called; origin is an ssh URL so git calls it.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/ssh.log"\nexit 1\n' "$T" > "$T/myssh"; chmod +x "$T/myssh"
+git config core.sshCommand "$T/myssh -i mykey"
+git remote set-url origin "ssh://example.invalid/repo.git"
+rm -f "$T/ssh.log"
+raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/web-bad $Z" || true
+if grep -q -- '-i mykey' "$T/ssh.log" 2>/dev/null && grep -q -- 'BatchMode=yes' "$T/ssh.log" && grep -q -- 'ConnectTimeout=10' "$T/ssh.log"; then
+  ok "the fetch uses the person's own ssh command, with no prompts and a connect timeout added"
+else bad "the fetch did not use core.sshCommand with the options added: $(cat "$T/ssh.log" 2>/dev/null)"; fi
+# ...and an ssh command the environment names is left exactly as it is.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/envssh.log"\nexit 1\n' "$T" > "$T/envssh"; chmod +x "$T/envssh"
+rm -f "$T/envssh.log"
+printf 'refs/heads/web-bad %s refs/heads/web-bad %s\n' "$(git rev-parse web-bad)" "$Z" | GIT_SSH_COMMAND="$T/envssh" bash .githooks/pre-push origin x >"$T/out" 2>&1 || true
+if [ -s "$T/envssh.log" ] && ! grep -q -- 'BatchMode' "$T/envssh.log"; then ok 'an ssh command from the environment is used as it is'
+else bad "the environment's ssh command was changed or not used: $(cat "$T/envssh.log" 2>/dev/null)"; fi
+git config --unset core.sshCommand
+git remote set-url origin "$T/origin.git"
+# Review 4: a branch with no web/ change against the base spends no fetch (origin unreachable would show it as a delay
+# only, so the arm checks the ref did not move instead).
+git checkout -q docs-only
+before=$(git rev-parse origin/main); git update-ref refs/remotes/origin/main "$old"
+if raw "refs/heads/docs-only $(git rev-parse docs-only) refs/heads/docs-only $Z" && [ "$(git rev-parse origin/main)" = "$old" ]; then ok 'a push with no web/ change does not fetch'
+else bad 'a push with no web/ change fetched (or was refused): '"$(cat "$T/out")"; fi
+git update-ref refs/remotes/origin/main "$before"
+git checkout -q web-bad
+
+# 6. Review 1: a real git push through core.hooksPath, so git's own stdin, the hook's working directory and the
+#    refusal stopping the push are measured, not assumed.
+git config core.hooksPath .githooks
+if git push -q origin web-bad >"$T/out" 2>&1; then bad 'a real push of the bad branch went through'
+elif git --git-dir="$T/origin.git" rev-parse -q --verify refs/heads/web-bad >/dev/null; then bad 'the refused push still reached origin'
+elif ! grep -q 'pre-push (#7192): refused by the browser-check-gate' "$T/out"; then bad 'the real push failed, but not by this hook: '"$(cat "$T/out")"
+else ok 'a real push of the bad branch is refused and origin does not get it'; fi
+git checkout -q web-surface
+if git push -q origin web-surface >"$T/out" 2>&1 && git --git-dir="$T/origin.git" rev-parse -q --verify refs/heads/web-surface >/dev/null; then
+  ok 'CONTROL: a real push of a passing branch lands'
+else bad 'CONTROL: a real push of a passing branch did not land: '"$(cat "$T/out")"; fi
+
+[ "$fails" -eq 0 ] && echo 'prepush-gates-7192: all passed' || { echo "prepush-gates-7192: $fails failed"; exit 1; }

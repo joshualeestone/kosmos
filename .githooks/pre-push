@@ -1,0 +1,63 @@
+#!/bin/bash
+# kosmos#7192: run the two browser-check gates before a push, not only in CI. Both are pure git and grep (no browser,
+# no board; the only network is one quiet fetch of origin main, below), yet a branch that misses one learned it 10 to 15
+# minutes later as a red suite, and the fix was usually a one-line trailer. Here it costs seconds:
+#   #1720 (tools/lib/browser-check-gate.sh): a web/ change needs a docs/browser-checks/ change or a
+#         `Browser-check: <reason>` trailer
+#   #2518 (tools/lib/browser-check-surface-gate.sh): a changed surface token needs its check updated or a
+#         `Browser-check-surface: <check>.js` trailer
+# The same functions tools/run-tests.sh calls, sourced the same way (a subshell each), so the two cannot disagree.
+#
+# Only for a push that sends HEAD's commit (a pushed ref whose tip is HEAD; the gates read origin/main...HEAD), and
+# only when that range changes web/; any other push pays nothing. Both gates pass when there is no origin/main.
+# A backup push to wip/ is not checked (review 3: unfinished work, backed up on purpose); a tag at HEAD is, annotated or not.
+# Skip once with `git push --no-verify`.
+#
+# Wire it once per clone (worktrees inherit it):   git config core.hooksPath .githooks
+set -u
+
+repo=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+head=$(git rev-parse -q --verify HEAD 2>/dev/null) || exit 0
+# The base the gates diff against (they honour KOSMOS_BCG_BASE too; review 4).
+base=${KOSMOS_BCG_BASE:-origin/main}
+mine=0
+while read -r _lref lsha rref _rsha; do
+  case "$rref" in refs/heads/wip/*) continue ;; esac
+  # Review 4: an annotated tag arrives as the tag object's id, so peel it to the commit it names.
+  [ "$(git rev-parse -q --verify "$lsha^{commit}" 2>/dev/null)" = "$head" ] && mine=1
+done
+[ "$mine" = 1 ] || exit 0
+# No web/ change on this branch against the base as it is: nothing to check, and no network is spent. A stale base
+# almost always OVER-counts (it adds other people's commits). The one way it under-counts (review 5): a branch that
+# merged a newer main's web/ change and then reverted it reads clean here and changed against the fresh main; that
+# push goes on to CI, which refuses it, as every push did before this hook. A diff that cannot be read (no base) falls
+# through to the gates, which pass by their own fail-soft rule.
+git diff --quiet "$base...HEAD" -- web/ 2>/dev/null && exit 0
+# Review 3: a stale origin/main counts other people's newer web/ commits as this branch's (a branch rebased onto a main
+# this clone has not fetched), refusing a push CI would pass. So one fetch, which never asks for a password or key
+# (review 4: a prompt mid-push, with no reason given) and gives up on a stalled transfer over https and a stalled
+# connect or transfer over ssh (an https connect to a silent host waits for the system's own timeout; review 6). A failed fetch (offline,
+# or another worktree's fetch holding the shared ref) is said, so a refusal below can be read for what it may be.
+# Review 5: the ssh options are added to the person's own ssh setting (core.sshCommand), never in place of it; an
+# ssh command or program the environment already names is left exactly as it is.
+stale=0
+if [ "$base" = origin/main ]; then
+  sshopts='-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2'
+  set -- -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10
+  if [ -z "${GIT_SSH_COMMAND:-}" ] && [ -z "${GIT_SSH:-}" ]; then
+    set -- "$@" -c "core.sshCommand=$(git config --get core.sshCommand 2>/dev/null || echo ssh) $sshopts"
+  fi
+  GIT_TERMINAL_PROMPT=0 git "$@" fetch --quiet origin main >/dev/null 2>&1 || stale=1
+  git diff --quiet "$base...HEAD" -- web/ 2>/dev/null && exit 0
+fi
+
+for gate in browser-check-gate:kosmos_browser_check_gate browser-check-surface-gate:kosmos_browser_check_surface_gate; do
+  lib=${gate%%:*}; fn=${gate#*:}
+  [ -f "$repo/tools/lib/$lib.sh" ] || continue
+  if ! ( . "$repo/tools/lib/$lib.sh" && "$fn" ); then
+    echo "pre-push (#7192): refused by the $lib (the same check CI runs). Fix it as it says above, or skip once with git push --no-verify." >&2
+    [ "$stale" = 1 ] && echo "pre-push (#7192): origin main could not be fetched just now, so $base may be behind and the change above may include other people's commits. Run git fetch origin main and push again." >&2
+    exit 1
+  fi
+done
+exit 0

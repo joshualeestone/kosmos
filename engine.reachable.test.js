@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  winSpellingRefusalForTests: 'test seam (#7221): engine/replyfile.js\'s Windows spelling rule, so engine/replyfile.win32-7221.test.js can check every spelling without a disk or a Windows box. Production reaches it through attach.',
   setRecordMaxBytesForTests: 'test seam (#5536 slice 3): engine/restoresink.js\'s cap on the resume record, which engine/restoreresume-5536.test.js lowers to reach the dropped-record path without writing 256 MB. Production keeps the cap.',
   setTokenFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s path for agy\'s sign-in file, so engine/agyusage-6176.test.js and server.agyusage-6176.test.js can stand a file in for it; production checks the real path in the person\'s home folder.',
   setStoppedFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s record that asking stopped after a failed run, so engine/agyusage-6176.test.js can show it outlives a restart without touching the person\'s Kosmos folder (production refuses it in a test process).',
@@ -314,6 +315,7 @@ const TEST_SEAM = 'test seam: only its own tests call it (its source comment say
 const INTERNAL = 'used inside its own module; exported only so its test can pin it';
 const ACCESSOR = 'a thin accessor of a sibling export that production does call (the capability is reached through that sibling)';
 const TRIAGED_5548 = {
+  LAUNCH_VARS: ['engine/anthropiccompat.js', TEST_SEAM + ' (#7206: the lockstep test keeps bin/agent-supervisor.sh\'s unset list equal to it; the supervisor names the variables itself)'],
   newPoolMemo: ['engine/agyquota.js', TEST_SEAM + ' (an isolated memo for a test; production uses the module default)'],
   stopAll: ['engine/fedseats.js', TEST_SEAM + ' (its docblock: only tests call it; board shutdown closes stdin)'],
   clearFirstTurnCache: ['engine/groksession.js', TEST_SEAM + ' (added because the cache survived the tests\' reset)'],

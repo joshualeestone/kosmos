@@ -7,6 +7,8 @@ import UIKit
 // agent opens its chat natively (ChatView, kosmos#7008).
 struct AgentsView: View {
     @ObservedObject var client: BoardClient
+    // kosmos#7222: notification permission is asked here, over a connected Mac's agents, not at launch.
+    @ObservedObject var push: PushNotificationManager
     let openChat: (URL) -> Void
     let openBoard: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -43,6 +45,8 @@ struct AgentsView: View {
         .onAppear {
             visible = true
             client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
+            // kosmos#7222: a change made in iOS Settings is seen here, and a yes given there registers (review 1).
+            push.refreshPermission(registerIfAllowed: true)
             #if DEBUG
             // The sample chat's screenshots (a Debug build only): KOSMOS_SAMPLE_OPEN=<agent> opens that chat, once a launch.
             if !Self.sampleOpened, let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty {
@@ -57,7 +61,7 @@ struct AgentsView: View {
             guard visible else { return }
             // Only a return from the background restarts it, not a passing Face ID prompt or Control Center.
             if phase == .background { wasBackground = true; client.stop() }
-            else if phase == .active && wasBackground { wasBackground = false; client.start() }
+            else if phase == .active && wasBackground { wasBackground = false; client.start(); push.refreshPermission(registerIfAllowed: true) }
         }
     }
 
@@ -110,6 +114,13 @@ struct AgentsView: View {
 
     private func list(stale: Bool) -> some View {
         List {
+            if PushBridge.offersAsk(permission: Self.samplePermission ?? push.permission, agentsCurrent: !stale, dismissed: push.askDismissed) {
+                Section {
+                    notifyAsk
+                        .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
+                        .listRowBackground(Palette.card)
+                }
+            }
             if stale {
                 Section {
                     notUpdating
@@ -140,6 +151,40 @@ struct AgentsView: View {
         .background(Palette.ground)
         .refreshable { await client.refreshNow() }
     }
+
+    // kosmos#7222: the one ask for notification permission, with one line saying why. "Turn on notifications" shows
+    // iOS's own box; "Not now" hides this for good (iOS Settings still turns them on).
+    private var notifyAsk: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Get a buzz when an agent needs you")
+                .font(.headline).foregroundColor(Palette.primary)
+                .accessibilityAddTraits(.isHeader)
+            Text("Kosmos can tell you when an agent asks you something or needs your permission, even when this app is closed.")
+                .font(.subheadline).foregroundColor(Palette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            // Review 1: side by side, or stacked at the accessibility text sizes so neither label is squeezed.
+            let buttons = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+            buttons {
+                Button { push.requestAuthorizationAndRegister() } label: {
+                    Text("Turn on notifications").foregroundColor(Palette.card)
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Not now") { push.dismissAsk() }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // kosmos#7222, a Debug build only: over the sample list the ask shows only with KOSMOS_SAMPLE_NOTIFASK=1, for its
+    // screenshots; every other sample shot stays as it was (review 1: a fresh simulator reads notDetermined, so without
+    // this the card would appear on all of them).
+    #if DEBUG
+    private static let samplePermission: PushBridge.Permission? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
+        ? (ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOTIFASK"] == "1" ? .notDetermined : .allowed) : nil
+    #else
+    private static let samplePermission: PushBridge.Permission? = nil
+    #endif
 
     // Lost while open (spec frames 5 and 6): the time of the last good read, in the system's time format.
     private var notUpdating: some View {

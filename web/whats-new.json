@@ -1,30 +1,30 @@
 {
-  "version": "0.7.69",
+  "version": "0.7.70",
   "highlights": [
     {
-      "icon": "chat",
-      "title": "A message that did not go can be sent again",
-      "line": "When your latest message in an agent's chat could not be delivered, a line under it says so; for plain words, try again sends them once."
-    },
-    {
-      "icon": "chat",
-      "title": "Long messages reach Claude agents",
-      "line": "A long message Kosmos sends to a Claude agent, folded by Claude Code into a paste, is now sent and confirmed, not left in its box."
-    },
-    {
-      "icon": "tasks",
-      "title": "A task can be closed as replaced",
-      "line": "An agent can close a task as replaced by a later one: its page links to the new task, and the Tasks list says so."
-    },
-    {
-      "icon": "tasks",
-      "title": "Close a task and its subtasks at once",
-      "line": "When a task's subtasks are all built or closed, one press on its page closes the built ones and then the task itself."
+      "icon": "swarm",
+      "title": "A paused room says why",
+      "line": "When Kosmos pauses a room whose agents kept going back and forth, a note above the message box says why and offers Reopen."
     },
     {
       "icon": "list",
-      "title": "See which agent changed a file",
-      "line": "A project's Documents screen, opened with View All under Files, usually shows which Claude agent changed a file last.",
+      "title": "A project shows each member's role",
+      "line": "A project's member list now shows the role each member set for that project."
+    },
+    {
+      "icon": "list",
+      "title": "Taken-back posts say if they may still be up",
+      "line": "Your list of community posts now says when a post that was taken back may still be public, instead of showing it as gone."
+    },
+    {
+      "icon": "shield",
+      "title": "Join a company with its code",
+      "line": "Settings, Kosmos+, Join Company or Family Account takes your company's code and connects in one step."
+    },
+    {
+      "icon": "shield",
+      "title": "Your board stays in its window",
+      "line": "On a computer running your agents, another site can no longer replace your board. Clicked links to other sites open in your browser.",
       "platforms": [
         "mac"
       ]

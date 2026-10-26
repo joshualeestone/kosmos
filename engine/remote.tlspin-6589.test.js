@@ -41,6 +41,10 @@ if (args[0] === 'tls-pin') {
   if (mode === 'old') { process.stderr.write("error: unrecognized subcommand 'tls-pin'\\n"); process.exit(2); }
   if (mode === 'none') { console.log(JSON.stringify({ state: 'none', because: 'the computer answered 404' })); process.exit(0); }
   if (mode === 'required') { console.log(JSON.stringify({ state: 'required', because: 'statement refused: other_peer' })); process.exit(0); }
+  // kosmos#7193 review 2: what tlspin.rs fetch() says when it cannot reach the computer (ureq's Transport puts the URL first).
+  // kosmos#7193 review 3: a certificate made for another computer (rustls names the one it is valid for), behind a redirect.
+  if (mode === 'wrongcert') { console.log(JSON.stringify({ state: 'required', because: 'pinned here, and no statement: could not reach the computer: https://other.example.net/_kosmos/tls-pin: Connection Failed: invalid peer certificate: certificate is only valid for mac-b.kosmosplus.com' })); process.exit(0); }
+  if (mode === 'unreach') { console.log(JSON.stringify({ state: 'required', because: 'pinned here, and no statement: could not reach the computer: ' + args[args.indexOf('--to') + 1].toUpperCase() + '/_kosmos/tls-pin: Dns Failed: no record' })); process.exit(0); }
   if (mode === 'badkey') { console.log(JSON.stringify({ state: 'pinned', spki: ['ABC'], from: 'mac-b' })); process.exit(0); }
   if (mode === 'nokey') { console.log(JSON.stringify({ state: 'pinned', spki: [], from: 'mac-b' })); process.exit(0); }
   if (mode === 'odd') { console.log(JSON.stringify({ state: 'maybe' })); process.exit(0); }
@@ -88,6 +92,37 @@ test('#6589: none passes as none; every other answer, a malformed pinned one inc
     assert.deepEqual(got.data, { state: 'required', because: "this computer's certificate could not be checked" }, m);
     assert.ok(!JSON.stringify(got).includes('/Users/'), 'the tunnel\'s own words stay here');
   }
+});
+
+test('kosmos#7193: a required answer says why in the board log, once a minute per address, with no computer name', async () => {
+  enrol();
+  const lines = [];
+  const was = console.error;
+  console.error = (...a) => lines.push(a.join(' '));
+  try {
+    mode('required');
+    await remote.tlsPin('e.kosmosplus.com', { say: true });
+    await remote.tlsPin('e.kosmosplus.com', { say: true });   // within the minute: not said again
+    mode('crash');
+    await remote.tlsPin('f.kosmosplus.com', { say: true });   // another address: said
+    mode('none');
+    await remote.tlsPin('g.kosmosplus.com', { say: true });   // CONTROL: a definite answer says nothing
+    mode('unreach');
+    await remote.tlsPin('tmnt2.kosmosplus.com', { say: true });   // review 2: the reason carries the address (here in capitals)
+    mode('wrongcert');
+    await remote.tlsPin('h.kosmosplus.com', { say: true });   // review 3: another computer's name, and a redirected host
+    mode('required');
+    await remote.tlsPin('i.kosmosplus.com');   // review 3: a caller that did not ask (warming) says nothing
+  } finally { console.error = was; }
+  const said = lines.filter((l) => l.startsWith('remote: tls-pin answered required'));
+  assert.equal(said.length, 4, JSON.stringify(lines));
+  assert.match(said[2], /could not reach the computer: HTTPS:\/\/a computer\/_kosmos\/tls-pin: Dns Failed/, said[2]);
+  assert.match(said[3], /https:\/\/a computer\/_kosmos\/tls-pin: Connection Failed: invalid peer certificate: certificate is only valid for a computer$/, said[3]);
+  assert.ok(!/mac-b|other\.example|example\.net/i.test(said[3]), 'another computer\'s name is in the line: ' + said[3]);
+  assert.ok(!/tmnt2/i.test(said[2]), 'the unreachable computer\'s address (or its first label) is in the line: ' + said[2]);
+  assert.match(said[0], /statement refused: other_peer/, 'the tunnel\'s own reason is in the line');
+  assert.match(said[1], /boom at/, 'a crash says what the tunnel printed');
+  assert.ok(said.every((l) => !l.includes('kosmosplus.com')), 'no computer name in the line');
 });
 
 test('#6589: a connector from before tls-pin answers none; before the sign-up nothing is spawned', async () => {
@@ -225,5 +260,6 @@ test('#6589 (review 11): a cached answer expires after five minutes and is asked
   }
   // The signing-out rule is a guard at the top of tlsPin (a full sign-out is not driven here): pinned to its place.
   const src = fs.readFileSync(nodePath.join(__dirname, 'remote.js'), 'utf8');
-  assert.match(src, /async function tlsPin\(address, \{ fresh = false \} = \{\}\) \{\n[^\n]*\n\s+if \(forgetting\) return \{ ok: true, because: null, data: \{ state: 'required'/);
+  // kosmos#7193 review 3: the asking moved into tlsPinAnswer (tlsPin wraps it to say why, for the app's ask only).
+  assert.match(src, /async function tlsPinAnswer\(address, \{ fresh = false \} = \{\}\) \{\n[^\n]*\n\s+if \(forgetting\) return \{ ok: true, because: null, data: \{ state: 'required'/);
 });

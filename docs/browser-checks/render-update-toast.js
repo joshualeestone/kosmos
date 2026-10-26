@@ -251,9 +251,27 @@ const RELPORT = freePort();
       const reached = await p.evaluate(async (u) => fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' } }).then(() => true, () => false), url);
       if (reached || pressed !== before + 1) die('#6903: the stub did not catch a POST to ' + url + '; not pressing anything');
     }
-    const none = await press();
-    if (none !== 'Kosmos did not answer, so this page cannot tell whether the update started. Kosmos may be restarting, perhaps to install it. Wait a minute, then reload this page.')
-      die('#6903: no answer said: ' + none);
+    /* #7207: a press with NO answer waits for the board (the button off, saying so) instead of offering Update again;
+       the board here never went away (only the route is stubbed), so its next status answer re-offers the button. */
+    const pressNoAnswer = async (label = 'Update') => {
+      const before = pressed;
+      await p.click('#uc-go');
+      await p.waitForFunction(() => { const e = document.getElementById('uc-err'); return e && !e.hidden; }, null, { timeout: 10000 });
+      if (pressed !== before + 1) die('#7207: the ' + label + ' press did not reach the stubbed route (' + pressed + ')');
+      const waiting = await p.evaluate(() => ({ err: document.getElementById('uc-err').textContent.trim(),
+        go: document.getElementById('uc-go').textContent.trim(), enabled: !document.getElementById('uc-go').disabled }));
+      if (waiting.enabled || waiting.go !== 'Waiting\u2026') die('#7207: a press with no answer offered the button again at once: ' + JSON.stringify(waiting));
+      await p.waitForFunction(() => !document.getElementById('uc-go').disabled, null, { timeout: 15000 });
+      const after = await p.evaluate(() => ({ err: document.getElementById('uc-err').textContent.trim(),
+        go: document.getElementById('uc-go').textContent.trim(), open: !document.getElementById('updconfirm').hidden }));
+      if (!after.open || after.go !== label) die('#7207: once the board answered, the dialog was left stranded: ' + JSON.stringify(after));
+      return { waiting: waiting.err, after: after.err };
+    };
+    const none = await pressNoAnswer();
+    if (none.waiting !== 'Kosmos is not answering right now. It may be restarting, perhaps to install the update. This page will wait for it to answer.')
+      die('#7207: while waiting it said: ' + none.waiting);
+    if (none.after !== 'Kosmos is answering again. Press Update to try again. If the update already started, this joins it.')
+      die('#7207: once the board answered it said: ' + none.after);
     await p.screenshot({ path: path.join(OUT, 'update-confirm-no-answer.png') });
     answer = (route) => route.fulfill({ status: 502, body: '' });
     const bare = await press();
@@ -267,10 +285,69 @@ const RELPORT = freePort();
     // The same dialog in Roll back mode, through the page's own mode switch: no "install it" in its sentence.
     await p.evaluate(() => setUpdConfirmMode('rollback', '0.0.1'));
     answer = (route) => route.abort('connectionreset');
-    const rbNone = await press('Roll back');
-    if (rbNone !== 'Kosmos did not answer, so this page cannot tell whether the roll back started. Kosmos may be restarting. Wait a minute, then reload this page.')
-      die('#6903: a Roll back with no answer said: ' + rbNone);
+    const rbNone = await pressNoAnswer('Roll back');
+    if (rbNone.waiting !== 'Kosmos is not answering right now. It may be restarting. This page will wait for it to answer.')
+      die('#7207: a Roll back with no answer said while waiting: ' + rbNone.waiting);
+    if (rbNone.after !== 'Kosmos is answering again. Press Roll back to try again. If the roll back already started, this joins it.')
+      die('#7207: a Roll back, once the board answered, said: ' + rbNone.after);
     await p.evaluate(() => setUpdConfirmMode('update'));
+    /* #7207: a button turned into Reload only reloads. The 409 "no update to install" turns it into Reload; its click
+       used to ALSO run the press listener and POST an update on its way out. The navigation is swapped for a marker
+       (location.reload cannot be stubbed) so the dialog survives for the legs below; what is measured is whether the
+       click reaches the route. */
+    answer = (route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'There is no update to install right now.' }) });
+    {
+      const before = pressed;
+      await p.click('#uc-go');
+      await p.waitForFunction(() => document.getElementById('uc-go').textContent.trim() === 'Reload', null, { timeout: 10000 });
+      if (pressed !== before + 1) die('#7207: the press before Reload did not reach the stubbed route (' + pressed + ')');
+      await p.evaluate(() => { document.getElementById('uc-go').onclick = () => { window.__ucReloaded = true; }; });
+      await p.click('#uc-go');
+      await p.waitForFunction(() => window.__ucReloaded === true, null, { timeout: 5000 });
+      await new Promise((r) => setTimeout(r, 500));   // a stray POST from the same click would land within this
+      if (pressed !== before + 1) die('#7207: pressing Reload also pressed Update (' + (pressed - before - 1) + ' extra POST)');
+    }
+    await p.evaluate(() => { const go = document.getElementById('uc-go'); go.onclick = null; delete go.dataset.reloadOnly;
+      go.textContent = 'Update'; document.getElementById('uc-err').hidden = true; });
+    /* #7207: the two outcomes the real board cannot give here, driven through the status read the wait makes
+       (statusFetchWithin, swapped for these legs only and put back): a NEW boot on the SAME version is "restarted";
+       three minutes of no answer is the deadline, whose Reload must not also press Update. */
+    answer = (route) => route.abort('connectionreset');
+    await p.evaluate(() => { window.__realStatusFetch = statusFetchWithin; window.__realBoot = LAST_BOOTED_AT; if (!LAST_BOOTED_AT) LAST_BOOTED_AT = 'boot-before-7207'; });
+    {
+      await p.evaluate(() => { const v = LAST_VERSION || SERVED_VERSION; window.statusFetchWithin = async () => new Response(
+        JSON.stringify({ version: v, bootedAt: 'boot-after-7207' }), { status: 200, headers: { 'content-type': 'application/json' } }); });
+      const before = pressed;
+      await p.click('#uc-go');
+      await p.waitForFunction(() => !document.getElementById('uc-go').disabled, null, { timeout: 15000 });
+      if (pressed !== before + 1) die('#7207: the restarted-leg press did not reach the stubbed route (' + pressed + ')');
+      const out = await p.evaluate(() => ({ err: document.getElementById('uc-err').textContent.trim(), go: document.getElementById('uc-go').textContent.trim(), v: LAST_VERSION || SERVED_VERSION }));
+      if (out.go !== 'Update' || out.err !== 'Kosmos restarted and is still on ' + out.v + '. Press Update to update it now.')
+        die('#7207: a new boot on the same version said: ' + JSON.stringify(out));
+    }
+    {
+      await p.evaluate(() => { window.statusFetchWithin = async () => { throw new TypeError('no answer (7207 stub)'); }; });
+      const before = pressed;
+      await p.click('#uc-go');
+      await p.waitForFunction(() => document.getElementById('uc-go').textContent.trim() === 'Waiting\u2026', null, { timeout: 10000 });
+      await p.evaluate(() => { const real = Date.now; window.__realDateNow = real; Date.now = () => real() + 4 * 60 * 1000; });
+      try {
+        await p.waitForFunction(() => document.getElementById('uc-go').textContent.trim() === 'Reload', null, { timeout: 15000 });
+      } finally {
+        await p.evaluate(() => { Date.now = window.__realDateNow; });   // the page's own timers run on this clock too
+      }
+      const out = await p.evaluate(() => ({ err: document.getElementById('uc-err').textContent.trim(), enabled: !document.getElementById('uc-go').disabled }));
+      if (!out.enabled || out.err !== 'Kosmos has not answered for three minutes. Reload this page to see where it is.')
+        die('#7207: the deadline said: ' + JSON.stringify(out));
+      if (pressed !== before + 1) die('#7207: the deadline-leg press did not reach the stubbed route (' + pressed + ')');
+      await p.evaluate(() => { document.getElementById('uc-go').onclick = () => { window.__ucReloaded2 = true; }; });
+      await p.evaluate(() => document.getElementById('uc-go').click());   // a page-level click: the restart screen may cover the dialog
+      await p.waitForFunction(() => window.__ucReloaded2 === true, null, { timeout: 5000 });
+      await new Promise((r) => setTimeout(r, 500));
+      if (pressed !== before + 1) die('#7207: pressing the deadline Reload also pressed Update (' + (pressed - before - 1) + ' extra POST)');
+    }
+    await p.evaluate(() => { window.statusFetchWithin = window.__realStatusFetch; LAST_BOOTED_AT = window.__realBoot; const go = document.getElementById('uc-go');
+      go.onclick = null; delete go.dataset.reloadOnly; go.textContent = 'Update'; document.getElementById('uc-err').hidden = true; });
     await p.unroute('**/api/update', stub);
     await p.unroute('**/api/update/rollback', stub);
 

@@ -1260,6 +1260,7 @@ const claudeAccounts = require('./engine/claudeaccounts');
 const geminiAccounts = require('./engine/geminiaccounts'); // #3296 accounts slice
 const grokAccounts = require('./engine/grokaccounts');     // #3391 accounts slice
 const qwenAccounts = require('./engine/qwenaccounts');     // #5977
+const compatAccounts = require('./engine/anthropiccompat');   // #7206: DeepSeek (and later GLM, MiniMax) on the claude runner
 const qwenLocal = require('./engine/qwenlocal');         // #5977 slice 3
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
@@ -3357,6 +3358,91 @@ function handleQwenAccountStore(req, res) {
       sendJson(res, 200, { ok: true, account: account ? { ...account, connection } : null, connection });
     })
     .catch(() => sendJson(res, 400, { error: 'we could not add that Qwen account' }));
+}
+
+/* #7206: add a vendor account (DeepSeek) that a claude agent runs on with the person's key. Body: { vendor, key,
+   model?, label? }. The address is the vendor's own, from engine/anthropiccompat.js, never the request's. The key is
+   checked with the VENDOR before anything is written (never with Anthropic): a key the vendor refuses stores nothing;
+   a vendor that cannot be reached stores it and says so. An existing account is never overwritten. */
+function handleCompatAccountStore(req, res) {
+  readBody(req)
+    .then(async (raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const v = compatAccounts.vendorOf(body.vendor);   // review 2: own keys only, never an inherited name
+      if (!v) { sendJson(res, 400, { error: 'Kosmos does not know that provider' }); return; }
+      /* Review 3: only the Mac launch points an agent at a vendor (bin/agent-supervisor.sh); a Windows agent on this
+         account would start against Anthropic with no sign-in. Refused until the Windows launch does the same. */
+      if (process.platform === 'win32') { sendJson(res, 400, { error: `${v.name} agents run on a Mac for now; this computer cannot run them yet` }); return; }
+      if (!runners.resolveBin('claude').present || runners.installing('claude')) {   // filed under 'claude' (engine/runners.js)
+        sendJson(res, 400, { error: `we could not find Claude Code, the runner ${v.name} agents use, on this computer`, needsRunner: true, provider: 'claude' });
+        return;
+      }
+      const acct = {
+        vendor: v.id,
+        model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : v.models[0],
+        key: typeof body.key === 'string' ? body.key.trim() : '',
+      };
+      const problem = compatAccounts.accountProblem(acct);
+      if (problem) { sendJson(res, 400, { error: problem }); return; }
+      const named = compatAccounts.dirForLabel(v.id, typeof body.label === 'string' && body.label.trim() ? body.label : 'main');
+      if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
+      /* Claimed before the live check, as the Qwen add does: a plain mkdir fails on a folder already there, so of two
+         adds racing for one label exactly one gets it. A claimed folder this add cannot fill is removed. Review 1 (the
+         Qwen add's review 2): an add that died between the claim and the store (a restart during the check) leaves an
+         empty folder that the list hides and delete refuses; a real, empty folder over a minute old is that leftover,
+         reclaimed once, or the name would be taken forever. */
+      const claim = () => { try { fs.mkdirSync(named.dir, { mode: 0o700 }); return null; } catch (e) { return e || new Error('mkdir'); } };
+      let claimErr = claim();
+      if (claimErr && claimErr.code === 'EEXIST') {
+        let leftover = false;
+        try {
+          const st = fs.lstatSync(named.dir);
+          leftover = st.isDirectory() && !st.isSymbolicLink() && Date.now() - st.mtimeMs > 60000
+            && fs.readdirSync(named.dir).length === 0;
+        } catch { leftover = false; }
+        if (leftover) {
+          /* Review 2: renamed aside, not removed in place. A rename is atomic, so of two adds that both found the same
+             leftover exactly one moves it; the other's rename fails and it keeps its "already there" answer. Removing
+             in place let the second remove the first's fresh claim and both believe they owned the name. The aside
+             name is a removed-account name, which the list never shows. */
+          const aside = path.join(path.dirname(named.dir),
+            `${compatAccounts.forgottenPrefix(v.id)}${named.label}.reclaimed-${process.pid}-${Date.now()}-${require('node:crypto').randomBytes(4).toString('hex')}`);
+          let moved = false;
+          try { fs.renameSync(named.dir, aside); moved = true; } catch { moved = false; }
+          if (moved) {
+            /* Review 3: a rename moves whatever is at the PATH now. If another add reclaimed the leftover first and
+               claimed the name afresh, this moved ITS claim, which is new (a rename keeps a folder's own mtime). Put
+               it back and lose, rather than take it. */
+            let stillOld = false;
+            try { const st2 = fs.lstatSync(aside); stillOld = st2.isDirectory() && Date.now() - st2.mtimeMs > 60000; } catch { stillOld = false; }
+            if (stillOld) {
+              try { fs.rmdirSync(aside); } catch { /* best effort: an empty, hidden folder */ }
+              claimErr = claim();
+            } else {
+              try { fs.renameSync(aside, named.dir); } catch { /* the other add re-creates its claim on its own store */ }
+            }
+          }
+        }
+      }
+      if (claimErr) {
+        sendJson(res, claimErr.code === 'EEXIST' ? 409 : 400, { error: claimErr.code === 'EEXIST'
+          ? `there is already a ${v.name} account called ${named.label} on this computer; give this one another name`
+          : `we could not make a place for this ${v.name} account on this computer` });
+        return;
+      }
+      const giveBack = () => { try { fs.rmSync(named.dir, { recursive: true, force: true }); } catch { /* best effort */ } };
+      let live;
+      try { live = await compatAccounts.validateLive(acct); } catch { live = { state: compatAccounts.STATE.UNKNOWN, because: `we could not check this key with ${v.name} just now` }; }
+      if (live.state === compatAccounts.STATE.NONE) { giveBack(); sendJson(res, 400, { error: live.because }); return; }
+      try { compatAccounts.storeAccount(named.dir, acct); }
+      catch { giveBack(); sendJson(res, 400, { error: `we could not save this ${v.name} account on this computer` }); return; }
+      const account = compatAccounts.list(v.id).find((a) => a.dir === named.dir) || null;
+      const connection = { state: live.state, because: live.because };
+      sendJson(res, 200, { ok: true, account: account ? { ...account, connection } : null, connection });
+    })
+    .catch(() => sendJson(res, 400, { error: 'we could not add that account' }));
 }
 
 /* #1279 GLOBAL PER-CREATOR ACTIVE-AGENT CAP.
@@ -12060,7 +12146,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { state: 'none', because: 'not an address of this account' });
       return;
     }
-    remote.tlsPin(address, { fresh: q.get('fresh') === '1' })
+    remote.tlsPin(address, { fresh: q.get('fresh') === '1', say: true })   // kosmos#7193: the app's ask says why in the log
       .then((got) => sendJson(res, 200, got.data))
       .catch(() => sendJson(res, 200, { state: 'required', because: "this computer's certificate could not be checked" }));
     return;
@@ -13048,6 +13134,10 @@ const server = http.createServer(async (req, res) => {
         /* #5977: Qwen accounts, badged from their live check alone (the endpoint lists the model, or says no): an
            endpoint reached with its model is signed_in_unverified until an agent is seen using it. */
         const qwen = (qwenRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
+        /* #7206 slice 1a review 3: vendor accounts (DeepSeek) are NOT listed yet, and not checked here either (review 4:
+           a check whose answer is thrown away still sends every key to the vendor and holds this list up). The page names
+           any provider it does not know as Claude (acctProvider), so a listed DeepSeek row would be shown, and acted on,
+           as a Claude account. Slice 1b lists and checks them together with the page that knows them. */
         /* kosmos#7152 slice 2: whether a whole set of agents may be moved onto each Claude row, from the ONE rule the
            decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
         const ab = require('./engine/autobalance');
@@ -13472,6 +13562,31 @@ const server = http.createServer(async (req, res) => {
      codex runner Qwen agents use), and check one live (GET <baseUrl>/models). */
   if (pathname === '/api/accounts/qwen' && req.method === 'POST') {
     handleQwenAccountStore(req, res);
+    return;
+  }
+  /* #7206: vendor accounts (DeepSeek) on the claude runner: add, disconnect or delete (the same fail-closed agents
+     guard, on the claude runner), and check one live with the vendor. */
+  if (pathname === '/api/accounts/compat' && req.method === 'POST') {
+    handleCompatAccountStore(req, res);
+    return;
+  }
+  if (pathname === '/api/accounts/compat' && req.method === 'DELETE') {
+    handleApikeyAccountDelete(req, res, { mod: compatAccounts, runner: 'claude' });
+    return;
+  }
+  if (pathname === '/api/accounts/compat/check' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const acct = compatAccounts.list().find((a) => a.dir === path.resolve(dir));
+        if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
+        const c = await compatAccounts.checkLive(acct.dir);
+        sendJson(res, 200, { state: c.state, because: c.because });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not check that account' }));
     return;
   }
   if (pathname === '/api/accounts/qwen' && req.method === 'DELETE') {

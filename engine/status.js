@@ -8783,6 +8783,9 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   // #5977 review 2: a Qwen agent's home holds an endpoint, not a Claude sign-in; asking the Claude check about it could
   // only be wrong, and a HEALTHY answer would hide the endpoint's real refusal. auth_failed stands.
   if (job.configDir && require('./qwenaccounts').isQwenHome(job.configDir)) return undefined;
+  // #7206: nor a vendor account (~/.kosmos-deepseek-<label>): a claude agent there holds the vendor's key, not a Claude
+  // sign-in, so `claude auth status` on it could only be wrong, and a HEALTHY answer would hide the vendor's refusal.
+  if (job.configDir && require('./anthropiccompat').isCompatHome(job.configDir)) return undefined;
   // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
   // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
   try { return verdictFn(job.configDir || null); } catch { return undefined; }
@@ -8814,20 +8817,78 @@ const LOGIN_ADV_TTL_MS = 5 * 60 * 1000;
 const loginAdvCache = { at: 0, value: [] }; // mutated in place by loginexpiry.cachedAdvisories
 
 /* Resolve the CCD an agent's claude process actually reads. pane_pid IS the claude process (tmux
- * runs it as the pane leader -- measured), so `ps eww <pane_pid>` carries its env. Returns the CCD
- * string, null (env read, genuinely unset), or undefined (could not resolve -> caller SKIPS it,
- * never guesses the bare account). See loginexpiry.ccdFromPsEnv for why the job's configDir cannot
- * be used here (it is null for the default account even when CCD is set: the #2129 class). */
-function paneCcd(target) {
+ * runs it as the pane leader -- measured), so `ps eww <pane_pid>` carries its env. Returns { ccd, pid, cmd }: ccd is
+ * the CCD string, null (env read, genuinely unset), or undefined (could not resolve -> caller SKIPS it, never guesses
+ * the bare account). See loginexpiry.ccdFromPsEnv for why the job's configDir cannot be used here (it is null for the
+ * default account even when CCD is set: the #2129 class). kosmos#7194: pid says which process was read, for the
+ * board log; the program's name is read from that pid only when a line is written (paneProgOf). */
+function paneCcdRead(target) {
   const d = shDetail(tmuxBin(), ['display-message', '-p', '-t', target, '#{pane_pid}']);
-  if (!d.ran || d.status !== 0) return undefined;
+  if (!d.ran || d.status !== 0) return { ccd: undefined, pid: null };
   const pid = String(d.out).trim();
-  if (!/^\d+$/.test(pid)) return undefined;
+  if (!/^\d+$/.test(pid)) return { ccd: undefined, pid: null };
   let env;
   try {
     env = execFileSync('ps', ['eww', pid], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch { return undefined; }
-  return require('./loginexpiry').ccdFromPsEnv(env);
+  } catch { return { ccd: undefined, pid }; }
+  return { ccd: require('./loginexpiry').ccdFromPsEnv(env), pid };
+}
+
+/* kosmos#7194 review 3: the program a pid runs, by a second `ps` of that pid, for the board log only (null when it
+   cannot be read). Never its arguments or environment. A pid that exits and is reused between the two reads names the
+   new program; accepted for a log line, which also records the pid. */
+function paneProgOf(pid) {
+  if (!/^\d+$/.test(String(pid || ''))) return null;
+  try {
+    return cmdFromPsComm(execFileSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }));
+  } catch { return null; }
+}
+
+/* kosmos#7194 review 2: the program's base name, from `ps -o comm=` (the executable's path, alone on its line, so a
+   space in it is kept). null when there is none. */
+function cmdFromPsComm(text) {
+  const first = String(text == null ? '' : text).split('\n')[0].trim();
+  return (first ? path.basename(first).replace(/[^\w.@+-]/g, '').slice(0, 64) : '') || null;
+}
+
+/* kosmos#7194: Josh's board once named eight agents on a login they had left the evening before, and nothing recorded
+   what it had read, so the cause could not be found. When the notices change (raised, changed, or cleared), the board
+   log gets one line per named agent: the folder read, from which process (pid and program), in which pane. Only on a
+   change; a notice's days left are part of it, so a standing notice writes its lines once a day as it counts down
+   (the stable case). Each agent's pid is in the change key too, so a pane whose agent keeps restarting writes at each
+   recompute (every 5 minutes); kept, since a restart is what a later reader needs on record. `state` holds the last
+   notices logged, set after its lines are written. The lines hold the login's email and folder paths; a diagnostics
+   export masks the email and the home folder (engine/diagredact). */
+const LOGIN_ADV_LOGGED = { sig: '' };
+function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED, progOf = paneProgOf) {
+  const list = Array.isArray(out) ? out : [];
+  /* A key, not a path list: joined with control characters, which no service name, day count or agent name holds.
+     Review 3: each named agent's folder and pid are in it, so a notice that reads the same while what was read
+     changed (an agent moved logins, or restarted) still writes. */
+  const readKey = (name) => { const r = reads.get(name) || {}; return name + '=' + String(r.ccd) + '@' + String(r.pid || ''); };
+  const sig = list.map((a) => [a.service || '', a.email || '', a.expired ? 'x' : a.daysLeft, (a.agents || []).slice().sort().map(readKey).join('\u0000')].join('\u0001')).sort().join('\u0002');
+  if (sig === state.sig) return 0;
+  const had = state.sig !== '';
+  const say = typeof log === 'function' ? log : (line) => { try { console.error(line); } catch { /* no console */ } };
+  if (!list.length) { if (had) say('[loginadv] #7194: no login notice now'); state.sig = sig; return 0; }
+  let n = 0;
+  for (const a of list) {
+    const when = a.expired ? 'expired' : a.daysLeft <= 0 ? 'expires today' : 'expires in ' + a.daysLeft + (a.daysLeft === 1 ? ' day' : ' days');
+    for (const name of a.agents || []) {
+      const r = reads.get(name) || {};
+      const dir = r.ccd == null ? 'no CLAUDE_CONFIG_DIR (the default login)' : 'CLAUDE_CONFIG_DIR=' + r.ccd;
+      const cmd = r.cmd !== undefined ? r.cmd : (r.pid ? progOf(r.pid) : null);
+      const email = typeof a.email === 'string' ? a.email : '';
+      /* Review 3 and 4: the email, folder, service and pane come from files and the process table; a control character
+         in any of them must not split or forge a log line, so the whole assembled line is cleaned, in one place. */
+      say(('[loginadv] #7194: ' + name + ' read ' + dir + ' from ps eww of pid ' + (r.pid || 'unknown') + (cmd ? ' (' + cmd + ')' : '') + ' (pane '
+        + (r.target || 'unknown') + '), in the notice for ' + (email || 'an unread email') + ' (' + (a.service || '') + '), ' + when)
+        .replace(/[\u0000-\u001f\u007f]/g, ''));
+      n += 1;
+    }
+  }
+  state.sig = sig;
+  return n;
 }
 
 /* opts is a TEST SEAM (production passes none): opts.readCcd replaces the impure
@@ -8836,7 +8897,10 @@ function paneCcd(target) {
  * are exercised for real with either. */
 function computeLoginAdvisories(panes, nowMs, opts = {}) {
   const le = require('./loginexpiry');
-  const readCcd = opts.readCcd || ((a) => paneCcd(a.target));
+  /* kosmos#7194: every read is kept with its process, for the board log when the notices change (logLoginAdvReads). */
+  const reads = new Map();
+  const readDetail = opts.readCcd ? ((a) => ({ ccd: opts.readCcd(a), pid: null })) : (opts.readDetail || ((a) => paneCcdRead(a.target)));
+  const readCcd = (a) => { const r = readDetail(a) || {}; reads.set(a.name, { ccd: r.ccd, pid: r.pid || null, cmd: r.cmd, target: a.target }); return r.ccd; };
   // The TTL + last-good-on-failure logic lives in loginexpiry.cachedAdvisories (unit-tested);
   // here we supply the impure compute: filter to our named panes, resolve each one's live CCD.
   return le.cachedAdvisories({
@@ -8885,8 +8949,12 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
         const rowReads = le.serviceNameFor(dir === def ? undefined : dir);
         return rowReads === adv.service ? dir : null;
       };
-      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
+      const out = le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
         .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf), dir: dirOf(a) }));
+      // A run through the readCcd seam (a test) writes nothing unless it asks for the lines with opts.log (review 3).
+      const log = opts.log || (opts.readCcd ? () => {} : undefined);
+      try { logLoginAdvReads(out, reads, log, opts.logState, opts.progOf); } catch { /* a log line never costs the notice */ }
+      return out;
     },
   });
 }
@@ -9869,7 +9937,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { modelInEarlierSession, splitModelReading,
+module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

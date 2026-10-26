@@ -2183,6 +2183,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     var window: NSWindow!
     private var tlsPinToldAt: [String: TimeInterval] = [:]   // kosmos#6589: when the person was last told, per computer
+    private var tlsPinAlertShowing = false   // kosmos#7193: a refusal alert is on screen now (any computer)
+    private var tlsPinDismissedAt: TimeInterval = -1000   // kosmos#7193: when the person last dismissed one (any computer)
+    private var tlsPinHeldSaid = false   // kosmos#7193 review 4: the held-back line is written once per alert on screen
     var webView: WKWebView!
     /// #4409: the mic's bridge, so closing or minimising the window can turn the mic off.
     var voice: VoiceBridge?
@@ -2249,6 +2252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // first screen or the menu. `modeHome` is the install it was read from and is written back to;
     // nil under the KOSMOS_URL test path, where there is no install and the app behaves as today.
     private(set) var computerMode: ComputerMode = .unset
+    private var modeAskedThisLaunch = false   // kosmos#7205: the page asked this computer's choice in this launch
     private var modeHome: String?
     private var modePort: Int?   // the resolved install's port, for `kosmos stop` (stopBoard)
     // #4356: how many `kosmos stop`s of ours are running: the switch to connect, a connect launch
@@ -2855,6 +2859,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         modeHome = home
         modePort = install.port
         computerMode = readComputerMode(kosmosHome: home)
+        modeAskedThisLaunch = computerMode == .unset || computerMode == .unreadable
         logLine("#4356: this computer's mode is \(computerMode.rawValue)")
     }
 
@@ -2896,7 +2901,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         DispatchQueue.global(qos: .utility).async {
             let result = startBoard(kosmosHome: home, port: port)
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.boardStartGeneration == generation else { return }
+                guard let self else { return }
+                // kosmos#7205: Welcome's Back makes Run, then Connect possible in one launch, so this start can finish
+                // after switchToConnect, which does not bump boardStartGeneration. Undo it as reclaimStuckBoard does,
+                // before the generation guard, or a board is left running on a connect computer (or its failure
+                // alert lands over Kosmos+ sign-in).
+                if self.computerMode == .connect {
+                    logLine("#7205: the start after the choice finished after Connect; stopping it again")
+                    self.boardStartInFlight = false
+                    self.boardStartGeneration += 1
+                    self.stopsInFlight += 1
+                    DispatchQueue.global(qos: .utility).async { [weak self] in
+                        _ = stopBoard(kosmosHome: home, port: port)
+                        DispatchQueue.main.async { self?.stopsInFlight -= 1 }
+                    }
+                    return
+                }
+                guard self.boardStartGeneration == generation else { return }
                 self.boardStartInFlight = false
                 if case .failed(let why) = result {
                     logLine("#4356: start after the choice failed: \(why)")
@@ -2943,13 +2964,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         boardLoadNavigation = webView.load(URLRequest(url: kosmosPlusSignIn))
     }
 
-    /// The first screen's button. Heard only while no choice is saved (unset or unreadable): once one
-    /// is, no page can change it. An install from before #4356 has no file until its next update
+    /// The first screen's button. Heard while no choice is saved (unset or unreadable), and for the rest of a
+    /// launch that asked (kosmos#7205, Welcome's Back), until this computer switches to connect. An install from before #4356 has no file until its next update
     /// writes `run` (install/setup.sh, when its first run is done); only the board's own page in the
     /// main frame can post here.
     func pageChoseMode(_ body: Any) {
+        /* kosmos#7205: Welcome's Back returns to the choice, so a second answer in the same launch is taken too (run and
+           both write their mode again; connect switches as ever). Not once this computer has switched to connect: the
+           window is Kosmos+'s then, and no board page is left to ask. */
         guard let choice = body as? String, let home = modeHome,
-              computerMode == .unset || computerMode == .unreadable
+              computerMode == .unset || computerMode == .unreadable || (modeAskedThisLaunch && computerMode != .connect)
         else { logLine("#4356: ignored a mode message while not asking (\(body))"); return }
         switch choice {
         case "run":
@@ -2967,7 +2991,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("#4356: this computer runs agents and connects to other computers")
         case "connect":
             guard writeComputerMode(.connect, kosmosHome: home) else {
-                showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again. Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not switch")
+                // kosmos#7205: after Welcome's Back, run or both is already saved, so nothing asks again; say what stays.
+                let stays = computerMode == .run || computerMode == .both
+                    ? "so this computer still runs agents" : "so it will ask again"
+                showStartupFailureAlert(detail: "Kosmos could not save your choice, \(stays). Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not switch")
                 loadBoard()
                 return
             }
@@ -2982,6 +3009,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// after the stop has finished either way, and a stop that failed is said (showBoardStillRunning).
     private func switchToConnect(home: String) {
         computerMode = .connect
+        modeAskedThisLaunch = false   // kosmos#7205: no later page answer in this launch, even after Run agents here
+
         stopsInFlight += 1
         logLine("#4356: switching this computer to connect")
         // The local board's port stops being this window's: #4347's stale-app check keys on it, and
@@ -3614,8 +3643,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         askTlsPin(host: host, fresh: false) { [weak self] state, keys in
             let first = tlsPinDecision(state: state, keys: keys, leaf: leaf, fresh: false)
             guard first == .askFresh, let self else { finish(first, state); return }
-            self.askTlsPin(host: host, fresh: true) { state2, keys2 in
-                finish(tlsPinDecision(state: state2, keys: keys2, leaf: leaf, fresh: true), state2)
+            /* kosmos#7193: a check that could not run is asked again after a short wait, not at once. The relay retires
+               each computer's tunnel on an hourly schedule and the next one is up about two seconds later; requests
+               caught in that gap failed here and raised the alert (12:49:38Z, Josh's seven). A key that does not match
+               is asked again at once, as before (a renewal is already there to be read). */
+            let wait: Double = state == "pinned" ? 0 : 3
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+                self.askTlsPin(host: host, fresh: true) { state2, keys2 in
+                    finish(tlsPinDecision(state: state2, keys: keys2, leaf: leaf, fresh: true), state2)
+                }
             }
         }
     }
@@ -3657,17 +3693,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                              : "tls-pin: refused a computer: its certificate could not be checked")
         logLine(mismatch ? "tls-pin: refused \(host): its certificate's key is not the one it vouches for"
                          : "tls-pin: refused \(host): its certificate could not be checked (see the 'did not answer' line before it)")
+        /* kosmos#7193: never a second alert while one is on screen. A sheet begun while another is up waits behind it
+           (macOS queues sheets), so a page that kept retrying for minutes left one alert per minute stacked up, each
+           appearing as the last was dismissed: Josh pressed OK seven times on 0.7.63. The minute below then counts from
+           when the person dismissed it (the completion), so the next alert waits a minute after they last answered. */
+        /* Review 1: the WINDOW decides, not only the mark. On macOS 26 a sheet begun over another can be dropped without
+           its completion (#2807), which would leave the mark set for good; so the mark holds an alert back only while a
+           sheet is really attached (or a runModal one is up, which clears its own mark). Held back is said, not silent. */
+        /* Review 4: while this alert's mark is set, any sheet holds it back, not only this alert's: matching only our
+           own would let this alert queue again behind another sheet, which is the stacking this prevents. Said once per alert. */
+        if tlsPinAlertShowing, window == nil || window?.attachedSheet != nil {
+            if !tlsPinHeldSaid { tlsPinHeldSaid = true; logToSystem("tls-pin: an alert or another sheet is already on screen, so this refusal is not shown") }
+            return
+        }
+        tlsPinAlertShowing = false
+        tlsPinHeldSaid = false   // review 5: a mark cleared here (a dropped sheet) clears its held-back note too
         let now = ProcessInfo.processInfo.systemUptime
+        if now - tlsPinDismissedAt < 60 { return }   // review 1: a minute after the person last answered, whichever computer
         if let at = tlsPinToldAt[host], now - at < 60 { return }
         tlsPinToldAt[host] = now
+        tlsPinAlertShowing = true
         let alert = NSAlert()
         alert.messageText = "Kosmos did not open \(host)"
         alert.informativeText = mismatch
             ? "That computer did not present the certificate it vouches for, so Kosmos stopped before sending it anything. If you just set that computer up again, pair it with this one again. If this keeps happening, contact Kosmos support."
-            : "Kosmos could not check that computer's certificate just now, so it stopped before sending it anything. Try again in a moment."
+            : "Kosmos could not check that computer's certificate just now, so it stopped before sending it anything. Try again in a moment. If this keeps happening, check that both computers are on and connected to the internet."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
-        if let window { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }
+        let dismissed: () -> Void = { [weak self] in
+            self?.tlsPinAlertShowing = false
+            self?.tlsPinHeldSaid = false
+            self?.tlsPinToldAt[host] = ProcessInfo.processInfo.systemUptime
+            self?.tlsPinDismissedAt = ProcessInfo.processInfo.systemUptime
+        }
+        if let window { alert.beginSheetModal(for: window) { _ in dismissed() } } else { alert.runModal(); dismissed() }
     }
     /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. #5167: on every
     /// computer, a download the page asks for is decided first.
@@ -4296,6 +4355,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let answer: (NSApplication.ModalResponse) -> Void = { resp in
             respond(resp == .OK ? panel.urls : nil)
         }
+        /* #7209 (Josh, 10102026: "+ in a DM does not open the file picker"). panel.begin shows a
+           free-standing panel, not a sheet, at the normal window level, so one click on the Kosmos
+           window put the window over it. The picker was then still open but out of sight, and
+           WebKit drops every later file-input click while its own picker is unanswered: it never
+           reaches runOpenPanelWith (measured: no "refused" line), so every + looked dead.
+           Floating keeps the picker above Kosmos's windows. Accepted cost: a picker left open while
+           the person switches to another app floats over that app too. hidesOnDeactivate would
+           avoid that, but it hides the picker in the build gate's selftest (that process can never
+           become the active app, measured), so the gate could not see the picker at all. */
+        panel.level = .floating
         panel.begin(completionHandler: answer)
         giveUp = { panel.cancel(nil) }   // its own answer then arrives at a respond that has already answered
         /* See openPanelStillUp: on screen, or Kosmos in the background, counts as still up. */
@@ -6615,6 +6684,21 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                     let panel = NSApp.windows.first { $0 is NSOpenPanel && $0.isVisible }
                     print("press:real-presenter\tpanel-on-screen:\((panel != nil) ? "yes" : "no")")
                     guard let p = panel as? NSOpenPanel else { exit(1) }
+                    /* #7209: a click on the Kosmos window must not bury the open picker. Before the
+                       fix the window came out on top, the picker sat unseen behind it, and WebKit
+                       dropped every later + press. Bring the host window forward as that click does,
+                       and the picker must still be in front of it. */
+                    win.makeKeyAndOrderFront(nil)
+                    /* The window server's own stacking order, front first. Not NSApp.orderedWindows,
+                       which leaves panels out (measured: the open picker was not in it at all). */
+                    let order = ((CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? [])
+                        .compactMap { $0[kCGWindowNumber as String] as? Int }
+                    let pAt = order.firstIndex(of: p.windowNumber), wAt = order.firstIndex(of: win.windowNumber)
+                    /* The level is checked too, so the arm cannot pass on a reorder that never landed
+                       (the picker then simply stays in front because it was shown last). */
+                    let above = pAt != nil && wAt != nil && pAt! < wAt! && p.level.rawValue > win.level.rawValue
+                    print("press:window-clicked-over-the-picker\tpicker-stays-in-front:\(above ? "yes" : "no")")
+                    guard above else { exit(1) }
                     // Dismiss it, or the build hangs behind a dialog.
                     if let host = p.sheetParent { host.endSheet(p, returnCode: .cancel) } else { p.cancel(nil) }
 

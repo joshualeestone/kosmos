@@ -29,7 +29,8 @@ function fnSource(name) {
 }
 const FNS = ['file_owner_uid', 'bundle_is_ours', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install',
   'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'sealed_icon_reusable', 'sealed_icon_other_users',
-  'sealed_marker_tag', 'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'resolve_app_dir'].map(fnSource).join('\n');
+  'sealed_marker_tag', 'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'resolve_app_dir', 'app_bundle_version',
+  'version_at_least', 'own_icon_placed'].map(fnSource).join('\n');
 const ME = String(process.getuid());
 /* "Another account": any uid but the one running the test. A fixed one (502, as this test had) is the runner's OWN
    uid when CI runs as a Mac's second account, and then "another account's marker" is this account's own: CI read
@@ -40,11 +41,12 @@ let tmpRoot;
 test.before(() => { tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sharedicon-5913-')); });
 test.after(() => { fs.rmSync(tmpRoot, { recursive: true, force: true }); });
 
-function makeBundle(dir, tag) {
+function makeBundle(dir, tag, version = '0.7.69') {
   fs.mkdirSync(path.join(dir, 'Contents', 'MacOS'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'Contents', 'Info.plist'),
     '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleIdentifier</key>'
-    + '<string>com.chaoskosmos.kosmos</string><key>CFBundleExecutable</key><string>Kosmos</string></dict></plist>\n');
+    + '<string>com.chaoskosmos.kosmos</string><key>CFBundleExecutable</key><string>Kosmos</string>'
+    + '<key>CFBundleShortVersionString</key><string>' + version + '</string></dict></plist>\n');
   fs.writeFileSync(path.join(dir, 'Contents', 'MacOS', 'Kosmos'), '#!/bin/sh\n# ' + tag + '\n', { mode: 0o755 });
   execFileSync('/usr/bin/codesign', ['--force', '-s', '-', dir], { stdio: 'ignore' });
   return dir;
@@ -65,9 +67,13 @@ function world() {
 const occupy = (w) => execFileSync('/usr/bin/ditto', [path.join(w.home, 'app', 'Kosmos.app'), w.shared]);
 
 /** Run `body` with the real functions; OTHER names the one path whose owner reads as another account (OTHER_UID). */
-function run(w, body, { other = '', wic = '0', extraEnv = {} } = {}) {
+function run(w, body, { other = '', wic = '0', extraEnv = {}, versions = null } = {}) {
   const standIn = `file_owner_uid() { if [ -n "$OTHER" ] && [ "$1" = "$OTHER" ]; then echo ${OTHER_UID}; else /usr/bin/stat -f %u "$1" 2>/dev/null; fi; }`;
-  const script = ['set -u', 'info() { echo "INFO $*"; }', FNS, standIn,
+  /* #7203: an older shared icon cannot be MADE here (an ad-hoc signature is per bundle, so a second bundle fails the
+     sealed check first, for another reason). So, like the owner above, the version read is stood in when a test names
+     versions: { shared, ours }. Every other check is the real code. */
+  const verStandIn = versions ? `app_bundle_version() { if [ "$1" = "$KOSMOS_HOME/app/Kosmos.app" ]; then echo '${versions.ours}'; else echo '${versions.shared}'; fi; }` : '';
+  const script = ['set -u', 'info() { echo "INFO $*"; }', FNS, standIn, verStandIn,
     'APP_OTHER_OWNER=no; APP_SKIP_ICON=no; APP_SKIP_REASON=""; APP_SYS_STALE=no; APP_OWN_SEALED=no', body].join('\n');
   const env = { PATH: '/usr/bin:/bin', KOSMOS_HOME: w.home, INSTALL_CONFIG_DIR: w.cfg, SYS_APP_DIR: w.sys,
     HOME_APP_DIR: w.homeApps, SEALED_USERS_DIR: w.users, OTHER: other, _wic_rc: wic, _SEALED_SRC_OK: '', _SEALED_REQ_RUN: '', ...extraEnv };
@@ -82,6 +88,54 @@ it('#5913: another account\'s sealed icon in the shared spot is reused: no secon
   // CONTROL: the same icon owned by THIS account is this install's own, replaced as before, never "reused".
   const own = run(w, 'resolve_app_dir; echo "skip=$APP_SKIP_ICON reason=$APP_SKIP_REASON"');
   assert.match(own.out, /skip=no reason=$/m, 'this account\'s own sealed icon was treated as another account\'s: ' + own.out);
+});
+
+it('#7203: another account\'s sealed icon OLDER than this install\'s app is not reused; this account gets its own', () => {
+  const w = world(); occupy(w);
+  const ask = (versions) => run(w, 'resolve_app_dir; echo "skip=$APP_SKIP_ICON reason=$APP_SKIP_REASON dir=$APP_DIR"', { other: w.shared, versions }).out;
+  assert.match(ask({ shared: '0.7.69', ours: '0.7.69' }), /skip=yes reason=shared-sealed/, 'CONTROL: the same version is reused');
+  assert.match(ask({ shared: '0.7.70', ours: '0.7.69' }), /skip=yes reason=shared-sealed/, 'CONTROL: a newer shared icon is reused');
+  // Review 4: a pre-release on the shared side, and THIS install's own version unreadable, are refused too.
+  const ourFor = { '0.7.9': '0.7.10', 'unreadable-ours': '' };
+  for (const shared of ['0.7.61', '0.7.9', '', 'garbage', '0.7.70-rc1', 'unreadable-ours']) {
+    const out = ask({ shared: shared === 'unreadable-ours' ? '0.7.69' : shared, ours: shared in ourFor ? ourFor[shared] : '0.7.63' });
+    assert.doesNotMatch(out, /shared-sealed/, `an older or unreadable shared icon (${shared || 'none'}) was reused: ` + out);
+    // And this account gets its own icon instead: placed (not skipped) in its home Applications, which setup opens.
+    assert.match(out, /skip=no /, `no icon of its own was placed (${shared || 'none'}): ` + out);
+    assert.ok(out.includes('dir=' + w.homeApps), `the icon was not sent to the home Applications (${shared || 'none'}): ` + out);
+  }
+});
+
+it('#7203: a refused reuse takes back THIS account\'s own reuse marker and leaves another account\'s alone', () => {
+  const w = world(); occupy(w);
+  // This account reused the icon on an earlier run (the real marker writer), and another account did too.
+  assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=0/, 'CONTROL: this account\'s marker was written');
+  const mine = path.join(w.users, ME);
+  const theirs = path.join(w.users, OTHER_UID);
+  fs.writeFileSync(theirs, 'another account\'s marker\n');
+  assert.ok(fs.existsSync(mine), 'CONTROL: this account\'s marker is there');
+  // CONTROL: still reused at the same version, so the marker stays.
+  run(w, 'resolve_app_dir', { other: w.shared, versions: { shared: '0.7.69', ours: '0.7.69' } });
+  assert.ok(fs.existsSync(mine), 'a reuse that still holds took back the marker');
+  // Refused (the shared icon is older): this account's marker goes, the other account's stays.
+  const out = run(w, 'resolve_app_dir; echo "skip=$APP_SKIP_ICON reason=$APP_SKIP_REASON"', { other: w.shared, versions: { shared: '0.7.61', ours: '0.7.63' } }).out;
+  assert.doesNotMatch(out, /shared-sealed/, 'CONTROL: the reuse was refused: ' + out);
+  assert.ok(fs.existsSync(mine), 'the marker went before this account had an icon of its own (the resolve must not take it)');
+  run(w, 'own_icon_placed');   // what the icon step runs once make_app placed this account's own icon
+  assert.ok(!fs.existsSync(mine), 'this account\'s marker stayed after it stopped reusing the icon');
+  assert.equal(fs.readFileSync(theirs, 'utf8'), 'another account\'s marker\n', 'another account\'s marker was touched');
+});
+
+test('#7203: the marker is taken back only once the icon step placed an icon (wiring, text only)', () => {
+  assert.match(SETUP, /\n\[ "\$APP_MADE" = "yes" \] && own_icon_placed   # #7203\nif \[ "\$APP_MADE" = "yes" \]; then\n/,
+    'own_icon_placed is not called right where the icon step knows it made an icon');
+  assert.doesNotMatch(fnSource('resolve_app_dir'), /sealed_icon_unmark|own_icon_placed/, 'the resolve takes the marker before any icon exists');
+});
+
+it('#7203: app_bundle_version reads the real bundle\'s version (the fixtures above stand it in)', () => {
+  const w = world(); occupy(w);
+  assert.equal(run(w, 'app_bundle_version "$SYS_APP_DIR/Kosmos.app"').out.trim(), '0.7.69');
+  assert.equal(run(w, 'app_bundle_version "$SYS_APP_DIR/none.app"; echo "[rc=$?]"').out.trim(), '[rc=1]', 'a missing bundle reads as nothing');
 });
 
 it('#5913: reuse needs this run to place the sealed app (the config written where the app reads it)', () => {

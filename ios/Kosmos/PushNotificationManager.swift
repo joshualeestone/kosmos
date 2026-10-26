@@ -42,13 +42,47 @@ final class PushNotificationManager: NSObject, ObservableObject {
 
     // MARK: - Authorization + APNs registration
 
+    // kosmos#7222: what iOS says about notification permission, read (never asked) at launch and whenever the Agents tab
+    // appears, so a change made in iOS Settings is seen. The ask itself is on the Agents tab (PushBridge.offersAsk).
+    @Published private(set) var permission: PushBridge.Permission = .unknown
+    // The person pressed "Not now" on the Agents tab's ask; kept across launches so it is offered once, not every visit.
+    @Published private(set) var askDismissed = UserDefaults.standard.bool(forKey: PushNotificationManager.askDismissedKey)
+    static let askDismissedKey = "kosmos.notifications.askDismissed"
+
+    // Read the permission; with registerIfAllowed (launch), a phone that already said yes re-registers with APNs, as the
+    // launch-time ask used to do on a grant. Never shows the permission box.
+    func refreshPermission(registerIfAllowed: Bool = false) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let now: PushBridge.Permission
+            switch settings.authorizationStatus {
+            case .notDetermined: now = .notDetermined
+            case .denied: now = .denied
+            case .authorized, .provisional, .ephemeral: now = .allowed
+            @unknown default: now = .unknown
+            }
+            DispatchQueue.main.async {
+                self.permission = now
+                if registerIfAllowed && PushBridge.registersAtLaunch(now) {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
+        }
+    }
+
+    func dismissAsk() {
+        askDismissed = true
+        UserDefaults.standard.set(true, forKey: Self.askDismissedKey)
+    }
+
     // Ask for alert/sound/badge permission; on grant, register with APNs on the
     // main thread (UIApplication APIs are main-thread only). A denial is not an
     // error - the user can enable notifications later in Settings.
+    // kosmos#7222: called only from the Agents tab's "Turn on notifications", never at launch.
     func requestAuthorizationAndRegister() {
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .sound, .badge]
         ) { granted, error in
+            self.refreshPermission()   // the ask is answered either way, so the Agents tab's offer goes
             if let error = error {
                 NSLog("[Push] authorization error: \(error.localizedDescription)")
                 return

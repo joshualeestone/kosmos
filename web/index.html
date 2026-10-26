@@ -6687,8 +6687,9 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
-#tk-repeat-every, #tk-repeat-day, #tk-review-who { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too) */
-@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who { min-height: 44px; } }   /* review 1: one touch size */
+#tk-repeat-every, #tk-repeat-day, #tk-review-who, #tk-hold-for, #tk-hold-task { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too; kosmos#7184: the hold choices) */
+#tk-hold-task, #tk-hold-for-when .tk-repeat-when { max-width: 100%; min-width: 0; }   /* kosmos#7184 round 6: a long task sentence never widens the page on a phone */
+@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who, #tk-hold-for, #tk-hold-task, #tk-hold-save { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -7902,6 +7903,13 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
   border: 1px solid var(--k-rule); padding: 3px 8px; text-align: left; vertical-align: top; }
 .dm-b .mdtable th, .pj-msg-text .mdtable th, .msg-b .mdtable th, .tkdetail .mdtable th {
   font-weight: 700; background: var(--k-sunk, rgba(20,22,26,.06)); }
+/* kosmos#7214 (Josh: a 64-character sha256 pushed the table wide): a code span in a cell (a hash, a path) may break
+   anywhere, so it wraps inside its column instead of widening the table. Code spans only: plain cell text keeps
+   word breaks, so a column of words is never crushed to a letter per line (#718). */
+/* Only a long code span (pjRoomPara marks it .mdc-long: a hash, a path, a file name) may break anywhere, in a column
+   no narrower than 10ch; short names and flags size to their words and a table of them scrolls (#718). */
+#pj-room .mdtable .mdc-long { overflow-wrap: anywhere; }
+#pj-room .mdtable td:has(.mdc-long) { min-width: 10ch; }   /* not only a direct child: a bolded hash too */
 .dm-b .mdc, .pj-msg-text .mdc, .msg-b .mdc, .tkdetail .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .85em; background: var(--k-sunk, rgba(20,22,26,.08)); padding: .05em .35em; border-radius: 5px; }
 .dm-b .mdcb, .pj-msg-text .mdcb, .msg-b .mdcb, .tkdetail .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;
@@ -9710,9 +9718,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    mark follows the theme through `currentColor`. The OpenAI path hardcoded
    `fill="black"`, so it ignored the token and rendered black on the dark
    ground -- an invisible logo on the row that says "works today".
-   🔑 The distinction, because not every hardcoded fill is a bug: Gemini, Qwen
-   and Mistral hardcode REAL BRAND COLOURS and gradients, which is correct and
-   must stay. OpenAI is a monochrome mark, so it was the only one opted out by
+   🔑 The distinction, because not every hardcoded fill is a bug: Gemini and
+   Mistral hardcode REAL BRAND COLOURS and gradients, which is correct and
+   must stay. (Qwen did too until Josh asked for it black like the others,
+   kosmos#7205: it now takes currentColor.) OpenAI is a monochrome mark, so it was the only one opted out by
    mistake. Monochrome takes currentColor; brand-coloured keeps its values and
    gets measured on both grounds instead. */
 
@@ -10094,7 +10103,8 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    beside this screen (#4489's CI). While the screen is up the page does not scroll and reserves nothing, as for
    the restart screen (html.restart-up). :has follows every way the screen is shown or hidden. */
 html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
-.frc-box { margin: auto; display: flex; flex-direction: column; align-items: center;
+/* kosmos#7205: the dot field (#fr-dots) moves in while this screen shows; the box sits above it. */
+.frc-box { position: relative; margin: auto; display: flex; flex-direction: column; align-items: center;
            max-width: 884px; width: 100%; text-align: center; }
 .frc-logo { width: 61px; height: 73.5px; display: block; margin-bottom: 27.5px; position: relative; left: -2.5px; }
 .frc-title { font: 700 26px/1.2 var(--font-ui); letter-spacing: -0.025em; margin: 0 0 36.7px; color: var(--frc-ink); }
@@ -15115,8 +15125,8 @@ window.kosmosMeasureScrollbarWidth();
       <!-- Mona's line art (#4356, approved by Josh): gold dots are agents. Drawn in the mockup's own
            2x coordinates, card-relative, so it lines up with her PNGs; decorative (aria-hidden). -->
       <button type="button" class="frc-btn" data-mode="run"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="195.5" y="90.5" width="164" height="109" rx="10"/><path d="M181 215.5H374L364 230.5H192Z"/><circle class="frc-gold" cx="242" cy="145" r="11"/><circle class="frc-gold" cx="277.5" cy="133.5" r="11"/><circle class="frc-gold" cx="313" cy="145" r="11"/></svg><span>Run agents on this computer</span></button>
-      <button type="button" class="frc-btn" data-mode="connect"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="70.5" y="90.5" width="164" height="109" rx="10"/><path d="M56 215.5H249L239 230.5H67Z"/><path class="frc-dim" d="M122 145H184M122 164.5H161"/><circle class="frc-fill" cx="260" cy="145" r="7.5"/><path d="M274 145H285M292 145H302"/><circle class="frc-fill" cx="314.5" cy="145" r="7.5"/><rect x="320.5" y="74.5" width="179" height="121" rx="10"/><path d="M390.5 197.5V223.5M370 223.5H451"/><circle class="frc-gold" cx="375" cy="135" r="11"/><circle class="frc-gold" cx="410" cy="124" r="11"/><circle class="frc-gold" cx="445" cy="135" r="11"/></svg><span>Connect to agents on another computer</span></button>
-      <button type="button" class="frc-btn" data-mode="both"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="70.5" y="90.5" width="164" height="109" rx="10"/><path d="M56 215.5H249L239 230.5H67Z"/><circle class="frc-gold" cx="118" cy="145" r="11"/><circle class="frc-gold" cx="153" cy="133" r="11"/><circle class="frc-gold" cx="188" cy="145" r="11"/><circle class="frc-fill" cx="260" cy="145" r="7.5"/><path d="M274 145H285M292 145H302"/><circle class="frc-fill" cx="314.5" cy="145" r="7.5"/><rect x="320.5" y="74.5" width="179" height="121" rx="10"/><path d="M390.5 197.5V223.5M370 223.5H451"/><circle class="frc-gold" cx="375" cy="135" r="11"/><circle class="frc-gold" cx="410" cy="124" r="11"/><circle class="frc-gold" cx="445" cy="135" r="11"/></svg><span>Run agents here and connect to other computers</span></button>
+      <button type="button" class="frc-btn" data-mode="connect"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="70.5" y="90.5" width="164" height="109" rx="10"/><path d="M56 215.5H249L239 230.5H67Z"/><path class="frc-dim" d="M122 145H184M122 164.5H161"/><circle class="frc-fill" cx="258" cy="145" r="7.5"/><path d="M269.5 145H275.5M280.5 145H286.5"/><circle class="frc-fill" cx="297" cy="145" r="7.5"/><rect x="320.5" y="74.5" width="179" height="121" rx="10"/><path d="M390.5 197.5V223.5M370 223.5H451"/><circle class="frc-gold" cx="375" cy="135" r="11"/><circle class="frc-gold" cx="410" cy="124" r="11"/><circle class="frc-gold" cx="445" cy="135" r="11"/></svg><span>Connect to agents on another computer</span></button>
+      <button type="button" class="frc-btn" data-mode="both"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="70.5" y="90.5" width="164" height="109" rx="10"/><path d="M56 215.5H249L239 230.5H67Z"/><circle class="frc-gold" cx="118" cy="145" r="11"/><circle class="frc-gold" cx="153" cy="133" r="11"/><circle class="frc-gold" cx="188" cy="145" r="11"/><circle class="frc-fill" cx="258" cy="145" r="7.5"/><path d="M269.5 145H275.5M280.5 145H286.5"/><circle class="frc-fill" cx="297" cy="145" r="7.5"/><rect x="320.5" y="74.5" width="179" height="121" rx="10"/><path d="M390.5 197.5V223.5M370 223.5H451"/><circle class="frc-gold" cx="375" cy="135" r="11"/><circle class="frc-gold" cx="410" cy="124" r="11"/><circle class="frc-gold" cx="445" cy="135" r="11"/></svg><span>Run agents on this computer and connect to agents on another computer</span></button>
     </div>
   </div>
 </div>
@@ -15968,7 +15978,7 @@ window.kosmosMeasureScrollbarWidth();
                   <p class="dhint" id="fr-muse-say" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
                 </div>
                 <div class="dhint" id="fr-muse-msg" role="status" aria-live="polite"></div>
-                <div class="llm fr-qwen"><span class="llm-m pmark live" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon" data-win-hide>Add in Settings</span><span class="soon" data-win-only hidden>Coming to Windows</span></div>
+                <div class="llm fr-qwen"><span class="llm-m pmark live" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="currentColor" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="currentColor" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="currentColor" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon" data-win-hide>Add in Settings</span><span class="soon" data-win-only hidden>Coming to Windows</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="deepseek" role="img" aria-label="DeepSeek"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 1.5 27 20.1" fill="currentColor"><path d="M26.5174 3.39471C26.235 3.2567 26.1137 3.52006 25.9487 3.65346C25.8923 3.69659 25.8446 3.75294 25.7969 3.80469C25.3846 4.24516 24.9027 4.53439 24.2737 4.49989C23.3536 4.44814 22.5682 4.73737 21.8735 5.44119C21.7258 4.57349 21.2353 4.0554 20.4889 3.72304C20.0985 3.55054 19.7034 3.37746 19.4297 3.00197C19.2388 2.73459 19.1865 2.43673 19.091 2.14289C19.0301 1.96579 18.9697 1.78466 18.7656 1.75418C18.5442 1.71968 18.4574 1.90541 18.3705 2.06067C18.0232 2.69549 17.8887 3.39471 17.9019 4.10313C17.9324 5.6965 18.6051 6.96556 19.9421 7.86834C20.0939 7.97184 20.133 8.07535 20.0852 8.22658C19.9938 8.53766 19.8857 8.83955 19.7903 9.15063C19.7293 9.34901 19.6384 9.39271 19.4257 9.30588C18.692 8.9994 18.0583 8.54571 17.4982 7.99772C16.5477 7.07827 15.6881 6.06336 14.6162 5.26869C14.3644 5.08296 14.1125 4.91045 13.8521 4.746C12.7584 3.68394 13.9952 2.81164 14.2816 2.70814C14.5812 2.60003 14.3857 2.22857 13.4179 2.23317C12.4502 2.2372 11.5646 2.56151 10.4359 2.99335C10.2708 3.05832 10.0972 3.10547 9.91951 3.14457C8.8954 2.95022 7.83162 2.90709 6.72069 3.03245C4.62877 3.26533 2.95777 4.25436 1.72954 5.94261C0.254043 7.97184 -0.0932678 10.2777 0.33167 12.6824C0.778458 15.2171 2.07225 17.3153 4.06008 18.9558C6.12152 20.6567 8.49577 21.4905 11.2047 21.3306C12.8498 21.2358 14.6812 21.0155 16.7473 19.2669C17.2682 19.5262 17.8151 19.6297 18.7219 19.7074C19.4205 19.7723 20.0933 19.6729 20.6143 19.5648C21.4302 19.3923 21.3739 18.6367 21.0789 18.4981C18.6874 17.3843 19.2124 17.8374 18.7351 17.4706C19.9501 16.033 21.8063 13.4776 22.379 9.99821C22.4353 9.61409 22.5072 9.073 22.4986 8.76192C22.494 8.57216 22.5377 8.49856 22.7545 8.47671C23.3536 8.40771 23.935 8.24383 24.4692 7.94999C26.0188 7.10357 26.6439 5.71318 26.7911 4.04678C26.8129 3.79204 26.7865 3.52869 26.5174 3.39471ZM13.0143 18.3946C10.6964 16.5724 9.5722 15.9726 9.10816 15.9985C8.67402 16.0244 8.75222 16.5212 8.84768 16.8449C8.94773 17.1646 9.07768 17.3849 9.25996 17.6655C9.38589 17.8512 9.47272 18.1272 9.13404 18.3348C8.38766 18.7965 7.08985 18.1796 7.0289 18.1491C5.51833 17.2595 4.25559 16.0853 3.36546 14.4793C2.50581 12.9337 2.0067 11.2753 1.92447 9.50542C1.90262 9.07818 2.02855 8.92695 2.45406 8.84932C3.01413 8.74582 3.59144 8.72397 4.15093 8.80619C6.51656 9.15178 8.53027 10.2092 10.2185 11.8848C11.1822 12.8388 11.9114 13.979 12.6623 15.0929C13.461 16.2757 14.3201 17.4027 15.4144 18.3268C15.8008 18.6505 16.109 18.8966 16.404 19.0783C15.5144 19.1778 14.0297 19.1991 13.0143 18.3958V18.3946ZM14.1252 11.2489C14.1252 11.0591 14.277 10.9079 14.4679 10.9079C14.511 10.9079 14.5501 10.9165 14.5852 10.9292C14.6329 10.9464 14.6766 10.9723 14.7111 11.0114C14.7721 11.0718 14.8066 11.158 14.8066 11.2489C14.8066 11.4386 14.6548 11.5899 14.4639 11.5899C14.273 11.5899 14.1252 11.4386 14.1252 11.2489ZM17.5759 13.0188C17.3545 13.1096 17.1331 13.1873 16.9203 13.1959C16.5903 13.2131 16.2303 13.0791 16.0348 12.9153C15.7312 12.6605 15.5139 12.5179 15.423 12.0734C15.3839 11.8837 15.4057 11.5899 15.4402 11.4214C15.5185 11.0585 15.4316 10.8257 15.1757 10.614C14.9676 10.4415 14.7025 10.3938 14.4115 10.3938C14.3029 10.3938 14.2034 10.3461 14.1292 10.3076C14.0079 10.2472 13.9078 10.096 14.0033 9.91023C14.0338 9.84985 14.1815 9.70322 14.216 9.67734C14.6111 9.45251 15.0665 9.52612 15.488 9.6946C15.8784 9.85445 16.174 10.1477 16.5989 10.5623C17.033 11.0631 17.1112 11.2011 17.3585 11.5772C17.554 11.871 17.7317 12.1729 17.8536 12.5185C17.9272 12.7341 17.8317 12.9107 17.5759 13.0188Z"/></svg></span><div class="llm-w"><b>DeepSeek</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="glm" role="img" aria-label="GLM"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 31.85 27" fill="currentColor"><path d="M16.7889 0L14.5697 3.17647C14.3977 3.42466 14.1676 3.62682 13.8995 3.76526C13.6315 3.9037 13.3337 3.9742 13.0321 3.97059H0.9375V0H16.7889Z"/><path d="M31.8478 0L12.8261 27H0.14502L19.1667 0H31.8478Z"/><path d="M15.2041 26.9999L17.4391 23.8234C17.6135 23.5777 17.8441 23.3773 18.1116 23.2392C18.3791 23.101 18.6758 23.029 18.9767 23.0293H31.0555V26.9999H15.2041Z"/></svg></span><div class="llm-w"><b>GLM</b><small>Z.ai</small></div><span class="soon">Coming soon</span></div>
@@ -16019,7 +16029,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div class="s6-switch-row">
           <span class="s6-sw" id="fr-s6-community" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-community-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-community-lbl">Let your agents join the Kosmos+ community to help make Kosmos better.</span>
+          <span class="s6-lbl" id="fr-s6-community-lbl">Let your agents join the Kosmos+ Community to help make Kosmos work better for you. None of your personal information is ever shared.</span>
         </div>
       </div>
 
@@ -16197,7 +16207,10 @@ window.kosmosMeasureScrollbarWidth();
       <!-- ⚠️ NO BACK, at Josh's word (2026-08-17, every step): the flow only
            moves forward -- once a model is picked and Continue is hit,
            nobody is offered a path back down the connect rabbit hole. The
-           exits are Escape (marks first run seen) and finishing. -->
+           exits are Escape (marks first run seen) and finishing.
+           ONE EXCEPTION, also Josh's (kosmos#7205, 2026-10-26): Welcome has Back to
+           the setup choice screen, which comes before first run, and only when that
+           screen was shown in this load. No step after Welcome goes back. -->
       <!-- ⚠️ NO VISIBLE SKIP, by the pack's own decisions table ("Skip setup
            -- Removed from the wizard"): nobody skips setup casually, and the
            trap-escape survives as Escape (which marks first run seen and
@@ -17708,6 +17721,22 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tmeta" id="tk-hold-row"><span>On hold</span>
           <button class="btn" id="tk-hold" type="button">Put on hold</button>
         </div>
+        <!-- kosmos#7184: what a held task waits for (another task to close, or a time), in the board's own reading (the
+             task's holdUntil), and the person's way to set it. Shown only while the task is held. -->
+        <p class="dhint" id="tk-hold-until" style="margin:4px 0 0;" hidden></p>
+        <div class="tmeta" id="tk-hold-for-row" hidden><span>Wait for</span>
+          <select id="tk-hold-for" class="tsk-sel" aria-label="Wait for: what this hold waits for">
+            <option value="">Nothing in particular</option><option value="task">Another task to close</option><option value="at">A date and time</option>
+          </select>
+        </div>
+        <div class="tmeta" id="tk-hold-for-when" hidden><span>Until</span>
+          <span class="tk-repeat-when">
+            <select id="tk-hold-task" class="tsk-sel" aria-label="Until: the task this hold waits for" hidden></select>
+            <input type="datetime-local" id="tk-hold-at" class="tk-repeat-in" aria-label="Until: the date and time this hold waits for" hidden>
+          </span>
+        </div>
+        <p class="dhint" id="tk-hold-takeover" style="margin:4px 0 0;" hidden>Saving makes this hold yours, so only you can take it off.</p>
+        <div class="tk-repeat-actions" id="tk-hold-for-actions" hidden><button class="btn" id="tk-hold-save" type="button" aria-label="Save what this hold waits for" disabled>Save</button></div>
         <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-hold-hint" style="margin:4px 0 0;">Kosmos does not nudge anyone about a task on hold, or hand it out.</p>
         <!-- kosmos#4787 slice 1b: a task that repeats (a morning report, an hourly check). The person sets the rule here; the
@@ -24561,6 +24590,9 @@ document.getElementById('upd-btn').addEventListener('click', updCheckNowClick);
    Install OR the card's Update (after Later, the toast is gone, so the
    old ut-install lookup dropped keyboard users onto <body>). */
 let UPD_CONFIRM_OPENER = null;
+/* #7207: bumped by every open and close of the confirm, so a wait started by one press stops the moment the dialog
+   it was writing into is closed or reopened (perhaps in the other mode). */
+let UPD_WAIT_GEN = 0;
 /* win32-update-rollback (S5, #3017): the SAME confirm dialog serves both Update and Roll back. The
    mode chooses the title, body, go-button label and, in uc-go, the endpoint and overlay wording. The
    update wording is cached at load (after applyPlatformCopy has set the platform body), so switching
@@ -24588,15 +24620,17 @@ function setUpdConfirmMode(mode, version) {
 }
 function openUpdConfirm(mode, opener, version) {
   UPD_CONFIRM_OPENER = opener || null;
+  UPD_WAIT_GEN += 1;   // #7207
   setUpdConfirmMode(mode, version);
   document.getElementById('uc-err').hidden = true;
   clearStopMoveOffers();   // #6214: an offer belongs to the refusal it followed, which this reopened dialog no longer shows
   const go = document.getElementById('uc-go');
-  if (go) { go.disabled = false; go.onclick = null; }
+  if (go) { go.disabled = false; go.onclick = null; delete go.dataset.reloadOnly; }
   document.getElementById('updconfirm').hidden = false;
   document.getElementById('uc-no').focus();
 }
 function closeUpdConfirm() {
+  UPD_WAIT_GEN += 1;   // #7207
   document.getElementById('updconfirm').hidden = true;
   clearStopMoveOffers();   // #6214
   const back = (UPD_CONFIRM_OPENER && document.contains(UPD_CONFIRM_OPENER))
@@ -24644,6 +24678,9 @@ document.addEventListener('keydown', (e) => {
 document.getElementById('uc-go').addEventListener('click', async () => {
   const err = document.getElementById('uc-err');
   const go = document.getElementById('uc-go');
+  /* #7207: a button turned into Reload reloads through its own onclick, and only that. Without this the same click
+     also POSTed an update on its way out of the page. */
+  if (go.dataset.reloadOnly === '1') return;
   /* win32-update-rollback (S5, #3017): the SAME confirm serves Update and Roll back. The mode chooses
      the endpoint and the overlay wording; a rollback has no download step (the previous build is
      already on the machine), so its overlay lead is "Rolling back to X." throughout. */
@@ -24651,6 +24688,15 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   const endpoint = rollingBack ? '/api/update/rollback' : '/api/update';
   err.hidden = true;
   clearStopMoveOffers();   // #6214: a fresh press, so an offer from an earlier refusal goes
+  /* #7207: taken BEFORE the POST, which can hang a long while before it fails: a dialog closed or reopened (perhaps in
+     the other mode) during that hang is no longer this press's to write into. Focus too, before disabling drops it. */
+  const gen = UPD_WAIT_GEN;
+  /* The version and boot from BEFORE the press, for the same reason: the page's own status poll keeps running while
+     the POST hangs and may already have seen the updated board by the time the POST fails. The served version stands
+     in when no status has been seen yet, so a finished update still reloads. */
+  const pressedOn = { version: LAST_VERSION || SERVED_VERSION || null, boot: LAST_BOOTED_AT || null };
+  const hadFocus = document.activeElement === go;
+  if (hadFocus) document.getElementById('uc-no').focus();   // a disabled button drops focus to the page
   go.disabled = true;   // one click, one installer; the route is idempotent as the backstop
   let res = null;
   let body = null;
@@ -24658,18 +24704,29 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     res = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' } });
     body = await res.json().catch(() => null);
   } catch { res = null; }
-  if (!res || !res.ok) {
+  /* #7207 (Josh, 2026-10-26 10:28): no answer at all is the moment the board restarts, very often to install the
+     update the first press started. Offering Update again there had him pressing it "like a million times" at a board
+     that could not answer. So wait for it instead, and decide from what it says when it is back. */
+  /* #7207: the dialog closed or reopened while this POST was out is no longer this press's to write into, whatever the
+     answer. A SUCCESS still goes on to the overlay below on purpose: the update really started, and the overlay saying
+     so is true whichever dialog is showing (a second press joins the same install). */
+  const stale = gen !== UPD_WAIT_GEN || document.getElementById('updconfirm').hidden;
+  if (!res) {
+    if (stale) return;
+    waitForUnansweredPress(rollingBack, gen, hadFocus, pressedOn);
+    return;
+  }
+  if (!res.ok) {
+    if (stale) return;
     // The route's own sentence: a from-source run, nothing newer published,
     // or a spawn failure. All are states, not scoldings.
     /* #6903 (Josh, 2026-10-22 10:46): with no sentence from the route the dialog said only "we could not start the
-       update", which named neither what happened nor what to do. Two different things reach here: the board did not
-       answer at all (it was restarting, perhaps for an automatic update that began a moment earlier), or it answered
-       without a reason. Each says what happened and the one thing to do; the board logs its own refusals (#6903). */
+       update", which named neither what happened nor what to do. Only an answer without a reason reaches here now
+       (no answer at all waits, #7207 above); it says what happened and the one thing to do. The board logs its own
+       refusals (#6903). */
     const did = rollingBack ? 'roll back' : 'update';
-    const said = (body && body.error) || (!res
-      ? 'Kosmos did not answer, so this page cannot tell whether the ' + did + ' started. Kosmos may be restarting'
-        + (rollingBack ? '' : ', perhaps to install it') + '. Wait a minute, then reload this page.'
-      : 'Kosmos could not start the ' + did + ' (it answered ' + res.status + ' with no reason). Try again in a minute.');
+    const said = (body && body.error)
+      || ('Kosmos could not start the ' + did + ' (it answered ' + res.status + ' with no reason). Try again in a minute.');
     /* 🛑 "THERE IS NO UPDATE TO INSTALL RIGHT NOW" UNDER A BUTTON THAT SAYS
        UPDATE (Josh, 2026-08-23 13:03, screenshot). The offer came from a
        poll; by the press the board had already been restarted on the newer
@@ -24682,6 +24739,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
       err.hidden = false;
       go.textContent = 'Reload';
       go.disabled = false;
+      go.dataset.reloadOnly = '1';   // #7207: this click reloads, it does not also press Update
       go.onclick = () => window.location.reload();
       return;
     }
@@ -24794,6 +24852,74 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     if (verdict !== 'waiting') { settle(verdict, versionNow, attempt); return; }
   }
 });
+
+/* #7207: what a press that got no answer should do next, from the status the board gives once it answers. Pure, so
+   the suite drives every branch. `before`/`bootBefore`: the version and boot identity this page last saw.
+     done        a new version answers: the update happened, reload into it
+     restarted   a new boot on the same version: it restarted without updating
+     answering   the same boot answers: it never went away (the press may or may not have reached it, and the route
+                 joins an install already under way, so pressing again is safe)
+     deadline    no answer for three minutes
+     waiting     no answer yet */
+function unansweredPressVerdict(v) {
+  if (v.reached && v.before && v.now && v.now !== v.before) return 'done';
+  /* 'restarted' needs the version from before too: without it a new boot may be the new version, and "still on X,
+     press Update" would be wrong in exactly the case that worked. */
+  if (v.reached && v.before && v.bootBefore && v.bootNow && v.bootNow !== v.bootBefore) return 'restarted';
+  if (v.reached) return 'answering';
+  if (v.elapsedMs >= 3 * 60 * 1000) return 'deadline';
+  return 'waiting';
+}
+
+/* #7207: the Update / Roll back dialog after a press that got no answer. It says so, keeps the button off, and asks
+   the board's status every two seconds until the board answers or the dialog is closed or reopened. While the board
+   is down the full-page restart screen covers this dialog; that screen is the signal then, and this wait settles the
+   dialog underneath for when it lifts. */
+async function waitForUnansweredPress(rollingBack, gen, hadFocus, pressedOn) {
+  const err = document.getElementById('uc-err');
+  const go = document.getElementById('uc-go');
+  const dlg = document.getElementById('updconfirm');
+  const did = rollingBack ? 'roll back' : 'update';
+  const label = rollingBack ? 'Roll back' : 'Update';
+  err.textContent = 'Kosmos is not answering right now. It may be restarting'
+    + (rollingBack ? '' : ', perhaps to install the update') + '. This page will wait for it to answer.';
+  err.hidden = false;
+  go.disabled = true;
+  go.textContent = 'Waiting\u2026';
+  const before = pressedOn.version;   // taken by the press before its POST, never now
+  const bootBefore = pressedOn.boot;
+  const t0 = Date.now();
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 2000));
+    if (gen !== UPD_WAIT_GEN || dlg.hidden) return;   // closed or reopened: stop asking, and leave its button alone
+    let reached = false; let now = null; let bootNow = null;
+    try {
+      const ping = await (typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch('/api/status', { cache: 'no-store' }));
+      if (ping.ok) {
+        const st = await ping.json().catch(() => null) || {};
+        reached = true; now = st.version || null; bootNow = st.bootedAt || null;
+      }
+    } catch { /* no answer yet */ }
+    const verdict = unansweredPressVerdict({ reached, before, now, bootBefore, bootNow, elapsedMs: Date.now() - t0 });
+    if (verdict === 'waiting') continue;
+    if (gen !== UPD_WAIT_GEN || dlg.hidden) return;   // closed or reopened while the status was in flight
+    if (verdict === 'done') { location.reload(); return; }
+    go.textContent = label;
+    go.disabled = false;
+    if (hadFocus && document.activeElement === document.getElementById('uc-no')) go.focus();   // never yank a deliberate move
+    if (verdict === 'deadline') {
+      err.textContent = 'Kosmos has not answered for three minutes. Reload this page to see where it is.';
+      go.textContent = 'Reload';
+      go.dataset.reloadOnly = '1';   // this click reloads, it does not also press Update
+      go.onclick = () => window.location.reload();
+      return;
+    }
+    err.textContent = verdict === 'restarted'
+      ? 'Kosmos restarted and is still on ' + (now || 'the same version') + '. Press ' + label + ' to ' + did + (rollingBack ? '' : ' it') + ' now.'
+      : 'Kosmos is answering again. Press ' + label + ' to try again. If the ' + did + ' already started, this joins it.';
+    return;
+  }
+}
 
 /* #553: the one place the overlay decides what is true. Pure, so the
    suite can drive every branch. `attempt` is the server's record of the
@@ -25275,6 +25401,8 @@ function paintRestartScreen(down, deviceIsOffline) {
         FR_CHOICE_HIDDEN_BY_RESTART = false;
         const frc = document.getElementById('fr-choice');
         if (frc && FR_CHOICE_PENDING && typeof frChoiceInert === 'function') { frc.hidden = false; frChoiceInert(true); }
+        // kosmos#7205: the dot loop stopped while both setup screens were hidden; decoration, so never allowed to throw.
+        if (frc && !frc.hidden) { try { frDots.boot(); } catch { /* the screen works without it */ } }
       }
     }
     return;
@@ -41352,7 +41480,7 @@ function dmRow(m, name, replyAdjacent) {
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
-  const v = pjVerdict(m, name);
+  const v = pjVerdict(m, name, typeof DM_ROWS_OF !== 'undefined' ? DM_ROWS_OF : null);   // kosmos#7208: the card by session
   /* ⚠️ WHAT WAS TYPED, when it is not what the bubble shows. A numbered answer
      sends the digit the agent's prompt is waiting for and shows the option's
      own words; the record keeps both, so the screen says both. Without this the
@@ -41721,6 +41849,7 @@ function talkFilterRows(rows, name, q) {
     || String(m.text || '').toLowerCase().includes(needle));
 }
 let TALK_QUERY = '';
+const DM_KEPT_HIDDEN = 'Your message is kept to send later. Clear the search to see it.';   // kosmos#7208 review 4
 /* #5406 part 2 slice C: the choices of the question an agent's screen shows, as buttons in that question's bubble.
    Josh's #3419 ruling: no prompt box and no banner; the question is an ordinary message, and these sit inside it, to
    press or to ignore (typing still works). Only what the server could be sure of (options and the question's identity,
@@ -43191,9 +43320,14 @@ async function sendTalk(text, attachment) {
          something actually went wrong. */
       line = placedWords(d);
     } else if (d.state === 'held' && inThread) {
-      /* #5805 slice 2b: kept for after the agent's usage resets; the row above says so and offers Send now anyway. */
+      /* #5805 slice 2b: kept for after the agent's usage resets; the row above says so and offers Send now anyway.
+         kosmos#7208: said ONCE, on the message's own row; nothing more under the box (Josh read the repeat as errors). */
       clearSent();
-      line = dmHeldWords(name, d) + (d.heldFor === 'input' || d.behindFor === 'input' ? '' : ' To send it now, use Send now anyway on the message.');   // #6774
+      /* Review 3: the row is not announced, and a search can hide it. Heard once (the quiet region, after "Sending…"),
+         and under the box only when a search keeps the row out of sight. */
+      // Review 4: only when the search really hides it, tested on the row's own shape (the person's row has no `from`).
+      line = TALK_QUERY.trim() && !talkFilterRows([{ text }], name, TALK_QUERY).length ? DM_KEPT_HIDDEN : '';
+      if (!flightMoved()) dmReplyAnnounce(dmHeldWords(name, d, typeof dmHeldAgent === 'function' ? dmHeldAgent(null, name, sentName) : null));
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
       /* #4944: not kept, so the box is its only sure copy again: the words go back into it. */
@@ -68854,6 +68988,7 @@ function paintTaskPage() {
       : t.onHoldByPerson === true
         ? 'You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.'
         : 'This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out.';
+  tkPaintHoldUntil(p, t);
 
   /**
    * Who is on it: the task's PARTS, one row each (#206 step 2).
@@ -68997,6 +69132,12 @@ function tkPaintSubtasks(p, t, closed) {
    event added to the engine later shows up as its bare name instead of vanishing. */
 function tkActPhrase(ev, p) {
   const nameOf = (sn) => (sn ? tkMemberName(p, sn) : null);
+  /* kosmos#7184: a hold's time (an ISO instant) in the person's own clock; anything else as it is. Kept inside this
+     function, which taskactphrase.test.js lifts alone (engine/taskactphrase.js when(), the same rule). */
+  const when = (v) => {
+    const t = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? Date.parse(v) : NaN;
+    return Number.isFinite(t) ? new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : v;
+  };
   switch (ev.kind) {
     case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : '') + (ev.doneWhen ? '. Done when: ' + ev.doneWhen : ''); }
     case 'assigned': { const who = nameOf(ev.who); return who ? who + ' put on a part' : 'A part left with nobody on it'; }
@@ -69008,7 +69149,10 @@ function tkActPhrase(ev, p) {
     // #5152: what finished means for the task, set or taken off (by an agent, named, or from the screen).
     case 'done-when-set': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + ev.doneWhen : ''); }
     case 'done-when-cleared': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
-    case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
+    // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
+    case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')
+      + (typeof ev.until === 'string' && ev.until ? ' until ' + (/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : when(ev.until))
+        : ev.untilCleared === true ? ', no longer waiting for anything' : '');
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
@@ -69022,6 +69166,10 @@ function tkActPhrase(ev, p) {
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
     case 'hold-stale': {   // #6209 part 3: an owner still working a held task in its room was asked about the hold
       const who = nameOf(ev.told) || 'its owner';
+      // kosmos#7180: told because what the hold waited for happened, not because of the room's posts.
+      if (typeof ev.met === 'string' && ev.met) {
+        return 'What its hold waited for happened (' + when(ev.met) + '); ' + (ev.reached === false ? 'Kosmos could not reach ' + who : who + ' was told it can come off hold');
+      }
       return ev.reached === false ? 'Still on hold while ' + who + ' worked in its project room; Kosmos could not reach ' + who
         : 'Still on hold while ' + who + ' worked in its project room; ' + who + ' was asked whether the hold still stands';
     }
@@ -70071,6 +70219,176 @@ document.getElementById('tk-repeat-save').addEventListener('click', async () => 
   }
 });
 
+/* kosmos#7184: what a held task waits for, on its page. The line is the board's own reading (t.holdUntil, which
+   projects.js takes from tasks.holdUntilState: { words, met }, a task that is gone counting as met), so the page never
+   works out "met" itself. The form shows the stored condition (t.onHoldUntil) unless the person has an unsaved change,
+   as the Repeats controls do, and Save sends exactly what it shows: a screen hold sets exactly what it is sent. Times
+   are compared to the minute, the picker's precision. */
+function tkHoldMinute(ms) { return Math.floor(ms / 60000) * 60000; }
+/* Review 1: the task as the board has it NOW, read for this click alone (a failed poll keeps the old list and an
+   overtaken one returns early, so the cached list cannot say whether an agent has just held or lifted it). null when it
+   could not be read, { gone: true } when it was read and the task is no longer there (round 2: two different answers). */
+async function tkHoldFresh(projectId, n) {
+  try {
+    const res = await fetch('/api/projects');
+    if (!res.ok) return null;
+    const all = await res.json();
+    const q = (all && Array.isArray(all.projects) ? all.projects : []).find((x) => x && x.id === projectId);
+    return (q && (q.tasks || []).find((x) => x && String(x.number) === String(n))) || { gone: true };
+  } catch { return null; }
+}
+/* Round 2: a line is written only while its task is still the one on screen (the Repeats Save's still()). */
+function tkHoldSay(key, words) {
+  const msg = document.getElementById('tk-hold-msg');
+  if (msg && msg.dataset.task === key && PJ_CURRENT + '#' + TK_OPEN === key) msg.textContent = words;
+}
+function tkHoldStoredChoice(t) {
+  const u = t && t.onHoldUntil;
+  if (u && Number.isInteger(u.task)) return { kind: 'task', task: u.task };
+  const at = u && typeof u.at === 'string' ? Date.parse(u.at) : NaN;
+  if (Number.isFinite(at)) return { kind: 'at', at: tkHoldMinute(at) };
+  return { kind: '' };
+}
+function tkHoldChoice() {
+  const kind = document.getElementById('tk-hold-for').value;
+  if (kind === 'task') { const n = Number(document.getElementById('tk-hold-task').value); return { kind, task: Number.isInteger(n) && n > 0 ? n : null }; }
+  if (kind === 'at') {
+    const v = document.getElementById('tk-hold-at').value;   // the picker's local time, read in the person's own zone
+    const at = v ? Date.parse(v) : NaN;
+    return { kind, at: Number.isFinite(at) ? tkHoldMinute(at) : null };
+  }
+  return { kind: '' };
+}
+function tkHoldLocalValue(ms) {
+  const d = new Date(ms); const z = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + 'T' + z(d.getHours()) + ':' + z(d.getMinutes());
+}
+function tkHoldWhen(ms) { return new Date(ms).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); }
+function tkHoldShowChoice(c) {
+  document.getElementById('tk-hold-for').value = c.kind;
+  if (c.kind === 'task') document.getElementById('tk-hold-task').value = String(c.task);
+  if (c.kind === 'at') document.getElementById('tk-hold-at').value = tkHoldLocalValue(c.at);
+}
+function tkHoldShowWhen() {
+  const kind = document.getElementById('tk-hold-for').value;
+  document.getElementById('tk-hold-for-when').hidden = !kind || document.getElementById('tk-hold-for-row').hidden;
+  document.getElementById('tk-hold-task').hidden = kind !== 'task';
+  document.getElementById('tk-hold-at').hidden = kind !== 'at';
+}
+function tkHoldDirty() {
+  const c = tkHoldChoice();
+  const ready = c.kind === '' || (c.kind === 'task' && c.task) || (c.kind === 'at' && c.at && document.getElementById('tk-hold-at').validity.valid);   // round 7: not a time already passed
+  const save = document.getElementById('tk-hold-save');
+  save.disabled = save.dataset.busy === '1' || !ready || JSON.stringify(c) === document.getElementById('tk-hold-for').dataset.stored;   // round 2: not while saving
+}
+/* The tasks a hold can wait for: this project's open tasks but this one, and the stored one even once it is closed, so
+   the choice never shows something that is not stored. Rebuilt only when it changes, keeping what is chosen. */
+function tkHoldTaskOptions(p, t) {
+  const sel = document.getElementById('tk-hold-task');
+  const waits = t.onHoldUntil && Number.isInteger(t.onHoldUntil.task) ? t.onHoldUntil.task : null;
+  const chosen = Number(sel.value) || null;   // round 3: an unsaved choice whose task has closed stays a choice too
+  const list = (p.tasks || []).filter((x) => x && x.number !== t.number && (!(x.progress && x.progress.closed) || x.number === waits || x.number === chosen)
+    && !(x.onHold === true && x.onHoldUntil && x.onHoldUntil.task === t.number && x.number !== waits));   // round 7: one waiting for this task would never be met
+  /* Review 1: a stored task no longer on the project stays a choice too, said as gone, so the select never goes blank
+     (a blank would read as an unsaved change and stop following the stored condition). */
+  const gone = waits !== null && !list.some((x) => x.number === waits) ? '<option value="' + waits + '">' + esc('#' + waits + ' (no longer on this project)') + '</option>' : '';
+  const html = '<option value="">Choose a task</option>' + list.map((x) => {
+    const words = String(x.sentence || '').replace(/\s+/g, ' ').trim();
+    return '<option value="' + Number(x.number) + '">' + esc('#' + x.number + (words ? ' ' + (words.length > 60 ? words.slice(0, 59) + '\u2026' : words) : '')) + '</option>';
+  }).join('') + gone;
+  if (sel.tkPainted !== html) { const v = sel.value; sel.innerHTML = html; sel.tkPainted = html; sel.value = v; }
+}
+function tkPaintHoldUntil(p, t) {
+  const held = t.onHold === true && TK_ACT !== 'reopen';
+  for (const id of ['tk-hold-for-row', 'tk-hold-for-actions']) document.getElementById(id).hidden = !held;
+  document.getElementById('tk-hold-takeover').hidden = !held || t.onHoldByPerson === true;
+  const line = document.getElementById('tk-hold-until');
+  const u = held ? t.holdUntil : null;
+  const m = u && typeof u.words === 'string' ? /^task #(\d+) is closed$/.exec(u.words) : null;
+  const at = u && !m && typeof u.words === 'string' ? Date.parse(u.words) : NaN;
+  const n = m ? Number(m[1]) : 0;
+  const gone = m && !(p.tasks || []).some((x) => x && x.number === n);
+  const html = !u ? ''
+    : m ? (gone ? 'Task ' + n + ' is no longer on this project, so this can come off hold.'
+      : u.met === true ? 'Task ' + n + ' is closed, so this can come off hold.' : 'Waiting for task ' + n + ' to close.')
+    : Number.isFinite(at) ? (u.met === true ? 'That time has passed, so this can come off hold.' : 'Waiting until ' + esc(tkHoldWhen(at)) + '.')
+    : '';
+  if (line.tkPainted !== html) { line.innerHTML = html; line.tkPainted = html; }
+  line.hidden = !html;
+  if (!held) { document.getElementById('tk-hold-for-when').hidden = true; delete document.getElementById('tk-hold-for').dataset.task; return; }   // round 3: a new hold starts from what is stored
+  const sel = document.getElementById('tk-hold-for');
+  const key = p.id + '#' + t.number;
+  const stored = JSON.stringify(tkHoldStoredChoice(t));
+  const newTask = sel.dataset.task !== key;
+  const choiceNow = JSON.stringify(tkHoldChoice());
+  if (choiceNow === stored) sel.dataset.stored = stored;   // choosing what is stored is nothing unsaved
+  const edited = !newTask && choiceNow !== sel.dataset.stored;
+  if (newTask) { document.getElementById('tk-hold-task').value = ''; document.getElementById('tk-hold-at').value = ''; }   // round 4: nothing carries over from another task
+  tkHoldTaskOptions(p, t);
+  if (newTask || (sel.dataset.stored !== stored && !edited)) {
+    tkHoldShowChoice(tkHoldStoredChoice(t));
+    sel.dataset.task = key;
+    sel.dataset.stored = stored;
+  }
+  const atIn = document.getElementById('tk-hold-at');
+  const lo = tkHoldLocalValue(Date.now() + 60000); const hi = tkHoldLocalValue(Date.now() + 365 * 86400000);
+  if (atIn.min !== lo) atIn.min = lo;
+  if (atIn.max !== hi) atIn.max = hi;
+  tkHoldShowWhen();
+  tkHoldDirty();
+}
+document.getElementById('tk-hold-for').addEventListener('change', () => { tkHoldShowWhen(); tkHoldDirty(); });
+document.getElementById('tk-hold-task').addEventListener('change', tkHoldDirty);
+document.getElementById('tk-hold-at').addEventListener('input', tkHoldDirty);
+document.getElementById('tk-hold-save').addEventListener('click', async () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p || TK_OPEN === null) return;
+  const t = (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN));
+  if (!t || t.onHold !== true) return;
+  const c = tkHoldChoice();
+  const until = c.kind === 'task' && c.task ? { task: c.task } : c.kind === 'at' && c.at ? { at: new Date(c.at).toISOString() } : null;
+  if (c.kind && !until) return;
+  const btn = document.getElementById('tk-hold-save');
+  const msg = document.getElementById('tk-hold-msg');
+  const key = p.id + '#' + t.number;
+  const holdBtn = document.getElementById('tk-hold');
+  btn.disabled = true;
+  btn.dataset.busy = '1';
+  holdBtn.disabled = true;   // round 5: never both in flight (a take-off between Save's read and its POST would be undone)
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }
+  try {
+    /* Review 1: Save is a screen hold, which would put back on hold (as the person's) a task an agent has just taken off.
+       Read it again first; change nothing unless it is still on hold. */
+    const now = await tkHoldFresh(p.id, t.number);
+    if (!now) { tkHoldSay(key, 'We could not check that task just now, so nothing changed.'); return; }
+    if (now.gone) { await pjReload(); tkHoldSay(key, 'That task is no longer on this project, so nothing changed.'); return; }
+    if (now.onHold !== true) {
+      await pjReload();
+      paintTaskActivity(TK_OPEN);
+      tkHoldSay(key, 'This was taken off hold, so nothing changed.');
+      return;
+    }
+    // Round 3: the task this click was about, never TK_OPEN, which a person can move during the read above.
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + Number(t.number) + '/hold', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(until ? { onHold: true, until } : { onHold: true }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'We could not change what that hold waits for.'); return; }
+    await pjReload();
+    paintTaskActivity(TK_OPEN);
+    tkHoldSay(key, 'Saved.');
+    // Round 3: Save goes off under focus, so focus returns to the choice; round 4: only if it is still on Save (or lost).
+    if (PJ_CURRENT + '#' + TK_OPEN === key && (document.activeElement === btn || document.activeElement === document.body || !document.activeElement)) document.getElementById('tk-hold-for').focus();
+  } catch {
+    tkHoldSay(key, 'We could not reach Kosmos to change that task.');
+  } finally {
+    delete btn.dataset.busy;
+    holdBtn.disabled = false;
+    tkHoldDirty();
+  }
+});
+
 document.getElementById('tk-hold').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return;
@@ -70078,21 +70396,40 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
   if (!t) return;
   const btn = document.getElementById('tk-hold');
   const msg = document.getElementById('tk-hold-msg');
+  const key = p.id + '#' + t.number;
+  const save = document.getElementById('tk-hold-save');
   btn.disabled = true;
-  if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }   // whose message it is (the page repaint clears another's)
+  save.dataset.busy = '1'; save.disabled = true;   // round 5: Save waits while this is in flight
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }   // whose message it is (the page repaint clears another's)
   try {
-    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/hold', {
+    /* kosmos#7184: a screen hold sets exactly what it sends, so a page that has not yet seen an agent's hold would
+       replace what it waits for. Read the task again first; if it is already on hold, change nothing and show it. */
+    if (t.onHold !== true) {
+      const now = await tkHoldFresh(p.id, t.number);
+      if (!now) { tkHoldSay(key, 'We could not check that task just now, so nothing changed.'); return; }
+      if (now.gone) { await pjReload(); tkHoldSay(key, 'That task is no longer on this project, so nothing changed.'); return; }
+      if (now.onHold === true) {
+        await pjReload();
+        paintTaskActivity(TK_OPEN);
+        tkHoldSay(key, 'This is already on hold, so nothing changed.');
+        return;
+      }
+    }
+    // Round 3: the task this click was about (the read above awaits; TK_OPEN can move meanwhile).
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + Number(t.number) + '/hold', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ onHold: t.onHold !== true }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not change that task'; return; }
+    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'We could not change that task.'); return; }   // round 4: only on its own task
     await pjReload();
     paintTaskActivity(TK_OPEN);
   } catch {
-    if (msg) msg.textContent = 'we could not reach Kosmos to change that task';
+    tkHoldSay(key, 'We could not reach Kosmos to change that task.');
   } finally {
     btn.disabled = false;
+    delete save.dataset.busy;
+    tkHoldDirty();
   }
 });
 
@@ -72489,6 +72826,54 @@ function pjBody(text, names, agentNames) {
   return out;
 }
 
+/* kosmos#7239 (Josh): an agent writes a web address bare, without https:// (meridianworks.kosmosplus.com), and it
+   should be a link too. A bare address is host labels ending in a known web ending, with an optional port, path,
+   query or fragment; it opens as https://. Endings that are also everyday file extensions (notes.md, Kosmos.app,
+   setup.sh, main.py) are left out, and so is anything with a letter case that is not a host's (store.ROOT), a version
+   (0.7.70: no ending is all digits), an email (the @ is not a host character) and code (held before this runs). The
+   ending must be lowercase (GitHub.com links, store.ROOT does not).
+   Returns the https:// address, or '' when the token is not a bare web address. */
+function pjBareWeb(tok) {
+  // Not info, store, page, link, live, news, in: they are also code properties or file names (logger.info,
+  // requirements.in). Built once, kept on the function.
+  const endings = pjBareWeb.endings || (pjBareWeb.endings = new Set(['com', 'net', 'org', 'io', 'ai', 'dev', 'co', 'me',
+    'us', 'uk', 'ca', 'au', 'nz', 'ie', 'de', 'fr', 'nl', 'es', 'it', 'se', 'no', 'dk', 'fi', 'ch', 'at', 'be', 'eu', 'jp',
+    'br', 'mx', 'biz', 'xyz', 'tech', 'online', 'cloud', 'gg', 'tv', 'fm', 'studio', 'agency', 'software', 'world', 'gov',
+    'edu']));
+  // Endings that are also a file extension or a code member (logo.ai, settings.dev, self.me, done.it): a bare
+  // one-dot name with one of these links only with a stronger sign, www., a subdomain, a path or a port. So
+  // claude.ai/settings and docs.example.dev link, and bare claude.ai does not (review 1, the trade recorded on the card).
+  const ambiguous = pjBareWeb.ambiguous || (pjBareWeb.ambiguous = new Set(['ai', 'dev', 'me', 'at', 'it', 'no', 'co']));
+  const t = String(tok || '');
+  if (t.length > 2048) return '';   // no real address is this long, and the pattern below is not linear on a dot run
+  const m = /^((?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+([a-z]{2,24}))(:\d{1,5})?([/?#][^\s￼]*)?$/.exec(t);
+  if (!m || !endings.has(m[2])) return '';
+  if (ambiguous.has(m[2]) && !m[3] && !m[4] && m[1].split('.').length === 2) return '';
+  return 'https://' + m[0];
+}
+/* kosmos#7239: one word of RAW text, split into what goes before a bare address, the address, and what goes after:
+   quotes, angle brackets, an opening paren, emphasis marks, a possessive 's and sentence punctuation stay outside.
+   A ")" stays in the address when the address opened one (en.wikipedia.org/wiki/Foo_(bar)). The tail is found by a
+   backwards scan, so a long run of punctuation costs a single pass. Returns null when the middle is not an address. */
+function pjBareSplit(tok) {
+  const t = String(tok || '');
+  if (t.length > 512 || t.indexOf('.') === -1) return null;   // no real address is this long
+  let a = 0;
+  while (a < t.length && '"\'<(*~_“‘'.indexOf(t[a]) !== -1) a += 1;
+  let b = t.length;
+  for (;;) {
+    if (b - 2 > a && (t.slice(b - 2, b) === "'s" || t.slice(b - 2, b) === '’s')) { b -= 2; continue; }
+    if (b > a && '"\'>.,;:!?])*~_”’'.indexOf(t[b - 1]) !== -1) { b -= 1; continue; }
+    break;
+  }
+  let core = t.slice(a, b);
+  let opens = 0, closes = 0;
+  for (const c of core) { if (c === '(') opens += 1; else if (c === ')') closes += 1; }
+  while (b < t.length && t[b] === ')' && opens > closes) { core += ')'; b += 1; closes += 1; }
+  const web = typeof pjBareWeb === 'function' ? pjBareWeb(core) : '';
+  return web ? { lead: t.slice(0, a), core, tail: t.slice(b), web } : null;
+}
+
 /* 🔑 EVERY PLACE A PERSON'S MESSAGE IS DRAWN GOES THROUGH THIS (#355). It was
    written for the project room and the other rows kept `esc(text)`, so the
    same pasted URL was a link in one box and dead characters in the next box
@@ -72605,12 +72990,18 @@ function pjRichSpans(seg, names, agentNames) {
      url is escaped text, the same form the bare-URL autolink below puts in its href. */
   s = s.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (mm, label, url) => {
     const u = url.trim();
-    const shown = /^https?:\/\/[^\s\uFFFC]+$/.test(u)
-      ? hold('<a class="xlink" href="' + u + '" target="_blank" rel="noreferrer noopener">' + u + '</a>')
+    // kosmos#7239 review 1: a bare address as the target ([site](example.com)) is a link too, to https://.
+    const bareTarget = !/^https?:/.test(u) && typeof pjBareWeb === 'function' ? pjBareWeb(u) : '';
+    const shown = /^https?:\/\/[^\s\uFFFC]+$/.test(u) || bareTarget
+      ? hold('<a class="xlink" href="' + (bareTarget || u) + '" target="_blank" rel="noreferrer noopener">' + u + '</a>')
       /* Held so the emphasis pass leaves it alone, unless it already carries a held span (inline code
          inside the address): restoring is one pass, so a placeholder held inside another would leak. */
       : (u.includes('\uFFFC') ? u : hold(u));
-    return label + ' (' + shown + ')';
+    // Reviews 2 and 3: a label with an address in it ([example.com](https://e.com), [see **x.com**](...)) stays plain
+    // text, or it becomes a second link, possibly to somewhere else.
+    const rawLabel = label.replace(/&(amp|lt|gt|quot);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e]));
+    const labelHasWeb = typeof pjBareSplit === 'function' && rawLabel.split(/\s+/).some((w) => pjBareSplit(w));
+    return (labelHasWeb ? hold(label) : label) + ' (' + shown + ')';
   });
   /* A URL (or, with `names`, a cited file) is a whole whitespace-delimited
      token. Trailing sentence punctuation and trailing emphasis stars
@@ -72675,6 +73066,24 @@ function pjRichSpans(seg, names, agentNames) {
           + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>') + mm[2];
       }
     }
+    /* kosmos#7239: a bare web address, AFTER the cited-file chip, so a project file named like a host (brand.ai) keeps
+       its Show me (review 1). The token is already escaped; a host, port and path carry nothing esc changes except &
+       in a query, which stays escaped in the href as the https arm above leaves it. Guarded: tests lift pjRich alone. */
+    if (!tok.includes('\uFFFC')) {
+      // Split the RAW word (review 2: so an entity is never cut), then escape each piece on the way out.
+      const rawTok = tok.replace(/&(amp|lt|gt|quot);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e]));
+      const bare = typeof pjBareSplit === 'function' ? pjBareSplit(rawTok) : null;
+      if (bare) {
+        // Review 2: a cited project file dressed in bold, quotes, parens or 's is still the file, with its Show me.
+        // Only a bare name, no path and no "..": an address with a path is a website, even if it ends in a file name (review 3).
+        const key = hasNames && !/[/?#]/.test(bare.core) && !bare.core.includes('..') ? pjCiteKey(bare.core, names) : null;
+        const mid = key !== null
+          ? '<span class="ref">' + esc(bare.core) + '<button class="refgo" type="button" data-ref="' + esc(key)
+            + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>'
+          : '<a class="xlink" href="' + esc(bare.web) + '" target="_blank" rel="noreferrer noopener">' + esc(bare.core) + '</a>';
+        return esc(bare.lead) + hold(mid) + esc(bare.tail);
+      }
+    }
     return tok;
   }).join('');
   s = s.replace(/\*\*([^\n*]+)\*\*/g, '<strong>$1</strong>');
@@ -72725,7 +73134,9 @@ function pjRich(text) {
          message stays byte-identical (pjRichSpans escapes it the same); a
          multi-line one renders its breaks as <br> under the same pre-wrap. */
       && raw.indexOf('|') === -1
-      && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) {
+      && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1
+      // kosmos#7239: a bare web address (example.com) takes the slow path, where it becomes a link.
+      && !(typeof pjBareSplit === 'function' && raw.indexOf('.') !== -1 && raw.split(/\s+/).some((t) => pjBareSplit(t)))) {
     return esc(raw);
   }
   const src = raw.split(/\r?\n/);   // #3679: a CRLF text (a task's detail) still closes its fences
@@ -74551,6 +74962,45 @@ function pjReceiptSentence(outcomes, p) {
    blockquote asserts "these are not my words", and that is never inferred.
    A tag this code cannot trust (offsets outside the text, overlapping, no
    source row) is not "probably a quote", it is the flat paragraph. */
+/* kosmos#7214: a room post's paragraphs. A <p> cannot hold a block: the parser closes it where a <table> starts, which
+   left the table outside its scroll wrapper (.mdtablewrap) and ran it past the bubble's edge. So the body is built as
+   the browser would show it, on purpose: each run of words is a <p>, and each block (a table's wrapper, a code block,
+   a code block's path) sits between them, where a code block already landed. A body with no block is one <p>. */
+const PJ_ROOM_BLOCK = /^(address|article|aside|blockquote|center|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|li|listing|main|menu|nav|ol|p|plaintext|pre|search|section|summary|table|ul|xmp)$/i;
+function pjRoomPara(html) {
+  if (typeof document === 'undefined') return '<p>' + html + '</p>';
+  const t = document.createElement('template');
+  t.innerHTML = html;   // a template does not close a <p> at a block: the structure stays as pjBody wrote it
+  const nodes = t.content && t.content.childNodes ? [...t.content.childNodes] : [];
+  // Unit tests run this without a DOM (web.quoteb stubs document): there it is one <p>, and only the browser check
+  // (render-richtext-room-2239) can see the split. That check is the guard.
+  const isBlock = (n) => n.nodeType === 1 && (PJ_ROOM_BLOCK.test(n.tagName) || n.classList.contains('mdtablewrap'));
+  if (!nodes.some(isBlock)) return '<p>' + html + '</p>';
+  // A long code span in a table (a hash, a path) may wrap; a short one keeps its words (see the #pj-room .mdc-long rule).
+  t.content.querySelectorAll('.mdtable .mdc').forEach((c) => { if (c.textContent.length > 16) c.classList.add('mdc-long'); });
+  // The parser drops one newline right after <pre>, so a code block that starts with a blank line keeps it only if
+  // the serialised form carries an extra one for the second parse to eat.
+  t.content.querySelectorAll('pre').forEach((pre) => {
+    const first = pre.firstChild;
+    if (first && first.nodeType === 3 && first.data.startsWith('\n')) first.data = '\n' + first.data;
+  });
+  const parts = [];   // { block: true, html } or { block: false, run: <p> }
+  let run = document.createElement('p');
+  const close = () => { if (run.childNodes.length) parts.push({ block: false, run }); run = document.createElement('p'); };
+  for (const n of nodes) {
+    if (isBlock(n)) { close(); parts.push({ block: true, html: n.outerHTML }); } else run.appendChild(n);
+  }
+  close();
+  // A run with words or anything but line breaks (a rule, an image) is a paragraph. A run of only line breaks between
+  // two blocks stays as it was, raw, so two tables stack with their blank line, as before; at either end it goes.
+  const real = (r) => !!(r.textContent.trim() || r.querySelector(':not(br)'));
+  return parts.map((x, k) => {
+    if (x.block) return x.html;
+    if (real(x.run)) return x.run.outerHTML;
+    const between = k > 0 && k < parts.length - 1;
+    return between ? x.run.innerHTML : '';
+  }).join('');
+}
 function pjRoomBody(m, p) {
   let words = pjWords(m);
   if (!words) return '';
@@ -74594,7 +75044,7 @@ function pjRoomBody(m, p) {
   if (m && (Array.isArray(m.mentioned) || m.external === true)) {
     agentNames.addressed = new Set(Array.isArray(m.mentioned) ? m.mentioned : []);
   }
-  const flat = '<p>' + pjBody(words, PJ_DOC_NAMES, agentNames) + '</p>';
+  const flat = pjRoomPara(pjBody(words, PJ_DOC_NAMES, agentNames));
   const qs = Array.isArray(quotes) ? quotes.filter((q) => q && typeof q === 'object'
     && typeof q.of === 'string' && q.of
     && Number.isInteger(q.start) && Number.isInteger(q.end)
@@ -74606,7 +75056,7 @@ function pjRoomBody(m, p) {
      the whitespace at its edges goes, since that only separated it from the
      quote, so no empty paragraph or hanging indent is drawn beside the bar. */
   // #3679: trim(), not /\s+$/, which backtracks on a long space run the store now keeps.
-  const prose = (t) => { const k = t.trim(); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES, agentNames) + '</p>' : ''; };
+  const prose = (t) => { const k = t.trim(); return k ? pjRoomPara(pjBody(k, PJ_DOC_NAMES, agentNames)) : ''; };
   let out = '';
   let at = 0;
   for (const q of qs) {
@@ -76668,7 +77118,7 @@ function paintRoom(body) {
 document.getElementById('d-talk-search').addEventListener('input', () => {
   TALK_QUERY = document.getElementById('d-talk-search').value;
   const said = document.getElementById('d-say-msg');   // #4256: "hidden by your search" is stale once the search changes
-  if (said && said.textContent === 'That message is hidden by your search.') said.textContent = '';
+  if (said && (said.textContent === 'That message is hidden by your search.' || said.textContent === DM_KEPT_HIDDEN)) said.textContent = '';
   const th = document.getElementById('d-dmthread');
   // #5624 review 3: only the agent on screen's own thread (as talkPaintPending checks), never the last agent's.
   if (!th.__lastBody || th.__lastSession !== (CURRENT && CURRENT.sessionName)) return;
@@ -77914,22 +78364,74 @@ function pjWhen(at) {
 function placedWords(d) {
   return '';
 }
-/* #5805 slice 2b: what a person's held message says, on its row and under the box: why it is held and when it goes. */
-function dmHeldWords(name, d) {
-  // Kosmos tried to send it and could not (the sweep recorded why): said after the reason it is held.
-  const stuck = d && d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
+/* #5805 slice 2b: what a person's held message says, on its row: why it waits and when it goes.
+   kosmos#7208 (Josh read the old "Held: ..." lines as errors): plain words that say nothing is wrong, and the REAL
+   reason first. `a` is the agent's card when the page has it: out of usage or not running says that, even when the
+   message was kept for its message box, because then the box is not why it waits. */
+function dmHeldWords(name, d, a) {
+  d = d || {};
+  const now = Date.now();
+  // Kosmos tried to send it and could not (the sweep recorded why): said after the reason it waits.
+  const stuck = d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
     ? ' Kosmos tried to send it and could not: ' + d.stuck.because.replace(/[.\s]+$/, '') + '.' : '';
-  if (d && d.behind === true && d.behindFor === 'input') return 'Held: Kosmos sends this after the messages kept for ' + name + ' while its input box held text not yet sent.' + stuck;   // #6774
-  if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.' + stuck;
-  // #6774: held because its input box holds text not yet sent; sent by the minute sweep once the box reads empty.
-  if (d && d.heldFor === 'input') return 'Held: ' + name + "'s input box holds text not yet sent. Kosmos sends it once the box is clear." + stuck;
-  // #5948: held because its sign-in stopped working; there is no reset to name, only signing in again.
-  if (d && d.heldFor === 'signin') return 'Held: ' + name + ' is signed out. Kosmos sends it once it is signed in again.' + stuck;
-  const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
-  const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
-  return 'Held: ' + name + ' is out of usage' + (when ? ' until ' + when : '') + '. Kosmos sends it after the reset.' + stuck;
+  const soon = (t) => (t > now && typeof quotaResetWords === 'function' ? quotaResetWords(t, now) : '');
+  const cardAt = a && typeof a.limitUntil === 'string' ? Date.parse(a.limitUntil) : NaN;
+  const heldAt = typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
+  const st = a ? a.state : null;
+  /* One order of reasons, read off the card as the server reads it before it types (reviews 1 and 2). The sweep types
+     a held message once the card is idle (engine/chat.js limitReleased), so "back" is that, never a guess; a card that
+     does not know (unknown, stale, a lost connection) leaves the hold's own words. */
+  const released = !!a && (st === 'idle' || (st === 'blocked' && a.screenState === 'idle')) && a.screenRead !== 'remembered';   // #5949: a remembered screen waits for a fresh look
+  const cardOut = !!a && (st === 'rate_limited' || cardAt > now);
+  /* Review 3: a card that knows decides. The server keeps a sign-in or usage hold only while the card reads signed out
+     or out of usage (signinHeldVerdict, limitHeldVerdict); any other known state has released it. The hold's own words
+     stand only when there is no card, or it cannot say (unknown, stale, a lost connection, restarting, remembered). */
+  const unsure = !a || !st || a.screenRead === 'remembered' || ['unknown', 'restarting'].includes(st);   // the board's states that cannot say (engine/status.js STATE)
+  const signedOut = st === 'auth_failed' || (d.heldFor === 'signin' && unsure);
+  const stopped = !!a && !signedOut && !cardOut && st !== 'restarting' && (a.running === false || st === 'stopped');
+  const usageHold = !d.behind && d.heldFor !== 'input' && d.heldFor !== 'signin';
+  const out = !signedOut && (cardOut || (usageHold && unsure));
+  // The message box blocks it too: kept for the box, or queued behind something kept for the box.
+  const box = d.heldFor === 'input' || (d.behind === true && d.behindFor === 'input');
+  // When it goes: after the messages ahead of it when it is queued, and once the box is clear when that blocks it too.
+  const after = (when) => (d.behind === true ? ' This delivers after the messages ahead of it, ' + when + '.' : ' This delivers ' + when + '.');
+  let said;
+  if (signedOut) said = name + ' is signed out.' + after('once ' + name + ' is signed in again');
+  else if (out) {
+    // A sign-in hold's heldUntil is the sign-in's one-minute relook, not a reset: never said as one (review 4).
+    const until = soon(cardAt > now ? cardAt : (d.heldFor === 'signin' ? NaN : heldAt));
+    // The card can only guess at a limit it read off the screen (stateConfidence 'scraped'); the row hedges as it does.
+    const guess = cardOut && !usageHold && a.stateConfidence === 'scraped';
+    said = name + (guess ? ' looks to be out of usage' : ' is out of usage') + (until ? ' until ' + until : '') + '.'
+      + after(box ? 'once ' + name + ' is back and its message box is clear' : 'when ' + name + ' is back');
+  } else if (stopped) said = name + ' is not running.' + after('when ' + name + ' is running again');
+  // Review 4: both holds are released then; the connection coming back is what delivers it.
+  else if (st === 'connection_lost') said = name + ' lost its connection.' + after('when ' + name + ' is connected again' + (box ? ' and its message box is clear' : ''));
+  // Ahead of it are other messages to this agent, from anyone (other agents, task notices), not only the person's.
+  else if (d.behind === true) said = 'Queued behind earlier messages to ' + name + '.';
+  // #6774: held until its message box reads empty. That includes a box Kosmos cannot read (chat.inputBoxEmpty is false
+  // for unread, #6256), so the words never claim there is text in it (PigeonPete, m459): only that Kosmos waits.
+  else if (box) said = 'Waiting for ' + name + "'s message box to be clear. Yours goes through as soon as it is.";
+  // Released on the card and not failing: the minute sweep types it. Otherwise no time is promised (a question or
+  // permission menu on its screen also keeps the sweep waiting: engine/chat.js menuHeldVerdict).
+  else if (released && !stuck) said = name + ' is back. This goes through in a minute or so.';
+  else said = name + ' is back. This goes through when Kosmos can type it.';
+  return said + stuck;
 }
-function pjVerdict(m, name) {
+/* kosmos#7208: the card of the agent a held message waits for: by its session when the caller knows it (two agents can
+   share a name), else by the name the thread shows. Guarded: tests lift dmHeldWords and pjVerdict without the page. */
+function dmHeldAgent(m, name, session) {
+  try {
+    const cur = typeof CURRENT !== 'undefined' ? CURRENT : null;
+    const list = typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : [];
+    // A card carries the name a person sees as `name` and its session as `sessionName`; nothing else names it.
+    const is = session ? (a) => !!a && a.sessionName === session : (a) => !!a && a.name === name;
+    // Review 3: the poll's card first. CURRENT is the card as it was when the agent was opened (the poll never
+    // reassigns it), so it is only the fallback when the poll has no card for this agent.
+    return list.find(is) || (is(cur) ? cur : null);
+  } catch { return null; }
+}
+function pjVerdict(m, name, session) {
   const d = (m && m.delivery) || {};
   // The pane's state when we typed, and what it means for what happens next.
   const note = d.paneNote ? esc(d.paneNote) : '';
@@ -77940,9 +78442,9 @@ function pjVerdict(m, name) {
   const whenLive = pjWhenLive(m.at);
   const when = whenLive ? ' ' + whenLive : '';
   if (d.state === 'held') {
-    // #5805 slice 2b: kept while the agent is out of usage; dmRow puts Send now anyway beside it.
+    // #5805 slice 2b: a held message (out of usage, signed out, not running, its box, or queued); dmRow puts Send now anyway beside it.
     mark = ' held';
-    said = esc(dmHeldWords(name, d));
+    said = esc(dmHeldWords(name, d, typeof dmHeldAgent === 'function' ? dmHeldAgent(m, name, session) : null));
   } else if (d.state === 'placed') {
     mark = '';
     /* #3419: a placed message's thread row carries NO delivery-status copy --
@@ -77992,8 +78494,8 @@ function pjVerdict(m, name) {
   return { mark, said, when };
 }
 
-function pjMsg(m, name) {
-  const { mark, said, when } = pjVerdict(m, name);
+function pjMsg(m, name, session) {
+  const { mark, said, when } = pjVerdict(m, name, session);
   /* 🔑 THE SAME ROW FURNITURE AS THE ROOM'S: the time in its own element, the
      receipt in its own, and the receipt free to say nothing. This panel and the
      agent page's thread are the same conversation kind and share one verdict,
@@ -78322,7 +78824,7 @@ function paintThread(body) {
     // rather than implying the visible list is the whole record.
     setLive(msgs, (body.olderCount
       ? '<p class="fhint">The first ' + body.olderCount + ' messages of this conversation are kept on this computer and not shown here.</p>'
-      : '') + body.messages.map((m) => pjMsg(m, name)).join(''));
+      : '') + body.messages.map((m) => pjMsg(m, name, body.agent && body.agent.sessionName)).join(''));
   }
 
   /* Its screen. ⚠️ The HEADING follows the read (round 30, measured): set
@@ -83099,8 +83601,8 @@ function frGo(step) {
   // own <h2> (frFocusActiveHead) at the end.
   const pane = document.getElementById('fr-pane-' + step);
   if (step === 1) {
-    // S1 Welcome.
-    frActions({ label: 'Get Started', go: () => frGo(frStepAfter(1)) });
+    // S1 Welcome. kosmos#7205: Back to the setup choice, when it was shown in this load.
+    frActions({ label: 'Get Started', go: () => frGo(frStepAfter(1)) }, frBackOffered() ? { label: 'Back', go: frBackToChoice } : null);
   } else if (step === 2) {
     // S2 Access: the file-access gate. Next is soft-open at entry and the poll
     // (async) only disables it on a positive not-granted reading -- FAIL-SAFE, so
@@ -86925,8 +87427,9 @@ const frDots = (() => {
     }
   }
   function frame() {
-    // The overlay closing ends the loop; frOpen boots a fresh one.
-    if (document.getElementById('firstrun').hidden) { running = false; return; }
+    // The overlay closing ends the loop; frOpen boots a fresh one. kosmos#7205: the setup choice screen shows it too.
+    const choice = document.getElementById('fr-choice');
+    if (document.getElementById('firstrun').hidden && (!choice || choice.hidden)) { running = false; return; }
     shown += (P - shown) * 0.06;
     step();
     draw(shown);
@@ -86955,6 +87458,11 @@ const frDots = (() => {
   }
   window.addEventListener('resize', refit);
   return {
+    /* kosmos#7205: the one field, moved into whichever setup screen is showing (the setup choice, then first run), so
+       both draw the same slow pale drift. It is fixed to the window, so its place in the page does not move it. */
+    host(parent) {
+      if (parent && canvas.parentElement !== parent) parent.insertBefore(canvas, parent.firstChild);
+    },
     boot() {
       if (fit()) build();
       if (reduced) {
@@ -86984,6 +87492,7 @@ function frOpen() {
    * reader reads the whole board underneath the welcome message.
    */
   document.querySelectorAll('body > *:not(#firstrun):not(#stepup-ask)').forEach((el) => { el.inert = true; });   // #6616: the Sign in again ask stays pressable
+  frDots.host(document.getElementById('firstrun'));   // kosmos#7205: back from the setup choice screen, if it was there
   frDots.boot();
   frGo(1);
   // The heading, not the button: frGo already focuses #fr-title per step
@@ -87019,6 +87528,26 @@ function frClose() {
    sign-in as its last step: the Settings sign-in that already exists (plusSiEnter), not a new one.
    The app says so with ?mode=both, so a first run finished after a relaunch still ends there. */
 let FR_FORCED = false;   // first run opened by hand (Settings' re-run, ?first-run=1), not first-time setup
+let FR_CHOSE_HERE = false;   // kosmos#7205: the setup choice was shown before first run in this load, so Welcome offers Back to it
+/* kosmos#7205 (Josh, 2026-10-26): Welcome's Back goes to the setup choice. First run closes, the choice shows again,
+   and what is picked carries on exactly as the first time (the Mac app takes a second answer in the same launch).
+   Back from Welcome only: no step after it goes back (Josh 2026-08-17, every later step still holds). */
+/* Only on the Mac app's bridge: the Windows app (KosmosLauncher.cs PageChoseMode) still takes one answer per launch, so
+   a Back there would leave Connect on a dead screen once its FirstRunChoice switch is on. A Reload while the second
+   choice is up opens Welcome without Back (?mode is gone): the app stays on the first answer, which is accepted. */
+function frBackOffered() {
+  const h = window.webkit && window.webkit.messageHandlers;
+  return FR_CHOSE_HERE && !FR_FORCED && !!(h && h.kosmosMode);
+}
+async function frBackToChoice() {
+  frClose();
+  const pick = frChoose();
+  // A keyboard or screen-reader user who pressed Back lands on the choice's first button, not on <body>.
+  try { const b = document.querySelector('#fr-choice .frc-btn'); if (b) b.focus(); } catch { /* focus is a nicety */ }
+  const chose = await pick;
+  if (chose === 'connect') return;
+  frOpen();
+}
 function frPlusLast() {
   // The first-time setup of a both computer only: a re-run from Settings does not push the sign-in again.
   return !FR_FORCED && new URLSearchParams(location.search).get('mode') === 'both';
@@ -88926,10 +89455,13 @@ function frChoiceWanted(done) {
 function frChoiceForget(mode) {
   try {
     const u = new URL(location.href);
-    if (!u.searchParams.has('mode')) return;
+    // kosmos#7205: after Welcome's Back, a first Run answer has already taken ?mode off, and a second answer of
+    // both must still put it on, or first run does not end at the Kosmos Plus sign-in (frPlusLast). This is only
+    // ever called from the choice screen, which frChoiceWanted allowed in this load.
+    if (!u.searchParams.has('mode') && mode !== 'both') return;
     if (mode === 'both') u.searchParams.set('mode', 'both'); else u.searchParams.delete('mode');
     history.replaceState(history.state, '', u.pathname + u.search + u.hash);
-  } catch { /* the address keeps ?mode=; the app still ignores a second choice */ }
+  } catch { /* the address keeps ?mode=, so a Reload may ask again */ }
 }
 
 /* #4356: the page under the first screen is inert while it is up, INCLUDING what arrives later: seven
@@ -88997,6 +89529,9 @@ function frChoose() {
     // Tab, click or screen reader reaches the board under it (and first run re-applies its own).
     frChoiceInert(true);
     revealBoot();
+    // kosmos#7205: the setup screens' dot field, very light, as on every other setup screen. Last, and never
+    // allowed to stop the screen: it is decoration.
+    try { frDots.host(el); frDots.boot(); } catch { /* the screen works without it */ }
   });
 }
 
@@ -89017,6 +89552,7 @@ async function firstRunBoot(force, step) {
     // again after first run (an unreadable one) skips the wizard, so "both" goes straight to its
     // last step, the Kosmos Plus sign-in.
     const chose = frChoiceWanted(state.done) ? await frChoose() : null;
+    FR_CHOSE_HERE = chose !== null;   // kosmos#7205: Welcome offers Back to this choice
     if (chose === 'connect') return;
     if (state.done && !force) { if (chose === 'both') frPlusSignIn(); return; }
     FR_FORCED = !!force;
