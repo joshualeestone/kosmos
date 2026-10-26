@@ -50,6 +50,8 @@ const attachments = require('./attachments');
 const dmfiles = require('./dmfiles');
 const projects = require('./projects');
 const store = require('./store');
+/* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
+const { isNoFileNamespace, isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold } = require('./winpath');
 
 /* The type a stored file is described by, from its extension. The page words the
    card from it (pjFileWord) and the download carries it with nosniff, an attachment
@@ -73,11 +75,27 @@ function typeOf(name) {
 }
 
 const CHANGED = 'that file changed while it was being attached; try again';
+const CANNOT_READ = 'that file could not be read';
 /* A hard link is the same file under a second name, which may be anywhere on the disk: the name in the
    agent's folder says nothing about where else it lives, so a file with more than one name is refused
    (review r1, finding 3, decided). A copy, not a link, is what the agent sends. */
 const HARD_LINK = 'that file has another name somewhere else on this computer (a hard link), so it cannot be attached; attach a copy of it instead';
 const NOT_YOURS = 'only a file directly in your Files folder, or inside the folder of a project you are on, can be attached';
+/* #7221: the Windows refusals, said as what they are. */
+const ON_NETWORK = 'that path is on another computer on the network, or names a device, so it cannot be attached; copy the file into your Files folder and attach it from there';
+const DEVICE_NAME = 'that name belongs to a Windows device, not a file, so it cannot be attached';
+const STREAM = 'that names a part of a file (an alternate data stream) or a device, not a file, so it cannot be attached';
+const TOO_MANY_LINKS = 'that path goes through too many links to follow, so it cannot be attached';
+const LONG_FORM = 'write the file\'s path with its drive letter (C:\\...), not in the \\\\?\\ form, to attach it';
+const UNREADABLE_LINK = 'that path goes through a link that cannot be followed, so it cannot be attached';
+/* A link the walk found listed in its folder but could not lstat: a junction aimed at a share is one (Windows lets a
+   junction name only a local volume, so it leads nowhere this computer can read). allowedRoot leaves such a folder of
+   another agent unresolved (review 15 finding 1), as it does a link to a share. */
+const DEAD_LINK = 'that path goes through a link that leads nowhere this computer can read, so it cannot be attached';
+/* Another agent's project folder leads somewhere this cannot place (\Device\..., \\?\GLOBALROOT\..., a stream), so it
+   may hold any file and every project file is refused until that row is fixed (review 26 finding 1). Said as what it
+   is, so the board's owner can find the row; the Files folder still works. */
+const OTHER_FOLDER_UNPLACED = 'another project\'s folder on this computer leads somewhere that cannot be checked, so no project file can be attached until that project\'s folder is fixed; copy the file into your Files folder and attach it from there';
 
 /* The ON-DISK spelling, as projects.js resolveReal reads a project's folder: realpathSync.native,
    never the JS realpathSync, which keeps the caller's case and Unicode form. On a case-insensitive,
@@ -110,8 +128,7 @@ function inside(root, real) {
  * Files pointing at ~/.ssh would send the key (review r1, finding 2). Kosmos makes the folder
  * itself, as a real folder beside the agent's instructions, so a link there is never ours.
  */
-function filesRoot(sessionName) {
-  const filesDir = dmfiles.filesDir(sessionName);
+function filesRoot(sessionName, filesDir = dmfiles.filesDir(sessionName)) {
   if (!filesDir) return null;
   let lst;
   try { lst = fs.lstatSync(filesDir); } catch { return null; }
@@ -145,7 +162,10 @@ function agentNames(sessionName, roster) {
    firmlink), so every rule here that compared strings could be stepped around by spelling. Null when it cannot
    be read. */
 function idOf(p) {
-  try { const st = fs.statSync(p); return st.dev + ':' + st.ino; } catch { return null; }
+  /* BigInt (#7221): NTFS file ids are 64-bit, and on the Windows box 434 of 2000 fresh files had one past 2^53, where a
+     number ino loses its low bits; 19 pairs of DIFFERENT files then shared a dev:ino key. A wrong match here can put a
+     file inside a project it is not in, or inside a folder Kosmos keeps. */
+  try { const st = fs.statSync(p, { bigint: true }); return st.dev + ':' + st.ino; } catch { return null; }
 }
 /* The file and every folder above it, nearest first, each with its identity and its own name on disk. */
 function chainOf(real) {
@@ -230,16 +250,39 @@ function libraryOpen(chain, k, rootDepth) {
   return false;
 }
 
-function allowedRoot(sessionName, real, roster, given) {
+function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win = false } = {}) {
   const chain = chainOf(real);
-  const filesReal = filesRoot(sessionName);
+  const filesReal = filesRoot(sessionName, filesDir);
   if (filesReal && chain[1] && chain[1].id && chain[1].id === idOf(filesReal)) return { root: filesReal };
-  let all = [];
-  try { all = projects.readAll(); } catch { all = []; }
+  let all = projectList;
+  if (!Array.isArray(all)) { try { all = projects.readAll(); } catch { all = []; } }
+  /* #7221 review 1 finding 3: on Windows, a project folder written as a share (\\host\share, which any agent can
+     register with `kosmos project create`) is resolved only when the file itself is on that same share: a share's
+     real path cannot be a folder above a local file, nor above a file on another share, and resolving it is the SMB
+     contact this guards (review 2 finding 3: a file on a mapped-drive project used to resolve every share-written
+     project, other agents' included). */
+  const fileShare = win ? shareOf(real) : null;
   /* The deepest project holding the file, by identity: the one whose folder is nearest the file in its chain. */
   let best = null;
+  /* Projects of OTHER agents left unresolved below. A nested project the agent is not on exists to keep its files
+     from the outer project's agents, so skipping it must not let the outer project answer instead (review 5 finding
+     1): after the loop, a skipped one whose folder may hold the file refuses the attach. */
+  const skippedOthers = [];   // read only after best is the agent's: with no project of its own there, it is refused anyway
   for (const p of all) {
     if (!p || typeof p.folder !== 'string' || !p.folder) continue;
+    /* Only ANOTHER agent's project folder is ever left unresolved, and only when it leads to a share. The agent's own
+       folders are resolved as on main, a share among them included: the person chose that share (review 11 finding
+       2). Another agent's folder written as a share (any agent can register one) is resolved only for a file on that
+       same share; one written on a drive is walked first, by lstat and readlink (its \\?\C:\ and \\.\C:\ spellings
+       read as the drive path they are), and left unresolved only when the walk says its links lead to a share (review
+       3 finding 1). Every other folder, a local link the walk will not follow included, is resolved as on main, so
+       identity decides; skipping those let a nested project's files through (review 11 finding 1). A folder written
+       as a local volume (\\?\Volume{GUID}\) is walked like a drive path and resolved unless its links lead to a share
+       (review 19 finding 1). */
+    if (win && !(p.agents || []).includes(sessionName)) {
+      const skipped = otherFolderSkip(p.folder, fileShare);
+      if (skipped) { skippedOthers.push(skipped); continue; }
+    }
     let root = null;
     try { root = projects.folderState(p.folder).real; } catch { root = null; }
     const rid = root ? idOf(root) : null;
@@ -253,6 +296,9 @@ function allowedRoot(sessionName, real, roster, given) {
     else if (i === best.depth && mine) best.mine = true;
   }
   if (!best || !best.mine) return null;
+  const holds = skippedOthers.map((s) => skippedMayHold(s, given, real));
+  if (holds.includes('held')) return null;
+  if (holds.includes('unplaced')) return { refused: OTHER_FOLDER_UNPLACED };
   const k = keptRoots(sessionName, roster);
   /* A project whose folder IS the home folder or CONTAINS it (/Users, /, the Data volume root), or holds the data
      root or the workers root, gives nothing (review r3 finding 3), wherever those roots live and however the folder
@@ -286,6 +332,62 @@ function allowedRoot(sessionName, real, roster, given) {
   return { root: best.root };
 }
 
+/* Whether allowedRoot leaves ANOTHER agent's project folder unresolved, and if so where its walk says it leads; null
+   when the folder is resolved as on main. Left unresolved: a folder written as a share other than the file's; a
+   folder whose links lead to a share (or toward one this cannot name); a dead junction; a chain longer than Windows
+   follows. `leadsTo` is the share path a link to a plain share names (the rest of the folder's path joined on), so a
+   skipped folder is judged by where it goes, never by its own spelling alone (review 16 finding 1). */
+function otherFolderSkip(folder, fileShare) {
+  /* Only the namespaces on winpath's allow-list hold no files (a pipe, a mailslot, a DOS device: \\.\pipe\..., \\.\COM1):
+     such a folder leads nowhere, so it cannot make another agent's attach refuse (reviews 12 and 23). Any other
+     namespace that names no share may name a drive (\\?\GLOBALROOT\...), so it stays unknown and fails closed. */
+  const holdsNoFiles = (p) => isNetworkSpelling(p) && !shareOf(p) && isNoFileNamespace(p);
+  if (isNetworkSpelling(folder)) {
+    if (fileShare && shareOf(folder) === fileShare) return null;
+    if (holdsNoFiles(folder)) return { folder, kind: 'nowhere', leadsTo: null };
+    return { folder, kind: 'share', leadsTo: shareOf(folder) ? asShareSpelling(folder) : null };
+  }
+  let leadsTo = null;
+  let leadsNowhere = false;
+  const noteShare = (cur, to, rest) => {
+    if (shareOf(to)) leadsTo = asShareSpelling(path.win32.resolve(asShareSpelling(to), ...rest));
+    else if (holdsNoFiles(to)) leadsNowhere = true;
+    return false;
+  };
+  /* A folder written as a local volume (\\?\Volume{GUID}\...) is walked too: it is on this computer, but a link below
+     its root can still lead to a share (review 19 finding 1), so the volume spelling is accepted where the walk meets
+     it and its parts are lstat'd like a drive path's. */
+  const onPath = (reached) => (isLocalVolumeSpelling(reached) ? null : winSpellingRefusal(reached, null));
+  const walked = walkLinks(asDrivePath(folder), onPath, 0, noteShare);
+  if (walked === ON_NETWORK) return { folder, kind: leadsNowhere ? 'nowhere' : 'share', leadsTo };
+  if (walked === DEAD_LINK || walked === TOO_MANY_LINKS) return { folder, kind: 'nowhere', leadsTo: null };
+  /* Anything else is resolved as on main, CANNOT_READ included (review 17 finding 3, kept on purpose): lstat refusing
+     (EACCES) makes realpath refuse too; readlink fails only for a reparse point Node does not read as a link (a cloud
+     placeholder, deduplication, a WSL link), and Win32 does not follow those to another path, so the realpath stays
+     on this computer. Leaving such a folder unresolved instead would judge a nested project by spelling alone. */
+  return null;
+}
+/* Whether a project folder of another agent left unresolved may hold the file, erring toward yes. By its own spelling
+   first (winpath.mayHold). Then by where it leads: one that leads nowhere holds nothing; one that leads to another
+   computer cannot hold a file on this one, and holds a file on a share when the file is under the share it leads to,
+   whatever the server is called, or when where it leads cannot be named (review 16 finding 1).
+   It answers 'held' when the folder may hold the file, 'unplaced' when it may only because where it leads cannot be
+   placed at all, and null when it cannot hold it. allowedRoot says the two refusals differently (review 26 finding 1):
+   an agent refused because one project row on the board cannot be placed is told that, not that the file is not in
+   a project of its own. */
+function skippedMayHold(skipped, given, real) {
+  /* A folder written in a namespace that is not a drive, a share or a local volume: mayHold answers yes for it
+     whatever the file, so its yes says nothing about the file. */
+  const unplaceable = !driveOf(asDrivePath(skipped.folder)) && !shareOf(skipped.folder) && !isLocalVolumeSpelling(skipped.folder);
+  if (mayHold(skipped.folder, given, real)) return unplaceable ? 'unplaced' : 'held';
+  if (skipped.kind === 'nowhere') return null;
+  /* A destination that cannot be named may be anywhere, this computer included, so it may hold any file (review 22
+     finding 1: a link to \??\Global\C:\... had been read as "another computer" and a local file let through). */
+  if (!skipped.leadsTo) return 'unplaced';
+  if (!isNetworkSpelling(real)) return null;
+  return mayHold(skipped.leadsTo, real, real) ? 'held' : null;
+}
+
 /* The three hidden-name rules, in one place, for a PROJECT file only (review r6 finding 2): allowedRoot calls it after
    the Files early return, so an agent's own Files folder that sits under a dot folder (some runners keep their agents
    there) is not refused for it.
@@ -304,39 +406,279 @@ function hiddenRefusal(given, chain, rootDepth, k) {
   return null;
 }
 
+/* #7221: on a Windows board, a path is refused by how it is spelled and where its links point BEFORE the first
+   realpath, because resolving is itself the contact. Measured on the Windows box (2026-10-26): realpathSync.native
+   on a symlink to \\<unroutable host>\share stalled 21 s on an SMB attempt (the board's event loop with it), while
+   lstat and readlink on the same link answered in 0 ms and touch nothing past the link itself. So:
+   1. The spelling: a \\ or // start (a share, or the \\?\ and \\.\ device namespaces), a colon past the drive
+      (an alternate data stream, or COM1:), a last part that is a DOS device name (NUL, COM1.txt), and a drive
+      letter that none of the agent's roots (its Files folder, its projects) is on, since a mapped drive is a share
+      under a letter. None of these is a file the agent was asked to hand over, so each is refused without a look.
+      One exception, the person's own choice: a plain \\host\share path written inside a project folder of the
+      agent's that is itself written as that share (review 3 finding 2), as it attached on main.
+   2. The links: each part of the path is lstat'd; a link's target is read (readlink) and followed only when it is a
+      drive path or a relative one (an allow-list), part by part. Only then is the path resolved.
+   3. The real path, once resolved: a network path or a device name there is refused too (a second guard), except
+      for a file written inside one of the agent's own project folders, since a project may live on a share.
+   And allowedRoot, which resolves every project folder to judge containment, resolves a folder written as a share
+   only for a file on that same share (review 1 finding 3, review 2 finding 3), and walks a folder written on a
+   drive by rule 2 first, skipping one whose links leave for a share (review 3 finding 1).
+   ⚠️ What this does not close (review 1 finding 3, named): (a) a link swapped to point at a share between a walk
+   and the realpath after it (the first one, and readOwn's second, which runs the walk again just before it): the
+   realpath may already have made the contact, and for a file written inside one of the agent's project folders the
+   open is not refused either (a project's files may be share paths by design); everywhere else the open is
+   refused; (b) the OTHER folders an attach resolves to judge containment: a project
+   folder on a drive letter that is mapped to a share (telling a mapped letter apart needs a call Node does not
+   have; the lstat walk of that folder touches the share too, before its realpath does; every registered project
+   folder's links are walked on each Windows attach of a project file, cheap on local disks, growing with the
+   number of projects), and the folders Kosmos
+   itself made (the Files folder and its parent, each agent's folder, ~/.ssh, ~/.config), which a person or a
+   process of this user would have to replace with a link to a share; and every agent's RECORDED folder, which for
+   a connected agent is its own working folder and may simply be written as a share or a mapped drive: keptRoots
+   stats it and instructions.fileFor lstats it on each project-file attach, as on main (#7232); (c) a share is
+   matched by how it is WRITTEN (review 4 finding 2): a project written \\fileserver\x whose real path reads
+   \\10.0.0.5\x (or a DFS path, or another name for the server) is not matched to its files, which are then refused,
+   where main matched by identity. Write the project folder as Windows resolves it; (d) a link that IS one of the
+   agent's project folders is followed onto a share only when the walk reaches it as written: a project written
+   C:\work\proj where C:\work is itself a link (to D:\work) is met as D:\work\proj, does not match, and its share
+   files are refused, where main attached them (the safe direction; write the project folder as it resolves);
+   (e) an AGENT can make the board contact a share it names: register a project at \\host\share (kosmos project
+   create), then attach from it, since a share project is the one place a share path is allowed. Project create
+   resolves the folder already, so the contact happens there first; refusing it here would close nothing. Closing it
+   belongs at project create (#7229). */
+/* The agent's roots: `drives`, the letters every root is written on or reaches through its own links, and `folders`, the
+   agent's own project folders (on a drive letter, or a plain share). A project may live on a share, written as a
+   mapped drive (projects.js opens "a Z:\ record whose realpath is \\server\share") or as \\server\share itself; that
+   is the person's own choice of folder, and those files attached on main. So a file written inside one of these
+   folders may be on a share: winSpellingRefusal lets a \\host\share spelling through only there (review 3 finding 2),
+   and winRealRefusal a share real path only there (review 1 finding 2, narrowed in review 2 finding 2 from the bare
+   drive letter, which on a box with Files and projects all on C: let every attach through). The agent's Files folder
+   is one of these folders too: a CONNECTED agent's Files sits beside its own working folder, which may be on a
+   mapped drive or a share, and those files attached on main (review 17 finding 1). */
+function agentRoots(sessionName, filesDir, projectList) {
+  const drives = new Set();
+  const folders = [];          // every folder of the agent's, Files included: rule 1's share exception
+  const projectFolders = [];   // the project folders alone: the second guard's exemption (Files has its own)
+  const walkFrom = [];
+  const addDrivePath = (p) => { drives.add(driveOf(p)); walkFrom.push(asDrivePath(p)); };
+  let filesFolder = null;
+  if (typeof filesDir === 'string' && driveOf(filesDir)) { addDrivePath(filesDir); filesFolder = filesDir; }
+  else if (typeof filesDir === 'string' && shareOf(filesDir)) filesFolder = asShareSpelling(filesDir);
+  if (filesFolder) folders.push(filesFolder);
+  for (const p of projectList) {
+    if (!p || typeof p.folder !== 'string' || !(p.agents || []).includes(sessionName)) continue;
+    const d = driveOf(p.folder);
+    if (d) addDrivePath(p.folder);
+    /* A share written \\?\UNC\host\share is read as \\host\share (review 12 NIT). A local volume written without a
+       letter adds nothing here: its files named by a drive path on a drive no other root reaches are refused, the safe
+       direction (named in the plan). */
+    if (d) projectFolders.push(p.folder);
+    else if (shareOf(p.folder)) projectFolders.push(asShareSpelling(p.folder));
+  }
+  folders.push(...projectFolders);
+  /* `cache` is an object every copy of these roots shares (winLinkRefusal works on a copy), so the roots' links are
+     walked once per attach, the readOwn recheck included (review 24 finding 1). */
+  return { drives, folders, projectFolders, filesFolder, walkFrom, cache: { reached: null } };
+}
+/* Whether a root is on drive `d`, as written or through its own links. A root written on C: may live on D: through a
+   junction or link on its way (C:\Users\me\work -> D:\work), and a path the walk follows onto D: is then judged on D:,
+   as it was by identity on main (review 4 finding 1). The roots' links are walked only when the written drives do not
+   answer, and once per attach (review 5 finding 2): a file directly in Files never touches a project folder, which may
+   be on a mapped drive whose server is down. ⚠️ Named (review 6 finding 2): a path on a drive no root is written on
+   (any caller of /api/reply can name Q:\x) does walk the agent's OWN roots, so one of its own projects on a mapped
+   drive whose server is down stalls that attach, as any attach of a file in that project already would. */
+function rootReaches(roots, d) {
+  if (roots.drives.has(d)) return true;
+  const cache = roots.cache || (roots.cache = { reached: null });
+  if (!cache.reached) {
+    cache.reached = new Set();
+    for (const f of roots.walkFrom || []) drivesReached(f, cache.reached);
+  }
+  return cache.reached.has(d);
+}
+/* Add to `out` the drive `p` is written on and every drive its links lead to, followed as winLinkRefusal follows
+   them (lstat and readlink, the allow-list of targets, at most MAX_HOPS links). Stops quietly where the walk would
+   refuse or cannot read: a root it cannot walk adds only the drives seen so far. */
+function drivesReached(p, out) {
+  walkLinks(p, (reached) => {
+    const d = driveOf(reached);
+    if (!d) return 'not on a drive';   // stops the walk; why is not needed here
+    out.add(d);
+    return null;
+  });
+}
+function readProjects() {
+  let all = [];
+  try { all = projects.readAll(); } catch { all = []; }
+  return Array.isArray(all) ? all : [];
+}
+/* Whether `given` is a plain \\host\share path written inside one of the agent's own folders that is itself written as
+   a share (a project, or a connected agent's Files): the person's own choice of share (rule 1's one exception). */
+function inOwnShareFolder(given, roots) {
+  return !!roots && isPlainShare(given) && roots.folders.some((f) => isPlainShare(f) && writtenInside(given, f));
+}
+/* The refusal for a Windows path by its spelling alone, or null. Called before anything touches the path. `roots`
+   is the agent's (agentRoots); null when the path is a project folder being checked, with no owner to compare. */
+function winSpellingRefusal(given, roots) {
+  const share = isNamespaceSpelling(given) || isNetworkSpelling(given);   // \\..., and an NT \??\UNC\... too (review 21 NIT)
+  /* A local drive path written in its long form (\\?\C:\, \\.\C:\, \??\C:\) is refused too, as main never had to: the
+     rules below compare spellings (a hidden folder of home, a project folder), and it does not start the way they do.
+     It is said as what it is, not as a network path or a stream (review 13 NIT, review 18 NIT). */
+  if (roots && (isLongDrivePath(given) || isLocalVolumeSpelling(given))) return LONG_FORM;   // a local volume too (review 24 NIT)
+  /* Every \\ or // start is refused (a share, the \\?\ and \\.\ namespaces), but a plain \\host\share path written
+     inside one of the agent's own share-written folders. */
+  if (share && !inOwnShareFolder(given, roots)) return ON_NETWORK;
+  if (given.indexOf(':', 2) >= 0) return STREAM;
+  const parts = given.split(/[\\/]+/).filter(Boolean);
+  if (parts.length && isDevicePart(parts[parts.length - 1])) return DEVICE_NAME;
+  if (roots && !share) {
+    const d = driveOf(given);
+    if (!d || !rootReaches(roots, d)) return NOT_YOURS;
+  }
+  return null;
+}
+/* Why a link target that is not followed is refused. Local only when it names a local volume (an allow-list, as for
+   the targets that are followed): anything else is said as "may reach another computer", ON_NETWORK, so allowedRoot
+   leaves such another agent's folder unresolved and fails closed. A deny-list of share spellings missed the many ways
+   the object manager reaches the share redirector (\??\Global\UNC\..., \??\GLOBALROOT\GLOBAL??\UNC\...,
+   \Device\LanmanRedirector\..., WebDAV), whose realpath is the contact (review 14 finding 1). */
+function unfollowedLinkRefusal(to) {
+  return isLocalVolumeSpelling(String(to)) ? UNREADABLE_LINK : ON_NETWORK;
+}
+/* Follow the links in `p` by lstat and readlink only, and say why not if any of them leaves for the network, a
+   device or a drive outside the roots. Null when the path may be resolved. A chain of more than MAX_HOPS links is
+   refused. */
+/* More than Windows itself follows (63 reparse points in one resolution): a path the walk gives up on, Windows cannot
+   resolve either, so it holds no file and its realpath reaches no other computer (review 16). */
+const MAX_HOPS = 64;
+/* Reads the folder's names, so it is asked only after an lstat ENOENT (a missing part, usually a mistyped name). The
+   name is matched in any case: a junction aimed at a share lstats ENOENT in EVERY case, so an exact match would let
+   the same junction typed in another case through to realpath (review 7 finding 1). In a case-sensitive folder the
+   cost is a mistyped case refused as an unfollowable link rather than "no file": the safe direction. */
+function listed(p) {
+  const name = path.win32.basename(p).toLowerCase();
+  try { return fs.readdirSync(path.win32.dirname(p)).some((n) => n.toLowerCase() === name); } catch { return false; }
+}
+function winLinkRefusal(p, roots) {
+  /* One link the walk follows that the allow-list would not: one of the agent's own project folders that is itself a
+     link to a plain share (C:\x\proj -> \\host\share\proj), the person's choice of folder as a mapped drive is (review
+     11 finding 2). The share it names is then treated as one of the agent's project folders for the rest of the walk,
+     so the walk goes on down it and still refuses a link further down that leaves for another share (review 12
+     finding 1). winRealRefusal later lets the share real path through as a project file. */
+  const view = roots ? { ...roots, folders: roots.folders.slice() } : null;
+  const ownShareProject = (linkPath, to) => {
+    if (!view || !isPlainShare(to) || !roots.folders.some((f) => !!driveOf(f) && sameWrittenPath(linkPath, f))) return false;
+    view.folders.push(to);
+    return true;
+  };
+  return walkLinks(p, (reached) => winSpellingRefusal(reached, view), 0, ownShareProject);
+}
+/* The one link walk (review 9 finding 2: drivesReached had its own copy). Each path the walk reaches, the given one and
+   then each followed link's resolved path, is shown to `onPath` before its parts are read; a sentence from onPath, or
+   from the walk itself, stops it and is returned. Null: the walk reached the end with nothing refused. */
+function walkLinks(p, onPath, hops = 0, acceptLink = null) {
+  if (hops >= MAX_HOPS) return TOO_MANY_LINKS;
+  const why = onPath(p);
+  if (why) return why;
+  const root = path.win32.parse(p).root;
+  const parts = p.slice(root.length).split(/[\\/]+/).filter(Boolean);
+  let cur = root;
+  for (let i = 0; i < parts.length; i++) {
+    cur = path.win32.join(cur, parts[i]);
+    let lst;
+    try { lst = fs.lstatSync(cur); } catch (err) {
+      /* ENOENT: missing, or a junction aimed at a share (Windows lets a junction name only a local volume), which
+         lstats ENOENT and readlinks EINVAL while its folder lists it as a link (measured 2026-10-26). So the folder is
+         asked, a local read: an entry under that name is a link this walk cannot follow, refused rather than handed
+         to realpath; no entry is really missing, and the realpath that follows says so. Any other error (EACCES,
+         EPERM) is a part that cannot be read, said as that (review 1 finding 4). */
+      /* A part missing here ends the walk: the realpath that follows answers ENOENT for it. A part made between this
+         walk and that realpath (a link to a share, say) is never walked: the swap window the header names as (a). */
+      if (!err || err.code !== 'ENOENT') return CANNOT_READ;
+      return listed(cur) ? DEAD_LINK : null;
+    }
+    if (!lst.isSymbolicLink()) continue;
+    let to;
+    try { to = fs.readlinkSync(cur); } catch { return CANNOT_READ; }
+    const target = followableLinkTarget(to);
+    if (target === null) {
+      if (!acceptLink || !acceptLink(cur, to, parts.slice(i + 1))) return unfollowedLinkRefusal(to);
+      return walkLinks(path.win32.resolve(to, ...parts.slice(i + 1)), onPath, hops + 1, acceptLink);
+    }
+    const next = path.win32.resolve(path.win32.dirname(cur), target, ...parts.slice(i + 1));
+    return walkLinks(next, onPath, hops + 1, acceptLink);
+  }
+  return null;
+}
+/* Where the agent's Files folder really is. Read with the real realpath, never the test seam, which stands in for the
+   FILE's resolution: the folder's own location is a fact about the agent, not part of the swap a test simulates. */
+function filesFolderReal(filesFolder) {
+  try { return fs.realpathSync.native(filesFolder); } catch { return ''; }
+}
+/* The second guard. A share real path is let through for a file written inside one of the agent's project folders,
+   and for one written inside its Files folder only when that folder ITSELF resolves to a share (a connected agent
+   working on a mapped drive or a share, review 17 finding 1): a Files folder on this computer keeps the guard, so a
+   path swapped onto a share between the walk and the realpath is still refused before the open. */
+function winRealRefusal(real, given, roots) {
+  if (isNetworkSpelling(real)) {
+    const inProject = roots.projectFolders.some((f) => writtenInside(given, f));
+    const inSharedFiles = !inProject && !!roots.filesFolder && writtenInside(given, roots.filesFolder)
+      && isNetworkSpelling(filesFolderReal(roots.filesFolder));
+    if (!inProject && !inSharedFiles) return ON_NETWORK;
+  }
+  if (isDevicePart(path.win32.basename(real))) return DEVICE_NAME;
+  return null;
+}
+
 /**
  * Copy one of the agent's own files into the attachment store.
  * Returns { ok: true, rec } (rec as attachments.save returns it) or { ok: false, because }.
  */
-function attach(sessionName, given, { roster } = {}) {
+function attach(sessionName, given, { roster, platform = process.platform } = {}) {
   if (typeof given !== 'string' || !given || given.includes('\0')) return { ok: false, because: 'name the file to attach by its path' };
   if (!path.isAbsolute(given)) return { ok: false, because: 'give the full path of the file to attach' };
   if (given.split(/[\\/]/).includes('..')) return { ok: false, because: 'a path with .. in it cannot be attached; give the file\'s own full path' };
+  const win = platform === 'win32';
+  /* Read once on Windows and handed on: an attach still reads each agent's instructions path once (r5-3), and the
+     projects list once (review 1 finding 6). Elsewhere allowedRoot reads both itself, as before. */
+  const filesDir = win ? dmfiles.filesDir(sessionName) : undefined;
+  const projectList = win ? readProjects() : undefined;
+  const roots = win ? agentRoots(sessionName, filesDir, projectList) : null;
+  if (win) {
+    const why = winLinkRefusal(given, roots);
+    if (why) return { ok: false, because: why };
+  }
   let real;
   try { real = realOf(given); } catch (err) {
-    return { ok: false, because: err && err.code === 'ENOENT' ? 'there is no file at ' + given : 'that file could not be read' };
+    return { ok: false, because: err && err.code === 'ENOENT' ? 'there is no file at ' + given : CANNOT_READ };
+  }
+  if (win) {
+    const why = winRealRefusal(real, given, roots);
+    if (why) return { ok: false, because: why };
   }
   let st;
-  try { st = fs.statSync(real); } catch { return { ok: false, because: 'that file could not be read' }; }
+  /* BigInt, so readOwn compares the open file with this one by its exact id (#7221; see idOf). */
+  try { st = fs.statSync(real, { bigint: true }); } catch { return { ok: false, because: CANNOT_READ }; }
   if (st.isDirectory()) return { ok: false, because: 'that is a folder; attach one file at a time' };
   if (!st.isFile()) return { ok: false, because: 'that is not an ordinary file, so it cannot be attached' };
-  if (st.nlink > 1) return { ok: false, because: HARD_LINK };
-  const where = allowedRoot(sessionName, real, roster, given);
+  if (Number(st.nlink) > 1) return { ok: false, because: HARD_LINK };
+  const size = Number(st.size);
+  const where = allowedRoot(sessionName, real, roster, given, { filesDir, projectList, win });
   if (!where) return { ok: false, because: NOT_YOURS };
   if (where.refused) return { ok: false, because: where.refused };
-  if (st.size > attachments.MAX_BYTES) {
+  if (size > attachments.MAX_BYTES) {
     // Review 5: "larger than", not its rounded size, which reads "100 MB" just past a 100 MB cap.
     return { ok: false, because: 'that file is larger than ' + attachments.MAX_WORDS + ', the most a conversation carries; tell them where it is saved instead' };
   }
-  if (st.size === 0) return { ok: false, because: 'there is nothing in that file' };
+  if (size === 0) return { ok: false, because: 'there is nothing in that file' };
   const used = sentToday(sessionName);
-  if (used + st.size > DAILY_BYTES) {
+  if (used + size > DAILY_BYTES) {
     return { ok: false, because: 'you have attached ' + attachments.sizeWords(used) + ' to your replies in the last 24 hours, and an agent can attach up to 200 MB a day; tell them where this one is saved instead' };
   }
   const name = path.basename(real);   // review r2 finding 5: the file's own name, not a link's (report.pdf -> notes.txt is notes.txt)
   try {
     /* #6734: copied across in chunks into the stored file, never held whole; a refused read leaves nothing stored. */
-    const kept = attachments.saveFilled('agent', sessionName, { name, type: typeOf(name), by: 'agent' }, (out) => readOwn(real, st, given, out));
+    const kept = attachments.saveFilled('agent', sessionName, { name, type: typeOf(name), by: 'agent' }, (out) => readOwn(real, st, given, out, { recheck: win ? () => winLinkRefusal(given, roots) : null }));
     if (!kept.ok) return kept;
     const rec = kept.rec;
     ledgerAdd(sessionName, rec.id, Date.parse(rec.at), rec.size);
@@ -366,7 +708,16 @@ const OPEN_FLAGS = fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0);
  * Returns { ok: true, size } or { ok: false, because }.
  */
 const COPY_CHUNK = 1024 * 1024;
-function readOwn(real, st, given, out) {
+/* Whether two stats name one file. Exact when both carry BigInt ids (attach and readOwn's own reads do); a caller that
+   passes number stats (a test, say) is compared as numbers, as before, with the precision those keep. */
+function sameFile(a, b) {
+  if (typeof a.ino === 'bigint' && typeof b.ino === 'bigint') return a.dev === b.dev && a.ino === b.ino;
+  return Number(a.dev) === Number(b.dev) && Number(a.ino) === Number(b.ino);
+}
+/* `recheck` (#7221 review 21 finding 2): on Windows, the link walk again, run just before the given path is resolved a
+   second time below, so a link swapped onto a share since the first walk is refused before that realpath, not after
+   it. The window this leaves is only the walk-to-realpath gap the header names as (a). */
+function readOwn(real, st, given, out, { recheck = null } = {}) {
   if (typeof given !== 'string' || !given) return { ok: false, because: CHANGED };   // required (review r6 finding 3)
   let fd = null;
   try {
@@ -374,23 +725,27 @@ function readOwn(real, st, given, out) {
     /* Review r2 finding 7 (decided): the given path is resolved again once the file is open, and must still land
        on `real`. With the dev/ino compare below, a folder above the file swapped between the check and the open is
        caught too, not only the last component. */
-    const open = fs.fstatSync(fd);   // once (review r6 finding 3): the descriptor's own facts, used for every check below
+    /* Once (review r6 finding 3): the descriptor's own facts, used for every check below. BigInt, so the identity
+       compares below are exact (#7221; see idOf). */
+    const open = fs.fstatSync(fd, { bigint: true });
+    const openSize = Number(open.size);
     let again = null;
+    if (recheck && recheck()) return { ok: false, because: CHANGED };
     try { again = realOf(given); } catch { again = null; }
     if (again !== real) return { ok: false, because: CHANGED };
     /* Review r3 finding 4: and the file at `real` now must be the one the descriptor holds. This narrows the
        window to a DOUBLE swap (swap a folder, open, swap it back before these reads); it does not close one, since
        Node has no openat walk that would hold each folder open on the way down. */
     let now = null;
-    try { now = fs.statSync(real); } catch { now = null; }
-    if (!now || now.dev !== open.dev || now.ino !== open.ino) return { ok: false, because: CHANGED };
-    if (!open.isFile() || open.dev !== st.dev || open.ino !== st.ino) return { ok: false, because: CHANGED };
-    if (open.nlink > 1) return { ok: false, because: HARD_LINK };
-    const buf = Buffer.allocUnsafe(Math.min(open.size + 1, COPY_CHUNK));
+    try { now = fs.statSync(real, { bigint: true }); } catch { now = null; }
+    if (!now || !sameFile(now, open)) return { ok: false, because: CHANGED };
+    if (!open.isFile() || !sameFile(open, st)) return { ok: false, because: CHANGED };
+    if (Number(open.nlink) > 1) return { ok: false, because: HARD_LINK };
+    const buf = Buffer.allocUnsafe(Math.min(openSize + 1, COPY_CHUNK));
     let n = 0;
     /* Review 2: never past one byte beyond the size measured, as before #6734, so a file that keeps growing costs at
        most that one byte, not a copy up to the cap. */
-    const limit = Math.min(open.size, attachments.MAX_BYTES) + 1;
+    const limit = Math.min(openSize, attachments.MAX_BYTES) + 1;
     while (n < limit) {
       const got = fs.readSync(fd, buf, 0, Math.min(buf.length, limit - n), n);
       if (got === 0) break;
@@ -400,10 +755,10 @@ function readOwn(real, st, given, out) {
     }
     /* Exactly the size the descriptor said (review r7 finding 1): more is a file that grew, fewer one that shrank
        between the fstat and the read, which would otherwise be sent cut. */
-    if (n > attachments.MAX_BYTES || n !== open.size) return { ok: false, because: CHANGED };
+    if (n > attachments.MAX_BYTES || n !== openSize) return { ok: false, because: CHANGED };
     return { ok: true, size: n };
   } catch {
-    return { ok: false, because: 'that file could not be read' };
+    return { ok: false, because: CANNOT_READ };
   } finally {
     if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
   }
@@ -472,4 +827,7 @@ function discard(rec) {
   if (ledger && key && ledger.has(key)) ledger.get(key).delete(rec.id);
 }
 
-module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY };
+/* winSpellingRefusal is exported for engine/replyfile.win32-7221.test.js only; nothing else should call it (review 4
+   NIT). The pure path rules it builds on are engine/winpath.js. */
+module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, LONG_FORM, TOO_MANY_LINKS, DEAD_LINK, OTHER_FOLDER_UNPLACED,
+  winSpellingRefusalForTests: winSpellingRefusal };
