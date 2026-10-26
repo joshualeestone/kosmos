@@ -193,16 +193,16 @@ test('#3566: a DEFAULT Gemini/Grok agent joins its own provider\'s default row, 
   assert.ok(a > -1, 'accountForAgent\'s dir-less match moved; re-anchor');
   const b = SERVER.indexOf('  if (found) {', a);
   // eslint-disable-next-line no-new-func
-  const match = new Function('job', 'dir', 'list', SERVER.slice(a, b) + '\nreturn found;');
+  const match = new Function('job', 'dir', 'list', 'compatAccounts', SERVER.slice(a, b) + '\nreturn found;');   // #7206: vendor rows are keyed rows
   const list = [
     { dir: '/h/.claude', isDefault: true },
     { dir: '/h/.codex', provider: 'openai', isDefault: true },
     { dir: '/h/.gemini', provider: 'google', isDefault: true },
   ];
-  assert.equal(match({ runner: 'gemini' }, null, list).dir, '/h/.gemini', 'a default Gemini agent joined the wrong row');
-  assert.equal(match({ runner: 'grok' }, null, list), undefined, 'a default Grok agent with no Grok row must join nothing, not OpenAI');
-  assert.equal(match({ runner: 'codex' }, null, list).dir, '/h/.codex', 'CONTROL: codex still joins the OpenAI default');
-  assert.equal(match({ runner: 'claude' }, null, list).dir, '/h/.claude', 'CONTROL: Claude still joins the Claude default');
+  assert.equal(match({ runner: 'gemini' }, null, list, require('./engine/anthropiccompat')).dir, '/h/.gemini', 'a default Gemini agent joined the wrong row');
+  assert.equal(match({ runner: 'grok' }, null, list, require('./engine/anthropiccompat')), undefined, 'a default Grok agent with no Grok row must join nothing, not OpenAI');
+  assert.equal(match({ runner: 'codex' }, null, list, require('./engine/anthropiccompat')).dir, '/h/.codex', 'CONTROL: codex still joins the OpenAI default');
+  assert.equal(match({ runner: 'claude' }, null, list, require('./engine/anthropiccompat')).dir, '/h/.claude', 'CONTROL: Claude still joins the Claude default');
 });
 
 test('#3566: a Gemini row and a Grok row that read alike are told apart by PROVIDER, not by path', () => {

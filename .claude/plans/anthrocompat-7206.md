@@ -176,7 +176,7 @@ earlier test turns dry-run back on, which skips the Qwen block silently.)
 FIXED: the switch is a kill switch (launch-env refuses while off, so an agent made while it was on does not start with
 its key; pinned in the supervisor and CLI tests); the dialog puts the DeepSeek form away on "Choose a provider" and on
 close; "The DeepSeek account names the model"; vendorAccount written only when a vendor is involved.
-OPEN, needed before the switch is turned on (not reachable while off): the agent page treats a DeepSeek agent as
+DONE 15:4x (was open): the agent page treated a DeepSeek agent as
 Claude (server accountForAgent provider, page providerOf, RUNNER.deepseek and CURRENT.account), so switching it back to
 Claude from the page is disabled and the account picker lists Claude accounts (setAccount refuses them, safely).
 Accepted: the hidden test's ON controls prove the gate opens, not that the full vendor path works (the engine tests do).
