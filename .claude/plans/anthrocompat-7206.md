@@ -212,3 +212,10 @@ tally (PJ_TALLY ~67252, depends on the card's provider field), and drops out of 
 (engine/orgrollup.js KNOWN_PROVIDERS lacks 'deepseek'; adding it reaches the coordinator's rollup, so check what the
 relay accepts first). Also: the account-row qualifier map has no deepseek entry (cosmetic); worldstarts' enabled() reads
 the real platform, not its argument.
+
+## Slice 1b review 5 (2026-10-26 16:1x)
+No blockers; no route to DeepSeek with the switch off; other providers unchanged. FIXED: the vendor leg of GET
+/api/accounts cannot fail the whole list (.catch to []). ADDED TO "before the switch is turned on": measure how long a
+slow vendor holds the accounts list (LIST_TIMEOUT_MS); an imported vendor entry whose folder is not on this computer
+should not be started (worldstarts records entry.configDir as given); the marker is a rollout switch, not a security
+boundary (any process running as the person can create it).

@@ -12657,7 +12657,7 @@ const server = http.createServer(async (req, res) => {
       .map((a) => [a.dir, grokAccounts.subscriptionLive(a.dir).catch(() => ({ verdict: 'unknown', because: 'we could not check this sign-in just now' }))]));
     Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive(),
       /* #7206 slice 1b: vendor rows, listed and checked ONLY while their switch is on (off: no row, and no key sent). */
-      compatAccounts.enabled() ? compatAccounts.listLive() : Promise.resolve([])])
+      compatAccounts.enabled() ? compatAccounts.listLive().catch(() => []) : Promise.resolve([])])   // review 5: never fails the whole list
       .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows, compatRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
