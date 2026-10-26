@@ -98,3 +98,13 @@ Kept and untestable: list() builds each row inside a try. With own-key lookups n
 mutant removing it survives; it stays as cheap defence for an endpoint every provider shares.
 Accepted: the launch's variable list is fixed, not derived from Claude Code's documentation; a lockstep test keeps the
 module and the supervisor in agreement, and the base URL is set explicitly whatever else is present.
+
+## Slice 1a review 3 (2026-10-26 14:1x)
+No blockers. FIXED: DeepSeek rows are kept out of GET /api/accounts in 1a (the page names an unknown provider as
+Claude, acctProvider; red when put back); the reclaim checks the moved folder is still the old leftover and puts a
+fresh claim back (a two-add race cannot be staged in a test); the supervisor checks the key itself is queued as a
+launch secret; the add route refuses on Windows; the module comment names exactly which file cannot redirect the key.
+SLICE 1b NOW OWNS: listing vendor rows in GET /api/accounts together with acctProvider (web/index.html) learning the
+vendor, and a page test with a deepseek row.
+Accepted: an agent's own work-folder settings can set Claude Code's environment (as for any agent); the agent already
+holds its key, so that is no new exposure.
