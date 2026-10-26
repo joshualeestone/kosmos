@@ -228,7 +228,7 @@ function finishRestoreWorld(opts = {}) {
       if (!realDir(dst)) return refuse(`the new Kosmos has no ${name} folder to receive it`);
       let inside;
       try { inside = fs.readdirSync(dst).filter((n) => !HARMLESS.has(n)); } catch { inside = null; }   // Finder's own file does not count
-      if (!inside || inside.length) return refuse(`the new Kosmos already has files in its ${name} folder`);
+      if (!inside || inside.length) return refuse(`the new Kosmos already has files in its ${name} folder (something was made in it before the restore finished)`);
       let top;
       try { top = fs.readdirSync(src); } catch { return refuse(`the restored ${name} could not be read`); }
       const hold = top.filter((n) => !plainFolder(src, n));
@@ -275,7 +275,8 @@ function finishRestoreWorld(opts = {}) {
 }
 
 /* One finish at a time per world: a lock folder holding the owner's pid, made whole in a temporary folder and renamed
-   into place, so a lock never exists without its pid (a rename onto an existing lock fails). A lock is stale when its
+   into place, so a lock never exists without its pid (a rename onto a lock holding its pid fails; onto an empty folder,
+   which no finish leaves, it replaces it on POSIX). A lock is stale when its
    process is gone, when it is older than FINISH_LOCK_STALE_MS (a recycled pid can look alive), or when it has no
    readable pid and is older than FINISH_LOCK_PIDLESS_MS (left by a crash of an older writer); a stale lock is renamed
    aside first, so only one taker wins. Returns { release } when taken, { busy: true } when a live finish holds it, or
@@ -296,7 +297,14 @@ function takeFinishLock(dir) {
       return { code: (e && e.code) || 'EUNKNOWN' };
     }
     try {
-      renameRetrying(tmp, at);   // Windows: a scanner holding the pid file just written
+      // A plain rename first: a held lock answers busy at once. Only when no lock is there is a refusal retried, for
+      // a Windows scanner holding the pid file just written.
+      try { fs.renameSync(tmp, at); } catch (first) {
+        let held = true;
+        try { fs.lstatSync(at); } catch { held = false; }
+        if (held) throw first;
+        renameRetrying(tmp, at);
+      }
       return { release: () => {
         try { if (fs.readFileSync(path.join(at, 'pid'), 'utf8') === mine) fs.rmSync(at, { recursive: true, force: true }); } catch { /* gone */ }
       } };
@@ -509,7 +517,9 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    agent made in this world later meets it without this review: start agents in a Restored world with git's hooks
    and fsmonitor switched off (4c). Agents kept elsewhere sit under the restore folder, whose top a snapshot chooses,
    so never run git or open a terminal there. A backup can force `more` with enough empty folders, so the screen should let the
-   person review past the cap rather than stop. Nothing is registered, started or written.
+   person review past the cap rather than stop. Keep the person out of a Restored world until its finish has run: an
+   agent or project made there first fills the folders finish needs empty. An empty `runs` also says nothing about
+   files a shell hook (direnv, mise) would run on entering a folder. Nothing is registered, started or written.
    A world not on the list (no registry row, hidden, or its folder swapped for a link) answers with no rows and a
    `because`, so a refusal cannot read as an empty restore.
    opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL (tests). */
