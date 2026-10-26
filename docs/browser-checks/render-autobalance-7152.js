@@ -46,7 +46,9 @@ const CASES = {
   /* The two shapes the route sends when the decision fails (review 1): the switch and the count are read first. */
   bad: { accounts: [TWO[0]], autobalance: { on: true, eligible: 1, moves: [], held: [], short: [], unreadable: true } },
   badtwo: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], unreadable: true } },
-  unset: { accounts: TWO, autobalance: { on: null, eligible: 2, moves: [], held: [], short: [], atRisk: [] } },
+  /* The shape the route sends for a setting file it could not read (review 5): off on the engine, ok false. */
+  unset: { accounts: TWO, autobalance: { on: false, ok: false, eligible: 2, moves: [], held: [], short: [], atRisk: [] } },
+  shortrisk: { accounts: TWO, autobalance: { on: true, ok: true, eligible: 2, moves: [], held: [], short: ['/home/.claude-full'], atRisk: [{ from: '/home/.claude-full', why: WHY }] } },
   busy: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [{ from: '/home/.claude-full', why: WHY }] } },
 };
 
@@ -150,10 +152,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         out.twice = { extra: reads - twice };
         current = { ...cases.moves, autobalance: { ...cases.moves.autobalance, on: true } };
         await paintAccounts();
+        const putsBefore = puts.length;
         document.getElementById('ab-toggle').click();
         for (let i = 0; i < 50 && look().checked !== 'false'; i += 1) await new Promise((res) => setTimeout(res, 20));
         await new Promise((res) => setTimeout(res, 100));
-        out.pressed = { ...look(), puts };
+        out.pressed = { ...look(), puts: puts.slice(putsBefore) };   // review 5: this press's own PUTs, so a double is seen
         return out;
       }, { cases: CASES, agents: AGENTS });
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
@@ -167,13 +170,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.off && r.off.shown && r.off.checked === 'false' && r.off.lines.length === 0, tag + ' switched off: it reads off and draws no line', JSON.stringify(r.off));
       say(r.bad && !r.bad.shown, tag + ' a failed decision with one account still hides the row', JSON.stringify(r.bad));
       say(r.badtwo && r.badtwo.shown && r.badtwo.lines[0] === 'Kosmos could not work out what it would move just now.', tag + ' an unreadable decision says so', JSON.stringify(r.badtwo && r.badtwo.lines));
-      say(r.unset && r.unset.shown && r.unset.checked === null && r.unset.lines[0] === 'We could not read this setting just now.', tag + ' a switch that could not be read says so (no switch, as every status control)', JSON.stringify(r.unset));
+      say(r.unset && r.unset.shown && r.unset.checked === null && r.unset.togHidden && r.unset.lines[0] === 'We could not read this setting just now.', tag + ' a setting file that could not be read shows unknown, not a confident Off', JSON.stringify(r.unset));
+      say(r.shortrisk && r.shortrisk.lines.length === 1 && r.shortrisk.lines[0] === 'Work is running out, because ' + WHY + '. Kosmos could not read every agent on Work, so there may be more to move.', tag + ' a short list still says why the account is running out', JSON.stringify(r.shortrisk && r.shortrisk.lines));
       say(r.busy && r.busy.lines.length === 1 && r.busy.lines[0] === 'Work is running out, because ' + WHY + ', but none of its agents is idle, so there is nothing to move yet.', tag + ' an account running out with no idle agent is said, not silent', JSON.stringify(r.busy && r.busy.lines));
       say(r.overRead && r.overRead.extra === 0 && r.overRead.lines.length === 0 && r.overRead.checked === 'false', tag + ' pressed while a read is out: no read over it, and the lines go at once', JSON.stringify(r.overRead));
       say(r.afterRead && r.afterRead.extra === 1, tag + ' once that read is over, exactly one read follows', JSON.stringify(r.afterRead));
       say(r.hidden && r.hidden.extra === 0, tag + ' a wait whose list went off screen starts no read', JSON.stringify(r.hidden));
       say(r.twice && r.twice.extra === 2, tag + ' pressed twice while waiting: one wait, so one read after (the repaint between is the other)', JSON.stringify(r.twice));
-      say(r.pressed && r.pressed.puts.length >= 1 && r.pressed.puts[r.pressed.puts.length - 1] === '{"on":false}' && r.pressed.checked === 'false' && r.pressed.lines.length === 0,
+      say(r.pressed && r.pressed.puts.length === 1 && r.pressed.puts[0] === '{"on":false}' && r.pressed.checked === 'false' && r.pressed.lines.length === 0,
         tag + ' pressing the switch sends off once and draws the next read', JSON.stringify(r.pressed));
       say(r.beforeFail && r.beforeFail.lines.length === 2 && r.failed && !r.failed.shown && r.failed.lines.length === 0, tag + ' a failed read takes the earlier lines away (shown before it: the control)', JSON.stringify(r.failed));
       say(Object.values(r).filter((x) => x && 'sideways' in x).length >= 10 && Object.values(r).every((x) => !x || x.sideways !== true), tag + ' nothing scrolls sideways (in every state drawn)', '');

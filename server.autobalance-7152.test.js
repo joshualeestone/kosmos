@@ -84,6 +84,7 @@ test('#7152 slice 2: every Claude row carries bulkTargetable, and the decision c
   const ab = settings.json && settings.json.autobalance;
   assert.ok(ab && typeof ab.eligible === 'number' && Array.isArray(ab.moves), 'Settings was not given the decision');
   assert.equal(ab.on, true);
+  assert.equal(ab.ok, true, 'the setting\'s ok did not reach the page, so a corrupt file could read as a confident Off');
   assert.equal(ab.eligible, claude.filter((a) => !a.apiKey).length, 'the account count is not the Claude subscription rows');
   assert.equal(JSON.stringify(settings.json.autobalance).includes('@'), false, 'an email went into the decision');
 });
@@ -107,4 +108,16 @@ test('#7152 review 3: with two accounts and one running out, the real route work
   assert.equal(JSON.stringify(ab).includes('@'), false, 'an email went into the decision');
   weekly(path.join(home, '.claude'), 50);
   assert.deepEqual((await call('GET', '/api/accounts?agents=1')).json.autobalance.atRisk, [], 'CONTROL: at 50% nothing is running out');
+});
+
+test('#7152 review 5: a setting file that could not be read reaches the page as not ok', async () => {
+  const file = require('./engine/autobalance-setting').FILE;   // where the board keeps it (the data root has its own folder)
+  assert.ok(file.startsWith(process.env.AGENT_WORKFORCE_DATA), 'CONTROL: the setting is in the sandbox');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'not json');
+  try {
+    const ab = (await call('GET', '/api/accounts?agents=1')).json.autobalance;
+    assert.equal(ab.ok, false, 'a corrupt setting reached the page as a good reading');
+    assert.equal(ab.on, false, 'CONTROL: the engine reads it off');
+  } finally { fs.rmSync(file, { force: true }); }
 });

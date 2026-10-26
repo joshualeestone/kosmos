@@ -27,7 +27,7 @@ the decision is logged once per change (a line in the board's log), which is the
 
 ## Pieces
 - engine/autobalance.js: decide({ rows, movable, nowMs }) -> { moves: [{ agent, from, to, why }], held: [{ from, why }],
-  short: [dir] }. Pure: no fs, no clock beyond nowMs. bulkTargetable(row, nowMs) is the page's old row rule, moved;
+  short: [dir], atRisk: [{ from, why }] }. Pure: no fs, no clock beyond nowMs. bulkTargetable(row, nowMs) is the page's old row rule, moved;
   markTargets puts it on every Claude row the route sends, and web/index.html's acctBulkTarget reads that field, so
   the page and the decision cannot disagree. movableFor composes the Assigner's three free tests.
 - Review 1: the switch and the account count are read before the decision, so a failure says "could not work out"
@@ -54,9 +54,14 @@ the decision is logged once per change (a line in the board's log), which is the
   that outlives the page starts no live-check read; and there is one wait at a time. Accepted, stated: a target whose
   limit resets between two reads stays off the bulk-move menu until the next read (the old page rule re-checked the
   clock at each paint); that errs toward not offering, and the reset timers already re-read any row with a reset line.
+- Review 5: the route sends the setting's `ok`, and a setting file that could not be read shows as unknown (no switch,
+  "We could not read this setting just now."), not as a confident Off; the engine still treats it as off. An at-risk
+  account whose agent list is short still says why it is running out. Accepted, stated: a read that was already out
+  when the switch was pressed, and that read the setting before the save, can paint the old switch position until the
+  read the switch waits for replaces it (the route reads the setting after its live checks, so this is rare).
 - engine/autobalance-setting.js: the assigner-setting pattern. Missing reads ON; a corrupt file reads off. Effective
   only with two or more eligible accounts; with one it does nothing and says nothing.
-- GET /api/accounts?agents=1: `autobalance: { on, eligible, moves, held, short, unreadable? }`; every Claude row also
+- GET /api/accounts?agents=1: `autobalance: { on, ok, eligible, moves, held, short, atRisk, unreadable? }`; every Claude row also
   carries `bulkTargetable`. GET/PUT /api/autobalance-setting
   (screen-only PUT, as the assigner's).
 - Settings > AI Models: the switch, and one "would move" line per agent: which agent, from which account to which,

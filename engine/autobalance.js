@@ -10,7 +10,8 @@
  * - AT RISK: weekly usage at or above AT_RISK_PCT that does not reset within RESET_SOON_MS, or a login that has stopped
  *   working (a real call was rejected, or it is signed out).
  * - TARGET: an account a whole set of agents may be moved to at all (bulkTargetable: shared memory, offerable, not an
- *   API key, not at a limit), MEASURED (a current weekly reading), under TARGET_MAX_PCT, and not the same account.
+ *   API key, not at a limit), positively SIGNED IN (signedIn), MEASURED (a current weekly reading), under
+ *   TARGET_MAX_PCT, and not the same account.
  *   The lowest usage wins; ties go to the earlier reset, then the folder, so the answer is stable from one read to
  *   the next.
  * - MOVABLE: an agent on an at-risk account that is idle, with no commitment and no open task part (the caller

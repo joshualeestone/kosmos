@@ -28837,12 +28837,15 @@ function paintAutobalance(ab, list) {
     return;
   }
   row.hidden = false;
-  paintSwitch('ab-toggle', ab.on === true ? true : ab.on === false ? false : null);
+  /* Review 5: a setting file that could not be read (ok false) reads off on the engine, but the page shows it as
+     unknown, not as a confident Off, as every status control here. */
+  const known = ab.ok !== false && (ab.on === true || ab.on === false);
+  paintSwitch('ab-toggle', known ? ab.on === true : null);
   const label = (dir) => { const x = (list || []).find((a) => a && a.dir === dir); return x ? acctPrimaryName(x) : 'another account'; };
   const who = (n) => (((LAST || []).find((x) => x && x.sessionName === n) || {}).name || n);
   const line = (t) => '<p class="dhint" style="margin:8px 0 0;">' + t + '</p>';
   let html = '';
-  if (ab.on !== true && ab.on !== false) html = line('We could not read this setting just now.');   // review 3: as the Assigner's says
+  if (!known) html = line('We could not read this setting just now.');   // review 3: as the Assigner's says
   else if (ab.unreadable) html = line('Kosmos could not work out what it would move just now.');
   else if (ab.on === true) {
     const moves = Array.isArray(ab.moves) ? ab.moves : [];
@@ -28851,7 +28854,9 @@ function paintAutobalance(ab, list) {
     html = moves.map((m) => line('Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.')).join('')
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
       + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
-      + short.map((d) => line('Kosmos could not read every agent on ' + esc(label(d)) + ', so there may be more to move.')).join('');
+      /* Review 5: with the reason, so an account whose list is short still says why it is running out. */
+      + short.map((d) => { const r = (Array.isArray(ab.atRisk) ? ab.atRisk : []).find((x) => x.from === d);
+        return line((r ? esc(label(d)) + ' is running out, because ' + esc(r.why) + '. ' : '') + 'Kosmos could not read every agent on ' + esc(label(d)) + ', so there may be more to move.'); }).join('');
     /* Review 3: an account at risk with no idle agent on it (its agents are working, or it has none) is said, not silent. */
     const said = new Set([...moves.map((m) => m.from), ...held.map((h) => h.from), ...short]);
     html += (Array.isArray(ab.atRisk) ? ab.atRisk : []).filter((x) => !said.has(x.from))

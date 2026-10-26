@@ -12996,9 +12996,6 @@ const server = http.createServer(async (req, res) => {
         /* #5977: Qwen accounts, badged from their live check alone (the endpoint lists the model, or says no): an
            endpoint reached with its model is signed_in_unverified until an agent is seen using it. */
         const qwen = (qwenRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
-        /* kosmos#7152 slice 2: which agents WOULD move, and where (engine/autobalance.js). Only for Settings (?agents=1),
-           which already pays for the agents walk; nothing moves. Movable is the Assigner's own idle test: the card
-           reads idle, its commitments leave it free, and it holds no open part of a task in any project. */
         /* kosmos#7152 slice 2: whether a whole set of agents may be moved onto each Claude row, from the ONE rule the
            decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
         const ab = require('./engine/autobalance');
@@ -13007,12 +13004,15 @@ const server = http.createServer(async (req, res) => {
            clock for the marks and the decision, so the two cannot disagree. */
         const sentAt = Date.now();
         ab.markTargets(claude, sentAt);
+        /* kosmos#7152 slice 2: which agents WOULD move, and where (engine/autobalance.js). Only for Settings (?agents=1),
+           which already pays for the agents walk; nothing moves. Movable is the Assigner's own idle test: the card
+           reads idle, its commitments leave it free, and it holds no open part of a task in any project. */
         let autobalance;
         if (wantAgents) {
           /* Review 1: the switch and the count are read first, so a failure in the decision below can say so on the page
              instead of hiding the row. */
-          let setting = { on: null };
-          try { setting = autobalanceSetting.read(); } catch { setting = { on: null }; }
+          let setting = { on: null, ok: false };
+          try { setting = autobalanceSetting.read(); } catch { setting = { on: null, ok: false }; }
           const eligibleCount = ab.eligible(claude).length;
           try {
             let decision = { moves: [], held: [], short: [], atRisk: [] };
@@ -13025,8 +13025,8 @@ const server = http.createServer(async (req, res) => {
               const movable = ab.movableFor({ cards, records: () => (records || (records = projects.readAll())), readCommitment: (session) => commitments.read(session) });
               decision = ab.decide({ rows: claude, movable, nowMs: sentAt });
             }
-            autobalance = { on: setting.on, eligible: eligibleCount, ...decision };
-          } catch { autobalance = { on: setting.on, eligible: eligibleCount, moves: [], held: [], short: [], atRisk: [], unreadable: true }; }
+            autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, ...decision };   // review 5: ok, so a corrupt file is not a confident Off
+          } catch { autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, moves: [], held: [], short: [], atRisk: [], unreadable: true }; }
         }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
           ...(autobalance ? { autobalance } : {}) });
