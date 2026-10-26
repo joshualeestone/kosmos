@@ -45,7 +45,8 @@ struct AgentsView: View {
         .onAppear {
             visible = true
             client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
-            push.refreshPermission()   // kosmos#7222: a change made in iOS Settings is seen here
+            // kosmos#7222: a change made in iOS Settings is seen here, and a yes given there registers (review 1).
+            push.refreshPermission(registerIfAllowed: true)
             #if DEBUG
             // The sample chat's screenshots (a Debug build only): KOSMOS_SAMPLE_OPEN=<agent> opens that chat, once a launch.
             if !Self.sampleOpened, let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty {
@@ -60,7 +61,7 @@ struct AgentsView: View {
             guard visible else { return }
             // Only a return from the background restarts it, not a passing Face ID prompt or Control Center.
             if phase == .background { wasBackground = true; client.stop() }
-            else if phase == .active && wasBackground { wasBackground = false; client.start(); push.refreshPermission() }
+            else if phase == .active && wasBackground { wasBackground = false; client.start(); push.refreshPermission(registerIfAllowed: true) }
         }
     }
 
@@ -161,7 +162,9 @@ struct AgentsView: View {
             Text("Kosmos can tell you when an agent asks you something or needs your permission, even when this app is closed.")
                 .font(.subheadline).foregroundColor(Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 12) {
+            // Review 1: side by side, or stacked at the accessibility text sizes so neither label is squeezed.
+            let buttons = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+            buttons {
                 Button { push.requestAuthorizationAndRegister() } label: {
                     Text("Turn on notifications").foregroundColor(Palette.card)
                 }
@@ -173,11 +176,12 @@ struct AgentsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // kosmos#7222, a Debug build only: KOSMOS_SAMPLE_NOTIFASK=1 shows the ask over the sample list, for its screenshots
-    // (sample launches never read the real permission).
+    // kosmos#7222, a Debug build only: over the sample list the ask shows only with KOSMOS_SAMPLE_NOTIFASK=1, for its
+    // screenshots; every other sample shot stays as it was (review 1: a fresh simulator reads notDetermined, so without
+    // this the card would appear on all of them).
     #if DEBUG
-    private static let samplePermission: PushBridge.Permission? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOTIFASK"] == "1"
-        && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" ? .notDetermined : nil
+    private static let samplePermission: PushBridge.Permission? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
+        ? (ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOTIFASK"] == "1" ? .notDetermined : .allowed) : nil
     #else
     private static let samplePermission: PushBridge.Permission? = nil
     #endif
