@@ -1,0 +1,121 @@
+'use strict';
+/**
+ * #7206: a claude agent whose account home is a vendor account (~/.kosmos-deepseek-<label>, engine/anthropiccompat.js)
+ * is launched against that vendor. This EXECUTES the shipped bin/agent-supervisor.sh with a recorder fake tmux (the
+ * shape supervisor.qwen-endpoint-5977 uses) and asserts the launch line: the vendor's address and model, the key only
+ * as a launch secret, no inherited ANTHROPIC_* value reaching the pane, a broken account stopping the launch, and a
+ * Claude home untouched.
+ *
+ *   node --test supervisor.anthropiccompat-7206.test.js
+ */
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const SUP = nodePath.join(__dirname, 'bin', 'agent-supervisor.sh');
+const compat = require('./engine/anthropiccompat');
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-compat-7206-'));
+test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+const FAKE_TMUX = nodePath.join(SANDBOX, 'rec-tmux.sh');
+fs.writeFileSync(FAKE_TMUX, [
+  '#!/bin/bash',
+  'case "$1" in',
+  '  new-session)',
+  '    before=""',
+  '    for arg in "$@"; do',
+  '      if [ "$before" = --pane-entry ]; then cp "$arg" "$REC.secrets"; break; fi',
+  '      before="$arg"',
+  '    done',
+  '    printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
+  '  has-session) exit 1 ;;',
+  '  *) exit 0 ;;',
+  'esac',
+].join('\n') + '\n', { mode: 0o755 });
+
+const KEY = 'sk-deepseek-secret-0123456789';
+let n = 0;
+function home(files, prefix) {
+  const dir = nodePath.join(SANDBOX, `${prefix || '.kosmos-deepseek-h'}${++n}`);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [name, body] of Object.entries(files)) fs.writeFileSync(nodePath.join(dir, name), body, { mode: 0o600 });
+  return dir;
+}
+function run(configDir, model, extraEnv) {
+  const rec = nodePath.join(SANDBOX, `rec-${++n}.txt`);
+  const env = { PATH: process.env.PATH, HOME: SANDBOX, REC: rec, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: configDir, ...(extraEnv || {}) };
+  const r = spawnSync('/bin/bash', [SUP, `agent-d${n}`, SANDBOX, '/usr/bin/true', FAKE_TMUX, '', model || '', 'claude'],
+    { env, encoding: 'utf8', timeout: 30000 });
+  const argv = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
+  const secrets = fs.existsSync(`${rec}.secrets`) ? fs.readFileSync(`${rec}.secrets`, 'utf8') : '';
+  return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), argv, secrets };
+}
+const ACCT = { vendor: 'deepseek', model: 'deepseek-chat', key: KEY };
+
+test('a DeepSeek home launches claude against DeepSeek, with its model in place of the agent\'s Claude model', () => {
+  const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) }), 'claude-sonnet-5');
+  assert.match(r.argv, /new-session/, r.out);
+  assert.match(r.argv, /-e ANTHROPIC_BASE_URL=https:\/\/api\.deepseek\.com\/anthropic/);
+  assert.match(r.argv, /-e ANTHROPIC_MODEL=deepseek-chat/);
+  assert.match(r.argv, /--model deepseek-chat/);
+  assert.equal(/claude-sonnet-5/.test(r.argv), false, 'the agent\'s Claude model is not sent to DeepSeek');
+  assert.match(r.argv, /\/usr\/bin\/env -u ANTHROPIC_API_KEY -u ANTHROPIC_CUSTOM_HEADERS \/usr\/bin\/true/);
+});
+
+test('the key reaches the pane only as a launch secret, never in the argv or the supervisor output', () => {
+  const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) }));
+  assert.match(r.secrets, new RegExp('^ANTHROPIC_AUTH_TOKEN=' + KEY + '$', 'm'));
+  assert.equal(r.argv.includes(KEY), false, 'the key is in the tmux argv');
+  assert.equal(r.out.includes(KEY), false, 'the key is in the supervisor output');
+});
+
+test('an inherited ANTHROPIC_* value never reaches a DeepSeek pane: set ones are replaced, the rest removed', () => {
+  const r = run(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) }), '', {
+    ANTHROPIC_BASE_URL: 'https://elsewhere.example', ANTHROPIC_API_KEY: 'sk-ant-inherited', ANTHROPIC_MODEL: 'claude-opus-5',
+  });
+  assert.match(r.argv, /new-session/, r.out);
+  assert.equal(/elsewhere\.example|sk-ant-inherited|claude-opus-5/.test(r.argv + r.secrets), false, 'an inherited value reached the pane');
+  assert.match(r.argv, /-u ANTHROPIC_API_KEY/);
+});
+
+test('an account that cannot be used stops the launch, saying why, and never starts claude against Anthropic', () => {
+  for (const bad of [JSON.stringify({ ...ACCT, key: '' }), JSON.stringify({ ...ACCT, model: 'claude-sonnet-5' }), '{not json']) {
+    const r = run(home({ 'kosmos-endpoint.json': bad }));
+    assert.notEqual(r.code, 0);
+    assert.equal(/new-session/.test(r.argv), false, 'something was launched: ' + r.argv);
+    assert.match(r.out, /DeepSeek account cannot be used: .*the agent was not started/);
+  }
+  const missing = nodePath.join(SANDBOX, '.kosmos-deepseek-missing');
+  fs.mkdirSync(missing, { recursive: true });
+  const r = run(missing);
+  assert.notEqual(r.code, 0);
+  assert.equal(/new-session/.test(r.argv), false);
+  assert.match(r.out, /it has no key set up; the agent was not started/);
+});
+
+test('CONTROL: a Claude home launches exactly as before: its own model, no vendor address, no env prefix', () => {
+  const r = run(home({ '.claude.json': '{}' }, '.claude-h'), 'claude-sonnet-5');
+  assert.match(r.argv, /new-session/, r.out);
+  assert.match(r.argv, /--model claude-sonnet-5/);
+  assert.equal(/ANTHROPIC_|\/usr\/bin\/env -u/.test(r.argv), false, 'a Claude home got vendor settings');
+  assert.equal(/ANTHROPIC_/.test(r.secrets), false);
+});
+
+test('the supervisor\'s lists match the module: every vendor is recognised, every launch variable is cleared', () => {
+  const src = fs.readFileSync(SUP, 'utf8');
+  const block = src.slice(src.indexOf('#7206: an account home named for a vendor'), src.indexOf('#2808 class-1 / #2129'));
+  assert.ok(block.length > 200, 'the #7206 block moved; re-anchor this test');
+  for (const id of Object.keys(compat.VENDORS)) {
+    assert.ok(block.includes(`.kosmos-${id}-?*)`), `vendor ${id} has no case in the supervisor`);
+  }
+  for (const v of compat.LAUNCH_VARS) assert.ok(block.includes(v), `${v} is not cleared by the supervisor`);
+  // The variables removed outright are exactly the launch variables the account does not set.
+  const set = Object.keys(compat.launchEnv(home({ 'kosmos-endpoint.json': JSON.stringify(ACCT) })).env);
+  const unset = compat.LAUNCH_VARS.filter((v) => !set.includes(v));
+  const declared = (block.match(/_cx_unset=\(([^)]*)\)/) || [])[1];
+  assert.deepEqual(String(declared).trim().split(/\s+/).sort(), unset.slice().sort());
+});
