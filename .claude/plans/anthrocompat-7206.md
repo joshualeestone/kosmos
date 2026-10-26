@@ -142,3 +142,14 @@ Mirror every Qwen ('alibaba') site with the vendor ('deepseek'), on the claude r
 - engine/accountproblem.js: name the vendor and the key, never "Claude sign-in".
 - Tests per site; design shots for the connect row (light/dark, desktop/phone); a browser check for the row.
 GATE: 1b does not merge until the Claude Code premise is measured (asked of Splinter 14:2x).
+
+## Slice 1b progress (2026-10-26 14:4x)
+Done, each red-checked unless said: the default-off switch (enabled(): AGENT_WORKFORCE_COMPAT_PROVIDERS=1 or the
+compat-providers-on marker; Mac only) gating the add route and GET /api/accounts/compat; provider identity
+(providerRunner, providerLabel, jobProvider, agentProvider/claudeJobProvider); setProvider onto a vendor (gated, named
+account, job on its folder, vendorAccount recorded); model change refused; Repair rebuilds on vendorAccount or refuses.
+Not separately tested: the vendorAccount write BEFORE the job moves (the write after it records the same, so a mutant
+removing the first survives); it guards a switch that fails mid-move, as Qwen's does. The account file was renamed to
+kosmos-vendor.json in 1a (it collided with Qwen's marker).
+Next: the create path (a new agent on DeepSeek), the page (Settings and setup rows, behind GET /api/accounts/compat),
+the every-route-hidden test, knownsecrets, accountproblem wording, design shots and a browser check.
