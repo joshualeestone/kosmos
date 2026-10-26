@@ -3690,15 +3690,15 @@ function blockBody(projects, sessionName) {
       const person = (isPaused(p) && p.pausedByPerson === true) || (T.isOnHold(t) && t.onHoldByPerson === true);
       // Review 6: the person's hold in an agent-paused project names the pause too, so lifting the hold alone is not read as go.
       if (person && isPaused(p) && p.pausedByPerson !== true) return ' [on hold: the person parked it, and the project is paused; do not start it]';
-      if (person) return ' [on hold: the person parked it; do not start it]';
+      // kosmos#7180: what a hold waits for, and whether that has happened (the agent is told once, by holdstale).
+      const until = T.isOnHold(t) ? T.holdUntilState(p, t) : null;
+      const waits = until ? ' until ' + until.words + (until.met ? ' (that has happened)' : '') : '';
+      if (person) return ' [on hold' + waits + ': the person parked it; do not start it]';
       // Review 1: an agent's pause is lifted on the screen (no verb resumes one), so say so rather than "taken off hold".
       // Review 2: held AND paused needs both undone, so both are named.
       if (isPaused(p) && T.isOnHold(t)) return ' [on hold: the project is paused and the task is on hold; do not start it until both are lifted]';
       if (isPaused(p)) return ' [on hold: the project is paused; do not start it until your person resumes it]';
-      // kosmos#7180: an agent's hold that waits for something says what, so the agent knows what it is waiting for.
-      const until = T.holdUntilState(p, t);
-      return until ? ' [on hold until ' + until.words + ': do not start it until it is taken off hold]'
-        : ' [on hold: do not start it until it is taken off hold]';
+      return ' [on hold' + waits + ': do not start it until it is taken off hold]';
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
   });

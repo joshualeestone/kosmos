@@ -1345,8 +1345,8 @@ function holdUntilWords(x) {
   return '';
 }
 
-/* #4771, as install/kosmos cmd_task hold|unhold: put a task on hold, or take it off. A board write, like close. */
 const HOLD_USAGE = 'Usage: kosmos task hold <project-id> <task-number> [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]';
+/* #4771, as install/kosmos cmd_task hold|unhold: put a task on hold, or take it off. A board write, like close. */
 function taskHoldAs(want) {
   return async function taskHold(ctx, args) {
     const [project, num, flag, value] = args;

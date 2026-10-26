@@ -142,8 +142,9 @@ function tellText(group, now = Date.now()) {
    project). Names each task and its condition, and the one way off the hold. */
 function metText(items, now = Date.now()) {
   const idOf = (x) => (typeof x.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(x.projectId) && /[^.]/.test(x.projectId) ? x.projectId : '<project-id>');
-  const one = (x) => 'task #' + x.n + ', "' + plain(x.sentence, 120) + '", was put on hold ' + agoWords(x.holdAt, now)
-    + ' ago until ' + plain(x.met, 80) + ', and that has now happened';
+  // holdAt is when this condition was set (a changed condition is a new hold), so the age is said of the condition.
+  const one = (x) => 'task #' + x.n + ', "' + plain(x.sentence, 120) + '", is on hold until ' + plain(x.met, 80)
+    + ' (set ' + agoWords(x.holdAt, now) + ' ago), and that has now happened';
   const way = (x) => (x.byPerson ? 'ask the person to take #' + x.n + ' off hold (only they can lift their own hold, on the screen)'
     : 'take #' + x.n + ' off hold: kosmos task unhold ' + idOf(x) + ' ' + x.n);
   const many = items.length > 1;
