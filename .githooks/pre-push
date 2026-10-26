@@ -27,18 +27,26 @@ while read -r _lref lsha rref _rsha; do
   [ "$(git rev-parse -q --verify "$lsha^{commit}" 2>/dev/null)" = "$head" ] && mine=1
 done
 [ "$mine" = 1 ] || exit 0
-# No web/ change on this branch: nothing either gate could refuse, and no network is spent. A stale base only ever
-# OVER-counts (it adds other people's commits), so no web/ change against it means none against a fresh one either.
-# A diff that cannot be read (no base) falls through to the gates, which pass by their own fail-soft rule.
+# No web/ change on this branch against the base as it is: nothing to check, and no network is spent. A stale base
+# almost always OVER-counts (it adds other people's commits). The one way it under-counts (review 5): a branch that
+# merged a newer main's web/ change and then reverted it reads clean here and changed against the fresh main; that
+# push goes on to CI, which refuses it, as every push did before this hook. A diff that cannot be read (no base) falls
+# through to the gates, which pass by their own fail-soft rule.
 git diff --quiet "$base...HEAD" -- web/ 2>/dev/null && exit 0
 # Review 3: a stale origin/main counts other people's newer web/ commits as this branch's (a branch rebased onto a main
 # this clone has not fetched), refusing a push CI would pass. So one fetch, which never asks for a password or key
-# (review 4: a prompt mid-push, with no reason given) and gives up on a stalled connection. A failed fetch (offline,
+# (review 4: a prompt mid-push, with no reason given) and gives up on a stalled connection, over https or ssh. A failed fetch (offline,
 # or another worktree's fetch holding the shared ref) is said, so a refusal below can be read for what it may be.
+# Review 5: the ssh options are added to the person's own ssh setting (core.sshCommand), never in place of it; an
+# ssh command or program the environment already names is left exactly as it is.
 stale=0
 if [ "$base" = origin/main ]; then
-  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes" \
-    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 fetch --quiet origin main >/dev/null 2>&1 || stale=1
+  sshopts='-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2'
+  set -- -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10
+  if [ -z "${GIT_SSH_COMMAND:-}" ] && [ -z "${GIT_SSH:-}" ]; then
+    set -- "$@" -c "core.sshCommand=$(git config --get core.sshCommand 2>/dev/null || echo ssh) $sshopts"
+  fi
+  GIT_TERMINAL_PROMPT=0 git "$@" fetch --quiet origin main >/dev/null 2>&1 || stale=1
   git diff --quiet "$base...HEAD" -- web/ 2>/dev/null && exit 0
 fi
 

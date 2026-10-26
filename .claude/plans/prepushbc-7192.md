@@ -59,3 +59,14 @@ every web/ push slower too.
 - N6 the hook hard-coded origin/main while the gates honour KOSMOS_BCG_BASE -> FIXED: the same base; the fetch runs
   only for origin/main.
 - N7 no test for a wip/ ref beside the real branch -> added.
+
+## Iteration 5 (sonnet)
+- W1 setting GIT_SSH_COMMAND replaced the person's core.sshCommand (a key or config of their own), so the fetch failed
+  and the stale base came back -> FIXED: the options are added to core.sshCommand (or plain ssh) through `-c`, and an
+  ssh command or program the environment names is left exactly as it is. Tests with a fake ssh: the person's own
+  command is used with the options added; an environment command is untouched (both mutants red).
+- W2 the stall limit covered https only -> FIXED: ssh gets ConnectTimeout=10 and ServerAlive 5x2 (asserted in the same
+  test).
+- W3 "a stale base only over-counts" is false for a branch that merged a newer main's web/ change and reverted it ->
+  comment corrected: that push reads clean here and goes on to CI, which refuses it, as every push did before this
+  hook (fail-open to CI, accepted).
