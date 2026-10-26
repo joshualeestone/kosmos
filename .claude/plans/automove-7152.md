@@ -8,6 +8,8 @@ the moved agent works on its new account.
 The card asks for ON with two or more accounts. This slice ships the sweep and the record ON wherever slice 1's usage
 reading is on (it needs those readings: an idle account is unmeasured otherwise), and the MOVES behind their own switch,
 AGENT_WORKFORCE_AUTOMOVE=1, off unless set. Without it the sweep records "would move" decisions only.
+Review 3, stated plainly: slice 1's reading is itself OFF unless AGENT_WORKFORCE_USAGE_POLL=1 (its review 19), so by
+default nothing is recorded either. A day of decisions needs that one switched on; moves need both.
 - Why: Kosmos on the fleet's own Mac manages the fleet's agents, and Splinter's standing ask (10-25) is that automatic
   moves stay a dry run until he has seen a full day of decisions. This slice is what produces that day of decisions,
   through the product rather than the prototype.
@@ -50,6 +52,13 @@ its rows from the cheap reads instead:
   default, the move must see the agent's own child processes (or Claude's background-task count on its screen).
 - The first move only. Idleness is read again just before the move, from a new roster read (slice 2's other stated
   assumption: its roster was a few seconds old).
+- A stopped login (a 401 or 403 from the usage endpoint) moves an agent only when that agent's OWN last request was
+  refused within the hour (review 3). The endpoint is undocumented, and a second reading proves nothing: while usagepoll
+  holds a refusal it sends no request and rewrites the same one.
+- A move back owed (below) goes first but never blocks the rest: it waits while its agent is not idle, is dropped
+  when the agent is no longer on the account it was moved to (a person moved it, or it was removed), and is given up
+  after a day, with a record line. A 409 from the board (a move began meanwhile, or a restart is coming) is not the
+  agent's refusal: no hold, no line, and a move back stays owed.
 - A target onto which an earlier automatic move did NOT work (the moved agent's first real call was rejected) is not
   used again for 6 hours (FAILED_HOLD_MS). Rejected: "until its usage reading is newer", since the reading comes every
   10 minutes and a working usage call does not prove an agent's turn works there.
