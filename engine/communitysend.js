@@ -1573,7 +1573,10 @@ async function sweepOwnerLink(keys, on) {
         const unknown = !minted.ok && ownerPassUnknown(minted);
         ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
         if (!unknown) stopHere();   // a missing route is the same for every agent
-        log(`owner link: ${unknown ? 'Kosmos+ cannot vouch for agents yet' : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '')}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
+        const what = unknown ? 'Kosmos+ cannot vouch for agents yet'
+          : st === 400 ? 'Kosmos+ refused the request for two agents in a row (400), so the request itself is likely wrong'
+            : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '');
+        log(`owner link: ${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
         break;
       }
       const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
