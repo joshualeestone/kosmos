@@ -1108,8 +1108,9 @@ function holdUntilState(p, t, now = Date.now()) {
  * #4771: put a task on hold, or take it off. Stored as `onHold: true` (absent when off, so every task written before
  * this reads as not held) and recorded in the task's activity with who did it, the same no-op discipline as setDue.
  * kosmos#7180: `until` (only with onHold true) records a checkable reopening condition (holdUntilOf) as `onHoldUntil`.
- * A hold sets exactly what it is given: holding again without `until` clears an earlier condition, and a changed
- * condition is recorded as a new hold.
+ * A hold sets exactly what it is given (holding again without `until` clears an earlier condition), except that an
+ * agent's bare re-hold of the person's hold keeps it whole. Restating the stored condition changes nothing, even once it
+ * is met. A changed condition is recorded as a new hold.
  */
 function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {}) {
   if (typeof onHold !== 'boolean') throw new Error('onHold must be true or false');
@@ -1136,7 +1137,12 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
     /* kosmos#7180: an agent's bare re-hold of the person's hold leaves it as it is, condition included (only the person
        changes their hold); an agent's own hold, or any screen hold, is set to exactly what it is given. */
     const keepPersons = onHold && until == null && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true;
-    const want = keepPersons ? (t.onHoldUntil || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
+    /* Restating the stored condition is no change (and is not re-checked, so a met one is not refused as closed or past). */
+    const u0 = t.onHoldUntil;
+    const restated = onHold && until && typeof until === 'object' && !Array.isArray(until) && Object.keys(until).length === 1 && u0
+      && ((Number.isInteger(until.task) && until.task === u0.task)
+        || (typeof until.at === 'string' && typeof u0.at === 'string' && Date.parse(until.at) === Date.parse(u0.at)));
+    const want = keepPersons || restated ? (u0 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
     const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
     /* kosmos#7180: what the person's hold waits for is theirs too, so an agent cannot change it (that change would
        also count as a new hold and drop the person's mark below). */

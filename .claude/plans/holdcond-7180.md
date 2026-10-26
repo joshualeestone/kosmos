@@ -20,6 +20,8 @@ Owner: Ice Cream Kitty. From agent feedback; split from #7149 ask 2, which left 
 - The person's hold: an agent cannot change what it waits for (403, as unhold). Its mark is dropped only when the held
   state flips, never by a changed condition (review 1 found that path let an agent strip the mark, then lift the hold).
 - A wait that leads back to the held task (A waits for B, B for A, or longer) is refused: it would never be met.
+- Restating the stored condition is no change and is not re-checked, so a met one is not refused as closed or past.
+- The instructions' held mark names the condition on the person's hold too, and adds "(that has happened)" once met.
 - An agent's bare re-hold of the person's hold leaves it whole (condition and mark); an agent changing its condition
   is 403. The person's screen hold sets exactly what it says, so it drops an agent's earlier condition.
 - Times: only a real ISO date or date-time is taken (2026-11-31 or T24:00 are refused, not rolled over) (not "2026-11-02 09:00" or "Nov 2", which Date.parse reads in the
@@ -41,6 +43,9 @@ and the list and instructions show what it waits for. A task waited for that nev
 ## Known, not changed
 - A hold whose history row was lost (taskchat.record is best-effort) has no known hold time, so neither the met line nor
   the posts line is told about it: the same skip the posts rule already makes (holdstale.holdSet). Fixing it is for both.
+
+- A changed condition is recorded as a new hold, so it restarts the posts rule's age and post count, as unhold then
+  hold already does. The met line says the age of the condition ("set N hours ago"), not of the first hold.
 
 ## Not in this slice
 - The screen (web/index.html) still shows a plain "on hold" and cannot set a condition; the condition is in the CLI,

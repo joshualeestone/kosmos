@@ -192,7 +192,7 @@ test('#7180 holdstale: the met line names the condition and the one way off; a p
   const now = Date.now();
   const item = { projectId: 'supplier', project: 'Supplier', n: 4, sentence: 'Order the parts', owner: REX, holdAt: now - 3 * HOUR, byPerson: false, posts: 0, met: 'task #5 is closed' };
   const line = hs.tellText([item], now);
-  assert.match(line, /task #4, "Order the parts", was put on hold 3 hours ago until task #5 is closed, and that has now happened/);
+  assert.match(line, /task #4, "Order the parts", is on hold until task #5 is closed \(set 3 hours ago\), and that has now happened/);
   assert.match(line, /take #4 off hold: kosmos task unhold supplier 4/);
   assert.doesNotMatch(line, /posted/, 'the met line counted posts');
   const theirs = hs.tellText([{ ...item, byPerson: true }], now);
@@ -294,4 +294,33 @@ test('#7180 the person\'s hold: an agent\'s bare re-hold keeps it whole; the per
   const s = tasks.setOnHold(g.id, g.a, true, { viaScreen: true });
   assert.equal(s.onHoldByPerson, true);
   assert.equal(s.onHoldUntil, undefined, 'the person\'s hold kept the agent\'s condition');
+});
+
+test('#7180 restating the stored condition is no change, even once it is met; a changed one is still checked', () => {
+  const f = fixture();
+  tasks.setOnHold(f.id, f.a, true, { until: { task: f.b } });
+  tasks.close(f.id, f.b);
+  assert.equal(status(() => tasks.setOnHold(f.id, f.a, true, { until: { task: f.b } })), null, 'restating a met condition was refused');
+  assert.deepEqual(stored(f.id, f.a).onHoldUntil, { task: f.b });
+  // CONTROL: a different condition is checked, so a closed task is still refused there.
+  assert.equal(status(() => tasks.setOnHold(f.id, f.a, true, { until: { task: f.c } })).status, 409, 'CONTROL: a new closed task was accepted');
+  // A met time, restated in another spelling of the same instant, is no change either.
+  const g = fixture();
+  const when = new Date(Date.now() + 2 * HOUR);
+  tasks.setOnHold(g.id, g.a, true, { until: { at: when.toISOString() } });
+  const passed = Date.now() - HOUR;
+  projects.mutate(g.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === g.a ? { ...t, onHoldUntil: { at: iso(passed) } } : t)) }));   // as if the time had passed
+  // The same instant written with an offset instead of Z.
+  const sameInstant = new Date(passed - 5 * HOUR).toISOString().replace('Z', '-05:00');
+  assert.equal(status(() => tasks.setOnHold(g.id, g.a, true, { until: { at: sameInstant } })), null, 'restating a passed time was refused');
+  assert.deepEqual(stored(g.id, g.a).onHoldUntil, { at: iso(passed) });
+});
+
+test('#7180 the instructions name the condition on the person\'s hold too, and say when it has happened', () => {
+  const f = fixture();
+  tasks.setOnHold(f.id, f.a, true, { viaScreen: true, until: { task: f.b } });
+  const block = () => projects.blockBody(projects.readAll().filter((x) => x.id === f.id), REX);
+  assert.match(block(), new RegExp('task ' + f.a + ' of [^\\n]*\\[on hold until task #' + f.b + ' is closed: the person parked it; do not start it\\]'));
+  tasks.close(f.id, f.b);
+  assert.match(block(), new RegExp('task ' + f.a + ' of [^\\n]*\\[on hold until task #' + f.b + ' is closed \\(that has happened\\): the person parked it'));
 });
