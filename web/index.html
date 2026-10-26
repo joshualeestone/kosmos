@@ -28874,7 +28874,7 @@ function paintAutobalance(ab, list) {
      the page never says it keeps a record where it does not. Nothing moves on its own in this slice. */
   if (recentBox && known && ab.on === true) {
     recentBox.innerHTML = ab.recording !== true
-      ? line('Kosmos does not check these accounts on a schedule on this computer, so it keeps no record of what it would move.')
+      ? line('Kosmos is not keeping a record of what it would move on this computer.')   // review 10: what is known, not why
       : line('Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.')
         + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
   }

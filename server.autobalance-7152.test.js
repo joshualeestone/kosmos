@@ -259,7 +259,7 @@ test('#7152 slice 3 review 2: the real guide check: a guide folder with its mark
       fs.writeFileSync(flag, '{ not json');
       assert.throws(() => sa.guideNameStrict());
       assert.equal(sa.guideName(), null, 'CONTROL: the lenient read takes a broken record as never seeded');
-      assert.equal(m()('gd'), false, 'a guide record that could not be read let an agent move');
+      assert.throws(() => m(), 'a guide record that could not be read let the decision go ahead (review 10: it is unreadable)');
     } finally { if (had) fs.writeFileSync(flag, had); else fs.rmSync(flag, { force: true }); }
   } finally { board.restore(); }
 });

@@ -153,4 +153,4 @@ function summary(list, nowMs = Date.now()) {
 
 function resetForTests() { cached = null; }
 
-module.exports = { weeklyOf, fiveHourOf, weeklyBlockedOf, summary, CACHE_MS, MAX_ACCOUNTS, resetForTests };
+module.exports = { weeklyOf, fiveHourOf, weeklyBlockedOf, summary, accountOrg, CACHE_MS, MAX_ACCOUNTS, resetForTests };   // accountOrg: kosmos#7152 slice 3, one login rule for the sweep and Settings

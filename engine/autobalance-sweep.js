@@ -66,7 +66,9 @@ const objects = (x) => (Array.isArray(x) ? x : []).filter((y) => y && typeof y =
    risk and nothing that could move (none idle, or no account able to take them) is recorded but not drawn: the record
    is of what Kosmos would have moved. Throws when the record cannot be read (the route answers it as empty). */
 function recent(file, n = RECENT) {
-  return readLines(file).filter((l) => l.kind === 'decision' && objects(l.moves).length).slice(-n).reverse();
+  const now = Date.now();
+  return readLines(file).filter((l) => l.kind === 'decision' && objects(l.moves).length && !(Number.isFinite(l.at) && l.at > now + CLOCK_SLACK_MS))   // review 10: as create() distrusts it
+    .slice(-n).reverse();
 }
 
 /* What a decision is, for "has it changed": the moves, the held accounts and the accounts at risk. Built from the
@@ -81,7 +83,7 @@ function keyOf(d) {
  * is not trusted). Reads only; nothing is written until a tick has something new to say.
  */
 function create({ file, nowMs = Date.now() }) {
-  const state = { lastKey: null };
+  const state = { lastKey: null, writeFailed: false };
   for (const l of readLines(file)) {
     if (l.kind === 'decision' && Number.isFinite(l.at) && l.at <= nowMs + CLOCK_SLACK_MS) state.lastKey = keyOf(l);
   }
@@ -89,8 +91,8 @@ function create({ file, nowMs = Date.now() }) {
   /**
    * deps: list() (accounts.list), readUsage(dir, nowMs), agentsOn(dir, isDefault), roster() (the board roster, or null
    * when it cannot be read), records() (every project), readCommitment(session), settingOn() (true only when the switch
-   * reads on), labelOf(dir); optional isGuide/guideName (movableFor's).
-   * Resolves to { did: 'off' | 'nothing' | 'recorded' | 'unreadable' }.
+   * reads on), labelOf(dir); optional sameLogin(rec, account) (rowsFromReadings'), isGuide/guideName (movableFor's).
+   * Resolves to { did: 'off' | 'nothing' | 'recorded' | 'cleared' | 'unreadable' }. state.writeFailed says the last write failed.
    */
   async function tick(deps, nowMs = Date.now()) {
     if (deps.settingOn() !== true) return { did: 'off' };
@@ -102,23 +104,27 @@ function create({ file, nowMs = Date.now() }) {
       if (ab.eligible((Array.isArray(list) ? list : []).map((a) => (a && !a.apiKey ? { provider: 'anthropic', dir: a.dir } : null))).length < 2) {
         return { did: 'nothing' };
       }
-      const rows = ab.rowsFromReadings({ list, readUsage: deps.readUsage, agentsOn: deps.agentsOn, nowMs });
+      const rows = ab.rowsFromReadings({ list, readUsage: deps.readUsage, agentsOn: deps.agentsOn, nowMs, ...(deps.sameLogin ? { sameLogin: deps.sameLogin } : {}) });
       const movable = ab.movableOnDemand(() => ab.movableFor({ cards: deps.roster(), records: deps.records, readCommitment: deps.readCommitment,
         ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) }));
       decision = ab.decide({ rows, movable, nowMs });
     } catch { return { did: 'unreadable' }; }
     const key = keyOf(decision);
     if (key === state.lastKey) return { did: 'nothing' };
-    if (!(decision.moves.length || decision.held.length || decision.atRisk.length)) { state.lastKey = key; return { did: 'nothing' }; }
+    /* Review 10: the end of a risk is written too (an empty decision), so a board restart rebuilds "nothing at risk"
+       and a risk that comes back is recorded again. Only a first tick with nothing at risk writes nothing. */
+    const empty = !(decision.moves.length || decision.held.length || decision.atRisk.length);
+    if (empty && state.lastKey === null) { state.lastKey = key; return { did: 'nothing' }; }
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;
     const written = append(file, { kind: 'decision', at: nowMs,
       moves: decision.moves.map((m) => ({ agent: m.agent, from: m.from, to: m.to, fromLabel: label(m.from), toLabel: label(m.to), why: m.why, kind: kindOf(m.from) })),
       held: decision.held.map((h) => ({ from: h.from, fromLabel: label(h.from), why: h.why })),
       atRisk: decision.atRisk.map((x) => ({ from: x.from, fromLabel: label(x.from), why: x.why, kind: x.kind })) });
-    if (!written) return { did: 'nothing' };   // tried again next tick
+    state.writeFailed = !written;   // review 10: the board says so (once) and stops saying it records
+    if (!written) return { did: 'nothing', because: 'write-failed' };   // tried again next tick
     state.lastKey = key;
-    return { did: 'recorded' };
+    return { did: empty ? 'cleared' : 'recorded' };
   }
 
   return { tick, state };

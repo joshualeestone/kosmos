@@ -1404,7 +1404,7 @@ const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's 
 const autobalanceSetting = require('./engine/autobalance-setting'); // kosmos#7152 slice 2
 const autobalanceSweep = require('./engine/autobalance-sweep'); // kosmos#7152 slice 3: the record of what auto-balance would move
 const AUTOBALANCE_RECORD = path.join(path.dirname(autobalanceSetting.FILE), autobalanceSweep.FILE);
-let autobalanceSweepReady = false;   // set once the sweep's record has been read at start (it is off otherwise)
+let autobalanceSweepRun = null;   // the sweep, once its record has been read at start (it is off otherwise)
 const brief = require('./engine/brief'); // #3595 phase 3: a project's goal, read safely from its BRIEF.md
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
@@ -2882,11 +2882,12 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
 }
 
 /* kosmos#7152 slice 3: whether the auto-balance sweep records on this board: live execution, slice 1's usage reading
-   switched on and allowed (never under a test or a dry run), no brake, and its record read at start. The sweep and the
-   page both ask this, so the page never says it records where it does not. */
+   switched on and allowed (never under a test or a dry run), no brake, its record read at start, and its last write
+   not failed (review 10). The page asks this, so it never says it records where it does not. The sweep's own tick asks
+   it without the last arm, so a write that failed is tried again. */
 function autobalanceSweepRuns() {
   const usagePoll = require('./engine/usagepoll');
-  return autobalanceSweepReady && liveExecution.liveExecutionAllowed() && usagePoll.liveAllowed() && usagePoll.enabled() && autobalanceSweep.sweepOn();
+  return !!autobalanceSweepRun && autobalanceSweepRun.state.writeFailed !== true && liveExecution.liveExecutionAllowed() && usagePoll.liveAllowed() && usagePoll.enabled() && autobalanceSweep.sweepOn();
 }
 
 /* kosmos#7152 slice 3: what the auto-balance sweep reads, built fresh for each tick (the agents walk and the account
@@ -2910,6 +2911,7 @@ function autobalanceSweepDeps() {
   return {
     list,
     readUsage: (dir, nowMs) => usagePoll.readUsage(dir, nowMs),
+    sameLogin: (rec, a) => usagePoll.sameLogin(rec, a, require('./engine/accountsweekly').accountOrg(a)),   // review 10: Settings' own rule
     agentsOn,
     roster: () => (walk ? walk.roster : (walk = claudeAgentsByAccount()).roster),   // the walk's own roster (no second capture)
     records: () => (records || (records = projects.readAll())),
@@ -26169,21 +26171,29 @@ function start(port = PORT) {
          the poll has written (at most one period old; the timers are not chained). It writes the decision when it changes
          and MOVES NOTHING. Cheap inputs only: accounts.list(), the usage records, the agents walk; never listLive(). A
          record that cannot be read leaves the sweep off (with a log line), never the board. */
-      let abSweep = null;
-      try { abSweep = autobalanceSweep.create({ file: AUTOBALANCE_RECORD }); autobalanceSweepReady = true; }
+      try { autobalanceSweepRun = autobalanceSweep.create({ file: AUTOBALANCE_RECORD }); }
       catch (err) { process.stdout.write(`autobalance-sweep: off, its record could not be read (${String((err && err.message) || err)})\n`); }
+      const abSweep = autobalanceSweepRun;
+      let abSweepWriteSaid = false;
       let abSweepBusy = 0;   // when the running tick started, or 0
       const abSweepTick = () => {
         /* Review 9: nothing here may throw out of a timer into the board, and a throw must not leave the busy flag set. */
         try {
           if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a stale busy flag (see slice 1's review 12)
-          if (!abSweep || !autobalanceSweepRuns()) return;
+          if (!abSweep) return;
+          abSweep.state.writeFailed = false;   // asked without the write arm, so a failed write is tried again
+          if (!autobalanceSweepRuns()) return;
           const started = Date.now();
           abSweepBusy = started;
           let ticking;
           try { ticking = abSweep.tick(autobalanceSweepDeps()); } catch (err) { ticking = Promise.reject(err); }
           ticking
-            .then((r) => { if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n'); })
+            .then((r) => {
+              if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n');
+              const failed = !!(r && r.because === 'write-failed');
+              if (failed && !abSweepWriteSaid) process.stdout.write('autobalance-sweep: its record could not be written; Settings says it is not recording\n');
+              abSweepWriteSaid = failed;
+            })
             .catch(() => { /* best-effort, like the sweeps above */ })
             .finally(() => { if (abSweepBusy === started) abSweepBusy = 0; });
         } catch { abSweepBusy = 0; }

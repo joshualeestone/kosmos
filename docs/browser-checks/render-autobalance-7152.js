@@ -202,7 +202,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       /* Slice 3. */
       const NONE = 'Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.';
       const nr = r.notRecording && r.notRecording.recent;
-      say(nr && nr.length === 1 && nr[0] === 'Kosmos does not check these accounts on a schedule on this computer, so it keeps no record of what it would move.',
+      say(nr && nr.length === 1 && nr[0] === 'Kosmos is not keeping a record of what it would move on this computer.',
         tag + ' where the sweep does not record, it says so and lists nothing', JSON.stringify(nr));
       const rc = r.recorded && r.recorded.recent;
       const want = [new RegExp('^' + NONE.replace(/\./g, '\\.') + '$'), /^Lately$/,
