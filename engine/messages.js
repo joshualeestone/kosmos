@@ -989,11 +989,19 @@ function lastPostAt(projectId) {
   };
   for (; LAST_POST.n < rows.length; LAST_POST.n++) bump(LAST_POST.map, rows[LAST_POST.n]);
   let best = LAST_POST.map.get(String(projectId)) || null;
-  // A half-appended last line is read for this answer only, as record() itself does.
+  // A half-appended last line is read for this answer only, as record() itself does (from the raw fragment: got.rows
+  // is filtered, so its length does not line up with the raw rows).
   const tail = new Map();
-  for (const r of got.rows.slice(rows.length)) bump(tail, r);
+  if (READ_CACHE && READ_CACHE.fragment) {
+    const fragRows = [];
+    parseLinesInto(READ_CACHE.fragment, fragRows, []);
+    for (const r of fragRows) bump(tail, r);
+  }
   const t = tail.get(String(projectId));
   if (t && (!best || t > best)) best = t;
+  /* #7185: the map is kept over the RAW rows (scanned once), so the answer is filtered here: when the newest post is
+     older than the project, every post is an earlier project's, and this room has had none. */
+  if (best && require('./projectborn').snapshot().earlier(String(projectId), new Date(best).toISOString())) best = null;
   return best;
 }
 
