@@ -9,7 +9,7 @@ pointed at another vendor. The worst: adding the key checks it against api.anthr
 DeepSeek key AND receives it. So a DeepSeek account is NOT a `~/.claude-<label>` key account. It is its own provider,
 the way Qwen (#5977) is its own provider on the codex runner:
 
-- An account is a folder `~/.kosmos-deepseek-<label>` holding `kosmos-endpoint.json` (mode 600):
+- An account is a folder `~/.kosmos-deepseek-<label>` holding `kosmos-vendor.json` (mode 600):
   `{ "provider": "deepseek", "baseUrl": "https://api.deepseek.com/anthropic", "model": "...", "key": "..." }`.
   The folder is the agent's CLAUDE_CONFIG_DIR. There is no `.claude.json` sign-in and no apiKeyHelper.
 - One table (engine/anthropiccompat.js) names each vendor once: id, display name, base URL, models, where to get a key.

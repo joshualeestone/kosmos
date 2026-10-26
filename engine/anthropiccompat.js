@@ -5,7 +5,7 @@
  * the way a Qwen agent (#5977, engine/qwenaccounts.js) runs on the codex runner pointed at its endpoint.
  *
  * An account is NOT a Claude account. It is a folder in the person's home, ~/.kosmos-<vendor>-<label>, holding
- * kosmos-endpoint.json (mode 600): { "vendor": "deepseek", "model": "deepseek-chat", "key": "..." }. The folder is the
+ * kosmos-vendor.json (mode 600): { "vendor": "deepseek", "model": "deepseek-chat", "key": "..." }. The folder is the
  * agent's CLAUDE_CONFIG_DIR, and it holds no Claude sign-in. Every path that judges a Claude account (the key check
  * against api.anthropic.com, the sign-in and usage readers, the machine banner) walks ~/.claude-* folders and never
  * sees this one, by construction. A Claude KEY account pointed at another address was rejected: adding its key asks
@@ -49,7 +49,9 @@ function vendorOf(id) {
 /* A function, not a const (the #1337 rule): a caller may set AGENT_WORKFORCE_HOME after requiring this module. */
 function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
 
-const ENDPOINT_BASENAME = 'kosmos-endpoint.json';
+/* Review (slice 1b): NOT kosmos-endpoint.json, which marks a Qwen home (qwenaccounts.isEndpointHome reads any folder
+   holding it as Qwen's), so a vendor folder could never be mistaken for one. */
+const ENDPOINT_BASENAME = 'kosmos-vendor.json';
 function dirPrefix(vendor) { return '.kosmos-' + vendor + '-'; }
 function forgottenPrefix(vendor) { return '.removed-kosmos-' + vendor + '-'; }
 function endpointFile(dir) { return path.join(path.resolve(String(dir || '')), ENDPOINT_BASENAME); }
