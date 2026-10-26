@@ -95,4 +95,19 @@ test('#7249: classify pins every spelling the suite uses to exactly one kind', (
   const alias = winpath.classify(String.raw`\??\Global\C:\data`);
   assert.equal(alias.kind, 'local-drive');
   assert.equal(alias.networkSpelled, true, 'the alias keeps the old network SHAPE, so isNetworkSpelling is unchanged');
+  /* networkSpelled gates the refusals that fire BEFORE any realpath (otherFolderSkip, winRealRefusal),
+     so pin it for EVERY row, not just the one alias, against the legacy isNetworkSpelling expression
+     kept here as an independent oracle. A future edit to classify that changed the flag for any kind
+     would turn this red, which a per-kind assertion alone would miss (networkSpelled is not a function
+     of kind: a plain C:\ and a \??\Global\C:\ alias are both local-drive but differ on the flag). */
+  const L_NAMESPACE = /^[\\/]{2}/;
+  const L_LOCAL_LONG = /^[\\/]{2}[?.][\\/](?=[A-Za-z]:[\\/])/;
+  const L_NT_PREFIX = /^\\\?\?\\/;
+  const L_NT_LOCAL = /^\\\?\?\\(?=[A-Za-z]:[\\/])/;
+  const L_LOCAL_VOLUME = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)(?:Volume\{[0-9a-f-]+\}|GLOBALROOT[\\/]Device[\\/]HarddiskVolume(?:ShadowCopy)?\d+)[\\/]/i;
+  const legacyNetworkSpelled = (s) => ((L_NAMESPACE.test(s) && !L_LOCAL_LONG.test(s)) || (L_NT_PREFIX.test(s) && !L_NT_LOCAL.test(s))) && !L_LOCAL_VOLUME.test(s);
+  for (const [spelling] of TABLE) {
+    assert.equal(winpath.classify(spelling).networkSpelled, legacyNetworkSpelled(spelling), 'classify networkSpelled parity: ' + spelling);
+    assert.equal(winpath.isNetworkSpelling(spelling), legacyNetworkSpelled(spelling), 'isNetworkSpelling parity: ' + spelling);
+  }
 });
