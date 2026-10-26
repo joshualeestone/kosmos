@@ -42,3 +42,19 @@ That the board reports a stable `bootedAt` per process (the same field the updat
 - The server route and its idempotence.
 - The relay path: the dialog asks /api/status through the same fetch the page uses, so it waits the same way when the
   board is reached through the relay ("Reconnecting...").
+
+## Review 1 (2026-10-26) and what was done
+- Reload also pressed Update (the new deadline Reload and the existing 409 Reload both fired the press listener):
+  FIXED. The button is marked reload-only where it becomes Reload; the listener stands down on the mark; opening the
+  dialog clears it. Browser check: a stubbed 409, then Reload, must not reach the route; red with the guard removed
+  ("1 extra POST").
+- Two waits, or a Roll back wait writing onto an Update dialog, after close and reopen: FIXED with a generation counter
+  bumped by open and close, checked before and after each status read.
+- 'restarted' with the version from before unknown: FIXED, it now needs it (a new boot may be the new version).
+- The restart screen covers the dialog while the board is down: DECIDED, documented rather than changed. That screen
+  is already the signal while the board is down and works end to end; this wait settles the dialog underneath for when
+  it lifts. Would change my mind: a report of the dialog showing something wrong once the screen lifts.
+- NITs: the #6903 comment no longer describes the no-answer case (fixed); focus moves to Cancel while the button is
+  off and back after (fixed). Not done: the wait ignores `updateAttempt` (the installer's own failure record). The
+  "answering" sentence already sends the person to press again, and the press reports that record through the
+  existing overlay, so reading it here would duplicate that path.
