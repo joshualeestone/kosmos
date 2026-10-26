@@ -188,8 +188,9 @@ function finishRestoreWorld(opts = {}) {
   const notListed = inner && Number.isSafeInteger(inner.failedNotListed) && inner.failedNotListed > 0 ? inner.failedNotListed : 0;
   failedFiles = (inner && Array.isArray(inner.failed) ? inner.failed.length : 0) + notListed;
   // Why files were not fetched (a grant refused part way, files under an earlier key), for the screen beside the count.
-  fetchProblems = (Array.isArray(opts.result.fetchProblems) ? opts.result.fetchProblems : [])
-    .filter((x) => typeof x === 'string').slice(0, 20).map((x) => cleanText(x, 300, '')).filter(Boolean);
+  const problems = (Array.isArray(opts.result.fetchProblems) ? opts.result.fetchProblems : []).filter((x) => typeof x === 'string');
+  fetchProblems = problems.slice(0, 20).map((x) => cleanText(x, 300, '')).filter(Boolean);
+  if (problems.length > 20) fetchProblems.push('(more not listed)');
   if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) return refuse('the restore folder is not the one made for this Kosmos');
   // A stopped restore keeps its record, an open sink holds its lock, and a crashed one leaves its temp folder: any of
   // the sink's own entries means the restore is not finished, and it continues in this folder (slice 3).
@@ -257,14 +258,18 @@ function finishRestoreWorld(opts = {}) {
    node_modules (npm resolves packages up the tree, so npx in any agent folder below would run its scripts), not a
    file, not a link. */
 const NOT_PLAIN = ['HEAD', 'node_modules'];
+/* Dot-names git or a provider opens at start. Asked by exact name too, since some filesystems (HFS+ ignores
+   zero-width characters) open a name that does not start with a dot as one of these. */
+const START_DOT = [GIT, '.claude', '.mcp.json', '.envrc', '.codex', '.gemini'];
 function plainFolder(parent, n) {
   if (n.startsWith('.') || NOT_PLAIN.some((x) => x.toLowerCase() === n.toLowerCase())) return false;
   let st;
   try { st = fs.lstatSync(path.join(parent, n), { bigint: true }); } catch { return false; }
   if (!st.isDirectory() || st.isSymbolicLink()) return false;
   // The filesystem may fold names further than toLowerCase does, so ask it: an entry that IS what the exact name
-  // opens is held back too.
-  for (const x of NOT_PLAIN) {
+  // opens is held back too. With no file identity to compare (an inode of 0), only the names above decide.
+  if (st.ino === 0n) return true;
+  for (const x of [...NOT_PLAIN, ...START_DOT]) {
     let other;
     try { other = fs.lstatSync(path.join(parent, x), { bigint: true }); } catch { continue; }
     if (other.ino === st.ino && other.dev === st.dev) return false;
@@ -311,6 +316,7 @@ function briefsIn(folder) {
 /* The first MAX_BRIEF_BYTES + 1 bytes of a file found plain by lstat, refused if what opened is not that same file. */
 function readBrief(file) {
   const before = fs.lstatSync(file, { bigint: true });
+  if (!before.isFile()) throw new Error('not a plain file any more');   // a FIFO would block the open
   if (before.ino === 0n) throw new Error('this filesystem gives no file identity to compare');
   const fd = fs.openSync(file, 'r');
   try {
@@ -356,6 +362,11 @@ function runsIn(folder, budget) {
   if (!listed) return [UNREADABLE, ...gitIn(folder)];   // git still finds what lstat can see
   const out = [];
   for (const n of listed.names.filter((x) => x.startsWith('.') && !HARMLESS.has(x))) out.push(labelOf(n));
+  // The start-time dot-names asked by exact name, for a spelling the filesystem opens as one of them.
+  for (const x of START_DOT) {
+    if (x === GIT || out.some((r) => r.toLowerCase() === x)) continue;   // git is asked by gitIn below
+    try { fs.lstatSync(path.join(folder, x)); out.push(x); } catch { /* absent */ }
+  }
   if (listed.cut) out.push(CUT);
   for (const g of gitIn(folder)) if (!out.includes(g)) out.push(g);
   const folded = new Set(listed.names.map((x) => x.toLowerCase()));

@@ -711,3 +711,24 @@ test('kept is capped and says so when the restore folder holds more than it list
   assert.equal(r.kept.length, 1001);
   assert.equal(r.kept[1000], '(more not listed)');
 });
+
+test('a link at the top of the restored workers is held back, not moved in', { skip: process.platform === 'win32' ? 'a directory symlink needs privileges on Windows' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  const outside = fresh(t);
+  fs.symlinkSync(outside, path.join(p.restoreDir, 'workers', 'linked'));
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  assert.deepEqual(r.heldBack, ['workers/linked']);
+  assert.deepEqual(fs.readdirSync(worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS), ['ann']);
+});
+
+test('fetchProblems past twenty say more were not listed', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const many = Array.from({ length: 25 }, (_, i) => `problem ${i}`);
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: { ok: true, fetchProblems: many, result: { restored: [], failed: [] } } });
+  assert.equal(r.fetchProblems.length, 21);
+  assert.equal(r.fetchProblems[20], '(more not listed)');
+});
