@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.63",
+  "lastProd": "0.7.69",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -257,7 +257,8 @@
       ],
       "rank": 11.6,
       "since": "0.7.40",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.69"
     },
     {
       "title": "A paused room says why",
@@ -806,7 +807,8 @@
       "icon": "tasks",
       "rank": 5,
       "since": "0.7.64",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.69"
     },
     {
       "title": "Close a task and its subtasks at once",
@@ -814,7 +816,8 @@
       "icon": "tasks",
       "rank": 5.5,
       "since": "0.7.64",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.69"
     },
     {
       "title": "A message that did not go can be sent again",
@@ -822,7 +825,8 @@
       "icon": "chat",
       "rank": 4.5,
       "since": "0.7.65",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.69"
     },
     {
       "title": "Long messages reach Claude agents",
@@ -830,7 +834,8 @@
       "icon": "chat",
       "rank": 4.8,
       "since": "0.7.66",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.69"
     }
   ]
 }
