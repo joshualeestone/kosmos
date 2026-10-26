@@ -1478,8 +1478,8 @@ async function sweepInstallGroup(keys, on) {
  * unreadable.
  * What a failure does:
  *   a refusal about one agent (the coordinator's 400, or a site 4xx other than 401, 404, 405 and 429): that
- *   agent waits 15 minutes and the pass goes on, so the order needs no rotation (the install-group pass has one,
- *   for refusals that hit all). An agent refused for good is asked again every 15 minutes until the refusal ends or
+ *   agent waits 15 minutes and the pass goes on. After a pass-wide pause the next pass starts just after the
+ *   agent it stopped on. An agent refused for good is asked again every 15 minutes until the refusal ends or
  *   the board restarts: at most 96 small mints and site calls a day per such agent, accepted;
  *   a coordinator 403 (this computer is not allowed, or the account lapsed): the pass pauses 15 minutes;
  *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
@@ -1494,6 +1494,7 @@ const OWNER_LINK_UNKNOWN_MS = 60 * 60 * 1000;   // a pause when the route does n
 const OWNER_LINK_PASS_MS = 30 * 1000;   // no new agent is started after this long in one pass
 const ownerLinkPassAt = new Map();    // endpointDir -> ms: the whole pass is paused until then
 const ownerLinkAgentAt = new Map();   // endpointDir + agentKey -> ms: this one agent is skipped until then
+const ownerLinkFrom = new Map();      // endpointDir -> index into the keys where the next pass starts
 const ownerLinkLogged = new Map();    // endpointDir + agentKey -> the reason last logged for it (once per reason)
 // #6488's own test for "Kosmos+ is live here" (signed in AND switched on), shared with phone notifications.
 function ownerLinkLive() {
@@ -1530,7 +1531,13 @@ async function sweepOwnerLink(keys, on) {
   const until = Date.now() + OWNER_LINK_PASS_MS;
   let marks = false;
   try {
-    for (const agentKey of Object.keys(keys)) {
+    // Each pass starts just after the agent a pass-wide failure last stopped on, so no one agent's failure keeps the
+    // agents after it from ever being reached (as the install-group pass, #4922 review 8).
+    const order = Object.keys(keys);
+    const start = (ownerLinkFrom.get(ep) || 0) % Math.max(order.length, 1);
+    for (let idx = 0; idx < order.length; idx++) {
+      const agentKey = order[(start + idx) % order.length];
+      const stopHere = () => ownerLinkFrom.set(ep, (start + idx + 1) % order.length);
       if (Date.now() > until) break;   // the rest wait for the next sweep
       // #4994: a deleted agent's old account, or a name being retired, is not linked.
       if (agentKey.startsWith(RETIRED_PREFIX) || retiring(agentKey)) continue;
@@ -1555,6 +1562,7 @@ async function sweepOwnerLink(keys, on) {
         if (st === 400) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
         const unknown = !minted.ok && ownerPassUnknown(minted);
         ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
+        stopHere();
         log(`owner link: ${unknown ? 'Kosmos+ cannot vouch for agents yet' : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '')}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
         break;
       }
@@ -1575,6 +1583,7 @@ async function sweepOwnerLink(keys, on) {
       if (r.status === 429) {
         const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600));
         ownerLinkPassAt.set(ep, Date.now() + waitS * 1000);
+        stopHere();
         log(`owner link: the service asked to slow down (429); the pass waits ${waitS} s`);
         break;
       }
@@ -1582,6 +1591,7 @@ async function sweepOwnerLink(keys, on) {
       if (r.status >= 400 && r.status < 500 && r.status !== 401) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
       // No answer, a 5xx (the site's 503 while it is not ready), a 401 logging in again could not clear: the service.
       ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
+      stopHere();
       log(`owner link: the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
       break;
     }
@@ -1918,13 +1928,13 @@ async function sweepOnce(now) {
   // #4922: near last, the least urgent: a service slow on this route must not hold back the passes above.
   try { await sweepInstallGroup(keys, on); }
   catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  // #7215: as least urgent as the install group: nothing public waits on it.
-  try { await sweepOwnerLink(keys, on); }
-  catch (e) { log(`owner link: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  // #4885: new pictures last. A failing picture route costs a timeout per agent, so it must not hold back comments
-  // or the install group.
+  // #4885: new pictures near the end. A failing picture route costs a timeout per agent, so it must not hold back
+  // comments or the install group.
   try { await sweepAvatars(keys, on, { removals: false }); }
   catch (e) { log(`pictures: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #7215: last: nothing public waits on the owner link, so it must not hold back new pictures.
+  try { await sweepOwnerLink(keys, on); }
+  catch (e) { log(`owner link: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
@@ -3175,6 +3185,6 @@ module.exports = {
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
-  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
+  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkFrom.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };
