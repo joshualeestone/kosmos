@@ -488,23 +488,27 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         await ph.locator('#pj-list').getByText('Scroll Repro').first().click();
         await ph.waitForSelector('#pj-room', { state: 'visible', timeout: GROW_MS });
         await ph.waitForFunction(() => document.getElementById('pj-room').children.length > 20, null, { timeout: GROW_MS }).catch(() => {});
-        const floor = () => ph.evaluate(async () => {
+        /* lift: the CONTROL's lifted fit, written in the same step as the measurement (review 2: the room's 5 s refresh
+           re-fits it, so a lift written in an earlier step could be undone before the read, a flaky "cannot fail"). */
+        const floor = (lift) => ph.evaluate(async (lift) => {
           const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer');
+          if (lift) room.style.setProperty('--pj-room-fit', '2000px');
           room.scrollTop = room.scrollHeight;
           await new Promise((r) => setTimeout(r, 300));
+          if (lift) { room.style.setProperty('--pj-room-fit', '2000px'); room.scrollTop = room.scrollHeight; }
           const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
           const last = rows[rows.length - 1];
           return { cls: last ? last.className : '', lastBottom: Math.round(last ? last.getBoundingClientRect().bottom : 0),
             composerTop: Math.round(comp.getBoundingClientRect().top), composerBottom: Math.round(comp.getBoundingClientRect().bottom),
             roomH: Math.round(room.getBoundingClientRect().height), viewport: innerHeight,
             phoneTab: !document.body.classList.contains('consolidated') && matchMedia('(max-width: 30rem)').matches };
-        });
+        }, !!lift);
         const post = await floor();
         if (!post.phoneTab) bad('#7196 the phone arms run in the phone tab layout', JSON.stringify(post));
         else if (post.lastBottom <= post.composerTop) ok('#7196 on a phone the newest post sits above the composer (' + post.lastBottom + ' <= ' + post.composerTop + ')');
         else bad('#7196 on a phone the newest post sits above the composer', JSON.stringify(post));
         // CONTROL: lift the cap the fix writes, and the same measurement must see the newest row go under the composer.
-        const lifted = await ph.evaluate(() => { document.getElementById('pj-room').style.setProperty('--pj-room-fit', '2000px'); return true; }) && await floor();
+        const lifted = await floor(true);
         if (lifted.lastBottom > lifted.composerTop) ok('#7196 CONTROL: without the fit, the measurement sees the newest row under the composer');
         else bad('#7196 CONTROL: without the fit, the measurement sees the newest row under the composer', 'it cannot fail: ' + JSON.stringify(lifted));
         await ph.evaluate(() => pjFitRoomPhone());
@@ -526,7 +530,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         // composer is always on screen), with a lifted-fit control at this size.
         if (kb.lastBottom <= kb.composerTop && kb.composerBottom <= kb.viewport) ok('#7196 with the keyboard up the newest row stays above the composer');
         else bad('#7196 with the keyboard up the newest row stays above the composer', JSON.stringify({ before: post, kb }));
-        const kbLifted = await ph.evaluate(() => { document.getElementById('pj-room').style.setProperty('--pj-room-fit', '2000px'); return true; }) && await floor();
+        const kbLifted = await floor(true);
         if (kbLifted.lastBottom > kbLifted.composerTop) ok('#7196 CONTROL: with the keyboard up and no fit, the measurement sees the newest row hidden');
         else bad('#7196 CONTROL: with the keyboard up and no fit, the measurement sees the newest row hidden', 'it cannot fail: ' + JSON.stringify(kbLifted));
         await ph.setViewportSize({ width: 393, height: 852 });
