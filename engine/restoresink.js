@@ -57,7 +57,7 @@ const RESUME_MAX_ENTRIES = 1000000;   // files and folders walked when a root is
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 // The shape of an NTFS 8.3 short name, the same rule backuprestore.js's pathProblem uses: on Windows such a name can
 // alias another folder, the temp folder included (.kosmos-restore-... answers to KOSMOS~1).
-const { SHORT_NAME_RE } = require('./backuprestore');
+const { SHORT_NAME_RE, collisionKey } = require('./backuprestore');
 const CLOSE_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'ENOTEMPTY', 'EACCES']);
 
 /* Remove a tree, retrying the codes Windows uses while antivirus or the indexer holds a just-written file. */
@@ -169,7 +169,10 @@ function untrusted(at, isFile) {
 /* The record: a first line { snapshot } naming what this restore restores, then { path, size, sha256 } per file, as
    path (NFC) -> every { size, sha256 } written for it. A line is written before its link, so a path can carry lines
    that never became the file (a link refused because the name was taken, or a crash before it); the file on disk must
-   match one of them. Returns { snapshot, held, at } (at: the record's own lstat). Throws on anything else. */
+   match one of them. Keyed by backuprestore's collisionKey (review 2: on APFS and NTFS 'A/x' and 'a/y' share one
+   folder, so the disk spells a/y as A/y); collidingPaths keeps two restored files from sharing a key. A last line with
+   no newline is dropped (review 2: a power cut mid-write); it was fsynced before its link, so its file never went
+   out. Returns { snapshot, held, at, validBytes } (at: the record's lstat; validBytes: up to its last newline). */
 function readRecord(rootReal) {
   const file = path.join(rootReal, RECORD_NAME);
   let at;
@@ -183,7 +186,8 @@ function readRecord(rootReal) {
   if (!o) throw new Error('restoresink: this folder holds no restore record to continue from (it changed while it was opened)');
   let text;
   try { text = fs.readFileSync(o.fd, 'utf8'); } finally { fs.closeSync(o.fd); }
-  const lines = text.split('\n').filter((l) => l !== '');
+  const end = text.lastIndexOf('\n') + 1;
+  const lines = text.slice(0, end).split('\n').filter((l) => l !== '');
   let head;
   try { head = JSON.parse(lines[0] || 'null'); } catch { head = null; }
   if (!head || typeof head !== 'object' || typeof head.snapshot !== 'string' || !head.snapshot || head.snapshot.length > 512) {
@@ -199,15 +203,16 @@ function readRecord(rootReal) {
       || !Number.isSafeInteger(e.size) || e.size < 0 || typeof e.sha256 !== 'string' || !SHA256_HEX_RE.test(e.sha256)) {
       throw new Error('restoresink: the restore record is damaged');
     }
-    const k = e.path.normalize('NFC');
+    const k = collisionKey(e.path);
     if (!held.has(k)) held.set(k, []);
     held.get(k).push({ size: e.size, sha256: e.sha256 });
   }
-  return { snapshot: head.snapshot, held, at };
+  return { snapshot: head.snapshot, held, at, validBytes: Buffer.byteLength(text.slice(0, end)) };
 }
 
 /* Resume (slice 3): the root must hold only what the record says this restore put there. Old temp folders (a stopped
-   run leaves one) are cleared first, as their files may be second names of published ones. Then every entry is walked
+   run leaves one) are cleared first, as their files may be second names of published ones, so a resume that is then
+   refused has still cleared them (they hold only this sink's own half-written files). Then every entry is walked
    without following a link: the record; folders on the way to a recorded file; and recorded files, each re-hashed to
    one of its lines. Names compare in NFC (review 1: HFS+ hands back NFD, so a recorded 'café' must still be found),
    and two entries that are one name in NFC refuse. A recorded file that is absent is dropped (its line was written
@@ -222,7 +227,7 @@ function verifyResumable(rootReal, held, recordAt) {
   const folders = new Set();
   for (const [rel] of held) {
     const segs = rel.split('/');
-    for (let i = 1; i < segs.length; i += 1) folders.add(segs.slice(0, i).join('/'));
+    for (let i = 1; i < segs.length; i += 1) folders.add(segs.slice(0, i).join('/'));   // keys already folded
   }
   let seen = 0;
   const walk = (dirRel) => {
@@ -236,6 +241,7 @@ function verifyResumable(rootReal, held, recordAt) {
       names.add(nfc);
       const abs = path.join(dirAbs, name);
       const at = fs.lstatSync(abs, { bigint: true });
+      const key = collisionKey(rel);   // looked up folded; the two-names check above stays NFC, so a case-sensitive disk's A and a pass
       // The record itself, and only the very file readRecord read (review 1: on Windows a link there was never looked at).
       if (!dirRel && name === RECORD_NAME) {
         if (at.isSymbolicLink() || at.dev !== recordAt.dev || at.ino !== recordAt.ino) throw new Error('restoresink: the restore record changed while it was read');
@@ -243,20 +249,20 @@ function verifyResumable(rootReal, held, recordAt) {
       }
       if (at.isSymbolicLink()) throw new Error(`restoresink: this folder has a link the restore did not make, so it cannot be continued (${rel})`);
       if (at.isDirectory()) {
-        if (!folders.has(rel)) throw new Error(`restoresink: this folder holds something the restore did not put there, so it cannot be continued (${rel})`);
+        if (!folders.has(key)) throw new Error(`restoresink: this folder holds something the restore did not put there, so it cannot be continued (${rel})`);
         const why = untrusted(at, false);
         if (why) throw new Error(`restoresink: a folder in this restore ${why}, so it cannot be continued (${rel})`);
         walk(rel);
         continue;
       }
-      const lines = held.get(rel);
+      const lines = held.get(key);
       if (!at.isFile() || !lines) throw new Error(`restoresink: this folder holds something the restore did not put there, so it cannot be continued (${rel})`);
       const why = untrusted(at, true);
       if (why) throw new Error(`restoresink: a restored file ${why}, so it cannot be continued (${rel})`);
       const got = hashFile(abs, at);
       const match = got && lines.find((w) => w.size === got.size && w.sha256 === got.sha256);
       if (!match) throw new Error(`restoresink: a restored file has changed since the restore stopped, so it cannot be continued (${rel})`);
-      kept.set(rel, match);
+      kept.set(key, match);
     }
   };
   walk('');
@@ -364,7 +370,7 @@ function createRestoreSink(root, opts = {}) {
   }
   // slice 3: opened only now, after every check passed, so a refused fresh root is left as empty as it was given.
   let recordFd = null;
-  let recordBytes = rec ? Number(rec.at.size) : 0;
+  let recordBytes = rec ? rec.validBytes : 0;
   let recordLost = false;
   // Written to the same cap the reader holds: past it the record is dropped (a restore this large cannot be
   // continued), never left for a resume that would refuse it as too large.
@@ -376,7 +382,13 @@ function createRestoreSink(root, opts = {}) {
       try { fs.closeSync(f); } finally { fs.rmSync(path.join(rootReal, RECORD_NAME), { force: true }); }
       return;
     }
-    fs.writeSync(recordFd, line);
+    // Every byte, or the next line would be glued to a fragment (review 2: a short write near a full disk).
+    const buf = Buffer.from(line);
+    for (let off = 0; off < buf.length;) {
+      const w = fs.writeSync(recordFd, buf, off, buf.length - off);
+      if (w <= 0) throw new Error('restoresink: the restore record write made no progress');
+      off += w;
+    }
     fs.fsyncSync(recordFd);
     recordBytes += n;
   };
@@ -388,10 +400,16 @@ function createRestoreSink(root, opts = {}) {
     try {
       recordFd = fs.openSync(file, flags, 0o600);
       // A resumed record must be the very file read and verified above (review 1: O_NOFOLLOW is 0 on Windows).
-      if (rec) { const st = fs.fstatSync(recordFd, { bigint: true }); if (st.dev !== rec.at.dev || st.ino !== rec.at.ino) throw new Error('it changed after it was read'); }
-      else recordWrite(`${JSON.stringify({ snapshot })}\n`);
+      if (rec) {
+        const st = fs.fstatSync(recordFd, { bigint: true });
+        if (st.dev !== rec.at.dev || st.ino !== rec.at.ino) throw new Error('it changed after it was read');
+        // A torn last line is cut back off, so the next line starts on a line of its own (review 2).
+        if (BigInt(rec.validBytes) !== st.size) fs.ftruncateSync(recordFd, rec.validBytes);
+      } else recordWrite(`${JSON.stringify({ snapshot })}\n`);
     } catch (e) {
       if (recordFd !== null) { try { fs.closeSync(recordFd); } catch { /* reported below */ } recordFd = null; }
+      // A fresh root is left as it was given (review 2: a record whose first line failed stayed behind).
+      if (!rec) { try { fs.rmSync(file, { force: true }); } catch { /* reported below */ } }
       try { removeTree(tempDir); } catch { /* reported below */ }
       throw new Error(`restoresink: could not open the restore record (${e.code || e.message})`);
     }
@@ -428,7 +446,7 @@ function createRestoreSink(root, opts = {}) {
     /** slice 3: true when a resumed root already holds rel with exactly this content (proved when the sink opened). */
     get recordLost() { return recordLost; },
     has(rel, sha256, size) {
-      const h = typeof rel === 'string' ? held.get(rel.normalize('NFC')) : undefined;
+      const h = typeof rel === 'string' ? held.get(collisionKey(rel)) : undefined;
       return !!h && h.sha256 === sha256 && h.size === size;
     },
     begin(rel) {
