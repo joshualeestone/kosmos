@@ -72812,6 +72812,23 @@ function pjBody(text, names, agentNames) {
   return out;
 }
 
+/* kosmos#7239 (Josh): an agent writes a web address bare, without https:// (meridianworks.kosmosplus.com), and it
+   should be a link too. A bare address is host labels ending in a known web ending, with an optional port, path,
+   query or fragment; it opens as https://. Endings that are also everyday file extensions (notes.md, Kosmos.app,
+   setup.sh, main.py) are left out, and so is anything with a letter case that is not a host's (store.ROOT), a version
+   (0.7.70: no ending is all digits), an email (the @ is not a host character) and code (held before this runs). The
+   ending must be lowercase (GitHub.com links, store.ROOT does not).
+   Returns the https:// address, or '' when the token is not a bare web address. */
+function pjBareWeb(tok) {
+  // Not info, store, page, link, live, news: they are also code properties (logger.info). Built once, kept on the function.
+  const endings = pjBareWeb.endings || (pjBareWeb.endings = new Set(['com', 'net', 'org', 'io', 'ai', 'dev', 'co', 'me', 'us', 'uk', 'ca', 'au', 'nz', 'ie',
+  'de', 'fr', 'nl', 'es', 'it', 'se', 'no', 'dk', 'fi', 'ch', 'at', 'be', 'eu', 'jp', 'in', 'br', 'mx', 'biz', 'xyz',
+  'tech', 'online', 'cloud', 'gg', 'tv', 'fm', 'studio', 'agency', 'software', 'world', 'gov', 'edu']));
+  const m = /^((?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+([a-z]{2,24}))(:\d{1,5})?([/?#][^\s\uFFFC]*)?$/.exec(String(tok || ''));
+  if (!m || !endings.has(m[2])) return '';
+  return 'https://' + m[0];
+}
+
 /* 🔑 EVERY PLACE A PERSON'S MESSAGE IS DRAWN GOES THROUGH THIS (#355). It was
    written for the project room and the other rows kept `esc(text)`, so the
    same pasted URL was a link in one box and dead characters in the next box
@@ -72819,9 +72836,16 @@ function pjBody(text, names, agentNames) {
    message with no URL in it renders exactly as before. */
 function pjInline(text) {
   const raw = String(text == null ? '' : text);
-  if (raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) return esc(raw);
+  if (raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1 && raw.indexOf('.') === -1) return esc(raw);
   return raw.split(/(\s+)/).map((tok) => {
     if (!tok || /^\s+$/.test(tok)) return esc(tok);
+    // kosmos#7239: a bare web address, its leading "(" and trailing punctuation kept outside the link.
+    const bare = /^(\(?)(.*?)([.,;:!?)\]]*)$/.exec(tok);
+    const bareUrl = bare && typeof pjBareWeb === 'function' ? pjBareWeb(bare[2]) : '';   // guarded: tests lift pjInline alone
+    if (bareUrl) {
+      return esc(bare[1]) + '<a class="xlink" href="' + esc(bareUrl) + '" target="_blank" rel="noreferrer noopener">'
+        + esc(bare[2]) + '</a>' + esc(bare[3]);
+    }
     if (!/^https?:\/\/[^\s]+$/.test(tok)) return esc(tok);
     /* Trailing punctuation is not part of the link: "see https://x.test." */
     const m = /^(.*?)([.,;:!?)\]]*)$/.exec(tok);
@@ -72954,6 +72978,14 @@ function pjRichSpans(seg, names, agentNames) {
     if (/^https?:\/\/[^\s￼]+$/.test(core)) {
       return hold('<a class="xlink" href="' + core + '" target="_blank" rel="noreferrer noopener">' + core + '</a>') + mm[2];
     }
+    /* kosmos#7239: a bare web address. `core` is already escaped, and a host, port and path carry no character esc
+       changes except & in a query, which stays escaped in the href as the https arm above leaves it. A leading "("
+       or emphasis marker stays outside the link. */
+    {
+      const lead = (core.match(/^[*~(]+/) || [''])[0];
+      const web = typeof pjBareWeb === 'function' ? pjBareWeb(core.slice(lead.length)) : '';   // guarded: tests lift pjRich alone
+      if (web) return lead + hold('<a class="xlink" href="' + web + '" target="_blank" rel="noreferrer noopener">' + core.slice(lead.length) + '</a>') + mm[2];
+    }
     /* #2922: @<agent> mention. `core` is already esc()'d; agent keys are [A-Za-z0-9._-], which esc
        leaves unchanged, so resolving the escaped word against the keys is exact. Leading emphasis markers and
        an opening paren are peeled off and RE-ATTACHED around the held span, so `**@mona**` bolds the
@@ -73048,7 +73080,10 @@ function pjRich(text) {
          message stays byte-identical (pjRichSpans escapes it the same); a
          multi-line one renders its breaks as <br> under the same pre-wrap. */
       && raw.indexOf('|') === -1
-      && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) {
+      && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1
+      // kosmos#7239: a bare web address (example.com) takes the slow path, where it becomes a link.
+      && !(typeof pjBareWeb === 'function' && raw.indexOf('.') !== -1
+        && raw.split(/\s+/).some((t) => pjBareWeb(t.replace(/^[(*~]+/, '').replace(/[.,;:!?)\]*~]+$/, ''))))) {
     return esc(raw);
   }
   const src = raw.split(/\r?\n/);   // #3679: a CRLF text (a task's detail) still closes its fences

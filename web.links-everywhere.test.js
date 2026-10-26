@@ -222,3 +222,28 @@ test('a message with several files draws every card, and hides the joined names 
   assert.equal((old.match(/class="att att-/g) || []).length, 1);
   assert.doesNotMatch(old, /<\/b>one\.txt/);
 });
+
+/* kosmos#7239 (Josh 10-26): a bare web address, written without https://, is a link too, opened as https://. Things
+   that only look like one stay plain: a file name, a version, a dotted code name, an email, anything in code. */
+const BARE = 'go to meridianworks.kosmosplus.com, or example.com/path. Not notes.md, 0.7.70, store.ROOT, Kosmos.app, logger.info or a@b.com';
+const expectBare = (html, where) => {
+  assert.match(html, /<a class="xlink" href="https:\/\/meridianworks\.kosmosplus\.com" target="_blank" rel="noreferrer noopener">meridianworks\.kosmosplus\.com<\/a>,/,
+    where + ': a bare host is not a link, or its comma went into it');
+  assert.match(html, /<a class="xlink" href="https:\/\/example\.com\/path" target="_blank" rel="noreferrer noopener">example\.com\/path<\/a>\./,
+    where + ': a bare host with a path is not a link, or its full stop went into it');
+  const anchors = html.match(/<a class="xlink"/g) || [];
+  assert.equal(anchors.length, 2, where + ': something that only looks like an address was linked: ' + html);
+  for (const plain of ['notes.md', '0.7.70', 'store.ROOT', 'Kosmos.app', 'logger.info']) assert.ok(html.includes(plain), where + ': ' + plain + ' went missing');
+};
+
+test('kosmos#7239: a bare web address is a link everywhere a message is drawn, look-alikes stay plain', () => {
+  const inline = new Function(lift(['esc', 'pjBareWeb', 'pjInline']) + '\nreturn pjInline;')();
+  expectBare(inline(BARE), 'pjInline');
+  const rich = new Function(lift(['esc', 'pjBareWeb', 'pjRich', 'pjRichSpans', 'pjListDepth']) + '\nreturn pjRich;')();
+  expectBare(rich(BARE), 'pjRich');
+  // Code is never linked, in a span or a block.
+  const inCode = rich('run `example.com` now');
+  assert.doesNotMatch(inCode, /<a /, 'an address inside a code span was linked: ' + inCode);
+  // CONTROL: the https:// form still links, as #355 has it.
+  assert.match(rich('see https://example.com.'), /href="https:\/\/example\.com"/);
+});
