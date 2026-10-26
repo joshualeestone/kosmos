@@ -224,13 +224,15 @@ async function project7196(page, name, agent) {
    board: the design-shots run's first pass showed both rooms empty, "Nothing here yet"). Once per project id. */
 const SEEDED_7196 = new Set();
 function seedPosts7196({ id: pid, createdAt }, from, texts) {
-  if (SEEDED_7196.has(pid)) return;
-  SEEDED_7196.add(pid);
-  /* After the project's own createdAt: since #7185 no reader is given a room row stamped before it (#7233 is the
-     shared seed's half of this). One second apart from there. */
-  const t0 = (Date.parse(createdAt) || Date.now()) + 1000;
+  /* By id AND createdAt: a project's id comes from its name, so the throwaway made again for the next size has the same
+     id, and keyed by id alone it was never seeded again (the third run's empty rooms). */
+  if (SEEDED_7196.has(pid + '@' + createdAt)) return;
+  SEEDED_7196.add(pid + '@' + createdAt);
+  /* After the project's own createdAt (since #7185 no reader is given a room row stamped before it; #7233 is the shared
+     seed's half of this), and never after now. One millisecond apart, starting just after createdAt. */
+  const t0 = (Date.parse(createdAt) || Date.now() - 1000) + 1;
   const lines = texts.map((text, i) => ({ kind: 'post', id: 'r7196-' + pid + '-' + (i + 1), project: pid, from, to: [], text,
-    at: new Date(t0 + i * 1000).toISOString(), outcomes: {} }));
+    at: new Date(Math.min(t0 + i, Date.now())).toISOString(), outcomes: {} }));
   const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
   fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 }
