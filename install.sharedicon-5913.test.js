@@ -30,7 +30,7 @@ function fnSource(name) {
 const FNS = ['file_owner_uid', 'bundle_is_ours', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install',
   'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'sealed_icon_reusable', 'sealed_icon_other_users',
   'sealed_marker_tag', 'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'resolve_app_dir', 'app_bundle_version',
-  'version_at_least'].map(fnSource).join('\n');
+  'version_at_least', 'own_icon_placed'].map(fnSource).join('\n');
 const ME = String(process.getuid());
 /* "Another account": any uid but the one running the test. A fixed one (502, as this test had) is the runner's OWN
    uid when CI runs as a Mac's second account, and then "another account's marker" is this account's own: CI read
@@ -118,8 +118,16 @@ it('#7203: a refused reuse takes back THIS account\'s own reuse marker and leave
   // Refused (the shared icon is older): this account's marker goes, the other account's stays.
   const out = run(w, 'resolve_app_dir; echo "skip=$APP_SKIP_ICON reason=$APP_SKIP_REASON"', { other: w.shared, versions: { shared: '0.7.61', ours: '0.7.63' } }).out;
   assert.doesNotMatch(out, /shared-sealed/, 'CONTROL: the reuse was refused: ' + out);
+  assert.ok(fs.existsSync(mine), 'the marker went before this account had an icon of its own (the resolve must not take it)');
+  run(w, 'own_icon_placed');   // what the icon step runs once make_app placed this account's own icon
   assert.ok(!fs.existsSync(mine), 'this account\'s marker stayed after it stopped reusing the icon');
   assert.equal(fs.readFileSync(theirs, 'utf8'), 'another account\'s marker\n', 'another account\'s marker was touched');
+});
+
+test('#7203: the marker is taken back only once the icon step placed an icon (wiring, text only)', () => {
+  assert.match(SETUP, /\n\[ "\$APP_MADE" = "yes" \] && own_icon_placed   # #7203\nif \[ "\$APP_MADE" = "yes" \]; then\n/,
+    'own_icon_placed is not called right where the icon step knows it made an icon');
+  assert.doesNotMatch(fnSource('resolve_app_dir'), /sealed_icon_unmark|own_icon_placed/, 'the resolve takes the marker before any icon exists');
 });
 
 it('#7203: app_bundle_version reads the real bundle\'s version (the fixtures above stand it in)', () => {
