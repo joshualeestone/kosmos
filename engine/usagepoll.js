@@ -9,11 +9,11 @@
  * THE SOURCE: GET https://api.anthropic.com/api/oauth/usage, the endpoint behind Claude Code's /usage screen, with the
  * account's OAuth access token and `anthropic-beta: oauth-2025-04-20`. It returns `seven_day` and `five_hour`, each with
  * `utilization` (a percentage) and `resets_at` (ISO 8601). It is not a documented API, so this is a SECOND source next to
- * the status line, never a replacement: accountsweekly uses whichever reading is newer, and an account this module cannot
- * read keeps its status-line reading.
+ * the status line, never a replacement: accountsweekly takes the higher figure within one window and the more recent
+ * reading across windows, and an account this module cannot read keeps its status-line reading.
  *
  * 🛑 SECRET DISCIPLINE, as loginexpiry.js: the credential body is parsed in tokenStateFor and the token leaves it only to
- *    be put in one request header to api.anthropic.com. It is never logged, returned to a route, or written: the file
+ *    be put in the Authorization header of its requests (usage, then profile) to api.anthropic.com. It is never logged, returned to a route, or written: the file
  *    this module writes holds numbers and a state word. (Clearing the local variables after use does not erase the
  *    token from memory; the guarantee is what is never logged, written or returned, not when memory is freed.)
  * 🛑 NEVER REFRESHES A TOKEN. Claude Code rotates the refresh token when it refreshes, and a second refresher can leave a
@@ -48,8 +48,8 @@ const SAME_RESET_SECONDS = 60;
 /* A token that runs out this soon is treated as expired: sent now it would come back refused, and the state would be
    a refusal rather than the expiry it is. */
 const EXPIRY_MARGIN_MS = 60 * 1000;
-/* Review 14: after a refusal (401, 403 or 429) the same token is not sent again for an hour. The token is the one
-   Claude Code itself uses, so repeated refused requests must not put the operator's live agents at risk. */
+/* How long a refusal holds an account. The token is the one Claude Code itself uses, so refused requests must not
+   repeat every ten minutes; which answers are refusals, and for whom it holds, is the rule below. */
 const BACKOFF_MS = 60 * 60 * 1000;
 
 /* Review 22: the backoff as one rule, replacing the case-by-case additions of reviews 14 to 21.
@@ -61,10 +61,12 @@ const BACKOFF_MS = 60 * 60 * 1000;
      refusal.
    - A refusal holds the account for an hour, for the login that was refused (a new login is read at once), and for
      the token that was refused (identified by its expiry time, not a secret), except a 429, which is the account's
-     rate limit and holds across a renewed token.
+     rate limit and holds across a renewed token. A credential with no expiry time cannot be told from its renewal,
+     so it is held for the hour (review 25: errs to fewer requests).
    - A clock that steps back inside the hour still holds; a refusal stamped more than an hour away either way has
      expired (review 18).
-   - The refusal is kept in memory as well as in the record, and the newer copy wins, so a folder that cannot be
+   - The refusal is kept in memory as well as in the record; a copy still within its hour wins, and between two such
+     copies the newer (review 23), so a folder that cannot be
      written, or a record that cannot be read, does not erase it, and every record that is not a reading carries a
      refusal still within its hour, so a restarted board keeps it too. While held, the record's state is the refusal. A reading with another token does not clear it:
      the refused token stays refused for its hour if it comes back. */
@@ -290,10 +292,6 @@ function readRaw(dir) {
   } catch { return null; }
 }
 
-/* Read every Claude account in `list` (accounts.list() rows), one after another, and record each. Accounts are read
-   one at a time so a slow or hung read never stacks requests. A failed read keeps the last good figures and the moment
-   they were measured (`measuredAt`) beside its own state, so one refused or rate-limited read does not throw away a
-   reading that is still fresh. Resolves the number of accounts MEASURED this time (state ok). */
 /* Review 11: whether a record was written for the login an account has now. The email must match, and so must the
    organization when both name one, since one email can sign in to two organizations (review 9). */
 function sameLogin(prev, a, org) {   // exported for accountsweekly, which shows a record only for the same login
@@ -302,6 +300,10 @@ function sameLogin(prev, a, org) {   // exported for accountsweekly, which shows
   return !(typeof prev.org === 'string' && prev.org && typeof org === 'string' && org && prev.org !== org);
 }
 
+/* Read every Claude account in `list` (accounts.list() rows), one after another, and record each. Accounts are read
+   one at a time so a slow or hung read never stacks requests. A failed read keeps the last good figures and the moment
+   they were measured (`measuredAt`) beside its own state, so one refused or rate-limited read does not throw away a
+   reading that is still fresh. Resolves the number of accounts MEASURED this time (state ok). */
 async function pollAll(list, deps = {}) {
   const identityOf = deps.identityOf || ((dir) => require('./accounts').identityOf(dir));
   let measured = 0;

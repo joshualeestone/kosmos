@@ -13,7 +13,7 @@ at 0%, had no reading at all (the card's opening).
   600, in the account folder as `kosmos-usage.json`. Which credential: loginexpiry.serviceNameFor. The default account
   reads the bare entry, because Kosmos starts its agents with CLAUDE_CONFIG_DIR unset; any other account reads its own
   folder's entry. Off macOS, the folder's `.credentials.json`.
-- States: `ok`, `no-credential`, `no-token`, `token-expired`, `http-<code>`, `unreachable`, `unreadable-response`. An
+- States: `ok`; sent nothing: `no-credential`, `no-token`, `token-expired`, `identity-unknown`; read again next sweep: `unreachable`, `http-5xx`, `profile-unreachable`; refusals (see the rule above `isRefusal`): any other `http-<code>`, `profile-http-<code>`, `unreadable-response`, `profile-unreadable`, `other-account`. An
   expired token is never refreshed and no request is sent with it.
 - Review 1: a failed read keeps the last good figures and the moment they were measured (`measuredAt`) beside its own
   state, so one refused or rate-limited read does not throw a fresh reading away. A window with usage but no reset time
@@ -136,7 +136,11 @@ at 0%, had no reading at all (the card's opening).
   the five-hour figure kept), not a refusal; without the field, or with a window that cannot be read, it is still
   one. A reading with another token keeps a live refusal in the record as well as in memory, so a restart keeps it,
   and a test now restarts the module (a fresh copy, nothing in memory) and finds the refused token still held.
-- `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
+- Review 25: comments brought up to date with the code (the old three-code backoff comment, "newer" where the merge
+  takes the higher figure within a window, the refusal copy rule, one header per request), two doc comments moved
+  onto their own functions, and the endpoint reading guarded so that if it ever threw, the status line's reading
+  would still be shown. A credential with no expiry time is held for the hour (it cannot be told from its renewal).
+- `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the higher figure within one window and the more recent reading across windows,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
   engine.reachable.test.js rightly refuses an export nothing in the product reaches.
@@ -188,7 +192,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 57 tests (counted from a run after review 24), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 58 tests (counted from a run after review 25), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

@@ -813,3 +813,13 @@ test('#7152 review 24: an answer with no weekly window is a reading, not a refus
     request: fakeRequest({ code: 200, body: JSON.stringify({ five_hour: { utilization: 4.0, resets_at: '2026-10-26T01:20:00Z' } }) }, {}) });
   assert.equal(missing.state, 'unreadable-response', 'CONTROL: an answer without the weekly field is the endpoint changing shape');
 });
+
+test('#7152 review 25: if the endpoint reading ever throws, the status line\'s reading is still shown', (t) => {
+  const d = tmpDir(t);
+  const resetsAt = Math.floor((NOW + 3 * 86400000) / 1000);
+  fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 30, resetsAt, at: NOW - 3600000, history: [] }));
+  const real = usagepoll.readUsage;
+  usagepoll.readUsage = () => { throw new Error('boom'); };
+  t.after(() => { usagepoll.readUsage = real; });
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).usedPct, 30, 'a failing endpoint reading took the status line\'s with it');
+});

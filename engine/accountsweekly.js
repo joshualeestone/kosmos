@@ -9,7 +9,8 @@
  *
  * kosmos#7152: a reading comes from one of two sources, the status line (kosmos-statusline.js, written when an agent
  * on the account takes a turn) or the usage endpoint (usagepoll.js, read every ten minutes for every account, idle ones
- * included). weeklyOf and fiveHourOf give the newer of the two, so `at` can come from either.
+ * included). weeklyOf and fiveHourOf give the higher figure within one window and the more recent reading across
+ * windows (see newer), so `at` can come from either.
  *
  * summary() is what /api/status sends. The status poll runs every five seconds, so the summary is kept for CACHE_MS and
  * rebuilt only when it is older or the account list changed. A reading or a reason (`blocked`) can therefore be up to CACHE_MS old
@@ -42,9 +43,6 @@ function newer(statusLine, polled) {
 }
 const SAME_WINDOW_MS = 3600 * 1000;
 
-/* The endpoint's figure for one window, dated when it last CHANGED (usagepoll's changedAt), which is what the status
-   line's `at` means and what the page shows as "last saw it change". A window with no reset time yet is left to the
-   status line: the /api/status shape carries a reset time. */
 /* Review 18: the account's .claude.json can be large (the default one measured 571 KB here) and this runs on request
    paths, so the organization is parsed once per version of the file, keyed by its size and change time. */
 const orgCache = new Map();
@@ -63,7 +61,14 @@ function accountOrg(a) {
   } catch { return null; }
 }
 
+/* The endpoint's figure for one window, dated when it last CHANGED (usagepoll's changedAt), which is what the status
+   line's `at` means and what the page shows as "last saw it change". A window with no reset time yet is left to the
+   status line: the /api/status shape carries a reset time. */
 function polledOf(a, nowMs, key) {
+  try { return polledOfUnguarded(a, nowMs, key); } catch { return null; }   // review 25: never costs the status line its reading
+}
+
+function polledOfUnguarded(a, nowMs, key) {
   const usagepoll = require('./usagepoll');
   if (!usagepoll.enabled()) return null;   // review 20: switched off, the board shows the status line alone, as before
   const r = usagepoll.readUsage(a.dir, nowMs);
