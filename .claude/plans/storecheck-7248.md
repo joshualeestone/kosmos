@@ -57,3 +57,15 @@ named in the board log and on the screen, and nothing else is touched.
     (never a link). N3 a failing worlds base no longer skips the check. N4 log lines carry error codes, never paths.
     N5 the owning module's lock is not taken: documented in restore. N6 the log assertion checks the sandbox path. N7 a
     static test pins the check first in the start block. N8 the browser check presses for real (focus+Enter, click).
+- Round 2 (.claude/plans/storecheck-7248-review2.md): 0 blockers, 3 warnings, 6 nits. All taken; round 1's W4 decision
+  reversed:
+  - W1 put back only while the store is still damaged. A store saved over since start (the person changed a setting) is
+    refused, with no button on the page, and the row and the refusal say where the older copy is kept. Never an older
+    copy over newer data. A store gone since start is not brought back.
+  - W2 the kept-aside damaged copy gets the store's own permissions (chmod after saveFlushed; tested at 0600).
+  - W3 webhooks/, agent-permission-settings.json and org-consent.json join the stores with no kept copy (something the
+    person can take back); the words say "a key or something you can take back".
+  - Nits: a linked store is refused, not replaced through its link; current() re-reads only files up to 1 MB (larger:
+    size and time); the sensitive list matches the path relative to the data root (not any file named remote.json),
+    dead entries removed; the browser check's refusal is one the board gives; the order test now finds the later start
+    calls (communityswitch.migrate, wireDefaultHooks, installSupervisor, syncEveryone) and asserts them after.

@@ -23933,10 +23933,10 @@ function paintDamagedFiles(files) {
   const rows = list.map((f, i) => {
     const when = f.backup ? rebootWhen(f.backup.at) : '';
     return '<small class="dmgrow" tabindex="-1">' + esc(damagedRowWords(f))
-      + (f.backup
-        ? (f.savedOver ? ' Putting the copy back keeps what is there now beside it.' : '')
-          + ' <button type="button" class="dmgput" data-i="' + i + '">Put back the copy saved ' + esc(when || 'before') + '</button>'
-        : f.secret ? ' It holds a secret, so Kosmos keeps no copy of it.' : ' There is no good copy to put back.')
+      // Saved over since start: no button (putting an older copy back would undo that), only where the copy is kept.
+      + (f.backup && f.savedOver ? ' The copy saved ' + esc(when || 'before') + ' is kept at ' + esc(f.backup.file) + '.'
+        : f.backup ? ' <button type="button" class="dmgput" data-i="' + i + '">Put back the copy saved ' + esc(when || 'before') + '</button>'
+        : f.secret ? ' It holds a key or something you can take back, so Kosmos keeps no copy of it.' : ' There is no good copy to put back.')
       + '</small>';
   }).join('');
   slot.innerHTML = '<div class="utoast reboot dmg">'
@@ -23965,7 +23965,7 @@ function paintDamagedFiles(files) {
         why = (got && got.error) || '';
       } catch { ok = false; }
       if (!ok) { btn.removeAttribute('aria-disabled'); say(row, why || 'Kosmos could not put it back just now. Try again in a moment.'); return; }
-      row.textContent = f.file + ': put back. What was there is kept beside it. If anything still looks missing, restart Kosmos.';
+      row.textContent = f.file + ': put back. The damaged one is kept beside it. If anything still looks missing, restart Kosmos.';
       row.focus();   // the button it replaced held focus; the row that says what happened takes it
     });
   });

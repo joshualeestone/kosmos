@@ -146,16 +146,27 @@ test('kosmos#7248: putting the good copy back happens only on request, and keeps
     assert.equal(fs.readFileSync(path.join(root, 'projects.json')).every((b) => b === 0), true, 'the check itself changed the store');
     assert.equal(sc.current().length, 1);
     assert.deepEqual(sc.restore('settings.json', () => {}), { ok: false, why: 'that file is not one Kosmos found damaged' });
-    // Saved over since start (a reader wrote it as empty): the page is told, and putting the copy back keeps that aside.
-    fs.writeFileSync(path.join(root, 'projects.json'), JSON.stringify({ projects: ['saved over'] }));
-    assert.equal(sc.current()[0].savedOver, true, 'a store saved over since start is not said to be');
+    fs.chmodSync(path.join(root, 'projects.json'), 0o600);
     const r = sc.restore('projects.json', (l) => lines.push(l));
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'projects.json'), 'utf8')), { projects: [] });
     const aside = fs.readdirSync(root).filter((n) => n.startsWith('projects.json.damaged-'));
-    assert.equal(aside.length, 1, 'what was there was not kept aside');
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, aside[0]), 'utf8')), { projects: ['saved over'] });
+    assert.equal(aside.length, 1, 'the damaged file was not kept aside');
+    assert.equal(fs.readFileSync(path.join(root, aside[0])).every((b) => b === 0), true);
+    assert.equal(fs.statSync(path.join(root, aside[0])).mode & 0o777, 0o600, 'the kept-aside copy is not as private as the store');
     assert.equal(sc.current().length, 0, 'a store that was put back is still listed');
+    // Review 2: a store saved over since start is never replaced by an older copy; the reply says where the copy is.
+    fs.writeFileSync(path.join(root, 'removed.json'), '');
+    fs.writeFileSync(path.join(root, 'removed.json.bak'), '[]');
+    delete require.cache[require.resolve('./engine/storecheck')];
+    const sc2 = require('./engine/storecheck');
+    sc2.atStart({}, () => {});
+    fs.writeFileSync(path.join(root, 'removed.json'), JSON.stringify(['newer']));
+    assert.equal(sc2.current()[0].savedOver, true, 'a store saved over since start is not said to be');
+    const refused = sc2.restore('removed.json', () => {});
+    assert.equal(refused.ok, false);
+    assert.match(refused.why, /saved since Kosmos started, so Kosmos left it; the copy is kept at removed\.json\.bak/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'removed.json'), 'utf8')), ['newer'], 'newer data was replaced');
     // CONTROL: classify tells the three kinds and a good value apart.
     assert.deepEqual([sc.classify(Buffer.from('')), sc.classify(Buffer.alloc(3)), sc.classify(Buffer.from('{ no')), sc.classify(Buffer.from('[]'))], ['empty', 'nul', 'unreadable', null]);
   } finally {
@@ -168,12 +179,13 @@ test('kosmos#7248: the check is the FIRST thing the board does at start, before 
   const src = fs.readFileSync(path.join(REPO, 'server.js'), 'utf8');
   const at = src.indexOf("if (require.main === module) {\n  /* kosmos#7248");
   assert.notEqual(at, -1, 'the start block does not open with the kosmos#7248 check');
-  const block = src.slice(at, at + 1200);
+  const block = src.slice(at);   // the start block runs to the end of the file
   const first = block.indexOf("require('./engine/storecheck').atStart(");
-  assert.ok(first > 0, 'storecheck.atStart is not at the top of the start block');
-  for (const later of ['communityswitch.migrate(', 'wireDefaultHooks', 'undo.sweep']) {
+  assert.ok(first > 0 && first < 1200, 'storecheck.atStart is not at the top of the start block');
+  // The start writers that come after it are really there, and really after it (review 2: the old loop found none).
+  for (const later of ['communityswitch.migrate(', 'wireDefaultHooks', 'installSupervisor(', 'syncEveryone(']) {
     const i = block.indexOf(later);
-    assert.ok(i === -1 || i > first, later + ' runs before the store check');
+    assert.ok(i > first, later + ' was not found after the store check in the start block');
   }
 });
 
@@ -185,17 +197,21 @@ test('kosmos#7248: a store holding a secret is named, with no copy kept or offer
     const root = store.ROOT;
     fs.mkdirSync(root, { recursive: true });
     fs.writeFileSync(path.join(root, 'service-keys.json'), '');
+    fs.mkdirSync(path.join(root, 'webhooks'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'webhooks', 'webhooks.json'), '');
+    fs.writeFileSync(path.join(root, 'webhooks', 'webhooks.json.bak'), '[]');
     fs.writeFileSync(path.join(root, 'service-keys.json.kosmos-4242-1793000000000-1.tmp'), JSON.stringify({ k: 'secret' }));
     delete require.cache[require.resolve('./engine/storecheck')];
     const sc = require('./engine/storecheck');
     const lines = [];
     sc.atStart({}, (l) => lines.push(l));
-    const d = sc.current()[0];
-    assert.equal(d.file, 'service-keys.json');
+    const d = sc.current().find((x) => x.file === 'service-keys.json');
+    assert.ok(d, 'service-keys.json not named');
+    assert.equal(sc.current().find((x) => x.file === path.join('webhooks', 'webhooks.json')).backup, null, 'an older webhooks copy was offered (review 2)');
     assert.equal(d.backup, null, 'a copy of a secret was offered');
     assert.equal(d.secret, true);
     assert.equal(fs.readdirSync(root).some((n) => n.includes('.recovered-')), false, 'a copy of a secret was kept');
-    assert.match(lines.join('\n'), /It holds a secret, so Kosmos keeps no copy of it to put back\./);
+    assert.match(lines.join('\n'), /It holds a key or something you can take back, so Kosmos keeps no copy of it to put back\./);
   } finally {
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = prev;
     fs.rmSync(sb, { recursive: true, force: true });

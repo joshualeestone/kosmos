@@ -55,13 +55,19 @@ const FOLDERS = {
   remote: 'Kosmos+ connection state',
 };
 const MAX_BYTES = 64 * 1024 * 1024;   // larger is not one of these stores; never read it whole
-/* Stores that hold a secret (a key, a token, a sign-in). Their damage is named, but no copy is kept or put back: a kept
-   copy of a secret outlives its own revocation, the residue engine/securewrite.js exists to prevent (review 1). */
-const SECRET_FILES = new Set(['remote.json', 'service-keys.json', 'org-enrollment.json', 'fed-seal-key.json', 'github-app.json',
-  'codex-signins.json', 'grok-signins.json', 'board.token']);
-const SECRET_FOLDERS = new Set(['sendertokens', 'communitysend', 'remote', 'backupkeys']);
+/* Stores whose older copy must never come back by itself: a secret (a key, a token, a sign-in), or something the person
+   can take back (a webhook, an agent's permission, a company consent). Their damage is named, but no copy is kept or
+   put back: a kept secret outlives its own revocation (engine/securewrite.js), and an older copy would revive what was
+   removed or withdrawn (reviews 1 and 2). Matched by the path relative to the data root, so an agent named "remote"
+   (profiles/remote.json) is not caught by a file name. */
+const SENSITIVE_FILES = new Set(['remote.json', 'service-keys.json', 'org-enrollment.json', 'org-consent.json', 'fed-seal-key.json',
+  'github-app.json', 'codex-signins.json', 'grok-signins.json', 'agent-permission-settings.json']);
+const SENSITIVE_FOLDERS = new Set(['sendertokens', 'communitysend', 'remote', 'webhooks']);
 function holdsSecret(file) {
-  return SECRET_FILES.has(path.basename(file)) || SECRET_FOLDERS.has(path.basename(path.dirname(file)));
+  const r = path.relative(store.ROOT, file);
+  if (!r || r.startsWith('..') || path.isAbsolute(r)) return false;
+  const parts = r.split(path.sep);
+  return parts.length === 1 ? SENSITIVE_FILES.has(parts[0]) : SENSITIVE_FOLDERS.has(parts[0]);
 }
 
 let FOUND = [];          // the damaged stores this start found
@@ -160,7 +166,7 @@ function scan(opts) {
     const folder = path.basename(path.dirname(file));
     const holds = HOLDS[path.basename(file)] || (path.dirname(file) !== store.ROOT && FOLDERS[folder]) || 'a record Kosmos keeps';
     const copy = problem === 'toobig' || problem === 'unopenable' ? null : goodCopy(file);
-    found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null });
+    found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs });
   }
   FOUND = found;
   return found;
@@ -175,7 +181,7 @@ function atStart(opts, write) {
     say('Kosmos found a damaged file at start: ' + d.file + ' ' + PROBLEM[d.problem] + ' (it holds ' + d.holds + '). '
       + 'Kosmos left it as it is. '
       + (d.backup ? 'A good copy saved ' + d.backup.at + ' is at ' + d.backup.file + '; the person can put it back.'
-        : d.secret ? 'It holds a secret, so Kosmos keeps no copy of it to put back.' : 'No good copy of it was found.'));
+        : d.secret ? 'It holds a key or something you can take back, so Kosmos keeps no copy of it to put back.' : 'No good copy of it was found.'));
   }
   return found;
 }
@@ -187,7 +193,12 @@ function current() {
   return FOUND.map((d) => {
     let savedOver = false;
     if (d.problem === 'empty' || d.problem === 'nul' || d.problem === 'unreadable') {
-      try { savedOver = classify(fs.readFileSync(d.abs)) === null; } catch { savedOver = false; }
+      try {
+        // Only a small file is read again per ask; a large one is re-read only if its size or time moved.
+        const st = fs.statSync(d.abs);
+        if (st.size <= 1024 * 1024) savedOver = classify(fs.readFileSync(d.abs)) === null;
+        else savedOver = st.size !== d.size || st.mtimeMs !== d.mtimeMs;
+      } catch { savedOver = false; }
     }
     return { file: d.file, holds: d.holds, problem: d.problem, backup: d.backup, secret: d.secret, savedOver };
   });
@@ -205,25 +216,29 @@ function restore(file, write) {
   let buf;
   try { buf = fs.readFileSync(d.copyAbs); } catch { return { ok: false, why: 'the good copy could not be read' }; }
   if (classify(buf) !== null) return { ok: false, why: 'the good copy is no longer good' };
-  /* Whatever is there now goes aside first, under a new name, flushed: the damaged file, or what a reader saved over
-     it since this start (the page says which before the person presses). Nothing is ever deleted here. The owning
-     module's own lock is not taken: inside the board everything is one thread, so the residual is another process
-     (the CLI, a second board) writing the same store in the same moment. */
+  /* Only while the store is still the damaged one (review 2): if anything wrote it since this start (the person changed
+     a setting, a reader saved over it), putting an older copy back would undo that, so it is refused and the page says
+     where the copy is kept. A linked store is not replaced through its link. Nothing is ever deleted here; the owning
+     module's lock is not taken: inside the board everything is one thread, so the residual is another process (the
+     CLI, a second board) writing the same store in the same moment. */
+  let lst;
+  try { lst = fs.lstatSync(d.abs); } catch { return { ok: false, why: 'it is no longer there, so Kosmos did not bring it back' }; }
+  if (lst.isSymbolicLink()) return { ok: false, why: 'it is a link to another place, so Kosmos left it alone' };
   let now;
-  try { now = fs.readFileSync(d.abs); } catch { now = null; }
+  try { now = fs.readFileSync(d.abs); } catch { return { ok: false, why: 'Kosmos cannot open it' }; }
+  if (classify(now) === null) return { ok: false, why: 'it has been saved since Kosmos started, so Kosmos left it; the copy is kept at ' + d.backup.file };
   const aside = d.abs + '.damaged-' + new Date().toISOString().replace(/[:.]/g, '-');
   try {
-    if (now) {
-      if (fs.existsSync(aside)) return { ok: false, why: 'try again in a moment' };
-      store.saveFlushed(aside, now);
-    }
+    if (fs.existsSync(aside)) return { ok: false, why: 'try again in a moment' };
+    store.saveFlushed(aside, now);
+    fs.chmodSync(aside, lst.mode & 0o777);   // the damaged copy keeps the store's own permissions (review 2)
     store.saveFlushed(d.abs, buf);   // flushed before it replaces the file, so a crash cannot leave it blank again
   } catch (err) {
     say('Kosmos could not put back the good copy of ' + d.file + ' (' + ((err && err.code) || 'an error') + ').');
     return { ok: false, why: 'Kosmos could not put it back' };
   }
   say('Kosmos put back the good copy of ' + d.file + ' saved ' + d.backup.at + ', at the person\'s request; '
-    + (now ? 'what was there is kept at ' + rel(aside) + '.' : 'nothing was there to keep.'));
+    + 'the damaged one is kept at ' + rel(aside) + '.');
   FOUND = FOUND.filter((x) => x !== d);
   return { ok: true };
 }

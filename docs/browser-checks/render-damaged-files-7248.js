@@ -42,7 +42,7 @@ const FILES = [
           if (u.endsWith('/api/board/damaged-files')) return enc({ files });
           if (u.endsWith('/api/board/damaged-files/restore')) {
             window.__posts.push(JSON.parse(opts.body));
-            return window.__restoreAnswer === 200 ? enc({ restored: true }) : enc({ error: 'Kosmos did not put it back: it is readable again, so Kosmos left it alone.' }, 409);
+            return window.__restoreAnswer === 200 ? enc({ restored: true }) : enc({ error: 'Kosmos did not put it back: it has been saved since Kosmos started, so Kosmos left it; the copy is kept at projects.json.recovered-x.' }, 409);
           }
           if (u.endsWith('/api/board/damaged-files/dismiss')) { window.__posts.push('dismiss'); return enc({ dismissed: true }); }
           if (u.includes('/api/status')) return enc({ agents: [], version: '0.0.0' });
@@ -77,10 +77,10 @@ const FILES = [
         t + 'a row says what the file holds, its name, what is wrong and that Kosmos has not changed it', note.rows[0]);
       chk(/^The file with the agents you removed \(removed\.json\) is empty\. Kosmos has not changed it\. There is no good copy to put back\.$/.test(note.rows[1] || ''),
         t + 'a file with no good copy says so, with no button', note.rows[1]);
-      chk(/^The file with your settings \(settings\.json\) cannot be read\. Kosmos has saved over it since it started\. Putting the copy back keeps what is there now beside it\./.test(note.rows[2] || ''),
-        t + 'a file saved over since start says so, and what putting the copy back does', note.rows[2]);
-      chk(/It holds a secret, so Kosmos keeps no copy of it\.$/.test(note.rows[3] || ''), t + 'a file holding a secret offers no copy and says why', note.rows[3]);
-      chk(note.buttons.length === 2 && note.buttons.every((b) => /^Put back the copy saved /.test(b)), t + 'a put-back button for each file with a good copy', JSON.stringify(note.buttons));
+      chk(/^The file with your settings \(settings\.json\) cannot be read\. Kosmos has saved over it since it started\. The copy saved .+ is kept at settings\.json\.bak\.$/.test(note.rows[2] || ''),
+        t + 'a file saved over since start says so, and where its copy is kept, with no button (review 2)', note.rows[2]);
+      chk(/It holds a key or something you can take back, so Kosmos keeps no copy of it\.$/.test(note.rows[3] || ''), t + 'a file holding a secret offers no copy and says why', note.rows[3]);
+      chk(note.buttons.length === 1 && /^Put back the copy saved /.test(note.buttons[0]), t + 'a put-back button only for the file still damaged, with a good copy', JSON.stringify(note.buttons));
       chk(!/—/.test(note.text), t + 'no em dash in the note');
 
       // A refused put-back says why, keeps focus on the button, and the button can be pressed again. Pressed as a person
@@ -93,7 +93,7 @@ const FILES = [
         const b = document.querySelector('#damaged-slot .dmgput');
         return { err: (document.querySelector('#damaged-slot .dmgrow .rerr') || {}).textContent || '', busy: b.getAttribute('aria-disabled'), focused: document.activeElement === b };
       });
-      chk(/it is readable again, so Kosmos left it alone/.test(refused.err) && refused.busy === null && refused.focused,
+      chk(/saved since Kosmos started, so Kosmos left it; the copy is kept at/.test(refused.err) && refused.busy === null && refused.focused,
         t + 'a refused put-back says why, keeps focus on the button and leaves it pressable', JSON.stringify(refused));
 
       // The put-back asks the board for that file; the row then says it was put back and takes focus.
@@ -105,7 +105,7 @@ const FILES = [
         return { posts: window.__posts, row: row.textContent, focused: document.activeElement === row };
       });
       chk(put.posts.filter((p) => p && p.file === 'projects.json').length === 2, t + 'the button asks the board to put back projects.json', JSON.stringify(put.posts));
-      chk(/^projects\.json: put back\. What was there is kept beside it\./.test(put.row) && put.focused,
+      chk(/^projects\.json: put back\. The damaged one is kept beside it\./.test(put.row) && put.focused,
         t + 'the row then says it was put back, and takes focus from the button it replaced', JSON.stringify(put));
 
       // The X hides the note.
