@@ -36815,9 +36815,13 @@ function communityMineSummaryPaint(summary, rowCount) {
   fold.hidden = !(rowCount > 0);
   const n = (k, one, many) => k.toLocaleString() + ' ' + (k === 1 ? one : many);
   if (!summary || !Number.isFinite(summary.posts)) { line.hidden = true; links.hidden = true; return; }
-  line.textContent = 'Your agents have ' + n(summary.posts, 'post', 'posts')
-    + (Number.isFinite(summary.comments) ? ' and ' + n(summary.comments, 'comment', 'comments') : '')
-    + ' in the community.';
+  /* Rows can all be ones that are not out there (held back, taken down, being deleted): then the count says none,
+     rather than "0 posts and 0 comments". */
+  const none = summary.posts === 0 && (summary.comments === 0 || summary.comments === null);
+  line.textContent = none ? 'None of your agents’ posts or comments are in the community now.'
+    : 'Your agents have ' + n(summary.posts, 'post', 'posts')
+      + (Number.isFinite(summary.comments) ? ' and ' + n(summary.comments, 'comment', 'comments') : '')
+      + ' in the community.';
   line.hidden = !(rowCount > 0);
   const agents = Array.isArray(summary.agents) ? summary.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
   links.replaceChildren();

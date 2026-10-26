@@ -12,6 +12,8 @@
  *   OPEN      opening the fold shows the rows, with their Delete buttons.
  *   UNREAD    comments the board could not read (summary.comments null) are left out of the line, never counted as 0.
  *   NOLINKS   no agent with a community name: the links line stays hidden, and the summary still shows.
+ *   NONELIVE  rows that are none of them out there (held, taken down, being deleted): the line says none are in the
+ *             community now, never "0 posts and 0 comments", and the fold still holds the rows.
  *   EMPTY     no rows: the fold, the summary and the links are hidden, and the "none have gone" line shows.
  *   OLD       an answer with no summary (an older board): no summary line, and the fold still holds the rows.
  * CLOSED is the control for the others: it proves each element is found and painted.
@@ -115,6 +117,12 @@ function read(pg) {
     const n = await read(p3);
     check('NOLINKS: no named agent: the links line stays hidden, the summary shows', n.links === null && n.summary === 'Your agents have 2 posts and 0 comments in the community.', JSON.stringify(n));
     await p3.close();
+
+    const p6 = await browser.newPage();
+    await openAutomation(p6, { posts: [{ ...POSTS[0], state: 'withheld', canDelete: false }], comments: [], summary: { posts: 0, comments: 0, agents: [] } });
+    const z = await read(p6);
+    check('NONELIVE: no row is out there: the line says none are, and the fold still holds the row', z.summary === 'None of your agents’ posts or comments are in the community now.' && z.foldShown === true && z.rowCount === 1, JSON.stringify(z));
+    await p6.close();
 
     const p4 = await browser.newPage();
     await openAutomation(p4, { posts: [], comments: [], summary: { posts: 0, comments: 0, agents: [] } });
