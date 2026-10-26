@@ -20,5 +20,14 @@ Both date the project back (createdAt 2020-01-01) before writing the rows, as #7
 - Changing the filter: it is #7185's correct fix.
 
 ## Weakest premise
-That no other browser check writes back-dated room rows. Measured: only these two files append to the message log
-directly. A check that seeds through a route stamps "now" and is not affected.
+That no other check writes room rows stamped BEFORE their project's createdAt. Writers that append to the message log
+directly, checked in review round 1 (14:02): render-roomfree-6949 (fixed here), mobile-shots' sample room (fixed
+here), mobile-shots' refused line and held lines (stamped after the seed, so later than createdAt), and
+render-projects.js:516-527 (stamped with new Date() after the project exists). Rows stamped at or after project
+creation are unaffected.
+
+## Review round 1 (sonnet) points, measured rather than reasoned
+- Dating the project back after its threads exist could make a thread stamped with the old createdAt refuse (chat
+  readThread compares projectBornAt). Measured: render-roomfree-6949 passes 48/48 with the fix; the agent-chat and
+  tasks-subproject-picked design shots read the same on origin/main and on this branch (the task shot is byte
+  identical; the chat shot differs only in live parts such as the working dots).
