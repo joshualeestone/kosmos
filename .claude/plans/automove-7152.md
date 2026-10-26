@@ -128,3 +128,10 @@ reads idle, and a restart kills the job.
 - Something other than a file where the guide marker belongs is "cannot tell": not movable.
 - The failed-write flag clears only when a write succeeds; the tick asks the gate without it, so the write is retried.
 - AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS is an operator's setting (no test can tick), floored at a minute.
+
+## Review 17
+- A decision's key sorts each of its lists, so entries arriving in another order (an account carried through a gap is
+  appended) never make one decision read as two.
+- A failed-write flag clears when the decision matches the one the record already holds (nothing is left unsaid), not
+  only after a later write.
+- A tick that cannot work out the decision logs why, once per reason, so a code defect does not read as a quiet record.

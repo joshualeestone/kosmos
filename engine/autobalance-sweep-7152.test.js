@@ -307,3 +307,35 @@ test('#7152 slice 3 review 16: a folder with no credential at all is signed out,
   assert.equal(rows[0].measured, true, 'CONTROL: a signed-out folder is a reading of its login');
   assert.deepEqual(ab.decide({ rows, movable: () => true, nowMs: NOW }).atRisk.map((x) => x.kind), ['login'], 'a signed-out folder was not at risk by login');
 });
+
+test('#7152 slice 3 review 17: an account carried through a gap does not make the same decision read as new when it returns', async () => {
+  const list3 = [...LIST, { dir: '/u/.claude-third', label: 'third', email: 't@example.test', memoryShared: true, apiKey: false }];
+  const agentsOn = (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : dir === '/u/.claude-third' ? ['bo'] : [], complete: true, moving: [] });
+  const cards = realCards(['ada'], ['bo']);
+  const both = { ...USAGE, '/u/.claude-third': reading(95, 40) };   // work and third both at risk, spare takes them
+  const aged = { at: NOW, measuredAt: NOW - 31 * 60e3, state: 'token-expired', weekly: null, fiveHour: null };
+  const file = fileFor();
+  const run = sweep.create({ file });
+  await run.tick(deps({ list: list3, agentsOn, cards, usage: both }), NOW);
+  assert.equal((await run.tick(deps({ list: list3, agentsOn, cards, usage: { ...both, '/u/.claude-work': aged } }), NOW + 1000)).did, 'nothing',
+    'a gap on one account, with nothing else changed, was written as a new decision');
+  assert.equal((await run.tick(deps({ list: list3, agentsOn, cards, usage: both }), NOW + 2000)).did, 'nothing',
+    'the carried account measured again, nothing changed, wrote the decision a second time');
+  assert.equal(sweep.readLines(file).length, 1);
+});
+
+test('#7152 slice 3 review 17: a failed write followed by a return to the recorded decision clears the failure', async () => {
+  const dir = path.join(TMP, `readonly-${++n}`);
+  fs.mkdirSync(dir);
+  const file = path.join(dir, 'record.jsonl');
+  const run = sweep.create({ file });
+  assert.equal((await run.tick(deps(), NOW)).did, 'recorded', 'CONTROL: the first decision is written');
+  if (typeof process.getuid === 'function' && process.getuid() === 0) return;   // chmod does not stop root writing
+  fs.chmodSync(dir, 0o555);
+  try {
+    await run.tick(deps({ usage: { ...USAGE, '/u/.claude-work': reading(40, 35) } }), NOW + 1000);   // a change whose write fails
+    assert.equal(run.state.writeFailed, true, 'CONTROL: the write failed');
+    await run.tick(deps(), NOW + 2000);   // back to the decision the record already holds
+    assert.equal(run.state.writeFailed, false, 'a failure stayed raised though the record already held the decision');
+  } finally { fs.chmodSync(dir, 0o755); }
+});
