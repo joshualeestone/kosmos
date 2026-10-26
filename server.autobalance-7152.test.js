@@ -253,8 +253,8 @@ test('#7152 slice 3 review 2: the real guide check: a guide folder with its mark
     assert.equal(m()('gd'), false, 'the guide, by its folder marker, was movable');
     assert.equal(m()('ada'), true, 'CONTROL: another agent is still movable');
     fs.rmSync(marker);
-    fs.mkdirSync(marker);   // a marker that is not a file: not the guide (lstat answers), so still movable
-    assert.equal(m()('gd'), true);
+    fs.mkdirSync(marker);   // review 16: something other than a file at the marker path is "cannot tell", so not movable
+    assert.equal(m()('gd'), false, 'an agent with an odd object where the guide marker belongs was movable');
     fs.rmSync(marker, { recursive: true });
     /* The seeded name, read strictly: the guide's record names it; an unreadable record refuses everyone. */
     const flag = path.join(require('./engine/store').ROOT, 'setup-assistant.json');   // setup-assistant's flagPath()
