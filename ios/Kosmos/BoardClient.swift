@@ -77,6 +77,8 @@ final class BoardClient: ObservableObject {
     private var sortedTicket = 0
     // The Mac the shown list came from.
     private var shownMac: Board.Mac?
+    // kosmos#7197: the name of the Mac whose list is shown, for a screen that names it while the phase does not.
+    var shownMacName: String? { shownMac?.name }
 
     private let coordinator: URL
     private let sessionStore: SessionStore
