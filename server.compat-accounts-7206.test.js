@@ -109,7 +109,7 @@ test('add: a key DeepSeek refuses stores nothing, and the key went to DeepSeek o
   assert.deepEqual(urls, ['https://api.deepseek.com/models']);
 });
 
-test('add: a good key is stored, and is not yet in /api/accounts (slice 1b), never as a Claude account', async () => {
+test('add: a good key is stored and listed under DeepSeek while the switch is on, never as a Claude account', async () => {
   const urls = vendorAnswers(hasModels);
   const r = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'work', baseUrl: 'https://elsewhere.example' });
   assert.equal(r.status, 200);
@@ -120,14 +120,24 @@ test('add: a good key is stored, and is not yet in /api/accounts (slice 1b), nev
   // The request's address is ignored: the stored account names the vendor, whose address is the table's.
   assert.equal(JSON.stringify(compat.readAccount(nodePath.join(SANDBOX, '.kosmos-deepseek-work'))).includes('elsewhere'), false);
   assert.equal(urls.every((u) => u === 'https://api.deepseek.com/models'), true);
-  const asked = vendorAnswers(hasModels);
-  // Review 3: NOT listed in slice 1a. The page names a provider it does not know as Claude, so a listed DeepSeek row
-  // would be shown, and acted on, as a Claude account. Slice 1b lists it with a page that knows it.
+  // Slice 1b: with the switch ON (this file's default) the row is listed, under DeepSeek, never as a Claude account.
+  vendorAnswers(hasModels);
   const list = await (await fetch(base + '/api/accounts')).json();
-  assert.equal(list.accounts.some((a) => a.dir === nodePath.join(SANDBOX, '.kosmos-deepseek-work') || a.provider === 'deepseek'), false,
-    'a DeepSeek row is listed before the page knows the provider');
+  const rows = list.accounts.filter((a) => a.dir === nodePath.join(SANDBOX, '.kosmos-deepseek-work'));
+  assert.equal(rows.length, 1, 'the account is not listed exactly once');
+  assert.equal(rows[0].provider, 'deepseek');
+  assert.equal(rows[0].providerName, 'DeepSeek');
   assert.equal(JSON.stringify(list).includes(KEY), false, 'the list carries the key');
-  assert.deepEqual(asked, [], 'review 4: the account list sent a key to the vendor for a row nobody sees');
+  // With the switch OFF: not listed, and the vendor is not asked (no key leaves this computer for a row nobody sees).
+  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  try {
+    compat.resetLiveCacheForTest();
+    const asked = vendorAnswers(hasModels);
+    const off = await (await fetch(base + '/api/accounts')).json();
+    assert.equal(off.accounts.some((a) => a.provider === 'deepseek'), false, 'a DeepSeek row is listed while the switch is off');
+    assert.deepEqual(asked, [], 'the account list sent a key to the vendor while the switch is off');
+  } finally { process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev; }
   // Its own route still finds it.
   assert.equal(compat.list('deepseek').some((a) => a.label === 'work'), true);
 });
