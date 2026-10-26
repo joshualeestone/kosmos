@@ -158,6 +158,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    unlisted world's refusal now says so; the workers folder's own row gives the git reason; the variation selector
    supplement is stripped from labels; the doc comment and this plan name node_modules.
 
+20. W: the finish lock could block for ever (a crash between making it and writing the pid left a pid-less lock; a
+   recycled pid looked alive): a pid-less lock or one older than ten minutes is now stale, and a failed pid write
+   removes the folder; a lock that could not be made read as "already under way" (now its own refusal with the error
+   code). Nits: a stale lock is renamed aside before removal so one taker wins; .opencode joins the exact-name list;
+   dir is computed once; the tests' name rule is create.js's own.
+
 ## Residuals, stated
 - A node_modules or .git nested deeper inside a moved project is not reported; npm and git find them when an agent
   works there. 4a's review list shows every file, and 4c's agent start (git hooks off) covers the git case.
