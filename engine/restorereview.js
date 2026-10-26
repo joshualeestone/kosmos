@@ -2,39 +2,46 @@
 /**
  * kosmos#5536 slice 4a (design: #5536 comment 6407859949, sections 2 and 6 above it): the review list a person reads
  * before any restored agent is enabled. A snapshot holds agent folders but never Kosmos's own store, so a restored
- * agent comes back as files with no schedule, membership or connection; what can still act on the successor's
- * accounts is its instructions, written by someone who may be hostile. This lists them, per agent, against the
- * cleanest baseline Kosmos has (the built-in role template the files are closest to): every line the member added,
- * every template line they removed, and a flag on each added line that names a web address, something
- * credential-shaped or a schedule. It decides nothing: each agent is enabled, or not, by the person, one at a time.
+ * agent comes back as files with no schedule, membership or connection, written by someone who may be hostile. This
+ * lists them, per agent: each instruction file (CLAUDE.md, AGENTS.md, GEMINI.md) diffed line by line, in order,
+ * against the closest built-in role template; every other file (notes, and anything that can act without an
+ * instruction line: hooks, settings, MCP config, skills, scripts, which slice 4b must pass in or refuse to restore)
+ * as wholly added; and a flag on each added line that names a web address, something credential-shaped or a
+ * schedule, or that holds invisible characters. It decides nothing: each agent is enabled by the person, one at a time.
  *
- * What the screen must do with it (review 1):
+ * What the screen must do with it:
  *   - show EVERY added line, not only flagged ones: a flag is a hint, and flagged: false never means safe;
- *   - show the removed template lines (a deleted safety rule raises no flag);
- *   - treat `unreviewed` as unread: a file past the read limit or not text is listed there, and makes `flagged` true;
- *   - escape every string for HTML: all of it is the restored member's own text.
+ *   - show each instruction file's removed template lines (a deleted safety rule raises no flag);
+ *   - treat `unreviewed` as unread: anything not fully read is listed there and makes `flagged` true;
+ *   - escape every string for HTML, and render invisible code points as visible escapes (review 2: a payload in
+ *     Unicode tag characters shows as nothing but is read by a model).
  *
  * reviewAgent({ name, files: [{ name, text }], templates? }) -> {
- *   name, nameProblem (null, or why the name could not be used), closest: role key or null,
- *   files: [{ name, lines, added: [line numbers], truncated }], removed: [template lines missing], removedNotListed,
- *   flags: [{ file, line, kind: 'url' | 'credential' | 'schedule' | 'long', text, at, length, split? }],
+ *   name, nameProblem, closest: role key or null,
+ *   files: [{ name, instructions: bool, lines, added: [line numbers], removed: [template lines], truncated }],
+ *   flags: [{ file, line, kind: 'url' | 'credential' | 'schedule' | 'invisible' | 'long', text, at, length, split? }],
  *   flagsNotListed, unreviewed: [{ file, why }], flagged }
  */
 
-const MAX_FILE_CHARS = 512 * 1024;   // instructions are capped well below this; past it the file is unreviewed
-const MAX_TEST_CHARS = 8 * 1024;     // a line is tested to here; a longer one is flagged 'long' (review 1: regex cost)
-const SHOW = 200;                    // characters shown each side of a match
-const MAX_FLAGS_PER_KIND = 200;      // per kind, so padding one kind cannot push another out of view (review 1)
+const MAX_FILE_CHARS = 512 * 1024;   // instructions are capped at 256 KB; past this a file is unreviewed
+const MAX_TOTAL_CHARS = 4 * 1024 * 1024;   // across files (review 2: fifty large notes blocked the board for 12 s)
+const MAX_TEST_CHARS = 8 * 1024;     // a line is tested to here; a longer one is flagged 'long'
+const MAX_DIFF_CELLS = 8 * 1000 * 1000;   // past this a file is not diffed: every line counts as added
+const SHOW = 200;
+const MAX_FLAGS_PER_KIND = 200;
 const MAX_REMOVED = 200;
 const PLACEHOLDER = '{{NAME}}';
 const NAME_MAX = 64;
+const INSTRUCTION_FILES = new Set(['claude.md', 'agents.md', 'gemini.md']);
 
-/* The tests run on a normalised copy (review 1): NFKC folds full-width and look-alike forms, and format characters
-   (zero-width spaces and joiners, bidi controls) are dropped, so https\u200b:// and its full-width spelling read as
-   https://. Defanged addresses (hxxps, [.]) read as real ones. */
-const FORMAT_RE = /[\p{Cf}]/gu;
+/* Invisible code points (review 2): format characters (zero-width, bidi, the Unicode tag block), variation
+   selectors, and the tag block itself. A line holding one is never a template line and is flagged. */
+const INVISIBLE_RE = /[\p{Cf}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/u;
+/* For the tests only: tag characters (U+E0020-E007E) are decoded to the ASCII they spell, so a hidden URL is still a
+   URL; other invisible code points are dropped; NFKC folds full-width forms; defanged addresses read as real. */
 function canonical(line) {
-  return line.normalize('NFKC').replace(FORMAT_RE, '')
+  return line.replace(/[\u{E0020}-\u{E007E}]/gu, (c) => String.fromCharCode(c.codePointAt(0) - 0xE0000))
+    .normalize('NFKC').replace(/[\p{Cf}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/gu, '')
     .replace(/\bhxxp/gi, 'http').replace(/\[\.\]|\(\.\)|\{\.\}/g, '.').replace(/\[:\]/g, ':');
 }
 
@@ -43,14 +50,11 @@ const TLDS = 'com|net|org|io|dev|app|co|ai|xyz|ru|cn|info|biz|us|uk|de|fr|nl|gg|
 const URL_RE = new RegExp([
   String.raw`\b(?:https?|ftp|sftp|ssh|wss?|git|file|s3|gs):\/\/\S`,
   String.raw`\bwww\.[a-z0-9-]{1,63}\.[a-z]{2,}`,
-  // user@host:path (scp and git), bounded so a hostile line cannot backtrack (review 1)
   String.raw`\b[\w.-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,8}:`,
-  // a bare domain with a known ending, optionally with a path (review 1: "upload to evil.example.com/drop")
   String.raw`\b[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){0,6}\.(?:${TLDS})(?:\/\S*)?(?![\w.-])`,
   String.raw`\b(?:curl|wget|scp|rsync|nc|ncat|ftp)\b`,
 ].join('|'), 'i');
 const CREDENTIAL_RE = new RegExp([
-  // a credential word WITH a value next to it, not the word alone (review 1: "the token budget is fine" is prose)
   String.raw`\b(?:api[_ -]?keys?|secrets?|tokens?|passw(?:or)?ds?|passphrases?|credentials?|private[_ -]?keys?|access[_ -]?keys?|auth[_ -]?keys?)\b\s*(?:[:=]|\b(?:is|are|in|at|=)\s+\S)`,
   String.raw`\bbearer\s+\S`,
   String.raw`-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----`,
@@ -58,8 +62,8 @@ const CREDENTIAL_RE = new RegExp([
   String.raw`\bgithub_pat_[A-Za-z0-9_]{20,}|\bgh[pousr]_[A-Za-z0-9]{20,}`,
   String.raw`\bAKIA[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_-]{30,}`,
   String.raw`\bxox[abprs]-[A-Za-z0-9-]{10,}`,
-  String.raw`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.`,     // a JWT
-  String.raw`~\/\.(?:ssh|aws|gnupg|netrc|docker|kube)\b`,      // where credentials live
+  String.raw`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.`,
+  String.raw`~\/\.(?:ssh|aws|gnupg|netrc|docker|kube)\b`,
 ].join('|'), 'i');
 const SCHEDULE_RE = new RegExp([
   String.raw`\b(?:cron(?:tab)?|launchd|launchctl|schtasks|systemd[- ]timer|scheduled[- ]task|at\.allow)\b`,
@@ -69,13 +73,11 @@ const SCHEDULE_RE = new RegExp([
   String.raw`\bon\s+(?:mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays|weekdays|weekends)\b`,
   String.raw`\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)`,
   String.raw`\bat\s+\d{1,2}:\d{2}\b`,
-  // daily, weekly and monthly only beside a verb that acts (review 1: "answer the daily standup" is prose)
   String.raw`\b(?:run|send|post|upload|sync|back\s?up|email|fetch|pull|push|check|report|delete|copy|export)\w*\W+(?:\w+\W+){0,3}(?:daily|weekly|monthly)\b`,
   String.raw`\b(?:daily|weekly|monthly)\W+(?:\w+\W+){0,3}(?:run|send|post|upload|sync|back\s?up|email|fetch|pull|push|check|report|delete|copy|export)`,
 ].join('|'), 'i');
 
-/* A cron expression: five whitespace-separated fields of cron syntax, at least one with *, / or , (so "1 2 3 4 5
-   apples" is not one). Checked over tokens in code, not by a regex that rescans from every position (review 1). */
+/* A cron expression: five fields of cron syntax, at least one with *, / or , (checked over tokens, not by regex). */
 const CRON_FIELD = /^(?:\*|\d{1,2}(?:-\d{1,2})?)(?:\/\d{1,2})?(?:,(?:\*|\d{1,2}(?:-\d{1,2})?)(?:\/\d{1,2})?){0,10}$/;
 function cronAt(line) {
   const toks = [];
@@ -93,35 +95,40 @@ const KINDS = [['url', URL_RE], ['credential', CREDENTIAL_RE], ['schedule', SCHE
 
 /* Each kind a line is, with where it matched: [{ kind, at }]. Tests the first MAX_TEST_CHARS only. */
 function matchesOf(line) {
-  const c = canonical(String(line).slice(0, MAX_TEST_CHARS));
+  const raw = String(line).slice(0, MAX_TEST_CHARS);
+  const c = canonical(raw);
   const out = [];
   for (const [kind, re] of KINDS) {
     const m = re.exec(c);
     if (m) out.push({ kind, at: m.index });
     else if (kind === 'schedule') { const at = cronAt(c); if (at >= 0) out.push({ kind, at }); }
   }
+  const inv = INVISIBLE_RE.exec(raw);
+  if (inv) out.push({ kind: 'invisible', at: inv.index });
   return out;
 }
 const kindsOf = (line) => matchesOf(line).map((x) => x.kind);
 
-/* Why a name cannot be folded into the baseline, or null (review 1: a name holding a newline and a payload made the
-   payload template text). */
 function nameProblem(name) {
   if (typeof name !== 'string' || !name.trim()) return 'it has no name';
   if (name.length > NAME_MAX) return 'its name is too long to be a name';
-  if (/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(name)) return 'its name holds control or invisible characters';
+  if (/[\p{Cc}\p{Cf}\u2028\u2029\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/u.test(name)) return 'its name holds control or invisible characters';
   if (matchesOf(name).length) return 'its name looks like an address, a credential or a schedule';
   return null;
 }
 
-function defaultTemplates() {
+/* The baseline (review 2): a plain name is put straight into each template, as Kosmos would write it, so its ordinary
+   words are never rewritten; a name that is not plain keeps the placeholder, and nothing is folded into it. */
+function defaultTemplates(name, plain) {
   const roles = require('./roles');
-  return roles.ROLES.map((r) => ({ key: r.key, text: roles.instructionsFor(r.key, PLACEHOLDER) || '' }));
+  return roles.ROLES.map((r) => ({ key: r.key, text: roles.instructionsFor(r.key, plain ? name : PLACEHOLDER) || '' }));
 }
 
-// Line breaks as an editor counts them (review 1: a lone \r is not one; U+2028 and U+2029 are).
-const linesOf = (text) => String(text).split(/\r?\n|\u2028|\u2029/);
-const norm = (l) => canonical(l).trim().replace(/\s+/g, ' ');
+// Every line break an editor counts (review 2: VS Code and git count a lone CR; U+2028 and U+2029 too).
+const linesOf = (text) => String(text).split(/\r\n|\r|\n|\u2028|\u2029/);
+// Compared as written, after NFKC and whitespace only: invisible characters are NOT stripped (review 2), so a line
+// with any is never equal to a template line.
+const norm = (l) => l.normalize('NFKC').trim().replace(/\s+/g, ' ');
 
 function closestTemplate(lines, templates) {
   const mine = new Set(lines.filter(Boolean));
@@ -132,12 +139,37 @@ function closestTemplate(lines, templates) {
     const set = new Set(theirs);
     let n = 0;
     for (const l of mine) if (set.has(l)) n += 1;
-    if (n > bestCount) { best = { key: t.key, set, lines: theirs }; bestCount = n; }
+    if (n > bestCount) { best = { key: t.key, lines: theirs }; bestCount = n; }
   }
   return best;
 }
 
-/* What is shown of a flagged line: a window around the match, so a match far into a long line is the part seen. */
+/* The longest common subsequence of a file's non-blank lines and the template's, IN ORDER (review 2: a set let a
+   reordered template, or a rule moved to another file, review clean). Returns which file lines (by index) are matched
+   and which template lines are. Past MAX_DIFF_CELLS, nothing matches: every line is added (the safe direction). */
+function align(fileLines, tpl) {
+  const idx = [];
+  fileLines.forEach((l, i) => { if (l) idx.push(i); });
+  const a = idx.map((i) => fileLines[i]);
+  const n = a.length, m = tpl.length;
+  const matchedFile = new Set(), matchedTpl = new Set();
+  if (!n || !m || n * m > MAX_DIFF_CELLS) return { matchedFile, matchedTpl, diffed: !(n * m > MAX_DIFF_CELLS) };
+  // Lengths of LCS suffixes, one row per file line (Uint32, so 8M cells is 32 MB at most).
+  const W = m + 1;
+  const L = new Uint32Array((n + 1) * W);
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      L[i * W + j] = a[i] === tpl[j] ? L[(i + 1) * W + j + 1] + 1 : Math.max(L[(i + 1) * W + j], L[i * W + j + 1]);
+    }
+  }
+  for (let i = 0, j = 0; i < n && j < m;) {
+    if (a[i] === tpl[j]) { matchedFile.add(idx[i]); matchedTpl.add(j); i += 1; j += 1; }
+    else if (L[(i + 1) * W + j] >= L[i * W + j + 1]) i += 1;
+    else j += 1;
+  }
+  return { matchedFile, matchedTpl, diffed: true };
+}
+
 function shown(line, at) {
   const from = Math.max(0, at - SHOW), to = Math.min(line.length, at + SHOW);
   return `${from > 0 ? '...' : ''}${line.slice(from, to)}${to < line.length ? '...' : ''}`;
@@ -146,24 +178,29 @@ function shown(line, at) {
 function reviewAgent({ name, files, templates } = {}) {
   const shownName = typeof name === 'string' ? name.slice(0, 200) : '';
   const badName = nameProblem(name);
-  // The real name is folded to the placeholder only when it is a plain name, and only where it appears whole.
-  const fold = badName ? (l) => l : (l) => l.split(name).join(PLACEHOLDER);
-  const tpl = Array.isArray(templates) ? templates : defaultTemplates();
+  const tpl = Array.isArray(templates) ? templates : defaultTemplates(name, !badName);
   const unreviewed = [];
   const read = [];
+  let budget = MAX_TOTAL_CHARS;
   for (const f of Array.isArray(files) ? files : []) {
-    if (!f || typeof f !== 'object') continue;
+    // Nothing handed in disappears without a trace (review 2).
+    if (!f || typeof f !== 'object') { unreviewed.push({ file: '(unnamed)', why: 'it is not a file' }); continue; }
     const fname = typeof f.name === 'string' ? f.name : '(unnamed)';
     if (typeof f.text !== 'string') { unreviewed.push({ file: fname, why: 'it is not text, so it was not read' }); continue; }
-    const truncated = f.text.length > MAX_FILE_CHARS;
-    let text = truncated ? f.text.slice(0, MAX_FILE_CHARS) : f.text;
+    if (budget <= 0) { unreviewed.push({ file: fname, why: 'the review had already read as much as it reads' }); continue; }
+    const limit = Math.min(MAX_FILE_CHARS, budget);
+    const truncated = f.text.length > limit;
+    let text = truncated ? f.text.slice(0, limit) : f.text;
     if (truncated && /[\ud800-\udbff]$/.test(text)) text = text.slice(0, -1);
-    if (truncated) unreviewed.push({ file: fname, why: `only its first ${MAX_FILE_CHARS / 1024} KB were read` });
-    read.push({ name: fname, raw: linesOf(text), truncated });
+    budget -= text.length;
+    if (truncated) unreviewed.push({ file: fname, why: `only its first ${Math.floor(limit / 1024)} KB were read` });
+    const base = fname.split(/[\\/]/).pop().toLowerCase();
+    read.push({ name: fname, raw: linesOf(text), truncated, instructions: INSTRUCTION_FILES.has(base) });
   }
-  for (const f of read) f.normed = f.raw.map((l) => norm(fold(l)));
-  const closest = closestTemplate(read.flatMap((f) => f.normed), tpl);
-  const counts = { url: 0, credential: 0, schedule: 0, long: 0 };
+  for (const f of read) f.normed = f.raw.map(norm);
+  // The closest template, from the instruction files only (notes are never matched against a template).
+  const closest = closestTemplate(read.filter((f) => f.instructions).flatMap((f) => f.normed), tpl);
+  const counts = { url: 0, credential: 0, schedule: 0, invisible: 0, long: 0 };
   const flags = [];
   let flagsNotListed = 0;
   const flag = (x) => {
@@ -172,14 +209,16 @@ function reviewAgent({ name, files, templates } = {}) {
     flags.push(x);
   };
   const out = read.map((f) => {
+    const al = f.instructions && closest ? align(f.normed, closest.lines) : { matchedFile: new Set(), matchedTpl: new Set(), diffed: false };
+    if (f.instructions && closest && !al.diffed) unreviewed.push({ file: f.name, why: 'it is too long to compare with its template, so every line counts as added' });
     const added = [];
     f.raw.forEach((line, i) => {
-      if (!f.normed[i] || (closest && closest.set.has(f.normed[i]))) return;
+      if (!line.trim() && !INVISIBLE_RE.test(line)) return;
+      if (al.matchedFile.has(i)) return;
       added.push(i + 1);
       if (line.length > MAX_TEST_CHARS) flag({ file: f.name, line: i + 1, kind: 'long', text: shown(line, 0), at: 0, length: line.length });
       const here = matchesOf(line);
       for (const m of here) flag({ file: f.name, line: i + 1, kind: m.kind, text: shown(line, m.at), at: m.at, length: line.length });
-      // An instruction split over two lines (review 1): the pair joined, for a kind neither line has alone.
       const next = f.raw[i + 1];
       if (typeof next === 'string' && next.trim()) {
         const alone = new Set([...here.map((m) => m.kind), ...kindsOf(next)]);
@@ -188,17 +227,15 @@ function reviewAgent({ name, files, templates } = {}) {
         }
       }
     });
-    return { name: f.name, lines: f.raw.length, added, truncated: f.truncated };
+    // Removed, per instruction file (review 2: a rule moved into a notes file is still gone from the instructions).
+    const removed = f.instructions && closest ? closest.lines.filter((_, j) => !al.matchedTpl.has(j)) : [];
+    return { name: f.name, instructions: f.instructions, lines: f.raw.length, added, removed: removed.slice(0, MAX_REMOVED), removedNotListed: Math.max(0, removed.length - MAX_REMOVED), truncated: f.truncated };
   });
-  // Template lines the files do not have (review 1: a removed safety rule raises no flag, so it is listed).
-  const have = new Set(read.flatMap((f) => f.normed));
-  const missing = closest ? closest.lines.filter((l) => !have.has(l)) : [];
   return {
     name: shownName, nameProblem: badName, closest: closest ? closest.key : null, files: out,
-    removed: missing.slice(0, MAX_REMOVED).map((l) => l.split(PLACEHOLDER).join(badName ? '(its name)' : name)),
-    removedNotListed: Math.max(0, missing.length - MAX_REMOVED),
     flags, flagsNotListed, unreviewed,
-    flagged: flags.length > 0 || flagsNotListed > 0 || unreviewed.length > 0 || !!badName,
+    // A removed template line counts too: a deleted safety rule is something to look at, not a clean file.
+    flagged: flags.length > 0 || flagsNotListed > 0 || unreviewed.length > 0 || !!badName || out.some((f) => f.removed.length > 0),
   };
 }
 
