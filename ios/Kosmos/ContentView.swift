@@ -277,7 +277,8 @@ struct ContentView: View {
     private func openRoom(_ target: PushBridge.RoomTarget) {
         let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
         switch PushBridge.roomOpening(target, keptAddress: kept?.address) {
-        case .native(let t)?: roomRequest = t; tab = .projects
+        // kosmos#7252 review 2: the room shows, not under a board page left open over the tabs.
+        case .native(let t)?: roomRequest = t; tab = .projects; todayBoard = false
         case .board(let url)?: pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
         case nil: break
         }
