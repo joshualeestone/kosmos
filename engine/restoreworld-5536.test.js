@@ -475,6 +475,8 @@ test('failedFiles counts the failures past the listed ones; a busy Kosmos list a
   fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: { ok: true, result: { restored: ['a'], failed: [{ path: 'b' }], failedNotListed: 12000 } } });
   assert.equal(r.failedFiles, 12001);
+  const f = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: { ok: true, fetchProblems: ['the hourly limit was reached', 7, 'x'.repeat(400)], result: { restored: [], failed: [] } } });
+  assert.deepEqual(f.fetchProblems, ['the hourly limit was reached', 'x'.repeat(300)], 'reasons carried, non-strings dropped, each cut');
   const busy = rw.prepareRestoreWorld(base, { member: 'Bo', now: NOW, createWorld: () => { const e = new Error('busy'); e.code = 'EWORLDLOCK'; throw e; } });
   assert.equal(busy.ok, false);
   assert.match(busy.because, /try again in a moment/);

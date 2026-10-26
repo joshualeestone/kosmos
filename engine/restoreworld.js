@@ -152,8 +152,9 @@ function renameRetrying(src, dst) {
 
 /* After a restore that SUCCEEDED, and after its sink is closed. opts: { base, world, restoreDir, result } where
    `result` is engine/restorerun.js runRestore's answer, which must be ok. { ok, moved: [name], kept: [label],
-   failedFiles, because? }: `failedFiles` counts the files runRestore listed as failed (it answers ok with some
-   failed, since one damaged file does not fail the rest), for the screen to say. Every check runs before anything
+   failedFiles, fetchProblems, because? }: `failedFiles` counts the files runRestore listed as failed (it answers ok
+   with some failed, since one damaged file does not fail the rest), and `fetchProblems` carries its reasons why some
+   were not fetched, for the screen to say. Every check runs before anything
    moves, so a refusal moves nothing; only a rename failing part way leaves one root moved, and `moved` says which. */
 function finishRestoreWorld(opts = {}) {
   const { base, world, restoreDir } = opts;
@@ -164,6 +165,9 @@ function finishRestoreWorld(opts = {}) {
   const inner = opts.result.result;
   const notListed = inner && Number.isSafeInteger(inner.failedNotListed) && inner.failedNotListed > 0 ? inner.failedNotListed : 0;
   const failedFiles = (inner && Array.isArray(inner.failed) ? inner.failed.length : 0) + notListed;
+  // Why files were not fetched (a grant refused part way, files under an earlier key), for the screen beside the count.
+  const fetchProblems = (Array.isArray(opts.result.fetchProblems) ? opts.result.fetchProblems : [])
+    .filter((x) => typeof x === 'string').slice(0, 20).map((x) => cleanText(x, 300, '')).filter(Boolean);
   if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) {
     return { ok: false, moved: [], kept: [], because: 'the restore folder is not the one made for this Kosmos' };
   }
@@ -205,11 +209,11 @@ function finishRestoreWorld(opts = {}) {
       let back = true;
       try { if (!realDir(dst)) fs.mkdirSync(dst); } catch { back = false; }
       const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
-      return { ok: false, moved, kept: keptIn(restoreDir), failedFiles,
+      return { ok: false, moved, kept: keptIn(restoreDir), failedFiles, fetchProblems,
         because: `the restored ${name} could not be moved into the new Kosmos${code}${back ? '' : `, and its empty ${name} folder could not be put back`}` };
     }
   }
-  return { ok: true, moved, kept: keptIn(restoreDir), failedFiles };
+  return { ok: true, moved, kept: keptIn(restoreDir), failedFiles, fetchProblems };
 }
 
 function keptIn(restoreDir) {
@@ -234,6 +238,7 @@ function briefsIn(folder) {
 /* The first MAX_BRIEF_BYTES + 1 bytes of a file found plain by lstat, refused if what opened is not that same file. */
 function readBrief(file) {
   const before = fs.lstatSync(file, { bigint: true });
+  if (before.ino === 0n) throw new Error('this filesystem gives no file identity to compare');
   const fd = fs.openSync(file, 'r');
   try {
     const now = fs.fstatSync(fd, { bigint: true });
