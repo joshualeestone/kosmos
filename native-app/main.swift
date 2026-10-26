@@ -4192,6 +4192,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// closure (and by the stack frame through begin), so this duplicates that hold; it keeps the handler
     /// reachable if a later edit moves or drops the watch.
     private var openPanelHeld: (([URL]?) -> Void)?
+    /// #7209: the real picker that is up, so a refused press can bring it to the front. nil under
+    /// the selftest presenter (no window) and once the picker has answered.
+    private var openPanelShown: NSOpenPanel?
     /// #4412: stands in for "is the picker on screen" when openPanelPresenter is set (the selftest).
     static var openPanelPresenterShowing: (() -> Bool)?
     /// #4412: how long a picker has to appear before it counts as never shown, then how often an
@@ -4242,7 +4245,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            (and the presenter stub's) are main-thread, so the flag needs no
            synchronisation. */
         if openPanelOutstanding {
-            logLine("runOpenPanelWith: refused, a panel is already up")
+            /* #7209: the picker that is up may be out of sight (behind the Kosmos window, on another
+               Space or display): panel.begin is a free-standing panel, not a sheet, so the window can
+               cover it. Refusing then showed nothing, and every later + looked dead. So the refused
+               press brings that picker to the front: the person sees the one that is already theirs. */
+            if let shown = openPanelShown {
+                NSApp.activate(ignoringOtherApps: true)
+                shown.orderFrontRegardless()
+                shown.makeKey()
+                logLine("runOpenPanelWith: refused, a panel is already up; brought it to the front (#7209)")
+            } else {
+                logLine("runOpenPanelWith: refused, a panel is already up")
+            }
             // The OTHER panel still owns openPanelOutstanding; do NOT clear it
             // here. This is a single, direct answer for the refused request.
             completionHandler(nil)
@@ -4266,6 +4280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             answered = true
             self?.openPanelOutstanding = false
             self?.openPanelHeld = nil
+            self?.openPanelShown = nil
             completionHandler(urls)
         }
         openPanelHeld = respond
@@ -4330,6 +4345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             respond(resp == .OK ? panel.urls : nil)
         }
         panel.begin(completionHandler: answer)
+        openPanelShown = panel   // #7209: what a refused press brings to the front; cleared by respond
         giveUp = { panel.cancel(nil) }   // its own answer then arrives at a respond that has already answered
         /* See openPanelStillUp: on screen, or Kosmos in the background, counts as still up. */
         watch(after: AppDelegate.openPanelFirstLook) {
@@ -6648,6 +6664,18 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                     let panel = NSApp.windows.first { $0 is NSOpenPanel && $0.isVisible }
                     print("press:real-presenter\tpanel-on-screen:\((panel != nil) ? "yes" : "no")")
                     guard let p = panel as? NSOpenPanel else { exit(1) }
+                    /* #7209 (Josh, 10102026: "+ in a DM does not open the file picker"): a picker that
+                       is still open but BEHIND the window. A second press is refused (one picker at a
+                       time), and before the fix that refusal showed nothing, so every later + looked
+                       dead. Send the real panel to the back, press again, and the press must bring it
+                       to the front. Red on the old refusal, which answered nil and touched no window. */
+                    p.orderBack(nil)
+                    let behindFirst = NSApp.orderedWindows.first !== p
+                    web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    let front = behindFirst && NSApp.orderedWindows.first === p && p.isVisible
+                    print("press:picker-behind-the-window\tbrought-to-front:\(front ? "yes" : "no")")
+                    guard front else { exit(1) }
                     // Dismiss it, or the build hangs behind a dialog.
                     if let host = p.sheetParent { host.endSheet(p, returnCode: .cancel) } else { p.cancel(nil) }
 
@@ -6803,6 +6831,7 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                             fireWithSheet(tries: 30)
                         }
                     }
+                    }   // #7209 picker-behind-the-window
                 }
             }
         }
