@@ -73,6 +73,13 @@ at 0%, had no reading at all (the card's opening).
   caching a checked login would halve that, and is worth it only if the first live sweeps show profile failures.
 - Review 13: a test now reaches the same-figure branch of the merge (the later change is shown, from either source),
   and a record names the organization the profile answered for, falling back to the folder's.
+- Review 14: on every platform no folder outside the real home is read at all (the review 12 scope gap closes for
+  folders a sandbox lists elsewhere). After a refusal (401, 403 or 429) the token is not sent again for an hour,
+  because it is the token Claude Code itself uses: a refused request repeated every 10 minutes must not put the
+  operator's live agents at risk. A server error (5xx) or a timeout is not a refusal and does not back off.
+  Weakest premise, stated: this reads an endpoint Anthropic has not documented, with the subscription token. The
+  endpoint and its beta header are the ones Claude Code's own usage view reads (reasoned, not measured from its
+  traffic). If Anthropic objects, the failure is a refusal, which now backs off, and the status line still works.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -125,7 +132,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 34 tests (counted from a run after review 13), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 36 tests (counted from a run after review 14), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

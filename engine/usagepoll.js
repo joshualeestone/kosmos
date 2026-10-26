@@ -48,6 +48,10 @@ const SAME_RESET_SECONDS = 60;
 /* A token that runs out this soon is treated as expired: sent now it would come back refused, and the state would be
    a refusal rather than the expiry it is. */
 const EXPIRY_MARGIN_MS = 60 * 1000;
+/* Review 14: after a refusal (401, 403 or 429) the same token is not sent again for an hour. The token is the one
+   Claude Code itself uses, so repeated refused requests must not put the operator's live agents at risk. */
+const BACKOFF_MS = 60 * 60 * 1000;
+const BACKOFF_STATES = new Set(['http-401', 'http-403', 'http-429']);
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
 
@@ -75,6 +79,10 @@ function realHomeDir() { try { return os.userInfo().homedir; } catch { return nu
 /* The credential body for an account, or null. macOS: the Keychain entry its agents read. Elsewhere: the folder's own
    credentials file, which is where Claude Code keeps it off macOS. */
 function readCredFor(a, { platform = process.platform, readCred = loginexpiry.readCredAsync, realHome = realHomeDir() } = {}) {
+  /* Review 14: on every platform, no folder outside the real home is read at all: a sandboxed board's folders are
+     not the operator's, and a folder that is not under the real home cannot be one Kosmos made for its agents. */
+  const rel = realHome ? path.relative(realHome, path.resolve(a.dir)) : '..';
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return Promise.resolve(null);
   /* Review 7: the bare entry is the operator's own login, and a sandboxed board lists ITS .claude as the default
      account. So the bare entry is read only for a default folder that IS the real home's .claude. */
   if (platform === 'darwin' && a.isDefault && (!realHome || path.resolve(a.dir) !== path.join(realHome, '.claude'))) {
@@ -231,6 +239,9 @@ async function pollAll(list, deps = {}) {
   const identityOf = deps.identityOf || ((dir) => require('./accounts').identityOf(dir));
   let measured = 0;
   for (const a of Array.isArray(list) ? list : []) {
+    const before = a && typeof a.dir === 'string' ? readRaw(a.dir) : null;
+    const nowMs = typeof deps.now === 'number' ? deps.now : Date.now();
+    if (before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number' && nowMs - before.refusedAt < BACKOFF_MS) continue;
     let rec = null;
     try { rec = await readOne(a, deps); } catch { rec = null; }
     if (!rec) continue;
@@ -256,6 +267,7 @@ async function pollAll(list, deps = {}) {
       }
     } else {
       const prev = readRaw(a.dir);
+      if (BACKOFF_STATES.has(rec.state)) rec.refusedAt = rec.at;   // review 14: the hour runs from the refusal
       const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
       /* Review 9: a folder signed in again as another login must not show the old login's figures under the new one. */
       if (sameLogin(prev, a, org) && typeof prevAt === 'number' && Number.isFinite(prevAt)) {
