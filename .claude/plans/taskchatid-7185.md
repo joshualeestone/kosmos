@@ -10,7 +10,7 @@ new task 1 read the old task 1's conversation, a person's words included.
   looks the stamp up once for all its files).
 - The old rows stay on disk. An enterprise owner owns work content (Josh, 2026-10-09) and may want a deleted project's
   history back; nothing here deletes it, matching remove()'s own rule that the product deletes nobody's work.
-- Same rule as webhooks (#1307: a webhook carrying an older createdAt is refused).
+- Same rule as webhooks (#1307: a webhook carrying an older createdAt is refused) and agent threads (chat.js readThread).
 
 ## Rejected
 - Delete a project's task conversations in projects.remove: irreversible loss of a person's words, against the
@@ -32,4 +32,5 @@ stamped createdAt, and a task is made after its project; a clock stepped back be
 - A project id with no record (or no valid createdAt) keeps every row, as before.
 - Restoring a deleted project (same id, its own older createdAt) would show its own rows and the re-made project's
   rows together; restore is not built for projects today.
-- The room's own messages are not task conversations and are not touched here.
+- An agent's direct thread already handles this case the same way (engine/chat.js readThread, the project's createdAt,
+  nothing deleted), which this follows. The project room's posts (engine/messages.js) are not measured here.
