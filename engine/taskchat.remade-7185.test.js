@@ -109,3 +109,21 @@ test('when the projects file cannot be read, a project\'s rows are left out rath
   }
   assert.deepEqual(said(id, n), ['private words'], 'readable again: shown again');
 });
+
+/* A view of a task's conversation (engine/taskseen.js) is keyed the same way: a re-made task 1 must not read the
+   deleted project's "the person saw it". */
+const taskseen = require('../engine/taskseen');
+
+test('a re-made project\'s task does not read the deleted project\'s "seen"', async () => {
+  const id = projects.create({ name: 'Seen name' }).id;
+  tasks.create(id, { sentence: 'First' });
+  assert.ok(taskseen.markSeen(id, 1), 'CONTROL: the view was recorded');
+  assert.ok(taskseen.seenAt(id, 1), 'CONTROL: the first project reads it');
+  projects.remove(id);
+  await new Promise((r) => setTimeout(r, 5));
+  projects.create({ name: 'Seen name' });
+  tasks.create(id, { sentence: 'New first' });
+  assert.equal(taskseen.seenAt(id, 1), null, 'not seen in the new project');
+  assert.ok(taskseen.markSeen(id, 1));
+  assert.ok(taskseen.seenAt(id, 1), 'a view in the new project counts');
+});
