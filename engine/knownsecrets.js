@@ -9,7 +9,8 @@
  *   - its data folder: the board token, and every file under secrets/ (Cloudflare, GitHub, the token
  *     doors under secrets/env);
  *   - each account folder in the Kosmos home (~/.claude, ~/.claude-<label>, and the Codex, Gemini and
- *     Grok analogs): the pasted key files, and Codex's OPENAI_API_KEY in auth.json.
+ *     Grok analogs): the pasted key files, and Codex's OPENAI_API_KEY in auth.json; and each vendor account
+ *     (~/.kosmos-deepseek-<label>, #7206): its key.
  *
  * Values only ever reach this process's memory; nothing here logs or returns a path with them. Never
  * throws: a file that cannot be read is skipped.
@@ -182,6 +183,15 @@ function collect({ dataRoot = null, home = null } = {}) {
   let entries = [];
   try { entries = fs.readdirSync(h, { withFileTypes: true }); } catch { entries = []; }
   for (const d of entries) {
+    /* #7206: a vendor account (~/.kosmos-deepseek-<label>) keeps its key in its account file, read through the module that
+       owns it (a link or a broken file holds nothing here, as it holds nothing for a launch). */
+    if (d.isDirectory()) {
+      const compat = require('./anthropiccompat');
+      if (compat.vendorOfName(path.join(h, d.name))) {
+        try { const got = compat.readAccount(path.join(h, d.name)); if (got.kind === 'ok') out.add(got.account.key); } catch { /* skipped */ }
+        continue;
+      }
+    }
     if (!d.isDirectory() || !ACCOUNT_DIR.test(d.name)) continue;
     const dir = path.join(h, d.name);
     for (const k of KEY_FILES) valuesIn(readSmall(path.join(dir, k)), out);

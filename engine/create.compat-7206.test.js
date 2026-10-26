@@ -171,3 +171,23 @@ test('Repair rebuilds a lost DeepSeek job on its recorded account, and refuses o
     assert.equal(create.readJob('c7206-rep-unknown'), null, 'an agent with no recorded account was rebuilt anyway');
   } finally { create.setRunner(null); }
 });
+
+test('a DeepSeek agent\'s problems name DeepSeek and its key, never a Claude sign-in; a Claude agent is unchanged', () => {
+  const { accountProblemOf } = require('./accountproblem');
+  const auth = accountProblemOf({ runner: 'claude', sessionName: DS, name: 'Dee', state: 'auth_failed' });
+  assert.equal(auth.provider, 'DeepSeek');
+  assert.match(auth.text, /Dee's DeepSeek key is no longer accepted/);
+  assert.doesNotMatch(auth.text, /Claude|Sign in again/);
+  const limit = accountProblemOf({ runner: 'claude', sessionName: DS, name: 'Dee', state: 'rate_limited' });
+  assert.match(limit.text, /DeepSeek usage limit/);
+  assert.doesNotMatch(limit.summary, /Claude/);
+  // CONTROL: a Claude agent still reads as Claude.
+  const claudeAuth = accountProblemOf({ runner: 'claude', sessionName: CL, name: 'Cee', state: 'auth_failed' });
+  assert.equal(claudeAuth.provider, 'Claude');
+  assert.match(claudeAuth.text, /Claude sign-in has stopped working/);
+});
+
+test('the setup guide masks a DeepSeek account\'s key by value', () => {
+  const held = require('./knownsecrets').collect({ home: HOME });
+  assert.ok(held.includes('sk-deepseek-0123456789abcdef'), 'the DeepSeek key is not among the known secrets');
+});
