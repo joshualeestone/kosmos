@@ -89341,7 +89341,7 @@ function frChoiceForget(mode) {
     if (!u.searchParams.has('mode') && mode !== 'both') return;
     if (mode === 'both') u.searchParams.set('mode', 'both'); else u.searchParams.delete('mode');
     history.replaceState(history.state, '', u.pathname + u.search + u.hash);
-  } catch { /* the address keeps ?mode=; the app still ignores a second choice */ }
+  } catch { /* the address keeps ?mode=, so a Reload may ask again */ }
 }
 
 /* #4356: the page under the first screen is inert while it is up, INCLUDING what arrives later: seven

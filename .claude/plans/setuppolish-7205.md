@@ -28,9 +28,9 @@ the board it started for Run, which is the path a first-time Connect already tak
 ## Checks
 - render-firstrun-choice-4356.js C11: the dot field draws on the choice screen and moves back to first run; Welcome's
   Back; the choice shown again; the second answer posted ("run","both"); CONTROL: no Back without the choice. Without
-  the dots call it goes red. All 45 checks pass; render-firstrun-s6-2037.js passes with Josh's copy.
+  the dots call it goes red. All 50 checks pass (after round 1); render-firstrun-s6-2037.js passes with Josh's copy.
 - web.firstrun-choice-4356.test.js and web.firstrun-consent-prc2.test.js pin the new words. Root web.* and native-app
-  tests 3449/3449; swiftc -typecheck clean.
+  tests 3551/3551 (after round 1); swiftc -typecheck clean.
 
 ## Review
 - Round 1 (findings in full: .claude/plans/setuppolish-7205-review1.md): 2 blockers, 2 warnings, 6 nits. FIXED 11:15 (see Round 1 fixes below);
@@ -61,3 +61,7 @@ the board it started for Run, which is the path a first-time Connect already tak
     (C11 asserts it); pageChoseMode doc comment; Reload-after-Back noted beside frBackOffered.
   - Nits left: connector dash pair 0.25 px off centre (cosmetic), win32 grayscale on the Qwen mark (harmless).
   - Evidence: root unit set 3551/3551; swiftc -typecheck rc 0; render-firstrun-choice-4356.js 50 passed (3 runs).
+- Round 2 (.claude/plans/setuppolish-7205-review2.md): 0 blockers, 1 warning, 4 nits, all four round-1 fixes hold.
+  Fixed: setup-welcome-back-7205 stands in the Mac bridge (Back needs it now); frChoiceForget's catch comment;
+  switchToConnect clears modeAskedThisLaunch so the doc line is exactly true; the plan's counts; the win32 trailer's
+  reason restated correctly on the round-2 commit.

@@ -1636,6 +1636,8 @@ const SCREENS = [
   } },
   /* kosmos#7205: Welcome with Back to the setup choice (as after the choice screen in the app). */
   { name: 'setup-welcome-back-7205', owner: 'Mona Lisa', go: async (page) => {
+    // Back is offered only on the Mac app's bridge (frBackOffered), so the bridge is stood in, as setup-choice-7205 does.
+    await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
     await page.evaluate(() => { FR_CHOSE_HERE = true; FR_FORCED = false; frGo(1); });

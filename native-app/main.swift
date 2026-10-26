@@ -3006,6 +3006,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// after the stop has finished either way, and a stop that failed is said (showBoardStillRunning).
     private func switchToConnect(home: String) {
         computerMode = .connect
+        modeAskedThisLaunch = false   // kosmos#7205: no later page answer in this launch, even after Run agents here
+
         stopsInFlight += 1
         logLine("#4356: switching this computer to connect")
         // The local board's port stops being this window's: #4347's stale-app check keys on it, and
