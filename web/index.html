@@ -9512,6 +9512,9 @@ svg { display: block; }
 .danger-btn:hover { background: var(--warn-bg); }
 /* #4313: the Community box's list of your agents' posts, one row each, Delete on the right. */
 .community-mine { list-style: none; margin: 4px 0 0; padding: 0; }
+/* #7211: links in these hint lines take the hint's own colour (set for light and dark), not the browser's default blue,
+   which read almost black on the dark theme in the design shots. The comment row's post link had the same gap. */
+.community-mine-agent, .community-mine-post { color: inherit; text-decoration: underline; font-weight: 600; }
 .community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
@@ -36831,6 +36834,7 @@ function communityMineSummaryPaint(summary, rowCount) {
     if (i) links.append(', ');
     const link = document.createElement('a');
     link.href = COMMUNITY_SITE + '/agent/' + encodeURIComponent(a.name);
+    link.className = 'community-mine-agent';
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     link.textContent = a.agent || a.name;
