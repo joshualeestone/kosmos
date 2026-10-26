@@ -585,7 +585,12 @@ function replyFileAbsolute(file, cwd, p) {
 /* #6726: the second usage line install/kosmos prints for reply (tools.windows-kosmos-cli-reply-file-6726.test.js pins it to install/kosmos's). */
 const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
 /* What --help prints for a verb: its usage, and for reply (#6726) the --file line too, as install/kosmos's help does. */
-function helpFor(verb) { return verb === 'reply' ? USAGE.reply + '\n' + USAGE_REPLY_FILE : USAGE[verb]; }
+/* #6726 review 8: --file is named (help, and the usage a bare reply prints) only where the board's checks of which
+   files may go have run. On Windows they have not, and #7221 shows the board there resolves a network or device path
+   before refusing it, so on Windows the flag works when typed (the real run needs it) but is not taught, as
+   engine/dmfiles.js leaves it out of the instructions. Keyed on the path rules, so a test drives either side. */
+const replyFileTaught = (rules) => rules.sep !== '\\';
+function helpFor(verb, rules = path) { return verb === 'reply' && replyFileTaught(rules) ? USAGE.reply + '\n' + USAGE_REPLY_FILE : USAGE[verb]; }
 /* #6726: a control character in a --file path (C1 too, as bash's [[:cntrl:]] in UTF-8), and what the refusal says. */
 const REPLY_FILE_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const REPLY_FILE_CONTROL_ALL = /[\u0000-\u001f\u007f-\u009f]/g;
@@ -642,7 +647,7 @@ async function verbReply(ctx, args) {
     if (got.code !== undefined) return got.code;
     text = got.text;
   }
-  if (!text && !file) { ctx.err(USAGE.reply); ctx.err(USAGE_REPLY_FILE); return 2; }
+  if (!text && !file) { ctx.err(USAGE.reply); if (replyFileTaught(ctx.pathRules)) ctx.err(USAGE_REPLY_FILE); return 2; }
   const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
   const body = file ? { text, from_pane: '', file } : { text, from_pane: '' };
   /* The board drops a request body over its read limit, which would read as unreachable. */
@@ -2764,7 +2769,7 @@ async function main(argv, io) {
   }
   /* #1674: BEFORE any handler, so a verb added to the table later is covered
      without anyone remembering. No request of any kind, whoami included. */
-  if (asksForHelp) { out(helpFor(verb)); return 0; }
+  if (asksForHelp) { out(helpFor(verb, o.pathRules || path)); return 0; }
 
   const doFetch = o.fetch || fetch;
   const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));

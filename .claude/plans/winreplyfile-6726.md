@@ -35,7 +35,7 @@ code would be Homer's; this touches none.
   would be taught a flag whose board half has never run on Windows). Weakest premise: that replyfile.js's
   containment rules (realpath, dev/ino, the home-folder refusals written for macOS) behave on NTFS; nothing
   Mac-side can test that.
-- Review 5: `reply --help` on Windows names --file. Kept: parity, and an agent that finds the flag meets the
+- REVERSED in review 8, once #7221 was known (Windows no longer names --file until it lands). Was, review 5: `reply --help` on Windows names --file. Kept: parity, and an agent that finds the flag meets the
   board's checks, which decide containment by file identity (dev/ino, the real path), not by spelling. Rejected:
   hiding the line on Windows until the run (a second usage text to keep in step). Weakest premise: the same NTFS
   one above; the spelling-based hidden-in-home check is the part most likely to differ.
@@ -71,3 +71,10 @@ code would be Homer's; this touches none.
    the CLI's spelling check; board-side, added to #7221. Not taken: a single-dash value (-x) is taken as a path
    (the board refuses it as relative; install/kosmos does the same); no arm drives the real process.cwd() default
    (every arm injects the folder on purpose, so no result depends on where the suite runs).
+8. (default model) W: the Windows CLI named --file in help and usage while dmfiles held the teaching back, so the flag
+   was taught anyway; with #7221 known, that reverses review 5's call. Now --file is named only where the board's
+   checks have run (replyFileTaught, keyed on the path rules): on Windows the flag works when typed (the real run
+   needs it) but neither help nor usage names it, and dmfiles' comment agrees. Sibling help tests ask helpFor rather
+   than rebuilding the text. Nit taken: the shim arm says the real cygpath is the Windows run's. Not taken, parity
+   with install/kosmos: bidi and line-separator characters are not filtered (Mac the same); --File is not --file.
+
