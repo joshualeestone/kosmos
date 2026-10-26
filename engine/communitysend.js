@@ -1564,7 +1564,9 @@ async function sweepOwnerLink(keys, on) {
       if ((ownerLinkAgentAt.get(ep + '\n' + agentKey) || 0) > Date.now()) continue;
       if (mints >= OWNER_LINK_MINTS_PER_PASS) { resumeHere(); break; }   // no pause: the next sweep starts at this agent
       mints++;
-      const minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name });
+      let minted;
+      try { minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name }); }
+      catch { minted = { ok: false, because: 'the request to Kosmos+ failed' }; }   // treated as no answer: the pass waits
       // Refused on this computer before anything was sent (a register or a Forget is out): nothing was asked, so
       // nothing pauses; the next sweep tries again.
       if (minted.notSent) return;
@@ -1578,7 +1580,8 @@ async function sweepOwnerLink(keys, on) {
         // The coordinator's only refusal about one agent is its 400 (the name); its 403s are about this computer (not
         // allowed on the account, or the account lapsed), so they pause the whole pass below.
         // A second agent refused the same way in one pass means the request, not the name: the whole pass waits.
-        if (st === 400 && ++coord400 < 2) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
+        if (st === 400) coord400 += 1;
+        if (st === 400 && coord400 < 2) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
         const unknown = !minted.ok && ownerPassUnknown(minted);
         ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
         if (!unknown) stopHere();   // a missing route is the same for every agent
@@ -1600,7 +1603,8 @@ async function sweepOwnerLink(keys, on) {
       // A second agent refused by the site in one pass means the site no longer takes these passes at all, not two
       // bad agents: the whole pass waits (as for the coordinator's 400).
       const siteRefusal = r.status >= 400 && r.status < 500 && ![401, 404, 405, 429].includes(r.status);
-      if (siteRefusal && ++siteRefused < 2) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
+      if (siteRefusal) siteRefused += 1;
+      if (siteRefusal && siteRefused < 2) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
       if (r.status === 404 || r.status === 405) {   // no stopHere: the missing route is the same for every agent
         ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_UNKNOWN_MS);
         ownerLinkPassLog(ep, `the community has no owner route yet (${r.status}); trying again in an hour`);
