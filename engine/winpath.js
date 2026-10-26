@@ -108,4 +108,13 @@ function mayHold(folder, given, real) {
   return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && t.startsWith(ft + '\\'); });
 }
 
-module.exports = { NAMESPACE, LOCAL_LONG, WINDOWS_DEVICE_NAME, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold };
+/* Whether a path starts \\ or // (a share, or the \\?\ and \\.\ namespaces, a local drive's long spelling too). */
+function isNamespaceSpelling(p) {
+  return NAMESPACE.test(String(p));
+}
+/* Whether a path is a local drive path written in a namespace form: \\?\C:\, \\.\C:\ or the NT \??\C:\. */
+function isLongDrivePath(p) {
+  return LOCAL_LONG.test(String(p)) || NT_LOCAL.test(String(p));
+}
+
+module.exports = { WINDOWS_DEVICE_NAME, isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold };

@@ -85,6 +85,7 @@ test('#7221: the spelling rules refuse shares, device namespaces, streams, devic
   assert.equal(replyfile.winSpellingRefusal('\\\\.\\NUL', drives), net);
   assert.equal(replyfile.winSpellingRefusal('\\\\?\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM, 'a local file in the \\\\?\\ form is refused, said as what it is (review 13)');
   assert.equal(replyfile.winSpellingRefusal('\\\\.\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM);
+  assert.equal(replyfile.winSpellingRefusal('\\??\\C:\\Users\\a\\Files\\f.txt', drives), replyfile.LONG_FORM, 'the NT spelling too, not a stream (review 18)');
   assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\f.txt:hidden', drives), replyfile.STREAM, 'an alternate data stream');
   assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\COM1:', drives), replyfile.STREAM);
   assert.equal(replyfile.winSpellingRefusal('C:\\Users\\a\\Files\\NUL', drives), replyfile.DEVICE_NAME);

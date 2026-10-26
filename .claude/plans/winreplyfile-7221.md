@@ -137,6 +137,14 @@ an object shaped like a RegExp: review 9). The link walk is one function, `walkL
 `winLinkRefusal` refuses by the spelling rules at each path it reaches, `drivesReached` collects each path's drive
 (review 9: the two had been copies, which would drift).
 
+**Why the walk and the roots stay in replyfile.js** (review 18 finding 1, decided): `walkLinks`, `agentRoots`,
+`otherFolderSkip` and the refusals touch the disk and produce ATTACH decisions (sentences, the attaching agent's roots,
+which other agent's folder to leave unresolved); `winpath.js` is kept free of disk access on purpose. A separate
+`winwalk` module now would have one caller and an interface shaped by one use. The second caller is #7232's work (the
+same walk for every agent's recorded folder, before create.js and instructions.js touch it): extract the walk then,
+with result codes in place of sentences, when two real uses can shape it. `winpath` exposes predicates only
+(`isNamespaceSpelling`, `isLongDrivePath`), not its regexes (review 18 NIT).
+
 **File ids are compared as BigInt** (found by review 9 finding 1, measured): `idOf` compared `dev:ino` as numbers, and
 NTFS file ids are 64-bit. On the Windows box 434 of 2000 fresh files had an id past 2^53, where a number keeps 53 bits,
 and 19 pairs of DIFFERENT files shared one `dev:ino` key. Every identity check in replyfile was exposed: containment (a
@@ -288,6 +296,8 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   path beside Files is still refused unresolved (against 528edf1: fails, refused as a network path); review 2-2's arm
   (a LOCAL Files folder whose file resolves to a share is refused) still passes, so the local guard is intact. Another
   agent's folder whose link cannot be read is resolved as on main, by decision (comment in `otherFolderSkip`).
+- Review 18: `\??\C:\...` is refused with the long-form sentence, not as a stream. No behaviour arm otherwise: the
+  round changed shape (predicates for winpath's regexes, `inOwnShareFolder` named), and every arm still passes.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's

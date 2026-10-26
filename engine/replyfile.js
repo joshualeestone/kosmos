@@ -51,7 +51,7 @@ const dmfiles = require('./dmfiles');
 const projects = require('./projects');
 const store = require('./store');
 /* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
-const { NAMESPACE, LOCAL_LONG, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold } = require('./winpath');
+const { isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold } = require('./winpath');
 
 /* The type a stored file is described by, from its extension. The page words the
    card from it (pjFileWord) and the download carries it with nosniff, an attachment
@@ -473,17 +473,22 @@ function readProjects() {
   try { all = projects.readAll(); } catch { all = []; }
   return Array.isArray(all) ? all : [];
 }
+/* Whether `given` is a plain \\host\share path written inside one of the agent's own folders that is itself written as
+   a share (a project, or a connected agent's Files): the person's own choice of share (rule 1's one exception). */
+function inOwnShareFolder(given, roots) {
+  return !!roots && isPlainShare(given) && roots.folders.some((f) => isPlainShare(f) && writtenInside(given, f));
+}
 /* The refusal for a Windows path by its spelling alone, or null. Called before anything touches the path. `roots`
    is the agent's (agentRoots); null when the path is a project folder being checked, with no owner to compare. */
 function winSpellingRefusal(given, roots) {
-  const share = NAMESPACE.test(given);
-  /* Every \\ or // start is refused (a share, the \\?\ and \\.\ namespaces, the local \\?\C:\ spelling too), but a
-     plain \\host\share path written inside one of the agent's own share-written project folders. */
-  /* A local drive path written in its long form (\\?\C:\, \\.\C:\) is refused too, as main never had to: the rules
-     below compare spellings (a hidden folder of home, a project folder), and it does not start the way they do. It
-     is said as what it is, not as a network path (review 13 NIT). */
-  if (roots && LOCAL_LONG.test(given)) return LONG_FORM;
-  if (share && !(roots && isPlainShare(given) && roots.folders.some((f) => isPlainShare(f) && writtenInside(given, f)))) return ON_NETWORK;
+  const share = isNamespaceSpelling(given);
+  /* A local drive path written in its long form (\\?\C:\, \\.\C:\, \??\C:\) is refused too, as main never had to: the
+     rules below compare spellings (a hidden folder of home, a project folder), and it does not start the way they do.
+     It is said as what it is, not as a network path or a stream (review 13 NIT, review 18 NIT). */
+  if (roots && isLongDrivePath(given)) return LONG_FORM;
+  /* Every \\ or // start is refused (a share, the \\?\ and \\.\ namespaces), but a plain \\host\share path written
+     inside one of the agent's own share-written folders. */
+  if (share && !inOwnShareFolder(given, roots)) return ON_NETWORK;
   if (given.indexOf(':', 2) >= 0) return STREAM;
   const parts = given.split(/[\\/]+/).filter(Boolean);
   if (parts.length && isDevicePart(parts[parts.length - 1])) return DEVICE_NAME;
