@@ -24,7 +24,9 @@ standing ask (10-25) is that automatic moves wait until a full day of decisions 
 GET /api/accounts uses listLive (a live login check per account), which must never run on a timer. The sweep builds
 its rows from cheap reads instead (engine/autobalance.js rowsFromReadings):
 - accounts.list(): dir, label, email, organization, memoryShared, apiKey, isDefault.
-- usagepoll.readUsage(dir): weekly and five-hour figures, fresh only. A fresh record whose state is 'ok' is a real
+- usagepoll.readUsage(dir): weekly and five-hour figures, fresh only, kept whatever the latest read's state (review 9:
+  slice 1 keeps the last good figures through a failed read on purpose, and readUsage ages them out), and ignored when
+  the record names another login than the account's. A fresh record whose state is 'ok' is a real
   usage call that worked for this login, so it stands for "signed in" (badge 'working'). A fresh 401 or 403 (usage or
   profile call) stands for 'rejected'. Anything else gives no badge: not a target, and not at risk by login. A 429 is
   the usage endpoint's own rate limit, not a stopped login; an unreadable answer or another login's token says
@@ -48,7 +50,10 @@ which is OFF unless AGENT_WORKFORCE_USAGE_POLL=1 (slice 1's review 19). So by de
 - One JSON line per CHANGED decision (moves with labels, reason and kind; held; at risk), in the board's data folder,
   newest 500 kept. The last decision is rebuilt from the record at start, so a restart does not write it again; a line
   stamped in the future is not trusted; odd lines are skipped; a write that fails is tried again next tick. No email.
-- A record that cannot be read leaves the sweep off (a log line), never the board.
+- A record that cannot be read leaves the sweep off (a log line), never the board, and is never written over: only a
+  record that does not exist yet is an empty one (review 9). A tick cannot throw out of its timer.
+- Recorded but not drawn (review 9): a decision with an account at risk and nothing that could move. The record, and
+  Settings, are of what Kosmos would have moved.
 
 ## Telling the person
 GET /api/accounts?agents=1 adds autobalance.recording (the sweep's own gate) and autobalance.recent (the newest 10

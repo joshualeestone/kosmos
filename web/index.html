@@ -28897,7 +28897,8 @@ function abRecentHtml(recent, label, who, line) {
     for (const m of Array.isArray(e.moves) ? e.moves : []) {
       if (!m || typeof m !== 'object') continue;
       const mv = esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel));
-      out.push(at(e.at) + 'it would have moved ' + mv + (m.why ? ', because ' + esc(m.why) : '') + '.');
+      const when = at(e.at);   // review 9: no time read from the entry, so the line starts with a capital
+      out.push((when ? when + 'it' : 'It') + ' would have moved ' + mv + (m.why ? ', because ' + esc(m.why) : '') + '.');
     }
   }
   return out.length ? '<p class="dhint" style="margin:12px 0 0;font-weight:600;">Lately</p>' + out.map(line).join('') : '';

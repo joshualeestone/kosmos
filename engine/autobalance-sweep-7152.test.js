@@ -103,12 +103,26 @@ test('#7152 slice 3: a restart does not record the same decision again; a line f
   await sweep.create({ file }).tick(d, NOW);
   await sweep.create({ file, nowMs: NOW + 1000 }).tick(d, NOW + 1000);
   assert.equal(sweep.readLines(file).length, 1, 'every board restart wrote the decision again');
+  /* Review 9: the line naming today's decision, alone in its file and stamped in the future, must not stand in for it. */
+  const same = { kind: 'decision', moves: [{ agent: 'ada', from: '/u/.claude-work', to: '/u/.claude-spare' }], held: [], atRisk: [{ from: '/u/.claude-work', kind: 'usage' }] };
   const f2 = fileFor();
-  sweep.append(f2, { kind: 'decision', at: NOW + 10 * sweep.CLOCK_SLACK_MS, moves: [{ agent: 'ada', from: '/u/.claude-work', to: '/u/.claude-spare' }], held: [], atRisk: [{ from: '/u/.claude-work', kind: 'usage' }] });
-  sweep.append(f2, { kind: 'decision', at: NOW - 1000, moves: [null, 7], held: [null], atRisk: [null] });
-  let run;
-  assert.doesNotThrow(() => { run = sweep.create({ file: f2, nowMs: NOW }); }, 'an odd line stopped the board starting');
-  assert.equal((await run.tick(d, NOW)).did, 'recorded', 'a line stamped in the future stood in for the last decision');
+  sweep.append(f2, { ...same, at: NOW + 10 * sweep.CLOCK_SLACK_MS });
+  assert.equal((await sweep.create({ file: f2, nowMs: NOW }).tick(d, NOW)).did, 'recorded', 'a line stamped in the future stood in for the last decision');
+  const f3 = fileFor();
+  sweep.append(f3, { ...same, at: NOW - 1000 });
+  assert.equal((await sweep.create({ file: f3, nowMs: NOW }).tick(d, NOW)).did, 'nothing', 'CONTROL: the same line, stamped in the past, is the last decision');
+  const f4 = fileFor();
+  sweep.append(f4, { kind: 'decision', at: NOW - 1000, moves: [null, 7], held: [null], atRisk: [null] });
+  assert.doesNotThrow(() => sweep.create({ file: f4, nowMs: NOW }), 'an odd line stopped the board starting');
+});
+
+test('#7152 slice 3 review 9: a record that cannot be read is not taken for an empty one, and is never written over', () => {
+  const dir = path.join(TMP, `unreadable-${++n}`);
+  fs.mkdirSync(dir);   // a folder where the record should be: reading it fails with something other than "not there"
+  assert.throws(() => sweep.create({ file: dir }), 'a record that could not be read was taken for an empty one');
+  assert.equal(sweep.append(dir, { kind: 'decision', at: NOW, moves: [] }), false, 'a write went ahead over a record it could not read');
+  assert.ok(fs.statSync(dir).isDirectory(), 'CONTROL: what was there is untouched');
+  assert.doesNotThrow(() => sweep.create({ file: path.join(TMP, 'never-written.jsonl') }), 'CONTROL: a record not written yet is an empty one');
 });
 
 test('#7152 slice 3: recent is newest first, keeps only decisions with a move, and the record keeps its newest lines', () => {
@@ -135,7 +149,7 @@ test('#7152 slice 3: rows from the cheap readings: a working usage call is signe
   assert.equal(by['/u/.claude-x'].connection.badge, null, 'a record that is neither a reading nor a refusal claimed a login state');
   assert.equal(by['/u/.claude-r'].connection.badge, 'rejected');
   assert.equal(by['/u/.claude-p'].connection.badge, 'rejected', 'a refused profile call is the same token refused');
-  assert.equal(by['/u/.claude-r'].weekly, null, 'a refused read showed a usage figure');
+  assert.equal(by['/u/.claude-r'].weekly.usedPct, 5, 'a fresh figure kept through a refused read was dropped (review 9)');
   for (const k of ['rate', 'unread', 'other']) assert.equal(by[`/u/.claude-${k}`].connection.badge, null, `a ${recs[`/u/.claude-${k}`].state} read as a stopped login`);
   const d = ab.decide({ rows: ab.rowsFromReadings({ list: LIST, nowMs: NOW, agentsOn: (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true }),
     readUsage: (dir) => (dir === '/u/.claude-work' ? { at: NOW, state: 'http-429' } : USAGE[dir]) }), movable: () => true, nowMs: NOW });
@@ -164,4 +178,25 @@ test('#7152 slice 3: the guide fails closed, and words left unsent in an agent\'
   assert.equal('unsentInput' in ada, true, 'CONTROL: a real card carries unsentInput');
   const waiting = { ...ada, unsentInput: { since: new Date(NOW).toISOString() } };
   assert.equal(ab.movableFor({ ...base, cards: [waiting], isGuide: () => false, guideName: () => null })('ada'), false, 'an agent with unsent words in its box was movable');
+});
+
+test('#7152 slice 3 review 9: figures are kept through a failed read; a record for another login is ignored', () => {
+  const blip = { at: NOW, measuredAt: NOW - 60000, state: 'unreachable', email: 'w@example.test', weekly: { usedPct: 95, resetsAt: S(NOW + 40 * H) }, fiveHour: null };
+  const rows = ab.rowsFromReadings({ list: LIST, nowMs: NOW, readUsage: (dir) => (dir === '/u/.claude-work' ? blip : USAGE[dir]),
+    agentsOn: (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true }) });
+  const d = ab.decide({ rows, movable: () => true, nowMs: NOW });
+  assert.deepEqual(d.atRisk.map((x) => x.from), ['/u/.claude-work'], 'one network blip took a 95% account off the at-risk list');
+  assert.equal(rows[0].connection.badge, null, 'CONTROL: a failed read is not a working login');
+  const other = ab.rowsFromReadings({ list: LIST, nowMs: NOW, readUsage: (dir) => (dir === '/u/.claude-work' ? { ...reading(95, 40), email: 'someone-else@example.test' } : USAGE[dir]),
+    agentsOn: () => ({ names: [], complete: true }) });
+  assert.equal(other[0].weekly, null, 'another login\'s figure was put on this account');
+  assert.equal(other[0].connection.badge, null);
+});
+
+test('#7152 slice 3 review 9: a five-hour reading with no reset time still keeps a full target out', () => {
+  const rows = ab.rowsFromReadings({ list: LIST, nowMs: NOW,
+    readUsage: (dir) => (dir === '/u/.claude-spare' ? { ...reading(10, 100), fiveHour: { usedPct: 99, resetsAt: null } } : USAGE[dir]),
+    agentsOn: (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true }) });
+  assert.equal(rows[1].fiveHour.resetsAt, null, 'CONTROL: the reading has no reset time');
+  assert.deepEqual(ab.decide({ rows, movable: () => true, nowMs: NOW }).moves, [], 'a 99% five-hour window with no reset time was a target');
 });
