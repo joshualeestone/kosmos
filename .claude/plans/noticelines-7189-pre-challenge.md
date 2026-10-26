@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: noticelines-7189
-diff_hash: 266aa9bc013929e417ce91da02b4cc6581a73db34516b62ddef1e0054f1fea19
+diff_hash: 94da85ef23498e51b0be7f0f02750e04d33833019920d4e22557a33a5b10c986
 validation: passed (focused node set of 74 files chosen by who reads server.js notes, the room text view, msg-valve, the notice CLI usage, plus fixture-discipline, cli.sandbox-data-4796, engine.reachable, no-brand-refs and no-name-refs: 1311/1311 before and after rebasing onto main; controls: the new tests fail on origin/main's server.js and web/index.html, and dropping the text-view flatten fails the forged-row test, its no-own-row assertion measured live on its own)
 subdir_audit: passed (no CLAUDE.md in the diff)
-timestamp: 2026-10-26T12:22:56Z
+timestamp: 2026-10-26T12:49:41Z
 iterations: 2
 converged: true
 ---
@@ -27,3 +27,6 @@ Noted for design: the phone centres Kosmos lines.
 
 #### Iteration 2
 No new issues found. Accepted: the Mac CLI maps a lone CR to a space where the server makes a break (CRLF identical). Deferred (predates the card): a raw VT or FF piped through the Mac CLI is refused as invalid JSON.
+
+### After the loop
+- CI's coarse browser-check gate (#1720) was red on the first push: a web/ change with no browser-check assertion. Added one to docs/browser-checks/render-projects.js (a seeded multi-line note must draw two <br> and occupy at least three visual lines, measured from the rendered text), a design-shots screen (room-notice-7189) in mobile-shots.js, and a per-check surface trailer for render-no-left-bars-3692.js (the band gains only <br>; its border and left edge are unchanged). Both gates rc 0 locally. The tests that read mobile-shots.js: 110/110.
