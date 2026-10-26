@@ -261,7 +261,8 @@ function verifyResumable(rootReal, held, recordAt) {
       const key = collisionKey(rel);
       // The record itself, and only the very file readRecord read (review 1: on Windows a link there was never looked at).
       if (!dirRel && name === LOCK_NAME && at.isFile() && !at.isSymbolicLink() && !untrusted(at, true)) continue;   // ours, taken before the walk
-      // A pending lock a crash left between its write and its link (review 5): ours, removed.
+      // A pending lock a crash left between its write and its link (review 5): ours, removed. (One still linked as the
+      // lock's second name never reaches here: acquireLock removed it before the walk.)
       if (!dirRel && name.startsWith(`${LOCK_NAME}.`) && at.isFile() && !at.isSymbolicLink() && !untrusted(at, true)) { fs.rmSync(abs, { force: true }); continue; }
       if (!dirRel && name === RECORD_NAME) {
         if (at.isSymbolicLink() || at.dev !== recordAt.dev || at.ino !== recordAt.ino) throw new Error('restoresink: the restore record changed while it was read');
@@ -325,15 +326,30 @@ function acquireLock(rootReal) {
       try { fs.linkSync(pending, file); liveTokens.add(token); return () => { liveTokens.delete(token); fs.rmSync(file, { force: true }); }; } catch (e) {
         if (e.code !== 'EEXIST') throw new Error(`restoresink: could not take this folder's restore lock (${e.code || e.message})`);
       }
-      const at = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
+      let at = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
       if (!at) continue;
-      if (at.isSymbolicLink() || !at.isFile() || untrusted(at, true)) throw new Error('restoresink: this folder\'s restore lock is not a private file of yours');
+      // Its mode and owner, not its link count: between the link and the pending name's removal a lock has two names.
+      if (at.isSymbolicLink() || !at.isFile() || untrusted(Object.assign({}, at, { nlink: 1n, uid: at.uid, mode: at.mode }), true)) throw new Error('restoresink: this folder\'s restore lock is not a private file of yours');
       let text = '';
       try { text = fs.readFileSync(file, 'utf8').trim(); } catch { /* read as empty */ }
       const [pidS, threadS, held] = text.split(' ');
+      if (at.nlink > 1n) {
+        // review 6: a crash between the link and the pending name's removal. Only its own pending name may be the
+        // second one; that is removed, and the lock then judged as any other. Any other second name refuses.
+        const own = typeof held === 'string' && /^[0-9a-f]{24}$/.test(held) ? fs.lstatSync(`${file}.${held}`, { bigint: true, throwIfNoEntry: false }) : null;
+        if (!own || own.dev !== at.dev || own.ino !== at.ino) throw new Error('restoresink: this folder\'s restore lock has a second name the restore did not make');
+        if (held === token) throw new Error('restoresink: could not take this folder\'s restore lock (it is its own pending name)');
+        fs.rmSync(`${file}.${held}`, { force: true });
+        at = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
+        if (!at) continue;
+      }
       const pid = Number(pidS);
+      // review 6: a lock written before this computer last started cannot belong to a live restore (after a reboot a
+      // low pid is soon some unrelated process, which would read as alive for ever).
+      const bootMs = Date.now() - os.uptime() * 1000;
       let stale;
-      if (!text || !Number.isSafeInteger(pid) || pid <= 0) stale = Date.now() - Number(at.mtimeMs) > LOCK_STALE_MS;
+      if (Number(at.mtimeMs) < bootMs - 1000) stale = true;
+      else if (!text || !Number.isSafeInteger(pid) || pid <= 0) stale = Date.now() - Number(at.mtimeMs) > LOCK_STALE_MS;
       else if (pid === process.pid) stale = Number(threadS) === threadId && !liveTokens.has(held);
       else { try { process.kill(pid, 0); stale = false; } catch (k) { stale = k.code !== 'EPERM'; } }
       if (!stale) throw new Error(`restoresink: ${LOCK_BUSY}`);
@@ -605,10 +621,13 @@ function createSink(root, opts, lock) {
       try {
         if (recordFd !== null) { const f = recordFd; recordFd = null; fs.closeSync(f); if (!(o && o.keepRecord)) fs.rmSync(path.join(rootReal, RECORD_NAME), { force: true }); }
         removeTree(tempDir);
-      } finally {
-        // Released whatever the cleanup did (review 5: a Windows EBUSY in removeTree left the folder locked).
-        if (lock.release) { const r = lock.release; lock.release = null; r(); }
+      } catch (e) {
+        // Released whatever the cleanup did (review 5: a Windows EBUSY in removeTree left the folder locked), and the
+        // cleanup's own error is the one reported (review 6).
+        if (lock.release) { const r = lock.release; lock.release = null; try { r(); } catch { /* stale later: its token is gone */ } }
+        throw e;
       }
+      if (lock.release) { const r = lock.release; lock.release = null; r(); }
     },
   };
 }
