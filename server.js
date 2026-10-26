@@ -21571,6 +21571,7 @@ const server = http.createServer(async (req, res) => {
            before its single write, so a body mixing parent with name or
            description applies whole or not at all. null or '' un-groups. */
         if (body.parent !== undefined) fields.parent = body.parent;
+        if (body.roomNotices !== undefined) fields.roomNotices = body.roomNotices;   // #7246 slice 2, validated by the engine
         projects.edit(id, fields);
         if (fields.paused !== undefined && fields.viaScreen !== true && fields.paused !== wasPaused) {
           let who = null;

@@ -17897,6 +17897,21 @@ window.kosmosMeasureScrollbarWidth();
       <p class="ferr" id="pjs-parent-err" aria-live="polite"></p>
     </div>
 
+    <!-- #7246 slice 2: how agents on this project hear about room posts that do not name them. Automatic is an hourly
+         digest above 8 agents, each post below (engine/roomhold.js noticeMode); the hint says which applies now. A post
+         that names an agent, or answers its own post, reaches it at once in every mode. Copy is Mona's to finalise. -->
+    <div class="field">
+      <label class="flabel" for="pjs-notices">Posts that do not name an agent</label>
+      <select class="tk-inp" id="pjs-notices" aria-describedby="pjs-notices-hint">
+        <option value="auto">Automatic</option>
+        <option value="each">Tell each agent after its turn</option>
+        <option value="digest">One summary an hour</option>
+        <option value="named">Only when an agent is named</option>
+      </select>
+      <p class="fhint" id="pjs-notices-hint">A post that names an agent always reaches it at once. Telling every idle agent about every other post costs them a turn each, which adds up on a busy project.</p>
+      <p class="ferr" id="pjs-notices-err" aria-live="polite"></p>
+    </div>
+
     <!-- #2407: the per-project new-message sound. On by default (Josh chose the sound);
          this switch mutes it for a noisy project, on this device only, so it reads and
          writes localStorage directly rather than a server setting. Not `hidden` like the
@@ -70887,6 +70902,20 @@ function pjDescendantIds(rootId) {
    preselected. Lives in paintProjectSettings (the editable half), never in the
    poll-driven paintSettingsFacts, so a repaint cannot reset a parent the person
    is midway through choosing -- the same draft-eater rule the name field keeps. */
+/* #7246 slice 2: the notices select, painted with the parent select (the editable half, never the poll repaint, so a
+   choice in progress is not reset). The hint says what Automatic gives this project now. */
+function pjPaintNoticesSelect(p) {
+  const sel = document.getElementById('pjs-notices');
+  if (!sel) return;
+  const v = ['auto', 'each', 'digest', 'named'].includes(p.roomNotices) ? p.roomNotices : 'auto';
+  sel.value = v;
+  const hint = document.getElementById('pjs-notices-hint');
+  if (hint) {
+    const now = p.roomNoticesNow === 'digest' ? 'one summary an hour' : p.roomNoticesNow === 'named' ? 'only when an agent is named' : 'each agent is told after its turn';
+    hint.textContent = (v === 'auto' ? 'Automatic means one summary an hour on a project of more than 8 agents. For this project now: ' + now + '. ' : '')
+      + 'A post that names an agent always reaches it at once. Telling every idle agent about every other post costs them a turn each, which adds up on a busy project.';
+  }
+}
 function pjPaintParentSelect(p) {
   const sel = document.getElementById('pjs-parent');
   if (!sel) return;
@@ -70942,6 +70971,7 @@ function paintProjectSettings(p) {
   // #2407: reflect this project's per-device sound preference (default ON).
   paintSwitch('pjs-sound-toggle', projectSoundOn(p.id));
   pjPaintParentSelect(p);
+  pjPaintNoticesSelect(p);   // #7246 slice 2
   document.getElementById('pjs-msg').textContent = '';
   document.getElementById('pjs-reveal-msg').textContent = '';
   // The members verdict too: without this, project A's failed-removal
@@ -71596,6 +71626,10 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
     const parentSel = document.getElementById('pjs-parent');
     const parentVal = parentSel ? parentSel.value : (p.parent || '');
     if (parentVal !== (p.parent || '')) body.parent = parentVal || null;
+    // #7246 slice 2: the notices mode, only when it changed ('auto' clears the setting).
+    const noticesSel = document.getElementById('pjs-notices');
+    const noticesVal = noticesSel ? noticesSel.value : (p.roomNotices || 'auto');
+    if (noticesVal !== (p.roomNotices || 'auto')) body.roomNotices = noticesVal;
     if (!Object.keys(body).length) { msg.textContent = 'Nothing has changed.'; return; }
     // #2923: the Sweep spinner (#2236) beside the button while the save is in
     // flight, so pressing Save shows something happened. Injected only once a

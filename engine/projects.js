@@ -1329,6 +1329,10 @@ function describe(project, roster, all) {
     paused: project.paused === true,
     // #4771: whose pause it is, so the page can say when an agent paused it (the person's is lifted only on the screen).
     pausedByPerson: project.paused === true && project.pausedByPerson === true,
+    // #7246 slice 2: the stored setting for room posts that do not name a member ('auto' when none), and the mode it
+    // gives now (engine/roomhold.js noticeMode: auto is an hourly digest above 8 members), so the page can say both.
+    roomNotices: ['each', 'digest', 'named'].includes(project.roomNotices) ? project.roomNotices : 'auto',
+    roomNoticesNow: require('./roomhold').noticeMode(project),
     // Gated on the healed flag AND the value: a hand-edited record carrying
     // a date beside archived:false must not publish an "archived at", and a
     // non-string or unparseable value beside archived:true must not become
@@ -3155,7 +3159,14 @@ function edit(id, fields = {}) {
   // returns null (un-group) or a valid parent id.
   let parentWant;
   if (fields.parent !== undefined) parentWant = cleanParent(fields.parent, id);
-  if (!Object.keys(want).length && fields.archived === undefined && fields.paused === undefined && fields.parent === undefined) {
+  /* #7246 slice 2: how members hear about room posts that do not name them (engine/roomhold.js noticeMode). 'auto' or
+     null removes the setting, so the size default applies (an hourly digest above 8 members). Anything else refused. */
+  const ROOM_NOTICES = ['each', 'digest', 'named'];
+  if (fields.roomNotices !== undefined && fields.roomNotices !== null && fields.roomNotices !== 'auto' && !ROOM_NOTICES.includes(fields.roomNotices)) {
+    throw new Error('roomNotices must be auto, each, digest or named');
+  }
+  if (!Object.keys(want).length && fields.archived === undefined && fields.paused === undefined && fields.parent === undefined
+    && fields.roomNotices === undefined) {
     // A save that would move nothing is refused, not answered "saved": a
     // typo'd key reporting success is a save the person believes happened.
     throw new Error('nothing here we can change');
@@ -3191,6 +3202,10 @@ function edit(id, fields = {}) {
     // #1994: the validated parent (or null to un-group). Only when carried, so
     // a save that does not mention parent leaves the grouping untouched.
     if (fields.parent !== undefined) next.parent = parentWant;
+    if (fields.roomNotices !== undefined) {
+      if (ROOM_NOTICES.includes(fields.roomNotices)) next.roomNotices = fields.roomNotices;
+      else delete next.roomNotices;   // auto: absent, as every older record reads
+    }
     return next;
   });
 }
