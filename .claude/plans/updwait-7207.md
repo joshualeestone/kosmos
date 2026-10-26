@@ -58,3 +58,29 @@ That the board reports a stable `bootedAt` per process (the same field the updat
   off and back after (fixed). Not done: the wait ignores `updateAttempt` (the installer's own failure record). The
   "answering" sentence already sends the person to press again, and the press reports that record through the
   existing overlay, so reading it here would duplicate that path.
+
+## Review 2 (2026-10-26)
+FIXED: the press took its dialog generation only once the wait began, after a POST that can hang; a dialog closed and
+reopened meanwhile was written into. The press now takes it, and focus, before the POST. Wording: "Press Update to
+try again. If the update already started, this joins it."
+
+## Review 3 (2026-10-26)
+FIXED: a stale press that came back REFUSED (a 409) still wrote into the reopened dialog; both no-answer and refused
+now stand down. A stale SUCCESS still raises the overlay on purpose (the update really started; a second press joins
+it). The browser check now drives "restarted" and the deadline through the wait's own status read (statusFetchWithin
+swapped for those legs and put back) and presses the deadline's Reload asserting no POST; red with the mark removed.
+Focus returns to the button only if it is still on Cancel.
+
+## Review 4 (2026-10-26)
+FIXED: the version and boot from before were read when the wait began, after the POST; the page's own poll could
+already have seen the updated board, turning "done" into "press Update again". The press now takes them before its
+POST and the wait never reads the live values (pinned by a test that the wait does not mention them). The browser
+leg's clock skew is restored in a finally, and the boot id it seeds is put back.
+Accepted, not changed:
+- A 401 (signed out after a restart) from /api/status counts as no answer, so after three minutes the dialog says
+  "has not answered" and offers Reload. The offered act is right; only the wording is loose, and the board's own
+  signed-out handling shows on reload.
+- With focus on Cancel during the POST, a doubled Enter closes the dialog. A success still raises the overlay, so
+  nothing is lost.
+- The Reload legs swap the navigation for a marker (location.reload cannot be stubbed); what they prove is that the
+  click does not reach the update route.

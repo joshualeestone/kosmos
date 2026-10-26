@@ -24679,6 +24679,10 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   /* #7207: taken BEFORE the POST, which can hang a long while before it fails: a dialog closed or reopened (perhaps in
      the other mode) during that hang is no longer this press's to write into. Focus too, before disabling drops it. */
   const gen = UPD_WAIT_GEN;
+  /* The version and boot from BEFORE the press, for the same reason: the page's own status poll keeps running while
+     the POST hangs and may already have seen the updated board by the time the POST fails. The served version stands
+     in when no status has been seen yet, so a finished update still reloads. */
+  const before = { version: LAST_VERSION || SERVED_VERSION || null, boot: LAST_BOOTED_AT || null };
   const hadFocus = document.activeElement === go;
   if (hadFocus) document.getElementById('uc-no').focus();   // a disabled button drops focus to the page
   go.disabled = true;   // one click, one installer; the route is idempotent as the backstop
@@ -24697,7 +24701,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   const stale = gen !== UPD_WAIT_GEN || document.getElementById('updconfirm').hidden;
   if (!res) {
     if (stale) return;
-    waitForUnansweredPress(rollingBack, gen, hadFocus);
+    waitForUnansweredPress(rollingBack, gen, hadFocus, before);
     return;
   }
   if (!res.ok) {
@@ -24859,7 +24863,7 @@ function unansweredPressVerdict(v) {
    the board's status every two seconds until the board answers or the dialog is closed or reopened. While the board
    is down the full-page restart screen covers this dialog; that screen is the signal then, and this wait settles the
    dialog underneath for when it lifts. */
-async function waitForUnansweredPress(rollingBack, gen, hadFocus) {
+async function waitForUnansweredPress(rollingBack, gen, hadFocus, pressedOn) {
   const err = document.getElementById('uc-err');
   const go = document.getElementById('uc-go');
   const dlg = document.getElementById('updconfirm');
@@ -24870,10 +24874,8 @@ async function waitForUnansweredPress(rollingBack, gen, hadFocus) {
   err.hidden = false;
   go.disabled = true;
   go.textContent = 'Waiting\u2026';
-  /* The version this page was served with stands in when no status has been seen yet, so a finished update still
-     reloads into the new version rather than offering Update on a board that already has it. */
-  const before = LAST_VERSION || SERVED_VERSION || null;
-  const bootBefore = LAST_BOOTED_AT || null;
+  const before = pressedOn.version;   // taken by the press before its POST, never now
+  const bootBefore = pressedOn.boot;
   const t0 = Date.now();
   for (;;) {
     await new Promise((r) => setTimeout(r, 2000));
