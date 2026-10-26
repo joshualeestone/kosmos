@@ -3,7 +3,30 @@
  * How Windows spells a path, read without touching the disk (#7221). Pure functions of a string: a share or a device
  * namespace, a drive letter, a link target Kosmos may follow, a DOS device name, whether one path is written inside
  * another. engine/replyfile.js builds its Windows refusals on these; the device-name rule is shared with
- * engine/backuprestore.js and engine/win32zip.js. One classifier returning a single kind per spelling is #7249.
+ * engine/backuprestore.js and engine/win32zip.js. classify() (#7249) is the one place a spelling
+ * becomes a single kind; the boolean predicates below are views of it.
+ */
+/* The spelling table (#7249). Every spelling resolves to exactly one `kind`. Earlier rows win:
+ * a local volume is read before a drive, a drive before a share. `networkSpelled` is the older
+ * spelling-SHAPE test (a `\\`/`//` or NT `\??\` start that is not a local drive or volume); it
+ * is kept beside `kind` because a DosDevices drive alias is both networkSpelled AND a drive, and
+ * otherFolderSkip needs the shape, not the kind (see the note on classify).
+ *
+ *   kind               example spellings (all forms read to the same kind)
+ *   -----------------  -----------------------------------------------------------------------
+ *   local-volume       \\?\Volume{GUID}\        \\?\GLOBALROOT\Device\HarddiskVolume3\
+ *                      \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\   \??\Volume{GUID}\
+ *   local-drive        C:\   c:/   C:x   \\?\C:\   \\.\C:\   \??\C:\   (DosDevices aliases of a
+ *                      drive:) \??\Global\C:\  \\?\Global\C:\  \\?\GLOBALROOT\GLOBAL??\D:\
+ *                      \\?\Global\Global\C:\ (chained)        -> networkSpelled is also true here
+ *   share              \\host\share   //host/share   \\?\UNC\host\share   \??\UNC\host\share
+ *                      \\?\GLOBALROOT\Device\Mup\host\share   \??\Global\UNC\host\share
+ *                      \\?\GLOBALROOT\GLOBAL??\UNC\host\share
+ *   no-file-namespace  \\.\pipe\   \\.\mailslot\   \\.\COM1   \\.\LPT2\   \\.\NUL   \??\pipe\
+ *   unplaceable        \\.\Weird\x   \\?\GLOBALROOT\Device\Something   (network-spelled, names
+ *                      no drive/volume/share; LanmanRedirector and WebDAV land here too)
+ *   local-other        \Users\a\x   ..\other\x   f.txt   (names no drive at all; local, judged
+ *                      against the agent's roots, never called network)
  */
 const path = require('node:path');
 
@@ -28,10 +51,11 @@ const NT_LOCAL = /^\\\?\?\\(?=[A-Za-z]:[\\/])/;                  // \??\C:\..., 
    \??\GLOBALROOT\GLOBAL??\C:\, \??\GLOBALROOT\??\C:\ and their \\?\ and \\.\ forms all name drive C. */
 const DRIVE_ALIAS = /^(?:\\\?\?\\|[\\/]{2}[?.][\\/])(?:Global[\\/]|GLOBALROOT[\\/](?:GLOBAL\?\?|\?\?)[\\/])+(?=[A-Za-z]:[\\/])/i;
 const NT_PREFIX = /^\\\?\?\\/;
+/* A share or an unplaceable namespace: a `\\`/`//` or NT `\??\` start that is not a local drive
+   or volume, so a caller reads it as not on this computer, the safe reading. A view of classify's
+   `networkSpelled` (which carries the exact shape, a DosDevices drive alias included). */
 function isNetworkSpelling(p) {
-  const s = String(p);
-  const namespaced = (NAMESPACE.test(s) && !LOCAL_LONG.test(s)) || (NT_PREFIX.test(s) && !NT_LOCAL.test(s));
-  return namespaced && !isLocalVolumeSpelling(s);
+  return classify(p).networkSpelled;
 }
 function driveOf(p) {
   const m = /^([A-Za-z]):/.exec(asDrivePath(p));   // C:\, and its \\?\C:\ and \??\C:\ spellings
@@ -71,11 +95,12 @@ function shareOf(p) {
    Shadow Copy (\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopyN\) is a local volume too (review 27 finding 1). */
 const LOCAL_VOLUME = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)(?:Volume\{[0-9a-f-]+\}|GLOBALROOT[\\/]Device[\\/]HarddiskVolume(?:ShadowCopy)?\d+)[\\/]/i;
 function isLocalVolumeSpelling(p) {
-  return LOCAL_VOLUME.test(String(p));
+  return classify(p).kind === 'local-volume';
 }
 /* A path written as a plain share, \\host\share\... or //host/share/..., not the \\?\ or \\.\ namespaces. */
 function isPlainShare(p) {
-  return !/^[\\/]{2}[?.][\\/]/.test(String(p)) && !NT_PREFIX.test(String(p)) && shareOf(p) !== null;
+  const s = String(p);
+  return classify(s).kind === 'share' && !/^[\\/]{2}[?.][\\/]/.test(s) && !NT_PREFIX.test(s);
 }
 /* A drive path's long (\\?\C:\) or NT (\??\C:\) spelling read as the plain drive path it is. */
 function asDrivePath(p) {
@@ -141,7 +166,30 @@ function isLongDrivePath(p) {
    DosDevices aliases any number of times: \\?\Global\Global\C:\ is C:\), so it is never read as holding nothing. */
 const NO_FILE_NAMESPACE = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)(?:(?:pipe|mailslot)[\\/]|(?:COM\d+|LPT\d+|CON|NUL|AUX|PRN|CONIN\$|CONOUT\$)(?:[\\/]|$))/i;
 function isNoFileNamespace(p) {
-  return NO_FILE_NAMESPACE.test(String(p));
+  return classify(p).kind === 'no-file-namespace';
 }
 
-module.exports = { isNoFileNamespace, WINDOWS_DEVICE_NAME, isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold };
+/* The one classifier (#7249): a spelling resolves to exactly one `kind`, so a caller asks "what
+   is this path" once rather than composing several predicates (the gap between two of which was
+   each of the six #7221 "skipped other-agent folder" fail-opens). The boolean predicates above
+   are views of this. `drive` is the letter for a local-drive spelling, `share` the lower-cased
+   `server\share` for a share, each null otherwise. `networkSpelled` is the raw spelling-SHAPE
+   test the old isNetworkSpelling used: a DosDevices drive alias (\??\Global\C:\, \\?\Global\C:\)
+   is networkSpelled yet its kind is local-drive (review 22), so the two are kept distinct and a
+   caller that needs the old shape gate (otherFolderSkip, which decides whether to leave another
+   agent's folder unresolved) reads `networkSpelled`, not `kind`. The precedence matches the
+   table at the top of the module. */
+function classify(p) {
+  const s = String(p);
+  const networkSpelled = ((NAMESPACE.test(s) && !LOCAL_LONG.test(s)) || (NT_PREFIX.test(s) && !NT_LOCAL.test(s))) && !LOCAL_VOLUME.test(s);
+  if (LOCAL_VOLUME.test(s)) return { kind: 'local-volume', drive: null, share: null, networkSpelled };
+  const drive = driveOf(s);
+  if (drive) return { kind: 'local-drive', drive, share: null, networkSpelled };
+  const share = shareOf(s);
+  if (share) return { kind: 'share', drive: null, share, networkSpelled };
+  if (NO_FILE_NAMESPACE.test(s)) return { kind: 'no-file-namespace', drive: null, share: null, networkSpelled };
+  if (networkSpelled) return { kind: 'unplaceable', drive: null, share: null, networkSpelled };
+  return { kind: 'local-other', drive: null, share: null, networkSpelled };
+}
+
+module.exports = { classify, isNoFileNamespace, WINDOWS_DEVICE_NAME, isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold };

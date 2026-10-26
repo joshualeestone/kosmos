@@ -51,7 +51,7 @@ const dmfiles = require('./dmfiles');
 const projects = require('./projects');
 const store = require('./store');
 /* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
-const { isNoFileNamespace, isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold } = require('./winpath');
+const { classify, isNamespaceSpelling, isLongDrivePath, isDevicePart, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, asDrivePath, writtenInside, sameWrittenPath, mayHold } = require('./winpath');
 
 /* The type a stored file is described by, from its extension. The page words the
    card from it (pjFileWord) and the download carries it with nosniff, an attachment
@@ -338,26 +338,31 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
    follows. `leadsTo` is the share path a link to a plain share names (the rest of the folder's path joined on), so a
    skipped folder is judged by where it goes, never by its own spelling alone (review 16 finding 1). */
 function otherFolderSkip(folder, fileShare) {
-  /* Only the namespaces on winpath's allow-list hold no files (a pipe, a mailslot, a DOS device: \\.\pipe\..., \\.\COM1):
-     such a folder leads nowhere, so it cannot make another agent's attach refuse (reviews 12 and 23). Any other
-     namespace that names no share may name a drive (\\?\GLOBALROOT\...), so it stays unknown and fails closed. */
-  const holdsNoFiles = (p) => isNetworkSpelling(p) && !shareOf(p) && isNoFileNamespace(p);
-  if (isNetworkSpelling(folder)) {
-    if (fileShare && shareOf(folder) === fileShare) return null;
-    if (holdsNoFiles(folder)) return { folder, kind: 'nowhere', leadsTo: null };
-    return { folder, kind: 'share', leadsTo: shareOf(folder) ? asShareSpelling(folder) : null };
+  /* A folder "holds no files" only when its kind is no-file-namespace (a pipe, a mailslot, a DOS
+     device: \\.\pipe\..., \\.\COM1): such a folder leads nowhere, so it cannot make another agent's
+     attach refuse (reviews 12 and 23). Any other namespace that names no share may name a drive
+     (\\?\GLOBALROOT\...), so it stays unknown and fails closed. */
+  const holdsNoFiles = (p) => classify(p).kind === 'no-file-namespace';
+  /* The skip gate is the network SHAPE, not the kind: a DosDevices drive alias (\??\Global\C:\) is
+     networkSpelled, and must be left unresolved exactly as before, even though its kind is a drive. */
+  const c = classify(folder);
+  if (c.networkSpelled) {
+    if (fileShare && c.share === fileShare) return null;
+    if (c.kind === 'no-file-namespace') return { folder, kind: 'nowhere', leadsTo: null };
+    return { folder, kind: 'share', leadsTo: c.share ? asShareSpelling(folder) : null };
   }
   let leadsTo = null;
   let leadsNowhere = false;
   const noteShare = (cur, to, rest) => {
-    if (shareOf(to)) leadsTo = asShareSpelling(path.win32.resolve(asShareSpelling(to), ...rest));
-    else if (holdsNoFiles(to)) leadsNowhere = true;
+    const ct = classify(to);
+    if (ct.share) leadsTo = asShareSpelling(path.win32.resolve(asShareSpelling(to), ...rest));
+    else if (ct.kind === 'no-file-namespace') leadsNowhere = true;
     return false;
   };
   /* A folder written as a local volume (\\?\Volume{GUID}\...) is walked too: it is on this computer, but a link below
      its root can still lead to a share (review 19 finding 1), so the volume spelling is accepted where the walk meets
      it and its parts are lstat'd like a drive path's. */
-  const onPath = (reached) => (isLocalVolumeSpelling(reached) ? null : winSpellingRefusal(reached, null));
+  const onPath = (reached) => (classify(reached).kind === 'local-volume' ? null : winSpellingRefusal(reached, null));
   const walked = walkLinks(asDrivePath(folder), onPath, 0, noteShare);
   if (walked === ON_NETWORK) return { folder, kind: leadsNowhere ? 'nowhere' : 'share', leadsTo };
   if (walked === DEAD_LINK || walked === TOO_MANY_LINKS) return { folder, kind: 'nowhere', leadsTo: null };
@@ -376,15 +381,17 @@ function otherFolderSkip(folder, fileShare) {
    an agent refused because one project row on the board cannot be placed is told that, not that the file is not in
    a project of its own. */
 function skippedMayHold(skipped, given, real) {
-  /* A folder written in a namespace that is not a drive, a share or a local volume: mayHold answers yes for it
-     whatever the file, so its yes says nothing about the file. */
-  const unplaceable = !driveOf(asDrivePath(skipped.folder)) && !shareOf(skipped.folder) && !isLocalVolumeSpelling(skipped.folder);
+  /* A folder whose kind is not a drive, a share or a local volume (a no-file, unplaceable or
+     driveless spelling): mayHold answers yes for it whatever the file, so its yes says nothing
+     about the file. */
+  const fk = classify(skipped.folder).kind;
+  const unplaceable = fk !== 'local-drive' && fk !== 'share' && fk !== 'local-volume';
   if (mayHold(skipped.folder, given, real)) return unplaceable ? 'unplaced' : 'held';
   if (skipped.kind === 'nowhere') return null;
   /* A destination that cannot be named may be anywhere, this computer included, so it may hold any file (review 22
      finding 1: a link to \??\Global\C:\... had been read as "another computer" and a local file let through). */
   if (!skipped.leadsTo) return 'unplaced';
-  if (!isNetworkSpelling(real)) return null;
+  if (!classify(real).networkSpelled) return null;
   return mayHold(skipped.leadsTo, real, real) ? 'held' : null;
 }
 
@@ -462,18 +469,19 @@ function agentRoots(sessionName, filesDir, projectList) {
   const walkFrom = [];
   const addDrivePath = (p) => { drives.add(driveOf(p)); walkFrom.push(asDrivePath(p)); };
   let filesFolder = null;
-  if (typeof filesDir === 'string' && driveOf(filesDir)) { addDrivePath(filesDir); filesFolder = filesDir; }
-  else if (typeof filesDir === 'string' && shareOf(filesDir)) filesFolder = asShareSpelling(filesDir);
+  const filesKind = typeof filesDir === 'string' ? classify(filesDir).kind : null;
+  if (filesKind === 'local-drive') { addDrivePath(filesDir); filesFolder = filesDir; }
+  else if (filesKind === 'share') filesFolder = asShareSpelling(filesDir);
   if (filesFolder) folders.push(filesFolder);
   for (const p of projectList) {
     if (!p || typeof p.folder !== 'string' || !(p.agents || []).includes(sessionName)) continue;
-    const d = driveOf(p.folder);
-    if (d) addDrivePath(p.folder);
+    const fk = classify(p.folder).kind;
+    if (fk === 'local-drive') addDrivePath(p.folder);
     /* A share written \\?\UNC\host\share is read as \\host\share (review 12 NIT). A local volume written without a
        letter adds nothing here: its files named by a drive path on a drive no other root reaches are refused, the safe
        direction (named in the plan). */
-    if (d) projectFolders.push(p.folder);
-    else if (shareOf(p.folder)) projectFolders.push(asShareSpelling(p.folder));
+    if (fk === 'local-drive') projectFolders.push(p.folder);
+    else if (fk === 'share') projectFolders.push(asShareSpelling(p.folder));
   }
   folders.push(...projectFolders);
   /* `cache` is an object every copy of these roots shares (winLinkRefusal works on a copy), so the roots' links are
@@ -520,11 +528,12 @@ function inOwnShareFolder(given, roots) {
 /* The refusal for a Windows path by its spelling alone, or null. Called before anything touches the path. `roots`
    is the agent's (agentRoots); null when the path is a project folder being checked, with no owner to compare. */
 function winSpellingRefusal(given, roots) {
-  const share = isNamespaceSpelling(given) || isNetworkSpelling(given);   // \\..., and an NT \??\UNC\... too (review 21 NIT)
+  const c = classify(given);
+  const share = isNamespaceSpelling(given) || c.networkSpelled;   // \\..., and an NT \??\UNC\... too (review 21 NIT)
   /* A local drive path written in its long form (\\?\C:\, \\.\C:\, \??\C:\) is refused too, as main never had to: the
      rules below compare spellings (a hidden folder of home, a project folder), and it does not start the way they do.
      It is said as what it is, not as a network path or a stream (review 13 NIT, review 18 NIT). */
-  if (roots && (isLongDrivePath(given) || isLocalVolumeSpelling(given))) return LONG_FORM;   // a local volume too (review 24 NIT)
+  if (roots && (isLongDrivePath(given) || c.kind === 'local-volume')) return LONG_FORM;   // a local volume too (review 24 NIT)
   /* Every \\ or // start is refused (a share, the \\?\ and \\.\ namespaces), but a plain \\host\share path written
      inside one of the agent's own share-written folders. */
   if (share && !inOwnShareFolder(given, roots)) return ON_NETWORK;
@@ -532,8 +541,7 @@ function winSpellingRefusal(given, roots) {
   const parts = given.split(/[\\/]+/).filter(Boolean);
   if (parts.length && isDevicePart(parts[parts.length - 1])) return DEVICE_NAME;
   if (roots && !share) {
-    const d = driveOf(given);
-    if (!d || !rootReaches(roots, d)) return NOT_YOURS;
+    if (!c.drive || !rootReaches(roots, c.drive)) return NOT_YOURS;
   }
   return null;
 }
@@ -543,7 +551,7 @@ function winSpellingRefusal(given, roots) {
    the object manager reaches the share redirector (\??\Global\UNC\..., \??\GLOBALROOT\GLOBAL??\UNC\...,
    \Device\LanmanRedirector\..., WebDAV), whose realpath is the contact (review 14 finding 1). */
 function unfollowedLinkRefusal(to) {
-  return isLocalVolumeSpelling(String(to)) ? UNREADABLE_LINK : ON_NETWORK;
+  return classify(String(to)).kind === 'local-volume' ? UNREADABLE_LINK : ON_NETWORK;
 }
 /* Follow the links in `p` by lstat and readlink only, and say why not if any of them leaves for the network, a
    device or a drive outside the roots. Null when the path may be resolved. A chain of more than MAX_HOPS links is
@@ -567,7 +575,7 @@ function winLinkRefusal(p, roots) {
      finding 1). winRealRefusal later lets the share real path through as a project file. */
   const view = roots ? { ...roots, folders: roots.folders.slice() } : null;
   const ownShareProject = (linkPath, to) => {
-    if (!view || !isPlainShare(to) || !roots.folders.some((f) => !!driveOf(f) && sameWrittenPath(linkPath, f))) return false;
+    if (!view || !isPlainShare(to) || !roots.folders.some((f) => classify(f).kind === 'local-drive' && sameWrittenPath(linkPath, f))) return false;
     view.folders.push(to);
     return true;
   };
@@ -620,10 +628,10 @@ function filesFolderReal(filesFolder) {
    working on a mapped drive or a share, review 17 finding 1): a Files folder on this computer keeps the guard, so a
    path swapped onto a share between the walk and the realpath is still refused before the open. */
 function winRealRefusal(real, given, roots) {
-  if (isNetworkSpelling(real)) {
+  if (classify(real).networkSpelled) {
     const inProject = roots.projectFolders.some((f) => writtenInside(given, f));
     const inSharedFiles = !inProject && !!roots.filesFolder && writtenInside(given, roots.filesFolder)
-      && isNetworkSpelling(filesFolderReal(roots.filesFolder));
+      && classify(filesFolderReal(roots.filesFolder)).networkSpelled;
     if (!inProject && !inSharedFiles) return ON_NETWORK;
   }
   if (isDevicePart(path.win32.basename(real))) return DEVICE_NAME;
