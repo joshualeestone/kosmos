@@ -971,7 +971,7 @@ function record() {
     const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at)));
     FILTERED = { cache, key, stamp: born.stamp, rows };
   }
-  return { ok: born.ok, stampsUnknown: !born.ok, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
+  return { ok: born.ok, stampsUnknown: !born.ok, stamp: born.stamp, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
 }
 
 /* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms; null when
@@ -4031,9 +4031,10 @@ function reopenForOwnPost(projectId, row) {
    answer is kept for HELD_MEMO_MS per room while the record has not grown, so the page's poll does not re-read the
    folder every few seconds through a long hold. An unreadable record reads as not held: a screen hint, never a gate. */
 const HELD_MEMO_MS = 4000;
-/* Keyed on the record's row count: the log is append-only, so a changed record is a longer one. Were it ever trimmed to
-   the same length with new rows, a stale answer could stand for HELD_MEMO_MS, as a hint, never a gate. */
-const HELD_MEMO = new Map();   // project id -> { t, rows, size, out } (#6420: an answer is for one room size)
+/* Keyed on the record's row count AND the projects stamp its rows were filtered by (#7185: the same log gives other rows
+   when a project's createdAt changes). Were the log ever trimmed to the same length with new rows, a stale answer could
+   stand for HELD_MEMO_MS, as a hint, never a gate. */
+const HELD_MEMO = new Map();   // project id -> { t, rows, stamp, size, out } (#6420: an answer is for one room size)
 /* #6420: `roomRecipients`, the room's members less one, so the hold is read at the room's own scaled budget
    (roomCap), as the valve that would refuse the next post reads it. Without it, the dial's own room budget. */
 function roomHeld(project, now, roomRecipients) {
@@ -4046,7 +4047,7 @@ function roomHeld(project, now, roomRecipients) {
   if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
   const memo = HELD_MEMO.get(projectId);
   const size = Number.isInteger(roomRecipients) && roomRecipients > 0 ? roomRecipients : null;
-  const stamp = require('./projectborn').snapshot().stamp;   // #7185: the rows are filtered by it, so the count alone is not the rows
+  const stamp = rec.stamp;   // #7185: the stamp these rows were filtered by (one reading with them)
   if (memo && memo.rows === rec.rows.length && memo.stamp === stamp && memo.size === size && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
   const out = roomHeldRead(projectId, at, lim, rec.rows, undefined, undefined, size);
   if (HELD_MEMO.size > 200) HELD_MEMO.clear();
