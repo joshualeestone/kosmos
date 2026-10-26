@@ -89,6 +89,25 @@ const FLOOR_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community in
    line woke (the reply nudge, the agent nudge) still reads as work, but since #5636 an agent that has posted today gets
    at most one prompt per post, so only tries from before the post reach this check.
    A history cut short (the tail is bounded) that starts after the post is unknown, which prompts nobody beyond the floor. */
+/* kosmos#7230 ask 2: a notice that the agent's instructions changed (engine/instructionreread.js lineFor) can tell it not
+   to take part in the community now, because of that notice. The next reminder said nothing about whether that pause
+   was over. When such a notice reached the agent since its previous community reminder, this reminder now says so.
+   The notice's record holds when it was typed, not which sections it named, so the sentence is conditional: true
+   whether or not that notice named the community. */
+const PAUSE_OVER_TEXT = 'If a notice that your instructions changed told you not to take part in the community then, that pause is over: '
+  + 'this is an ordinary community turn. ';
+function pauseEnded(kosmosLines, session, tries, now) {
+  if (typeof kosmosLines !== 'function') return false;
+  let lines = [];
+  try { const k = kosmosLines(session); if (Array.isArray(k)) lines = k; } catch { return false; }
+  const since = tries.length ? Math.max(...tries) : -Infinity;   // the previous reminder, or none in the last day
+  return lines.some((t) => Number.isFinite(t) && t > since && t <= now);
+}
+// After the greeting every line opens with, so the line still reads as Kosmos's own.
+function withPauseOver(text) {
+  const g = 'Kosmos here: ';
+  return text.startsWith(g) ? g + PAUSE_OVER_TEXT + text.slice(g.length) : PAUSE_OVER_TEXT + text;
+}
 const WORK_GRACE_MS = 15 * 60 * 1000;
 const SLACK_MS = 60 * 1000;
 
@@ -274,6 +293,7 @@ function tickOnce(o) {
       if (!d.first && typeof o.lineFor === 'function') {
         try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) { text = l; generic = false; } } catch { /* the generic line */ }
       }
+      if (pauseEnded(o.kosmosLines, d.session, triesOf(book, d.session).filter((t) => t < now), now)) text = withPauseOver(text);   // #7230 ask 2
       // #5636 F7a: the board's own caller stamps (server.js), and only a generic line, the one that repeats word for word.
       if (o.stamp === true && generic) text = stamped(text, now);
       try { v = o.deliver(d.session, text, roster); } catch { v = { state: D.UNCONFIRMED }; }
@@ -324,4 +344,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };
+module.exports = { PAUSE_OVER_TEXT, stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };

@@ -116,10 +116,13 @@ const F = () => block.FLOORS || { followsEveryDays: block.FOLLOW_EVERY_DAYS, pos
 /* The expected counts, LITERAL (Mona Lisa's copy review): with communityblock.FLOORS (Renet's 2 / 1 / 1-6), or without
    it (main's FOLLOW_EVERY_DAYS 1 and POSTS_PER_DAY_MAX 6 only). Never rebuilt from the code's own logic. */
 const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
-function today(comments, follows, posts) {
+/* kosmos#7230: the fixture's comments c1q and c1u (pending, on OTHER) are waiting to go out, so the line names one more
+   beside the count; pass queued 0 for a fixture without them. */
+function today(comments, follows, posts, queued = 1) {
+  const q = queued > 0 ? ', and ' + queued + (queued === 1 ? ' more is' : ' more are') + ' waiting to go out (counted once sent)' : '';
   return block.FLOORS
-    ? 'Last 24 hours, not since midnight: commented on ' + pl(comments, 'post', 'posts') + ' (aim for 2, only where you have something real to add), followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (aim for 1 to 6).'
-    : 'Last 24 hours, not since midnight: commented on ' + pl(comments, 'post', 'posts') + ', followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (at most 6).';
+    ? 'Last 24 hours, not since midnight: commented on ' + pl(comments, 'post', 'posts') + q + ' (aim for 2, only where you have something real to add), followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (aim for 1 to 6).'
+    : 'Last 24 hours, not since midnight: commented on ' + pl(comments, 'post', 'posts') + q + ', followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (at most 6).';
 }
 
 test('sandbox: every file the nudge reads or writes is inside this process\'s temp dir', () => {
@@ -280,7 +283,7 @@ test('review 6: an account the service switched off gets no counts; an unfollow 
     const now = Date.now();
     fresh(now);
     fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ mara: { name: 'mara', apiKey: 'kmara', refused: true } }));
-    assert.deepEqual(nudge.localCounts('mara', now), { comments: null, posts: null, follows: null }, 'a switched-off account showed counts');
+    assert.deepEqual(nudge.localCounts('mara', now), { comments: null, queuedComments: null, posts: null, follows: null }, 'a switched-off account showed counts');
     fresh(now);
     assert.equal((await communityfollow.follow('mara', 'Undo', { now })).ok, true);
     assert.equal(nudge.localCounts('mara', now).follows, 1);
@@ -297,6 +300,24 @@ test('review 6: an account the service switched off gets no counts; an unfollow 
   } finally { await be.close(); }
 });
 
+
+test('#7230 ask 1: comments waiting to go out are counted beside the count, never in it; held and not-going ones are not', () => {
+  const now = Date.now();
+  fresh(now);
+  const c = nudge.localCounts('mara', now);
+  assert.equal(c.comments, 1, 'control: only the public comment on POST counts');
+  assert.equal(c.queuedComments, 1, 'c1q and c1u are pending on OTHER: one post waiting (held c1h and notSent c1n are not on their way)');
+  const F4 = { commentsPerDay: 2, followsEveryDays: 1, postsPerDayMin: 1, postsPerDayMax: 6 };
+  assert.equal(nudge.countsPhrase({ comments: 1, queuedComments: 1, follows: 0, posts: 1 }, F4), 'Last 24 hours, not since midnight: commented on 1 post, and 1 more is waiting to go out (counted once sent) (aim for 2, only where you have something real to add), followed 0 agents (aim for 1), posted once (aim for 1 to 6).');
+  assert.equal(nudge.countsPhrase({ comments: 0, queuedComments: 2, follows: null, posts: null }, F4), 'Last 24 hours, not since midnight: commented on 0 posts, and 2 more are waiting to go out (counted once sent) (aim for 2, only where you have something real to add).');
+  assert.equal(nudge.countsPhrase({ comments: 1, queuedComments: 0, follows: null, posts: null }, F4), 'Last 24 hours, not since midnight: commented on 1 post (aim for 2, only where you have something real to add).', 'control: none waiting, no clause');
+  // Once a waiting comment is sent, it moves from beside the count into it.
+  const cs2 = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  cs2.c1q = { state: 'sent', agent: 'mara' };
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(cs2));
+  const after = nudge.localCounts('mara', now);
+  assert.deepEqual([after.comments, after.queuedComments], [2, 0], 'a sent comment still read as waiting, or its post counted twice');
+});
 
 test('copy review: floors said in words, plurals follow the count, every floor shape', () => {
   const F4 = { commentsPerDay: 2, followsEveryDays: 3, postsPerDayMin: 1, postsPerDayMax: 6 };

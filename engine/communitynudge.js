@@ -154,7 +154,7 @@ function localCounts(agentKey, now) {
   /* Review 6: an account the service switched off shows none of its posts or comments, whatever their records say
      (communitymine's "public" rule excludes it too): no count rather than a floor shown met. */
   const keys = readObj(communitysend._paths.keysFile());
-  if (!keys || (keys[agentKey] && keys[agentKey].refused)) return { comments: null, posts: null, follows: null };
+  if (!keys || (keys[agentKey] && keys[agentKey].refused)) return { comments: null, queuedComments: null, posts: null, follows: null };
   const sent = readObj(communitysend._paths.sentFile());
   const dels = readObj(communitysend._paths.deletesFile());
   const csent = readObj(communitysend._paths.commentsSentFile());
@@ -162,12 +162,26 @@ function localCounts(agentKey, now) {
   const isPublic = (rec, removed, id) => rec && rec.state === 'sent' && rec.takenDown !== true && !Object.prototype.hasOwnProperty.call(removed, id);
 
   let comments = null;
+  let queuedComments = null;
   const c = readRows(communitystore._paths.commentsFile());
   if (c !== null && sent && csent && cdels) {
     // The service ids of this agent's own posts: an answer on your own post is a reply, not one of the two.
     const own = new Set(Object.values(sent).filter((r) => r && sameAgent(r.agent, agentKey) && typeof r.remoteId === 'string' && r.remoteId).map((r) => key(r.remoteId)));
-    comments = new Set(c.filter((r) => r && r.remotePostId && sameAgent(r.agent, agentKey) && within(r.receivedAt, now)
-      && isPublic(csent[String(r.id)], cdels, String(r.id)) && !own.has(key(r.remotePostId))).map((r) => key(r.remotePostId))).size;
+    const mine = c.filter((r) => r && r.remotePostId && sameAgent(r.agent, agentKey) && within(r.receivedAt, now) && !own.has(key(r.remotePostId)));
+    const counted = new Set(mine.filter((r) => isPublic(csent[String(r.id)], cdels, String(r.id))).map((r) => key(r.remotePostId)));
+    comments = counted.size;
+    /* kosmos#7230 ask 1: a comment just sent is usually QUEUED (stored here, gone out on the next pass), so the count
+       above, which is public-only, reads one low right after "Comment queued". The queued ones are counted beside it,
+       never in it: a queued comment can still be refused, so it is shown as waiting, not as met. Queued = no send
+       record yet, or one still pending, and not withdrawn; on a post not already counted. Only rows the sender would
+       send (communitystore: published and not marked notSent), so one held for the person or told it will not go is
+       not counted as on its way. */
+    const waiting = (r) => {
+      if (r.status !== 'published' || r.notSent === true) return false;
+      const rec = csent[String(r.id)];
+      return (!rec || rec.state === 'pending') && !Object.prototype.hasOwnProperty.call(cdels, String(r.id));
+    };
+    queuedComments = new Set(mine.filter(waiting).map((r) => key(r.remotePostId)).filter((k) => !counted.has(k))).size;
   }
   let posts = null;
   const p = readRows(communitystore._paths.postsFile());
@@ -178,7 +192,7 @@ function localCounts(agentKey, now) {
   const made = readFollows();
   const follows = made === null ? null
     : new Set(made.filter((r) => sameAgent(r.agent, agentKey) && within(r.at, now)).map((r) => require('./communityfollow').nameKey(r.name))).size;
-  return { comments, posts, follows };
+  return { comments, queuedComments, posts, follows };
 }
 
 /** #5307: whether the service has switched this agent's account off (the board's keys mark it refused), so it cannot
@@ -230,7 +244,13 @@ function countsPhrase(c, f, owed = null) {
   // not "1 comment", which three comments on one post would contradict.
   // kosmos#7150 follow-up 4: the comment floor carries the rules block's tie-break, so this line never asks for a
   // comment made only to meet the count.
-  if (c.comments != null) parts.push('commented on ' + plural(c.comments, 'post', 'posts') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ', ' + COMMENT_TIE_BREAK + ')' : ''));
+  if (c.comments != null) {
+    // kosmos#7230 ask 1: comments still waiting to go out are said beside the count, which grows once they have gone.
+    const q = Number.isInteger(c.queuedComments) && c.queuedComments > 0
+      ? ', and ' + plural(c.queuedComments, 'more is', 'more are') + ' waiting to go out (counted once sent)'
+      : '';
+    parts.push('commented on ' + plural(c.comments, 'post', 'posts') + q + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ', ' + COMMENT_TIE_BREAK + ')' : ''));
+  }
   if (c.follows != null) {
     const every = f && Number.isInteger(f.followsEveryDays) ? f.followsEveryDays : null;
     parts.push('followed ' + plural(c.follows, 'agent', 'agents') + (every === 1 ? ' (aim for 1)' : every > 1 ? ' (aim for 1 every ' + every + ' days)' : ''));
