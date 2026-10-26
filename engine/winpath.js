@@ -26,7 +26,7 @@ function isDevicePart(part) {
 const NT_LOCAL = /^\\\?\?\\(?=[A-Za-z]:[\\/])/;                  // \??\C:\..., the NT spelling of a local drive
 /* A local drive reached through the object manager's DosDevices aliases (review 22 finding 1): \??\Global\C:\,
    \??\GLOBALROOT\GLOBAL??\C:\, \??\GLOBALROOT\??\C:\ and their \\?\ and \\.\ forms all name drive C. */
-const DRIVE_ALIAS = /^(?:\\\?\?\\|[\\/]{2}[?.][\\/])(?:Global[\\/]|GLOBALROOT[\\/](?:GLOBAL\?\?|\?\?)[\\/])(?=[A-Za-z]:[\\/])/i;
+const DRIVE_ALIAS = /^(?:\\\?\?\\|[\\/]{2}[?.][\\/])(?:Global[\\/]|GLOBALROOT[\\/](?:GLOBAL\?\?|\?\?)[\\/])+(?=[A-Za-z]:[\\/])/i;
 const NT_PREFIX = /^\\\?\?\\/;
 function isNetworkSpelling(p) {
   const s = String(p);
@@ -103,14 +103,12 @@ function shareTail(p) {
 }
 /* Whether a project folder left unresolved may hold the file, by spelling, erring toward yes: inside it as given or as
    resolved, or on a share whose path below the server matches, whatever the server is called (review 5 finding 1).
-   A folder written through the object manager's root (\\?\GLOBALROOT\..., not a share and not a local volume this
-   reads) can name any drive's files, so it answers yes (review 8 finding 1): refuse rather than let through. Any other
-   namespace a skip cannot place (\\.\pipe\..., \\.\COM1) holds no files and answers no, so one such project row cannot
-   make every agent's project attach refuse (review 12 finding 2). */
-const OBJECT_MANAGER_ROOT = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)GLOBALROOT[\\/]/i;
+   A folder in a namespace this cannot place (not a drive, a share or a local volume) answers yes, refuse rather than
+   let through, unless it is one that holds no files at all (isNoFileNamespace: a pipe, a mailslot, a DOS device), so
+   one such project row cannot make every agent's project attach refuse (reviews 8, 12 and 23). */
 function mayHold(folder, given, real) {
   if (writtenInside(given, folder) || writtenInside(real, folder)) return true;
-  if (isNetworkSpelling(folder) && !shareOf(folder)) return OBJECT_MANAGER_ROOT.test(String(folder));
+  if (isNetworkSpelling(folder) && !shareOf(folder)) return !isNoFileNamespace(folder);
   const ft = shareTail(folder);
   return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && t.startsWith(ft + '\\'); });
 }
@@ -124,4 +122,12 @@ function isLongDrivePath(p) {
   return LOCAL_LONG.test(String(p)) || NT_LOCAL.test(String(p));
 }
 
-module.exports = { WINDOWS_DEVICE_NAME, isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold };
+/* A namespace that holds no files at all: named pipes, mailslots and the DOS devices (\\.\pipe\..., \\.\COM1). An
+   ALLOW-LIST (review 23 finding 1): any other spelling that cannot be placed may name a drive (Windows follows its
+   DosDevices aliases any number of times: \\?\Global\Global\C:\ is C:\), so it is never read as holding nothing. */
+const NO_FILE_NAMESPACE = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)(?:(?:pipe|mailslot)[\\/]|(?:COM\d+|LPT\d+|CON|NUL|AUX|PRN|CONIN\$|CONOUT\$)(?:[\\/]|$))/i;
+function isNoFileNamespace(p) {
+  return NO_FILE_NAMESPACE.test(String(p));
+}
+
+module.exports = { isNoFileNamespace, WINDOWS_DEVICE_NAME, isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold };

@@ -51,7 +51,7 @@ const dmfiles = require('./dmfiles');
 const projects = require('./projects');
 const store = require('./store');
 /* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
-const { isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold } = require('./winpath');
+const { isNoFileNamespace, isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold } = require('./winpath');
 
 /* The type a stored file is described by, from its extension. The page words the
    card from it (pjFileWord) and the download carries it with nosniff, an attachment
@@ -335,7 +335,7 @@ function otherFolderSkip(folder, fileShare) {
   /* A namespace that names no share and is not the object manager's root (\\.\pipe\..., \\.\COM1) holds no files: it
      leads nowhere, so it cannot make another agent's attach refuse (review 12 finding 2, kept through review 22). An
      unknown that MAY name a drive (\\?\GLOBALROOT\...) stays unknown, and fails closed. mayHold answers which. */
-  const holdsNoFiles = (p) => isNetworkSpelling(p) && !shareOf(p) && !mayHold(p, '', '');
+  const holdsNoFiles = (p) => isNetworkSpelling(p) && !shareOf(p) && isNoFileNamespace(p);
   if (isNetworkSpelling(folder)) {
     if (fileShare && shareOf(folder) === fileShare) return null;
     if (holdsNoFiles(folder)) return { folder, kind: 'nowhere', leadsTo: null };

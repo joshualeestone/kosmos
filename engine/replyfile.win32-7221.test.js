@@ -975,3 +975,31 @@ test('#7221 review 22-1: a nested project of another agent linked through \\??\\
     assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it: ' + JSON.stringify(r));
   } finally { fs.rmSync(nested, { force: true }); }
 });
+
+/* ---------- review 23 ---------- */
+
+test('#7221 review 23-1: "holds no files" is an allow-list; any other unplaceable namespace may hold, and chained aliases are drive paths', () => {
+  for (const p of ['\\\\.\\pipe\\x', '\\\\.\\mailslot\\m', '\\\\.\\COM1', '\\\\.\\LPT2\\', '\\\\.\\NUL', '\\??\\pipe\\x']) {
+    assert.equal(winpath.isNoFileNamespace(p), true, p + ' holds no files');
+  }
+  for (const p of ['\\\\?\\Global\\Global\\C:\\work', '\\\\?\\GLOBALROOT\\Device\\Something', '\\\\.\\Weird\\x', '\\\\?\\Global\\GLOBALROOT\\x']) {
+    assert.equal(winpath.isNoFileNamespace(p), false, p + ' is not known to hold nothing');
+  }
+  assert.equal(winpath.asDrivePath('\\\\?\\Global\\Global\\C:\\work\\nested'), 'C:\\work\\nested', 'a chained alias reads as the drive path');
+  assert.equal(winpath.mayHold('\\\\?\\Global\\Global\\Global\\C:\\work\\nested', 'C:\\work\\nested\\x', 'C:\\work\\nested\\x'), true);
+  assert.equal(winpath.mayHold('\\\\.\\Weird\\x', 'C:\\work\\f.txt', 'C:\\work\\f.txt'), true, 'an unplaceable namespace may hold');
+  assert.equal(winpath.mayHold('\\\\.\\pipe\\x', 'C:\\work\\f.txt', 'C:\\work\\f.txt'), false, 'a pipe holds nothing');
+});
+
+test('#7221 review 23-1: a nested project of another agent written with a chained alias keeps its files from the outer project', winOnly, () => {
+  const outer = path.join(SANDBOX, 'chouter');
+  const nested = path.join(outer, 'nested');
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(path.join(nested, 'secret.txt'), 'theirs\n');
+  PROJECTS = [
+    { id: 'p-chouter', name: 'Outer', folder: outer, agents: [WHO] },
+    { id: 'p-chnested', name: 'Nested', folder: '\\\\?\\Global\\Global\\' + nested, agents: ['someone-else'] },
+  ];
+  const r = replyfile.attach(WHO, path.join(nested, 'secret.txt'), { platform: 'win32' });
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it: ' + JSON.stringify(r));
+});
