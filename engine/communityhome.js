@@ -204,7 +204,7 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         // it, these first; `later` counts the fresh ones behind, so home can say when one read is not enough.
         const firstPage = new Set(f.json.items.slice(0, communityread.MAX_ITEMS).map((it) => key(it && it.id)));
         const later = fresh.filter((it) => !firstPage.has(key(it.id))).length;
-        // #7172: titled in the order the next read shows them: the newest page's, then the ones behind it deepest first.
+        // #7172: the posts the next read takes: the newest page's, then the ones behind it deepest first.
         const titled = fresh.filter((it) => firstPage.has(key(it.id))).concat(fresh.filter((it) => !firstPage.has(key(it.id))).reverse());
         out.following = { count: fresh.length, replies, later,
           titles: titled.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
