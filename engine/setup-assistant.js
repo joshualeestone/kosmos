@@ -2942,8 +2942,12 @@ function isGuideFolder(agentName) {
 function isGuideFolderStrict(agentName) {
   const file = require('./instructions').fileFor(agentName);
   if (typeof file !== 'string' || !file) throw new Error('the agent folder could not be found');
-  try { return fs.lstatSync(path.join(path.dirname(file), GUIDE_MARKER)).isFile(); }
+  let st;
+  try { st = fs.lstatSync(path.join(path.dirname(file), GUIDE_MARKER)); }
   catch (err) { if (err && err.code === 'ENOENT') return false; throw err; }
+  /* Review 16: something other than a file where the marker belongs is "cannot tell", not "not the guide". */
+  if (!st.isFile()) throw new Error('the guide marker is not a file');
+  return true;
 }
 
 /* The guide's agent name as recorded when it was seeded, or null (never seeded,

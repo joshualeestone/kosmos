@@ -104,8 +104,8 @@ reads idle, and a restart kills the job.
 ## Review 14
 - Only those blip states keep a target signed in through a failed read. A signed-out account, another login's
   credential, or an answer that could not be read is not signed in, whatever figures survive from before it.
-- An account that was at risk and now has no fresh reading at all is a gap in measuring, not the end of the risk: the
-  tick writes nothing until it is measured again, so the record never shows a risk ending that only went unmeasured.
+- An account that was at risk and now cannot be read is a gap in measuring, not the end of the risk (made exact in
+  review 16, below).
 
 ## Review 15 (two warnings, both decided and stated rather than changed)
 - The agents walk runs every tick once the setting is on with two accounts and the poll on, even when nothing is at
@@ -116,3 +116,15 @@ reads idle, and a restart kills the job.
   rule is tuned from it). Bounded: at most one line a tick, 144 a day, so the 500-line record holds about three days.
   What would change it: the PM finding the record too noisy to read; then key on accounts only, or require a key to
   hold for two ticks before it is written.
+
+## Review 16
+- "Cannot be read" is exact now: a row is measured when a figure is still fresh, or its login was refused or is signed
+  out. Slice 1 rewrites a record's time on every poll, a failed one included, while its figures age out after 30
+  minutes, so "a record exists" (review 14's test) was the wrong test: an at-risk account whose token expired, or that
+  met one 429, read as measured with no risk, and its risk "ended" in the record.
+- An unmeasured account that was at risk keeps its entries from the last decision, and the line says which were carried
+  (unmeasured: [dirs]), so a gap on one account no longer stops the record for every other one.
+- A folder with no credential at all is signed out (as Settings' live check calls it), so a stopped login stays at risk.
+- Something other than a file where the guide marker belongs is "cannot tell": not movable.
+- The failed-write flag clears only when a write succeeds; the tick asks the gate without it, so the write is retried.
+- AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS is an operator's setting (no test can tick), floored at a minute.

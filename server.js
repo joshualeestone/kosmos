@@ -2885,9 +2885,9 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    switched on and allowed (never under a test or a dry run), no brake, its record read at start, and its last write
    not failed (review 10). The page asks this, so it never says it records where it does not. The sweep's own tick asks
    it without the last arm, so a write that failed is tried again. */
-function autobalanceSweepRuns() {
+function autobalanceSweepRuns({ forTick = false } = {}) {
   const usagePoll = require('./engine/usagepoll');
-  return !!autobalanceSweepRun && autobalanceSweepRun.state.writeFailed !== true && liveExecution.liveExecutionAllowed() && usagePoll.liveAllowed() && usagePoll.enabled() && autobalanceSweep.sweepOn();
+  return !!autobalanceSweepRun && (forTick || autobalanceSweepRun.state.writeFailed !== true) && liveExecution.liveExecutionAllowed() && usagePoll.liveAllowed() && usagePoll.enabled() && autobalanceSweep.sweepOn();
 }
 
 /* kosmos#7152 slice 3: what the auto-balance sweep reads, built fresh for each tick (the agents walk and the account
@@ -26193,9 +26193,9 @@ function start(port = PORT) {
         /* Review 9: nothing here may throw out of a timer into the board, and a throw must not leave the busy flag set. */
         try {
           if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a backstop: the tick awaits nothing today, so this guards a future await (see slice 1's review 12)
-          if (!abSweep) return;
-          abSweep.state.writeFailed = false;   // asked without the write arm, so a failed write is tried again
-          if (!autobalanceSweepRuns()) return;
+          /* Review 16: asked without the write arm, so a failed write is tried again; the flag clears only when a write
+             succeeds, so Settings says "not recording" until one does. */
+          if (!abSweep || !autobalanceSweepRuns({ forTick: true })) return;
           const started = Date.now();
           abSweepBusy = started;
           let ticking;
@@ -26211,7 +26211,9 @@ function start(port = PORT) {
             .finally(() => { if (abSweepBusy === started) abSweepBusy = 0; });
         } catch { abSweepBusy = 0; }
       };
-      const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : usagePoll.POLL_MS;   // the env is the test seam only, floored at a second (review 9)
+      /* An operator's setting, not a test seam (review 16: no test can tick, the gate refuses under one), floored at a
+         minute so the agents walk never runs more often than that. */
+      const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : usagePoll.POLL_MS;
       const abSweepTimer = setInterval(abSweepTick, abSweepMs);
       if (abSweepTimer && typeof abSweepTimer.unref === 'function') abSweepTimer.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
