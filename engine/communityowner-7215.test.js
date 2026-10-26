@@ -32,7 +32,7 @@ function backend() {
       const raw = Buffer.concat(chunks);
       const body = raw.length ? JSON.parse(raw.toString('utf8')) : undefined;
       st.seen.push({ method: req.method, url: req.url, body, auth: req.headers.authorization || null });
-      const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
+      const send = (code, obj, headers) => { res.writeHead(code, { 'content-type': 'application/json', ...(headers || {}) }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
       if (req.method === 'POST' && req.url === '/agents/register') {
         const id = 'a' + (++st.n);
         const a = { id, name: body.name, key: 'k' + id, token: 't' + id, owner: null };
@@ -41,7 +41,7 @@ function backend() {
       }
       if (req.method === 'POST' && req.url === '/agents/login') {
         const x = [...st.agents.values()].find((y) => y.name === body.name && y.key === body.api_key);
-        if (!x) return send(401, { detail: 'wrong name or key' });
+        if (!x || st.mode.loginRefused) return send(401, { detail: 'wrong name or key' });
         x.token = 't' + x.id + '_' + (++st.n);
         return send(200, { token: x.token });
       }
@@ -53,7 +53,9 @@ function backend() {
       if (req.method === 'POST' && req.url === '/agents/me/owner') {
         if (st.mode.noRoute) return send(404, { detail: 'Not Found' });
         if (!a) return send(401, { detail: 'invalid or expired token' });
-        if (st.mode.status) return send(st.mode.status, { detail: 'no' });
+        if (st.mode.unauthorized) return send(401, { detail: 'invalid or expired token' });
+        if (st.mode.status) return send(st.mode.status, { detail: 'no' }, st.mode.headers);
+        if (st.mode.refuseName && a.name === st.mode.refuseName) return send(403, { detail: 'pass refused' });
         // The site's own check: the pass must name the agent whose key presents it.
         if (!body || body.pass !== 'pass-for:' + a.name) return send(400, { detail: 'pass refused' });
         a.owner = body.pass;
@@ -112,6 +114,7 @@ async function registered(agent) {
 }
 const ownerCalls = () => be.st.seen.filter((s) => s.url === '/agents/me/owner');
 // The service's record for a board agent, found by the name the board registered it under (its keys file).
+const keyName = (agentKey) => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'))[agentKey].name;
 const agentNamed = (agentKey) => {
   let keys = {};
   try { keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')); } catch { return undefined; }
@@ -236,4 +239,75 @@ test('a refused pass is not recorded as linked and is tried again after the paus
   await cs.sweep();
   assert.equal(ownerCalls().length, 2);
   assert.ok(agentNamed('ava').owner);
+});
+
+test('one agent the community refuses does not hold the agents after it: they are linked in the same sweep', async () => {
+  await registered('ava');
+  await registered('bo');
+  be.st.mode.refuseName = keyName('ava');
+  await cs.sweep();
+  assert.equal(agentNamed('ava').owner, null, 'the refused agent is not linked');
+  assert.ok(agentNamed('bo').owner, 'the agent after it is linked anyway');
+  const n = ownerCalls().length;
+  await cs.sweep();
+  assert.equal(ownerCalls().length, n, 'the refused agent waits its pause; nothing else is left to link');
+});
+
+test('one agent Kosmos+ refuses to vouch for (403) does not hold the agents after it', async () => {
+  await registered('ava');
+  await registered('bo');
+  const refused = keyName('ava');
+  R.mint = (body) => (body.agent === refused
+    ? { ok: false, because: 'coordinator answered 403', refusal: { status: 403, code: null, currentEpoch: null } }
+    : { ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } });
+  await cs.sweep();
+  assert.equal(agentNamed('ava').owner, null);
+  assert.ok(agentNamed('bo').owner, 'linked although the agent before it was refused');
+});
+
+test('a mint refused on this computer before it was sent (notSent) pauses nothing', async () => {
+  await registered('ava');
+  R.mint = () => ({ ok: false, notSent: true, because: 'a register is in progress' });
+  await cs.sweep();
+  const asked = R.mints.length;
+  assert.ok(asked >= 1);
+  R.mint = null;
+  await cs.sweep();
+  assert.ok(agentNamed('ava').owner, 'linked on the very next sweep, with no pause in between');
+});
+
+test('a site 429 pauses the pass', async () => {
+  be.st.mode.status = 429;
+  be.st.mode.headers = { 'retry-after': '99999' };
+  await registered('ava');
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(ownerCalls().length, 1, 'asked once, then the pass waits');
+  assert.equal(agentNamed('ava').owner, null);
+});
+
+test("a deleted agent's old account (retired:) is never linked", async () => {
+  await registered('ava');
+  await cs.sweep();
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  keys['retired:ava:2026-10-26T00:00:00Z'] = { ...keys.ava };
+  delete keys['retired:ava:2026-10-26T00:00:00Z'].ownerLinked;
+  delete keys.ava;
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  const before = R.mints.length;
+  await cs.sweep();
+  assert.equal(R.mints.length, before, 'no pass asked for a retired account');
+});
+
+test('an agent whose key the community refuses is not tried again', async () => {
+  await registered('ava');
+  be.st.mode.unauthorized = true;
+  be.st.mode.loginRefused = true;
+  await cs.sweep();
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.ava.refused, true, 'the key is marked refused');
+  const n = ownerCalls().length;
+  cs._ownerLinkRetry(0);
+  await cs.sweep();
+  assert.equal(ownerCalls().length, n, 'no owner call for a refused key, even with no pause');
 });
