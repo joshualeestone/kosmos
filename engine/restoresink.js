@@ -308,7 +308,21 @@ function verifyResumable(rootReal, held, recordAt) {
    counts as stale only once it is LOCK_STALE_MS old. Returns the release function. */
 const liveTokens = new Set();   // the tokens of the locks this thread's open sinks hold
 const LOCK_STALE_MS = 10000;
-const LOCK_BUSY = 'a restore of this folder is already running in Kosmos; wait for it to finish, or restart Kosmos';
+const LOCK_BUSY = 'a restore of this folder is already running; wait for it to finish. If none is, remove the hidden file .kosmos-restore-lock from the folder';
+
+/* POSIX: when process pid started, as ps prints it, or null when there is no such process (or no ps to ask, which
+   the caller treats as unknown). review 7: a pid alone is reused (within seconds on Windows, after a wrap or a reboot
+   elsewhere), and a start time that differs is a different process. */
+function processStart(pid) {
+  for (const ps of ['/bin/ps', '/usr/bin/ps']) {
+    if (!fs.existsSync(ps)) continue;
+    const r = spawnSync(ps, ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 });
+    if (r.error) return undefined;
+    const out = String(r.stdout || '').trim();
+    return r.status === 0 && out ? out : null;
+  }
+  return undefined;
+}
 function acquireLock(rootReal) {
   const { threadId } = require('worker_threads');
   const file = path.join(rootReal, LOCK_NAME);
@@ -316,7 +330,9 @@ function acquireLock(rootReal) {
   const pending = `${file}.${token}`;
   try {
     const fd = fs.openSync(pending, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
-    try { fs.writeSync(fd, `${process.pid} ${threadId} ${token}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    // pid, thread, token, then (POSIX) the start time, which holds spaces and so goes last.
+    const start = process.platform === 'win32' ? '' : (processStart(process.pid) || '');
+    try { fs.writeSync(fd, `${process.pid} ${threadId} ${token}${start ? ` ${start}` : ''}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   } catch (e) {
     try { fs.rmSync(pending, { force: true }); } catch { /* best effort */ }
     throw new Error(`restoresink: could not take this folder's restore lock (${e.code || e.message})`);
@@ -328,30 +344,31 @@ function acquireLock(rootReal) {
       }
       let at = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
       if (!at) continue;
-      // Its mode and owner, not its link count: between the link and the pending name's removal a lock has two names.
+      // Its mode and owner, not its link count: only the owner identity in it is ever used, so another name does not
+      // matter (review 7), and between the link and the pending name's removal a lock has two.
       if (at.isSymbolicLink() || !at.isFile() || untrusted(Object.assign({}, at, { nlink: 1n, uid: at.uid, mode: at.mode }), true)) throw new Error('restoresink: this folder\'s restore lock is not a private file of yours');
       let text = '';
       try { text = fs.readFileSync(file, 'utf8').trim(); } catch { /* read as empty */ }
-      const [pidS, threadS, held] = text.split(' ');
-      if (at.nlink > 1n) {
-        // review 6: a crash between the link and the pending name's removal. Only its own pending name may be the
-        // second one; that is removed, and the lock then judged as any other. Any other second name refuses.
-        const own = typeof held === 'string' && /^[0-9a-f]{24}$/.test(held) ? fs.lstatSync(`${file}.${held}`, { bigint: true, throwIfNoEntry: false }) : null;
-        if (!own || own.dev !== at.dev || own.ino !== at.ino) throw new Error('restoresink: this folder\'s restore lock has a second name the restore did not make');
-        if (held === token) throw new Error('restoresink: could not take this folder\'s restore lock (it is its own pending name)');
-        fs.rmSync(`${file}.${held}`, { force: true });
-        at = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
-        if (!at) continue;
-      }
+      const [pidS, threadS, held, ...startParts] = text.split(' ');
+      const recordedStart = startParts.join(' ');
+      // review 6: a crash between the link and the pending name's removal leaves the pending name as a second link.
+      // Once a stale lock is removed that name is a lone pending file, which verifyResumable clears.
       const pid = Number(pidS);
-      // review 6: a lock written before this computer last started cannot belong to a live restore (after a reboot a
-      // low pid is soon some unrelated process, which would read as alive for ever).
-      const bootMs = Date.now() - os.uptime() * 1000;
       let stale;
-      if (Number(at.mtimeMs) < bootMs - 1000) stale = true;
-      else if (!text || !Number.isSafeInteger(pid) || pid <= 0) stale = Date.now() - Number(at.mtimeMs) > LOCK_STALE_MS;
+      if (!text || !Number.isSafeInteger(pid) || pid <= 0) stale = Date.now() - Number(at.mtimeMs) > LOCK_STALE_MS;
       else if (pid === process.pid) stale = Number(threadS) === threadId && !liveTokens.has(held);
-      else { try { process.kill(pid, 0); stale = false; } catch (k) { stale = k.code !== 'EPERM'; } }
+      else if (process.platform !== 'win32' && recordedStart) {
+        // review 7: the same pid AND the same start time, or it is not the owner (a reuse after a crash, a reboot or a
+        // wrap). This replaces the boot rule here: a wall-clock step on Linux moved it, and a live lock read as stale.
+        const now = processStart(pid);
+        stale = now === undefined ? false : now !== recordedStart;
+      } else {
+        // Windows (no cheap start time): a lock written before the last boot is stale, else the pid's liveness.
+        // Residuals, stated: Windows reuses pids within seconds, and Fast Startup does not count as a boot.
+        const bootMs = Date.now() - os.uptime() * 1000;
+        if (Number(at.mtimeMs) < bootMs - 1000) stale = true;
+        else { try { process.kill(pid, 0); stale = false; } catch (k) { stale = k.code !== 'EPERM'; } }
+      }
       if (!stale) throw new Error(`restoresink: ${LOCK_BUSY}`);
       // Taken over only if it is still the stale lock just read (review 4: narrows, does not close, the race where two
       // resumes both find a dead owner; stated in the header).
