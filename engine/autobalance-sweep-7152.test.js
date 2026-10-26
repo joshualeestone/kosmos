@@ -394,6 +394,25 @@ test('#7152 slice 3 review 20: a long gap is written once, naming the account, a
   assert.equal((await r.tick(deps(), NOW + 40000)).did, 'nothing', 'CONTROL: a restart after it does not write it again');
 });
 
+test('#7152 slice 3 run 26: the end of a gap is written even when the rest of the decision is unchanged', async () => {
+  const file = fileFor();
+  const run = sweep.create({ file });
+  await run.tick(deps(), NOW);
+  const aged = { at: NOW, measuredAt: NOW - 31 * 60e3, state: 'token-expired', weekly: null, fiveHour: null, email: 's@example.test' };
+  const gap = deps({ usage: { ...USAGE, '/u/.claude-spare': aged } });
+  for (let i = 1; i <= sweep.GAP_TICKS; i += 1) await run.tick(gap, NOW + i * 1000);
+  const gapLine = sweep.readLines(file).pop();
+  assert.deepEqual(gapLine.unmeasured, ['/u/.claude-spare'], 'CONTROL: the gap was written');
+  /* Spare measured again at 80%: too full to take the agents (TARGET_MAX_PCT 70), not at risk itself (AT_RISK_PCT 90).
+     The same hold, now with nothing unmeasured. */
+  const full = deps({ usage: { ...USAGE, '/u/.claude-spare': reading(80, 100, { email: 's@example.test' }) } });
+  assert.equal((await run.tick(full, NOW + 20000)).did, 'recorded', 'an account measured again left the record saying it was not measured');
+  const line = sweep.readLines(file).pop();
+  assert.deepEqual([line.moves, line.held.map((h) => h.from), line.atRisk.map((x) => x.from)],
+    [gapLine.moves, gapLine.held.map((h) => h.from), gapLine.atRisk.map((x) => x.from)], 'CONTROL: only the unmeasured list changed');
+  assert.equal(line.unmeasured, undefined);
+});
+
 test('#7152 slice 3 review 20: a Keychain failure on the target, with the figures slice 1 copied across, is a gap, not a hold', async () => {
   const file = fileFor();
   const run = sweep.create({ file });
