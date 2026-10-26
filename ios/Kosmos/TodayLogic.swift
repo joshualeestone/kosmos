@@ -25,7 +25,7 @@ extension Board {
         "stuck_auth": ("Kosmos has seen it unable to sign in for a while. It cannot work until its account is reconnected.", .open),
         "stuck_rate": ("Kosmos has seen it paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.", .open),
         "own_bound": ("Kosmos tried to get it going (a nudge, or a resume after its quota reset) and gave up. Open it to see what it shows.", .open),
-        "held_input": ("Kosmos has held messages to it behind its input box for half an hour or more. Open it to see what is there.", .open),   // kosmos#7212 slice 2b
+        "held_input": ("Kosmos has held messages to it behind its message box for half an hour or more. Open it to see what is there.", .open),   // kosmos#7212 slice 2b
         "other": ("Kosmos needs you to look at it.", .open),
     ]
 

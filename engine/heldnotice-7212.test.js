@@ -96,7 +96,7 @@ test('#7212 s2b: the project and Today name it as held_input, after the agent\'s
   assert.equal(cardlabel.reasonOf({ state: 'idle', running: true, heldInput: held }, true), 'held_input');
   // The page's own words for it, and the project row's reason.
   const PJ = new Function(sliceConst('PJ_NEEDS_WHY') + '\nreturn PJ_NEEDS_WHY;')();
-  assert.match(PJ.held_input[0], /behind its input box/);
+  assert.match(PJ.held_input[0], /behind its message box/);
   const also = new Function(sliceConst('PJ_NEEDS_WHY') + '\n' + page.lift(SCRIPT, 'pjAlsoWhy') + '\nreturn pjAlsoWhy;')();
   assert.equal(also({ state: 'idle', heldInput: held, ownBound: { raised: true } })[0], PJ.held_input[0]);
   assert.equal(also({ state: 'rate_limited', heldInput: held })[0], PJ.other[0], 'CONTROL: a limited agent is not called held');
