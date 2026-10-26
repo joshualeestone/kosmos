@@ -395,6 +395,6 @@ function readUsage(dir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  enabled, liveAllowed, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
+  enabled, liveAllowed, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor, isRefusal,
   FILE, POLL_MS, FRESH_MS, HOST, USAGE_PATH, BETA,
 };

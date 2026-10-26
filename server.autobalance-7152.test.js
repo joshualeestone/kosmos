@@ -169,3 +169,16 @@ test('#7152 review 6: an idle agent the real board lists, on an account running 
   assert.deepEqual(busy.atRisk.map((x) => x.from), [path.join(home, '.claude')], 'CONTROL: the account is still named as running out');
   fs.rmSync(pp, { force: true });
 });
+
+test('#7152 slice 3: Settings is told that moves are off, and gets the record newest first', async () => {
+  const automove = require('./engine/automove');
+  const file = path.join(path.dirname(require('./engine/autobalance-setting').FILE), automove.FILE);
+  assert.ok(file.startsWith(SANDBOX), 'CONTROL: the record would be written inside the sandbox');
+  const first = (await call('GET', '/api/accounts?agents=1')).json.autobalance;
+  assert.equal(first.movesOn, false, 'moves read as on with AGENT_WORKFORCE_AUTOMOVE unset');
+  assert.deepEqual(first.recent, [], 'a record was shown before anything was recorded');
+  automove.append(file, { kind: 'decision', at: 1, live: false, moves: [], held: [], atRisk: [] });
+  automove.append(file, { kind: 'skipped', at: 2, agent: 'ada', because: 'it was no longer idle' });
+  const recent = (await call('GET', '/api/accounts?agents=1')).json.autobalance.recent;
+  assert.deepEqual(recent.map((e) => e.at), [2, 1], 'the record did not reach Settings newest first');
+});
