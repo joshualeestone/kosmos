@@ -570,10 +570,10 @@ async function verbMsg(ctx, args) {
 /* #6726: the path sent for --file, made absolute by joining text as install/kosmos's "$PWD/$path" does. Never
    path.resolve: it removes `..` and `.` by text, so the board would not see a `..` it refuses, and through a link or
    junction the shortened path names another file. On Windows only a path on a drive (C:\x or C:/x) is taken. A
-   drive with no folder (C:foo), a folder with no drive (\foo, /foo), a network or device namespace path (\\host\share, \\?\,
-   \\.\), and a relative path from a folder that is not on a drive, are refused (null). A device or a
-   stream on a drive (C:\x\NUL, C:\x:s) is spelled like any drive path and goes to the board, which refuses it only
-   once #7221 lands. p is path.win32 or path.posix,
+   drive with no folder (C:foo), a folder with no drive (\foo, /foo), a path SPELLED as a network or device namespace
+   (\\host\share, \\?\, \\.\), and a relative path from a folder that is not on a drive, are refused (null). This is
+   spelling only, not a guard: a mapped or subst drive, a junction or link out to a share, and a device or stream on a
+   drive (C:\x\NUL, C:\x:s) all look like drive paths and go to the board, which refuses them only once #7221 lands. p is path.win32 or path.posix,
    so both are tested on any machine. */
 function replyFileAbsolute(file, cwd, p) {
   if (p.sep === '\\') {
@@ -641,10 +641,10 @@ async function verbReply(ctx, args) {
         // Review 13: the Git Bash shim leaves a /c/... path with a `..` unconverted (cygpath would shorten it), so here
         // it has no drive; the reason to give is the `..`, which the board refuses wherever it is.
         const dotdot = given.split(/[\\/]/).includes('..');
-        ctx.err(dotdot
-          ? 'A path with .. in it cannot be attached, so nothing was sent: give the file\'s own full path, without ..'
-          : rel && !here()
+        ctx.err(rel && !here()
           ? 'The folder this command runs in could not be read, so ' + given + ' cannot be joined onto it and nothing was sent. Give the file\'s full path.'
+          : dotdot
+          ? 'A path with .. in it cannot be attached, so nothing was sent: give the file\'s own full path, without ..'
           : rel
             ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + here().replace(REPLY_FILE_CONTROL_ALL, '?') + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:/... or C:\\...).'
             : 'Give the file\'s full path on this computer, starting with its drive (C:/... or C:\\...), so nothing was sent: ' + given + ' is not one.');

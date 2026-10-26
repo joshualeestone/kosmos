@@ -131,6 +131,10 @@ test('#6726 review 3: under the Windows path rules, reply refuses a path with no
   assert.equal(dd.code, 2, dd.err);
   assert.match(dd.err, /A path with \.\. in it cannot be attached/);
   assert.equal(replies(dd).length, 0);
+  /* Review 14: with the folder unreadable, a relative ../x is refused for the folder, the more useful reason. */
+  const goneDd = await run(['reply', '--file', '../x.txt', 'x'], kept, undefined, { cwd: () => { throw Object.assign(new Error('uv_cwd'), { code: 'ENOENT' }); } });
+  assert.equal(goneDd.code, 2, goneDd.err);
+  assert.match(goneDd.err, /could not be read/);
   /* Review 12: a working folder deleted under the command is a refusal, not a crash. */
   const gone = await run(['reply', '--file', 'Files/x.txt', 'x'], kept, undefined, { cwd: () => { const e = new Error('uv_cwd'); e.code = 'ENOENT'; throw e; } });
   assert.equal(gone.code, 2, gone.err);
@@ -154,6 +158,8 @@ test('#6726 review 1: kosmos reply --help names --file, as install/kosmos\'s hel
   assert.equal(r.calls.length, 0, '--help sent something');
   assert.match(r.out, /Usage: kosmos reply \[--stdin\]/);
   assert.ok(r.out.includes(cli.USAGE_REPLY_FILE), 'reply --help does not show the --file line');
+  // Review 14: the one exact pin on reply's help (the sibling help tests compare against helpFor itself).
+  assert.equal(r.out.replace(/\n$/, ''), cli.USAGE.reply + '\n' + cli.USAGE_REPLY_FILE);
   /* Review 8: on Windows it is not named until the board's checks have run there (#7221); the flag still works. */
   const w = await run(['reply', '--help'], kept, undefined, { pathRules: path.win32 });
   assert.equal(w.code, 0, w.err);
@@ -300,5 +306,6 @@ test('#6726 review 3: the Git Bash shim converts reply --file\'s value, and noth
     assert.equal(sh(['reply', '--file', '/c/Users/a/Files/sub/../x.txt', 'x']), '[reply]\n[--file]\n[/c/Users/a/Files/sub/../x.txt]\n[x]\n');
     assert.equal(sh(['reply', '--file=/c/a/..', 'x']), '[reply]\n[--file=/c/a/..]\n[x]\n');
     assert.equal(sh(['reply', '--file', '/c/a/..b/x', 'x']), '[reply]\n[--file]\n[CONV:/c/a/..b/x]\n[x]\n', 'a name that only starts with .. is still converted');
+    assert.equal(sh(['reply', '--file', '/c/a/sub\\..\\x.txt', 'x']), '[reply]\n[--file]\n[/c/a/sub\\..\\x.txt]\n[x]\n', 'review 14: a backslash .. is not converted either');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

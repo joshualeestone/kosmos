@@ -23,7 +23,7 @@ convert_next=
 past_options=
 # A reply --file value with a `..` in it is passed on unconverted: cygpath shortens `..` by text, so the board would
 # never see the `..` it refuses (review 12). Unconverted, /c/... has no drive, and the CLI refuses it.
-has_dotdot() { case $1 in ..|../*|*/..|*/../*) return 0 ;; esac; return 1; }
+has_dotdot() { case $1 in ..|../*|..\\*|*[/\\]..|*[/\\]..[/\\]*) return 0 ;; esac; return 1; }   # either separator (review 14)
 flag=
 # Every verb either names its path flag here or sets past_options: an empty $flag below would match an empty
 # argument (review 11), so a verb added to this case must do one or the other.
