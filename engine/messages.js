@@ -900,6 +900,7 @@ function readBytes(from, to) {
   }
 }
 
+let FILTERED = null;   // #7185: the last filtered rows, for the cache state and projects stamp they were made from
 function record() {
   let st;
   try { st = fs.statSync(LOG); } catch (err) {
@@ -957,10 +958,17 @@ function record() {
   const fragParsed = [];
   if (cache.fragment) parseLinesInto(cache.fragment, fragRows, fragParsed);
   /* #7185: a room row stamped before its project's createdAt was written by an earlier project of that name (ids come
-     from names). It stays in the log, and in `parsed` so its id stays reserved, but no reader is given it. */
-  const earlier = require('./projectborn').olderThanProject();
-  const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && earlier(r.project, r.at)));
-  return { ok: true, rows, parsed: cache.parsed.concat(fragParsed) };
+     from names). It stays in the log, and in `parsed` so its id stays reserved, but no reader is given it. When the
+     projects file cannot be read the stamps are unknown: every project-tagged row is left out and the answer is ok:
+     false, the "could not read" every careful caller already handles (a misroute guard, an unread count). The filtered
+     rows are kept until the log or the projects file changes, so a reader called N+1 times per sweep filters once. */
+  const born = require('./projectborn').snapshot();
+  const key = cache.size + ':' + cache.mtimeMs + ':' + cache.offset + ':' + cache.fragment;
+  if (!(FILTERED && FILTERED.cache === cache && FILTERED.key === key && FILTERED.stamp === born.stamp)) {
+    const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at)));
+    FILTERED = { cache, key, stamp: born.stamp, rows };
+  }
+  return { ok: born.ok, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
 }
 
 /* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms; null when

@@ -104,6 +104,7 @@ test('when the projects file cannot be read, a project\'s rows are left out rath
     assert.throws(() => projects.readAll(), /cannot make sense/, 'CONTROL: the projects file really is unreadable now');
     assert.deepEqual(taskchat.read(id, n), [], 'unreadable: nothing is shown, so no other project\'s words can be');
     assert.deepEqual(roomTexts(id), [], 'and nothing from the room');
+    assert.equal(messages.record().ok, false, 'and the record says it could not be read, so careful callers fail closed rather than read it as empty');
   } finally {
     fs.writeFileSync(f, good);
   }
