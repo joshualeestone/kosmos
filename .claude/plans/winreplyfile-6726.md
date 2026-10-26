@@ -17,7 +17,7 @@ code would be Homer's; this touches none.
    a path on a drive, and refuse C:foo, \foo, /foo, a network or device path (review 3: the board would open
    \\host\share before any containment check, an outbound SMB connection) and a relative path from a folder not
    on a drive; the path rules are injectable (ctx.pathRules) so the Windows refusals run through verbReply on a Mac; `reply --help` shows both usage
-   lines, as install/kosmos's help does; words optional with a file; --stdin still gives the words; a wrong-world board does not keep a
+   lines where --file is taught (a Mac), and on Windows only reply's own until #7221 lands (review 8); words optional with a file; --stdin still gives the words; a wrong-world board does not keep a
    reply with a file (the file is read at send time); on kept:true name the file by the board's `attached`, else
    path.basename. A second usage line USAGE_REPLY_FILE, word for word install/kosmos's.
 2. tools/windows/kosmos.sh (the Git Bash shim): MSYS conversion is off for every argument, so it converts reply's
@@ -77,4 +77,9 @@ code would be Homer's; this touches none.
    needs it) but neither help nor usage names it, and dmfiles' comment agrees. Sibling help tests ask helpFor rather
    than rebuilding the text. Nit taken: the shim arm says the real cygpath is the Windows run's. Not taken, parity
    with install/kosmos: bidi and line-separator characters are not filtered (Mac the same); --File is not --file.
+9. (sonnet) Convention taken: Changes item 1 still said Windows help shows both usage lines (now it says where it
+   does). Nit taken: the help comment, orphaned above review 8's, is back above helpFor. Not issues: an empty-words
+   reply with a file is driven at the board by server.reply-file-6726.test.js (lines 165, 484). Deferred as
+   duplicates: the board-side refusals and their ordering (#7221, review 6), a relative path's working folder from
+   PowerShell (review 2), a single-dash value (review 7).
 
