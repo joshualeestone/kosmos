@@ -82,7 +82,7 @@ no profile record, and STARTS the agent: enable then bootstrap).
    projects was shown without its reason. Nits taken: the listing requires a registry row, a busy registry lock asks
    to try again, lone surrogates are stripped, the contract says `more` can be forced. Deferred to 4c: showing the
    commands a hook or MCP file runs (engine/startcommands.js commandsIn), and starting agents with
-   safe.bareRepository=explicit as a second guard. Not armed by a test: the lone-surrogate strip (the budget gained one in round 9).
+   safe.bareRepository=explicit as a second guard. Not armed by a test at the time: the lone-surrogate strip (armed in round 23).
 
 8. W: finish read any lstat failure on a restored root as "no such root" and could finish an unreadable restore as
    empty (now only ENOENT skips); finish and the listing accepted a hidden world (now refused: it is off the list); a
@@ -175,6 +175,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    unrecorded held-back folder that later runs listed as kept (the record is now written before the folder is
    made). Nits: indentation; the contract says `dir` is never shown and folders that already have a profile are left
    out; the test's dead pid is one no system hands out; the release comment says what it guarantees.
+
+23. W: two takers of one stale lock could each move the other's work aside (after its rename, a taker now checks
+   that what it moved holds the pid it judged stale, and puts a fresh lock back; no test, it needs two takers between
+   two system calls); the busy refusal now says a stopped finish frees the lock within ten minutes. Nit: the lone
+   surrogate strip now has a test. Accepted as fail-closed: a transient registry read error during naming reports
+   "could not be made" rather than trying the next name.
 
 ## Residuals, stated
 - The import pattern flags an @ after a letter only before a path (/, ./, ../, ~/). A provider that accepts an @
