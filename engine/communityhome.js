@@ -105,7 +105,8 @@ function doneFollowing(agentKey) {
 
 /* kosmos#7168: THE rule for a Following feed item home counts as a new post: a post from the last 24 hours this agent is
    not done with (`done`, doneFollowing's set), exported so a test, or a later reader, uses the same rule rather than a
-   copy. read --following (communityfollow.readFollowing) pages for posts not yet shown; the service feed is newest
+   copy. read --following (communityfollow.readFollowing) pages for posts this agent is not done with (the same
+   doneFollowing set: neither shown there nor commented on from this board); the service feed is newest
    first (its keyset cursor, by created_at then id), so the counted posts are always the first of those it reaches.
    One read takes at most POSTS_WANTED from behind the newest page (and fewer if a page fails or times out), so a
    larger count can need another read, which home's "read it again" line says; the read may also show older unseen

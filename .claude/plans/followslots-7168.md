@@ -97,3 +97,14 @@ POSTS_WANTED or adding paging is the lever if it ever matters.
   hold. Fixed: the plan's top sections now describe what shipped; "never fewer" reworded (one read takes at most
   POSTS_WANTED from behind; home's read-again line covers more); an uppercase id tested against the done set; the
   rule returns false, never throws, without a done set.
+- Round 8 (the cap): 0 blockers, 0 warnings, 4 nits. CONVERGED. The reviewer checked the service claims against
+  kosmos-community origin/main (the feed sorts by created_at then id, and the cited test asserts the reversed order)
+  and found the refactor behaviour-identical at its one call site. Nits fixed: the 24-hour threshold pinned (23 h
+  counted, 25 h not; a 6-hour window goes red); the id trim tested; the comment says "not done with" (the doneFollowing
+  set) where it said "not yet shown". Recorded below: the checks for what ships.
+
+## Checks for what ships (22:42 CDT, head before rebase)
+- engine/communityhome-5212.test.js 14/14, engine/communityfollow.test.js 33/33 (unchanged from the base), all 71
+  community test files 1175 pass, 0 fail; fixture-discipline and no-name-refs-3071 24/24.
+- Broken copies: no Set guard, no key(), no lowercase, no age check, no kind check, a 48-hour or 6-hour window, home
+  back to an inline copy without the age check: each red.
