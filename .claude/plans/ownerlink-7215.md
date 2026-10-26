@@ -22,25 +22,34 @@ Split: the coordinator route (`POST /v1/mac/community-owner-pass`) is a separate
 
 ## Failure handling (agreed with the site in the room, m6440)
 
-- Tunnel or coordinator without the route (the tunnel's own words "mac-request does not sign", an older tunnel's
-  "unrecognized subcommand", or a coordinator 404/405): the pass waits an hour.
-- Site 404/405 (no owner route yet): the pass waits an hour.
-- 429: Retry-After, capped like registration's (`REGISTER_429_WAIT_MAX_S`).
-- Anything else (no answer, 5xx, a refused pass 403, the site's 503 not-ready): not recorded; the pass waits 15 min.
+- A 400 or 403 about ONE agent (the coordinator will not vouch for it, or the site refuses its pass): that agent waits
+  15 min and the pass goes on to the next one (review iteration 1: a per-agent refusal must not hold every agent
+  after it). The log line is written once per reason, not every 15 minutes.
+- The route does not exist yet (the tunnel's refusal "mac-request does not sign", one stderr line so it is
+  `because`; or a 404/405 from the coordinator or the site): the pass waits an hour.
+- Site 429: Retry-After, capped like registration's (`REGISTER_429_WAIT_MAX_S`).
+- Anything else (no answer, 5xx including the site's 503 not-ready, a 401 a fresh login did not clear): the pass
+  waits 15 min.
+- A mint refused on this computer before anything was sent (`notSent`: a register or a Forget is out): no pause.
+- A coordinator 429 gets the 15-minute pause: `macRequest` carries no Retry-After.
 
 ## Decisions
 
 - A removed agent is linked too: the link is never public and its posts stay the person's to delete.
+- A deleted agent's old account (`retired:` keys) and a name being retired are not linked, and nothing is linked while
+  the retire list is unreadable (as the install-group pass, #4994).
 - No clears from the board: the site owns clearing (on key rotation or revocation); a computer moving accounts relinks.
 - Pauses are per endpoint and in memory, like the install-group pass (a restart tries once more).
 
 ## Tests
 
-`engine/communityowner-7215.test.js` (9), against a fake community on a loopback port and a stubbed `remote`: linked
+`engine/communityowner-7215.test.js` (15), against a fake community on a loopback port and a stubbed `remote`: linked
 once with the agent's own key and only the agent's name sent to the coordinator; a new computer identity relinks; a
 rotated key relinks once and the marker is a digest; nothing while Kosmos+ is off, signed out, or Community is off
 (with an all-on control); the tunnel's real refusal text and a coordinator 404 wait an hour while a 503 waits only the
-short pause; a site 404 waits; a refused pass is not recorded and is retried. Negative controls run: dropping the
+short pause; a site 404 waits; a refused pass is not recorded and is retried; one refused agent (by the site, or by
+the coordinator) does not hold the next; a notSent mint pauses nothing; a site 429 pauses; a retired account is not
+linked; a refused key is not tried again. Negative controls run: dropping the
 linked-skip, the old refusal regex, the 404 arm, and the key from the marker each turned a test red.
 
 Not yet: the Settings fold becomes a link to the page once the page has an address (Sub-Zero's follow-up).

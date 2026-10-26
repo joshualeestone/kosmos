@@ -1466,24 +1466,30 @@ async function sweepInstallGroup(keys, on) {
 
 /**
  * #7215: link each registered agent to the Kosmos+ account of this computer, so the person sees and can delete their
- * agents' posts and comments on one community page. Once per agent per computer identity AND agent key: a Forget and
- * a new sign-in mint a new mac id, and the site clears an agent's link when its key is rotated or revoked, so either
- * change links it again. The marker keeps a digest of the key, never the key. Two steps, both needed by the site:
+ * agents' posts and comments on one community page. Once per agent per computer identity AND agent key: a new mac id
+ * (a Forget and a new sign-in) or a new key links the agent again. The marker keeps a digest of the key, never the
+ * key. Two steps, both needed by the site:
  *   1. the coordinator's owner pass for this agent's community name (Mac-signed through the tunnel, POST
  *      /v1/mac/community-owner-pass): it names the CALLING computer's account, never one the board states;
  *   2. POST /agents/me/owner { pass } with the agent's own key (the site: 204, the agent now linked).
  * Only while Community is on and Kosmos+ is live here (signed in AND switched on, as phone notifications, #6488).
- * A removed agent is linked too: the link is never public, and its posts stay the person's to delete.
- * What a failure does, as the install-group pass:
- *   the tunnel or coordinator does not know the route (an older one), or the site has no such route (404/405): the
- *   pass is left alone for an hour; a 429: it waits, capped like #4940's register wait; anything else (no answer, a
- *   5xx, a refused pass): the pass pauses 15 minutes. Pauses are per endpoint, in memory.
+ * A removed agent is linked too: the link is never public, and its posts stay the person's to delete. A deleted
+ * agent's old account and a name being retired are not (#4994), and nothing is linked while the retire list is
+ * unreadable.
+ * What a failure does:
+ *   a 400 or 403 about one agent (from the coordinator or the site): that agent waits 15 minutes, the pass goes on;
+ *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
+ *   a site 429: Retry-After, capped like #4940's register wait;
+ *   anything else (no answer, a 5xx, a 401 logging in again did not clear): the pass pauses 15 minutes;
+ *   a mint refused on this computer before it was sent (a register or a Forget is out): no pause.
+ * Pauses are per endpoint, in memory.
  */
 const OWNER_PASS_ROUTE = '/v1/mac/community-owner-pass';
-let OWNER_LINK_RETRY_MS = 15 * 60 * 1000;
-const OWNER_LINK_UNKNOWN_MS = 60 * 60 * 1000;
+let OWNER_LINK_RETRY_MS = 15 * 60 * 1000;   // a pause after a failure of the service or of one agent (tests set it)
+const OWNER_LINK_UNKNOWN_MS = 60 * 60 * 1000;   // a pause when the route does not exist yet; tests rely on it staying long
 const OWNER_LINK_PASS_MS = 30 * 1000;   // the owner pass's share of one sweep
 const ownerLinkPassAt = new Map();    // endpointDir -> ms: the whole pass is paused until then
+const ownerLinkAgentAt = new Map();   // endpointDir + agentKey -> ms: this one agent is skipped until then
 function ownerLinkLive() {
   try { const remote = require('./remote'); return remote.enrolled() === true && remote.read().on === true; } catch { return false; }
 }
@@ -1493,12 +1499,18 @@ function ownerLinkMarker(mac, apiKey) {
 function ownerLinkMac() {
   try { const id = require('./remote').macIdHere(); return typeof id === 'string' && id ? id : null; } catch { return null; }
 }
-/* The tunnel refuses a route not on its list, and a coordinator from before #7215 answers 404: both mean "not yet". */
+/* The route does not exist yet: the tunnel's own refusal (crates/tunnel check_mac_request, one stderr line, so it is
+   `because`), or a coordinator 404/405. */
 function ownerPassUnknown(minted) {
   if (minted.refusal && (minted.refusal.status === 404 || minted.refusal.status === 405)) return true;
-  // The tunnel's own words (crates/tunnel check_mac_request: "mac-request does not sign POST ..."), or a tunnel older
-  // than the verb itself.
-  return /mac-request does not sign|unrecognized subcommand/.test(String(minted.because || ''));
+  return /mac-request does not sign/.test(String(minted.because || ''));
+}
+/* A refusal about this agent only (the coordinator or the site answered 400 or 403 for it): the agent waits, the pass
+   goes on to the next one, so one agent the service will not vouch for cannot hold every agent after it. */
+function ownerLinkSkipAgent(ep, agentKey, k, why) {
+  ownerLinkAgentAt.set(ep + '\n' + agentKey, Date.now() + OWNER_LINK_RETRY_MS);
+  if (k.ownerLinkRetrying !== why) { k.ownerLinkRetrying = why; log(`owner link for ${agentKey}: ${why}; trying again in ${Math.round(OWNER_LINK_RETRY_MS / 60000)} min, until it lands`); return true; }
+  return false;
 }
 async function sweepOwnerLink(keys, on) {
   if (!on || !switchOn() || !ownerLinkLive()) return;
@@ -1506,41 +1518,59 @@ async function sweepOwnerLink(keys, on) {
   if (!mac) return;
   const ep = endpointDir();
   if ((ownerLinkPassAt.get(ep) || 0) > Date.now()) return;
+  // #4994: which names are being retired is unknown while the list is unreadable, so nothing is linked (fail-closed).
+  if (retireListUnreadable()) return;
   const until = Date.now() + OWNER_LINK_PASS_MS;
-  for (const agentKey of Object.keys(keys)) {
-    if (Date.now() > until) break;   // the rest wait for the next sweep
-    const k = keys[agentKey];
-    if (!k || !k.apiKey || !k.name || k.refused) continue;
-    const marker = ownerLinkMarker(mac, k.apiKey);
-    if (k.ownerLinked === marker) continue;
-    const minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name });
-    if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string') {
-      const unknown = minted.ok ? false : ownerPassUnknown(minted);
-      ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
-      log(`owner link: ${unknown ? 'Kosmos+ cannot vouch for agents yet' : 'Kosmos+ did not vouch for ' + agentKey}; trying again in ${unknown ? 'an hour' : Math.round(OWNER_LINK_RETRY_MS / 60000) + ' min'}`);
+  let marks = false;
+  try {
+    for (const agentKey of Object.keys(keys)) {
+      if (Date.now() > until) break;   // the rest wait for the next sweep
+      // #4994: a deleted agent's old account, or a name being retired, is not linked.
+      if (agentKey.startsWith(RETIRED_PREFIX) || retiring(agentKey)) continue;
+      const k = keys[agentKey];
+      if (!k || !k.apiKey || !k.name || k.refused) continue;
+      const marker = ownerLinkMarker(mac, k.apiKey);
+      if (k.ownerLinked === marker) continue;
+      if ((ownerLinkAgentAt.get(ep + '\n' + agentKey) || 0) > Date.now()) continue;
+      const minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name });
+      // Refused on this computer before anything was sent (a register or a Forget is out): nothing was asked, so
+      // nothing pauses; the next sweep tries again.
+      if (minted.notSent) return;
+      if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string') {
+        const st = minted.refusal ? minted.refusal.status : 0;
+        if (st === 400 || st === 403) { marks = ownerLinkSkipAgent(ep, agentKey, k, `Kosmos+ refused to vouch (${st})`) || marks; continue; }
+        const unknown = !minted.ok && ownerPassUnknown(minted);
+        ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
+        log(`owner link: ${unknown ? 'Kosmos+ cannot vouch for agents yet' : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '')}; trying again in ${unknown ? 'an hour' : Math.round(OWNER_LINK_RETRY_MS / 60000) + ' min'}`);
+        break;
+      }
+      const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
+      if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on
+      if (r.status === 204 || r.status === 200) {
+        k.ownerLinked = marker;
+        delete k.ownerLinkRetrying;
+        marks = true;
+        continue;
+      }
+      if (r.status === 400 || r.status === 403) { marks = ownerLinkSkipAgent(ep, agentKey, k, `the community refused the pass (${r.status})`) || marks; continue; }
+      if (r.status === 404 || r.status === 405) {
+        ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_UNKNOWN_MS);
+        log(`owner link: the community has no owner route yet (${r.status}); trying again in an hour`);
+        break;
+      }
+      if (r.status === 429) {
+        const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600));
+        ownerLinkPassAt.set(ep, Date.now() + waitS * 1000);
+        log(`owner link: the service asked to slow down (429); the pass waits ${waitS} s`);
+        break;
+      }
+      // No answer, a 5xx (the site's 503 while it is not ready), a 401 logging in again could not clear: the service.
+      ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
+      log(`owner link: the community answered ${r.status || 'nothing'}; the pass waits ${Math.round(OWNER_LINK_RETRY_MS / 60000)} min`);
       break;
     }
-    const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
-    if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on
-    if (r.status === 204 || r.status === 200) {
-      k.ownerLinked = marker;
-      saveJson(keysFile(), keys);
-      continue;
-    }
-    if (r.status === 404 || r.status === 405) {
-      ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_UNKNOWN_MS);
-      log(`owner link: the community has no owner route yet (${r.status}); trying again in an hour`);
-      break;
-    }
-    if (r.status === 429) {
-      const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600));
-      ownerLinkPassAt.set(ep, Date.now() + waitS * 1000);
-      log(`owner link: the service asked to slow down (429); the pass waits ${waitS} s`);
-      break;
-    }
-    ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
-    log(`owner link for ${agentKey}: got ${r.status || 'no answer'}; trying again in ${Math.round(OWNER_LINK_RETRY_MS / 60000)} min`);
-    break;
+  } finally {
+    if (marks) saveJson(keysFile(), keys);
   }
 }
 
@@ -3129,6 +3159,6 @@ module.exports = {
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
-  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
+  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };
