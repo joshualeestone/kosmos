@@ -911,6 +911,14 @@ const SCREENS = [
     /* To the end of the room, as a person reading the newest row is: its composer at the foot of the screen. The
        composer is sticky, so it covers rows only while the room is scrolled part way (Mona Lisa's review asked
        which this was). Not the end of the page: on a phone the members, files and tasks stack below the room. */
+    // The room's own scroller too, to its newest row, as the room opens.
+    await page.evaluate(() => {
+      for (const el of [document.querySelector('#pj-room'), ...document.querySelectorAll('#pj-room *')]) {
+        if (!el) continue;
+        const oy = getComputedStyle(el).overflowY;
+        if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) el.scrollTop = el.scrollHeight;
+      }
+    });
     await page.evaluate(() => { const c = document.querySelector('.pjmid .composer'); if (c) c.scrollIntoView({ block: 'end' }); });
     await page.waitForTimeout(150);
   } },
