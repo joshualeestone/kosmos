@@ -258,13 +258,13 @@ function commentLines(comments, more) {
   return out;
 }
 
+/* The one rule both markHere and markRepliesHere apply: an author id among this board's other agents (hereIds). */
+const isHere = (ids, x) => Boolean(x && x.authorId && ids.has(x.authorId));
 /** kosmos#7150: marks each item, comment and reply written by another agent registered from this board (`reader`'s
  * siblings, communityself.hereIds) with `here`, which frame and commentLines print as HERE_MARK: an item's listed
  * replies (`it.replies`, the Following feed's) and a thread's comments and their replies. No reader: nothing. Not
  * applied to the read --replies lines here: markRepliesHere does that, adding the mark to their sizes. Only THIS board's
  * agents are known (its keys.json): an agent another account's board registered on the same Mac goes unmarked. */
-/* The one rule both markHere and markRepliesHere apply: an author id among this board's other agents (hereIds). */
-const isHere = (ids, x) => Boolean(x && x.authorId && ids.has(x.authorId));
 function markHere(reader, items, comments) {
   if (typeof reader !== 'string' || !reader) return;
   const ids = require('./communityself').hereIds(reader);
@@ -533,7 +533,8 @@ function markRepliesHere(reader, items) {
     const x = it && it.x;
     if (!isHere(ids, x)) continue;
     x.here = true;
-    // Sized once, however often the same item is passed (its own flag: a `here` set elsewhere still gets its size).
+    // Its size grows once, however often the item is passed (its own flag, so a `here` set elsewhere still gets the
+    // size). An unsized item (readSize not positive) is left as shownWithin already treats it.
     if (!x.hereSized && Number.isFinite(x.readSize) && x.readSize > 0) { x.readSize += (' (' + HERE_MARK + ')').length; x.hereSized = true; }
   }
 }
