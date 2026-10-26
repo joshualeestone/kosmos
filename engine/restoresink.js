@@ -533,7 +533,8 @@ function createSink(root, opts, lock) {
     const buf = Buffer.from(line);
     try {
       for (let off = 0; off < buf.length;) {
-        const w = fs.writeSync(recordFd, buf, off, buf.length - off);
+        // At an explicit position, not O_APPEND (Windows CI: a file opened to append cannot be truncated, EPERM).
+        const w = fs.writeSync(recordFd, buf, off, buf.length - off, recordBytes + off);
         if (w <= 0) throw new Error('restoresink: the restore record write made no progress');
         off += w;
       }
@@ -554,8 +555,10 @@ function createSink(root, opts, lock) {
   if (keepRecordOn) {
     const file = path.join(rootReal, RECORD_NAME);
     // A fresh restore creates it (never over an existing one); a resumed one appends to the one it just read.
-    const flags = resume ? fs.constants.O_WRONLY | fs.constants.O_APPEND | (fs.constants.O_NOFOLLOW || 0)
-      : fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_APPEND;
+    // Read-write and positioned writes, not O_APPEND, so the record can be cut back on every platform (Windows CI
+    // refused ftruncate on an append-mode file with EPERM).
+    const flags = resume ? fs.constants.O_RDWR | (fs.constants.O_NOFOLLOW || 0)
+      : fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_EXCL;
     let created = false;
     try {
       recordFd = fs.openSync(file, flags, 0o600);
