@@ -79,6 +79,13 @@ const PORT = freePort();
     }
     await p.screenshot({ path: path.join(OUT, 'project-settings.png') });
 
+    // #7246 slice 2: the notices select paints the project's setting (a new project: Automatic) and its hint says what
+    // Automatic gives THIS project now (no members: each agent is told after its turn).
+    if (!(await p.locator('#pjs-notices').isVisible())) die('#7246: the notices select is missing from settings');
+    if ((await p.inputValue('#pjs-notices')) !== 'auto') die('#7246: a new project\'s notices setting did not paint as Automatic');
+    const noticesHint = (await shown(p.locator('#pjs-notices-hint'))).trim();
+    if (!/For this project now: each agent is told after its turn\./.test(noticesHint)) die('#7246: the hint did not say what Automatic gives this project: ' + noticesHint);
+
     // Save round trip: rename, verify it lands, confirm, and #3134 returns to it.
     // #2923: delay the PUT so the in-flight Sweep spinner is observable (the
     // local round trip is otherwise instant, which would let a regression that
@@ -93,6 +100,7 @@ const PORT = freePort();
       } catch { await route.abort().catch(() => {}); }
     });
     await p.fill('#pjs-name', 'Settings Drive Renamed');
+    await p.selectOption('#pjs-notices', 'digest');   // #7246: carried in the same save as the rename
     await p.click('#pjs-save');
     // The Sweep spinner must render in #pjs-save-live WHILE the save is in
     // flight (the headline behavior). Attached, because it is aria-hidden
@@ -104,6 +112,15 @@ const PORT = freePort();
     // confirmed before #3134 advances). Assert it shows there, sits left of the
     // button, and is NOT duplicated below.
     await p.waitForFunction(() => { const m = document.getElementById('pjs-save-live'); return m && m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
+    // #7246: the board stored the choice (read back through its own API, not the page's memory of what it sent).
+    const storedNotices = await p.evaluate(async () => {
+      const r = await fetch('/api/projects');
+      const all = await r.json();
+      const list = Array.isArray(all) ? all : (all && all.projects) || [];
+      const one = list.find((x) => x && x.name === 'Settings Drive Renamed');
+      return one ? one.roomNotices : '(project not found)';
+    });
+    if (storedNotices !== 'digest') die('#7246: choosing one summary an hour did not store digest: ' + storedNotices);
     const savedPos = await p.evaluate(() => {
       const s = document.getElementById('pjs-save-live').getBoundingClientRect();
       const b = document.getElementById('pjs-save').getBoundingClientRect();
@@ -244,7 +261,7 @@ const PORT = freePort();
     if (!(await p.locator('#pj-settings-view').isVisible())) die('#3134: re-opening settings within the window did not cancel the pending advance -- the timer pulled the person off the settings they re-opened');
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, back-link rename, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project + focus to the cog), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, an interleaved second save cancels the pending advance, the advance is suppressed on another tab, re-opening settings cancels a pending advance, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
+    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, #7246 notices select (paints Automatic, says what it gives, a choice is stored), back-link rename, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project + focus to the cog), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, an interleaved second save cancels the pending advance, the advance is suppressed on another tab, re-opening settings cancels a pending advance, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();
