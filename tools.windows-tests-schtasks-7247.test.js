@@ -211,3 +211,13 @@ test('#7247: run-tests.sh reads CI as onCi does where it cannot ask windows-test
     assert.equal(wt.guardsScheduler(v ? { CI: v } : {}, 'win32'), true, JSON.stringify(v) + ' is not CI in windows-tests.js');
   }
 });
+
+test('#7247: zsh, dash, ksh and fish are read as sh is, and an option that takes a value does not end the scan', () => {
+  for (const [file, args] of [
+    ['zsh', ['-c', 'schtasks /Query']], ['dash', ['-c', 'schtasks /End']], ['ksh', ['-c', 'schtasks /Run']], ['fish', ['-c', 'schtasks /Query']],
+    ['bash', ['-o', 'pipefail', '-c', 'schtasks /End /TN x']], ['bash', ['+o', 'errexit', '-lc', 'schtasks /Query']],
+  ]) assert.equal(callRuns(file, args), true, JSON.stringify([file, args]));
+  // CONTROL: the same shells running something else
+  assert.equal(callRuns('bash', ['-o', 'pipefail', '-c', 'echo schtasks']), false);
+  assert.equal(callRuns('zsh', ['-c', 'git grep schtasks']), false);
+});

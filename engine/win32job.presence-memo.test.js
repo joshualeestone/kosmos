@@ -9,7 +9,7 @@
  * more on a slow laptop, on every status poll and every DM send. Seven agents
  * cost ~0.5s a poll.
  *
- *   node -r <no-schtasks-preload> --test engine/win32job.presence-memo.test.js
+ *   node -r tools/no-schtasks-preload.cjs --test engine/win32job.presence-memo.test.js
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

@@ -7,9 +7,9 @@
  * tasks, where it could end the board's own task. This guard costs nothing when nothing calls schtasks.
  *
  * Loaded with --require, through NODE_OPTIONS so every test subprocess inherits it: every one that keeps
- * NODE_OPTIONS. A process started with an environment of its own that leaves NODE_OPTIONS out (some tests build one,
- * and engine/manifest-verify.js strips it on purpose) runs unguarded, and so does everything it starts. This guard
- * does not put itself back there: those callers remove NODE_OPTIONS deliberately and tests check that they do.
+ * NODE_OPTIONS. A process started with an environment of its own that replaces NODE_OPTIONS or leaves it out (some
+ * tests do, and engine/manifest-verify.js strips it on purpose) runs unguarded, and so does everything it starts. This
+ * guard does not put itself back there: those callers set NODE_OPTIONS deliberately and tests check that they do.
  * A child_process call that RUNS
  * schtasks (tools/lib/schtasks-call.cjs decides) is sent, with no shell, to a program that cannot exist,
  * REFUSED_PROGRAM, so it fails with Node's own ENOENT: the sync calls throw or return it, the async ones emit 'error'

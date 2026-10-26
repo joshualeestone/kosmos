@@ -12,7 +12,7 @@
  * KOSMOS_TEST_AGY_BIN), and when `agy models` says it is not signed in. It touches neither the
  * operator's store nor the live board: a sandboxed data root and a board on port 0.
  *
- *   node -r <no-schtasks-preload> --test engine/win32agyreply.e2e.test.js
+ *   node -r tools/no-schtasks-preload.cjs --test engine/win32agyreply.e2e.test.js
  */
 const os = require('node:os');
 const path = require('node:path');

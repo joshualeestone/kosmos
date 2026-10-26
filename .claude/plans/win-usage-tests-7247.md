@@ -54,16 +54,27 @@ So "thousands of real calls" is not reproduced on current code. It describes run
 got seams. The guard stays: it costs nothing when nothing calls schtasks, and one test that does reach the live
 scheduler on this box could end the board's task. The Windows `npm test` limit is #7257, not fixed here.
 
+What already refuses: engine/win32job.js `run()` refuses real schtasks in any process that is a test run
+(`schtasksMayRunInThisProcess` -> `live-execution.inTestRun()`, NODE_TEST_CONTEXT included), which is very likely why
+the count is near zero. This guard is the layer under it: it catches a test's own raw child_process call to schtasks,
+any code that reaches schtasks other than through win32job, and a child started without NODE_TEST_CONTEXT that keeps
+NODE_OPTIONS. win32job's refusal stays the primary one for Kosmos's own scheduler code.
+
 ## Rejected
+- Reusing test-support/tool-guard.js's command-position reader (review 5): it is tied to its own verdict (a "real
+  install" of gh/vercel/cloudflared, judged by PATH and the repo and temp roots), pinned by its own test, and reads no
+  Windows launchers (quoted cmd /c, -EncodedCommand, call, start, nesting). Merging the two readers would change a
+  guard other tests depend on, inside a card about something else. One shared reader is #7262. Weakest part: until
+  then the two can drift.
 - Refusing to run without the guard: the runner can apply it itself, and a refusal only adds a step for the person.
 - Applying it on CI: the runner is throwaway, and windows.yml's KNOWN_RED list is measured against the real scheduler.
 
 ## Weakest part, named
 "Not CI" is read from the `CI` variable. A developer who sets CI locally gets the real scheduler; the run says so in
 one line ("REAL Task Scheduler (CI is set)"). The bigger gap: a test that starts a process with an environment of its
-own that leaves NODE_OPTIONS out runs that process unguarded (round 3; the reason it stays is under Review rounds).
-And the matcher reads a shell command line by a small splitter, not a
-shell parser: an unusual quoting could hide a schtasks call from it. Kosmos's own calls never go through a shell.
+own that replaces NODE_OPTIONS or leaves it out runs that process unguarded (round 3; the reason it stays is under
+Review rounds). And the matcher reads a shell command line with a small tokenizer, not a shell parser: an unusual
+form could hide a schtasks call from it (its header lists the ones known). Kosmos's own calls never go through a shell.
 
 ## Tests
 `tools.windows-tests-schtasks-7247.test.js` (every platform; selected by windows-tests.js as tools.windows-*):
@@ -107,3 +118,9 @@ shell parser: an unusual quoting could hide a schtasks call from it. Kosmos's ow
   NITs taken: a source check that main() hands each file childEnv's env; one shared options-then-tail helper; the
   matcher's header names a lone apostrophe in a cmd line, wsl and npx. Negative control: against round 3's matcher and
   run-tests.sh the two new behaviour tests fail. 37/37 with windows-tests-1777; under the guard 0 fail.
+- Round 5: no BLOCKER. Fixed: zsh, dash, ksh and fish read as sh is, and -o/+o options (which take a value) no longer
+  end the scan (against round 4's matcher the new test fails); seven win32 test headers named the outside copy of the
+  preload and now name tools/no-schtasks-preload.cjs; the env gap now says "replaces NODE_OPTIONS or leaves it out".
+  Answered in the plan: what win32job.js already refuses and what this layer adds. Decided: a second command reader
+  beside tool-guard's, with the reasons under Rejected; one shared reader is #7262. NIT taken: the matcher's header
+  names its known false positive (a parenthesis: "echo (schtasks)"). 38/38 with windows-tests-1777.
