@@ -82,3 +82,11 @@ shell parser: an unusual quoting could hide a schtasks call from it. Kosmos's ow
   Verified after round 1: install.reachable-1662 (16 pass / 30 fail) and cli.connections-4451 (1 / 5), both of which
   call promisify(execFile), give identical counts with and without the guard on this box (their reds are this box's
   baseline); windows-tests-1777 23/23; this file 8/8.
+- Round 2: no BLOCKER. Fixed: quoted shell forms (cmd /c "schtasks ...", powershell -Command "...") slipped through, and
+  so did value-taking PowerShell switches (-ExecutionPolicy Bypass) and start /b; the matcher is now a small tokenizer
+  that walks past cmd, powershell/pwsh, call and start (nested, quoted), decodes -EncodedCommand, and stops at
+  -File (a script it cannot read, named in its header). run-tests.sh's bridge is tested with the node snippet read
+  out of run-tests.sh itself. NITs taken: an explicit undefined args slot; one split per call; the header says the
+  shell arms fail with ENOENT, not a shell's status, and that the log holds command lines; CI=false and CI=0 are not
+  CI. Negative control: against round 1's code the two new behaviour tests fail. This file 11/11; with
+  windows-tests-1777 34/34; under the guard 0 fail.

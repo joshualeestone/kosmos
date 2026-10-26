@@ -293,8 +293,10 @@ function failureDetail(output, expected = []) {
    real scheduler on a Windows computer too. tools/run-tests.sh reads this same rule (it runs childEnv), so the two
    runners cannot disagree. */
 const PRELOAD = path.join(__dirname, 'no-schtasks-preload.cjs');
+/* CI as the runners set it (CI=true on GitHub). CI=false or CI=0, which some shells export, is not CI. */
+function onCi(env) { return !!env.CI && !/^(false|0)$/i.test(String(env.CI)); }
 function guardsScheduler(env = process.env, platform = process.platform) {
-  return platform === 'win32' && !env.CI && env.KOSMOS_TESTS_REAL_SCHTASKS !== '1';
+  return platform === 'win32' && !onCi(env) && env.KOSMOS_TESTS_REAL_SCHTASKS !== '1';
 }
 function childEnv(env = process.env, platform = process.platform) {
   if (!guardsScheduler(env, platform)) return env;
@@ -310,7 +312,7 @@ function childEnv(env = process.env, platform = process.platform) {
 function schedulerLine(env = process.env, platform = process.platform) {
   if (platform !== 'win32') return null;
   if (guardsScheduler(env, platform)) return 'schtasks calls are refused in every test (#7247); KOSMOS_TESTS_REAL_SCHTASKS=1 allows the real scheduler';
-  return 'schtasks calls reach this computer\'s REAL Task Scheduler (' + (env.CI ? 'CI is set' : 'KOSMOS_TESTS_REAL_SCHTASKS=1') + ', #7247)';
+  return 'schtasks calls reach this computer\'s REAL Task Scheduler (' + (onCi(env) ? 'CI is set' : 'KOSMOS_TESTS_REAL_SCHTASKS=1') + ', #7247)';
 }
 
 function count(output, label) {

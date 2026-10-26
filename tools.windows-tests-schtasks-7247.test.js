@@ -38,6 +38,9 @@ test('#7247: CI, an explicit ask for the real scheduler, and every other platfor
   }
   // CONTROL: the same computer without those asks is guarded
   assert.equal(wt.guardsScheduler({ KOSMOS_TESTS_REAL_SCHTASKS: '0' }, 'win32'), true);
+  // CI=false and CI=0, which some shells export, are not CI: the guard stays on
+  assert.equal(wt.guardsScheduler({ CI: 'false' }, 'win32'), true);
+  assert.equal(wt.guardsScheduler({ CI: '0' }, 'win32'), true);
 });
 
 test('#7247: a Windows run says which scheduler it uses, guarded or not; other platforms say nothing', () => {
@@ -57,6 +60,26 @@ test('#7247: a call runs schtasks when schtasks is the program, by any path or c
   ]) assert.equal(callRuns(file, args, options), true, JSON.stringify([file, args, options]));
   for (const cmd of ['schtasks /Query', 'echo hi && schtasks /End', 'cd x & "C:\\Windows\\System32\\schtasks.exe" /Run', 'cmd /c schtasks /Delete', '(schtasks /Query)'])
     assert.equal(commandRuns(cmd), true, cmd);
+});
+
+test('#7247: quoted, switched, launched, nested and encoded shell forms that run schtasks are caught', () => {
+  const encoded = Buffer.from('schtasks /End /TN x', 'utf16le').toString('base64');
+  for (const cmd of [
+    'cmd /c "schtasks /Query"', 'powershell -Command "schtasks /Query"', 'powershell -NoProfile -ExecutionPolicy Bypass -Command schtasks /End',
+    'pwsh -ep Bypass -c "schtasks /Run /TN x"', 'powershell schtasks /Query', 'start /b schtasks /Run', 'start "title" /wait /d C:\\x schtasks /End',
+    'call schtasks /Query', 'cmd /c cmd /c "schtasks /Delete"', 'powershell -EncodedCommand ' + encoded, 'echo a && cmd /c "schtasks /End"',
+  ]) assert.equal(commandRuns(cmd), true, cmd);
+  assert.equal(callRuns('cmd.exe', ['/d', '/s', '/c', '"schtasks /End /TN x"']), true);
+  assert.equal(callRuns('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', 'schtasks /Query']), true);
+});
+
+test('#7247: shells and launchers that run something else are not refused', () => {
+  const encoded = Buffer.from('Write-Output schtasks', 'utf16le').toString('base64');
+  for (const cmd of [
+    'cmd /c "echo schtasks"', 'powershell -Command "Write-Output schtasks"', 'powershell -File C:\\x\\job.ps1', 'start notepad',
+    'start "schtasks" notepad', 'powershell -EncodedCommand ' + encoded, 'cmd /c git grep schtasks',
+  ]) assert.equal(commandRuns(cmd), false, cmd);
+  assert.equal(callRuns('cmd.exe', ['/c', 'echo', 'schtasks']), false);
 });
 
 test('#7247: the word schtasks anywhere else is not a call, so it runs as it always did', () => {
@@ -83,6 +106,7 @@ out.spawnSync = code(cp.spawnSync(SCH, ['/Query']).error);
 try { cp.execSync('schtasks /Query', { stdio: 'pipe' }); out.execSync = 'ran'; } catch (e) { out.execSync = code(e); }
 const other = cp.spawnSync(process.execPath, ['-e', 'process.stdout.write("ran")'], { encoding: 'utf8' });
 out.other = other.stdout;
+out.undefArgs = code(cp.spawnSync(SCH, undefined, { shell: false }).error);
 const done = [];
 const child = cp.spawn(SCH, ['/Query']);
 out.spawnStdout = !!child.stdout;
@@ -114,7 +138,7 @@ function probe(source, nodeOptions) {
 
 test('#7247: under the preload every arm fails as a missing schtasks.exe would, and everything else runs unchanged', () => {
   const got = probe(PROBE, wt.childEnv(WIN_DEV, 'win32').NODE_OPTIONS);
-  for (const arm of ['execFileSync', 'spawnSync', 'execSync', 'spawn', 'execFile', 'exec', 'pExecFile']) {
+  for (const arm of ['execFileSync', 'spawnSync', 'execSync', 'spawn', 'execFile', 'exec', 'pExecFile', 'undefArgs']) {
     assert.equal(got[arm], 'ENOENT', arm + ': ' + JSON.stringify(got));
   }
   assert.equal(got.spawnStdout, true, 'a refused spawn still has its streams, as a missing program\'s child does');
@@ -129,4 +153,27 @@ test('#7247 CONTROL: without the preload, a call to a program that does not exis
   const got = probe(PROBE.replace("const SCH = 'schtasks.exe';", "const SCH = 'no-such-program-7247.exe';").replace(/schtasks \/Query/g, 'no-such-program-7247 /Query'), null);
   for (const arm of ['execFileSync', 'spawnSync', 'spawn', 'execFile', 'pExecFile']) assert.equal(got[arm], 'ENOENT', arm);
   assert.equal(got.pShape, true);
+});
+
+/* ---------- tools/run-tests.sh reads the rule from tools/windows-tests.js ---------- */
+
+test('#7247: run-tests.sh\'s own node snippet reads the rule from windows-tests.js: the options line, then the scheduler line', () => {
+  /* The snippet is taken from run-tests.sh itself, so renaming childEnv or schedulerLine, or editing the snippet,
+     fails here rather than on the next Windows npm test (which #7257 keeps from running today). */
+  const sh = fs.readFileSync(path.join(__dirname, 'tools', 'run-tests.sh'), 'utf8');
+  const m = sh.match(/_rt_sched="\$\(node -e '([^']+)' "\$_rt_wt"\)"/);
+  assert.ok(m, 'run-tests.sh still runs the rule through one node -e snippet');
+  const run = (env) => {
+    const e = { ...process.env, ...env };
+    delete e.NODE_TEST_CONTEXT;
+    for (const k of Object.keys(env)) if (env[k] === undefined) delete e[k];
+    return cp.execFileSync(process.execPath, ['-e', m[1], path.join(__dirname, 'tools', 'windows-tests.js')], { env: e, encoding: 'utf8' }).split('\n');
+  };
+  const [opts, line] = run({ CI: undefined, KOSMOS_TESTS_REAL_SCHTASKS: undefined, NODE_OPTIONS: undefined });
+  assert.equal(opts, '--require "' + wt.PRELOAD.replace(/\\/g, '/') + '"');
+  assert.match(line, /refused in every test/);
+  // CONTROL: on CI the options line carries nothing new and the line names the real scheduler
+  const [ciOpts, ciLine] = run({ CI: 'true', NODE_OPTIONS: undefined });
+  assert.equal(ciOpts, '');
+  assert.match(ciLine, /REAL Task Scheduler/);
 });

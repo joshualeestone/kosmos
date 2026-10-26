@@ -7,11 +7,14 @@
  * tasks, where it could end the board's own task. This guard costs nothing when nothing calls schtasks.
  *
  * Loaded with --require, through NODE_OPTIONS so every test subprocess inherits it. A child_process call that RUNS
- * schtasks (tools/lib/schtasks-call.cjs decides) is sent to a program that cannot exist, REFUSED_PROGRAM, so every
- * arm fails exactly as a missing schtasks.exe would, with Node's own ENOENT: the sync calls throw or return it, the
- * async ones emit 'error' and call back with it, and promisify(execFile) rejects with it. Every other call goes to
- * Node unchanged, promisify included (the wrappers carry util.promisify.custom, as test-support/tool-guard.js does).
- * KOSMOS_SCHTASKS_BLOCK_LOG names a file that logs each refused call.
+ * schtasks (tools/lib/schtasks-call.cjs decides) is sent, with no shell, to a program that cannot exist,
+ * REFUSED_PROGRAM, so it fails with Node's own ENOENT: the sync calls throw or return it, the async ones emit 'error'
+ * (with their streams) and call back with it, and promisify rejects with it. For spawn and execFile that is exactly
+ * what a missing schtasks.exe gives. For exec and execSync it is not quite: a shell that cannot find a command exits
+ * with a status instead (cmd 1, sh 127), while a refused one fails with ENOENT and no status.
+ * Every other call goes to Node unchanged, promisify included (the wrappers carry util.promisify.custom, as
+ * test-support/tool-guard.js does). KOSMOS_SCHTASKS_BLOCK_LOG names a file that logs each refused call, with the
+ * test's argv and the refused command line (task names included).
  *
  * tools/windows-tests.js and tools/run-tests.sh load it on a Windows computer by themselves, except on CI and when
  * KOSMOS_TESTS_REAL_SCHTASKS=1 asks for the real scheduler (tools/windows-tests.js guardsScheduler holds the rule).
@@ -32,66 +35,55 @@ function note(how, what) {
   } catch { /* logging must never change a result */ }
 }
 
-/* (file, args?, options?, callback?) as Node reads it: args only when it is an array, options only when an object. */
+/* (args?, options?, callback?) after the program, as Node reads them: an array, or a null or undefined in its place,
+   is the args; then an object is the options. */
 function split(rest) {
+  const hasArgs = Array.isArray(rest[0]) || (rest.length > 1 && rest[0] == null);
   const args = Array.isArray(rest[0]) ? rest[0] : null;
-  const after = args ? rest.slice(1) : rest;
+  const after = hasArgs ? rest.slice(1) : rest;
   const options = after[0] && typeof after[0] === 'object' ? after[0] : null;
   return { args, options, tail: options ? after.slice(1) : after };
 }
 /* The same call aimed at REFUSED_PROGRAM, with no shell, so it fails as a missing program rather than as a shell
    that could not find a command. */
-function refused(rest) {
-  const { args, options, tail } = split(rest);
-  return [REFUSED_PROGRAM, args || [], { ...(options || {}), shell: false }, ...tail];
+function refused(parts) {
+  return [REFUSED_PROGRAM, parts.args || [], { ...(parts.options || {}), shell: false }, ...parts.tail];
 }
 
 const real = { ...cp };
+/* A wrapper for a call that names its program (spawn, spawnSync, execFile, execFileSync), and its refused form
+   through `run` (the real function, or the real promisified one). */
+function programCall(name, run) {
+  return function (file, ...rest) {
+    const parts = split(rest);
+    if (!callRuns(file, parts.args, parts.options)) return run.call(this, file, ...rest);
+    note(name, file + ' ' + JSON.stringify(parts.args || []));
+    return run.call(this, ...refused(parts));
+  };
+}
+/* A wrapper for a shell command line (exec, execSync): (command, options?, callback?). Refused, it runs as the file
+   form of the same call, so there is no shell to report a status. */
+function shellCall(name, run, refusedRun) {
+  return function (command, ...rest) {
+    if (!commandRuns(command)) return run.call(this, command, ...rest);
+    note(name, String(command));
+    const options = rest[0] && typeof rest[0] === 'object' ? rest[0] : null;
+    return refusedRun.call(this, ...refused({ args: null, options, tail: options ? rest.slice(1) : rest }));
+  };
+}
+
 const wrap = {
-  execFileSync(file, ...rest) {
-    if (!callRuns(file, split(rest).args, split(rest).options)) return real.execFileSync.call(this, file, ...rest);
-    note('execFileSync', file + ' ' + JSON.stringify(split(rest).args || []));
-    return real.execFileSync.call(this, ...refused(rest));
-  },
-  spawnSync(file, ...rest) {
-    if (!callRuns(file, split(rest).args, split(rest).options)) return real.spawnSync.call(this, file, ...rest);
-    note('spawnSync', file + ' ' + JSON.stringify(split(rest).args || []));
-    return real.spawnSync.call(this, ...refused(rest));
-  },
-  spawn(file, ...rest) {
-    if (!callRuns(file, split(rest).args, split(rest).options)) return real.spawn.call(this, file, ...rest);
-    note('spawn', file + ' ' + JSON.stringify(split(rest).args || []));
-    return real.spawn.call(this, ...refused(rest));
-  },
-  execFile(file, ...rest) {
-    if (!callRuns(file, split(rest).args, split(rest).options)) return real.execFile.call(this, file, ...rest);
-    note('execFile', file + ' ' + JSON.stringify(split(rest).args || []));
-    return real.execFile.call(this, ...refused(rest));
-  },
-  /* exec and execSync take one shell command line: (command, options?, callback?). */
-  execSync(command, ...rest) {
-    if (!commandRuns(command)) return real.execSync.call(this, command, ...rest);
-    note('execSync', command);
-    return real.execFileSync.call(this, ...refused(rest));
-  },
-  exec(command, ...rest) {
-    if (!commandRuns(command)) return real.exec.call(this, command, ...rest);
-    note('exec', command);
-    return real.execFile.call(this, ...refused(rest));
-  },
+  execFileSync: programCall('execFileSync', real.execFileSync),
+  spawnSync: programCall('spawnSync', real.spawnSync),
+  spawn: programCall('spawn', real.spawn),
+  execFile: programCall('execFile', real.execFile),
+  execSync: shellCall('execSync', real.execSync, real.execFileSync),
+  exec: shellCall('exec', real.exec, real.execFile),
 };
 /* promisify(execFile) and promisify(exec) resolve { stdout, stderr } through Node's own custom form. A wrapper
    without it would make promisify fall back to its generic form and resolve a bare string (#4326 hit this). */
-wrap.execFile[util.promisify.custom] = (file, ...rest) => {
-  if (!callRuns(file, split(rest).args, split(rest).options)) return real.execFile[util.promisify.custom](file, ...rest);
-  note('execFile(promisified)', file + ' ' + JSON.stringify(split(rest).args || []));
-  return real.execFile[util.promisify.custom](...refused(rest));
-};
-wrap.exec[util.promisify.custom] = (command, ...rest) => {
-  if (!commandRuns(command)) return real.exec[util.promisify.custom](command, ...rest);
-  note('exec(promisified)', command);
-  return real.execFile[util.promisify.custom](...refused(rest));
-};
+wrap.execFile[util.promisify.custom] = programCall('execFile(promisified)', real.execFile[util.promisify.custom]);
+wrap.exec[util.promisify.custom] = shellCall('exec(promisified)', real.exec[util.promisify.custom], real.execFile[util.promisify.custom]);
 Object.assign(cp, wrap);
 
 module.exports = { REFUSED_PROGRAM };
