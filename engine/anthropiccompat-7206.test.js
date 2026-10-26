@@ -287,3 +287,15 @@ test('1b review 2: launch-env refuses while the switch is off (a kill switch for
   assert.equal(said, 'DeepSeek is not available in Kosmos yet, so this agent was not started on it');
   assert.equal(said.includes(KEY), false);
 });
+
+test('review 4: the test switch helper never touches a data folder outside the temp folder', () => {
+  const sw = require('../test-support/compat-switch');
+  assert.throws(() => sw.setAt(undefined, true), /absolute path/);
+  assert.throws(() => sw.setAt('', true), /absolute path/);
+  assert.throws(() => sw.setAt('relative/dir', true), /absolute path/);
+  assert.throws(() => sw.setRoot(nodePath.join(os.homedir(), 'Library', 'Application Support', 'Kosmos'), false), /outside the temp folder/);
+  // CONTROL: a sandbox folder is fine.
+  const ok = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-compat-7206-guard-'));
+  assert.doesNotThrow(() => sw.setAt(ok, true));
+  assert.equal(fs.existsSync(sw.markerAt(sw.rootFor(ok))), true);
+});

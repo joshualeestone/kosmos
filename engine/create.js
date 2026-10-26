@@ -910,8 +910,7 @@ function providerRunner(provider) {
   if (provider === 'antigravity') return 'antigravity'; // #3568
   if (provider === 'meta') return 'muse'; // #3939: Meta Muse, run one turn at a time by engine/musefront.js
   if (provider === 'alibaba') return 'codex'; // #5977: Qwen, codex pointed at its account's endpoint
-  // #7206: a vendor whose endpoint speaks Claude Code's API (DeepSeek) runs on claude, pointed at the vendor.
-  if (require('./anthropiccompat').vendorOf(provider)) return 'claude';
+  // #7206: a vendor whose endpoint speaks Claude Code's API (DeepSeek) runs on claude too (the floor below).
   return 'claude';
 }
 /* #3519: the INVERSE of providerRunner -- the ONE runner -> provider map. The
