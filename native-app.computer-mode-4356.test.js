@@ -79,6 +79,9 @@ test('#4356: only the board\'s own page, in the main frame, while the app is ask
     'a page can flip the mode at any time');
   assert.match(chose, /guard writeComputerMode\(\.connect, kosmosHome: home\) else \{[\s\S]*?loadBoard\(\)\n\s+return\n\s+\}/,
     'a connect choice that could not be saved still switches, so the next launch starts the board again');
+  // kosmos#7205: after Run, Back, Connect, run is saved, so "it will ask again" would be false there.
+  assert.match(chose, /let stays = computerMode == \.run \|\| computerMode == \.both\n\s+\? "so this computer still runs agents" : "so it will ask again"/,
+    'a failed Connect after Run says it will ask again, and it never does');
 });
 
 test('#4356: switching to connect stops what belongs to a board, then the board, then loads sign-in', () => {

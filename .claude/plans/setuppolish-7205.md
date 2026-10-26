@@ -70,3 +70,5 @@ the board it started for Run, which is the path a first-time Connect already tak
   ensureBoardRunning's late-start undo before the generation check; the reviewer's four mutations (M1 guard true, M2 no
   clear, M3 no undo, M4 connect allowed) each fail it, the unmutated file passes. The Connect save-failure alert says
   "it still runs agents on this computer" when run or both is already saved (Run, Back, Connect, a failed write).
+- Round 4 (.claude/plans/setuppolish-7205-review4.md): 0 blockers, 0 warnings, 2 nits; converged. Fixed: the alert no
+  longer says "on this computer" twice; the test pins its wording (forcing `stays` to false now fails it).

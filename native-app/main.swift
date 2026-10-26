@@ -2993,8 +2993,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             guard writeComputerMode(.connect, kosmosHome: home) else {
                 // kosmos#7205: after Welcome's Back, run or both is already saved, so nothing asks again; say what stays.
                 let stays = computerMode == .run || computerMode == .both
-                    ? "so it still runs agents on this computer" : "so it will ask again"
-                showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, \(stays). Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not switch")
+                    ? "so this computer still runs agents" : "so it will ask again"
+                showStartupFailureAlert(detail: "Kosmos could not save your choice, \(stays). Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not switch")
                 loadBoard()
                 return
             }
