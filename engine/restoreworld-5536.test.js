@@ -778,7 +778,7 @@ test('one finish at a time: a live lock refuses, a dead process\'s lock is taken
   assert.equal(busy.ok, false);
   assert.match(busy.because, /already under way/);
   assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), 'nothing moved');
-  const dead = require('node:child_process').spawnSync(process.execPath, ['-e', '0']).pid;
+  const dead = 2147483646;   // above every system's pid limit (Linux at most 4194304), so never alive
   fs.writeFileSync(path.join(lock, 'pid'), String(dead));
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, true, r.because);

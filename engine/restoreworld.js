@@ -240,11 +240,14 @@ function finishRestoreWorld(opts = {}) {
     let heldMade = false;
     for (const { name, src, dst, hold } of plan) {
       try {
-        if (hold.length && !heldMade) { fs.mkdirSync(heldName, { mode: 0o700 }); heldMade = true; }   // new: refuses one already there
+        if (hold.length && !heldMade) {
+          // Recorded before the folder is made, so no held-back folder of this run is ever unrecorded (a later run
+          // would list it as kept); heldIn lists only what is actually in it.
+          recordHeld(dir, path.basename(heldName));
+          fs.mkdirSync(heldName, { mode: 0o700 });   // new: refuses one already there
+          heldMade = true;
+        }
         if (hold.length) fs.mkdirSync(path.join(heldName, name), { mode: 0o700 });
-        // Recorded before the moves, so a run that fails part way still has its folder named; heldIn lists only what
-      // is actually in it.
-      if (hold.length) recordHeld(dir, path.basename(heldName));
         for (const n of hold) renameRetrying(path.join(src, n), path.join(heldName, name, n));
       } catch (e) {
         const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
@@ -276,7 +279,8 @@ function finishRestoreWorld(opts = {}) {
    process is gone, when it is older than FINISH_LOCK_STALE_MS (a recycled pid can look alive), or when it has no
    readable pid and is older than FINISH_LOCK_PIDLESS_MS (left by a crash of an older writer); a stale lock is renamed
    aside first, so only one taker wins. Returns { release } when taken, { busy: true } when a live finish holds it, or
-   { code } when it cannot be made. release removes the lock only while it still holds this process's pid. */
+   { code } when it cannot be made. release removes the lock if it held this process's pid when read (a takeover in
+   between needs the ten-minute stale rule, so it is not guarded further). */
 const FINISH_LOCK_STALE_MS = 10 * 60 * 1000;
 const FINISH_LOCK_PIDLESS_MS = 30 * 1000;
 function takeFinishLock(dir) {
@@ -292,7 +296,7 @@ function takeFinishLock(dir) {
       return { code: (e && e.code) || 'EUNKNOWN' };
     }
     try {
-      fs.renameSync(tmp, at);
+      renameRetrying(tmp, at);   // Windows: a scanner holding the pid file just written
       return { release: () => {
         try { if (fs.readFileSync(path.join(at, 'pid'), 'utf8') === mine) fs.rmSync(at, { recursive: true, force: true }); } catch { /* gone */ }
       } };
@@ -354,7 +358,7 @@ function recordHeld(dir, folder) {
   const file = path.join(dir, HELD_RECORD);
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({ folders }), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  renameRetrying(tmp, file);
 }
 
 /* What the finish runs held back, as `<root>/<label>`, for the screen. */
@@ -486,7 +490,8 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    it (create.installJob on that name, under this world's roots); otherwise it is the plain reason it cannot be.
    `runs` lists what would run or load at start. `shared` is what every agent below it would read: entries at the top
    of the workers and projects folders other than plain-named folders, and each project with something in its `runs`.
-   Contract for the screen (slice 4c): show `label`, never `folder`; show `runs` and `shared`; enable an agent whose
+   Contract for the screen (slice 4c): show `label`, never `folder` or `dir` (both carry the raw name); leave out a
+   folder that already has a profile in this world (it was enabled before); show `runs` and `shared`; enable an agent whose
    `runs` is not empty, or while `shared` is not empty, only after the person acknowledges them, since a hook or an MCP
    server there runs the moment the agent starts; and enable nothing while `more` is true, since the list is then cut
    short. An empty `runs` means only that nothing at the folder's top was flagged, not that the agent is safe: 4a's
