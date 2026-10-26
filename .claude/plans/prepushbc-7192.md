@@ -31,3 +31,15 @@ every web/ push slower too.
   was not updated (CONTROL: updating that check passes); a push of another branch is not checked against the checkout
   (CONTROL: the checked-out bad branch is refused).
 - Mutations, each red: checking the checkout instead of the pushed branch; not running the gates.
+
+## Iteration 3 (sonnet)
+- W1 a stale local origin/main counted other people's newer web/ commits as this branch's and refused a push CI would
+  pass -> FIXED: one quiet `git fetch origin main` before the gates (a failure, offline, leaves the ref as it was).
+  Test: a branch rebased onto a main this clone has not fetched, changing only a README; the arm fails without the
+  fetch (measured: mutant red) and a control asserts the hook moved origin/main. The first version of that arm gave
+  the other person's commit its own trailers, so it passed with or without the fetch; caught by the mutation.
+- W2 a wip/ backup push of unfinished web/ work was refused -> FIXED: a push to refs/heads/wip/* is not checked
+  (test, mutant red). A tag at HEAD stays checked (iteration 1's decision).
+- N3 a gate that crashes and a gate that refuses both block -> accepted: it happens only on a broken checkout, and
+  blocking there is the safe direction.
+- N4 untested shapes -> the stale origin/main is now tested; outside a work tree exits 0 (fail-open, by design).
