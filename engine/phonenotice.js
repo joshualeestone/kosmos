@@ -73,9 +73,20 @@ function reportNote(session, at, { selfreport = require('./selfreport'), tailByt
     if (!lines[i].trim()) continue;
     let row;
     try { row = JSON.parse(lines[i]); } catch { continue; }
-    if (row && row.at === at && row.state === 'needs_you') return typeof row.because === 'string' && row.because.trim() ? row.because : null;
+    if (row && row.at === at && row.state === 'needs_you') return reportWords(row);
   }
   return null;
+}
+
+/** kosmos#6487 (Josh's lock screen, TestFlight build 3: "Jonah Ellis needs you", no picture, no words): a needs_you report
+ *  may carry no reason (`kosmos report needs_you --on X`, or a permission hook's automatic report), and with no words
+ *  the phone showed the bare push. So a recorded report always answers something true: its reason, else what it waits
+ *  on, else that it is a permission ask, else that it waits for an answer. */
+function reportWords(row) {
+  if (typeof row.because === 'string' && row.because.trim()) return row.because;
+  if (typeof row.on === 'string' && row.on.trim()) return 'Waiting on ' + row.on.trim().replace(/[.\s]+$/, '') + '.';
+  if (row.auto) return 'Asking your permission to go on.';
+  return 'Waiting for your answer.';
 }
 
 /** The text of the direct reply an agent sent at exactly `at`, or null. Only the agent's own message counts. */
