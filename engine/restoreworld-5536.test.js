@@ -647,16 +647,16 @@ test('only plain-named folders at the top of workers and projects become the wor
   assert.deepEqual(l.shared, []);
 });
 
-test('held-back files from an earlier try in the way refuse the finish, and nothing moves', (t) => {
+test('a backup that supplies its own held-back entries cannot block the finish', (t) => {
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
   fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
   fs.mkdirSync(path.join(p.restoreDir, 'workers', '.git'));
-  fs.mkdirSync(path.join(p.restoreDir, 'held-back', 'workers', '.git'), { recursive: true });
+  fs.writeFileSync(path.join(p.restoreDir, 'held-back'), 'x');   // where a fixed name would have gone
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
-  assert.equal(r.ok, false);
-  assert.match(r.because, /in the way of workers\/\.git/);
-  assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), 'nothing moved');
+  assert.equal(r.ok, true, r.because);
+  assert.deepEqual(r.heldBack, ['workers/.git']);
+  assert.deepEqual(fs.readdirSync(worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS), ['ann']);
 });
 
 test('an agents folder that cannot be read leaves the list marked incomplete', { skip: process.platform === 'win32' ? 'POSIX modes' : false }, (t) => {

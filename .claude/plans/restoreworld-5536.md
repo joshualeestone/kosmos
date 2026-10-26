@@ -12,7 +12,7 @@ no profile record, and STARTS the agent: enable then bootstrap).
   - `finishRestoreWorld({ base, world, restoreDir, result })`: only after runRestore answered ok and the sink is
     closed, into a world on the list (registry row, not hidden), from the exact `restored` folder, with none of the
     sink's own entries left (record, lock, temp folder). At the top of each root only plain-named folders move; dot
-    entries, HEAD, files and links are held back in `restored/held-back/<root>/` and named in `heldBack`, since the
+    entries, HEAD, files and links are held back in `restored/held-back-<random>/<root>/` (new each run) and named in `heldBack`, since the
     top of workers or projects sits above every agent and project made in this world later. Each root then moves by
     one rename into the world's empty folder. Every check runs before anything moves; one answer shape on every path,
     with `failedFiles` and `fetchProblems` from the restore.
@@ -119,6 +119,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    refused listing read as an empty restore (now a `because`); an unreadable agents folder vanished silently (now
    `more`). Nits: dot-entries no longer get a duplicate empty row; every finish answer has the same shape; this
    section of the plan was brought up to date.
+
+14. W: a snapshot chooses its own root names, so it could supply `restored/held-back` and block every finish; the
+   held-back folder is now `held-back-<random>`, made new (non-recursively) on each run, so it cannot be supplied in
+   advance and an earlier run's folder never blocks a rerun. Nits: a fused comment removed; more blank characters
+   stripped from labels; the import pattern's line handling and the brief budget's overshoot of one brief are said.
+   Deferred: the check-then-move window (the residual below).
 
 ## Residuals, stated
 - Git discovery walks above the workers folder into the world folder and its base. Both are made by Kosmos and the
