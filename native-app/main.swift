@@ -2184,6 +2184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var window: NSWindow!
     private var tlsPinToldAt: [String: TimeInterval] = [:]   // kosmos#6589: when the person was last told, per computer
     private var tlsPinAlertShowing = false   // kosmos#7193: a refusal alert is on screen now (any computer)
+    private var tlsPinDismissedAt: TimeInterval = -1000   // kosmos#7193: when the person last dismissed one (any computer)
     var webView: WKWebView!
     /// #4409: the mic's bridge, so closing or minimising the window can turn the mic off.
     var voice: VoiceBridge?
@@ -3662,8 +3663,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            (macOS queues sheets), so a page that kept retrying for minutes left one alert per minute stacked up, each
            appearing as the last was dismissed: Josh pressed OK seven times on 0.7.63. The minute below then counts from
            when the person dismissed it (the completion), so the next alert waits a minute after they last answered. */
-        if tlsPinAlertShowing { return }
+        /* Review 1: the WINDOW decides, not only the mark. On macOS 26 a sheet begun over another can be dropped without
+           its completion (#2807), which would leave the mark set for good; so the mark holds an alert back only while a
+           sheet is really attached (or a runModal one is up, which clears its own mark). Held back is said, not silent. */
+        if tlsPinAlertShowing, window == nil || window?.attachedSheet != nil {
+            logLine("tls-pin: an alert is already on screen, so this refusal is not shown again")
+            return
+        }
+        tlsPinAlertShowing = false
         let now = ProcessInfo.processInfo.systemUptime
+        if now - tlsPinDismissedAt < 60 { return }   // review 1: a minute after the person last answered, whichever computer
         if let at = tlsPinToldAt[host], now - at < 60 { return }
         tlsPinToldAt[host] = now
         tlsPinAlertShowing = true
@@ -3671,12 +3680,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.messageText = "Kosmos did not open \(host)"
         alert.informativeText = mismatch
             ? "That computer did not present the certificate it vouches for, so Kosmos stopped before sending it anything. If you just set that computer up again, pair it with this one again. If this keeps happening, contact Kosmos support."
-            : "Kosmos could not check that computer's certificate just now, so it stopped before sending it anything. Try again in a moment. If it keeps happening, check that the other computer is on and connected to the internet."
+            : "Kosmos could not check that computer's certificate just now, so it stopped before sending it anything. Try again in a moment. If it keeps happening, check that both computers are on and connected to the internet."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         let dismissed: () -> Void = { [weak self] in
             self?.tlsPinAlertShowing = false
             self?.tlsPinToldAt[host] = ProcessInfo.processInfo.systemUptime
+            self?.tlsPinDismissedAt = ProcessInfo.processInfo.systemUptime
         }
         if let window { alert.beginSheetModal(for: window) { _ in dismissed() } } else { alert.runModal(); dismissed() }
     }

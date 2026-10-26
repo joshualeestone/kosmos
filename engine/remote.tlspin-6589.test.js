@@ -90,6 +90,27 @@ test('#6589: none passes as none; every other answer, a malformed pinned one inc
   }
 });
 
+test('kosmos#7193: a required answer says why in the board log, once a minute per address, with no computer name', async () => {
+  enrol();
+  const lines = [];
+  const was = console.error;
+  console.error = (...a) => lines.push(a.join(' '));
+  try {
+    mode('required');
+    await remote.tlsPin('e.kosmosplus.com');
+    await remote.tlsPin('e.kosmosplus.com');   // within the minute: not said again
+    mode('crash');
+    await remote.tlsPin('f.kosmosplus.com');   // another address: said
+    mode('none');
+    await remote.tlsPin('g.kosmosplus.com');   // CONTROL: a definite answer says nothing
+  } finally { console.error = was; }
+  const said = lines.filter((l) => l.startsWith('remote: tls-pin answered required'));
+  assert.equal(said.length, 2, JSON.stringify(lines));
+  assert.match(said[0], /statement refused: other_peer/, 'the tunnel\'s own reason is in the line');
+  assert.match(said[1], /boom at/, 'a crash says what the tunnel printed');
+  assert.ok(said.every((l) => !l.includes('kosmosplus.com')), 'no computer name in the line');
+});
+
 test('#6589: a connector from before tls-pin answers none; before the sign-up nothing is spawned', async () => {
   enrol(); mode('old');
   assert.equal((await remote.tlsPin('c.kosmosplus.com')).data.state, 'none');

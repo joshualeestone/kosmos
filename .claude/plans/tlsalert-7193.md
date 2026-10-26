@@ -22,8 +22,17 @@ native-app/main.swift `tlsPinRefused`:
   internet." The other computer's statement is what could not be fetched.
 The unified-log line still comes first, so every refusal is recorded even when no alert is shown (pinlog-6589).
 
+- engine/remote.js (added after Kitty's relay reading): a "required" tls-pin answer says why in the board log,
+  `remote: tls-pin answered required for another computer: <the tunnel's reason>`, once a minute per address at most, no
+  computer name, the home folder as ~. On Josh's Mac nothing recorded the reason past "could not be checked"; next time
+  it is in board.log on the Mac where it happens.
+
 ## Why the check failed then (what the machines recorded)
 - The computer Josh opened, tmnt.kosmosplus.com, is this Mac (remote-status.json address).
+- CORRECTED (Kitty, from the relay log): the 07:49:40 write was the tunnel's planned hourly retire and reconnect
+  (12:49:38 retire, 12:49:40 authenticated): two seconds, not an outage. What failed for the six-plus minutes seven
+  alerts need is not recorded on this Mac or at the relay; on Josh's Mac only the app's split (board did not answer vs
+  answered required) is. Hence the board-log line above.
 - Its tunnel's status file was last written at 07:49:40 CDT with state "up". The tunnel writes that file only on a
   state change (engine/remote.js, kosmos#6669 review 3), so the tunnel came back up at 07:49:40 after being down or
   reconnecting. Its board (pid 25889) and tunnel (pid 30187) had both run since 00:49, so this was a reconnect, not a
@@ -45,3 +54,12 @@ covers both, since the mark is app-wide.
 - native-app.tlspin-6589.test.js: a new test pins the early return, its place before the minute, the mark set before
   the alert, both dismiss paths, and the wording. Against main's main.swift it goes red (1 of 4).
 - All native-app tests 151/151; swiftc -typecheck clean (no warnings in the changed lines).
+
+## Review
+- Round 1: 0 blockers, 1 warning, 3 nits.
+  - [WARNING] a sheet dropped without its completion (#2807, macOS 26) would leave the showing mark set for good: the
+    mark now holds an alert back only while the window really has a sheet attached (or a runModal one is up), and a
+    held-back refusal is logged.
+  - Nits taken: "check that both computers are on and connected to the internet" (several causes, not one); one minute
+    after the last dismissal for every computer (tlsPinDismissedAt), so two failing computers do not take turns; the
+    test strips block comments before matching.

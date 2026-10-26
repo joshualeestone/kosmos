@@ -80,21 +80,25 @@ test('#6589: the leaf\'s key is hashed as the computer hashes it, and a refusal 
 
 test('kosmos#7193: one refusal alert on screen at a time, and the minute counts from when the person dismissed it', () => {
   const r = body('private func tlsPinRefused(_ host: String, mismatch: Bool) {');
-  const code = r.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  // Review 1: block comments out too, so a commented-out guard cannot satisfy the test.
+  const code = r.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
   // A second alert begun while one is up waits behind it (macOS queues sheets): Josh pressed OK seven times on 0.7.63.
-  const showing = code.indexOf('if tlsPinAlertShowing { return }');
+  // Review 1: held back only while the window really has a sheet (a dropped sheet must not leave the mark set), and said.
+  const showing = code.indexOf('if tlsPinAlertShowing, window == nil || window?.attachedSheet != nil {');
+  assert.match(code, /attachedSheet != nil \{\n\s+logLine\("tls-pin: an alert is already on screen/);
+  assert.match(code, /if now - tlsPinDismissedAt < 60 \{ return \}/, 'one minute after the last dismissal, whichever computer');
   const quiet = code.indexOf('if let at = tlsPinToldAt[host], now - at < 60 { return }');
   const set = code.indexOf('tlsPinAlertShowing = true');
   const alert = code.indexOf('let alert = NSAlert()');
   assert.ok(showing >= 0 && showing < quiet, 'no "an alert is already showing" return, or it comes after the once-a-minute return');
   assert.ok(set > quiet && set < alert, 'the showing mark is not set before the alert is shown');
   // Both ways the alert is shown clear the mark and restart the minute when it is dismissed.
-  assert.match(code, /let dismissed: \(\) -> Void = \{ \[weak self\] in\n\s+self\?\.tlsPinAlertShowing = false\n\s+self\?\.tlsPinToldAt\[host\] = ProcessInfo\.processInfo\.systemUptime/);
+  assert.match(code, /let dismissed: \(\) -> Void = \{ \[weak self\] in\n\s+self\?\.tlsPinAlertShowing = false\n\s+self\?\.tlsPinToldAt\[host\] = ProcessInfo\.processInfo\.systemUptime\n\s+self\?\.tlsPinDismissedAt = ProcessInfo\.processInfo\.systemUptime/);
   assert.match(code, /alert\.beginSheetModal\(for: window\) \{ _ in dismissed\(\) \}/);
   assert.match(code, /alert\.runModal\(\); dismissed\(\)/);
   assert.doesNotMatch(code, /completionHandler: nil/, 'a sheet with no completion would never clear the mark');
   // It says what to do if it keeps happening.
-  assert.match(r, /Try again in a moment\. If it keeps happening, check that the other computer is on and connected to the internet\."/);
+  assert.match(r, /Try again in a moment\. If it keeps happening, check that both computers are on and connected to the internet\."/);
   // The mark is one Bool for every computer: any refusal alert on screen holds the next.
   assert.match(SRC, /private var tlsPinAlertShowing = false/);
 });
