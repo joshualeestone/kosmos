@@ -156,6 +156,7 @@ function commentEntries() {
   return out;
 }
 
+// Called bare, it reads every row itself; the route goes through mineAll, which reads them once for rows and summary.
 /**
  * #7211: what Settings shows instead of every row: how many posts and comments the agents have in the community now,
  * and, per agent, its counts and its name ON the community (for a link to its own page there). `comments` is null when
@@ -165,7 +166,6 @@ function commentEntries() {
  * so the agents' counts can add up to less than the totals. A comment the community's moderators removed still counts:
  * the service has no way for the board to ask about a comment once it is sent, so nothing on the board says so.
  */
-// Called bare, it reads every row itself; the route goes through mineAll, which reads them once for rows and summary.
 function summary(posts = postEntries(), comments = commentEntries()) {
   const names = communitysend.communityNames();
   const byKey = new Map();
