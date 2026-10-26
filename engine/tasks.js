@@ -825,8 +825,9 @@ const NO_WRITE = Symbol('no write');
 const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
   'builtFingerprintBy'];
 /* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
-   thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value). */
-const FINGERPRINT_RE = /^sha256:[0-9a-f]{64}$/;
+   thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value).
+   #7213: a PDF's fingerprint says pdf-normalized:, so it is never read as the plain sha256 an approval cites. */
+const FINGERPRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
 function withoutBuilt(t) {
   if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
   const rest = { ...t };
@@ -858,7 +859,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   const print = fingerprint == null ? '' : fingerprint;
   // Only a string of the shape: String() would make ['sha256:...'] one (review 1), and '' is not one (review 3).
-  if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is "sha256:" followed by 64 lowercase hex characters' };
+  if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is "sha256:" or "pdf-normalized:" followed by 64 lowercase hex characters' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';

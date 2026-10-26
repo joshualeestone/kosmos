@@ -75,6 +75,14 @@ test('engine: a fingerprint is stored with the mark, a clear drops it, and a bad
     assert.equal(r.ok, false, 'a bad shape was stored: ' + bad);
   }
   assert.equal(stored(n).builtFingerprint, A, 'a refused mark changed the stored fingerprint');
+  // #7213: a PDF's fingerprint names its kind, and the board keeps it as sent (never relabelled as a plain sha256).
+  const P = 'pdf-normalized:' + 'b'.repeat(64);
+  for (const bad of ['pdf-normalized:' + 'b'.repeat(63), 'pdf:' + 'b'.repeat(64), 'PDF-normalized:' + 'b'.repeat(64)]) {
+    assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'pdf', fingerprint: bad }).ok, false, 'a bad shape was stored: ' + bad);
+  }
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', note: 'pdf', fingerprint: P }).ok, true);
+  assert.equal(stored(n).builtFingerprint, P);
+  tasks.setBuilt(projectId, n, { by: 'mona', note: 'exported', fingerprint: A });
   tasks.clearBuilt(projectId, n, { by: 'mona' });
   assert.equal(stored(n).builtFingerprint, undefined, 'a clear left the fingerprint behind');
 });
@@ -185,7 +193,7 @@ test('the line typed to the next agent carries the fingerprint, and a mark witho
     assert.equal(stored(n).builtFingerprint, A, 'CONTROL: the fingerprint was kept');
     const withPrint = typed.find((t) => t.includes('mona marked task ' + n + ' built'));
     const without = typed.find((t) => t.includes('marked task ' + n2 + ' built'));
-    assert.ok(withPrint && withPrint.includes(' - fingerprint ' + A + ' (check your copy with: kosmos fingerprint <file>) - reply in the task'), JSON.stringify(typed));
+    assert.ok(withPrint && withPrint.includes(' - fingerprint ' + A + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>) - reply in the task'), JSON.stringify(typed));
     assert.ok(without && !without.includes('fingerprint'), JSON.stringify(typed));
   } finally {
     chat.resetForTests();
@@ -278,4 +286,16 @@ test('#6849 Mac: task built --file and kosmos fingerprint give a PDF the fingerp
   const missing = await mac(['fingerprint', path.join(fix, 'nope.pdf')]);
   assert.equal(missing.code, 2, missing.out);
   assert.match(missing.out, /missing \(no such file\)/);
+  // #7213: given an approval's plain sha256 it compares the plain bytes and says so; a re-render differs (exit 1).
+  assert.match(want, /^pdf-normalized:/, 'a PDF fingerprint is labelled as a plain sha256');
+  const same = await mac(['fingerprint', a, plainA.slice('sha256:'.length)]);
+  assert.equal(same.code, 0, same.out);
+  assert.match(same.out, /matches the plain sha256/);
+  const diff = await mac(['fingerprint', b, plainA]);
+  assert.equal(diff.code, 1, diff.out);
+  assert.match(diff.out, /differs from the plain sha256/);
+  const kind = await mac(['fingerprint', b, want]);
+  assert.equal(kind.code, 0, kind.out);
+  assert.match(kind.out, /matches the PDF fingerprint/);
+  assert.equal((await mac(['fingerprint', a, plainA, 'extra'])).code, 2);
 });
