@@ -112,6 +112,10 @@ at 0%, had no reading at all (the card's opening).
 - Review 20: switched off, the board also ignores any record the reader wrote earlier, so it behaves exactly as on
   main (the status line alone), not for 30 minutes after a switch-off. A rate limit (429) is the account's, so it
   keeps its hour across a renewed token; a 401 or 403 is the token's, so a renewed token is read at once.
+- Review 21: a refusal is kept in its own field (`refusedState`) and carried through sweeps that sent nothing (an
+  expired token, a failed Keychain read), so they cannot erase its hour. With the brake on, earlier records are not
+  shown either. Not taken: a liveAllowed check inside pollAll (the server is its only caller; the tests call it
+  directly with injected credentials), and keying the backoff to the organization (errs to fewer requests).
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -164,7 +168,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 46 tests (counted from a run after review 20), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 48 tests (counted from a run after review 21), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

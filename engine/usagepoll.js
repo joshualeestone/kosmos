@@ -72,7 +72,7 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    unchanged either way. */
 /* Review 20: whether the reader is switched on at all, which also decides whether its records are shown, so a board
    switched off shows nothing it measured earlier. */
-function enabled(env = process.env) { return env.AGENT_WORKFORCE_USAGE_POLL === '1'; }
+function enabled(env = process.env) { return env.AGENT_WORKFORCE_USAGE_POLL === '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1'; }
 
 function liveAllowed(env = process.env) {
   return enabled(env)
@@ -263,10 +263,12 @@ async function pollAll(list, deps = {}) {
     if (a && typeof a.dir === 'string' && a.dir && !a.apiKey) {
       try { t = await tokenStateFor(a, deps); } catch { t = { state: 'no-credential' }; }
     }
-    if (t && before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number'
+    /* Review 21: the refusal is read from refusedState, which survives sweeps that sent nothing (see below). */
+    const refused = before && (typeof before.refusedState === 'string' ? before.refusedState : before.state);
+    if (t && before && BACKOFF_STATES.has(refused) && typeof before.refusedAt === 'number'
       && nowMs - before.refusedAt >= 0 && nowMs - before.refusedAt < BACKOFF_MS   // review 18: a refusal stamped in the future has expired
       && typeof before.refusedEmail === 'string' && typeof a.email === 'string' && before.refusedEmail.toLowerCase() === a.email.toLowerCase()
-      && t.state === 'ok' && (before.state.endsWith('429') || t.expiresAt === before.refusedExpiresAt)) {
+      && t.state === 'ok' && (refused.endsWith('429') || t.expiresAt === before.refusedExpiresAt)) {
       /* review 20: a rate limit (429) is the account's, so it keeps its hour across a renewed token; a 401 or 403 is the
          token's. A token that is not usable sends nothing anyway. */
       write(a.dir, { ...before, at: nowMs });
@@ -298,9 +300,17 @@ async function pollAll(list, deps = {}) {
     } else {
       const prev = readRaw(a.dir);
       if (BACKOFF_STATES.has(rec.state)) {   // review 14: the hour runs from the refusal
+        rec.refusedState = rec.state;
         rec.refusedAt = rec.at;
         rec.refusedEmail = a.email;
         rec.refusedExpiresAt = t && t.state === 'ok' ? t.expiresAt : null;
+      } else if (!t || t.state !== 'ok') {
+        /* Review 21: this sweep sent nothing (no usable token), so a refusal still within its hour is carried
+           forward; otherwise an expired token or one failed Keychain read would erase the hour. */
+        for (const k of ['refusedState', 'refusedAt', 'refusedEmail', 'refusedExpiresAt']) {
+          if (before && before[k] !== undefined) rec[k] = before[k];
+        }
+        if (before && rec.refusedState === undefined && BACKOFF_STATES.has(before.state)) rec.refusedState = before.state;
       }
       const prevAt = prev && (typeof prev.measuredAt === 'number' ? prev.measuredAt : (prev.state === 'ok' ? prev.at : null));
       /* Review 9: a folder signed in again as another login must not show the old login's figures under the new one. */

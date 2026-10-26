@@ -650,3 +650,35 @@ test('#7152 review 20: a rate limit keeps its hour across a renewed token; a 401
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 2, 'CONTROL: a refused token, once renewed, is read at once');
 });
+
+test('#7152 review 21: a sweep that could not use the token does not erase a refusal\'s hour', async (t) => {
+  const seen = {};
+  let token = cred({ expiresAt: NOW + 10 * 3600000 });
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => token, request: fakeRequest(answer, seen) });
+  const d = tmpDir(t);
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 429, body: '' }));
+  token = cred({ expiresAt: NOW });   // expired by the next sweep
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(usagepoll.readUsage(d, NOW + 10 * 60000).state, 'token-expired', 'CONTROL: the sweep saw no usable token');
+  token = cred({ expiresAt: NOW + 20 * 3600000 });   // renewed by an agent
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 20 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'an expired token in between erased the rate limit\'s hour');
+  const e = tmpDir(t);
+  token = cred({ expiresAt: NOW + 10 * 3600000 });
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW, { code: 401, body: '' }));
+  token = null;   // one Keychain read fails
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  token = cred({ expiresAt: NOW + 10 * 3600000 });   // the same refused token again
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 20 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'a failed Keychain read in between let the refused token be sent');
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 61 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 2, 'CONTROL: after its hour the account is read');
+});
+
+test('#7152 review 21: with the brake on, earlier records are not shown either', (t) => {
+  const d = tmpDir(t);
+  usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: EMAIL, weekly: { usedPct: 70, resetsAt: Math.floor((NOW + 86400000) / 1000), changedAt: NOW - 60000 }, fiveHour: null });
+  process.env.AGENT_WORKFORCE_USAGE_POLL_OFF = '1';
+  t.after(() => { delete process.env.AGENT_WORKFORCE_USAGE_POLL_OFF; });
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), null, 'with the brake on an earlier reading was shown');
+});
