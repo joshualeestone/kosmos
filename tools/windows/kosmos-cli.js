@@ -122,7 +122,7 @@ const USAGE = {
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time, and whether the person has viewed it',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
-    '      --file <path>                                            send the delivered file\'s fingerprint (its sha256; for a PDF, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',

@@ -266,8 +266,8 @@ function pdfHeadOf(p) {
  * a bare 64-hex value (case ignored), which is how an approval usually cites a plain sha256 and is read as one. Returns
  * { ok, match, kind, got, words } where `got` is this file's value of the kind compared, or { ok: false, words } when
  * the expected value is not a hash or the file cannot be read. A `sha256:` value that misses the plain bytes of a PDF
- * is tried against its PDF fingerprint too (a mark sent between #6849 and #7213 labelled that sha256:); a bare value
- * never is, so a shasum check stays byte for byte. */
+ * is tried against its PDF fingerprint too (a mark sent between #6849 and #7213 labelled that sha256:), and a match
+ * there says the bytes differ; a bare value never is, so a bare shasum check stays byte for byte. */
 function compare(p, expected) {
   let want = String(expected == null ? '' : expected).trim().toLowerCase();
   const bare = /^[0-9a-f]{64}$/.test(want);   // a shasum value: never an older mark, which always said sha256:
@@ -281,7 +281,10 @@ function compare(p, expected) {
     /* A PDF whose dates and ID are already empty normalizes to its own bytes and is labelled sha256: (review 1, finding 2),
        so for a PDF the hex decides, not the label. A file that is not a PDF has no PDF fingerprint at all (review 2). */
     const head = pdfHeadOf(p);
-    if (head.pdf && hexOf(got) === hexOf(want)) return { ok: true, match: true, kind, got, words: 'matches ' + kindWords(want) };
+    if (head.pdf && hexOf(got) === hexOf(want)) {
+      // Labelled sha256:, nothing was left out (none to leave, or over 64 MB): the bytes themselves are that value (review 3).
+      return { ok: true, match: true, kind, got, words: got.startsWith(PDF_KIND) ? 'matches ' + kindWords(want) : 'matches: this PDF\'s own bytes are that value (nothing in it was left out)' };
+    }
     if (got.startsWith(PDF_KIND)) return { ok: true, match: false, kind, got, words: 'differs from ' + kindWords(want) + ': this file gives ' + got };
     const why = !head.pdf ? 'this file is not a PDF, so it has none'
       : head.size > PDF_MAX ? 'this PDF is over 64 MB, so it is hashed as plain bytes and has none'
@@ -293,7 +296,9 @@ function compare(p, expected) {
      Its plain bytes do not match, so try the PDF fingerprint too, and say that is what matched. */
   const fp = bare ? '' : fingerprint(p);   // review 2: a bare shasum value is checked against the bytes and nothing else
   if (fp.startsWith(PDF_KIND) && hexOf(fp) === hexOf(want)) {
-    return { ok: true, match: true, kind: 'pdf-normalized', got: fp, words: 'matches ' + kindWords(fp) + ', which an older mark labelled sha256:' };
+    /* Review 3: a sha256: value typed by hand cannot be told from an older mark, so the words never call this a byte
+       match. It is the PDF fingerprint that matches, and the bytes differ only in the PDF's own dates or ID. */
+    return { ok: true, match: true, kind: 'pdf-normalized', got: fp, words: 'matches the PDF fingerprint, not the bytes: the bytes differ only in the PDF\'s own dates or ID (a mark sent before #7213 labelled a PDF fingerprint sha256:). For a byte-for-byte check give the value without sha256:' };
   }
   return { ok: true, match: false, kind, got, words: 'differs from ' + kindWords(want) + ': this file gives ' + got };
 }
