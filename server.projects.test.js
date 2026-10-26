@@ -3305,6 +3305,10 @@ test('#1895: the room text view renders a broadcast as "the room" in the operato
       // coincide with the raw UTC slice (19:50) the old code cut out of the string.
       store.writeSettings({ timezone: 'Asia/Tokyo' });
       const at = '2026-09-02T19:50:17.326Z';
+      // #7185: a row stamped before its project's createdAt belongs to an earlier project of that name, so the project
+      // is dated before this fixed instant.
+      const projectsEngine = require('./engine/projects');
+      projectsEngine.writeAll(projectsEngine.readAll().map((q) => (q.id === project.id ? { ...q, createdAt: '2026-09-01T00:00:00.000Z' } : q)));
       // The exact shape from the report: an EMPTY recipient array. Array.isArray([])
       // is true, so the "the room" fallback was unreachable until the length guard.
       fsx.appendFileSync(messages.LOG, JSON.stringify({

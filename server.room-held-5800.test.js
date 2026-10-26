@@ -198,8 +198,20 @@ async function room(id, asText) {
   return { code: res.status, text, json: asText ? null : JSON.parse(text) };
 }
 
+/* #7185: these rooms are seeded with rows from minutes ago, and a row stamped before its project's createdAt belongs to
+   an earlier project of that name. So the project is made, then dated days back, as the engine test above does. */
+function madeLongAgo(name) {
+  const made = projects.create({ name });
+  const back = new Date(Date.now() - 3 * 24 * 60 * MIN).toISOString();
+  projects.writeAll(projects.readAll().map((q) => (q.id === made.id ? { ...q, createdAt: back } : q)));
+  // Its folder's files dated back with it, or they would read as work moving after the project was made (an allowance).
+  const folder = projects.readAll().find((q) => q.id === made.id).folder;
+  for (const f of fs.readdirSync(folder)) fs.utimesSync(path.join(folder, f), new Date(back), new Date(back));
+  return made;
+}
+
 test('#5800 route: the JSON and the text view carry the hold, and a reopen clears both', async () => {
-  const p = projects.create({ name: 'Held Route' });
+  const p = madeLongAgo('Held Route');
   projects.addAgent(p.id, 'ann');
   const open = await room(p.id, false);
   assert.equal(open.code, 200, open.text);
@@ -228,7 +240,7 @@ test('#5800 route: the JSON and the text view carry the hold, and a reopen clear
    refuse the next post does. A six-agent room with 100 arrivals in the hour is over the dial's budget (80) and under
    its own (200): open, not "at its limit". */
 test('#6420 route: a six-agent room is read at its own budget', async () => {
-  const p = projects.create({ name: 'Six Route' });
+  const p = madeLongAgo('Six Route');
   for (const a of ['ann', 'bo', 'cy', 'di', 'ed', 'fay']) projects.addAgent(p.id, a);
   const now = Date.now();
   for (let i = 0; i < 20; i += 1) agentPost(p.id, now - 10 * MIN, 5);
@@ -247,7 +259,7 @@ test('#6420 route: a six-agent room is read at its own budget', async () => {
    over it, so the room reads held, as the next post would be refused. */
 test('#6420 route: a removed member does not raise the room\'s budget', async () => {
   const store = require('./engine/store');
-  const p = projects.create({ name: 'Six With One Gone' });
+  const p = madeLongAgo('Six With One Gone');
   for (const a of ['gil', 'hal', 'ivy', 'jo', 'kit', 'lu']) projects.addAgent(p.id, a);
   fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: 'lu', removedAt: iso(Date.now() - 60 * MIN) }]));
   try {
