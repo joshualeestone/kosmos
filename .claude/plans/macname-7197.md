@@ -37,6 +37,9 @@ screen could not say which Mac.
   Mac first (`Board.failingMacName`, `BoardClient.failingMacName`), the phase's only when nothing was shown: after a
   reconnect picked the account's other Mac, A's chat no longer says "B isn't answering". The not-connected press line is
   named too. The two-names finding repeats review 1 (the coordinator's name IS the label; only the test fixture differs).
+- Review 4: none new. Decided, both ways argued (reviews 3 and 4): a banner over a shown list names the shown Mac, since
+  the list and its chat are that Mac's; naming the Mac the loop moved on to would point the person at a Mac whose
+  list they are not looking at. Converged.
 
 ## Rejected
 - Offering "Choose another computer" from the native screen in this slice: the native client has no way yet to switch
