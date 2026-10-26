@@ -589,6 +589,8 @@ test('#7180 Windows task hold --until-task / --until send the condition; bad val
   assert.equal(at.code, 0, at.err);
   assert.deepEqual(at.calls[0].body, { onHold: true, until: { at: '2026-11-02' } });
   assert.match(at.out, /It waits until 2026-11-02T00:00:00\.000Z/, 'the typed date, not the stored time, was said back');
+  const lower = await run(['task', 'hold', 'p1', '3', '--until', '2026-11-02t09:00z'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(lower.code, 0, 'a lower-case t and z, which the board takes, were refused: ' + lower.err);
   const noValue = await run(['task', 'hold', 'p1', '3', '--until-task']);
   assert.match(noValue.err, /--until-task needs a value/);
   const stray = await run(['task', 'hold', 'p1', '3', 'now']);

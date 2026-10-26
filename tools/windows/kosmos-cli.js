@@ -1362,7 +1362,7 @@ function taskHoldAs(want) {
         if (!/^[1-9][0-9]*$/.test(value || '')) { ctx.err('--until-task needs a task number, from: kosmos task list <project-id>.'); return 2; }
         until = { task: Number(value) };
       } else if (flag === '--until') {
-        if (!/^[0-9TZ:.+-]+$/.test(value || '')) { ctx.err('--until needs a date or time, like 2026-11-02 or 2026-11-02T09:00Z.'); return 2; }
+        if (!/^[0-9TtZz:.+-]+$/.test(value || '')) { ctx.err('--until needs a date or time, like 2026-11-02 or 2026-11-02T09:00Z.'); return 2; }
         until = { at: value };
       }
     } else if (tooManyWords(ctx, 'task ' + (want ? 'hold' : 'unhold'), 2, usage, args)) return 2;   // kosmos#4889 review 6
