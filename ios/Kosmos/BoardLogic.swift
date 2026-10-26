@@ -299,14 +299,16 @@ enum Board {
 
     // The board's own "needs the person" (engine/status.js needsPerson, which web/index.html agentNeedsAttention
     // matches): needs_you, needs_trust, a connection Kosmos gave up reconnecting, a crash loop, an error it is stuck
-    // on, and a helper that gave up. Listed first, in the needs-you tone (see tone below), as the board lists them as
-    // an Issue.
+    // on, a helper that gave up, and (kosmos#7212) messages held half an hour behind an idle or working agent's input
+    // box. Listed first, in the needs-you tone (see tone below), as the board lists them as an Issue.
     static func needsPerson(_ row: [String: Any]) -> Bool {
         let state = row["state"] as? String
         func flag(_ key: String, _ field: String) -> Bool { ((row[key] as? [String: Any])?[field] as? Bool) == true }
+        let held = ((row["heldInput"] as? [String: Any])?["count"] as? NSNumber)?.doubleValue ?? 0
         return state == "needs_you" || state == "needs_trust"
             || (state == "connection_lost" && ((row["reconnect"] as? [String: Any])?["phase"] as? String) == "gave_up")
             || flag("crashLoop", "looping") || flag("stuckError", "stuck") || flag("ownBound", "raised")
+            || (held > 0 && (state == "idle" || state == "working"))
     }
 
     // Mona Lisa's slice 1 spec (kosmos#6838): each status word has a tone, which sets the dot and the word's colour.

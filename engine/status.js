@@ -9653,7 +9653,14 @@ function needsPerson(a) {
     // said so only in a log -- now it counts as needing the person. Like stuckError, ownBound is NOT normalised
     // into snapshot()'s shape (server.js attaches it via ownbounds.peek only to the /api/status rows, where
     // `raised` can be true), so the read is GUARDED on presence for the same bare-snapshot-row reason.
-    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true));
+    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true)
+    // kosmos#7212 slice 2b: Kosmos's messages to it have waited half an hour or more behind its input box (the minute
+    // sweep's reading, heldinput.peek). Attached to the /api/status rows and the safeRoster cards only, so GUARDED on
+    // presence like stuckError and ownBound. Idle or working only, as the card's sentence: a signed-out, limited or
+    // restarting agent already counts (or deliberately does not) for its own reason. Byte-for-byte aligned with
+    // web/index.html agentNeedsAttention and the phone's Board.needsPerson.
+    || (Object.prototype.hasOwnProperty.call(a, 'heldInput') && Boolean(a.heldInput) && Number(a.heldInput.count) > 0
+      && (a.state === STATE.IDLE || a.state === STATE.WORKING)));
 }
 /**
  * The numbers on the summary line, for a given set of cards.

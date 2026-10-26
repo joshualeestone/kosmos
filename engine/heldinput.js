@@ -65,10 +65,10 @@ function saveSaid(said) {
    log. `said` is the board's map (loadSaid at start); it is saved whenever it changes. Skipped while a flush run is
    typing, so a box is never read under a delivery. Passed in: readBox(name) -> 'text' | 'empty' | 'unread', and
    cardKey(name), the session name of the card a queue name resolves to (a queue can be named as a send route spelled
-   it), so the card's row finds its reading (review 2). No phone push here: telling the phone the agent needs the person
-   belongs with counting it so everywhere (slice 2b), or the phone would disagree with the board. Never throws.
-   Returns what it said, for the tests. */
-function sweep({ said, readBox, cardKey, log, now = Date.now() }) {
+   it), so the card's row finds its reading (review 2). push(event) tells the phone on a stretch's FIRST saying only
+   (slice 2b, which also counts it as needing the person everywhere, so the phone and the board agree); the saved map
+   means a board restart does not push again. Never throws. Returns what it said, for the tests. */
+function sweep({ said, readBox, cardKey, log, push = () => {}, now = Date.now() }) {
   const out = [];
   try {
     const limitqueue = require('./limitqueue');
@@ -89,6 +89,10 @@ function sweep({ said, readBox, cardKey, log, now = Date.now() }) {
       const box = boxOf.get(h.name) || 'unread';
       const reads = box === 'text' ? 'holds text that was not sent' : box === 'empty' ? 'reads empty' : 'could not be read';
       try { log('limit-queue: ' + h.name + ' has ' + h.count + ' message(s) held behind its input box, the oldest kept since ' + h.since + '; the box ' + reads + '\n'); } catch { /* best effort */ }
+      if (h.first) {
+        const key = (held.find((x) => x.name === h.name) || {}).key || h.name;
+        try { push({ kind: 'needs_you', id: 'heldinput:' + key + ':' + now, session: key, project: null }); } catch { /* best effort */ }
+      }
       out.push({ ...h, box });
     }
   } catch { /* said next minute */ }

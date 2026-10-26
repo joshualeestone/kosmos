@@ -93,7 +93,7 @@ function toneOf(a, needsPerson) {
    does not do; an untied pane whose reconnect gave up is on Today, and its reason is gave_up). Without them every
    reason but the question fell to 'other' (review 1, measured on real rows). */
 const NEEDS_REASONS = ['question', 'permission', 'waiting', 'restart_failed', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate',
-  'own_bound', 'other'];
+  'own_bound', 'held_input', 'other'];   // held_input: #7212 slice 2b
 function reasonOf(a, needsPerson) {
   const tone = toneOf(a, needsPerson);
   if (tone !== 'asked' && tone !== 'needs_you') return null;

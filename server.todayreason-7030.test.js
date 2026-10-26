@@ -74,11 +74,13 @@ test('#7030 reasonOf on real rows: each reason the phone has a sentence for', as
   assert.equal(on({ state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed' } }), 'stuck_auth');
   assert.equal(on({ state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited' } }), 'stuck_rate');
   assert.equal(on({ ownBound: { raised: true } }), 'own_bound');
+  // kosmos#7212 slice 2b: messages held half an hour behind its input box.
+  assert.equal(on({ state: 'idle', heldInput: { since: new Date(Date.now() - 45 * 60 * 1000).toISOString(), count: 2, box: 'unread' } }), 'held_input');
   // On Today with no specific reason from the engine: worded generally.
   assert.equal(on({ running: false }), 'other', 'not running');
   assert.equal(on({ state: 'rate_limited' }), 'other', 'a rate limit not counted as stuck');
   assert.equal(on({ state: 'blocked' }), 'other');
-  assert.deepEqual([...cardlabel.NEEDS_REASONS].sort(), ['crash_loop', 'gave_up', 'other', 'own_bound', 'permission', 'question',
+  assert.deepEqual([...cardlabel.NEEDS_REASONS].sort(), ['crash_loop', 'gave_up', 'held_input', 'other', 'own_bound', 'permission', 'question',
     'restart_failed', 'stuck_auth', 'stuck_rate', 'trust', 'waiting']);
 });
 
