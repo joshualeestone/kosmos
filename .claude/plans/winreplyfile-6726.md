@@ -110,4 +110,9 @@ code would be Homer's; this touches none.
 13. (sonnet) Nit taken: a /c/... path with a `..`, which the shim now leaves unconverted, was refused for having no
    drive; it is refused for the `..` (tested). Deferred as duplicates: the board-side refusals (#7221), bidi and
    zero-width characters (review 8, parity), the sibling help arms (review 12), the stand-in cygpath (review 8).
+14. (default model) W: the comment still read as if network paths were refused; it now says the check is spelling
+   only (a mapped or subst drive, or a junction out to a share, looks like a drive path) and #7221 is the guard. Nits
+   taken: an unreadable folder is the reason given before a `..` (tested); the shim's `..` check matches either
+   separator (tested); reply's help has one exact pin. Not taken: `--file -h` prints help (install/kosmos the same,
+   nothing is sent).
 
