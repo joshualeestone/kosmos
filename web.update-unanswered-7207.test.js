@@ -66,8 +66,11 @@ test('with nothing known from before, an answer is never read as done or restart
 
 test('the dialog waits instead of offering the button again (wiring, text only)', () => {
   const press = script.slice(script.indexOf("document.getElementById('uc-go').addEventListener('click'"));
-  assert.match(press, /if \(!res\) \{ waitForUnansweredPress\(rollingBack\); return; \}/,
-    'a press with no answer does not go to the wait');
+  const head = press.slice(0, press.indexOf('fetch(endpoint'));
+  assert.match(head, /const gen = UPD_WAIT_GEN;/, 'the press takes its dialog generation only after the POST (a hung POST lets a reopened dialog be written into)');
+  const noAnswer = press.slice(press.indexOf('if (!res) {'), press.indexOf('if (!res.ok)'));
+  assert.match(noAnswer, /if \(gen !== UPD_WAIT_GEN \|\| [^\n]*\.hidden\) return;/, 'a press with no answer writes into a dialog closed or reopened since it was pressed');
+  assert.match(noAnswer, /waitForUnansweredPress\(rollingBack, gen, hadFocus\);/, 'a press with no answer does not go to the wait');
   const wait = lift('waitForUnansweredPress');
   assert.match(wait, /go\.disabled = true;/, 'the button is not turned off while waiting');
   assert.equal((wait.match(/if \(gen !== UPD_WAIT_GEN \|\| dlg\.hidden\) return;/g) || []).length, 2,

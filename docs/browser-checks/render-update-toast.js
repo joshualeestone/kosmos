@@ -270,7 +270,7 @@ const RELPORT = freePort();
     const none = await pressNoAnswer();
     if (none.waiting !== 'Kosmos is not answering right now. It may be restarting, perhaps to install the update. This page will wait for it to answer.')
       die('#7207: while waiting it said: ' + none.waiting);
-    if (none.after !== 'Kosmos is answering again. Press Update to update: if it already started, this joins it.')
+    if (none.after !== 'Kosmos is answering again. Press Update to try again. If the update already started, this joins it.')
       die('#7207: once the board answered it said: ' + none.after);
     await p.screenshot({ path: path.join(OUT, 'update-confirm-no-answer.png') });
     answer = (route) => route.fulfill({ status: 502, body: '' });
@@ -288,7 +288,7 @@ const RELPORT = freePort();
     const rbNone = await pressNoAnswer('Roll back');
     if (rbNone.waiting !== 'Kosmos is not answering right now. It may be restarting. This page will wait for it to answer.')
       die('#7207: a Roll back with no answer said while waiting: ' + rbNone.waiting);
-    if (rbNone.after !== 'Kosmos is answering again. Press Roll back to roll back: if it already started, this joins it.')
+    if (rbNone.after !== 'Kosmos is answering again. Press Roll back to try again. If the roll back already started, this joins it.')
       die('#7207: a Roll back, once the board answered, said: ' + rbNone.after);
     await p.evaluate(() => setUpdConfirmMode('update'));
     /* #7207: a button turned into Reload only reloads. The 409 "no update to install" turns it into Reload; its click
