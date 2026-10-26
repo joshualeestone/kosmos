@@ -71,3 +71,41 @@ test('an id with no project record keeps every row (the old behaviour, so nothin
   assert.ok(taskchat.record('no-such-project-7185', 2, { kind: 'said', text: 'kept' }));
   assert.deepEqual(said('no-such-project-7185', 2), ['kept']);
 });
+
+/* The project room is the same class one store over: its rows (posts, notes, refusals) are tagged with the project
+   id in one shared log (engine/messages.js), and messages.record() is what every room reader starts from. */
+const messages = require('../engine/messages');
+const roomTexts = (id) => messages.record().rows.filter((r) => r && r.project === id).map((r) => r.text);
+
+test('a re-made project\'s room does not show the deleted project\'s room rows', async () => {
+  const id = projects.create({ name: 'Room name' }).id;
+  assert.ok(messages.roomNote(id, 'room line from the first project'), 'CONTROL: the room line was written');
+  assert.deepEqual(roomTexts(id).filter((t) => /first project/.test(t)), ['room line from the first project'], 'CONTROL: the first project reads it');
+  projects.remove(id);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(projects.create({ name: 'Room name' }).id, id, 'CONTROL: the same id again');
+  assert.deepEqual(roomTexts(id).filter((t) => /first project/.test(t)), [], 'not shown in the new room');
+  assert.ok(messages.roomNote(id, 'room line from the second project'));
+  assert.deepEqual(roomTexts(id).filter((t) => /project$/.test(t)), ['room line from the second project'], 'the new room reads its own line');
+  assert.match(fs.readFileSync(messages.LOG, 'utf8'), /room line from the first project/, 'the old line is still in the log');
+});
+
+test('when the projects file cannot be read, a project\'s rows are left out rather than shown', () => {
+  const id = projects.create({ name: 'Unreadable ' + Math.random().toString(36).slice(2) }).id;
+  const n = tasks.create(id, { sentence: 'Task' }).number;
+  assert.ok(taskchat.record(id, n, { kind: 'said', text: 'private words' }));
+  assert.deepEqual(said(id, n), ['private words'], 'CONTROL: readable, the row is shown');
+  assert.ok(messages.roomNote(id, 'private room line'));
+  assert.deepEqual(roomTexts(id), ['private room line'], 'CONTROL: readable, the room line is shown');
+  const f = projects.file();
+  const good = fs.readFileSync(f);
+  fs.writeFileSync(f, good.toString('utf8') + ' not json');   // damaged: readAll throws, so the stamps cannot be known
+  try {
+    assert.throws(() => projects.readAll(), /cannot make sense/, 'CONTROL: the projects file really is unreadable now');
+    assert.deepEqual(taskchat.read(id, n), [], 'unreadable: nothing is shown, so no other project\'s words can be');
+    assert.deepEqual(roomTexts(id), [], 'and nothing from the room');
+  } finally {
+    fs.writeFileSync(f, good);
+  }
+  assert.deepEqual(said(id, n), ['private words'], 'readable again: shown again');
+});

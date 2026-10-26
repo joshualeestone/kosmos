@@ -956,7 +956,11 @@ function record() {
   const fragRows = [];
   const fragParsed = [];
   if (cache.fragment) parseLinesInto(cache.fragment, fragRows, fragParsed);
-  return { ok: true, rows: cache.rows.concat(fragRows), parsed: cache.parsed.concat(fragParsed) };
+  /* #7185: a room row stamped before its project's createdAt was written by an earlier project of that name (ids come
+     from names). It stays in the log, and in `parsed` so its id stays reserved, but no reader is given it. */
+  const earlier = require('./projectborn').olderThanProject();
+  const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && earlier(r.project, r.at)));
+  return { ok: true, rows, parsed: cache.parsed.concat(fragParsed) };
 }
 
 /* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms; null when
