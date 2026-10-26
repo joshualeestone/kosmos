@@ -183,7 +183,9 @@ function heldInputToSay(now, afterMs, said) {
     const read = readEntries(n);
     if (read.ok && !read.entries.some((e) => e && e.input === true)) said.delete(n);
   }
-  const out = heldBehindInput(now, afterMs).filter((h) => !said.has(h.name) || now - said.get(h.name) >= HELD_INPUT_RESAY_MS);
+  /* first: the stretch's first saying (slice 2 tells the phone once per stretch, on it). */
+  const out = heldBehindInput(now, afterMs).filter((h) => !said.has(h.name) || now - said.get(h.name) >= HELD_INPUT_RESAY_MS)
+    .map((h) => ({ ...h, first: !said.has(h.name) }));
   for (const h of out) said.set(h.name, now);
   return out;
 }

@@ -9653,7 +9653,10 @@ function needsPerson(a) {
     // said so only in a log -- now it counts as needing the person. Like stuckError, ownBound is NOT normalised
     // into snapshot()'s shape (server.js attaches it via ownbounds.peek only to the /api/status rows, where
     // `raised` can be true), so the read is GUARDED on presence for the same bare-snapshot-row reason.
-    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true));
+    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true)
+    // kosmos#7212 slice 2: Kosmos's messages to it have waited half an hour behind its input box. Attached (heldinput.peek)
+    // only to the /api/status rows, so GUARDED on presence like stuckError and ownBound.
+    || (Object.prototype.hasOwnProperty.call(a, 'heldInput') && Boolean(a.heldInput) && Number(a.heldInput.count) > 0));
 }
 /**
  * The numbers on the summary line, for a given set of cards.

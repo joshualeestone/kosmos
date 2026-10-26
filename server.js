@@ -1383,6 +1383,7 @@ const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter'
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const crashloop = require('./engine/crashloop'); // #5154 slice A: an agent that keeps crashing on start, said on its card
+const heldinput = require('./engine/heldinput');   // kosmos#7212 slice 2: messages held behind an input box, for the cards
 const stuckterminal = require('./engine/stuckterminal'); // #5154 slice C: an agent stuck on a recurring terminal error (auth_failed / rate_limited), said on its card
 const ownbounds = require('./engine/ownbounds'); // #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) gave up on an agent, said on its card instead of only in a log
 const firstreplyNudge = require('./engine/firstreply-nudge'); // #3226: one reminder to an agent that has not answered its first message
@@ -7036,6 +7037,9 @@ const server = http.createServer(async (req, res) => {
            unless the stored anchor matches the agent's CURRENT state, so a just-recovered or just-switched
            agent drops "stuck" (and the stale sentence) immediately. */
         stuckError: a.isNamedOurs ? stuckterminal.peek(a.sessionName, a.state, Date.now()) : null,
+        /* kosmos#7212 slice 2: Kosmos's messages to it have waited half an hour or more behind its input box (the minute
+           sweep's last reading, heldinput.peek; READ-ONLY, so polling never reads a pane). Null when none are. */
+        heldInput: heldinput.peek(a.sessionName),
         /* #5154 slice B: whether a Kosmos helper (quota resume / idle nudge / first-reply nudge) has given up
            on this agent and said so only in a log. READ-ONLY (ownbounds.peek); the 60s sweep is the only writer,
            so the board cannot advance or clear an episode by polling. Only for an agent we started. */
@@ -7263,6 +7267,7 @@ const server = http.createServer(async (req, res) => {
                    a terminal-error clock is kept only by the 60s sweep over RUNNING agents (stuckterminal.peek
                    in safeRoster), and this row is an agent with no live session to be stuck. */
                 stuckError: null,
+                heldInput: null,   // kosmos#7212 slice 2: matched pair too; no box to hold anything behind here
                 /* #5154 slice B: and ownBound, as a matched pair with crashLoop/stuckError, so needsPerson /
                    agentNeedsAttention can read it on this row without a strict-shape miss. Always null here: a
                    give-up episode is kept only by the helper sweeps over RUNNING agents, and this row is a
@@ -25881,14 +25886,27 @@ function start(port = PORT) {
       const sayHeldInput = () => {
         try {
           if (limitqueue.isFlushing()) return;   // said next minute
-          for (const h of limitqueue.heldInputToSay(Date.now(), limitqueue.HELD_INPUT_SAY_MS, heldInputSaid)) {
-            let reads = 'could not be read';
-            try {
-              const r = chat.inputBoxReads(chat.resolveCard(safeRoster(), h.name));
-              if (r === 'text') reads = 'holds text that was not sent';
-              else if (r === 'empty') reads = 'reads empty';
-            } catch { /* could not be read */ }
+          const now = Date.now();
+          const roster = safeRoster();
+          const cardOf = (name) => { try { return chat.resolveCard(roster, name); } catch { return null; } };
+          /* Slice 2: every agent held past half an hour, with what its box reads, for the cards (heldinput.peek in
+             /api/status). Read here, once a minute and only for held agents, so a board poll never reads a pane. */
+          const held = limitqueue.heldBehindInput(now, limitqueue.HELD_INPUT_SAY_MS).map((h) => {
+            let box = 'unread';
+            try { box = chat.inputBoxReads(cardOf(h.name)); } catch { /* could not be read */ }
+            return { ...h, box };
+          });
+          heldinput.setAll(held);
+          const boxOf = new Map(held.map((h) => [h.name, h.box]));
+          for (const h of limitqueue.heldInputToSay(now, limitqueue.HELD_INPUT_SAY_MS, heldInputSaid)) {
+            const box = boxOf.get(h.name);
+            const reads = box === 'text' ? 'holds text that was not sent' : box === 'empty' ? 'reads empty' : 'could not be read';
             process.stdout.write('limit-queue: ' + h.name + ' has ' + h.count + ' message(s) held behind its input box, the oldest kept since ' + h.since + '; the box ' + reads + '\n');
+            /* Slice 2: the phone once per held stretch, as a stuck terminal error is (the card says why). */
+            if (h.first) {
+              const card = cardOf(h.name);
+              try { phonenotify.happened({ kind: 'needs_you', id: 'heldinput:' + h.name + ':' + now, agent: (card && card.name) || h.name, session: h.name, project: null }); } catch { /* best effort */ }
+            }
           }
         } catch { /* said next minute */ }
       };
