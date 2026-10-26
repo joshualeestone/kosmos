@@ -41,6 +41,14 @@ no profile record, and STARTS the agent: enable then bootstrap).
    put-back failure said, blank-only names fall back. Deferred again: the shared nine-name pool (round 1), and a
    create failure after its registry row was written being read as a clash (the row means the world exists).
 
+3. B: a .git in an agent folder (core.fsmonitor runs when git runs there, which a provider does at start) went
+   unflagged: such an agent is now not offered, and a .git at the top of workers blocks every agent. W: entries at the
+   top of workers and projects, and project folders with start-time files, are now returned as `shared`; a world
+   folder left on disk under the chosen id is hidden and the next name taken. Nits taken: a brief is read only if the
+   opened file is the one lstat saw; a linked brief is named. Deferred: Atomics.wait pauses up to about 2.8 s on
+   Windows (the sink does the same); a member name can carry a date that reads like the world's, and two folders can
+   share a label (4c tells rows apart by `folder` and shows the world's creation time).
+
 ## Residuals, stated
 - A restore that stops is never finished: it stays in `restored` and continues there (slice 3). Nothing here cleans it.
 - A rename failing part way leaves workers moved and projects not; `moved` says which. Re-running finish moves the

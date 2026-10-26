@@ -39,7 +39,11 @@ const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);   // Windows: 
 /* Paths in an agent folder a provider reads when the agent starts (settings, hooks, skills, commands, MCP servers,
    local memory, an environment file, another provider's settings). Written by whoever made the backup, so the screen
    shows them. A starting point, not a complete list of what a provider may read. */
-const RUNS_AT_START = ['.claude', 'CLAUDE.local.md', '.mcp.json', '.envrc', '.codex', '.gemini'];
+const RUNS_AT_START = ['.git', '.claude', 'CLAUDE.local.md', '.mcp.json', '.envrc', '.codex', '.gemini'];
+/* A git folder's config (core.fsmonitor, core.hooksPath) runs commands when git runs there, which a provider does as
+   soon as an agent starts. So an agent folder holding one is not offered, and one in the workers folder blocks all. */
+const GIT = '.git';
+const HARMLESS = new Set(['.DS_Store']);   // Finder's own metadata, which no provider reads
 /* Fillers and blanks that draw nothing, beside the Cc/Cf/Zl/Zp and private-use classes: braille blank, Hangul fillers. */
 const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
 
@@ -86,6 +90,12 @@ function prepareRestoreWorld(base, opts = {}) {
       if (takenIds(base).has(store.safeKey(name))) continue;
       return { ok: false, because: 'the Kosmos for the restore could not be made' };
     }
+    // createWorld reuses a world folder already on disk (its mkdirs are recursive), so one left behind would hand its
+    // store and agents to this restore. Only a world whose folders are all new and empty is used.
+    if (!freshWorld(worlds.worldBaseDir(base, world))) {
+      try { hide(base, world.id); } catch { /* the next name is tried either way */ }
+      world = null;
+    }
   }
   if (!world) return { ok: false, because: `there are already ${MAX_NAME_TRIES} restored Kosmoses for this member today; hide one and try again` };
   const dir = worlds.worldBaseDir(base, world);
@@ -97,6 +107,14 @@ function prepareRestoreWorld(base, opts = {}) {
     return { ok: false, because: 'the folder for the restore could not be made, so the new Kosmos was hidden again' };
   }
   return { ok: true, world, dir, restoreDir };
+}
+
+function freshWorld(dir) {
+  const leaves = [store.APP, 'projects', 'workers'];
+  try {
+    if (!fs.readdirSync(dir).every((n) => leaves.includes(n))) return false;
+    return leaves.every((leaf) => realDir(path.join(dir, leaf)) && fs.readdirSync(path.join(dir, leaf)).length === 0);
+  } catch { return false; }
 }
 
 function realDir(p) {
@@ -178,68 +196,112 @@ function keptIn(restoreDir) {
   return names.sort().map((n) => cleanText(n, MAX_MEMBER_CHARS, '(a name that cannot be shown)'));
 }
 
-/* Every brief in the folder that is a plain file (a link is not one), in BRIEFS order. */
+/* The briefs in a folder, in BRIEFS order: `plain` are files (read), `linked` are links (never opened, but a provider
+   would follow them, so they are named). */
 function briefsIn(folder) {
-  return BRIEFS.filter((b) => { try { return fs.lstatSync(path.join(folder, b)).isFile(); } catch { return false; } });
+  const plain = [], linked = [];
+  for (const b of BRIEFS) {
+    let st;
+    try { st = fs.lstatSync(path.join(folder, b)); } catch { continue; }
+    if (st.isFile()) plain.push(b);
+    else if (st.isSymbolicLink()) linked.push(b);
+  }
+  return { plain, linked };
 }
 
-/* What in an agent folder runs or loads something at start: RUNS_AT_START paths that exist (a link counts, unopened),
-   and `@` imports (at a line start or after a space) in any brief. */
-function runsIn(folder, briefs) {
+/* The first MAX_BRIEF_BYTES + 1 bytes of a file found plain by lstat, refused if what opened is not that same file. */
+function readBrief(file) {
+  const before = fs.lstatSync(file, { bigint: true });
+  const fd = fs.openSync(file, 'r');
+  try {
+    const now = fs.fstatSync(fd, { bigint: true });
+    if (!now.isFile() || now.ino !== before.ino || now.dev !== before.dev) throw new Error('changed while opening');
+    const buf = Buffer.alloc(MAX_BRIEF_BYTES + 1);
+    return buf.subarray(0, fs.readSync(fd, buf, 0, MAX_BRIEF_BYTES + 1, 0));
+  } finally { fs.closeSync(fd); }
+}
+
+/* What in a folder runs or loads something when a provider starts there: RUNS_AT_START paths that exist (a link
+   counts, unopened), linked briefs, and `@` imports (at a line start or after a space) in any brief. */
+function runsIn(folder) {
   const out = [];
   for (const rel of RUNS_AT_START) {
     try { fs.lstatSync(path.join(folder, rel)); out.push(rel); } catch { /* absent */ }
   }
-  for (const brief of briefs) {
-    try {
-      const fd = fs.openSync(path.join(folder, brief), 'r');   // briefsIn found it a plain file with lstat
-      try {
-        const buf = Buffer.alloc(MAX_BRIEF_BYTES + 1);
-        const n = fs.readSync(fd, buf, 0, MAX_BRIEF_BYTES + 1, 0);
-        if (/(^|\s)@[^\s@]/.test(buf.subarray(0, Math.min(n, MAX_BRIEF_BYTES)).toString('utf8'))) out.push(`${brief} imports`);
-        if (n > MAX_BRIEF_BYTES) out.push(`${brief} (too large to check in full)`);
-      } finally { fs.closeSync(fd); }
-    } catch { out.push(`${brief} (could not be read)`); }
+  const briefs = briefsIn(folder);
+  for (const b of briefs.linked) out.push(`${b} is a link`);
+  for (const brief of briefs.plain) {
+    let bytes;
+    try { bytes = readBrief(path.join(folder, brief)); } catch { out.push(`${brief} (could not be read)`); continue; }
+    if (/(^|\s)@[^\s@]/.test(bytes.subarray(0, MAX_BRIEF_BYTES).toString('utf8'))) out.push(`${brief} imports`);
+    if (bytes.length > MAX_BRIEF_BYTES) out.push(`${brief} (too large to check in full)`);
   }
   return out;
 }
 
-/* opts: { base, world, restoreDir, nameOk? }. { agents: [{ folder, label, from, name, dir, brief, runs, because }],
-   more }. `folder` is the name on disk, as written by whoever made the backup; `label` is it made safe to show.
-   `because` null means the screen may offer to enable it (create.installJob on that name, under this world's roots);
-   otherwise it is the plain reason it cannot be. `runs` lists what would run or load at start, for the screen to show
-   before any enable. Nothing is registered, started or written. */
+const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot be shown)');
+
+/* opts: { base, world, restoreDir, nameOk? }.
+   { agents: [{ folder, label, from, name, dir, brief, runs, because }], shared: [{ where, label, runs }], more }.
+   `folder` is the name on disk, as written by whoever made the backup; `label` is it made safe to show (two folders
+   can share a label, so the screen tells rows apart by `folder`). `because` null means the screen may offer to enable
+   it (create.installJob on that name, under this world's roots); otherwise it is the plain reason it cannot be.
+   `runs` lists what would run or load at start. `shared` is what every agent below it would read: entries at the top
+   of the workers and projects folders other than plain-named folders, and each project with something in its `runs`.
+   Nothing is registered, started or written. */
 function listRestoredAgents(opts = {}) {
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
   const worldDir = worldDirOf(opts.base, opts.world);
   const roots = worldDir ? worlds.envOverridesFor(opts.base, opts.world) : {};
-  const agents = [];
-  let more = false;
+  const agents = [], shared = [];
+  let more = false, gitAbove = false;
+  const full = () => { if (agents.length + shared.length >= MAX_LISTED) { more = true; return true; } return false; };
+  const entriesOf = (parent) => {
+    if (!parent || !realDir(parent)) return [];
+    try { return fs.readdirSync(parent).sort(); } catch { return []; }
+  };
+  const isTopFolder = (parent, n) => {
+    if (n.startsWith('.')) return false;
+    try { const st = fs.lstatSync(path.join(parent, n)); return st.isDirectory() || st.isSymbolicLink(); } catch { return false; }
+  };
   const scan = (parent, from) => {
-    if (!parent || !realDir(parent)) return;
-    let entries = [];
-    try { entries = fs.readdirSync(parent).sort(); } catch { return; }
-    for (const folder of entries) {
-      if (agents.length >= MAX_LISTED) { more = true; return; }
+    for (const folder of entriesOf(parent)) {
+      if (full()) return;
       const at = path.join(parent, folder);
+      const label = labelOf(folder);
+      if (from === 'workers' && !isTopFolder(parent, folder)) {
+        if (HARMLESS.has(folder)) continue;
+        if (folder === GIT) gitAbove = true;
+        shared.push({ where: 'workers', label, runs: [] });
+        continue;
+      }
       let st;
       try { st = fs.lstatSync(at); } catch { continue; }
-      const label = cleanText(folder, MAX_MEMBER_CHARS, '(a name that cannot be shown)');
       if (st.isSymbolicLink()) { agents.push({ folder, label, from, name: null, dir: at, brief: null, runs: [], because: 'it is a link to somewhere else, so it was not opened' }); continue; }
       if (!st.isDirectory()) continue;
-      const briefs = briefsIn(at);
-      const brief = briefs[0] || null;
+      const runs = runsIn(at);
+      const brief = briefsIn(at).plain[0] || null;
       let because = null, name = null;
       if (from === 'elsewhere') because = 'its folder was kept outside the workers folder, so it cannot be started from where it is';
       else if (!nameOk(folder)) because = 'its folder name cannot be used to start it here';
       else name = folder;
       if (!because && !brief) because = 'it has no instructions file, so it may not be an agent';
-      agents.push({ folder, label, from, name, dir: at, brief, runs: runsIn(at, briefs), because });
+      if (!because && runs.includes(GIT)) because = 'it holds a git folder, whose settings can run commands as soon as it starts';
+      agents.push({ folder, label, from, name, dir: at, brief, runs, because });
     }
   };
   scan(roots.AGENT_WORKFORCE_WORKERS, 'workers');
   if (worldDir && opts.restoreDir === path.join(worldDir, RESTORE_DIR)) scan(path.join(opts.restoreDir, 'agents'), 'elsewhere');
-  return { agents, more };
+  for (const n of entriesOf(roots.AGENT_WORKFORCE_PROJECTS)) {
+    if (full() || HARMLESS.has(n)) continue;
+    if (!isTopFolder(roots.AGENT_WORKFORCE_PROJECTS, n)) { shared.push({ where: 'projects', label: labelOf(n), runs: [] }); continue; }
+    const runs = realDir(path.join(roots.AGENT_WORKFORCE_PROJECTS, n)) ? runsIn(path.join(roots.AGENT_WORKFORCE_PROJECTS, n)) : ['it is a link'];
+    if (runs.length) shared.push({ where: 'projects', label: labelOf(n), runs });
+  }
+  if (gitAbove) {
+    for (const a of agents) if (!a.because) a.because = 'the restored workers folder holds a git folder, whose settings can run commands for every agent in it';
+  }
+  return { agents, shared, more };
 }
 
 module.exports = { prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, worldName, RESTORE_DIR };
