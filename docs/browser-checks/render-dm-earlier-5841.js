@@ -320,8 +320,7 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     }
 
     // A thread too short to scroll has no scroll to wait for: it loads the earlier pages by itself, to the first message.
-    // #7171: the thread is made tall while an agent with nothing older is on screen, so no other agent's page can be
-    // asked for between the clear and the switch.
+    // #7171: the thread is made tall while an agent with nothing older is on screen.
     await setAll('vale', 3);
     await switchTo('vale', 'Vale'); await settle();
     await page.addStyleTag({ content: '#d-dmthread { height: 4000px !important; max-height: 4000px !important; }' });

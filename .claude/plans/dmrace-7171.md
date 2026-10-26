@@ -19,8 +19,9 @@ scroll, so the board asked for her page, which is correct product behaviour. Qui
   shape seen in the cut; the NEW arm passes. As committed, 48 PASS, 0 FAIL.
 
 ## Weakest premise
-That vale's thread, 3 rows with nothing older, asks for nothing when it becomes too short to scroll. The first CONTROL
-(line 150) asserts that for the same shape.
+That vale's thread, 3 rows with nothing older, asks for nothing when it becomes too short to scroll. The board's
+earlierNearTop (web/index.html, `if (!first) return` with first = olderCount) returns before any fetch when nothing
+is older, whatever the thread's height.
 
 ## Not changed
 The product. Only the check.
