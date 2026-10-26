@@ -78,3 +78,13 @@ what fires, wherever the board runs.
     while its task is still on screen (tkHoldSay, the Repeats Save's still()); a task that is gone says so ("That task
     is no longer on this project, so nothing changed."), not "could not check"; the Until fields' accessible names
     start with "Until"; projects.js filters the task list once per read, not once per task.
+- Round 3: 1 blocker, 1 warning, 4 nits.
+  - [BLOCKER] web.file-pickers.test.js counts the buttons visibly reading Save (5); the hold Save made 6. Raised to 6,
+    the new button named and its accessible name pinned beside the Repeats one. All 416 root web.*.test.js files now
+    run on this branch: 3296/3296 (round 1 had run only the ones that lift page functions).
+  - [WARNING] both hold POSTs built their URL from the live TK_OPEN after awaiting the fresh read, so a person who opened
+    another task meanwhile put THAT task on hold: both use the clicked task's number now. Tested (a slowed read, a move
+    to task 4 mid-Save); with TK_OPEN put back the check goes red and task 4 is held.
+  - Nits taken: focus returns to Wait for after a Save (Save goes off under focus); taking the hold off forgets an unsaved
+    choice, so a new hold starts from what is stored; an unsaved choice whose task has closed stays a choice; the
+    render-onhold-4771 surface trailer's reason is corrected (Put on hold now reads the task first; the check passes).

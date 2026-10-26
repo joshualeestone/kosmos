@@ -70168,7 +70168,8 @@ function tkHoldDirty() {
 function tkHoldTaskOptions(p, t) {
   const sel = document.getElementById('tk-hold-task');
   const waits = t.onHoldUntil && Number.isInteger(t.onHoldUntil.task) ? t.onHoldUntil.task : null;
-  const list = (p.tasks || []).filter((x) => x && x.number !== t.number && (!(x.progress && x.progress.closed) || x.number === waits));
+  const chosen = Number(sel.value) || null;   // round 3: an unsaved choice whose task has closed stays a choice too
+  const list = (p.tasks || []).filter((x) => x && x.number !== t.number && (!(x.progress && x.progress.closed) || x.number === waits || x.number === chosen));
   /* Review 1: a stored task no longer on the project stays a choice too, said as gone, so the select never goes blank
      (a blank would read as an unsaved change and stop following the stored condition). */
   const gone = waits !== null && !list.some((x) => x.number === waits) ? '<option value="' + waits + '">' + esc('#' + waits + ' (no longer on this project)') + '</option>' : '';
@@ -70195,7 +70196,7 @@ function tkPaintHoldUntil(p, t) {
     : '';
   if (line.tkPainted !== html) { line.innerHTML = html; line.tkPainted = html; }
   line.hidden = !html;
-  if (!held) { document.getElementById('tk-hold-for-when').hidden = true; return; }
+  if (!held) { document.getElementById('tk-hold-for-when').hidden = true; delete document.getElementById('tk-hold-for').dataset.task; return; }   // round 3: a new hold starts from what is stored
   const sel = document.getElementById('tk-hold-for');
   const key = p.id + '#' + t.number;
   const stored = JSON.stringify(tkHoldStoredChoice(t));
@@ -70245,7 +70246,8 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
       tkHoldSay(key, 'This was taken off hold, so nothing changed.');
       return;
     }
-    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/hold', {
+    // Round 3: the task this click was about, never TK_OPEN, which a person can move during the read above.
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + Number(t.number) + '/hold', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(until ? { onHold: true, until } : { onHold: true }),
     });
@@ -70254,6 +70256,7 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
     await pjReload();
     paintTaskActivity(TK_OPEN);
     tkHoldSay(key, 'Saved.');
+    if (PJ_CURRENT + '#' + TK_OPEN === key) document.getElementById('tk-hold-for').focus();   // round 3: Save goes off under focus
   } catch {
     tkHoldSay(key, 'we could not reach Kosmos to change that task');
   } finally {
@@ -70286,7 +70289,8 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
         return;
       }
     }
-    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/hold', {
+    // Round 3: the task this click was about (the read above awaits; TK_OPEN can move meanwhile).
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + Number(t.number) + '/hold', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ onHold: t.onHold !== true }),
     });

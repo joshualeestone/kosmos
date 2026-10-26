@@ -71,6 +71,7 @@ function chk(ok, label, extra) {
       tasks.create(p.id, { sentence: 'Order the parts', who: 'ada' });         // 1: held here
       tasks.create(p.id, { sentence: 'Get the price approved', who: 'ada' });  // 2: what 1 waits for
       tasks.create(p.id, { sentence: 'Book the courier', who: 'ada' });        // 3: held by an agent under a stale page
+      tasks.create(p.id, { sentence: 'Pack the boxes', who: 'ada' });          // 4: open, the page a person moves to mid-Save
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
@@ -91,7 +92,7 @@ function chk(ok, label, extra) {
       chk(fills[0] === fills[2] && fills[1] === fills[2], `${tag} Wait for and its task choice wear the Repeats select's field fill`, JSON.stringify(fills));
       await page.selectOption('#tk-hold-for', 'task');
       const opts =await page.evaluate(() => [...document.querySelectorAll('#tk-hold-task option')].map((o) => o.value));
-      chk(await page.isVisible('#tk-hold-task') && JSON.stringify(opts) === JSON.stringify(['', '2', '3']) && await page.isDisabled('#tk-hold-save'),
+      chk(await page.isVisible('#tk-hold-task') && JSON.stringify(opts) === JSON.stringify(['', '2', '3', '4']) && await page.isDisabled('#tk-hold-save'),
         `${tag} Another task to close offers the project's other open tasks, Save still off until one is chosen`, JSON.stringify(opts));
       await page.selectOption('#tk-hold-task', '2');
       chk(await page.isEnabled('#tk-hold-save'), `${tag} choosing task 2 turns Save on`);
@@ -176,6 +177,20 @@ function chk(ok, label, extra) {
       chk(await text(page, '#tk-hold-until') === 'Task 3 is no longer on this project, so this can come off hold.'
         && await page.inputValue('#tk-hold-for') === 'task' && await page.inputValue('#tk-hold-task') === '3' && goneOpt === '#3 (no longer on this project)' && await page.isDisabled('#tk-hold-save'),
         `${tag} a hold waiting for a task that is gone: the choice stays, said as gone, Save off`, JSON.stringify([await text(page, '#tk-hold-until'), goneOpt]));
+
+      /* Round 3: Save then a move to another task while the fresh read is out: the hold goes to the task Save was
+         pressed on, never the one now open. */
+      await page.selectOption('#tk-hold-for', 'at');
+      await page.fill('#tk-hold-at', local);
+      let slow = true;
+      await page.route('**/api/projects', async (route) => { if (slow && route.request().method() === 'GET') await new Promise((r) => setTimeout(r, 1200)); return route.fallback(); });
+      await page.click('#tk-hold-save');
+      await page.evaluate(() => openTaskPage(4));
+      await page.waitForTimeout(2500);
+      slow = false;
+      await page.unroute('**/api/projects');
+      chk(stored(p.id, 1).onHoldUntil && stored(p.id, 1).onHoldUntil.at === wantAt && stored(p.id, 4).onHold !== true,
+        `${tag} a Save whose task was left mid-read holds that task, never the one now open`, JSON.stringify([stored(p.id, 1).onHoldUntil, stored(p.id, 4).onHold]));
 
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
       chk(!sideways, `${tag} no sideways scroll`);
