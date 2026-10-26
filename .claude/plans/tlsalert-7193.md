@@ -72,3 +72,23 @@ covers both, since the mark is app-wide.
     Without the strip it goes red.
   - Nit taken: the held-back line goes to the unified log (logToSystem, fixed words), so a held-back refusal is
     recorded on the person's Mac; native-app.applog-5481.test.js counts 5 callers and names it.
+- Round 3: 0 blockers, 2 warnings, 2 nits.
+  - [WARNING] another computer's address could still reach board.log: a certificate made for another computer is
+    named by rustls ("only valid for <name>"), and a redirect carries its host. Now every URL's host and every address
+    under the account's domain is taken out (tlsPinScrub); a fixture has that shape behind a redirect.
+  - [WARNING] background warming (every 60 s, up to 10 computers) would log once a minute per offline computer:
+    only the app's own ask logs (tlsPin's `say`, passed by the /api/remote/tls-pin route); warming never does
+    (tested). The reason is kept per address (tlsPinWhy), so it is said even when the app joined a run warming began.
+  - Nits taken: both alerts end "If this keeps happening"; the line says "for a computer".
+  - Pins moved with the code: server.test.js (the route passes say: true), remote.tlspin-6589.test.js (the forgetting
+    check is in tlsPinAnswer).
+
+## Cause (Splinter and Kitty, from the relay log)
+The relay retired tmnt's tunnel on its hourly 3600 s schedule at 12:49:38Z, about 5 s after seven of Josh's requests
+were placed on it; the next tunnel was up at 12:49:40Z. The certificate check for those requests could not run, and
+the app's immediate re-ask landed inside the same two seconds.
+- Change (Splinter's suggestion): when the check could not run, the app's one re-ask waits 3 s (a key mismatch still
+  re-asks at once). A planned reconnect no longer reaches the person.
+- Not explained by the code: seven refusals for one address at once give ONE alert under the shipped once-a-minute rule
+  (identical in 0.7.63 and main), so the seven alerts mean either different host names or refusals spread over
+  minutes. Both shapes are covered now: the hold-back and the minute are app-wide, not per computer.

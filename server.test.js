@@ -12070,7 +12070,7 @@ test('kosmos#6589: which key another computer vouches for is asked only on this 
   const at = src.indexOf("pathname === '/api/remote/tls-pin'");
   assert.ok(at > 0, 'the route moved');
   assert.match(src.slice(at, at + 800), /if \(!isLoopbackPeer\(req\) \|\| cameThroughForwarder\(req\.headers\) \|\| presentedAgentToken\(req, null\) \|\| \(boardAuthState\.on && !\(req\.headers\['x-kosmos-board-token'\] && boardTokenOk\(\{ url: String\(req\.url \|\| '\/'\)\.split\('\?'\)\[0\], method: req\.method, headers: \{ 'x-kosmos-board-token': req\.headers\['x-kosmos-board-token'\] \} \}\)\)\)\)/);
-  assert.match(src.slice(at, at + 2400), /remote\.tlsPin\(address, \{ fresh: q\.get\('fresh'\) === '1' \}\)/, 'fresh=1 reaches tlsPin as fresh');
+  assert.match(src.slice(at, at + 2400), /remote\.tlsPin\(address, \{ fresh: q\.get\('fresh'\) === '1', say: true \}\)/, 'fresh=1 reaches tlsPin as fresh (kosmos#7193: and the app\'s ask says why in the board log)');
   /* Review 6: an address no computer of the account can have is answered none, before the tunnel (a staging
      coordinator's domain must not read as required and refuse every computer). */
   for (const address of ['evil.example', 'evil.example.com', 'a.b.kosmosplus.com', 'TMNT.KOSMOSPLUS.COM\u0000', '', 'tmnt.kosmosplus.com/x', '../x']) {

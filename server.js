@@ -12060,7 +12060,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { state: 'none', because: 'not an address of this account' });
       return;
     }
-    remote.tlsPin(address, { fresh: q.get('fresh') === '1' })
+    remote.tlsPin(address, { fresh: q.get('fresh') === '1', say: true })   // kosmos#7193: the app's ask says why in the log
       .then((got) => sendJson(res, 200, got.data))
       .catch(() => sendJson(res, 200, { state: 'required', because: "this computer's certificate could not be checked" }));
     return;

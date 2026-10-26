@@ -3078,24 +3078,37 @@ const tlsPinInFlight = new Map();   // review 1: WebKit's parallel connections t
 let tlsPinGeneration = 0;           // review 2: bumped by a forget, so an ask that began before it writes nothing
 const tlsPinWarmQuiet = new Map();  // review 2: address -> until when warming leaves it alone (it answered required)
 const TLS_PIN_WARM_QUIET_MS = 60 * 1000;
-/* kosmos#7193: why a check answered "required", in this board's log, once a minute per address at most. Josh's Mac
-   refused a computer for minutes and nothing recorded why: the tunnel's words were kept only in this answer. No
-   computer name (the app's unified-log line keeps none either, #5481), and the home folder said as ~. */
+/* kosmos#7193: why a check answered "required", in this board's log, once a minute per address at most, for the app's
+   own ask only. Josh's Mac refused a computer for minutes and nothing recorded why: the tunnel's words were kept only
+   in this answer. No computer name (the app's unified-log line keeps none either, #5481), the home folder as ~. */
 const tlsPinSaidAt = new Map();
-function tlsPinSayWhy(address, said, now) {
+const tlsPinWhy = new Map();   // review 3: the last required answer's reason, per address, for the app's own ask to log
+const escapeRe = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/* Review 2/3: no computer is named. An unreachable computer's reason carries its URL (the tunnel's HTTP client prints
+   it first), and a certificate made for another computer names THAT one ("only valid for ..."), so every URL's host
+   and every address under the account's domain (the address minus its one label) is taken out, after the home folder. */
+function tlsPinScrub(address, said) {
+  const domain = String(address).split('.').slice(1).join('.');
+  const home = require('os').homedir();
+  let why = String(said || '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 2).join(' / ').split(home).join('~');
+  why = why.replace(/\b(https?:\/\/)[^\s/'")\]]+/gi, '$1a computer');
+  if (domain) why = why.replace(new RegExp('\\b(?:[a-z0-9-]+\\.)+' + escapeRe(domain) + '\\b', 'gi'), 'a computer');
+  return why.slice(0, 300) || 'no reason given';
+}
+function tlsPinSayWhy(address, why, now) {
   const at = tlsPinSaidAt.get(address);
   if (at !== undefined && now - at < 60 * 1000) return;
   tlsPinSaidAt.set(address, now);
-  const home = require('os').homedir();
-  /* Review 2: an unreachable computer's reason carries its address (the tunnel's HTTP client prints the URL first), so
-     the address is taken out, in any case, after the home folder: the line names no computer. */
-  const addr = new RegExp(String(address).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-  const why = String(said || '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 2).join(' / ')
-    .split(home).join('~').replace(addr, 'that computer').slice(0, 300) || 'no reason given';
-  console.error('remote: tls-pin answered required for another computer: ' + why);
+  console.error('remote: tls-pin answered required for a computer: ' + tlsPinScrub(address, why));
 }
 const SPKI = /^[0-9a-f]{64}$/;
-async function tlsPin(address, { fresh = false } = {}) {
+async function tlsPin(address, { fresh = false, say = false } = {}) {
+  // kosmos#7193 review 3: only the app's own ask says why in the board log; background warming never does.
+  const answer = await tlsPinAnswer(address, { fresh });
+  if (say && answer && answer.data && answer.data.state === 'required') tlsPinSayWhy(address, tlsPinWhy.get(address) || answer.data.because, Date.now());
+  return answer;
+}
+async function tlsPinAnswer(address, { fresh = false } = {}) {
   // Review 9: not while this computer is being signed out of Plus (its state folder is going away).
   if (forgetting) return { ok: true, because: null, data: { state: 'required', because: 'this computer is signing out of Plus' } };
   if (!enrolled()) return { ok: true, because: null, data: { state: 'none', because: 'not signed up for Plus here' } };
@@ -3133,7 +3146,7 @@ async function tlsPinAsk(address, now) {
       // Anything else, an answer of the wrong shape included, is "do not proceed": a check that cannot be read
       // must never read as nothing to check. The tunnel's own words stay here (a path, a key name).
       answer = { ok: true, because: null, data: { state: 'required', because: "this computer's certificate could not be checked" } };
-      tlsPinSayWhy(address, [d && typeof d.because === 'string' ? d.because : '', said].filter(Boolean).join('\n'), now);
+      tlsPinWhy.set(address, [d && typeof d.because === 'string' ? d.because : '', said].filter(Boolean).join('\n'));
     }
   }
   // Only a definite answer is cached: a required one is asked again next time (it may be a passing failure).
@@ -4319,7 +4332,7 @@ module.exports = { clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LA
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { acceptedKey = null; lastOffered = null; tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); tlsPinSaidAt.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
+  resetForTests: () => { acceptedKey = null; lastOffered = null; tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); tlsPinSaidAt.clear(); tlsPinWhy.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,

@@ -3616,8 +3616,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         askTlsPin(host: host, fresh: false) { [weak self] state, keys in
             let first = tlsPinDecision(state: state, keys: keys, leaf: leaf, fresh: false)
             guard first == .askFresh, let self else { finish(first, state); return }
-            self.askTlsPin(host: host, fresh: true) { state2, keys2 in
-                finish(tlsPinDecision(state: state2, keys: keys2, leaf: leaf, fresh: true), state2)
+            /* kosmos#7193: a check that could not run is asked again after a short wait, not at once. The relay retires
+               each computer's tunnel on an hourly schedule and the next one is up about two seconds later; requests
+               caught in that gap failed here and raised the alert (12:49:38Z, Josh's seven). A key that does not match
+               is asked again at once, as before (a renewal is already there to be read). */
+            let wait: Double = state == "pinned" ? 0 : 3
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+                self.askTlsPin(host: host, fresh: true) { state2, keys2 in
+                    finish(tlsPinDecision(state: state2, keys: keys2, leaf: leaf, fresh: true), state2)
+                }
             }
         }
     }
@@ -3680,7 +3687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.messageText = "Kosmos did not open \(host)"
         alert.informativeText = mismatch
             ? "That computer did not present the certificate it vouches for, so Kosmos stopped before sending it anything. If you just set that computer up again, pair it with this one again. If this keeps happening, contact Kosmos support."
-            : "Kosmos could not check that computer's certificate just now, so it stopped before sending it anything. Try again in a moment. If it keeps happening, check that both computers are on and connected to the internet."
+            : "Kosmos could not check that computer's certificate just now, so it stopped before sending it anything. Try again in a moment. If this keeps happening, check that both computers are on and connected to the internet."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         let dismissed: () -> Void = { [weak self] in
