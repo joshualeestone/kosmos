@@ -239,6 +239,13 @@ no profile record, and STARTS the agent: enable then bootstrap).
    hooks on there). Now it fails closed (a folder that is a link or a file reads as Restored; a missing one does
    not), with the test, and the arm aimed at the new line.
 
+32. (default model) W: isRestoredWorld still failed open on any error but a link (EACCES, EMFILE, ELOOP) and on a mark
+   that is not a plain file; now only a certainly absent folder or mark (ENOENT, ENOTDIR) reads as not Restored,
+   tested with a folder mark and a folder with no search bit. Nits taken: the listing offers nothing in a world
+   prepare did not make (an ordinary world's live agents are not restored ones); the module header names
+   isRestoredWorld. Not taken: heldBack can be the cap plus its "(more not listed)" marker, by design, as kept is.
+   Deferred as duplicate: ids that fold together (round 6, #7181).
+
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
 - On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that

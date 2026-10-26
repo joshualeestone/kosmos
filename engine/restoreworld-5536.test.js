@@ -686,6 +686,38 @@ test('a finish refused after an earlier one held something back still names what
   assert.deepEqual(again.heldBack, ['workers/.git'], 'the refusal does not hide what the first finish held back');
 });
 
+test('isRestoredWorld reads Restored for anything but a certainly absent mark', { skip: process.platform === 'win32' ? 'POSIX modes' : (process.getuid && process.getuid() === 0 ? 'root reads through modes' : false) }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const mark = path.join(p.dir, 'restored-world.json');
+  fs.rmSync(mark);
+  assert.equal(rw.isRestoredWorld(base, p.world), false, 'control: no mark, not Restored');
+  fs.mkdirSync(mark);
+  assert.equal(rw.isRestoredWorld(base, p.world), true, 'a mark that is a folder still marks it');
+  fs.rmdirSync(mark);
+  fs.writeFileSync(mark, '{}');
+  fs.chmodSync(p.dir, 0o600);   // no search bit: the mark cannot be looked up (EACCES)
+  t.after(() => { try { fs.chmodSync(p.dir, 0o700); } catch { /* gone */ } });
+  assert.equal(rw.isRestoredWorld(base, p.world), true, 'a mark that cannot be looked up reads as Restored (hooks off)');
+  fs.chmodSync(p.dir, 0o700);
+  fs.rmSync(mark);
+  fs.chmodSync(p.dir, 0o600);
+  assert.equal(rw.isRestoredWorld(base, p.world), true, 'even with no mark, a folder that cannot be searched cannot be vouched for');
+  fs.chmodSync(p.dir, 0o700);
+});
+
+test('the listing offers nothing in a world prepare did not make', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.dir, 'workers', 'bob'));
+  fs.writeFileSync(path.join(p.dir, 'workers', 'bob', 'CLAUDE.md'), '# bob\n');
+  assert.equal(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.length, 1, 'control: listed while the mark is there');
+  fs.rmSync(path.join(p.dir, 'restored-world.json'));
+  const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  assert.deepEqual(l.agents, []);
+  assert.match(l.because, /not made for a restore/);
+});
+
 test('finish moves nothing into a world on the list that prepare did not make', (t) => {
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
