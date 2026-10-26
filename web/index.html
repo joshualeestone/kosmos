@@ -24691,12 +24691,17 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   /* #7207 (Josh, 2026-10-26 10:28): no answer at all is the moment the board restarts, very often to install the
      update the first press started. Offering Update again there had him pressing it "like a million times" at a board
      that could not answer. So wait for it instead, and decide from what it says when it is back. */
+  /* #7207: the dialog closed or reopened while this POST was out is no longer this press's to write into, whatever the
+     answer. A SUCCESS still goes on to the overlay below on purpose: the update really started, and the overlay saying
+     so is true whichever dialog is showing (a second press joins the same install). */
+  const stale = gen !== UPD_WAIT_GEN || document.getElementById('updconfirm').hidden;
   if (!res) {
-    if (gen !== UPD_WAIT_GEN || document.getElementById('updconfirm').hidden) return;   // not this press's dialog now
+    if (stale) return;
     waitForUnansweredPress(rollingBack, gen, hadFocus);
     return;
   }
   if (!res.ok) {
+    if (stale) return;
     // The route's own sentence: a from-source run, nothing newer published,
     // or a spawn failure. All are states, not scoldings.
     /* #6903 (Josh, 2026-10-22 10:46): with no sentence from the route the dialog said only "we could not start the
@@ -24887,7 +24892,7 @@ async function waitForUnansweredPress(rollingBack, gen, hadFocus) {
     if (verdict === 'done') { location.reload(); return; }
     go.textContent = label;
     go.disabled = false;
-    if (hadFocus) go.focus();
+    if (hadFocus && document.activeElement === document.getElementById('uc-no')) go.focus();   // never yank a deliberate move
     if (verdict === 'deadline') {
       err.textContent = 'Kosmos has not answered for three minutes. Reload this page to see where it is.';
       go.textContent = 'Reload';
