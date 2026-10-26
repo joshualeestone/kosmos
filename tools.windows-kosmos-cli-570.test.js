@@ -580,6 +580,29 @@ test('an unknown task subcommand lists all fourteen, as install/kosmos does', as
   assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | assign | close | reopen | message | activity | built | done-when | hold | unhold | repeat | ran | told');   // reopen: #6157; assign: #4914; repeat, ran: #4787; told: #5836; activity: #5874
 });
 
+test('#7180 Windows task hold --until-task / --until send the condition; bad values are sent nowhere; the list says what a hold waits for', async () => {
+  const t = await run(['task', 'hold', 'p1', '3', '--until-task', '5'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(t.code, 0, t.err);
+  assert.deepEqual(t.calls[0].body, { onHold: true, until: { task: 5 } });
+  assert.match(t.out, /It waits for task 5 to be closed/);
+  const at = await run(['task', 'hold', 'p1', '3', '--until', '2026-11-02'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(at.code, 0, at.err);
+  assert.deepEqual(at.calls[0].body, { onHold: true, until: { at: '2026-11-02' } });
+  for (const args of [['--until-task', 'five'], ['--until-task', '05'], ['--until', 'friday'], ['--until-task', '5', '--until', '2026-11-02'], ['--until-task']]) {
+    const r = await run(['task', 'hold', 'p1', '3', ...args]);
+    assert.equal(r.code, 2, args.join(' ') + ': ' + r.err);
+    assert.equal(r.calls.length, 0, args.join(' ') + ' was sent');
+  }
+  const list = await run(['task', 'list', 'p1'], () => ({ body: { tasks: [
+    { number: 1, sentence: 'waits for a task', onHold: true, onHoldUntil: { task: 5 } },
+    { number: 2, sentence: 'waits for a time', onHold: true, onHoldUntil: { at: '2026-11-02T09:00:00.000Z' } },
+    { number: 3, sentence: 'a bare hold', onHold: true },
+  ] } }));
+  assert.match(list.out, /\[1\] \[on hold until task 5 is closed\] waits for a task/);
+  assert.match(list.out, /\[2\] \[on hold until 2026-11-02T09:00:00\.000Z\] waits for a time/);
+  assert.match(list.out, /\[3\] \[on hold\] a bare hold/, 'CONTROL: a bare hold');
+});
+
 test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the board token; a non-number is a usage error sent nowhere', async () => {
   const on = await run(['task', 'hold', 'p1', '3'], () => ({ body: { task: { number: 3, onHold: true } } }));
   assert.equal(on.code, 0, on.err);

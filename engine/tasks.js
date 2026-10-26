@@ -486,7 +486,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     }
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
-    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
+    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
     if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
@@ -1012,7 +1012,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
-    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
+    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
     if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     return {
@@ -1036,12 +1036,62 @@ function isOnHold(t) {
   return Boolean(t && t.onHold === true);
 }
 
+/* kosmos#7180: the furthest ahead a hold may wait for a time. */
+const HOLD_UNTIL_MAX_MS = 366 * 24 * 60 * 60 * 1000;
+
+/**
+ * kosmos#7180: a hold's reopening condition, checked: { task: <n> } (another task of this project is closed) or
+ * { at: <ISO time> } (that time has passed). Returns the value to store, or throws (status 400 or 409) saying why.
+ * `p` is the project, `self` the held task's number, `now` the clock.
+ */
+function holdUntilOf(raw, p, self, now = Date.now()) {
+  const bad = (msg, status = 400) => { const e = new Error(msg); e.status = status; return e; };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw bad('a hold waits for a task (until.task) or a time (until.at)');
+  const keys = Object.keys(raw);
+  if (keys.length !== 1 || !['task', 'at'].includes(keys[0])) throw bad('a hold waits for one thing: a task (until.task) or a time (until.at)');
+  if (keys[0] === 'task') {
+    const m = raw.task;
+    if (!Number.isInteger(m) || m < 1) throw bad('the task a hold waits for is a task number');
+    if (m === Number(self)) throw bad('a task cannot wait for itself');
+    const other = byNumber(p, m);
+    if (!other) throw bad('there is no task #' + m + ' on this project to wait for');
+    if (progressOf(other).closed) throw bad('task #' + m + ' is already closed, so there is nothing to wait for', 409);
+    return { task: m };
+  }
+  const at = typeof raw.at === 'string' ? Date.parse(raw.at) : NaN;
+  if (!Number.isFinite(at)) throw bad('the time a hold waits for must be a date or time, for example 2026-11-02 or 2026-11-02T09:00:00Z');
+  if (at <= now) throw bad('that time has already passed, so there is nothing to wait for', 409);
+  if (at - now > HOLD_UNTIL_MAX_MS) throw bad('a hold waits for a time at most a year ahead');
+  return { at: new Date(at).toISOString() };
+}
+
+/**
+ * kosmos#7180: a held task's reopening condition as the board reads it now: null when it has none, else
+ * { words, met }: words finish "on hold until ..." ("task #12 is closed", "2026-11-02T09:00:00.000Z"). A condition naming a task no longer on the
+ * project counts as met: there is nothing left to wait for.
+ */
+function holdUntilState(p, t, now = Date.now()) {
+  const u = t && t.onHoldUntil;
+  if (!isOnHold(t) || !u || typeof u !== 'object') return null;
+  if (Number.isInteger(u.task)) {
+    const other = byNumber(p, u.task);
+    return { words: 'task #' + u.task + ' is closed', met: !other || progressOf(other).closed };
+  }
+  const at = typeof u.at === 'string' ? Date.parse(u.at) : NaN;
+  if (Number.isFinite(at)) return { words: new Date(at).toISOString(), met: now >= at };
+  return null;
+}
+
 /**
  * #4771: put a task on hold, or take it off. Stored as `onHold: true` (absent when off, so every task written before
  * this reads as not held) and recorded in the task's activity with who did it, the same no-op discipline as setDue.
+ * kosmos#7180: `until` (only with onHold true) records a checkable reopening condition (holdUntilOf) as `onHoldUntil`.
+ * A hold sets exactly what it is given: holding again without `until` clears an earlier condition, and a changed
+ * condition is recorded as a new hold.
  */
-function setOnHold(projectId, n, onHold, { viaScreen = false } = {}) {
+function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {}) {
   if (typeof onHold !== 'boolean') throw new Error('onHold must be true or false');
+  if (!onHold && until != null) { const e = new Error('a reopening condition goes with a hold, not with taking one off'); e.status = 400; throw e; }
   let changed;
   let didChange = false;
   let tookOver = false;
@@ -1061,22 +1111,25 @@ function setOnHold(projectId, n, onHold, { viaScreen = false } = {}) {
       closed.status = 409;
       throw closed;
     }
-    didChange = isOnHold(t) !== onHold;
+    const want = onHold && until != null ? holdUntilOf(until, p, t.number) : null;
+    const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
+    didChange = isOnHold(t) !== onHold || (onHold && !sameUntil);
     changed = { ...t };
     if (onHold) {
       changed.onHold = true;
+      if (want) changed.onHoldUntil = want; else delete changed.onHoldUntil;
       /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
          an agent's hold never takes the person's away. */
       if (viaScreen === true) changed.onHoldByPerson = true;
       else if (didChange) delete changed.onHoldByPerson;
-    } else { delete changed.onHold; delete changed.onHoldByPerson; }
+    } else { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
   // via: whether the person did it on the screen or a process (an agent) did, so an agent's hold never reads as the person's.
-  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent' });
+  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent', ...(onHold && changed.onHoldUntil ? { until: Number.isInteger(changed.onHoldUntil.task) ? 'task #' + changed.onHoldUntil.task : changed.onHoldUntil.at } : {}) });
   else if (tookOver) taskchat.record(projectId, changed.number, { kind: 'hold-set', via: 'screen' });   // the person made an agent's hold theirs
   return changed;
 }
@@ -2351,6 +2404,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 
 module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

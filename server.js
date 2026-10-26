@@ -23427,7 +23427,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #4771: put a task on hold, or take it off. Body { onHold: true | false }. The Prompter never nudges an agent about a
+  /* #4771: put a task on hold, or take it off. Body { onHold: true | false, until?: { task: <n> } | { at: <time> } }. The Prompter never nudges an agent about a
      task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity.
      The person's own hold is lifted only from the screen (isViaScreen). That is ADVISORY, as on /built: a local process
      that sends a page's headers is taken at its word. The real boundary is the agent-token work of #4491. */
@@ -23440,7 +23440,8 @@ const server = http.createServer(async (req, res) => {
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       try {
-        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body) });
+        // kosmos#7180: body.until, when present, is the hold's checkable reopening condition (tasks.holdUntilOf checks it).
+        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body), until: body.until === undefined ? null : body.until });
         // The assignees' instructions mark a held task (projects.blockBody), so the block follows the record, as close does.
         try { tellEveryoneOn(t); } catch { /* the hold happened; a failed re-tell is reported by the row's told verdict */ }
         sendJson(res, 200, { task: t });

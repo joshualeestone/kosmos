@@ -41,7 +41,9 @@ function phrase(ev, nameOfMember, opts) {
     // #5152: what finished means for the task, set or taken off (by an agent, named, or from the screen).
     case 'done-when-set': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + own(ev.doneWhen) : ''); }
     case 'done-when-cleared': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
-    case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
+    // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
+    case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')
+      + (typeof ev.until === 'string' && ev.until ? ' until ' + own(/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : ev.until) : '');
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
@@ -55,6 +57,10 @@ function phrase(ev, nameOfMember, opts) {
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
     case 'hold-stale': {   // #6209 part 3: an owner still working a held task in its room was asked about the hold
       const who = nameOf(ev.told) || 'its owner';
+      // kosmos#7180: told because what the hold waited for happened, not because of the room's posts.
+      if (typeof ev.met === 'string' && ev.met) {
+        return 'What its hold waited for happened (' + own(ev.met) + '); ' + (ev.reached === false ? 'Kosmos could not reach ' + who : who + ' was told it can come off hold');
+      }
       return ev.reached === false ? 'Still on hold while ' + who + ' worked in its project room; Kosmos could not reach ' + who
         : 'Still on hold while ' + who + ' worked in its project room; ' + who + ' was asked whether the hold still stands';
     }

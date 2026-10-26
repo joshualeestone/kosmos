@@ -126,6 +126,7 @@ const USAGE = {
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
+    '      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened',
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
     '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m>  a job you run on a schedule: the board shows when it runs',
     '      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
@@ -1100,7 +1101,7 @@ async function taskList(ctx, args) {
     /* Review 5: on its OWN indented line under the task, never on the task's line: a task's sentence is folded onto
        one line, so it can never print this line, and so cannot forge a set-by mark (a check's brackets are folded too). */
     const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? '    done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + fold(c)).join(' ') : '';
-    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? (Number.isInteger(x.replacedBy) ? '[replaced by ' + x.replacedBy + '] ' : '[done] ') :   /* #6923 */ (x.onHold === true ? '[on hold] ' + (x.builtAt ? '[built] ' : '')   // #5864: the marks name the group first
+    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? (Number.isInteger(x.replacedBy) ? '[replaced by ' + x.replacedBy + '] ' : '[done] ') :   /* #6923 */ (x.onHold === true ? '[on hold' + holdUntilWords(x) + '] ' + (x.builtAt ? '[built] ' : '')   // #5864: the marks name the group first
       : x.builtAt ? '[built] ' + (x.projectPaused === true ? '[project paused] ' : '')
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);
@@ -1336,14 +1337,35 @@ async function taskMessage(ctx, args) {
   return 1;
 }
 
+/* kosmos#7180, as install/kosmos's task list: what a held task waits for, as the board stored it, or nothing. */
+function holdUntilWords(x) {
+  const u = x && x.onHoldUntil;
+  if (u && Number.isInteger(u.task)) return ' until task ' + u.task + ' is closed';
+  if (u && typeof u.at === 'string') return ' until ' + String(u.at).replace(/\s+/g, ' ').trim();
+  return '';
+}
+
 /* #4771, as install/kosmos cmd_task hold|unhold: put a task on hold, or take it off. A board write, like close. */
+const HOLD_USAGE = 'Usage: kosmos task hold <project-id> <task-number> [--until-task <task-number> | --until <date or time, like 2026-11-02 or 2026-11-02T09:00Z>]';
 function taskHoldAs(want) {
   return async function taskHold(ctx, args) {
-    const [project, num] = args;
-    if (!project || !num) { ctx.err('Usage: kosmos task ' + (want ? 'hold' : 'unhold') + ' <project-id> <task-number>'); return 2; }
+    const [project, num, flag, value] = args;
+    const usage = want ? HOLD_USAGE : 'Usage: kosmos task unhold <project-id> <task-number>';
+    if (!project || !num) { ctx.err(usage); return 2; }
     if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-    if (tooManyWords(ctx, 'task ' + (want ? 'hold' : 'unhold'), 2, 'Usage: kosmos task ' + (want ? 'hold' : 'unhold') + ' <project-id> <task-number>', args)) return 2;   // kosmos#4889 review 6
-    const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/hold', { onHold: want }, { agent: false });
+    /* kosmos#7180: hold takes one checkable reopening condition, --until-task <n> or --until <date or time>. */
+    let until = null;
+    if (want && args.length > 2) {
+      if (args.length !== 4) { ctx.err('kosmos task hold takes at most one condition, so nothing was done.'); ctx.err(usage); return 2; }
+      if (flag === '--until-task') {
+        if (!/^[1-9][0-9]*$/.test(value || '')) { ctx.err('--until-task needs a task number, from: kosmos task list <project-id>.'); return 2; }
+        until = { task: Number(value) };
+      } else if (flag === '--until') {
+        if (!/^[0-9TZ:.+-]+$/.test(value || '')) { ctx.err('--until needs a date or time, like 2026-11-02 or 2026-11-02T09:00Z.'); return 2; }
+        until = { at: value };
+      } else if (tooManyWords(ctx, 'task hold', 2, usage, args)) return 2;
+    } else if (tooManyWords(ctx, 'task ' + (want ? 'hold' : 'unhold'), 2, usage, args)) return 2;   // kosmos#4889 review 6
+    const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/hold', until ? { onHold: want, until } : { onHold: want }, { agent: false });
     if (!r.reached) {
       return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
         : ctx.unreachable('change that task');
@@ -1351,6 +1373,8 @@ function taskHoldAs(want) {
     if (r.json && r.json.task) {
       ctx.out(want ? 'Put task ' + num + ' on ' + project + ' on hold. Kosmos will not nudge anyone about it or hand it out.'
         : 'Took task ' + num + ' on ' + project + ' off hold.');
+      if (until && until.task) ctx.out('It waits for task ' + value + ' to be closed; Kosmos tells its owner when it is.');
+      else if (until) ctx.out('It waits until ' + value + '; Kosmos tells its owner when that time has passed.');
       return 0;
     }
     if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
