@@ -18563,6 +18563,16 @@ window.kosmosMeasureScrollbarWidth();
            write already queued. Focus a container, let the live region speak. -->
       <div id="set-accounts" tabindex="-1"></div>
       <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
+      <!-- kosmos#7152 slice 2: usage auto-balance. Nothing moves yet: the lines say what it WOULD do, so a person can
+           read its decisions first. Shown only when /api/accounts?agents=1 reports two or more Claude subscription
+           accounts; the switch, as every status control here, stays hidden until a read says on or off. -->
+      <div class="setrow" id="ab-row" style="margin-top:14px;" hidden>
+        <div><b>Move agents off an account that is running out</b>
+          <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 90% of its weekly limit and does not reset within 6 hours, or its login stops working, Kosmos picks the idle agents on it to move to the account with the most room (one Kosmos has measured, under 70%). For now it only says what it would do. Nothing is moved.</p>
+          <div id="ab-lines"></div>
+          <p class="dhint" id="ab-msg" role="status" style="margin:8px 0 0;"></p></div>
+        <button class="toggle" id="ab-toggle" role="switch" aria-label="Move agents off an account that is running out" hidden><i></i></button>
+      </div>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
            contract): the engine picks the next free work directory itself
@@ -28399,13 +28409,13 @@ const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two mi
 const ACCT_PICK = new Map();          // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice
 /* #6108: whether an account can take another account's agents in one move. One rule for the menu and for the check
    made again at the click (the menu can be a while old: Settings repaints when something is pressed). */
+/* kosmos#7152 slice 2: whether the row's agents may all go to x. The row half is the engine's (engine/autobalance.js
+   bulkTargetable, sent on each row by /api/accounts), the rule usage auto-balance decides by, so the two cannot
+   disagree: Claude, shared memory, not refused or signed out, not a row that says it is not offerable, not an API key
+   (moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page), and not
+   at its weekly or five-hour limit. */
 function acctBulkTarget(x, fromDir) {
-  return !!x && x.provider === 'anthropic' && !!x.dir && x.dir !== fromDir && !!x.memoryShared
-    && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
-    && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
-    && !(acctWeeklyNow(x) && Math.round(x.weekly.usedPct) >= 100)   // a full account cannot run them either (rounded as its row shows it); a week that has reset is not full
-    // #6176: nor one at its five-hour limit until that resets (a reading past its reset is over and does not count)
-    && !(x.fiveHour && Number.isFinite(x.fiveHour.usedPct) && Math.round(x.fiveHour.usedPct) >= 100 && !(Number.isFinite(x.fiveHour.resetsAt) && x.fiveHour.resetsAt <= Date.now()));
+  return !!x && !!x.dir && x.dir !== fromDir && x.bulkTargetable === true;
 }
 /* #6176 slice 2: a ChatGPT sign-in (OpenAI) row's plan limits, as Codex last reported them in its own session files.
    One meter per window Codex reports, named by its length. No move: moving agents between accounts is Claude's
@@ -28812,6 +28822,93 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
   return parts.join(' ');
 }
 
+/* kosmos#7152 slice 2: what usage auto-balance WOULD move, from the /api/accounts?agents=1 read (engine/autobalance.js
+   decides; this only draws). Hidden with fewer than two Claude subscription accounts. Account names as the list shows
+   them, agents by their board name; nothing here leaves this computer. */
+let AB_SAVING = false;
+function paintAutobalance(ab, list) {
+  const row = document.getElementById('ab-row');
+  if (!row) return;
+  const lines = document.getElementById('ab-lines');
+  if (!ab || !(ab.eligible >= 2)) {
+    row.hidden = true;
+    paintSwitch('ab-toggle', null);
+    if (lines) lines.innerHTML = '';
+    return;
+  }
+  row.hidden = false;
+  /* Review 5: a setting file that could not be read (ok false) reads off on the engine, but the page shows it as
+     unknown, not as a confident Off, as every status control here. */
+  const known = ab.ok !== false && (ab.on === true || ab.on === false);
+  paintSwitch('ab-toggle', known ? ab.on === true : null);
+  const label = (dir) => { const x = (list || []).find((a) => a && a.dir === dir); return x ? acctPrimaryName(x) : 'another account'; };
+  const who = (n) => (((LAST || []).find((x) => x && x.sessionName === n) || {}).name || n);
+  const line = (t) => '<p class="dhint" style="margin:8px 0 0;">' + t + '</p>';
+  /* Review 9: an account whose login has stopped is not "running out"; it cannot be used. */
+  const opening = (x) => esc(label(x.from)) + (x.kind === 'login' ? ' cannot be used right now' : ' is running out') + ', because ' + esc(x.why);
+  let html = '';
+  if (!known) html = line('We could not read this setting just now.');   // review 3: as the Assigner's says
+  else if (ab.unreadable) html = line('Kosmos could not work out what it would move just now.');
+  else if (ab.on === true) {
+    const moves = Array.isArray(ab.moves) ? ab.moves : [];
+    const held = Array.isArray(ab.held) ? ab.held : [];
+    const short = Array.isArray(ab.short) ? ab.short : [];
+    html = moves.map((m) => line('Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.')).join('')
+      /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
+      + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
+      /* Review 5: with the reason, so an account whose list is short still says why it is running out (review 7: unless
+         a move or held line above already said it). */
+      + short.map((d) => { const r = moves.some((m) => m.from === d) || held.some((h) => h.from === d) ? null : (Array.isArray(ab.atRisk) ? ab.atRisk : []).find((x) => x.from === d);
+        return line((r ? opening(r) + '. ' : '') + 'Kosmos could not read every agent on ' + esc(label(d)) + ', so there may be more to move.'); }).join('');
+    /* Review 3: an account at risk with no idle agent on it (its agents are working, or it has none) is said, not silent. */
+    const said = new Set([...moves.map((m) => m.from), ...held.map((h) => h.from), ...short]);
+    html += (Array.isArray(ab.atRisk) ? ab.atRisk : []).filter((x) => !said.has(x.from))
+      .map((x) => line(opening(x) + ', but none of its agents is idle, so there is nothing to move yet.')).join('');
+    if (!html) html = line('Nothing to move right now.');
+  }
+  if (lines) lines.innerHTML = html;
+}
+async function abToggleClick() {
+  const tog = document.getElementById('ab-toggle');
+  const msg = document.getElementById('ab-msg');
+  if (!tog || !tog.hasAttribute('aria-checked')) return;   // not loaded: never write over a stored value
+  if (AB_SAVING) { if (msg) msg.textContent = 'Still saving the last change. Try again in a moment.'; return; }
+  AB_SAVING = true;
+  let saved = false;
+  try {
+    const res = await fetch('/api/autobalance-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ on: tog.getAttribute('aria-checked') !== 'true' }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
+    if (msg) msg.textContent = '';
+    paintSwitch('ab-toggle', out.on === true);
+    /* Review 3: switched off, the lines go now, not when the next read lands (which can fail and leave them). */
+    if (out.on !== true) { const lines = document.getElementById('ab-lines'); if (lines) lines.innerHTML = ''; }
+    saved = true;
+  } catch {
+    if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    AB_SAVING = false;
+    /* Read the list again in place (no "Checking" flash; a pending sign-in can still ask for one bounded follow-up), so the
+       lines match the switch. A failed re-read of this kind keeps the list and its lines, as every follow-up does. Review 3:
+       never over a read that is already out: a follow-up raises the epoch and would throw that read away, leaving the
+       list on "Checking". That read may also have read the switch before this save, so wait for it to finish (bounded,
+       about ten seconds) and read once after it. */
+    if (saved && !AB_REPAINT_WAITING) { AB_REPAINT_WAITING = true; abRepaintAfterReads(0); }   // review 4: one wait at a time
+  }
+}
+/* Review 4: as the list's other timers, it stops once the list is off screen (a section switch, Settings closed), so a
+   wait that outlives the page it was for never starts a read (each one checks every account's login live). */
+let AB_REPAINT_WAITING = false;
+function abRepaintAfterReads(tries) {
+  if (!acctListShown()) { AB_REPAINT_WAITING = false; return; }
+  if (!acctReadOpen) { AB_REPAINT_WAITING = false; paintAccounts({ followUp: ACCT_FOLLOWUP.max }); return; }
+  if (tries < 20) setTimeout(() => abRepaintAfterReads(tries + 1), 500);
+  else AB_REPAINT_WAITING = false;
+}
+document.getElementById('ab-toggle') && document.getElementById('ab-toggle').addEventListener('click', abToggleClick);
 async function paintAccounts(opts) {
   if (typeof aoKick === 'function') aoKick();   // kosmos#6178: the other computers' accounts, read while this screen is up
   const followUp = (opts && Number.isInteger(opts.followUp)) ? opts.followUp : 0;
@@ -28849,12 +28946,15 @@ async function paintAccounts(opts) {
   // real, multi-second one and had no announcement for that span at all.
   if (msg && !followUp) msg.textContent = 'Checking your accounts…';
   let list = [];
+  let abRead = null;   // kosmos#7152 slice 2: what auto-balance would do, from this read
   acctReadOpen = mine; acctReadOpenAt = Date.now();   // #6176: a read is out, so a look on window return does not start a second one beside it
   try {
     const res = await fetch('/api/accounts?agents=1', { cache: 'no-store' });   // #6108: only Settings asks for each account's agents
     if (mine !== ACCT_EPOCH) return;
     if (!res.ok) throw new Error('no');
-    list = ((await res.json()) || {}).accounts || [];
+    const body = (await res.json()) || {};
+    list = body.accounts || [];
+    abRead = body.autobalance || null;   // kosmos#7152 slice 2 (review 9: this read's own, not a page-wide global)
     if (acctReadOpen === mine) acctReadOpen = 0;
     if (mine !== ACCT_EPOCH) return;
   } catch {
@@ -28871,6 +28971,7 @@ async function paintAccounts(opts) {
     if (msg) msg.textContent = '';
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
+    paintAutobalance(null, []);   // kosmos#7152 review 2: no lines from an earlier read under a failed one
     /* This branch used to leave the flags untouched, so a failure here could not be told
        apart from never having asked, and a stale LOADED from an earlier read outlived it. */
     accountsUnreadable();
@@ -28885,6 +28986,7 @@ async function paintAccounts(opts) {
     acctFollowUp(followUp, 1); return;
   }
   accountsRead(list);
+  paintAutobalance(abRead, list);   // kosmos#7152 slice 2
   /* #3997: a sign-in (ChatGPT or Grok) whose free check, or an Antigravity row whose usage reading (#6176), is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   const pendingRows = list.filter((a) => a && a.connection && a.connection.liveCheckPending);

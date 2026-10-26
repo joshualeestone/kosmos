@@ -1401,6 +1401,7 @@ const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
 const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's idle-assign behaviour (pure step; the runner is below)
+const autobalanceSetting = require('./engine/autobalance-setting'); // kosmos#7152 slice 2
 const brief = require('./engine/brief'); // #3595 phase 3: a project's goal, read safely from its BRIEF.md
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
@@ -2846,7 +2847,7 @@ function agentsByAccountWalk(runner, { skipGuide = false } = {}) {
     }
     entries.push({ sessionName, home: job.configDir || null });
   }
-  return { entries, complete };
+  return { entries, complete, roster: known.roster };   // kosmos#7152 review 3: the roster read here, so a caller need not take a second
 }
 /* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
    directory" enumeration, shared by EVERY provider's disconnect/remove route so the
@@ -2973,6 +2974,7 @@ function claudeAgentsByAccount() {
   }
   return {
     complete,
+    roster: walk.roster,   // kosmos#7152 review 3: the walk's own roster (null when it could not be read)
     on(dir, isDefault) {   // the agents on one account row
       let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
       return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
@@ -12282,6 +12284,30 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* kosmos#7152 slice 2: usage auto-balance's switch (Settings > AI Models). Screen-only PUT, as the Assigner's. */
+  if (pathname === '/api/autobalance-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = autobalanceSetting.read();
+      sendJson(res, 200, { on: r.on, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/autobalance-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        const saved = autobalanceSetting.write({ on: body.on });
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = autobalanceSetting.read();
+        sendJson(res, 200, { on: r.on, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   /* #2619: the Assigner automation setting. Same STATUS-control contract. */
   if (pathname === '/api/assigner-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
@@ -12970,7 +12996,40 @@ const server = http.createServer(async (req, res) => {
         /* #5977: Qwen accounts, badged from their live check alone (the endpoint lists the model, or says no): an
            endpoint reached with its model is signed_in_unverified until an agent is seen using it. */
         const qwen = (qwenRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete });
+        /* kosmos#7152 slice 2: whether a whole set of agents may be moved onto each Claude row, from the ONE rule the
+           decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
+        const ab = require('./engine/autobalance');
+        /* Review 2: the clock as the answer is sent, not the request's start (the live checks above can take a while), so
+           a reset or a limit reached during them is seen, as the page's own Date.now() saw it before. Review 3: one
+           clock for the marks and the decision, so the two cannot disagree. */
+        const sentAt = Date.now();
+        ab.markTargets(claude, sentAt);
+        /* kosmos#7152 slice 2: which agents WOULD move, and where (engine/autobalance.js). Only for Settings (?agents=1),
+           which already pays for the agents walk; nothing moves. Movable is the Assigner's own idle test: the card
+           reads idle, its commitments leave it free, and it holds no open part of a task in any project. */
+        let autobalance;
+        if (wantAgents) {
+          /* Review 1: the switch and the count are read first, so a failure in the decision below can say so on the page
+             instead of hiding the row. */
+          let setting = { on: null, ok: false };
+          try { setting = autobalanceSetting.read(); } catch { setting = { on: null, ok: false }; }
+          const eligibleCount = ab.eligible(claude).length;
+          try {
+            let decision = { moves: [], held: [], short: [], atRisk: [] };
+            if (setting.on && eligibleCount >= 2) {
+              /* Review 3: the walk's roster (no second pane capture), and the projects read only if an agent is asked
+                 about, which happens only for an at-risk account. A roster that could not be read is "could not work
+                 out", never "nothing to move". */
+              const cards = claudeAgents ? claudeAgents.roster : null;   // movableFor refuses one that could not be read
+              let records;
+              const movable = ab.movableOnDemand(() => ab.movableFor({ cards, records: () => (records || (records = projects.readAll())), readCommitment: (session) => commitments.read(session) }));
+              decision = ab.decide({ rows: claude, movable, nowMs: sentAt });
+            }
+            autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, ...decision };   // review 5: ok, so a corrupt file is not a confident Off
+          } catch { autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, moves: [], held: [], short: [], atRisk: [], unreadable: true }; }
+        }
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
+          ...(autobalance ? { autobalance } : {}) });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;

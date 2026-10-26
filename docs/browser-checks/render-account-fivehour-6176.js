@@ -43,7 +43,10 @@ const claude = (id, extra) => ({ provider: 'anthropic', providerName: 'Anthropic
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn, agentsHere: { names: [], complete: true }, ...extra });
 const week = (pct) => ({ usedPct: pct, resetsAt: now + 50 * H, at: now - H });
 const five = (pct) => ({ usedPct: pct, resetsAt: now + 2 * H, at: now - 2 * 60e3 });
-const ACCOUNTS = [
+/* kosmos#7152 slice 2: /api/accounts now sends each Claude row's bulkTargetable, from the engine's own rule; the
+   fixtures carry what the route would send, computed by that same function, not a hand-set value. */
+const withTarget = (rows) => rows.map((r) => ({ ...r, bulkTargetable: require('../../engine/autobalance').bulkTargetable(r, now) }));
+const ACCOUNTS = withTarget([
   claude('both', { weekly: week(40), fiveHour: five(64) }),
   claude('weekonly', { weekly: week(40), fiveHour: null }),
   claude('fivewarn', { weekly: week(20), fiveHour: five(82), agentsHere: { names: ['s-a'], complete: true } }),
@@ -62,7 +65,7 @@ const ACCOUNTS = [
   claude('fivenotwired', { weekly: null, weeklyBlocked: 'not-wired', fiveHour: five(30) }),
   claude('key', { apiKey: true, keyTail: 'abcd', weekly: null, fiveHour: five(50) }),
   claude('spare', { weekly: week(5), fiveHour: null }),
-];
+]);
 const AGENTS = [{ sessionName: 's-a', name: 'Ada', state: 'working' }, { sessionName: 's-b', name: 'Bo', state: 'working' }];
 
 const fails = [];
@@ -130,12 +133,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const out = {};
         for (const a of accounts) out[a.dir.split('-').pop()] = read(a.dir.split('-').pop());
         out.sideways = document.documentElement.scrollWidth > window.innerWidth + 1;
-        // #6176: the move menu's target rule. A target at its five-hour limit cannot run moved agents until it resets.
-        const tgt = (fh) => ({ provider: 'anthropic', dir: '/home/.claude-target', memoryShared: true, apiKey: false, connection: { state: 'connected' }, weekly: null, fiveHour: fh });
+        // #6176, kosmos#7152 slice 2: the move menu offers a target only as the row says it may take them (the five-hour
+        // rule itself is now the engine's, tested in engine/autobalance-7152.test.js), and never the account they are on.
+        const tgt = (ok) => ({ provider: 'anthropic', dir: '/home/.claude-target', bulkTargetable: ok });
         out.moveTo = typeof acctBulkTarget === 'function' ? {
-          full: acctBulkTarget(tgt({ usedPct: 100, resetsAt: Date.now() + 3600e3 }), '/home/.claude-from'),
-          near: acctBulkTarget(tgt({ usedPct: 99, resetsAt: Date.now() + 3600e3 }), '/home/.claude-from'),
-          over: acctBulkTarget(tgt({ usedPct: 100, resetsAt: Date.now() - 60e3 }), '/home/.claude-from'),
+          yes: acctBulkTarget(tgt(true), '/home/.claude-from'),
+          no: acctBulkTarget(tgt(false), '/home/.claude-from'),
+          missing: acctBulkTarget({ provider: 'anthropic', dir: '/home/.claude-target' }, '/home/.claude-from'),
+          own: acctBulkTarget(tgt(true), '/home/.claude-target'),
         } : null;
         return out;
       }, { accounts: ACCOUNTS, agents: AGENTS });
@@ -162,7 +167,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       // #6175's "Set up usage reading" on a row that is not set up: offered in every shape, and after its note.
       for (const id of ['bothfrozen', 'weekfrozen', 'fivenotwired']) say(r[id] && r[id].setup && r[id].setupLast, tag + ' not set up (' + id + '): the set-up offer is there, after the note', JSON.stringify(r[id] && { setup: r[id].setup, setupLast: r[id].setupLast, nones: r[id].nones }));
       say(r.bothown && !r.bothown.setup, tag + ' set up its own way: no set-up offer (control)', JSON.stringify(r.bothown && r.bothown.setup));
-      say(r.moveTo && r.moveTo.full === false && r.moveTo.near === true && r.moveTo.over === true, tag + ' the move menu offers no target at its five-hour limit (99% and a reading past its reset still are)', JSON.stringify(r.moveTo));
+      say(r.moveTo && r.moveTo.yes === true && r.moveTo.no === false && r.moveTo.missing === false && r.moveTo.own === false, tag + ' the move menu offers a target only as its row says (and never the account they are on)', JSON.stringify(r.moveTo));
       say(r.key && r.key.meters === 0, tag + ' an API-key row draws no meter', JSON.stringify(r.key));
       say(r.bothwarn && r.bothwarn.order.join(',') === 'week,weekwarn,five,fivewarn' && /Move its agent/.test(r.bothwarn.warns[0] || '') && r.bothwarn.warns[1] === 'Close to its 5-hour limit.',
         tag + ' both warning: the weekly block (with its move) comes whole, then the five-hour one (with none)', JSON.stringify(r.bothwarn && { order: r.bothwarn.order, warns: r.bothwarn.warns }));

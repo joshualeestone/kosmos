@@ -1,0 +1,171 @@
+'use strict';
+
+/**
+ * kosmos#7152 slice 2 through the real server (in-process, every root sandboxed, dry run): usage auto-balance's
+ * switch route and what /api/accounts adds. The switch reads on when never set; its PUT takes only a screen (an
+ * Origin the board serves) and only true or false; /api/accounts puts the engine's bulkTargetable on every Claude row,
+ * and the decision only when Settings asks for the agents (?agents=1).
+ */
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const http = require('node:http');
+
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-autobalance-route-')));
+const mk = (n) => { const d = path.join(SANDBOX, n); fs.mkdirSync(d, { recursive: true }); return d; };
+process.env.AGENT_WORKFORCE_HOME = mk('home');
+process.env.AGENT_WORKFORCE_DATA = mk('data');
+process.env.AGENT_WORKFORCE_WORKERS = mk('workers');
+process.env.AGENT_WORKFORCE_PROJECTS = mk('projects');
+process.env.AGENT_WORKFORCE_LAUNCH = mk('launch');
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { start, server } = require('./server');
+const statusline = require('./engine/kosmos-statusline');
+const jobfix = require('./test-support/jobfixture');
+const fleet = require('./test-support/fleet');
+
+let port = 0;
+test.before(async () => { await start(0); port = server.address().port; });
+test.after(() => {
+  try { server.close(); } catch { /* best effort */ }
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+/* node:http, so the Origin header is sent as written (fetch controls some request headers itself). */
+function call(method, p, body, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const data = body === undefined ? null : JSON.stringify(body);
+    const req = http.request({ host: '127.0.0.1', port, path: p, method,
+      headers: { ...(data ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) } : {}), ...headers } }, (res) => {
+      let buf = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { buf += c; });
+      res.on('end', () => { let j = null; try { j = JSON.parse(buf); } catch { j = null; } resolve({ status: res.statusCode, json: j }); });
+    });
+    req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+const screen = () => ({ origin: `http://127.0.0.1:${port}` });
+
+test('#7152 slice 2: the switch reads on when never set, and only a screen may change it, to true or false', async () => {
+  const first = await call('GET', '/api/autobalance-setting');
+  assert.equal(first.status, 200);
+  assert.deepEqual(first.json, { on: true, ok: true }, 'a person who never set it did not get it on');
+  const noScreen = await call('PUT', '/api/autobalance-setting', { on: false });
+  assert.equal(noScreen.status, 403, 'a caller that is not the screen changed it');
+  const notBool = await call('PUT', '/api/autobalance-setting', { on: 'no' }, screen());
+  assert.equal(notBool.status, 400, 'a value that is not true or false was taken');
+  assert.deepEqual((await call('GET', '/api/autobalance-setting')).json, { on: true, ok: true }, 'a refused change was saved anyway');
+  const off = await call('PUT', '/api/autobalance-setting', { on: false }, screen());
+  assert.equal(off.status, 200, 'CONTROL: the screen can change it');
+  assert.deepEqual(off.json, { on: false, ok: true });
+  assert.deepEqual((await call('GET', '/api/autobalance-setting')).json, { on: false, ok: true }, 'turning it off did not stick');
+  await call('PUT', '/api/autobalance-setting', { on: true }, screen());
+});
+
+test('#7152 slice 2: every Claude row carries bulkTargetable, and the decision comes only with ?agents=1', async () => {
+  /* The default Claude account, as accounts.list finds it: <home>/.claude, signed in through <home>/.claude.json. */
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.test' } }));
+  const plain = await call('GET', '/api/accounts');
+  assert.equal(plain.status, 200);
+  const claude = (plain.json.accounts || []).filter((a) => a.provider === 'anthropic');
+  assert.ok(claude.length >= 1, 'CONTROL: the sandbox lists a Claude account');
+  assert.ok(claude.every((a) => typeof a.bulkTargetable === 'boolean'), 'a Claude row went without the engine\'s answer');
+  assert.equal('autobalance' in plain.json, false, 'the decision was worked out for a page that does not show it');
+  const settings = await call('GET', '/api/accounts?agents=1');
+  const ab = settings.json && settings.json.autobalance;
+  assert.ok(ab && typeof ab.eligible === 'number' && Array.isArray(ab.moves), 'Settings was not given the decision');
+  assert.equal(ab.on, true);
+  assert.equal(ab.ok, true, 'the setting\'s ok did not reach the page, so a corrupt file could read as a confident Off');
+  assert.equal(ab.eligible, claude.filter((a) => !a.apiKey).length, 'the account count is not the Claude subscription rows');
+  assert.equal(JSON.stringify(settings.json.autobalance).includes('@'), false, 'an email went into the decision');
+});
+
+test('#7152 review 3: with two accounts and one running out, the real route works out the decision and names it', async () => {
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.test' } }));
+  const second = path.join(home, '.claude-spare');
+  fs.mkdirSync(second, { recursive: true });
+  fs.writeFileSync(path.join(second, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'other@example.test' } }));
+  const weekly = (dir, usedPct) => fs.writeFileSync(path.join(dir, statusline.FILE),
+    JSON.stringify({ usedPct, resetsAt: Math.floor((Date.now() + 40 * 3600e3) / 1000), at: Date.now() - 60e3, history: [] }));
+  weekly(path.join(home, '.claude'), 95);
+  weekly(second, 10);
+  const ab = (await call('GET', '/api/accounts?agents=1')).json.autobalance;
+  assert.equal(ab.eligible, 2, 'CONTROL: the sandbox lists two Claude subscription accounts');
+  assert.equal(ab.unreadable, undefined, 'the decision failed through the real route');
+  assert.deepEqual(ab.atRisk.map((x) => x.from), [path.join(home, '.claude')], 'the account at 95% was not named as running out');
+  assert.match(ab.atRisk[0].why, /95% of its weekly limit/);
+  assert.equal(JSON.stringify(ab).includes('@'), false, 'an email went into the decision');
+  weekly(path.join(home, '.claude'), 50);
+  assert.deepEqual((await call('GET', '/api/accounts?agents=1')).json.autobalance.atRisk, [], 'CONTROL: at 50% nothing is running out');
+});
+
+test('#7152 review 5: a setting file that could not be read reaches the page as not ok', async () => {
+  const file = require('./engine/autobalance-setting').FILE;   // where the board keeps it (the data root has its own folder)
+  assert.ok(file.startsWith(process.env.AGENT_WORKFORCE_DATA), 'CONTROL: the setting is in the sandbox');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'not json');
+  try {
+    const ab = (await call('GET', '/api/accounts?agents=1')).json.autobalance;
+    assert.equal(ab.ok, false, 'a corrupt setting reached the page as a good reading');
+    assert.equal(ab.on, false, 'CONTROL: the engine reads it off');
+  } finally { fs.rmSync(file, { force: true }); }
+});
+
+test('#7152 review 6: an idle agent the real board lists, on an account running out, is found movable through the real route', async (t) => {
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.test' } }));
+  const spare = path.join(home, '.claude-spare');
+  fs.mkdirSync(spare, { recursive: true });
+  fs.writeFileSync(path.join(spare, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'other@example.test' } }));
+  /* Review 9: the spare account shares the default's memory (its projects link), so the route has a row it marks true. */
+  fs.mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
+  try { fs.symlinkSync(path.join(home, '.claude', 'projects'), path.join(spare, 'projects')); } catch { /* already linked by an earlier test */ }
+  const weekly = (dir, usedPct) => fs.writeFileSync(path.join(dir, statusline.FILE),
+    JSON.stringify({ usedPct, resetsAt: Math.floor((Date.now() + 40 * 3600e3) / 1000), at: Date.now() - 60e3, history: [] }));
+  weekly(path.join(home, '.claude'), 95);
+  weekly(spare, 10);
+  /* One agent, built by the real producers (test-support/fleet), on the default account by its launch job. */
+  const pp = jobfix.jobPath('ada');
+  fs.mkdirSync(path.dirname(pp), { recursive: true });
+  fs.writeFileSync(pp, jobfix.jobFor('ada', '/bin/claude', '/bin/tmux', 'opus', null, 'claude'));
+  const read = async (state) => {
+    const board = fleet.install([fleet.agent('ada', { state })], { strict: false });
+    try { return (await call('GET', '/api/accounts?agents=1')).json; } finally { board.restore(); }
+  };
+  const idle = await read('idle');
+  const row = (idle.accounts || []).find((a) => a.provider === 'anthropic' && a.isDefault);
+  assert.ok(row && row.agentsHere && row.agentsHere.names.includes('ada'), 'CONTROL: the board lists ada on the default account: ' + JSON.stringify(row && row.agentsHere));
+  const ab = idle.autobalance;
+  assert.equal(ab.unreadable, undefined, 'the decision failed through the real route');
+  assert.deepEqual(ab.atRisk.map((x) => x.from), [path.join(home, '.claude')]);
+  /* `held` is filled only when the account has MOVABLE agents and no target, so it proves the real roster card went
+     through movableFor (idle, commitments free, no open work) and decide. No target here: the spare account shares
+     memory, so the page's bulk move may offer it (bulkTargetable true), but nothing has checked its login yet
+     (unchecked), and an automatic move needs a positively signed-in one. */
+  assert.deepEqual(ab.held.map((h) => h.from), [path.join(home, '.claude')],
+    'an idle agent the real board lists was not found movable (moves ' + JSON.stringify(ab.moves) + ', held ' + JSON.stringify(ab.held) + ')');
+  const spareRow = (idle.accounts || []).find((a) => a.dir === spare);
+  assert.ok(spareRow && spareRow.weekly && spareRow.weekly.usedPct === 10, 'CONTROL: the spare account is measured at 10%');
+  assert.equal(spareRow.memoryShared, true, 'CONTROL: the spare account shares the default\'s memory');
+  assert.equal(spareRow.bulkTargetable, true, 'the route did not mark a row the bulk move may take as true');
+  assert.equal(spareRow.connection.badge, 'unchecked', 'CONTROL: its login is unchecked, which is why the automatic move holds');
+  const busy = (await read('working')).autobalance;
+  assert.deepEqual(busy.held, [], 'CONTROL: a working agent is not found movable');
+  assert.deepEqual(busy.moves, []);
+  assert.deepEqual(busy.atRisk.map((x) => x.from), [path.join(home, '.claude')], 'CONTROL: the account is still named as running out');
+  fs.rmSync(pp, { force: true });
+});

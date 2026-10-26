@@ -32,7 +32,10 @@ const H = 3600e3, now = Date.now();
 const conn = { state: 'connected', badge: 'working', checkedLive: true, because: 'a real request succeeded', observedAt: now - 9000, observedAgeMs: 9000 };
 const claude = (email, dir, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir: '/home/.claude-' + dir,
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn, ...extra });
-const ACCOUNTS = [
+/* kosmos#7152 slice 2: /api/accounts now sends each Claude row's bulkTargetable, from the engine's own rule; the
+   fixtures carry what the route would send, computed by that same function, not a hand-set value. */
+const withTarget = (rows) => rows.map((r) => ({ ...r, bulkTargetable: require('../../engine/autobalance').bulkTargetable(r, now) }));
+const ACCOUNTS = withTarget([
   claude('busy@example.com', 'busy', { weekly: { usedPct: 82, resetsAt: now + 50 * H, at: now - 2 * H }, agentsHere: { names: ['s-dana', 's-eli', 's-guide'], complete: true } }),
   claude('stale@example.com', 'stale', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-st1', 's-st2'], complete: true } }),
   claude('nocheck@example.com', 'nocheck', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-nc'], complete: true } }),
@@ -66,7 +69,11 @@ const ACCOUNTS = [
   // #6570: a reading whose week reset while the list was open (the board drops one at its next read): not drawn as current.
   claude('lastweek@example.com', 'lastweek', { weekly: { usedPct: 100, resetsAt: now - H, at: now - 50 * H }, agentsHere: { names: [], complete: true } }),
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
-];
+]);
+/* kosmos#7152 review 9: the "gone full since the menu was drawn" row, as the route would then send it, worked out by
+   the engine's own rule rather than set by hand. */
+const GONE_FULL = (() => { const g = ACCOUNTS.find((a) => a.dir === '/home/.claude-gone');
+  return require('../../engine/autobalance').bulkTargetable({ ...g, weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now } }, now); })();
 const AGENTS = [{ sessionName: 's-ari', name: 'Ari', state: 'working' }, { sessionName: 's-bo', name: 'Bo', state: 'working' }, { sessionName: 's-dana', name: 'Dana', state: 'working' }, { sessionName: 's-eli', name: 'Eli', state: 'working' }, { sessionName: 's-x', name: 'x<b>y', state: 'working' },
   { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-q', name: 'Quinn', state: 'working' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-z2', name: 'Zoe', state: 'stopped' }, { sessionName: 's-z3', name: 'Zia', state: 'stopped' }, { sessionName: 's-z4', name: 'Zak', state: 'stopped' }, { sessionName: 's-q2', name: 'Quill', state: 'working' }, { sessionName: 's-p', name: 'Pia', state: 'working' }, { sessionName: 's-r1', name: 'Rex', state: 'working' }, { sessionName: 's-r2', name: 'Rio', state: 'working' }, { sessionName: 's-slow', name: 'Sol', state: 'working' }];
 
@@ -85,7 +92,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
          reports each as "... due to access control checks". Those are this harness, not the change; any other error counts. */
       const errs = []; page.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) errs.push(e.message); });
       await page.goto('file://' + PAGE);
-      const r = await page.evaluate(async ({ accounts, agents }) => {
+      const r = await page.evaluate(async ({ accounts, agents, goneFull }) => {
         const posts = [];
         /* The stub behaves like the engine: a 'changed' move takes the agent off its account in the next list. s-p
            comes back 'partial' (saved, restart pending); s-r1 and s-r2 are refused with the same reason. */
@@ -240,7 +247,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const ncMove = await runMove('nocheck@example.com', '/home/.claude-spare', 0, true);
         if (ncMove) ncMove.msg = msgOf('/home/.claude-nocheck');
         /* The account picked went full since the menu was drawn: nothing moves, and the row says why. */
-        window.__acctPatch = { '/home/.claude-gone': { weekly: { usedPct: 100, resetsAt: Date.now() + 50 * 3600e3, at: Date.now() } } };
+        window.__acctPatch = { '/home/.claude-gone': { weekly: { usedPct: 100, resetsAt: Date.now() + 50 * 3600e3, at: Date.now() }, bulkTargetable: goneFull } };   // kosmos#7152: full now, as the route (engine/autobalance.js) would then say
         const tgMove = await runMove('tgt@example.com', '/home/.claude-gone', 0, true);
         if (tgMove) tgMove.msg = msgOf('/home/.claude-tgt');
         window.__acctPatch = null; await paintAccounts();
@@ -265,7 +272,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
         return { contrast, incMove, warmstop, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, lastweek, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
-      }, { accounts: ACCOUNTS, agents: AGENTS });
+      }, { accounts: ACCOUNTS, agents: AGENTS, goneFull: GONE_FULL });
       /* #6175: the page stays open for the set-up step below; it is closed after it (and here, on an error). */
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
       const { busy, fresh, calm, key, old, def, guideonly, full, sleepy } = r.before;

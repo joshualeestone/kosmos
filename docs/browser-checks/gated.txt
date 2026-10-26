@@ -32,6 +32,7 @@ render-apptabs-6846
 render-assigner-live-3595
 render-assistant-bubble-3034
 render-assistant-hosted-3660
+render-autobalance-7152
 render-autohello-2686
 render-autohello-switch-2716
 render-avatar-4038
