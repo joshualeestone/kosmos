@@ -33497,40 +33497,47 @@ document.addEventListener('keydown', (e) => {
    each Sign in again). A trap rather than an inert page, on purpose: first run, its first screen and the restart
    screen each keep their own inert set, and an inert set added here would have to be kept from undoing theirs or
    being undone by them. A trap sets nothing, so there is nothing to give back. Keydown only, never a focusin pull:
-   first run already pulls stray focus to its heading, and two pulls would fight. Built as the first-run trap is
-   (#6616): the Sign in again ask is a stop in the cycle when it shows, the last one, so it stays reachable. */
+   first run already pulls stray focus to its heading, and two pulls would fight. As in the first-run trap (#6616),
+   the Sign in again ask is the last stop when it shows, so it stays reachable.
+   Every Tab is moved here, not only at the ends: WebKit's default Tab skips buttons (the Mac app is a WKWebView), so
+   between the ends it would leave the dialog for a field behind it; and the ask sits far from the dialog in the
+   page, so a default step from either one lands on the board between them. */
+function acctAddInert(el) {
+  // The property, not only the attribute: where `inert` is not implemented, first run's `el.inert = true` sets only it.
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) if (n.inert === true || n.hasAttribute('inert')) return true;
+  return false;
+}
 function acctAddTabStops() {
   const dlg = document.getElementById('acct-add-dialog');
   const ask = document.getElementById('stepup-ask');
   const sel = 'button, [href], input, select, textarea, [tabindex]';
   return Array.from(dlg.querySelectorAll(sel))
     .concat(ask && !ask.hidden ? Array.from(ask.querySelectorAll('button')) : [])
-    .filter((el) => el.tabIndex >= 0 && !el.disabled && !el.closest('[hidden]') && !el.closest('[inert]') && el.getClientRects().length);
+    .filter((el) => el.tabIndex >= 0 && !el.disabled && !el.closest('[hidden]') && el.getClientRects().length
+      && getComputedStyle(el).visibility !== 'hidden' && !acctAddInert(el));
 }
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Tab' || e.altKey || e.ctrlKey || e.metaKey) return;
+  // Another dialog's trap above this one has already moved focus for this press (the update confirm): leave it.
+  if (e.key !== 'Tab' || e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented) return;
   const modal = document.getElementById('acct-add-modal');
-  // Not open, or under another screen that made it inert (the restart screen): that screen owns the keyboard.
-  if (modal.hidden || modal.closest('[inert]')) return;
+  // Not open, or under another screen that made it inert (first run, the restart screen): that screen owns the keyboard.
+  if (modal.hidden || acctAddInert(modal)) return;
   const stops = acctAddTabStops();
+  e.preventDefault();
   if (!stops.length) return;
-  const first = stops[0];
-  const last = stops[stops.length - 1];
   const at = document.activeElement;
-  // Focus behind the dialog (Sign in again for OpenAI opens without moving it): the next Tab goes in, not further out.
+  const n = stops.length;
+  const i = stops.indexOf(at);
+  if (i !== -1) { stops[(i + (e.shiftKey ? -1 : 1) + n) % n].focus(); return; }
+  // Focus behind the dialog (Sign in again for OpenAI opens without moving it): the next Tab goes in at an end.
   // Focus on something in it that is not a stop (the note a failed start focuses): on to the next stop in that
-  // direction, wrapping, so the step past the last stop cannot leave either.
-  if (!stops.includes(at)) {
-    e.preventDefault();
-    if (!modal.contains(at)) { (e.shiftKey ? last : first).focus(); return; }
-    const ahead = e.shiftKey
-      ? stops.filter((el) => el.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_FOLLOWING).pop()
-      : stops.find((el) => el.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_PRECEDING);
-    (ahead || (e.shiftKey ? last : first)).focus();
-    return;
-  }
-  if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
-  else if (e.shiftKey && at === first) { e.preventDefault(); last.focus(); }
+  // direction, in page order, wrapping.
+  const ask = document.getElementById('stepup-ask');
+  if (!modal.contains(at) && !(ask && ask.contains(at))) { stops[e.shiftKey ? n - 1 : 0].focus(); return; }
+  const ahead = e.shiftKey
+    ? stops.filter((el) => el.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_FOLLOWING).pop()
+    : stops.find((el) => el.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_PRECEDING);
+  (ahead || stops[e.shiftKey ? n - 1 : 0]).focus();
 });
 document.getElementById('acct-openai-show').addEventListener('click', () => {
   const key = document.getElementById('acct-openai-key');
