@@ -111,6 +111,16 @@ test('#6726 review 3: under the Windows path rules, reply refuses a path with no
   const rel = await run(['reply', '--file', 'Files\\notes.md', 'x'], kept, undefined, { ...win, cwd: () => 'C:\\Users\\a\\' });
   assert.equal(rel.code, 0, rel.err);
   assert.equal(replies(rel)[0].body.file, 'C:\\Users\\a\\Files\\notes.md');
+  /* Review 7: a path the drive rules refuse but that carries an escape sequence is refused for the control character
+     first, so the refusal never echoes it to the terminal. */
+  const esc = await run(['reply', '--file', 'C:foo\u001b[2J.txt', 'x'], kept, undefined, win);
+  assert.equal(esc.code, 2, esc.err);
+  assert.match(esc.err, /control character in it, so it cannot be attached/);
+  assert.ok(!esc.err.includes('\u001b'), 'the escape sequence reached the terminal');
+  /* And a folder carrying one is shown with it replaced. */
+  const escDir = await run(['reply', '--file', 'Files\\x.txt', 'x'], kept, undefined, { ...win, cwd: () => '\\\\host\\s\u001b[2J' });
+  assert.equal(escDir.code, 2, escDir.err);
+  assert.ok(!escDir.err.includes('\u001b'), 'the folder\'s escape sequence reached the terminal');
   /* Review 6: a relative path from a folder that is not on a drive is refused, and the refusal names that folder. */
   const share = await run(['reply', '--file', 'Files\\notes.md', 'x'], kept, undefined, { ...win, cwd: () => '\\\\host\\share\\w' });
   assert.equal(share.code, 2, share.err);
