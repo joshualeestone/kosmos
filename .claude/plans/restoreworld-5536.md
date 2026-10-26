@@ -104,6 +104,13 @@ no profile record, and STARTS the agent: enable then bootstrap).
    "hidden again" sentence is now true on both paths; a lone .DS_Store in an empty target no longer blocks finish.
    Deferred: finish and keptIn read the restore folder unbounded (the restore wrote every entry first).
 
+12. W: an @ before a path after a letter or a dot went unseen (now any @ before /, ./, ../ or ~/ counts); the listing
+   followed a restore folder swapped for a link (now checked); the .DS_Store removal could follow a swapped target
+   (re-checked first, no test: a race); a failed move called a link in the target's place "could not be put back"
+   (now said as it is, no test: a race); leftover folders taking every name read as "already 9 restored" (now said).
+   Deferred: other providers' instruction names (QWEN.md and the like; the contract already says an empty `runs` is
+   not safe and 4a shows every file); the nine-name pool (#7181).
+
 ## Residuals, stated
 - Git discovery walks above the workers folder into the world folder and its base. Both are made by Kosmos and the
   world folder is checked fresh when created; nothing re-checks them after the move.

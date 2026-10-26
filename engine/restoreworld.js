@@ -95,7 +95,7 @@ function prepareRestoreWorld(base, opts = {}) {
   const create = opts.createWorld || worlds.createWorld;
   const hide = opts.hideWorld || worlds.hideWorld;
   if (typeof base !== 'string' || !path.isAbsolute(base)) return { ok: false, because: 'the restore was asked without a place for its Kosmos' };
-  let world = null;
+  let world = null, leftovers = 0;
   for (let n = 1; n <= MAX_NAME_TRIES && !world; n++) {
     const name = worldName(opts.member, opts.now, n);
     try { world = create(base, name); } catch (e) {
@@ -112,8 +112,10 @@ function prepareRestoreWorld(base, opts = {}) {
         return { ok: false, because: `a Kosmos folder already on this computer under that name could not be set aside, so "${world.name}" is on your list holding files from before this restore; hide it before you open it` };
       }
       world = null;
+      leftovers += 1;
     }
   }
+  if (!world && leftovers) return { ok: false, because: `Kosmos folders already on this computer took ${leftovers} of the ${MAX_NAME_TRIES} names tried, so no restored Kosmos could be made today` };
   if (!world) return { ok: false, because: `there are already ${MAX_NAME_TRIES} restored Kosmoses for this member today; hide one and try again` };
   const dir = worlds.worldBaseDir(base, world);
   const restoreDir = path.join(dir, RESTORE_DIR);
@@ -208,16 +210,21 @@ function finishRestoreWorld(opts = {}) {
   const moved = [];
   for (const { name, src, dst } of plan) {
     try {
+      if (!realDir(dst)) throw Object.assign(new Error('the target changed'), { code: 'ECHANGED' });
       for (const n of HARMLESS) { try { fs.unlinkSync(path.join(dst, n)); } catch { /* absent */ } }
       fs.rmdirSync(dst);
       renameRetrying(src, dst);
       moved.push(name);
     } catch (e) {
-      let back = true;
-      try { if (!realDir(dst)) fs.mkdirSync(dst); } catch { back = false; }
+      let back = 'ok';
+      let there = true;
+      try { fs.lstatSync(dst); } catch { there = false; }
+      if (!there) { try { fs.mkdirSync(dst); } catch { back = 'failed'; } } else if (!realDir(dst)) back = 'other';
       const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
+      const after = back === 'failed' ? `, and its empty ${name} folder could not be put back`
+        : back === 'other' ? `, and something other than a folder is now where its ${name} folder was` : '';
       return { ok: false, moved, kept: keptIn(restoreDir), failedFiles, fetchProblems,
-        because: `the restored ${name} could not be moved into the new Kosmos${code}${back ? '' : `, and its empty ${name} folder could not be put back`}` };
+        because: `the restored ${name} could not be moved into the new Kosmos${code}${after}` };
     }
   }
   return { ok: true, moved, kept: keptIn(restoreDir), failedFiles, fetchProblems };
@@ -305,7 +312,8 @@ function runsIn(folder, budget) {
     // UTF-16 (a byte-order mark, or NUL bytes) cannot be checked as text here; a provider may still read it.
     if (head.includes(0) || (head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff)) out.push(`${brief} (not plain text, so not checked)`);
     // An @ that starts a word, after a space, a line start or punctuation; not inside an address (a@b) or a word.
-    else if (/(^|[^\p{L}\p{N}_@.])@[^\s@]/u.test(head.toString('utf8'))) out.push(`${brief} imports`);
+    // Or any @ before a path (/, ./, ../, ~/) whatever comes before it, since providers differ on what may precede one.
+    else if (/(^|[^\p{L}\p{N}_@.])@[^\s@]|@(\.{1,2}\/|~\/|\/)/u.test(head.toString('utf8'))) out.push(`${brief} imports`);
     if (bytes.length > MAX_BRIEF_BYTES) out.push(`${brief} (too large to check in full)`);
   }
   return out;
@@ -398,7 +406,7 @@ function listRestoredAgents(opts = {}) {
   if (isGit(projectsTop)) projectsTop.push(GIT_WHY);
   if (projectsTop.length) shared.push({ where: 'projects', label: '(the projects folder itself)', runs: projectsTop });
   scan(roots.AGENT_WORKFORCE_WORKERS, 'workers', workersNames);
-  if (listable && opts.restoreDir === path.join(worldDir, RESTORE_DIR)) {
+  if (listable && opts.restoreDir === path.join(worldDir, RESTORE_DIR) && realDir(opts.restoreDir)) {
     const agentsDir = path.join(opts.restoreDir, 'agents');
     scan(agentsDir, 'elsewhere', entriesOf(agentsDir));
   }
