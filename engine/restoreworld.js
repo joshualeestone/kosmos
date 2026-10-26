@@ -28,7 +28,8 @@ const store = require('./store');
 const worlds = require('./worlds');
 const { TEMP_PREFIX } = require('./restoresink');
 
-const RESTORE_DIR = 'restored';                  // inside the world folder; what was not moved stays here, and is shown
+const RESTORE_DIR = 'restored';
+const HELD = 'held-back';                         // inside the restore folder: tops of workers and projects not moved                  // inside the world folder; what was not moved stays here, and is shown
 const MOVED = ['workers', 'projects'];           // the roots that become the world's own
 const MAX_NAME_TRIES = 9;
 const MAX_MEMBER_CHARS = 60;
@@ -159,34 +160,43 @@ function renameRetrying(src, dst) {
 }
 
 /* After a restore that SUCCEEDED, and after its sink is closed. opts: { base, world, restoreDir, result } where
-   `result` is engine/restorerun.js runRestore's answer, which must be ok. { ok, moved: [name], kept: [label],
-   failedFiles, fetchProblems, because? }: `failedFiles` counts the files runRestore listed as failed (it answers ok
-   with some failed, since one damaged file does not fail the rest), and `fetchProblems` carries its reasons why some
-   were not fetched, for the screen to say. Every check runs before anything
-   moves, so a refusal moves nothing; only a rename failing part way leaves one root moved, and `moved` says which. */
+   `result` is engine/restorerun.js runRestore's answer, which must be ok.
+   { ok, moved: [name], kept: [label], heldBack: [label], failedFiles, fetchProblems, because? }, the same shape on
+   every path. `failedFiles` counts the files runRestore listed as failed (it answers ok with some failed, since one
+   damaged file does not fail the rest), and `fetchProblems` carries its reasons why some were not fetched.
+   Only plain-named folders at the top of each root become the world's: everything else there (dot-entries, HEAD,
+   files, links) is held back in `restored/held-back/<root>/` and named in `heldBack`, because the top of workers or
+   projects is above every agent and project the person makes in this world later, where nothing reviews it.
+   Every check runs before anything moves, so a refusal moves nothing; a failure part way says what moved, and
+   finishing again carries on. */
 function finishRestoreWorld(opts = {}) {
   const { base, world, restoreDir } = opts;
+  let moved = [], failedFiles = 0, fetchProblems = [];
+  const answer = (ok, because) => Object.assign({ ok, moved, kept: keptIn(restoreDir, base, world), heldBack: heldIn(restoreDir, base, world), failedFiles, fetchProblems }, because ? { because } : {});
+  const refuse = (because) => ({ ok: false, moved: [], kept: [], heldBack: [], failedFiles: 0, fetchProblems: [], because });
   const dir = worldDirOf(base, world);
-  if (!dir || !realDir(dir)) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
-  if (!opts.result || opts.result.ok !== true) return { ok: false, moved: [], kept: [], because: 'the restore did not succeed, so its files stay where it can continue' };
-  if (!onTheList(base, world.id)) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
+  if (!dir || !realDir(dir)) return refuse('the restore did not name its Kosmos');
+  if (!opts.result || opts.result.ok !== true) return refuse('the restore did not succeed, so its files stay where it can continue');
+  if (!onTheList(base, world.id)) return refuse('the restore did not name its Kosmos');
   const inner = opts.result.result;
   const notListed = inner && Number.isSafeInteger(inner.failedNotListed) && inner.failedNotListed > 0 ? inner.failedNotListed : 0;
-  const failedFiles = (inner && Array.isArray(inner.failed) ? inner.failed.length : 0) + notListed;
+  failedFiles = (inner && Array.isArray(inner.failed) ? inner.failed.length : 0) + notListed;
   // Why files were not fetched (a grant refused part way, files under an earlier key), for the screen beside the count.
-  const fetchProblems = (Array.isArray(opts.result.fetchProblems) ? opts.result.fetchProblems : [])
+  fetchProblems = (Array.isArray(opts.result.fetchProblems) ? opts.result.fetchProblems : [])
     .filter((x) => typeof x === 'string').slice(0, 20).map((x) => cleanText(x, 300, '')).filter(Boolean);
-  if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) {
-    return { ok: false, moved: [], kept: [], because: 'the restore folder is not the one made for this Kosmos' };
-  }
+  if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) return refuse('the restore folder is not the one made for this Kosmos');
   // A stopped restore keeps its record, an open sink holds its lock, and a crashed one leaves its temp folder: any of
   // the sink's own entries means the restore is not finished, and it continues in this folder (slice 3).
   let names;
   try { names = fs.readdirSync(restoreDir); } catch { names = null; }
-  if (!names) return { ok: false, moved: [], kept: [], because: 'the restore folder could not be read' };
+  if (!names) return refuse('the restore folder could not be read');
   if (names.some((n) => n.toLowerCase().startsWith(TEMP_PREFIX))) {   // folded, as the sink reserves them
-    return { ok: false, moved: [], kept: [], because: 'this restore has not finished, so its files stay where it can continue' };
+    return refuse('this restore has not finished, so its files stay where it can continue');
   }
+  const held = path.join(restoreDir, HELD);
+  let heldSt = null;
+  try { heldSt = fs.lstatSync(held); } catch { /* not made yet */ }
+  if (heldSt && !heldSt.isDirectory()) return refuse('the restore folder holds something where held-back files would go');
   const roots = worlds.envOverridesFor(base, world);
   const target = { workers: roots.AGENT_WORKFORCE_WORKERS, projects: roots.AGENT_WORKFORCE_PROJECTS };
   const plan = [];
@@ -195,20 +205,32 @@ function finishRestoreWorld(opts = {}) {
     let st = null;
     try { st = fs.lstatSync(src); } catch (e) {
       if (e && e.code === 'ENOENT') continue;   // a snapshot without projects has nothing to move
-      return { ok: false, moved: [], kept: [], because: `the restored ${name} could not be checked` };
+      return refuse(`the restored ${name} could not be checked`);
     }
-    if (!st.isDirectory()) return { ok: false, moved: [], kept: [], because: `the restored ${name} is not a folder` };
+    if (!st.isDirectory()) return refuse(`the restored ${name} is not a folder`);
     const dst = target[name];
-    if (!realDir(dst)) return { ok: false, moved: [], kept: [], because: `the new Kosmos has no ${name} folder to receive it` };
+    if (!realDir(dst)) return refuse(`the new Kosmos has no ${name} folder to receive it`);
     let inside;
     try { inside = fs.readdirSync(dst).filter((n) => !HARMLESS.has(n)); } catch { inside = null; }   // Finder's own file does not count
-    if (!inside || inside.length) return { ok: false, moved: [], kept: [], because: `the new Kosmos already has files in its ${name} folder` };
-    plan.push({ name, src, dst });
+    if (!inside || inside.length) return refuse(`the new Kosmos already has files in its ${name} folder`);
+    let top;
+    try { top = fs.readdirSync(src); } catch { return refuse(`the restored ${name} could not be read`); }
+    const hold = top.filter((n) => !plainFolder(src, n));
+    for (const n of hold) {
+      try { fs.lstatSync(path.join(held, name, n)); return refuse(`held-back files from an earlier try are in the way of ${name}/${labelOf(n)}`); } catch { /* free */ }
+    }
+    plan.push({ name, src, dst, hold });
   }
-  // Between the checks and the rename only this user's own processes can change these folders (the sink assumes the
+  // Between the checks and the renames only this user's own processes can change these folders (the sink assumes the
   // same: the restore folder is private to the person).
-  const moved = [];
-  for (const { name, src, dst } of plan) {
+  for (const { name, src, dst, hold } of plan) {
+    try {
+      if (hold.length) fs.mkdirSync(path.join(held, name), { recursive: true, mode: 0o700 });
+      for (const n of hold) renameRetrying(path.join(src, n), path.join(held, name, n));
+    } catch (e) {
+      const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
+      return answer(false, `the top of the restored ${name} could not be set aside${code}`);
+    }
     try {
       if (!realDir(dst)) throw Object.assign(new Error('the target changed'), { code: 'ECHANGED' });
       for (const n of HARMLESS) { try { fs.unlinkSync(path.join(dst, n)); } catch { /* absent */ } }
@@ -223,14 +245,35 @@ function finishRestoreWorld(opts = {}) {
       const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
       const after = back === 'failed' ? `, and its empty ${name} folder could not be put back`
         : back === 'other' ? `, and something other than a folder is now where its ${name} folder was` : '';
-      return { ok: false, moved, kept: keptIn(restoreDir), failedFiles, fetchProblems,
-        because: `the restored ${name} could not be moved into the new Kosmos${code}${after}` };
+      return answer(false, `the restored ${name} could not be moved into the new Kosmos${code}${after}`);
     }
   }
-  return { ok: true, moved, kept: keptIn(restoreDir), failedFiles, fetchProblems };
+  return answer(true);
 }
 
-function keptIn(restoreDir) {
+/* A plain-named folder at the top of a root: what becomes the world's. Not a dot-entry, not HEAD (git), not a file,
+   not a link. */
+function plainFolder(parent, n) {
+  if (n.startsWith('.') || n.toLowerCase() === 'head') return false;
+  try { const st = fs.lstatSync(path.join(parent, n)); return st.isDirectory() && !st.isSymbolicLink(); } catch { return false; }
+}
+
+/* What was held back, as `<root>/<label>`, for the screen. */
+function heldIn(restoreDir, base, world) {
+  const dir = worldDirOf(base, world);
+  if (!dir || restoreDir !== path.join(dir, RESTORE_DIR)) return [];
+  const out = [];
+  for (const name of MOVED) {
+    let names = [];
+    try { names = fs.readdirSync(path.join(restoreDir, HELD, name)); } catch { continue; }
+    for (const n of names.sort()) out.push(`${name}/${labelOf(n)}`);
+  }
+  return out;
+}
+
+function keptIn(restoreDir, base, world) {
+  const dir = worldDirOf(base, world);
+  if (!dir || restoreDir !== path.join(dir, RESTORE_DIR)) return [];
   let names = [];
   try { names = fs.readdirSync(restoreDir); } catch { return []; }
   return names.sort().map((n) => cleanText(n, MAX_MEMBER_CHARS, '(a name that cannot be shown)'));
@@ -337,11 +380,14 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    (projects are usually repositories; one at the top reaches every project without its own); one in an agent folder
    or at the top of workers refuses. A backup can force `more` with enough empty folders, so the screen should let the
    person review past the cap rather than stop. Nothing is registered, started or written.
+   A world not on the list (no registry row, hidden, or its folder swapped for a link) answers with no rows and a
+   `because`, so a refusal cannot read as an empty restore.
    opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL (tests). */
 function listRestoredAgents(opts = {}) {
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
   const worldDir = worldDirOf(opts.base, opts.world);
   const listable = worldDir && realDir(worldDir) && onTheList(opts.base, opts.world.id);
+  if (!listable) return { agents: [], shared: [], more: false, because: 'this is not a Kosmos on your list, so nothing in it is offered' };
   const roots = listable ? worlds.envOverridesFor(opts.base, opts.world) : {};
   const budget = { left: Number.isSafeInteger(opts.briefTotal) && opts.briefTotal >= 0 ? Math.min(opts.briefTotal, MAX_BRIEF_TOTAL) : MAX_BRIEF_TOTAL };
   const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;
@@ -351,11 +397,10 @@ function listRestoredAgents(opts = {}) {
   const entriesOf = (parent) => {
     if (!parent || !realDir(parent)) return [];
     const listed = namesIn(parent, MAX_ENTRIES_READ);
-    if (!listed) return [];
+    if (!listed) { more = true; return []; }   // a folder that cannot be read leaves the list incomplete
     if (listed.cut) more = true;
     return listed.names;
   };
-  const gitRow = (n) => (n.toLowerCase() === GIT ? [GIT] : []);
   const isTopFolder = (parent, n) => {
     if (n.startsWith('.')) return false;
     try { const st = fs.lstatSync(path.join(parent, n)); return st.isDirectory() || st.isSymbolicLink(); } catch { return false; }
@@ -374,8 +419,8 @@ function listRestoredAgents(opts = {}) {
       const at = path.join(parent, folder);
       const label = labelOf(folder);
       if (from === 'workers' && !isTopFolder(parent, folder)) {
-        if (HARMLESS.has(folder)) continue;
-        shared.push({ where: 'workers', label, runs: gitRow(folder) });
+        if (folder.startsWith('.')) continue;   // named in the "(the workers folder itself)" row
+        shared.push({ where: 'workers', label, runs: [] });
         continue;
       }
       let st;
@@ -411,8 +456,8 @@ function listRestoredAgents(opts = {}) {
     scan(agentsDir, 'elsewhere', entriesOf(agentsDir));
   }
   for (const n of entriesOf(pr)) {
-    if (full() || HARMLESS.has(n)) continue;
-    if (!isTopFolder(pr, n)) { shared.push({ where: 'projects', label: labelOf(n), runs: gitRow(n) }); continue; }
+    if (full() || n.startsWith('.')) continue;   // dot-entries are named in the "(the projects folder itself)" row
+    if (!isTopFolder(pr, n)) { shared.push({ where: 'projects', label: labelOf(n), runs: [] }); continue; }
     const runs = realDir(path.join(pr, n)) ? runsIn(path.join(pr, n), budget) : ['it is a link'];
     if (runs.includes(CUT)) more = true;
     if (isGit(runs)) runs.push(GIT_WHY);

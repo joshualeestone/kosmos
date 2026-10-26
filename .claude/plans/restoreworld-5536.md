@@ -9,17 +9,20 @@ no profile record, and STARTS the agent: enable then bootstrap).
     " (2)" to " (9)" when the id is taken (hidden worlds included, read from the registry), then a new, empty folder
     `restored` (0700) inside the world folder for engine/restoresink.js. If that folder cannot be made the world is
     hidden again and the call says so.
-  - `finishRestoreWorld({ base, world, restoreDir, result })`: only after a restore that succeeded (runRestore's
-    `result.ok === true`, refused otherwise) and after its sink is closed. Refuses while the restore folder holds any of the sink's own entries (its record after a stop, its lock
-    while open, its temp folder after a crash): that restore continues where it is (slice 3). Moves `restored/workers` and `restored/projects` into the world's own folders (as `worlds.envOverridesFor`
-    names them) by rmdir of the empty target plus rename. Every check runs before anything moves. Only the folder
-    prepareRestoreWorld made is accepted. Returns what stayed (agents and projects kept elsewhere, transcripts), never
-    the sink's record or lock.
+  - `finishRestoreWorld({ base, world, restoreDir, result })`: only after runRestore answered ok and the sink is
+    closed, into a world on the list (registry row, not hidden), from the exact `restored` folder, with none of the
+    sink's own entries left (record, lock, temp folder). At the top of each root only plain-named folders move; dot
+    entries, HEAD, files and links are held back in `restored/held-back/<root>/` and named in `heldBack`, since the
+    top of workers or projects sits above every agent and project made in this world later. Each root then moves by
+    one rename into the world's empty folder. Every check runs before anything moves; one answer shape on every path,
+    with `failedFiles` and `fetchProblems` from the restore.
   - `listRestoredAgents({ base, world, restoreDir })`: each folder in the world's workers and in `restored/agents`,
-    with a `because` when it cannot be enabled (a link, which is not opened; a folder name create.js cannot start; no
-    instructions file; kept outside the workers folder; a git folder, matched in any case), and `runs`: every
-    dot-entry at the top of the folder except .DS_Store, CLAUDE.local.md, opencode.json, linked briefs, briefs that
-    are not plain text, and `@` imports, for the screen to show and have acknowledged before any enable. Registers, starts and writes nothing.
+    with a `because` when it cannot be enabled (a link; a folder name create.js cannot start; no instructions file; a
+    git repository, a .git or a HEAD, in it or at the top of workers; a folder it could not read or read in full) and
+    `runs` (dot-entries, CLAUDE.local.md and opencode files, git, linked or non-text briefs, `@` imports, in every brief
+    including AGENTS.override.md). `shared` carries the tops of workers and projects and any project with `runs`.
+    `more` says the list is incomplete. A world not on the list answers with a `because`. Registers, starts and
+    writes nothing; reads are bounded per folder and in total.
 - The member's name loses control, format and bidi characters and is cut at 60 code points before it names a world.
 
 ## Rejected
@@ -110,6 +113,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    (now said as it is, no test: a race); leftover folders taking every name read as "already 9 restored" (now said).
    Deferred: other providers' instruction names (QWEN.md and the like; the contract already says an empty `runs` is
    not safe and 4a shows every file); the nine-name pool (#7181).
+
+13. B: finish moved the tops of the restored roots wholesale, so a hostile workers/.git, HEAD or CLAUDE.md sat above
+   every agent made in the world later, unreviewed: the tops are now held back (only plain-named folders move). W: a
+   refused listing read as an empty restore (now a `because`); an unreadable agents folder vanished silently (now
+   `more`). Nits: dot-entries no longer get a duplicate empty row; every finish answer has the same shape; this
+   section of the plan was brought up to date.
 
 ## Residuals, stated
 - Git discovery walks above the workers folder into the world folder and its base. Both are made by Kosmos and the
