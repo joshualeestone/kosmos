@@ -88,3 +88,13 @@ Accepted, not changed:
   refuses the agent's first request). No leak; the same behaviour every other launch secret has.
 - keyTail (the key's last four characters) is in /api/accounts, as for every other key account.
 - Proxies (HTTPS_PROXY) are left alone: a person's proxy is theirs to set.
+
+## Slice 1a review 2 (2026-10-26 14:1x)
+No blockers. FIXED, each red-checked by a mutant unless said: vendor lookups by the table's own keys (a file naming
+"constructor" took GET /api/accounts down for every provider; red); the reclaim renames the leftover aside, atomic with
+one winner (the race is not reproducible in a test; the test pins that nothing visible is left); a vendor launch whose
+key handoff cannot be built is refused (red); CLAUDE_CODE_SUBAGENT_MODEL set, ANTHROPIC_BETAS removed.
+Kept and untestable: list() builds each row inside a try. With own-key lookups nothing in rowFor throws today, so a
+mutant removing it survives; it stays as cheap defence for an endpoint every provider shares.
+Accepted: the launch's variable list is fixed, not derived from Claude Code's documentation; a lockstep test keeps the
+module and the supervisor in agreement, and the base URL is set explicitly whatever else is present.
