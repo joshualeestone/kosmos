@@ -66,3 +66,9 @@ seat concluded the file had changed.
   hex under a new label, which a reader comparing values sees; the rules' shasum line was written for pre-#6849
   marks and still holds for them; a rules change re-offers the section to every agent. Revisit if a report shows an
   agent misled by it. Mutations: bare-value fallback (1 red), PDF-only hex match (1 red), size reason (1 red).
+- Iteration 3 (sonnet): W1 a hand-typed sha256:<shasum> cannot be told from an older mark, so the fallback could call
+  a date-only edit a match as if it were the bytes -> FIXED in the words: a fallback match now says "matches the PDF
+  fingerprint, not the bytes: the bytes differ only in the PDF's own dates or ID" and how to check byte for byte (no
+  label). Kept exit 0: the fallback exists so an unchanged re-render does not read as changed. N2 success words for
+  a PDF with nothing left out -> FIXED. N3 re-open race only affects the reason text -> accepted. N4 task built
+  --file usage on Mac and Windows names both labels -> FIXED.

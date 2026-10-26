@@ -118,7 +118,7 @@ test('#7213 review 1: a mark sent before this (a normalized PDF hash labelled sh
   const old = fp.compare(at('cups-b.pdf'), 'sha256:' + fpHex);
   assert.equal(old.match, true, 'an older mark of the same render read as a changed file');
   assert.equal(old.kind, 'pdf-normalized');
-  assert.match(old.words, /^matches the PDF fingerprint .*which an older mark labelled sha256:$/);
+  assert.match(old.words, /^matches the PDF fingerprint, not the bytes: the bytes differ/, 'review 3: a fallback match must say the bytes differ');
   assert.equal(fp.compare(at('cups-changed.pdf'), 'sha256:' + fpHex).match, false, 'CONTROL: a changed PDF still differs from an older mark');
 });
 
@@ -134,7 +134,7 @@ test('#7213 review 1: a PDF whose dates are already empty matches a PDF fingerpr
     assert.equal(fp.fingerprint(emptied), 'sha256:' + want.slice('pdf-normalized:'.length), 'CONTROL: the emptied copy is labelled by its plain bytes');
     const c = fp.compare(emptied, want);
     assert.equal(c.match, true, 'the same hex read as differs because the label differed');
-    assert.match(c.words, /^matches the PDF fingerprint/);
+    assert.match(c.words, /^matches: this PDF's own bytes are that value/, 'review 3: nothing was left out, so it is not called a PDF fingerprint match');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -149,7 +149,9 @@ test('#7213 review 2: a bare shasum value is checked byte for byte; only a sha25
     const bare = fp.compare(edited, hex(orig));
     assert.equal(bare.match, false, 'a shasum check passed for different bytes');
     assert.match(bare.words, /^differs from the plain sha256/);
-    assert.equal(fp.compare(edited, 'sha256:' + hex(orig)).match, true, 'CONTROL: the labelled form is the older mark and still falls back');
+    const labelled = fp.compare(edited, 'sha256:' + hex(orig));
+    assert.equal(labelled.match, true, 'CONTROL: the labelled form is the older mark and still falls back');
+    assert.match(labelled.words, /not the bytes: the bytes differ/, 'review 3: it was called a match without saying the bytes differ');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
