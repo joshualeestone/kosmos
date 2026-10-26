@@ -308,7 +308,7 @@ test('a git folder in an agent makes it not offered; one at the top of workers b
   assert.deepEqual(l.shared, [
     { where: 'workers', label: '(the workers folder itself)', runs: ['CLAUDE.md imports'] },
     { where: 'workers', label: 'CLAUDE.md', runs: [] },
-    { where: 'projects', label: 'site', runs: ['.git', 'CLAUDE.md imports'] },
+    { where: 'projects', label: 'site', runs: ['.git', 'CLAUDE.md imports', 'git runs its settings here (hooks, fsmonitor) when an agent uses git in this folder'] },
   ], '.DS_Store is not listed and a plain project is not shared');
 
   put(w, '.git/config', '[core]\n');
@@ -352,12 +352,15 @@ test('git folders are matched in any case, and any provider folder, opencode.jso
   assert.match(by.grok.because, /workers folder holds a git folder/);
 });
 
-test('a leftover world folder that cannot be set aside stops the restore rather than staying on the list', (t) => {
+test('a leftover world folder that cannot be set aside stops the restore and names the world left on the list', (t) => {
   const base = fresh(t);
   fs.mkdirSync(path.join(base, worlds.WORLDS_SUBDIR, store.safeKey(rw.worldName('Ann', NOW)), 'workers', 'old'), { recursive: true });
   const r = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW, hideWorld: () => { throw new Error('locked'); } });
   assert.equal(r.ok, false);
   assert.match(r.because, /could not be set aside/);
+  const left = worlds.readRegistry(base).worlds.find((x) => x.name === `Restored: Ann, ${DAY}`);
+  assert.ok(left && !left.hiddenAt, 'the world is still on the list');
+  assert.ok(r.because.includes(`"Restored: Ann, ${DAY}"`), 'and the refusal names it, so the person can hide it');
 });
 
 test('finish and listing refuse a world folder swapped for a link', { skip: process.platform === 'win32' ? 'a directory symlink needs privileges on Windows' : false }, (t) => {
@@ -557,4 +560,31 @@ test('briefs past the listing\'s byte budget are named as not checked', (t) => {
   const by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk, briefTotal: 50 }).agents.map((a) => [a.folder, a]));
   assert.deepEqual(by.ann.runs, [], 'the first brief is read while budget is left');
   assert.deepEqual(by.bob.runs, ['CLAUDE.md (not checked: the listing has read as much as it may)']);
+});
+
+test('an agent folder that cannot be listed is refused, and git is still found in it', { skip: process.platform === 'win32' ? 'POSIX modes' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  const dirs = ['shut', 'shutgit'].map((n) => path.join(w, n));
+  for (const d of dirs) { fs.mkdirSync(d); fs.writeFileSync(path.join(d, 'CLAUDE.md'), '# shut\n'); }
+  fs.mkdirSync(path.join(dirs[1], '.git'));
+  for (const d of dirs) fs.chmodSync(d, 0o100);   // searchable, not listable: lstat inside works, opendir does not
+  let by;
+  try { by = Object.fromEntries(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((x) => [x.folder, x])); } finally { for (const d of dirs) fs.chmodSync(d, 0o755); }
+  assert.deepEqual(by.shut.runs, ['(the folder could not be read)']);
+  assert.match(by.shut.because, /could not be read/);
+  assert.ok(by.shutgit.runs.includes('.git'), 'git is asked by lstat even when the folder cannot be listed');
+  assert.match(by.shutgit.because, /git folder/);
+});
+
+test('a lone Finder file in the new world\'s empty folder does not stop finish', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  fs.writeFileSync(path.join(w, '.DS_Store'), '');
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  assert.ok(fs.existsSync(path.join(w, 'ann')));
 });
