@@ -81,3 +81,10 @@
    Not taken, measured: "the other-dialog arm passes with the stand-down deleted" is false; with it deleted the arm
    reds in both engines (focus pulled to the provider picker). Not taken: positive tabindex order (none in the
    dialog); the radio arm guards the every-radio-is-a-stop rule only, as its comment says.
+7. (default model) B: the key-step arms depended on Codex and Grok being installed where the check runs (a fresh CI
+   runner has neither, and a skipped click then crashed on a 30 s fill timeout, so no later arm ran); now stand-in
+   runners in the sandbox, and a missing step is a named FAIL (control: with the stand-ins pointed at missing files,
+   exactly the four key-step arms FAIL and every later arm still runs). W: the silent isVisible skip (now asserted).
+   W: Settings > AI Models, where the dialog is mostly opened from, was not a page in the check (now the third).
+   Nits taken: Ctrl+Tab and Cmd+Tab are proved left alone; the header lists every arm; the check's own stop list says
+   when it must widen to the trap's rules.
