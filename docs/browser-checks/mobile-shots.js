@@ -1482,10 +1482,6 @@ const SCREENS = [
       status: 200, contentType: 'application/json', body: JSON.stringify({ accounts }) }));
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#set-accounts .acct-box.acct-expiring', { state: 'visible', timeout: 12000 });
-    if (page.__landOnSoon) {   // settings-accounts-landed: arrive the way Refresh login does, ringing that row
-      await page.evaluate(() => loginAdvGo('/home/.claude-soon'));
-      await page.waitForSelector('#set-accounts .acct-box.acct-land', { state: 'visible', timeout: 5000 });
-    }
   } },
   /* #6176: AI Models with each Claude account's weekly AND five-hour readings: one with both (the second line under the
      first), one close to its five-hour limit, and one with only a weekly reading (the control). Only the account list
@@ -1531,10 +1527,27 @@ const SCREENS = [
     await SCREENS.find((s) => s.name === 'settings-add-qwen').go(page, data);
     await page.waitForSelector('#acct-qwen-local-bar', { state: 'visible', timeout: 8000 });
   } },
-  /* #5407 (Mona Lisa asked for one shot of it): the same list, arrived at from the notice's Refresh login. */
-  { name: 'settings-accounts-landed', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
-    page.__landOnSoon = true;
-    await SCREENS.find((s) => s.name === 'settings-accounts-expiring').go(page, data);
+  /* kosmos#7198 (Josh, 08:32): the login notice's Refresh login opens the Sign in again dialog right on the Agents page.
+     The notice comes from the board's own status poll with its login advisories replaced; the account list is stubbed
+     so the notice's folder is a listed account. example.com accounts only. */
+  { name: 'login-notice-signin-dialog', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
+    const adv = { agents: ['mona'], names: ['Mona'], daysLeft: 2, severity: 'warn', expired: false, service: 's-soon',
+      provider: 'Claude', email: 'soon@example.com', dir: '/home/.claude-soon' };
+    await page.route((u) => new URL(u).pathname === '/api/accounts', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ accounts: [{ provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'soon@example.com', label: 'soon@example.com',
+        dir: '/home/.claude-soon', organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
+        connection: { state: 'connected', badge: 'working', checkedLive: true, plan: null } }] }) }));
+    await page.route((u) => new URL(u).pathname === '/api/status', async (route) => {
+      try {
+        const res = await route.fetch(); const data = await res.json();
+        data.loginAdvisories = [adv];
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
+    });
+    await at(page, '?tab=agents');
+    await page.waitForSelector('#login-adv-slot button.login-adv-go', { state: 'visible', timeout: 12000 });
+    await page.click('#login-adv-slot button.login-adv-go');
+    await page.waitForSelector('#acct-add-modal:not([hidden])', { state: 'visible', timeout: 5000 });
   } },
   /* #4545: Settings > Automation with the Recommender ON, so its guards list shows, scrolled to
      that box. Turning it on is stored on this run's throwaway board (so asking twice is fine).
