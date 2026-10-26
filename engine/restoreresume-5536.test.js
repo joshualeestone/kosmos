@@ -396,13 +396,13 @@ test('#5536 slice 3 review 3: Finder and Explorer metadata in a half-restored fo
 test('#5536 slice 3 review 3: one recording sink per folder at a time; a lock left by a process that is gone is taken over', (t) => {
   const root = stoppedRoot(t);
   const first = createRestoreSink(root, { resume: true, snapshot: SNAP });
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running; wait for it to finish/);
   const o = first.begin('later.txt'); o.write(Buffer.from('still mine')); o.commit();   // the first sink was not disturbed
   first.close({ keepRecord: true });
   assert.equal(fs.existsSync(path.join(root, LOCK_NAME)), false, 'released at close');
   // Another process that is alive holds it (this one's parent stands in): refused, by name.
   fs.writeFileSync(path.join(root, LOCK_NAME), `${process.ppid}\n`, { mode: 0o600 });
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running; wait for it to finish/);
   // A crash: the lock names a process that has exited.
   const gone = spawnSync(process.execPath, ['-e', '0']).pid;
   fs.writeFileSync(path.join(root, LOCK_NAME), `${gone}\n`, { mode: 0o600 });
@@ -461,7 +461,7 @@ test('#5536 slice 3 review 4: a .DS_Store the backup held that Finder then rewro
 test('#5536 slice 3 review 4: a lock this process left open says so, and a lock that cannot be written does not stay behind', (t) => {
   const root = stoppedRoot(t);
   const open = createRestoreSink(root, { resume: true, snapshot: SNAP });
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running; wait for it to finish/);
   open.close({ keepRecord: true });
   // A lock of this thread whose token no open sink holds (a sink that was never closed and is gone): stale.
   const { threadId } = require('worker_threads');
@@ -469,7 +469,7 @@ test('#5536 slice 3 review 4: a lock this process left open says so, and a lock 
   createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
   // An empty lock (one caught before it was written, in the old scheme): busy while new, stale once old.
   fs.writeFileSync(path.join(root, LOCK_NAME), '', { mode: 0o600 });
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running; wait for it to finish/);
   const old = new Date(Date.now() - 60000);
   fs.utimesSync(path.join(root, LOCK_NAME), old, old);
   createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
@@ -502,7 +502,7 @@ test('#5536 slice 3 review 5: a pending lock a crash left is cleared, and close 
   createRestoreSink(root, { resume: true, snapshot: SNAP }).close();
 });
 
-test('#5536 slice 3 review 6: a lock a crash left with its pending second name is taken over; any other second name refuses', (t) => {
+test('#5536 slice 3 review 6: a lock a crash left with its pending second name is taken over, and another name does not matter', (t) => {
   const root = stoppedRoot(t);
   const lockFile = path.join(root, LOCK_NAME);
   const dead = spawnSync(process.execPath, ['-e', '0']).pid;
@@ -512,10 +512,11 @@ test('#5536 slice 3 review 6: a lock a crash left with its pending second name i
   const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
   r.close({ keepRecord: true });
   assert.deepEqual(fs.readdirSync(root).filter((n) => n.startsWith(LOCK_NAME)), [], 'both names cleared');
-  // A second name that is not its own pending one (a hard link made elsewhere): refused.
+  // A second name made elsewhere does not matter (review 7: only the owner identity in it is used): a dead owner's
+  // lock is still taken over.
   fs.writeFileSync(lockFile, `${dead} 0 ${tok}\n`, { mode: 0o600 });
   fs.linkSync(lockFile, path.join(fresh(t), 'elsewhere'));
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /second name the restore did not make/);
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
 });
 
 test('#5536 slice 3 review 6: a lock written before this computer last started is stale, even if its pid is alive again', (t) => {
@@ -528,5 +529,23 @@ test('#5536 slice 3 review 6: a lock written before this computer last started i
   createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
   // Control: the same lock written since the boot is busy.
   fs.writeFileSync(lockFile, `${process.ppid} 0 ${'c'.repeat(24)}\n`, { mode: 0o600 });
-  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running in Kosmos/);
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running; wait for it to finish/);
+});
+
+test('#5536 slice 3 review 7: an owner is its pid AND its start time, so a reused pid is not the owner (POSIX)', { skip: process.platform === 'win32' && 'no cheap start time on Windows (stated)' }, (t) => {
+  const root = stoppedRoot(t);
+  const lockFile = path.join(root, LOCK_NAME);
+  const startOf = (pid) => spawnSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
+  const parentStart = startOf(process.ppid);
+  assert.ok(parentStart, 'ps reads a start time here');
+  // The live parent with its own start time: busy.
+  fs.writeFileSync(lockFile, `${process.ppid} 0 ${'d'.repeat(24)} ${parentStart}\n`, { mode: 0o600 });
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running; wait for it to finish/);
+  // The same live pid with another start time: some other process now has that pid, so the lock is stale.
+  fs.writeFileSync(lockFile, `${process.ppid} 0 ${'d'.repeat(24)} Mon Jan  1 00:00:00 2001\n`, { mode: 0o600 });
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
+  // And a lock this sink writes carries its own start time.
+  const s2 = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.ok(fs.readFileSync(lockFile, 'utf8').trim().endsWith(startOf(process.pid)), 'the start time is in the lock');
+  s2.close({ keepRecord: true });
 });
