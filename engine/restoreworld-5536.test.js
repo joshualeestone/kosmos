@@ -661,6 +661,35 @@ test('a backup that supplies its own held-back entries cannot block the finish',
   assert.deepEqual(fs.readdirSync(worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS), ['ann']);
 });
 
+test('a finish refused after an earlier one held something back still names what it held back', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', '.git'));
+  const first = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(first.ok, true, first.because);
+  assert.deepEqual(first.heldBack, ['workers/.git']);
+  // A sink entry appears (a second restore started into the same folder): the rerun is refused, and still says so.
+  fs.mkdirSync(path.join(p.restoreDir, require('./restoresink').TEMP_PREFIX + 'again'));
+  const again = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(again.ok, false);
+  assert.match(again.because, /has not finished/);
+  assert.deepEqual(again.heldBack, ['workers/.git'], 'the refusal does not hide what the first finish held back');
+});
+
+test('finish moves nothing into a world on the list that prepare did not make', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  fs.rmSync(path.join(worlds.worldBaseDir(base, p.world), 'restored-world.json'));
+  assert.equal(rw.isRestoredWorld(base, p.world), false, 'the mark is gone, so this world reads as an ordinary one');
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /not made for a restore/);
+  assert.deepEqual(fs.readdirSync(worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS), [], 'nothing moved');
+  assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), 'the restored agent stays where it was');
+});
+
 test('an agents folder that cannot be read leaves the list marked incomplete', { skip: process.platform === 'win32' ? 'POSIX modes' : false }, (t) => {
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
