@@ -996,12 +996,20 @@ final class BoardClient: ObservableObject {
         }
         // KOSMOS_SAMPLE_LONG=1: Dana's chat is 220 messages with 40 before them, to check that opening a long chat lands on
         // the newest message and loads nothing until the person scrolls up.
-        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"] == "1" {
+        // kosmos#7265: KOSMOS_SAMPLE_LONG=varied makes the messages' lengths vary as a real chat's do (one line to a long
+        // reply), which is what throws a one-time jump to the newest message short.
+        if let long = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"], long == "1" || long == "varied" {
             var rows: [[String: Any]] = []
+            let para = "Here is where things stand on the catalogue, with the parts that are done and the parts still waiting on photos and prices."
             for i in 0..<220 {
                 let at: String = String(format: "2026-10-23T%02d:%02d:00Z", 8 + i / 60, i % 60)
                 let from: Any = i % 2 == 0 ? "dana" : NSNull()
-                rows.append(["at": at, "text": "Message \(i + 41) of 260.", "from": from])
+                var text = "Message \(i + 41) of 260."
+                if long == "varied" && i % 2 == 0 {
+                    let paragraphs = [0, 1, 3, 8, 2, 14][i / 2 % 6]
+                    if paragraphs > 0 { text += "\n\n" + Array(repeating: para, count: paragraphs).joined(separator: "\n\n") }
+                }
+                rows.append(["at": at, "text": text, "from": from])
             }
             if let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 40]),
                let t = Board.parseThread(data) { sampleThreads["dana"] = t }
