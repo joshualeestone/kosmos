@@ -489,7 +489,8 @@ async function work(projectId, task, { now = Date.now() } = {}) {
   const receipt = { version: VERSION, closedAt: closedIso, retries: retriesFrom(events), agents };
   /* Kept only once the close has settled (a transcript can still be written for a few seconds after it), and only when
      every transcript was read through: a partial read is shown, then worked out again next time. */
-  if (keep && now - closedAt >= SETTLE_MS && agents.every((a) => a.complete !== false)) {
+  /* #7185: and never from a read made while the projects file could not be read (the transcript then reads as empty). */
+  if (keep && now - closedAt >= SETTLE_MS && agents.every((a) => a.complete !== false) && require('./projectborn').snapshot().ok) {
     try { fs.mkdirSync(path.dirname(keep), { recursive: true }); fs.writeFileSync(keep, JSON.stringify(receipt)); }
     catch { /* worked out again next time */ }
   }

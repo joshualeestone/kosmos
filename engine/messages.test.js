@@ -3090,6 +3090,30 @@ test('#3564: the room valve charges only the members a post is sent to: an Off s
   } finally { projects.setSwarmOn(pid, 'april', true); }
 });
 
+test('#7185: with the projects file unreadable a room post is refused as could-not-read, never posted on an empty room', () => {
+  const projects = require('./projects');
+  const made = projects.create({ name: 'Unreadable Post Room' });
+  const pid = made.id || (made.project && made.project.id);
+  withFleet(room3(), (board) => {
+    armSender('mara-discord'); arm([]);
+    assert.ok(messages.roomNote(pid, 'a line, so the room has a log'), 'CONTROL: the room has a log to read');
+    const f = projects.file();
+    const good = fs.readFileSync(f);
+    fs.writeFileSync(f, good.toString('utf8') + ' not json');
+    let r;
+    try {
+      assert.throws(() => projects.readAll(), /cannot make sense/, 'CONTROL: the projects file really is unreadable');
+      assert.equal(messages.record().ok, false, 'CONTROL: the record says it could not be read');
+      r = messages.sendPost({ fromPane: '%7', project: pid, text: 'while unreadable' }, board.agents, MEMBERS);
+    } finally {
+      fs.writeFileSync(f, good);
+    }
+    assert.equal(r.state, chat.DELIVERY.COULD_NOT, 'refused');
+    assert.match(r.because || '', /could not read this room/, 'and says why: ' + (r.because || ''));
+    assert.ok(!messages.record().rows.some((m) => m && m.kind === 'post' && m.text === 'while unreadable'), 'nothing was posted');
+  });
+});
+
 test('#3564: a swarm switched OFF in a project is not woken by the room, unless the post @-names it', () => {
   const projects = require('./projects');
   const made = projects.create({ name: 'Swarm Off Room' });
