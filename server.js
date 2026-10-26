@@ -4800,6 +4800,8 @@ function remoteSessionFresh(headers, nowSecs) {
   return age >= -60 && age <= REMOTE_STEP_UP_SECS;
 }
 const REMOTE_STEP_UP_EXACT = new Set([
+  // kosmos#7248: putting a kept copy back over one of Kosmos's own stores, from a remote session, asks for sign-in again.
+  'POST /api/board/damaged-files/restore',
   // Updating, and anything that downloads and runs software here. PUT /api/autoupdate is gated whole, off as well as
   // on: telling them apart needs the body, which the gate does not read, and asking once more to switch it off costs
   // little.
@@ -19967,6 +19969,31 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { dismissed: true });
     return;
   }
+  /* kosmos#7248: the stores this start found damaged (engine/storecheck.js). Read once by the page; a good copy goes back
+     only when the person asks; dismissed for this start by the person. */
+  if (pathname === '/api/board/damaged-files' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let files = [];
+    try { files = require('./engine/storecheck').current(); } catch { files = []; }
+    sendJson(res, 200, { files });
+    return;
+  }
+  if (pathname === '/api/board/damaged-files/restore' && req.method === 'POST') {
+    readBody(req, 4096).then((buf) => {
+      let body;
+      try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      let out;
+      try { out = require('./engine/storecheck').restore(String(body.file || '')); } catch (e) { out = { ok: false, why: (e && e.message) || 'it failed' }; }
+      if (!out.ok) { sendJson(res, 409, { error: 'Kosmos did not put it back: ' + out.why + '.' }); return; }
+      sendJson(res, 200, { restored: true });
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/board/damaged-files/dismiss' && req.method === 'POST') {
+    let ok = false;
+    try { ok = require('./engine/storecheck').dismiss(); } catch { ok = false; }
+    sendJson(res, ok ? 200 : 500, ok ? { dismissed: true } : { error: 'we could not record that just now' });
+    return;
+  }
   /* #6160: the person's streak in the Kosmos. The page posts its own local date ({ today: 'YYYY-MM-DD' }) once per
      load and per new day; the reply is { count, congrats }, and congrats is true for exactly one load on each new day
      (engine/streak.js records it as shown in the same write). A POST because it records the visit. */
@@ -26980,6 +27007,17 @@ function start(port = PORT) {
  * guard below already exists to prevent.
  */
 if (require.main === module) {
+  /* kosmos#7248: FIRST, before anything reads or writes a store: name any of Kosmos's own JSON stores a crash left
+     empty, NUL-filled or unreadable, in board.log and (through /api/board/damaged-files) on the screen. Reads only;
+     never fatal. Several readers treat a damaged store as empty and a later write replaces it, so this is the one
+     moment the damage is still there to name. */
+  {
+    let base = null;
+    try { base = worldBase(); } catch { base = null; }   // a broken worlds env still gets the data root checked
+    try { require('./engine/storecheck').atStart({ base }); } catch (err) {
+      process.stderr.write('Kosmos could not check its own files at start (' + ((err && err.code) || 'an error') + ').\n');
+    }
+  }
   /* #1598: authorize live launchctl/tmux for the real board process ONLY. The
      guarded modules (engine/remove.js, engine/delete-leftover.js, engine/create.js)
      fail closed until this runs, so a stray removal dry-runs loudly rather than

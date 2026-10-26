@@ -871,6 +871,21 @@ const SCREENS = [
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
     await page.waitForSelector('#d-dmthread .delivery.held', { state: 'visible', timeout: 5000 });
   } },
+  /* kosmos#7248 (Mona Lisa): the note for files of Kosmos's own that a crash left damaged, one with a good copy to put
+     back and one without. The board's answer is stood in on the way to the page; nothing is written to the board. */
+  { name: 'damaged-files-7248', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/board/damaged-files', async (r) => {
+      try {
+        await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ files: [
+          { file: 'projects.json', holds: 'your projects, their tasks and who is on them', problem: 'nul', backup: { file: 'projects.json.recovered-x', at: new Date(Date.now() - 3600e3).toISOString() } },
+          { file: 'removed.json', holds: 'the agents you removed', problem: 'empty', backup: null },
+        ] }) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await at(page, '');
+    await page.waitForSelector('#damaged-slot .dmg', { state: 'visible', timeout: 8000 });
+    await page.mouse.move(1, 1);
+  } },
   { name: 'agent-perm-card', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, null) },
   { name: 'agent-perm-card-allowed', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Allow') },
   { name: 'agent-perm-card-denied', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Deny') },
