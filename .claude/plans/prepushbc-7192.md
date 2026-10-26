@@ -43,3 +43,19 @@ every web/ push slower too.
 - N3 a gate that crashes and a gate that refuses both block -> accepted: it happens only on a broken checkout, and
   blocking there is the safe direction.
 - N4 untested shapes -> the stale origin/main is now tested; outside a work tree exits 0 (fail-open, by design).
+
+## Iteration 4 (opus)
+- W1 the fetch could prompt for a password or key mid-push, or stall -> FIXED: GIT_TERMINAL_PROMPT=0, ssh BatchMode,
+  and http.lowSpeedLimit/Time so a stalled connection gives up.
+- W2 every push of HEAD paid a fetch -> FIXED: diff first against the base as it is (a stale base only over-counts, so
+  clean there is clean fresh), fetch only when that diff shows web/ changes, then diff again (test: no fetch on a
+  no-web/ push; mutant red).
+- W3 a failed fetch (offline, or another worktree's fetch holding the shared ref) was silent, and a stale-base refusal
+  read as the branch's fault -> FIXED: the refusal adds that origin main could not be fetched and the base may be
+  behind (test with origin unreachable; mutant red).
+- N4 an annotated tag at HEAD arrives as the tag object's id and slipped past -> FIXED: peeled to its commit (test with
+  a control that the tag is its own object; mutant red).
+- N5 a --dry-run push also fetches -> accepted: a hook cannot tell a dry run, and a fetch moves only the tracking ref.
+- N6 the hook hard-coded origin/main while the gates honour KOSMOS_BCG_BASE -> FIXED: the same base; the fetch runs
+  only for origin/main.
+- N7 no test for a wip/ ref beside the real branch -> added.

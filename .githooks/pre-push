@@ -10,7 +10,7 @@
 #
 # Only for a push that sends HEAD's commit (a pushed ref whose tip is HEAD; the gates read origin/main...HEAD), and
 # only when that range changes web/; any other push pays nothing. Both gates pass when there is no origin/main.
-# A backup push to wip/ is not checked (review 3: unfinished work, backed up on purpose); a tag at HEAD is.
+# A backup push to wip/ is not checked (review 3: unfinished work, backed up on purpose); a tag at HEAD is, annotated or not.
 # Skip once with `git push --no-verify`.
 #
 # Wire it once per clone (worktrees inherit it):   git config core.hooksPath .githooks
@@ -18,25 +18,36 @@ set -u
 
 repo=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 head=$(git rev-parse -q --verify HEAD 2>/dev/null) || exit 0
+# The base the gates diff against (they honour KOSMOS_BCG_BASE too; review 4).
+base=${KOSMOS_BCG_BASE:-origin/main}
 mine=0
 while read -r _lref lsha rref _rsha; do
   case "$rref" in refs/heads/wip/*) continue ;; esac
-  [ "$lsha" = "$head" ] && mine=1
+  # Review 4: an annotated tag arrives as the tag object's id, so peel it to the commit it names.
+  [ "$(git rev-parse -q --verify "$lsha^{commit}" 2>/dev/null)" = "$head" ] && mine=1
 done
 [ "$mine" = 1 ] || exit 0
-# Review 3: the gates diff against origin/main, and a stale one counts other people's newer web/ commits as this
-# branch's (a branch rebased onto a main this clone has not fetched), refusing a push CI would pass. One quiet fetch;
-# a failed one (offline) leaves the ref as it was, and the push itself will say so.
-git fetch --quiet origin main >/dev/null 2>&1 || true
-# No web/ change on this branch: nothing either gate could refuse. A diff that cannot be read (no origin/main) falls
-# through to the gates, which pass by their own fail-soft rule.
-git diff --quiet origin/main...HEAD -- web/ 2>/dev/null && exit 0
+# No web/ change on this branch: nothing either gate could refuse, and no network is spent. A stale base only ever
+# OVER-counts (it adds other people's commits), so no web/ change against it means none against a fresh one either.
+# A diff that cannot be read (no base) falls through to the gates, which pass by their own fail-soft rule.
+git diff --quiet "$base...HEAD" -- web/ 2>/dev/null && exit 0
+# Review 3: a stale origin/main counts other people's newer web/ commits as this branch's (a branch rebased onto a main
+# this clone has not fetched), refusing a push CI would pass. So one fetch, which never asks for a password or key
+# (review 4: a prompt mid-push, with no reason given) and gives up on a stalled connection. A failed fetch (offline,
+# or another worktree's fetch holding the shared ref) is said, so a refusal below can be read for what it may be.
+stale=0
+if [ "$base" = origin/main ]; then
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes" \
+    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 fetch --quiet origin main >/dev/null 2>&1 || stale=1
+  git diff --quiet "$base...HEAD" -- web/ 2>/dev/null && exit 0
+fi
 
 for gate in browser-check-gate:kosmos_browser_check_gate browser-check-surface-gate:kosmos_browser_check_surface_gate; do
   lib=${gate%%:*}; fn=${gate#*:}
   [ -f "$repo/tools/lib/$lib.sh" ] || continue
   if ! ( . "$repo/tools/lib/$lib.sh" && "$fn" ); then
     echo "pre-push (#7192): refused by the $lib (the same check CI runs). Fix it as it says above, or skip once with git push --no-verify." >&2
+    [ "$stale" = 1 ] && echo "pre-push (#7192): origin main could not be fetched just now, so $base may be behind and the change above may include other people's commits. Run git fetch origin main and push again." >&2
     exit 1
   fi
 done
