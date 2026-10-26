@@ -1484,7 +1484,8 @@ async function sweepInstallGroup(keys, on) {
  *   agent waits 15 minutes and the pass goes on. After a pass-wide pause the next pass starts just after the
  *   agent it stopped on. An agent refused for good is asked again every 15 minutes until the refusal ends (a
  *   board restart only resets the wait): at most 96 small mints and site calls a day per such agent, accepted;
- *   a coordinator 403 (this computer is not allowed, or the account lapsed), a coordinator 400 for a second agent
+ *   a coordinator 403 (this computer is not allowed, or the account lapsed), its 400 about this computer's key
+ *   (member_key_wrong_epoch), a coordinator 400 for a second agent
  *   in one pass (the request, not a name), or a second site refusal in one pass: the pass pauses 15 minutes;
  *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
  *   a site 429: Retry-After, capped like #4940's register wait;
@@ -1582,14 +1583,17 @@ async function sweepOwnerLink(keys, on) {
       if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string' || !minted.data.pass) {
         const st = minted.refusal ? minted.refusal.status : 0;
         // The coordinator's only refusal about one agent is its 400 (the name); its 403s are about this computer (not
-        // allowed on the account, or the account lapsed), so they pause the whole pass below.
+        // allowed on the account, or the account lapsed), and so is a 400 saying this computer's key is from an old
+        // epoch (remote.js, #5744), so those pause the whole pass below.
         // A second agent refused the same way in one pass means the request, not the name: the whole pass waits.
-        if (st === 400) coord400 += 1;
-        if (st === 400 && coord400 < 2) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
+        const epoch = st === 400 && minted.refusal.code === 'member_key_wrong_epoch';
+        if (st === 400 && !epoch) coord400 += 1;
+        if (st === 400 && !epoch && coord400 < 2) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
         const unknown = !minted.ok && ownerPassUnknown(minted);
         ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
         if (!unknown) stopHere();   // a missing route is the same for every agent
         const what = unknown ? 'Kosmos+ cannot vouch for agents yet'
+          : epoch ? 'Kosmos+ refused this computer\'s key as out of date (400)'
           : st === 400 ? 'Kosmos+ refused the request for two agents in a row (400), so the request itself is likely wrong'
             : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '');
         ownerLinkPassLog(ep, `${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);

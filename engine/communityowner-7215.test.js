@@ -379,10 +379,17 @@ test('a name being retired is not linked; another agent is, in the same sweep', 
   await registered('ava');
   await registered('bo');
   R.on = true;
-  writeRetireRequest('ava.json', JSON.stringify({ agent: 'ava', at: '2026-10-26T00:00:00Z', done: [], stuck: [] }));
-  await cs.sweep();
-  assert.ok(!R.mints.some((m) => m.body.agent === keyName('ava')), 'no pass asked for the name being retired');
-  assert.ok(agentNamed('bo').owner, 'control: the other agent is linked');
+  // The retirement cannot finish here: the post store's mark fails, so no folder is done and the request stays
+  // pending, which is the state retiring() reports (a request that finishes before the sweep has nothing to hold).
+  const mark = communitystore.markAgentNotSent;
+  communitystore.markAgentNotSent = () => { throw new Error('store busy'); };
+  try {
+    writeRetireRequest('ava.json', JSON.stringify({ agent: 'ava', at: new Date().toISOString(), done: [], stuck: [] }));
+    await cs.sweep();
+    assert.ok(keyName('ava'), 'control: the key is still live, so the retiring check is what held it back');
+    assert.ok(!R.mints.some((m) => m.body.agent === keyName('ava')), 'no pass asked for the name being retired');
+    assert.ok(agentNamed('bo').owner, 'control: the other agent is linked');
+  } finally { communitystore.markAgentNotSent = mark; }
 });
 
 test('Community switched off during a mint: the pass is not sent', async () => {
@@ -480,6 +487,15 @@ test('the pass budget: an exhausted pass stops before the agent and the next pas
   await cs.sweep();
   assert.equal(R.mints[0].body.agent, keyName('ava'), 'the next pass starts at the agent not yet tried');
   assert.ok(agentNamed('ava').owner && agentNamed('bo').owner);
+});
+
+test('a coordinator 400 about this computer\'s key (wrong epoch) pauses the whole pass at once', async () => {
+  for (const a of ['a1', 'a2', 'a3']) await registered(a);
+  R.mint = () => ({ ok: false, because: 'coordinator answered 400', refusal: { status: 400, code: 'member_key_wrong_epoch', currentEpoch: 3 } });
+  await cs.sweep();
+  assert.equal(R.mints.length, 1, 'not charged to the name: the first refusal stops the pass (a name 400 asks two)');
+  await cs.sweep();
+  assert.equal(R.mints.length, 1, 'and the pass waits');
 });
 
 test('a coordinator 400 for a second agent in one pass is about the request: the whole pass waits', async () => {
