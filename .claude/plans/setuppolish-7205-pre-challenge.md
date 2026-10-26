@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: setuppolish-7205
-diff_hash: bce9ee396fbb11cf61d56da86b9ad70c84931dd1f8e2f5df028814a684de29e6
+diff_hash: 8ec734403c1cbf726b9a778967fe21e3b75e29f5039a498f29bf60afcc44a758
 validation: passed at f603e18978 rebased on origin/main (root unit set 3554/3554; swiftc -typecheck exit 0; render-firstrun-choice-4356 50 passed; render-firstrun-s6-2037 OK; render-layer-gutter-4494 13 passed; render-win32-board-copy 180/180; #2518 surface gate and #1720 gate exit 0)
 subdir_audit: passed (no CLAUDE.md in the diff)
 timestamp: 2026-10-26T16:57:43Z
@@ -43,3 +43,8 @@ Full validation once at convergence, after rebasing on origin/main: all green (a
 CI found ios.board-parity-7084 red: the iPhone's Qwen mark had to match the board's, which this branch made one colour.
 Fixed mechanically (the asset is the board's mark in black, template, and the test's Qwen exemption removed); ios.*.test.js
 25/25 locally with the room suite run. No issues found beyond it; the root ios.* prefix is now in the local set.
+
+#### Iteration 7
+CI's browser-checks job sat 70+ minutes on one step (35 is usual), so the branch was rebased onto 35 newer main commits
+and pushed for a fresh run. At the rebased head: web, native-app, ios, browser-checks and tree-guard tests 3614/3614;
+render-firstrun-choice-4356 50 passed; #2518 surface gate exit 0. No issues found.
