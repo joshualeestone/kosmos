@@ -19,7 +19,9 @@ Owner: Ice Cream Kitty. From agent feedback; split from #7149 ask 2, which left 
 
 - The person's hold: an agent cannot change what it waits for (403, as unhold). Its mark is dropped only when the held
   state flips, never by a changed condition (review 1 found that path let an agent strip the mark, then lift the hold).
-- Times: a bare date is midnight UTC; a time of day must carry Z or an offset (refused otherwise, since the board's zone
+- A wait that leads back to the held task (A waits for B, B for A, or longer) is refused: it would never be met.
+- Times: only an ISO date or date-time is taken (not "2026-11-02 09:00" or "Nov 2", which Date.parse reads in the
+  board's zone); a bare date is midnight UTC; a time of day must carry Z or an offset (refused otherwise, since the board's zone
   may not be the agent's). Both CLIs say back the time the board stored, not the one typed.
 
 ## Rejected
@@ -29,11 +31,14 @@ Owner: Ice Cream Kitty. From agent feedback; split from #7149 ask 2, which left 
 - Lifting the hold automatically: the hold may be the person's; telling is reversible, a surprise lift is not.
 
 ## Weakest premise
-That one line when met is enough. An owner that ignores it is covered only by the posts rule once it works in the room.
-Also: a cycle (A waits for B, B for A) is never met and parks both with no reminder; not refused in this slice.
+That one line when met is enough. The met line has its own mark (holdMetTold), so after it the posts rule still applies
+to the hold as to any other: an owner that keeps working in the room is told again.
+Also: an unmet condition parks the hold with no ceiling. That is the point of the card (no asking while it is unmet),
+and the list and instructions show what it waits for. A task waited for that never closes keeps its waiter parked.
 
 ## Not in this slice
-- The screen (web/index.html) still shows a plain "on hold"; the condition is in the CLI, instructions and activity.
+- The screen (web/index.html) still shows a plain "on hold" and cannot set a condition; the condition is in the CLI,
+  instructions and activity. A follow-up for the screen if a person asks why a hold is silent.
 - The idle nudge does not repeat a met condition.
 
 ## Checks

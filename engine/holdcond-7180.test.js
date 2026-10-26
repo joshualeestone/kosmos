@@ -72,6 +72,8 @@ test('#7180 setOnHold: a hold can wait for another task or a time; the condition
     [{ task: f.b, at: later }, 400, /one thing/],
     [{ at: new Date(Date.now() + 48 * HOUR).toISOString().slice(0, 10) + 'T09:00' }, 400, /must say its zone/],
     ['task 3', 400, /waits for a task/],
+    [{ at: new Date(Date.now() + 48 * HOUR).toISOString().slice(0, 10) + ' 09:00' }, 400, /date or time/],
+    [{ at: 'Nov 2 2026' }, 400, /date or time/],
   ];
   for (const [until, code, why] of cases) {
     const r = status(() => tasks.setOnHold(f.id, f.a, true, { until }));
@@ -160,6 +162,30 @@ test('#7180 holdstale: an unmet condition parks the hold (nobody told, whatever 
   // Told once: the mark for this hold stops a second line.
   hs.markTold(met[0], 'reached');
   assert.deepEqual(hs.owed(only(), [], Date.now(), { read: fresh }), [], 'a met condition was told twice');
+  // After the met line the hold is like any other: an owner that keeps working in the room, hours on, is told by the
+  // posts rule (the met line's own mark does not silence it).
+  const oldHold = iso(Date.now() - 5 * HOUR);
+  const older = () => [{ kind: 'hold-set', at: oldHold, via: 'agent' }];
+  hs.markTold({ ...met[0], holdAt: Date.parse(oldHold) }, 'reached');
+  const after = hs.owed(only(), posts.map((r) => ({ ...r, at: iso(Date.parse(oldHold) + 60000) })), Date.now(), { read: older });
+  assert.equal(after.length, 1, 'a met-and-told hold was never told about again, though its owner kept posting');
+  assert.equal(after[0].met, undefined, 'the met line was told twice');
+});
+
+test('#7180 holdUntilOf: a wait that leads back to the held task is refused', () => {
+  const f = fixture();
+  tasks.setOnHold(f.id, f.b, true, { until: { task: f.a } });   // b waits for a
+  const r = status(() => tasks.setOnHold(f.id, f.a, true, { until: { task: f.b } }));   // a would wait for b
+  assert.ok(r, 'a two-task cycle was accepted');
+  assert.equal(r.status, 400);
+  assert.match(r.message, /neither would ever be met/);
+  // Longer: d waits for b, b waits for a; a waiting for d closes the loop.
+  const d = tasks.create(f.id, { sentence: 'Book the courier' }).number;
+  tasks.setOnHold(f.id, d, true, { until: { task: f.b } });
+  assert.match(status(() => tasks.setOnHold(f.id, f.a, true, { until: { task: d } })).message, /neither would ever be met/);
+  // CONTROL: once b is off hold the chain from d ends at b, so a waiting for d is accepted.
+  tasks.setOnHold(f.id, f.b, false);
+  assert.deepEqual(tasks.setOnHold(f.id, f.a, true, { until: { task: d } }).onHoldUntil, { task: d }, 'CONTROL: a chain with no loop was refused');
 });
 
 test('#7180 holdstale: the met line names the condition and the one way off; a person\'s hold asks the person', () => {
