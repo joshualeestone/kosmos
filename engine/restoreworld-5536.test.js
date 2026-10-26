@@ -459,7 +459,7 @@ test('git reads HEAD, objects and refs as a repository with no .git: in an agent
   let by = Object.fromEntries(l.agents.map((a) => [a.folder, a]));
   assert.equal(by.ann.because, null);
   assert.match(by.barry.because, /git folder/);
-  assert.ok(by.barry.runs.some((r) => /HEAD, objects and refs/.test(r)));
+  assert.ok(by.barry.runs.some((r) => /^HEAD \(git can read/.test(r)));
   assert.ok(l.shared.some((x) => x.where === 'projects' && x.label === '(the projects folder itself)' && x.runs.includes('.git')));
   assert.ok(l.shared.some((x) => x.where === 'projects' && x.label === '.git' && x.runs.includes('.git')), 'the .git row says why it is shared');
   bare(w);
