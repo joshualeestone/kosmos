@@ -162,7 +162,8 @@ function commentEntries() {
  * the comment records cannot be read, and an agent's `name` is null when the board holds no registration for it (or
  * keys.json cannot be read): the page then shows that agent without a link, never a guessed one. A record whose board
  * post or comment is gone counts in the totals but under no agent (the send layer's status does not name the agent),
- * so the agents' counts can add up to less than the totals.
+ * so the agents' counts can add up to less than the totals. A comment the community's moderators removed still counts:
+ * the service has no way for the board to ask about a comment once it is sent, so nothing on the board says so.
  */
 function summary(posts = postEntries(), comments = commentEntries()) {
   const names = communitysend.communityNames();

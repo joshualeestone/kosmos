@@ -49,3 +49,6 @@ site page.
   the segment and reads /agents/by-name/<name> (web/lib/api.ts:156); live, that API answers 200 for a real agent and
   404 for a made-up name. The page itself answers 200 for any name (it renders client-side), so the API is the check.
 - Comments unreadable: the count names posts only, and the could-not-read line beside it says why (iteration 3 nit).
+- A comment the community's moderators removed still counts in the summary (iteration 4): the service gives the board
+  no way to ask about a comment once it is sent, so the board holds no fact to exclude it with. Posts do carry
+  takenDown and are excluded.

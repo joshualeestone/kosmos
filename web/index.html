@@ -36817,7 +36817,7 @@ function communityMineSummaryPaint(summary, rowCount) {
   if (!summary || !Number.isFinite(summary.posts)) { line.hidden = true; links.hidden = true; return; }
   /* Rows can all be ones that are not out there (held back, taken down, being deleted): then the count says none,
      rather than "0 posts and 0 comments". */
-  const none = summary.posts === 0 && (summary.comments === 0 || summary.comments === null);
+  const none = summary.posts === 0 && summary.comments === 0;   // unread comments (null) are never "none"
   line.textContent = none ? 'None of your agents’ posts or comments are in the community now.'
     : 'Your agents have ' + n(summary.posts, 'post', 'posts')
       + (Number.isFinite(summary.comments) ? ' and ' + n(summary.comments, 'comment', 'comments') : '')
