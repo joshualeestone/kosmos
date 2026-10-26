@@ -42,8 +42,8 @@ its rows from the cheap reads instead:
   for hours. Slice 2's lines change the same way, since it is one rule.
 
 ## One move per tick
-- Gated: live execution allowed, usagepoll enabled and liveAllowed, the setting on, at least two eligible accounts, no
-  account move running (accountmove.busy), the board not about to restart, AGENT_WORKFORCE_AUTOMOVE_OFF not 1.
+- Gated: live execution allowed, usagepoll enabled and liveAllowed, the setting on, at least two Claude subscription
+  accounts (slice 2's eligible rule, checked before the agents walk), no account move running (accountmove.busy), the board not about to restart, AGENT_WORKFORCE_AUTOMOVE_OFF not 1.
 - Fresh decision every tick, so the target is picked again before each move (slice 2's stated assumption).
 - Review 2: an agent is moved only when it was movable on the previous tick too, and not while its box holds unsent
   words (the card's unsentInput). WEAKEST PREMISE, and the reason moves stay off: an agent sitting at its prompt with
@@ -52,15 +52,19 @@ its rows from the cheap reads instead:
   default, the move must see the agent's own child processes (or Claude's background-task count on its screen).
 - The first move only. Idleness is read again just before the move, from a new roster read (slice 2's other stated
   assumption: its roster was a few seconds old).
-- A stopped login (a 401 or 403 from the usage endpoint) moves an agent only when that agent's OWN last request was
-  refused within the hour (review 3). The endpoint is undocumented, and a second reading proves nothing: while usagepoll
-  holds a refusal it sends no request and rewrites the same one.
-- A move back owed (below) goes first but never blocks the rest: it waits while its agent is not idle, is dropped
-  when the agent is no longer on the account it was moved to (a person moved it, or it was removed), and is given up
-  after a day, with a record line. A 409 from the board (a move began meanwhile, or a restart is coming) is not the
-  agent's refusal: no hold, no line, and a move back stays owed.
+- IT MOVES FOR USAGE ONLY. An account whose login has stopped (a 401 or 403 from the usage endpoint) is recorded and
+  shown as at risk, and its would-move lines are written, but nothing is moved off it automatically.
+  Built and then REMOVED in review 4, with the automatic move back: both needed the agent to read idle, and an agent
+  whose request was just refused shows the auth error on its screen, so its card reads auth_failed, not idle. Neither
+  could fire in the one case it was for, and the tests passed only because they modelled the refused agent as an idle
+  card the real board never produces. Rejected as a patch: moving an auth_failed agent (its turn has ended, but a
+  restart is still a guess about what it was doing, made with moves off by default and nobody to watch the first
+  ones). What would change it: a day of records showing stopped logins where a move would clearly have helped; then
+  it is its own slice, built against real auth_failed cards.
+- A 409 from the board (a move began meanwhile, or a restart is coming) is not the agent's refusal: no hold, no line.
 - A target onto which an earlier automatic move did NOT work (the moved agent's first real call was rejected) is not
-  used again for 6 hours (FAILED_HOLD_MS). Rejected: "until its usage reading is newer", since the reading comes every
+  used again for a day (FAILED_HOLD_MS, review 4: six hours let a target that refuses turns but answers usage calls
+  strand one agent four times a day). Rejected: "until its usage reading is newer", since the reading comes every
   10 minutes and a working usage call does not prove an agent's turn works there.
 - The move is accountmove.start({ dir: to, names: [agent] }) with the same deps the bulk-move route builds (moved into
   one function, so the two cannot drift).
@@ -69,10 +73,15 @@ its rows from the cheap reads instead:
 observed holds each agent's last real-call outcome. From the moment the move starts (review 2: not when it ends, so
 a first call made as the restart finishes counts), the first call seen decides a 'works' line: 'yes' (OK) or 'no'
 (rejected). Until then nothing is written: an idle agent may take no turn for hours, and that is not a failure. After
-24 h with none, a 'not-seen' line. On 'no' the target is held for 6 hours and the agent is moved back where it came
-from (review 2), through the same idle re-check, unless that account's own login had stopped.
-The holds (a target after 'no', an agent after a refused move) are rebuilt from the record when the board starts, so
-an update or restart does not forget them.
+24 h with none, a 'not-seen' line. On 'no' the target is held for a day, and the agent is NOT moved back (see above):
+its conversation gets one Kosmos line saying its first request on the new account was refused and that it can be
+moved back in Settings, and Settings says the same. A watch is dropped when the agent is no longer on the account it
+was moved to (a person moved it), so a later call is never blamed on that account; a second move of one agent
+replaces its watch (review 4).
+The move writes a 'started' line before its restarts run (review 4), so a board that stops mid-move still knows on its
+next start that the agent may be on its new account. The holds and the watches (from 'started' and 'changed' lines
+with no ending) are rebuilt from the record when the board starts; a line stamped more than a minute in the future
+is not trusted.
 
 ## The record and telling the person
 - engine/automove.js keeps a JSON-lines file in the board's data folder: one line per CHANGED decision (would-move

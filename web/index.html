@@ -28898,14 +28898,13 @@ function abRecentHtml(recent, label, who, line) {
     const to = esc(name(e.to, e.toLabel));
     if (e.kind === 'decision' && !e.live) {
       for (const m of Array.isArray(e.moves) ? e.moves : []) out.push(at(e.at) + 'it would have moved ' + esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel)) + '.');
-    } else if (e.kind === 'move' && e.outcome === 'changed' && e.back) out.push(at(e.at) + 'Kosmos moved ' + agent + ' back to ' + to + ', because its first request on ' + from + ' was refused.');
-    else if (e.kind === 'move' && e.outcome === 'stopped') out.push(at(e.at) + 'the move of ' + agent + ' to ' + to + ' was stopped, so it stays on ' + from + '.');
+    } else if (e.kind === 'move' && e.outcome === 'stopped') out.push(at(e.at) + 'the move of ' + agent + ' to ' + to + ' was stopped, so it stays on ' + from + '.');
     else if (e.kind === 'move' && e.outcome === 'changed') out.push(at(e.at) + 'Kosmos moved ' + agent + ' from ' + from + ' to ' + to + ', because ' + esc(e.why || 'its account was running out') + '.');
     else if (e.kind === 'move' && e.outcome === 'partial') out.push(at(e.at) + 'Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.');
     else if (e.kind === 'move') out.push(at(e.at) + 'Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused.');
     else if (e.kind === 'skipped') out.push(at(e.at) + 'Kosmos did not move ' + agent + ', because it was no longer idle.');
     else if (e.kind === 'works' && e.works === 'yes') out.push(at(e.at) + agent + ' was seen working on ' + to + '.');
-    else if (e.kind === 'works' && e.works === 'no') out.push(at(e.at) + agent + '\u2019s first request on ' + to + ' was refused, so Kosmos will not move agents there for a while.');
+    else if (e.kind === 'works' && e.works === 'no') out.push(at(e.at) + agent + '\u2019s first request on ' + to + ' was refused. Move it back here if it needs to work now; Kosmos will not move agents to ' + to + ' for a day.');
     else if (e.kind === 'works') out.push(at(e.at) + agent + ' has not been seen working on ' + to + ' in the day since it moved.');
   }
   return out.length ? '<p class="dhint" style="margin:12px 0 0;font-weight:600;">Lately</p>' + out.map(line).join('') : '';
