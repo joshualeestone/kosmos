@@ -201,7 +201,10 @@ function closestTemplate(lines, templates) {
 // what follows), but any tag-like '<' at all, plus a link reference definition opening a title. Only ADDED lines
 // count: the templates' own '<name>' placeholders are matched lines, so a clean restore never trips it. A member
 // who adds a line with a placeholder makes everything after it count as removed: noisy, never unsafe.
-const HIDE_RE = /```|~~~|-->|<[A-Za-z!?\/]|^\s{0,3}\[[^\]]+\]:\s*\S*\s*["'(]/;
+// Review 6: link definitions and code spans run across lines, so one-line shapes kept missing; any backtick or
+// square bracket on an added line counts too (a multi-line link title needs a bracket somewhere, so a line of quotes
+// alone hides nothing).
+const HIDE_RE = /[`\[\]]|~~~|-->|<[A-Za-z!?\/]/;
 
 /* The longest common subsequence of a file's non-blank lines and the template's, IN ORDER (review 2: a set let a
    reordered template, or a rule moved to another file, review clean). Returns which file lines (by index) are matched
@@ -276,7 +279,12 @@ function reviewAgent({ name, files, templates } = {}) {
   };
   let tested = 0;
   const untested = new Set();
-  const out = read.map((f) => {
+  // The line budget is spent on instruction files first (review 6), then the caller's order is put back.
+  const testOrder = read.map((f, k) => ({ f, k })).sort((x, y) => (y.f.instructions - x.f.instructions) || (x.k - y.k));
+  const outByIndex = new Array(read.length);
+  for (const { f, k } of testOrder) outByIndex[k] = reviewFile(f);
+  const out = outByIndex;
+  function reviewFile(f) {
     const al = f.instructions && closest ? align(f.normed, closest.lines) : { matchedFile: new Set(), matchedTpl: new Set(), pairs: [], diffed: false };
     // After the first ADDED line with a hiding marker, every template line further down counts as removed (review
     // 4): it may no longer be read as an instruction, and telling which it is would need a Markdown parser that a
@@ -309,11 +317,14 @@ function reviewAgent({ name, files, templates } = {}) {
       // An instruction split over two lines: only the joint is tested (the end of this line, the start of the next).
       const next = f.raw[i + 1];
       // Only between two lines with something to split (review 5: one-character lines doubled the cost).
-      if (typeof next === 'string' && next.trim().length >= 3 && line.trim().length >= 3) {
+      if (typeof next === 'string' && next.trim() && line.trim().length >= 3) {
         const alone = new Set([...here.map((m) => m.kind), ...(isAdded(i + 1) ? matches(i + 1) : matchesOf(next)).map((m) => m.kind)]);
-        const joint = `${line.slice(-JOINT)} ${next.slice(0, JOINT)}`;
-        for (const m of matchesOf(joint)) {
-          if (!alone.has(m.kind)) flag({ file: f.name, line: i + 1, kind: m.kind, text: shown(joint, m.at), at: m.at, length: line.length, split: true });
+        // Joined with a space (words split between lines) and without one (a word split mid-way: attacker.i / o).
+        const seen = new Set(alone);
+        for (const joint of [`${line.slice(-JOINT)} ${next.slice(0, JOINT)}`, `${line.slice(-JOINT)}${next.trimStart().slice(0, JOINT)}`]) {
+          for (const m of matchesOf(joint)) {
+            if (!seen.has(m.kind)) { seen.add(m.kind); flag({ file: f.name, line: i + 1, kind: m.kind, text: shown(joint, m.at), at: m.at, length: line.length, split: true }); }
+          }
         }
       }
     });
@@ -322,7 +333,7 @@ function reviewAgent({ name, files, templates } = {}) {
     // The added lines' own text too (review 4), so a screen never re-splits the file its own way and numbers drift.
     const addedText = added.map((n) => f.raw[n - 1]);
     return { name: f.name, instructions: f.instructions, lines: f.raw.length, added, addedText, removed: removed.slice(0, MAX_REMOVED), removedNotListed: Math.max(0, removed.length - MAX_REMOVED), truncated: f.truncated };
-  });
+  }
   return {
     name: shownName, nameProblem: badName, closest: closest ? closest.key : null, files: out,
     flags, flagsNotListed, unreviewed,
