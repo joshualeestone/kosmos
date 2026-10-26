@@ -100,3 +100,8 @@
    a textarea's text is no longer selected (a native Tab keeps its caret); fixed sleeps after opening are now a wait
    for the stops to stop changing; this plan named two pages, the check has three. Deferred as duplicate: the plan
    file name's timestamp (round 2).
+10. (sonnet) No new findings. Deferred as duplicates: the other-dialog stand-down's stacking assumption (rounds 5, 6,
+   8; guarded by the every-opener assertion that none reads as showing) and the keydown-only posture (round 1's
+   rejected focusin pull; the plan's weakest premise). Not issues: per-press cost (about 20 controls, only while
+   open, as the reviewer measured); the README row's position (that table is not sorted and no guard reads its
+   order). Converged.
