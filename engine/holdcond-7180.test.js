@@ -322,3 +322,15 @@ test('#7180 the instructions name the condition on the person\'s hold too', () =
   const block = () => projects.blockBody(projects.readAll().filter((x) => x.id === f.id), REX);
   assert.match(block(), new RegExp('task ' + f.a + ' of [^\\n]*\\[on hold until task #' + f.b + ' is closed: the person parked it; do not start it\\]'));
 });
+
+test('#7180 a bare re-hold that drops a condition says so in the task\'s activity', () => {
+  const f = fixture();
+  tasks.setOnHold(f.id, f.a, true, { until: { task: f.b } });
+  tasks.setOnHold(f.id, f.a, true);
+  const sets = taskchat.read(f.id, f.a).filter((e) => e && e.kind === 'hold-set');
+  assert.equal(sets.length, 2);
+  assert.equal(sets[1].untilCleared, true, 'the dropped condition left no trace');
+  assert.equal(sets[0].untilCleared, undefined, 'CONTROL: the first hold dropped nothing');
+  const phrase = require('../engine/taskactphrase').phrase;
+  assert.equal(phrase(sets[1]), 'Put on hold by an agent, no longer waiting for anything');
+});

@@ -1118,10 +1118,12 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
   let changed;
   let didChange = false;
   let tookOver = false;
+  let hadUntil = false;   // kosmos#7180: the hold had a condition before this call
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
     tookOver = onHold && isOnHold(t) && viaScreen === true && t.onHoldByPerson !== true;
+    hadUntil = isOnHold(t) && Boolean(t.onHoldUntil);
     /* The person's own hold is taken off only on the screen: the feature exists to honour it, and an agent that could
        lift it could put itself back on parked work (the built mark's refusePersonMark, the same rule). */
     if (!onHold && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true) {
@@ -1136,6 +1138,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
     }
     /* kosmos#7180: what the person's hold waits for is theirs, so an agent sending a different one is refused before the
        condition is checked (so it hears whose hold it is, not that its condition was wrong). */
+    // Restating the stored condition is no change (and is not re-checked, so a met one is not refused as closed or past).
     const u1 = t.onHoldUntil;
     const restates = until && typeof until === 'object' && !Array.isArray(until) && Object.keys(until).length === 1 && u1
       && ((Number.isInteger(until.task) && until.task === u1.task)
@@ -1148,12 +1151,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
     /* kosmos#7180: an agent's bare re-hold of the person's hold leaves it as it is, condition included (only the person
        changes their hold); an agent's own hold, or any screen hold, is set to exactly what it is given. */
     const keepPersons = onHold && until == null && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true;
-    /* Restating the stored condition is no change (and is not re-checked, so a met one is not refused as closed or past). */
-    const u0 = t.onHoldUntil;
-    const restated = onHold && until && typeof until === 'object' && !Array.isArray(until) && Object.keys(until).length === 1 && u0
-      && ((Number.isInteger(until.task) && until.task === u0.task)
-        || (typeof until.at === 'string' && typeof u0.at === 'string' && Date.parse(until.at) === Date.parse(u0.at)));
-    const want = keepPersons || restated ? (u0 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
+    const want = keepPersons || (onHold && restates) ? (u1 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
     const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
     didChange = isOnHold(t) !== onHold || (onHold && !sameUntil);
     changed = { ...t };
@@ -1171,7 +1169,8 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null } = {
     };
   });
   // via: whether the person did it on the screen or a process (an agent) did, so an agent's hold never reads as the person's.
-  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent', ...(onHold && changed.onHoldUntil ? { until: Number.isInteger(changed.onHoldUntil.task) ? 'task #' + changed.onHoldUntil.task : changed.onHoldUntil.at } : {}) });
+  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent', ...(onHold && changed.onHoldUntil ? { until: Number.isInteger(changed.onHoldUntil.task) ? 'task #' + changed.onHoldUntil.task : changed.onHoldUntil.at }
+    : onHold && hadUntil ? { untilCleared: true } : {}) });
   else if (tookOver) taskchat.record(projectId, changed.number, { kind: 'hold-set', via: 'screen' });   // the person made an agent's hold theirs
   return changed;
 }

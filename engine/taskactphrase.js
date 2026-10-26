@@ -43,7 +43,8 @@ function phrase(ev, nameOfMember, opts) {
     case 'done-when-cleared': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
     case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')
-      + (typeof ev.until === 'string' && ev.until ? ' until ' + own(/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : ev.until) : '');
+      + (typeof ev.until === 'string' && ev.until ? ' until ' + own(/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : ev.until)
+        : ev.untilCleared === true ? ', no longer waiting for anything' : '');
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
