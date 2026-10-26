@@ -124,3 +124,11 @@ form could hide a schtasks call from it (its header lists the ones known). Kosmo
   Answered in the plan: what win32job.js already refuses and what this layer adds. Decided: a second command reader
   beside tool-guard's, with the reasons under Rejected; one shared reader is #7262. NIT taken: the matcher's header
   names its known false positive (a parenthesis: "echo (schtasks)"). 38/38 with windows-tests-1777.
+- Round 6: no BLOCKER. Fixed: the seven win32 test headers I repointed in round 5 said `node -r tools/...`, which node
+  resolves as a package and fails to load; now `./tools/...` (checked on the box: it loads). run-tests.sh's Windows
+  block had never run (#7257): two tests now cut the block out of run-tests.sh and run it in bash with uname and
+  cygpath stubbed, covering the export, the scheduler line, and the stop when cygpath is missing (CI unset, false or
+  0) and the run when the real scheduler was asked for. Mutation control: with that block's `exit 2` replaced, the
+  stop test fails. `env -u NAME`, `-C DIR` and `-S STRING` are read past their values (against round 5's matcher the
+  new test fails). The matcher header names PowerShell's parameter prefixes (-Com, -enco) as unread. 41/41 with
+  windows-tests-1777; bash ran here (no skip).

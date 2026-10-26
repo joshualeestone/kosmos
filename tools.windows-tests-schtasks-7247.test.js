@@ -221,3 +221,56 @@ test('#7247: zsh, dash, ksh and fish are read as sh is, and an option that takes
   assert.equal(callRuns('bash', ['-o', 'pipefail', '-c', 'echo schtasks']), false);
   assert.equal(callRuns('zsh', ['-c', 'git grep schtasks']), false);
 });
+
+/* ---------- review 6: run-tests.sh's own Windows block, run in bash ---------- */
+
+/* The block cut out of run-tests.sh as written (from its #7247 comment to the esac that closes it), run by bash with
+   uname answering as Git Bash does and cygpath stubbed, so its real paths run on any platform: the export, the
+   scheduler line, and the stop when cygpath is missing. npm test cannot run on Windows yet (#7257), so this is where
+   that code runs. */
+function bashBlock() {
+  const sh = fs.readFileSync(path.join(__dirname, 'tools', 'run-tests.sh'), 'utf8');
+  const start = sh.indexOf('# #7247: on a Windows computer');
+  const end = sh.indexOf('\nesac\n', start);
+  assert.ok(start >= 0 && end > start, 'run-tests.sh still carries its #7247 block');
+  return sh.slice(start, end + 6);
+}
+const BASH = (() => { const r = cp.spawnSync('bash', ['-c', 'echo ok'], { encoding: 'utf8' }); return r.status === 0 && r.stdout.trim() === 'ok'; })();
+function runBlock(env, cygpathWorks) {
+  const wtPath = path.join(__dirname, 'tools', 'windows-tests.js').replace(/\\/g, '/');
+  const script = 'uname() { echo MINGW64_NT-10.0-26100; }\n'
+    + (cygpathWorks ? 'cygpath() { printf "%s\\n" "$STUB_WT"; }\n' : 'cygpath() { return 1; }\n')
+    + bashBlock() + '\nprintf "%s" "${NODE_OPTIONS:-}"\n';
+  const e = { ...process.env, ...env, STUB_WT: wtPath, REPO: __dirname, PATH: path.dirname(process.execPath) + path.delimiter + (process.env.PATH || '') };
+  delete e.NODE_TEST_CONTEXT;
+  for (const k of Object.keys(env)) if (env[k] === undefined) delete e[k];
+  return cp.spawnSync('bash', ['-c', script], { env: e, encoding: 'utf8', timeout: 60000 });
+}
+
+test('#7247: run-tests.sh\'s Windows block exports the guard, or says the scheduler is real, as windows-tests.js decides', { skip: !BASH && 'no bash on this computer' }, () => {
+  const guarded = runBlock({ CI: undefined, KOSMOS_TESTS_REAL_SCHTASKS: undefined, NODE_OPTIONS: undefined }, true);
+  assert.equal(guarded.status, 0, guarded.stderr);
+  assert.equal(guarded.stdout, '--require "' + wt.PRELOAD.replace(/\\/g, '/') + '"');
+  assert.match(guarded.stderr, /refused in every test/);
+  const onCi = runBlock({ CI: 'true', NODE_OPTIONS: undefined }, true);
+  assert.equal(onCi.status, 0, onCi.stderr);
+  assert.equal(onCi.stdout, '');
+  assert.match(onCi.stderr, /REAL Task Scheduler/);
+});
+
+test('#7247: without cygpath the block stops rather than run unguarded, unless CI or the real-scheduler ask says so', { skip: !BASH && 'no bash on this computer' }, () => {
+  for (const ci of [undefined, 'false', '0']) {
+    const r = runBlock({ CI: ci, KOSMOS_TESTS_REAL_SCHTASKS: undefined, NODE_OPTIONS: undefined }, false);
+    assert.equal(r.status, 2, 'CI=' + ci + ': ' + r.stderr);
+    assert.match(r.stderr, /cygpath is missing/);
+  }
+  const asked = runBlock({ CI: undefined, KOSMOS_TESTS_REAL_SCHTASKS: '1', NODE_OPTIONS: undefined }, false);
+  assert.equal(asked.status, 0, asked.stderr);
+  assert.match(asked.stderr, /REAL Task Scheduler/);
+});
+
+test('#7247: env with an option that takes a value is read past it', () => {
+  assert.equal(callRuns('env', ['-u', 'X', 'schtasks', '/Query']), true);
+  assert.equal(callRuns('env', ['-C', 'C:/x', 'A=1', 'schtasks.exe']), true);
+  assert.equal(callRuns('env', ['-u', 'X', 'node', 'x.js']), false);
+});

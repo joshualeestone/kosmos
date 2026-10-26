@@ -17,7 +17,8 @@
  * reads one as a quote, so "echo don't & schtasks" stays one command). It errs the other way on a parenthesis outside
  * quotes: "echo (schtasks)" is read as running it, which only turns that echo into ENOENT. test-support/tool-guard.js
  * reads command position for its own CLIs with its own rules (a real install, judged by PATH); one shared reader for
- * both is #7262.
+ * both is #7262. PowerShell accepts any unique prefix of a parameter (-Com, -enco); only the spellings PS_VALUE and
+ * the -Command and -EncodedCommand checks list are read, so "powershell -enco <base64>" is not decoded.
  */
 
 const PROGRAM = /^schtasks(\.exe)?$/i;
@@ -113,7 +114,9 @@ function wordsRun(ws, i, depth) {
     }
     /* env NAME=value ... program: the program after the assignments is what runs. */
     if (/^env(\.exe)?$/i.test(b)) {
-      for (i += 1; i < ws.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1);
+      for (i += 1; i < ws.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1) {
+        if (/^-[uCS]$/.test(ws[i].text)) i += 1;   // -u NAME, -C DIR, -S STRING: the option's value is the next word
+      }
       continue;
     }
     if (/^call$/i.test(b)) { i += 1; continue; }

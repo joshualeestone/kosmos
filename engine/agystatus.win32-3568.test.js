@@ -6,7 +6,7 @@
  * asserted unchanged beside each Windows one. Runs on any platform: the manifest, download, signature
  * and --version are seams, and the platform is injected.
  *
- *   node -r tools/no-schtasks-preload.cjs --test engine/agystatus.win32-3568.test.js
+ *   node -r ./tools/no-schtasks-preload.cjs --test engine/agystatus.win32-3568.test.js
  */
 const os = require('node:os');
 const path = require('node:path');

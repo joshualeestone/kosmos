@@ -7,7 +7,7 @@
  *
  * SKIPS off-win32, without agy at KOSMOS_TEST_AGY_BIN (or the default below), or when not signed in.
  *
- *   node -r tools/no-schtasks-preload.cjs --test engine/win32agysignin.e2e.test.js
+ *   node -r ./tools/no-schtasks-preload.cjs --test engine/win32agysignin.e2e.test.js
  */
 const os = require('node:os');
 const path = require('node:path');
