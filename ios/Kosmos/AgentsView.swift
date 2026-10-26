@@ -180,9 +180,9 @@ struct BoardStates<Empty: View>: View {
             // The list arrives with the first read; until then (or with an empty earlier list not yet re-read) this is
             // still reaching, not "No agents yet".
             if client.updatedAt == nil || !client.fresh { reaching } else { empty() }
-        case .unreachable:
-            // Today's navy page, as it is: no title over it, and Back opens Today, the board.
-            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
+        case .unreachable(let mac):
+            // Today's navy page, as it is: no title over it, and Back opens Today, the board. kosmos#7197: naming the Mac.
+            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac)
                 .navigationBarHidden(true)
         case .kosmosPlusDown:
             LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)

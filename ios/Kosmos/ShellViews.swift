@@ -8,6 +8,8 @@ final class ShellState: ObservableObject {
     @Published var failure: Shell.LoadFailure?
     // The system's own wording for a failure that is neither offline nor unreachable.
     @Published var failureDetail: String = ""
+    // kosmos#7197: the failing Mac's name, for a Mac that is not answering (nil otherwise).
+    @Published var failureMac: String? = nil
     // Bumped to ask the WebView to reload; the WebView remembers the last value it acted on.
     @Published var retryCount = 0
     // True from Try again until the page loads or fails again, so the button answers.
@@ -78,12 +80,14 @@ struct LoadFailureView: View {
     let onBack: () -> Void
     // kosmos#6850: shown only for a Mac that is not answering (Shell.offersOtherComputer).
     var onOtherComputer: (() -> Void)? = nil
+    // kosmos#7197: the Mac that is not answering, by name, when it is known.
+    var macName: String? = nil
 
     private var title: String {
         switch failure {
         case .offline: return "You're offline"
         case .unreachable: return "Kosmos+ isn't answering"
-        case .macUnreachable: return "Your Mac isn't answering"
+        case .macUnreachable: return Shell.macUnreachableTitle(macName)
         case .other: return "This page didn't load"
         }
     }
@@ -100,7 +104,7 @@ struct LoadFailureView: View {
         switch failure {
         case .offline: return "Kosmos opens again as soon as your phone is back online."
         case .unreachable: return "Your phone is online, but Kosmos+ didn't reply. Try again in a moment."
-        case .macUnreachable: return "Your phone is online, but your Mac didn't reply. It may be asleep or turned off. Wake it, then try again."
+        case .macUnreachable: return Shell.macUnreachableMessage(macName)
         case .other: return detail.isEmpty ? "Something stopped the page from loading." : detail
         }
     }

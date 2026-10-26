@@ -1116,10 +1116,11 @@ final class BoardClient: ObservableObject {
             let result = await env.send(Board.sessionRequest(mac: url, handoffToken: token))
             let status = result?.1.statusCode ?? 0
             if status == 0 {
-                // No answer at all: while waiting, a few are a slow network; three in a row (as the gate page counts
-                // them) say the Mac is not answering, with Try again.
+                // No answer at all: a few are a slow network or a Mac just waking; three in a row (as the gate page counts
+                // them) say the Mac is not answering, with Try again. kosmos#7197: before the Mac had said "waiting" too,
+                // where ONE miss used to say it (Josh, 10-26 08:29, with that Mac answering minutes later).
                 misses += 1
-                if waiting && misses < 3 { await env.sleep(3); continue }
+                if misses < 3 { await env.sleep(3); continue }
                 set(.unreachable(mac: mac.name), gen); return false
             }
             misses = 0
