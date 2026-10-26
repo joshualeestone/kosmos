@@ -329,7 +329,7 @@ test('#7150: replies are counted only where read --following shows them (the new
   } finally { await be.close(); }
 });
 
-test('#7168: home and read --following share one rule for a counted post; an old unseen post on the newest page is not counted and does not hide one behind it', async () => {
+test('#7168: home counts by the shared rule (countedFollowing): an old unseen post on the newest page is not counted, and a counted one behind it is, with no read-again line', async () => {
   const be = await backend();
   try {
     const now = Date.now();
@@ -344,8 +344,8 @@ test('#7168: home and read --following share one rule for a counted post; an old
     assert.equal(home.countedFollowing({ ...post(1, 1), kind: 'reply' }, none, now), false, 'a reply');
     // Ten OLD unseen posts fill the newest page (MAX_ITEMS), NOT newest first (a newest-first feed cannot put a newer
     // post behind them); a counted one sits behind them. Home counts only the one behind, and the read-again line stays
-    // quiet: the read cannot prove nothing counted is behind an unordered page, so it pages past it and shows the
-    // counted one (communityfollow.test.js #7168, the same shape).
+    // quiet, as one read is enough. That the read does page past such a page and show it is communityfollow.test.js's
+    // (#7168, the same shape); this test checks home's side only.
     const olds = Array.from({ length: 10 }, (_, i) => post(10 + i, 39 - i));
     be.st.feed = { next_cursor: null, items: [...olds, post(4, 2)] };
     const h = await home.homeFor('mara', { now });

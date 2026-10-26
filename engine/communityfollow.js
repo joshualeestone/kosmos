@@ -267,9 +267,11 @@ function noteSeen(agentKey, ids) {
    unseen and from the last 24 hours), gives them the slots first, then older unseen posts up to POSTS_WANTED unseen in
    all, then already-shown ones. It stops early once POSTS_WANTED unseen posts are in hand and the last page read is
    newest first with its last item older than 24 hours, which rests on the service feed being newest first across
-   pages (its keyset cursor, by created_at then id). With fewer than POSTS_WANTED new posts between reads, repeated
-   reads reach every counted post; with more, older ones can pass FEED_ITEMS_MAX unread, where home stops counting
-   them too, so the count never names a post no read can reach. */
+   pages (its keyset cursor, by created_at then id). Under a moving feed, what holds is: the count never names a post
+   no read can reach (home counts no deeper than FEED_ITEMS_MAX, which is where an unread post leaves the read's
+   reach). Whether a backlog behind the newest page is reached before it passes that depth depends on its size and
+   place as well as on how fast new posts arrive (review 5 measured backlogs that a rate below POSTS_WANTED per read
+   still lost, the same on main). */
 const POSTS_WANTED = 3;
 const FEED_PAGES_MAX = 3;
 /** The deepest the Following feed is ever read, in items (communityhome counts no deeper). */
@@ -326,7 +328,8 @@ async function readFollowing(agentKey, { now = Date.now() } = {}) {
     for (let i = 1; i < t.length; i += 1) if (t[i] > t[i - 1]) return false;
     return t[t.length - 1] <= now - dayMs;
   };
-  const unseenInHandNow = () => page.filter(unseen).length + olderUncounted.length;
+  // Each post once (review 5: a post that moved between pages 2 and 3 would otherwise count twice).
+  const unseenInHandNow = () => new Set(page.filter(unseen).concat(olderUncounted).map((it) => String(it.id || '').toLowerCase())).size;
   let lastPage = page;
   let cursor = r.json.next_cursor;
   for (let pages = 1; fresh < POSTS_WANTED && !(unseenInHandNow() >= POSTS_WANTED && nothingCountedBehind(lastPage))

@@ -15,10 +15,12 @@ Card: kosmos#7168 (#7150 follow-ups 2 and 3, offered by Ice Cream Kitty, routed 
 ## Decided (reversible)
 - Item 2: counted posts first, older unseen ones only fill (Kitty agreed, 20:45). Older unseen posts stay in rather
   than being dropped: they are still posts the agent has never been shown.
-- Item 3, the bound, tested and stated: with fewer than POSTS_WANTED new posts between reads, every counted post is
-  reached; with more, older counted posts can drift past the read's depth (FEED_ITEMS_MAX, 30 items) unread, but home
-  counts no deeper, so it stops naming them at the same moment. The count never names a post no read can reach.
-  Not changed: draining more per read would make every read longer; POSTS_WANTED is #5636's call.
+- Item 3, the bound (corrected in round 5): what holds under a moving feed is that the count never names a post no
+  read can reach (home counts no deeper than FEED_ITEMS_MAX, which is where an unread post leaves the read's reach).
+  Whether a backlog behind the newest page is reached before it passes that depth depends on its size and place as
+  well as the arrival rate: review 5 measured backlogs a rate below POSTS_WANTED per read still lost, the same on
+  main. The test checks one slow case that drains (exactly six reads) and, in a fast one, that every lost post is one
+  home no longer counts.
 
 ## Weakest premise
 Arrival rates: the bound is fine for followed agents posting a few times a day, not for a firehose. Raising
@@ -72,3 +74,10 @@ POSTS_WANTED or adding paging is the lever if it ever matters.
   instead of a sentence spliced into #7150's; DAY_MS_OF became a constant, dayMs, and the communityhome fallback says
   it only pages more, never less; the once-only fill check is tested by its real effect, the slot count (removing it
   goes red; groupByPost folds a twice-added post into one entry anyway).
+- Round 5: 0 blockers, 2 warnings, 4 nits. Warning fixed: the comment and this plan promised every counted post is
+  reached below three arrivals per read, which the reviewer measured false (it depends on the backlog's size and
+  place too; the same on main); both now say only what holds. Warning fixed: the 24-hour threshold of the early
+  stop is pinned (a last item 23 hours old pages on, 25 hours old stops; a 12-hour threshold goes red). Nits: the
+  undated-item test puts it last, covering which item's age is read (first-item age and not skipping undated items
+  both go red); unseenInHandNow counts each post once; the home test's title and comment claim only home's side.
+  Not taken: the shown-fill's once-only check (untested on main too, and harmless at three pages).

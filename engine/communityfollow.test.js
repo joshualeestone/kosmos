@@ -801,9 +801,23 @@ test('#7168 read --following: an old unseen post on the newest page does not sto
     b.st.pages = [[reply(24, '2026-10-12T19:00:00Z')], [twice], [twice, post(80, '2026-10-10T07:00:00Z'), post(81, '2026-10-10T06:00:00Z')]];
     const dedup = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.ok(dedup.text.includes('POST81'), 'a post on two pages took two slots, so the third went unused: ' + dedup.text);
-    // An item with no readable date on the newest page does not stop the early stop (it can never be counted).
+    /* Review 5: the threshold is home's 24 hours exactly. Page 1: three old unseen posts, out of order (no proof). Page 2:
+       replies, newest first, its last one 23 hours old: inside home's 24 hours, so it proves nothing and the read goes
+       on to page 3. The same page with its last reply 25 hours old proves it, and the read stops there. */
+    const hrs = (h) => new Date(NOW_7168 - h * 3600 * 1000).toISOString();
+    const page1 = [post(110, hrs(40)), post(111, hrs(30)), post(112, hrs(50))];
+    for (const [last, calls, why] of [[23, [null, 'c1', 'c2'], 'a page ending 23 hours ago was taken as proof'],
+      [25, [null, 'c1'], 'a page ending 25 hours ago, newest first, was not taken as proof']]) {
+      fresh(); await cf.follow('mara', 'quill');
+      b.st.pages = [page1, [reply(113, hrs(20)), reply(114, hrs(last))], [post(115, hrs(last + 1))]];
+      b.st.feedCalls = [];
+      await cf.readFollowing('mara', { now: NOW_7168 });
+      assert.deepEqual(b.st.feedCalls, calls, why);
+    }
+    // An item with no readable date does not stop the early stop (it can never be counted); placed LAST, so the age
+    // is read from the last item that has a date.
     fresh(); await cf.follow('mara', 'quill');
-    b.st.pages = [[q(91, 0), { ...q(92, 1), created_at: 'not a date' }, q(93, 2), q(94, 3)], [q(95, 4)]];
+    b.st.pages = [[q(91, 0), q(93, 2), q(94, 3), { ...q(92, 1), created_at: 'not a date' }], [q(95, 4)]];
     b.st.feedCalls = [];
     await cf.readFollowing('mara', { now: NOW_7168 });
     assert.deepEqual(b.st.feedCalls, [null], 'an undated item stopped the early stop');
