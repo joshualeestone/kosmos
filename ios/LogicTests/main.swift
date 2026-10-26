@@ -251,6 +251,16 @@ check(Shell.backAction(provisional: false, current: nil, canGoBack: false) == .h
 check(Shell.offersOtherComputer(.macUnreachable), "a Mac not answering offers Choose another computer")
 check(!Shell.offersOtherComputer(.offline), "offline: another computer would fail the same way")
 check(!Shell.offersOtherComputer(.unreachable), "Kosmos+ not answering: the computer list is on Kosmos+ too")
+
+// kosmos#7197 (Josh, 10-26, with two Macs): the Mac that is not answering is named.
+check(Shell.macName(fromHost: "10102026.kosmosplus.com") == "10102026", "a Mac's name is its address label")
+check(Shell.macName(fromHost: nil) == nil && Shell.macName(fromHost: "") == nil, "no host, no name")
+check(Shell.macUnreachableTitle("10102026") == "10102026 isn't answering", "the title names the Mac")
+check(Shell.macUnreachableMessage("tmnt").contains("the Mac called tmnt didn't reply"), "the message names the Mac")
+check(Shell.macUnreachableTitle(nil) == "Your Mac isn't answering" && Shell.macUnreachableTitle("  ") == "Your Mac isn't answering",
+      "CONTROL: no name keeps the old wording")
+check(Shell.macUnreachableMessage(nil) == "Your phone is online, but your Mac didn't reply. It may be asleep or turned off. Wake it, then try again.",
+      "CONTROL: the unnamed message is the old one, word for word")
 check(!Shell.offersOtherComputer(.other), "any other failure: no computer was at fault")
 check(Shell.otherComputerURL(coordinator: URL(string: "https://login.kosmosplus.com")!).absoluteString == "https://login.kosmosplus.com/account", "Choose another computer opens /account, which never opens a computer by itself")
 check(Shell.otherComputerURL(coordinator: URL(string: "https://login.kosmosplus.com/")!).absoluteString == "https://login.kosmosplus.com/account", "a coordinator with a trailing slash gives the same address")
@@ -1634,6 +1644,8 @@ final class FakeBoardWorld {
     var macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":100}]}"#
     var sessionAnswer: (Int, String) = (200, #"{"ok":true}"#)
     var sessionNoAnswer = false
+    // kosmos#7197: this many session requests get no answer before the gate answers as usual.
+    var sessionNoAnswerFirst = 0
     // Each status request takes the first queued answer; nil is no answer at all. Empty queue: statusDefault.
     var statusQueue: [(Int, String)?] = []
     var statusDefault: (Int, String)? = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
@@ -1722,6 +1734,7 @@ final class FakeBoardWorld {
         case "/v1/account/handoff": return answer(200, #"{"token":"hand"}"#)
         case "/_kosmos/session":
             if sessionNoAnswer { return nil }
+            if sessionNoAnswerFirst > 0 { sessionNoAnswerFirst -= 1; return nil }
             if sessionAnswer.0 == 200 {
                 admitted += 1
                 cookies.setCookie(HTTPCookie(properties: [.name: Board.macCookieName, .value: "fresh-\(admitted)", .domain: (admitKeyedApart ? "." : "") + url.host!, .path: "/", .secure: "TRUE"])!)
@@ -2803,6 +2816,29 @@ section("native board loop: connecting")
         let ok10 = await settle { w.count("/v1/account/macs") == lists + 1 }
         check(ok10, "a second Try again in a row asks Kosmos+ for the Macs afresh")
         c.stop()
+    }
+
+    section("native board loop: one or two missed session requests are not \"not answering\" (kosmos#7197)")
+    do {
+        // Josh, 10-26 08:29: the relay delivered the request to his Mac and the app said "isn't answering" on the first
+        // miss. Two misses, then the gate answers: the board opens, and the screen never said the Mac was not answering.
+        let (c, w, _, _) = make("kst1")
+        w.sessionNoAnswerFirst = 2
+        var saidUnreachable = false
+        c.start()
+        let opened = await settle {
+            if case .unreachable = c.phase { saidUnreachable = true }
+            return isLive(c)
+        }
+        check(opened && !saidUnreachable && w.sessionNoAnswerFirst == 0, "two misses then an answer: live, never \"not answering\"")
+        c.stop()
+        // CONTROL: three misses in a row still say it, naming the Mac.
+        let (c2, w2, _, _) = make("kst1")
+        w2.sessionNoAnswer = true
+        c2.start()
+        let said = await settle { c2.phase == .unreachable(mac: "Studio") }
+        check(said, "CONTROL: three misses in a row say the Mac (Studio) is not answering")
+        c2.stop()
     }
 
     section("native board loop: an ended session is never restored")

@@ -345,7 +345,7 @@ struct ContentView: View {
                 .ignoresSafeArea(edges: .top)
                 .ignoresSafeArea(.keyboard)
             if let failure = shell.failure {
-                LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer)
+                LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac)
             }
         }
     }
@@ -853,6 +853,8 @@ struct WebView: UIViewRepresentable {
             // fragment (#kst=), which must never reach a log.
             NSLog("[Shell] load failed: \(e.domain) \(e.code) host=\(failedURL?.host ?? "?")")
             shell?.failureDetail = e.localizedDescription
+            // kosmos#7197: name the Mac that did not answer (its address label).
+            shell?.failureMac = failure == .macUnreachable ? Shell.macName(fromHost: failingURL?.host) : nil
             shell?.show(failure)
         }
     }

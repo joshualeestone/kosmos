@@ -136,6 +136,26 @@ enum Shell {
         failure == .macUnreachable
     }
 
+    // kosmos#7197 (Josh, 10-26 08:29, with two Macs): a Mac that is not answering is named, so the person knows which
+    // one to wake. The name is the Mac's address label (the first part of its host), as Kosmos+ lists it; with no
+    // name the wording is the old "Your Mac".
+    static func macName(fromHost host: String?) -> String? {
+        guard let first = host?.split(separator: ".").first, !first.isEmpty else { return nil }
+        return String(first)
+    }
+
+    static func macUnreachableTitle(_ name: String?) -> String {
+        guard let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty else { return "Your Mac isn't answering" }
+        return "\(n) isn't answering"
+    }
+
+    static func macUnreachableMessage(_ name: String?) -> String {
+        guard let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty else {
+            return "Your phone is online, but your Mac didn't reply. It may be asleep or turned off. Wake it, then try again."
+        }
+        return "Your phone is online, but the Mac called \(n) didn't reply. It may be asleep or turned off. Wake it, then try again."
+    }
+
     // Where "Choose another computer" goes: the coordinator's /account page, which lists
     // the person's computers, says which are answering and opens one from its row. Not
     // "/": that page opens a lone computer by itself after an allow, which could put the
