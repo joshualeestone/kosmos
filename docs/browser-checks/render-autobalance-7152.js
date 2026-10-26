@@ -63,6 +63,9 @@ const CASES = {
     { kind: 'decision', at: now - 5 * 60e3, moves: [{ agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-gone', toLabel: 'Old', why: WHY, kind: 'usage' }] },
     { kind: 'decision', at: now - 10 * 60e3, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: 'its login has stopped working', kind: 'login' }] },
     { kind: 'decision', at: now - 3 * 24 * H, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
+  /* Review 20: the last check could not measure every account, and a recorded line made during a gap. */
+  gapRecent: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, lastTick: 'gap',
+    recent: [{ kind: 'decision', at: now - 60e3, unmeasured: ['/home/.claude-spare'], moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
   badRecent: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], unreadable: true, recording: true,
     recent: [{ kind: 'decision', at: now - 60e3, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
 };
@@ -212,6 +215,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(rc && rc.length === want.length && want.every((re, i) => re.test(rc[i])), tag + ' the record: nothing moves on its own, would-moves newest first with the reason and the day', JSON.stringify(rc));
       say(r.recorded && !r.recorded.recentMarkup, tag + ' a name with markup in the record is shown as text', '');
       say(r.recorded && r.recorded.lines.length === 1 && r.recorded.lines[0] === 'Nothing to move right now.', tag + ' CONTROL: the decision lines are unchanged beside the record', JSON.stringify(r.recorded && r.recorded.lines));
+      const gr = r.gapRecent && r.gapRecent.recent;
+      say(gr && gr.length === 4 && gr[1] === 'Kosmos could not measure every account at its last check, so the record may be missing a change.'
+        && /would have moved Ada from Work to Spare, because .*\. Some accounts could not be measured then\.$/.test(gr[3]),
+        tag + ' a gap is said, both at the last check and on a line recorded during one', JSON.stringify(gr));
+      say(r.recorded && r.recorded.recent.every((x) => x.indexOf('could not measure') === -1), tag + ' CONTROL: with every account measured, no gap is said', '');
       const br = r.badRecent;
       say(br && br.lines[0] === 'Kosmos could not work out what it would move just now.' && br.recent.length === 3 && /would have moved Ada/.test(br.recent[2]),
         tag + ' an unreadable decision still shows the record', JSON.stringify(br && br.recent));

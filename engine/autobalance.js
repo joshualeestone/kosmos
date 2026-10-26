@@ -215,6 +215,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
    The record's resets are seconds; rows carry ms, as /api/accounts does. */
 const LOGIN_REFUSED = /^(profile-)?http-40[13]$/;
 const BLIP_STATES = /^(http-429|(profile-)?http-5\d\d|unreachable|profile-unreachable|token-expired)$/;
+const NO_CREDENTIAL = /^(no-credential|no-token)$/;   // slice 1 cannot read the credential: says nothing about the account
 function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
   const ms = (w) => (w && Number.isFinite(w.usedPct) ? { usedPct: w.usedPct, resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null } : null);
   const out = [];
@@ -250,10 +251,11 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
          keeps the last good ones through a failed read on purpose, so one network blip does not empty the decision. The
          badge alone says whether the latest read worked, and only a 'working' one is ever a target. */
       connection: { badge }, weekly: rec ? ms(rec.weekly) : null, fiveHour: rec ? ms(rec.fiveHour) : null, agentsHere: here,
-      /* Review 14, 16, 18: whether this reading can say the account's state: a figure that is still fresh, or a login
-         that was refused. A fresh record whose figures have aged out (slice 1 rewrites its time on
+      /* Review 14, 16, 18, 20: whether this reading can say the account's state: a figure that is still fresh, or a login
+         that was refused. Review 20: never after a read that could not get at the credential (no-credential, no-token),
+         whatever figures slice 1 copied across from before it: one Keychain hiccup must not decide anything. A fresh record whose figures have aged out (slice 1 rewrites its time on
          every poll, a failed one included) says nothing, so the sweep must not take it for the end of a risk. */
-      measured: refused || measured });
+      measured: refused || (measured && !NO_CREDENTIAL.test(String(rec && rec.state))) });   // review 20
   }
   return out;
 }

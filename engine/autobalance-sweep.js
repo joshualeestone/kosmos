@@ -24,6 +24,7 @@ const FILE = 'autobalance-record.jsonl';
 const KEEP_LINES = 500;
 const RECENT = 10;
 const CLOCK_SLACK_MS = 60 * 1000;   // a record line stamped further ahead than this is not trusted
+const GAP_TICKS = 3;                // review 20: a gap writes nothing for this many ticks, then is written, named
 
 /* AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF=1 is the operator's brake on the sweep (the setting is the person's). */
 function sweepOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF !== '1'; }
@@ -77,8 +78,9 @@ function recent(file, n = RECENT) {
 function keyOf(d) {
   /* Review 17: each list sorted, so the order entries arrive in never makes one decision look like two. */
   const sorted = (xs) => xs.map((x) => JSON.stringify(x)).sort();
+  const dirs = (xs) => (Array.isArray(xs) ? xs : []).filter((x) => typeof x === 'string').sort();
   return JSON.stringify({ m: sorted(objects(d.moves).map((x) => [x.agent, x.from, x.to])), h: sorted(objects(d.held).map((x) => x.from)),
-    r: sorted(objects(d.atRisk).map((x) => [x.from, x.kind])) });
+    r: sorted(objects(d.atRisk).map((x) => [x.from, x.kind])), u: dirs(d.unmeasured) });   // review 20: what was not measured is part of it
 }
 
 /**
@@ -86,11 +88,14 @@ function keyOf(d) {
  * is not trusted). Reads only; nothing is written until a tick has something new to say.
  */
 function create({ file, nowMs = Date.now() }) {
-  const state = { lastKey: null, last: null, writeFailed: false };   // last: the newest decision line (moves, held, atRisk)
+  /* last: the newest decision line (moves, held, atRisk, unmeasured). gapTicks: ticks in a row that were a gap.
+     lastDid: what the last tick did, for Settings (review 20). */
+  const state = { lastKey: null, last: null, writeFailed: false, gapTicks: 0, lastDid: null };
   for (const l of readLines(file)) {
     if (l.kind === 'decision' && Number.isFinite(l.at) && l.at <= nowMs + CLOCK_SLACK_MS) {
       state.lastKey = keyOf(l);
-      state.last = { moves: objects(l.moves), held: objects(l.held), atRisk: objects(l.atRisk) };
+      state.last = { moves: objects(l.moves), held: objects(l.held), atRisk: objects(l.atRisk),
+        unmeasured: (Array.isArray(l.unmeasured) ? l.unmeasured : []).filter((x) => typeof x === 'string') };
     }
   }
 
@@ -101,6 +106,12 @@ function create({ file, nowMs = Date.now() }) {
    * Resolves to { did: 'off' | 'nothing' | 'recorded' | 'cleared' | 'gap' | 'unreadable' }. state.writeFailed says the last write failed.
    */
   async function tick(deps, nowMs = Date.now()) {
+    const r = await step(deps, nowMs);
+    state.lastDid = r.did;
+    return r;
+  }
+
+  async function step(deps, nowMs) {
     if (deps.settingOn() !== true) return { did: 'off' };
     let decision;
     let rows = [];
@@ -116,39 +127,47 @@ function create({ file, nowMs = Date.now() }) {
         ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) }));
       decision = ab.decide({ rows, movable, nowMs });
     } catch (err) { return { did: 'unreadable', because: String((err && err.message) || err) }; }   // review 17: the board logs why
-    /* Review 14, 16, 18: WHEN IT CANNOT MEASURE, IT WRITES NOTHING. A tick is a gap, and records nothing, when an
-       account the last recorded decision named (at risk, or the target of a would-move) cannot be read now (no figure
-       still fresh, no refused login), or when an account at risk now has an agent list that may be short (the walk failed or is incomplete).
-       Reviews 16 and 17 tried carrying the unmeasured account's last entries instead; that kept old reasons alive past
-       their reset and redrew them as new would-moves (review 18), so the simpler rule won. The cost, stated in the
-       plan: a real change elsewhere during a gap is recorded only once the gap ends. A missed line, never a false one. */
+    /* Review 14, 16, 18, 20: WHEN IT CANNOT MEASURE, IT SAYS SO. An account is in a gap when it cannot be read now (no
+       figure still fresh, no refused login) and the last recorded decision named it (at risk, the target of a
+       would-move, or already unmeasured); a decision is also in a gap when an account at risk has an agent list that
+       may be short. For GAP_TICKS ticks in a row such a gap writes nothing (most gaps are a blip). After that the
+       decision is written with the unmeasured accounts named (`unmeasured`, part of its key), so a gap is never a
+       silent hole: slice 1 never renews an idle account's expired token, so a gap can last for days (review 20). The
+       line is true as written: with those accounts unmeasured, this is the decision. It stays the decision while they
+       stay unmeasured, and the next line, once they are measured again, says what changed. Reviews 16 and 17 tried
+       carrying the unmeasured account's old entries instead; that kept old reasons alive past their reset. */
     const unmeasured = new Set(rows.filter((r) => r.measured === false).map((r) => r.dir));
-    /* Review 19: every account the last decision named, the target of a would-move included: an unmeasured target is
-       not "no account can take them", so it must not flip the record to held and back. */
-    const named = state.last ? [...state.last.atRisk.map((x) => x.from), ...state.last.moves.map((x) => x.to)] : [];
-    if (named.some((dir) => unmeasured.has(dir))) return { did: 'gap', because: 'an account the last decision named could not be measured' };
-    if (decision.short.length) return { did: 'gap', because: 'an account at risk has an agent list that may be short' };
+    const named = state.last ? [...state.last.atRisk.map((x) => x.from), ...state.last.moves.map((x) => x.to), ...(state.last.unmeasured || [])] : [];
+    const gapDirs = [...new Set(named.filter((dir) => unmeasured.has(dir)))];
+    if (gapDirs.length || decision.short.length) {
+      state.gapTicks += 1;
+      if (state.gapTicks < GAP_TICKS) {
+        return { did: 'gap', because: gapDirs.length ? 'an account the last decision named could not be measured' : 'an account at risk has an agent list that may be short' };
+      }
+    } else state.gapTicks = 0;
+    decision = { ...decision, unmeasured: gapDirs };
     const key = keyOf(decision);
     /* Review 17: the record already holds this decision, so there is nothing a failed write left unsaid. */
     if (key === state.lastKey) { state.writeFailed = false; return { did: 'nothing' }; }
     /* Review 10: the end of a risk is written too (an empty decision), so a board restart rebuilds "nothing at risk"
        and a risk that comes back is recorded again. Only a first tick with nothing at risk writes nothing. */
-    const empty = !(decision.moves.length || decision.held.length || decision.atRisk.length);
+    const empty = !(decision.moves.length || decision.held.length || decision.atRisk.length || decision.unmeasured.length);
     if (empty && state.lastKey === null) { state.lastKey = key; state.last = null; return { did: 'nothing' }; }
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;
     const written = append(file, { kind: 'decision', at: nowMs,
+      ...(decision.unmeasured.length ? { unmeasured: decision.unmeasured } : {}), ...(decision.short.length ? { short: decision.short } : {}),
       moves: decision.moves.map((m) => ({ agent: m.agent, from: m.from, to: m.to, fromLabel: label(m.from), toLabel: label(m.to), why: m.why, kind: kindOf(m.from) })),
       held: decision.held.map((h) => ({ from: h.from, fromLabel: label(h.from), why: h.why })),
       atRisk: decision.atRisk.map((x) => ({ from: x.from, fromLabel: label(x.from), why: x.why, kind: x.kind })) });
     state.writeFailed = !written;   // review 10: the board says so (once) and stops saying it records
     if (!written) return { did: 'nothing', because: 'write-failed' };   // tried again next tick
     state.lastKey = key;
-    state.last = { moves: decision.moves, held: decision.held, atRisk: decision.atRisk };
+    state.last = { moves: decision.moves, held: decision.held, atRisk: decision.atRisk, unmeasured: decision.unmeasured };
     return { did: empty ? 'cleared' : 'recorded' };
   }
 
   return { tick, state };
 }
 
-module.exports = { create, recent, append, readLines, sweepOn, keyOf, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS };
+module.exports = { create, recent, append, readLines, sweepOn, keyOf, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS };

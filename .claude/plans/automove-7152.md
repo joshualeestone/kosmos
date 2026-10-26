@@ -133,7 +133,7 @@ reads idle, and a restart kills the job.
   only after a later write.
 - A tick that cannot work out the decision logs why, once per reason, so a code defect does not read as a quiet record.
 
-## Review 18: when it cannot measure, it writes nothing
+## Review 18: when it cannot measure, it writes nothing (bounded in review 20)
 - A tick is a gap, and writes nothing, when an account that was at risk at the last recorded decision cannot be read
   now, or when an account at risk now has an agent list that may be short (decide's `short`: the walk failed or is
   incomplete). Reviews 16 and 17 tried carrying the unmeasured account's last entries instead; that kept old reasons
@@ -154,3 +154,17 @@ reads idle, and a restart kills the job.
   review 10 states).
 - Stated: the agents walk on the timer runs unattended; a slow tmux would stall it with nobody looking (review 15's call
   stands; a timing log is a follow-up if it is ever seen).
+
+## Review 20: a gap is bounded and named, never a silent hole
+- A gap can last for days: slice 1 never renews an idle account's expired access token, so an idle target or an idle
+  at-risk account goes unmeasured overnight and stays so until an agent runs on it. Review 18's "the gap ends with the
+  next good reading" was false for exactly that case, and the record went silent while Settings said it was recording.
+- So: a gap writes nothing for GAP_TICKS (3) ticks, then the decision is written with the unmeasured accounts named
+  (`unmeasured`, part of the key). That line is true as written. It stays the decision while those accounts stay
+  unmeasured (they count as named), and the next line, once they are measured again, says what changed.
+- A read that could not get at the credential (no-credential, no-token) is unmeasured whatever figures slice 1 copied
+  across from before it, so one Keychain hiccup does not decide anything.
+- Settings says when the last check could not measure every account, and a recorded line made during a gap says so;
+  the board logs a gap once per reason.
+- Stated, not changed: movableFor compares the seeded guide name by trim and lower case, the walk by create.cleanName.
+  The folder marker is the primary guard, and the walk already leaves the guide out of every account's agents.

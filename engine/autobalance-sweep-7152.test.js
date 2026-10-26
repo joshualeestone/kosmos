@@ -33,7 +33,8 @@ const LIST = [
 ];
 const reading = (pct, resetsInH, o = {}) => ({ at: NOW, measuredAt: NOW, state: 'ok',
   weekly: { usedPct: pct, resetsAt: S(NOW + resetsInH * H) }, fiveHour: null, ...o });
-const USAGE = { '/u/.claude-work': reading(93, 35), '/u/.claude-spare': reading(10, 100) };
+/* Review 20: with the email slice 1 writes on every reading, so the sweep's login check is exercised. */
+const USAGE = { '/u/.claude-work': reading(93, 35, { email: 'w@example.test' }), '/u/.claude-spare': reading(10, 100, { email: 's@example.test' }) };
 
 function deps(o = {}) {
   const cards = o.cards || realCards(['ada']);
@@ -373,4 +374,33 @@ test('#7152 slice 3 review 19: with no login rule given, a record is used only f
   const rows = ab.rowsFromReadings({ list: [{ dir: '/u/.claude-n', label: 'n' }, LIST[1]], nowMs: NOW,
     readUsage: (dir) => ({ ...reading(10, 100), email: 'x@example.test' }), agentsOn: () => ({ names: [], complete: true }) });
   assert.equal(rows[0].weekly, null, 'a record was used for an account with no email to check it against');
+});
+
+test('#7152 slice 3 review 20: a long gap is written once, naming the account, after GAP_TICKS; then nothing until it is measured', async () => {
+  const file = fileFor();
+  const run = sweep.create({ file });
+  await run.tick(deps(), NOW);
+  const aged = { at: NOW, measuredAt: NOW - 31 * 60e3, state: 'token-expired', weekly: null, fiveHour: null, email: 's@example.test' };
+  const gap = deps({ usage: { ...USAGE, '/u/.claude-spare': aged } });   // the target, idle, its token expired
+  for (let i = 1; i < sweep.GAP_TICKS; i += 1) assert.equal((await run.tick(gap, NOW + i * 1000)).did, 'gap', `gap tick ${i} wrote a line`);
+  assert.equal((await run.tick(gap, NOW + 10000)).did, 'recorded', 'a gap that went on was never written: a silent hole');
+  const line = sweep.readLines(file).pop();
+  assert.deepEqual(line.unmeasured, ['/u/.claude-spare'], 'the written gap did not name the account it could not measure');
+  for (let i = 0; i < 5; i += 1) assert.equal((await run.tick(gap, NOW + 20000 + i * 1000)).did, 'nothing', 'a gap that stayed the same was written again');
+  assert.equal(run.state.lastDid, 'nothing');
+  assert.equal((await run.tick(deps(), NOW + 30000)).did, 'recorded', 'the account measured again did not end the gap in the record');
+  assert.equal(sweep.readLines(file).pop().unmeasured, undefined);
+  const r = sweep.create({ file, nowMs: NOW + 40000 });
+  assert.equal((await r.tick(deps(), NOW + 40000)).did, 'nothing', 'CONTROL: a restart after it does not write it again');
+});
+
+test('#7152 slice 3 review 20: a Keychain failure on the target, with the figures slice 1 copied across, is a gap, not a hold', async () => {
+  const file = fileFor();
+  const run = sweep.create({ file });
+  await run.tick(deps(), NOW);
+  const hiccup = { ...USAGE['/u/.claude-spare'], state: 'no-credential' };   // slice 1's real shape: fresh figures kept from the last good read
+  const rows = ab.rowsFromReadings({ list: LIST, nowMs: NOW, readUsage: (dir) => (dir === '/u/.claude-spare' ? hiccup : USAGE[dir]), agentsOn: () => ({ names: [], complete: true }) });
+  assert.equal(rows[1].measured, false, 'a read that could not get at the credential was taken as measured');
+  assert.equal((await run.tick(deps({ usage: { ...USAGE, '/u/.claude-spare': hiccup } }), NOW + 1000)).did, 'gap', 'a Keychain hiccup wrote a held line');
+  assert.equal((await run.tick(deps(), NOW + 2000)).did, 'nothing', 'the move was written again after a Keychain hiccup');
 });
