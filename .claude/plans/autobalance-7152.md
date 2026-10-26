@@ -69,6 +69,10 @@ the decision is logged once per change (a line in the board's log), which is the
   reset just past 6 h never reads "6 h" beside the 6-hour rule, and past two days in days. A held and short account
   says its reason once. Accepted, stated: a failed follow-up read (the switch's re-read) keeps the lines, as every
   follow-up keeps the list; only a read the person started clears them.
+- Review 8: the movable test is built only when an at-risk account has agents on it, so an unreadable roster says
+  "could not work out" only when it matters. For slice 3, stated so it is not assumed: a target's room is not counted
+  across at-risk accounts (two at-risk accounts both name the same emptiest target, each with all its agents), so slice
+  3 must pick the target again before each one-at-a-time move.
 - engine/autobalance-setting.js: the assigner-setting pattern. Missing reads ON; a corrupt file reads off. Effective
   only with two or more eligible accounts; with one it does nothing and says nothing.
 - GET /api/accounts?agents=1: `autobalance: { on, ok, eligible, moves, held, short, atRisk, unreadable? }`; every Claude row also

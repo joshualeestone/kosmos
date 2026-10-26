@@ -148,6 +148,7 @@ test('#7152 review 1: the route marks every Claude row and reads the switch befo
   assert.match(src.slice(Math.max(0, at - 400), at), /const sentAt = Date\.now\(\);/, 'the marks are not stamped with the clock as the answer is sent');
   const block = src.slice(at, src.indexOf('sendJson(res, 200, { accounts: [...claude', at));
   assert.match(block, /ab\.decide\(\{ rows: claude, movable, nowMs: sentAt \}\)/, 'the decision does not use the same clock as the marks');
+  assert.match(block, /const movable = ab\.movableOnDemand\(\(\) => ab\.movableFor\(/, 'review 8: the route builds the movable test eagerly, so an unreadable roster fails every read');
   assert.ok(block.length > 0, 'CONTROL: the block is found whole');
   const read = block.indexOf('setting = autobalanceSetting.read()');
   const guarded = block.indexOf('try {', block.indexOf('const eligibleCount'));
@@ -250,4 +251,18 @@ test('#7152 review 7: the reset is never said as 6 h or less beside the 6-hour r
   assert.match(at(6.3)[0].why, /resets in 7 h$/, 'a reset 6.3 h away read as 6 h');
   assert.match(at(150)[0].why, /resets in 6 days$/, 'a reset 150 h away was said in hours');
   assert.match(at(48)[0].why, /resets in 48 h$/, 'CONTROL: two days is still said in hours');
+});
+
+test('#7152 review 8: the movable test is built only when an at-risk account has agents, so an unreadable roster stays quiet otherwise', () => {
+  let built = 0;
+  const failing = ab.movableOnDemand(() => { built += 1; return ab.movableFor({ cards: null, records: [], readCommitment: () => null }); });
+  const calm = [row('/u/.claude-a', { agentsHere: { names: ['ada'], complete: true } }), row('/u/.claude-b')];
+  assert.doesNotThrow(() => ab.decide({ rows: calm, movable: failing, nowMs: NOW }), 'an unreadable roster failed a read with nothing at risk');
+  assert.equal(built, 0, 'the movable test was built with nothing at risk');
+  const risky = [row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + 40 * H }, agentsHere: { names: ['ada'], complete: true } }), row('/u/.claude-b')];
+  assert.throws(() => ab.decide({ rows: risky, movable: failing, nowMs: NOW }), /roster could not be read/, 'CONTROL: once it matters, the failure is said');
+  let calls = 0;
+  const once = ab.movableOnDemand(() => { calls += 1; return () => true; });
+  once('a'); once('b');
+  assert.equal(calls, 1, 'the movable test was built more than once');
 });

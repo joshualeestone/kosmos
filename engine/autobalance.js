@@ -170,4 +170,12 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
   };
 }
 
-module.exports = { decide, movableFor, markTargets, bulkTargetable, eligible, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS };
+/* Review 8: the movable test, built only when it is first asked (only for an at-risk account with agents on it), so
+   a roster that could not be read says "could not work out" only when that matters, not on every read with nothing at
+   risk. `build()` returns a movable function, or throws. */
+function movableOnDemand(build) {
+  let fn = null;
+  return (session) => (fn || (fn = build()))(session);
+}
+
+module.exports = { decide, movableFor, movableOnDemand, markTargets, bulkTargetable, eligible, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS };

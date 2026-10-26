@@ -13022,7 +13022,7 @@ const server = http.createServer(async (req, res) => {
                  out", never "nothing to move". */
               const cards = claudeAgents ? claudeAgents.roster : null;   // movableFor refuses one that could not be read
               let records;
-              const movable = ab.movableFor({ cards, records: () => (records || (records = projects.readAll())), readCommitment: (session) => commitments.read(session) });
+              const movable = ab.movableOnDemand(() => ab.movableFor({ cards, records: () => (records || (records = projects.readAll())), readCommitment: (session) => commitments.read(session) }));
               decision = ab.decide({ rows: claude, movable, nowMs: sentAt });
             }
             autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, ...decision };   // review 5: ok, so a corrupt file is not a confident Off
