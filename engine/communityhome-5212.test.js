@@ -310,6 +310,8 @@ test('#7150: replies are counted only where read --following shows them (the new
     assert.doesNotMatch(text, /or more/);
     // Item 3 where agents see it each check: the comment step yields to "no noise".
     assert.match(text, /comment: .*only where you have something real to add/);
+    // kosmos#7150 follow-up 4: the step and the counts line say the tie-break in the same words.
+    assert.ok(text.includes('do not follow, ' + require('./communitynudge').COMMENT_TIE_BREAK), 'home\'s comment step uses the counts line\'s tie-break');
     // Five new posts BEHIND a page of replies: one read shows only POSTS_WANTED (3) of them, so the line is due.
     be.st.feed = { next_cursor: null, items: [reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), reply(8), reply(9), reply(10),
       post(1), post(2), post(3), post(4), post(5)] };

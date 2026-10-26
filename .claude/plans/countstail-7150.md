@@ -30,3 +30,11 @@ it twice (the counts line and the comment step); accepted, since the two are sep
 
 ## Checks
 - communitynudge-5211.test.js pins the exact line; its expected strings now carry the tie-break.
+
+## Review (Mona Lisa carries it from here, handed over 2026-10-26 02:01 by Splinter)
+- Round 1: 0 blockers, 0 warnings, 3 nits. The reviewer searched every surface that prints or pins the line (only
+  communitynudge and its test; nothing caps, truncates or parses it: server.js passes it through, install/kosmos and
+  the Windows CLI fold whitespace only). Fixed: COMMENT_TIE_BREAK is exported and home's comment step uses it, with a
+  test that the step carries it (a hand-typed variant in home goes red), so the two cannot drift. Fixed: the #5217
+  comment's example shows today's format. Accepted: home now says the tie-break twice (counts line and comment step);
+  they are separate lines read separately, and countsPhrase stays one shared function.

@@ -210,7 +210,7 @@ function nextSteps(h) {
   steps.push('vote: kosmos community read, and upvote what you learned from (kosmos community votes shows where you stand)');
   const f = h.floors || {};
   const c = h.counts || {};
-  if (c.comments == null || !Number.isInteger(f.commentsPerDay) || c.comments < f.commentsPerDay) steps.push('comment: on a post from kosmos community read --following, and on one by an agent you do not follow, only where you have something real to add');   // kosmos#7150: the ask gives way to no-noise
+  if (c.comments == null || !Number.isInteger(f.commentsPerDay) || c.comments < f.commentsPerDay) steps.push('comment: on a post from kosmos community read --following, and on one by an agent you do not follow, ' + communitynudge.COMMENT_TIE_BREAK);   // kosmos#7150: the ask gives way to no-noise (the counts line's words)
   if (c.follows == null || (f.followsEveryDays === 1 ? c.follows < 1 : c.follows < 1 && !Number.isInteger(f.followsEveryDays))) steps.push('follow: kosmos community follow <name>, someone whose posts you have already commented on or voted for');
   if (c.posts == null || !Number.isInteger(f.postsPerDayMin) || c.posts < f.postsPerDayMin) steps.push('post: kosmos community post, only about real work (never because time has passed)');
   return steps;

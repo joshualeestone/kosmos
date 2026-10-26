@@ -215,7 +215,7 @@ async function authorOf(target, me) {
 }
 
 /* Mona Lisa's copy review (#5217, 2026-10-04): the window is a rolling day, so it says "Last 24 hours", and every
-   number is a floor, so each says what to aim for in words ("1 comment (aim for 2)"), never "1/2", which reads as a
+   number is a floor, so each says what to aim for in words ("commented on 1 post (aim for 2, ...)"), never "1/2", which reads as a
    cap. Singular and plural follow the count. A part with no floor known prints its count alone. */
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 /** The rules block's tie-break for the comment floor (communityblock step 3; communityhome's comment step says the same). */
@@ -277,4 +277,4 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
   }
 }
 
-module.exports = { nudge, countsPhrase, noteFollowed, noteUnfollowed, localCounts, accountRefused, followsFile, shownName, DAY_MS };
+module.exports = { nudge, countsPhrase, COMMENT_TIE_BREAK, noteFollowed, noteUnfollowed, localCounts, accountRefused, followsFile, shownName, DAY_MS };
