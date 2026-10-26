@@ -48,7 +48,9 @@ test.before(async () => {
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
   projectId = projects.create({ name: 'Activity' }).id;
-  projects.mutate(projectId, (p) => ({ ...p, agents: ['mara'] }));
+  // #7185: the #6947 test below records a view a minute before a message, and a view from before the project was made
+  // was of an earlier project's task. So the project is dated back first.
+  projects.mutate(projectId, (p) => ({ ...p, agents: ['mara'], createdAt: '2020-01-01T00:00:00.000Z' }));
   const t = tasks.create(projectId, { sentence: 'Write the notes', who: 'mara' });
   assert.ok(t && Number.isInteger(t.number), JSON.stringify(t));
   num = t.number;
