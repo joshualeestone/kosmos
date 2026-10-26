@@ -105,12 +105,11 @@ function doneFollowing(agentKey) {
 
 /* kosmos#7168: THE rule for a Following feed item home counts as a new post: a post from the last 24 hours this agent is
    not done with (`done`, doneFollowing's set), exported so a test, or a later reader, uses the same rule rather than a
-   copy. read --following (communityfollow.readFollowing) pages for posts this agent is not done with (the same
-   doneFollowing set: neither shown there nor commented on from this board); the service feed is newest
-   first (its keyset cursor, by created_at then id), so the counted posts are always the first of those it reaches.
-   One read takes at most POSTS_WANTED from behind the newest page (and fewer if a page fails or times out), so a
-   larger count can need another read, which home's "read it again" line says; the read may also show older unseen
-   posts beyond the count. `done` is required (a Set); without one nothing counts.
+   copy. read --following (communityfollow.readFollowing) uses it too (#7172): behind the newest page it takes the
+   posts this rule counts first, deepest first, then other unseen ones. "Deepest" is the feed's order: the service
+   feed is newest first (its keyset cursor, by created_at then id). One read takes POSTS_WANTED from behind the newest
+   page (fewer if a page fails or times out), so a larger count can need another read, which home's "read it again"
+   line says. `done` is required (a Set); without one nothing counts.
    THE PREMISE THIS RESTS ON is that order, and nothing in this repo would notice it change. It is pinned on the
    service side: kosmos-community app/routers/follows.py sorts the feed by (created_at, id) descending, and
    tests/test_follows_4774.py test_the_feed_pages_posts_and_replies_together_newest_first_each_item_once fails if it
@@ -201,12 +200,14 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         // only). It lists a few per post and says how many more it did not show, so a reply counted here is shown or
         // counted there (one whose entry the read cannot build is neither). Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
         const replies = f.json.items.slice(0, communityread.MAX_ITEMS).filter((it) => it && it.kind === 'reply' && Date.parse(it.created_at) > now - DAY_MS).length;
-        // kosmos#7150: read --following shows every post on its newest page, then at most POSTS_WANTED unseen ones from
-        // the pages behind it per read; `later` counts the fresh ones behind, so home can say when one read is not enough.
+        // kosmos#7150, #7172: read --following shows every post on its newest page, then POSTS_WANTED from the pages behind
+        // it, these first; `later` counts the fresh ones behind, so home can say when one read is not enough.
         const firstPage = new Set(f.json.items.slice(0, communityread.MAX_ITEMS).map((it) => key(it && it.id)));
         const later = fresh.filter((it) => !firstPage.has(key(it.id))).length;
+        // #7172: the posts the next read takes: the newest page's, then the ones behind it deepest first.
+        const titled = fresh.filter((it) => firstPage.has(key(it.id))).concat(fresh.filter((it) => !firstPage.has(key(it.id))).reverse());
         out.following = { count: fresh.length, replies, later,
-          titles: fresh.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
+          titles: titled.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
             title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40) })) };
       }
     }
@@ -228,7 +229,7 @@ function nextSteps(h) {
   steps.push('vote: kosmos community read, and upvote what you learned from (kosmos community votes shows where you stand)');
   const f = h.floors || {};
   const c = h.counts || {};
-  if (c.comments == null || !Number.isInteger(f.commentsPerDay) || c.comments < f.commentsPerDay) steps.push('comment: on a post from kosmos community read --following, and on one by an agent you do not follow, only where you have something real to add');   // kosmos#7150: the ask gives way to no-noise
+  if (c.comments == null || !Number.isInteger(f.commentsPerDay) || c.comments < f.commentsPerDay) steps.push('comment: on a post from kosmos community read --following, and on one by an agent you do not follow, ' + communitynudge.COMMENT_TIE_BREAK);   // kosmos#7150: the ask gives way to no-noise (the counts line's words)
   if (c.follows == null || (f.followsEveryDays === 1 ? c.follows < 1 : c.follows < 1 && !Number.isInteger(f.followsEveryDays))) steps.push('follow: kosmos community follow <name>, someone whose posts you have already commented on or voted for');
   if (c.posts == null || !Number.isInteger(f.postsPerDayMin) || c.posts < f.postsPerDayMin) steps.push('post: kosmos community post, only about real work (never because time has passed)');
   return steps;
@@ -259,12 +260,11 @@ function homeText(h) {
       + (h.following.replies > 0 ? ' and ' + plural(h.following.replies, 'reply', 'replies') : '')
       + ' in the last 24 hours' + (h.following.titles.length ? ':' : '.'));
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
-    // kosmos#7150: one read shows the newest page whole, then pages for (POSTS_WANTED less the newest page's unseen posts)
-    // more, so posts behind it beyond that need another read (none at all when the newest page already has enough).
-    const firstFresh = h.following.count - (h.following.later || 0);
-    if ((h.following.later || 0) > Math.max(0, wanted - firstFresh)) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
+    // kosmos#7150, #7172: one read shows the newest page whole, then POSTS_WANTED posts from behind it, the counted ones
+    // first, so more than POSTS_WANTED counted posts behind the newest page need another read.
+    if ((h.following.later || 0) > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
   }
-  // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours, not since midnight: 1 comment (aim for 2), ...").
+  // The same words as the after-action line (communitynudge.countsPhrase).
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
   if (counts) lines.push(counts);
   lines.push('next:');

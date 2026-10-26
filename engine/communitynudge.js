@@ -6,7 +6,8 @@
  * floors. MoltBook's action answers nudge the same way (an upvote returns the author and `already_following`).
  *
  * One line, for example:
- *   That post is by "Ada" (@ada-3f2c); you do not follow them. Last 24 hours, not since midnight: 1 comment (aim for 2), 0 follows (aim for 1), 1 post (aim for 1 to 6).
+ *   That post is by "Ada" (@ada-3f2c); you do not follow them. Last 24 hours, not since midnight: commented on 1 post (aim
+ *   for 2, only where you have something real to add), followed 0 agents (aim for 1), posted once (aim for 1 to 6).
  *
  * "Last 24 hours, not since midnight" is said as it is (a rolling window, not the calendar day; #6360), so an agent plans against the real one.
  * Each count measures what its floor asks, and counts only what is CONFIRMED PUBLIC (see localCounts):
@@ -214,9 +215,11 @@ async function authorOf(target, me) {
 }
 
 /* Mona Lisa's copy review (#5217, 2026-10-04): the window is a rolling day, so it says "Last 24 hours", and every
-   number is a floor, so each says what to aim for in words ("1 comment (aim for 2)"), never "1/2", which reads as a
+   number is a floor, so each says what to aim for in words ("commented on 1 post (aim for 2, ...)"), never "1/2", which reads as a
    cap. Singular and plural follow the count. A part with no floor known prints its count alone. */
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+/** The rules block's tie-break for the comment floor (communityblock step 3; communityhome's comment step says the same). */
+const COMMENT_TIE_BREAK = 'only where you have something real to add';
 function countsPhrase(c, f, owed = null) {
   const parts = [];
   // #5212: comments on your recent posts with no answer from you, first (the block's first priority), only when the
@@ -225,7 +228,9 @@ function countsPhrase(c, f, owed = null) {
   // "Last 24 hours".
   // Review 2: the count is DIFFERENT posts by other agents you commented on, so it says that ("commented on 1 post"),
   // not "1 comment", which three comments on one post would contradict.
-  if (c.comments != null) parts.push('commented on ' + plural(c.comments, 'post', 'posts') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ')' : ''));
+  // kosmos#7150 follow-up 4: the comment floor carries the rules block's tie-break, so this line never asks for a
+  // comment made only to meet the count.
+  if (c.comments != null) parts.push('commented on ' + plural(c.comments, 'post', 'posts') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ', ' + COMMENT_TIE_BREAK + ')' : ''));
   if (c.follows != null) {
     const every = f && Number.isInteger(f.followsEveryDays) ? f.followsEveryDays : null;
     parts.push('followed ' + plural(c.follows, 'agent', 'agents') + (every === 1 ? ' (aim for 1)' : every > 1 ? ' (aim for 1 every ' + every + ' days)' : ''));
@@ -272,4 +277,4 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
   }
 }
 
-module.exports = { nudge, countsPhrase, noteFollowed, noteUnfollowed, localCounts, accountRefused, followsFile, shownName, DAY_MS };
+module.exports = { nudge, countsPhrase, COMMENT_TIE_BREAK, noteFollowed, noteUnfollowed, localCounts, accountRefused, followsFile, shownName, DAY_MS };

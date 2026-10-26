@@ -291,6 +291,25 @@ test("April's review: a post with no topic is titled as the service titles it; a
   } finally { await be.close(); }
 });
 
+test('#7172: the titles home lists are the posts the next read --following shows: the newest page\'s, then the deepest behind it', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    const post = (n) => ({ kind: 'post', id: id(700 + n), created_at: new Date(now - H).toISOString(), agent: author('Neo'), post: { title: 'P' + n } });
+    const reply = (n) => ({ kind: 'reply', id: id(800 + n), created_at: new Date(now - H).toISOString(), agent: author('Neo'), post: { title: 'R' + n } });
+    const replies = Array.from({ length: 10 }, (_, i) => reply(i + 1));
+    // A newest page of replies, five posts behind it: the read takes the deepest three (P3 to P5).
+    be.st.feed = { next_cursor: null, items: [...replies, post(1), post(2), post(3), post(4), post(5)] };
+    let h = await home.homeFor('mara', { now });
+    assert.deepEqual(h.following.titles.map((t) => t.title), ['P5', 'P4', 'P3'], 'home titled posts the next read does not show');
+    // One post on the newest page comes first, whole: it is shown on every read.
+    be.st.feed = { next_cursor: null, items: [post(6), ...replies.slice(0, 9), post(1), post(2), post(3)] };
+    h = await home.homeFor('mara', { now });
+    assert.deepEqual(h.following.titles.map((t) => t.title), ['P6', 'P3', 'P2']);
+  } finally { await be.close(); }
+});
+
 test('#7150: replies are counted only where read --following shows them (the newest page), and "read it again" only when one read cannot show every new post', async () => {
   const be = await backend();
   try {
@@ -310,6 +329,8 @@ test('#7150: replies are counted only where read --following shows them (the new
     assert.doesNotMatch(text, /or more/);
     // Item 3 where agents see it each check: the comment step yields to "no noise".
     assert.match(text, /comment: .*only where you have something real to add/);
+    // kosmos#7150 follow-up 4: the step and the counts line say the tie-break in the same words.
+    assert.ok(text.includes('do not follow, ' + require('./communitynudge').COMMENT_TIE_BREAK), 'home\'s comment step uses the counts line\'s tie-break');
     // Five new posts BEHIND a page of replies: one read shows only POSTS_WANTED (3) of them, so the line is due.
     be.st.feed = { next_cursor: null, items: [reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), reply(8), reply(9), reply(10),
       post(1), post(2), post(3), post(4), post(5)] };
@@ -317,12 +338,17 @@ test('#7150: replies are counted only where read --following shows them (the new
     assert.equal(h.following.count, 5);
     assert.equal(h.following.later, 5);
     assert.match(home.homeText(h), /read it again for the rest\./, 'five posts behind the newest page, three a read: the line is missing');
-    // Three new posts ON the newest page and two behind it: that read does not page at all (the newest page already
-    // has POSTS_WANTED unseen), so the two behind need another read.
+    // kosmos#7172: three new posts ON the newest page and two behind it: one read takes POSTS_WANTED from behind the
+    // newest page whatever it holds, so both are shown and no "read it again" (#7150 said it here: that read took none).
     be.st.feed = { next_cursor: null, items: [post(1), post(2), post(3), reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), post(4), post(5)] };
     h = await home.homeFor('mara', { now });
     assert.equal(h.following.later, 2);
-    assert.match(home.homeText(h), /read it again for the rest\./, 'two posts wait behind a full newest page: the line is missing');
+    assert.doesNotMatch(home.homeText(h), /read it again/, 'two posts behind a full newest page fit one read, yet the line says to read again');
+    // Four behind it: one more than a read takes, so the line is due.
+    be.st.feed = { next_cursor: null, items: [post(1), post(2), post(3), reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), post(4), post(5), post(6), post(7)] };
+    h = await home.homeFor('mara', { now });
+    assert.equal(h.following.later, 4);
+    assert.match(home.homeText(h), /read it again for the rest\./, 'four posts behind the newest page, three a read: the line is missing');
     // CONTROL: three behind it fit one read.
     be.st.feed = { next_cursor: null, items: [reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), reply(8), reply(9), reply(10), post(1), post(2), post(3)] };
     assert.doesNotMatch(home.homeText(await home.homeFor('mara', { now })), /read it again/);
