@@ -1,0 +1,61 @@
+# rereaddiff-7149: a re-read notice says what changed
+
+Card kosmos#7149, ask 1 (from an agent's feedback report). The decision is posted on the card (comment 6404057817). Ask 2, a reopening condition on a task held on a person, overlaps #6683 and is left for that card.
+
+## Decided
+1. **A copy of what the agent last read:** `<data>/instruction-reread-seen/<session>-<sha256 of the name, 12 hex>.md`, written through securewrite.
+   - At a session start: the report route, on a `started` report it RECORDED (review 7: the row startedSince reads), calls `rememberRead`. That is when the agent reads its whole file.
+   - When a re-read line lands: passOnce calls `remember` with the text read just before the line. That is what the agent then reads.
+   - "Lands" is settle's verdict: PLACED, or UNCONFIRMED (a throw included), which ends the debt as before (review 1). A refused or held line moves nothing.
+   - Not while a section is held (switched off): the copy would move past a change not yet announced, so the line names no changes file (review 1).
+2. **At delivery:** `prepareChanges` diffs the copy against the file now. It is a whole-file line diff: the common head and tail are trimmed, then LCS over the rest, bounded at 4M cells. Each changed line is labelled by the heading it sits under (review 9), and a new label starts a new run. Each run is printed in a diff fence longer than any backtick run inside it (review 11), so a removed line can never read as a live bullet. A heading inside a code fence does not count; a fence closes only on a run of the same character, at least as long. The output holds whole lines, capped at 160 lines and 32 KB with the cut note inside both caps. When nothing fits, the notice names no file.
+   - The result is written to `.kosmos-instructions-changed-<session>-<hash>.md` in the agent's own folder. The line names it as a pointer only: the agent still reads the sections themselves (review 6). A changed line can depend on unchanged lines around it, which a diff does not show.
+   - It is written only after every check that can skip the line.
+   - The changes file and the copy both go through securewrite: no symlink followed, mode 0600 (review 1 BLOCKER).
+   - An older changes file is removed whenever a typed line names none (a held section included), and whenever a debt ends without a line (gone, expired, restarted).
+   - Headings inside code fences are not sections. CRLF is read as LF.
+   - A path holding a double quote is never named.
+3. **No change to the line when** there is no copy, the file is unreadable, nothing changed, the diff is too large, or prepareChanges fails. The line is exactly as before.
+
+## Rejected
+- **Per-section extraction:** the working rules have no single heading, and policy headings vary by kind.
+- **Each writer passing its before and after:** many call sites, and a missed one is a silent gap.
+- **The `.previous` copy:** one write back only.
+
+## Weakest premise
+That the text read just before the line is what the agent reads after it. A write in between owes its own line, so it appears in the next diff. The reverse case is a session start during the send: its fresh copy can be overwritten by the pass's older text. That leaves the copy older than what the agent read, so the next diff only shows more (review 8).
+
+## The changes file's place (reviews 1 and 2)
+- **Where it lives:** in the agent's own folder, beside the brief it describes, named per session with a hash of the exact name (`.kosmos-instructions-changed-<session>-<hash>.md`). Two agents sharing a recorded folder each get their own.
+- **What it holds that the brief does not:** the lines the person removed. Those are already in the folder, in the brief's `.previous` copy, which `instructions.write` keeps there. For a connected agent the folder may be the person's own repo, so neither file is new exposure for that repo.
+- **When it goes:**
+  - at the agent's next session start (it read the whole file);
+  - whenever a later notice names none;
+  - when its files are deleted (delete-leftover forgets the copy too);
+  - when a new agent is made under the same name (create.js forgets the old copy beside its other records, review 15).
+- **The copy's name:** it carries a hash of the exact session name, so two names that differ only in case keep two copies on macOS.
+- **Size:** whole lines only. An edit past any cut would print as two identical lines. The DIFF is capped at 160 lines and 32 KB instead, with its cut note inside both caps. The file adds a three-line header (review 4).
+
+## Removed text (review 6)
+A line the person removes, a pasted key included, stays in two places. One is the copy under the data folder, until the next start, a landed line, or delete-leftover. The other is the changes file, until the next start, a notice that names none, a line that does not land, or delete-leftover. Both are 0600. It is also in the brief's `.previous`, which instructions.write keeps in the agent's folder: the same exposure, for as long or longer. This change does not make the case for removing a secret from the brief any worse. Rotating the secret is the answer either way.
+
+## A window this does not widen (review 2)
+A rewrite that lands after the agent loaded its file, but before its `started` report, gets folded in. The copy is then taken after it, so the next diff omits it. The debt logic already treats a start after the last owe as having read every section, so that change was already never announced. The window and the miss are the same as before this change.
+
+## Order in the diff (review 5)
+Within a run, each removed line sits beside the line that replaced it. A cut therefore usually keeps old and new together (review 7: not when one added line alone is over the cap, and then the cut note sends the agent to the sections).
+
+## Runners without a start report (review 4)
+The copy moves at a `started` report and at a landed line. A runner or restart that posts no `started` report leaves the copy older than what the agent read. The next diff then shows MORE than changed since: changes already read are listed again. That errs in the safe direction: nothing is hidden. A start whose copy cannot be renewed drops the copy, so its next notice is as before.
+
+## NOT CLAIMED
+- No log line says when the pointer is skipped for a name or folder path it refuses to name (whitespace, a quote, a control character, a name outside [A-Za-z0-9._-]). Such an agent gets the line exactly as before, which is safe, so this is a diagnostic gap, not a defect (review 18).
+- The exposure of a changes file in a connected agent's own repo (it can be committed by `git add .`) is ACCEPTED, as the brief's `.previous` is there already (reviews 1, 2, 6, 10, 12, 16, 18).
+- While a section in a debt is held (switched off), no changes file is written and the copy does not move. A long hold turns the pointer off for that agent until its next start or until the debt expires (7 days). That is the safe direction (review 11).
+- An UNCONFIRMED verdict (a throwing deliver included) ends the debt and moves the copy, as settle always ended the debt. If that line never reached the agent, the next notice's diff leaves out those changes, as before this change, when the debt ended the same way (review 10).
+- A recorded start that lands while a line is being typed removes the changes file that line names (rememberRead drops it). The agent finds no file, and the line already says the file is a pointer only and to read the sections (review 9).
+- A REMOVED agent (remove.js, which never deletes) keeps its copy, as it keeps its files. Deleting what is left (delete-leftover) forgets it. Sessions are never renamed (only the display name changes), so no file is left under an old name.
+- An absolute path is named in the line. A folder path with whitespace, a double quote or a control character is never named, and its notice is as before.
+- A person's own edit to the file owes no notice (as before). It appears in the next Kosmos notice's diff, but only while the copy has not moved past it. A landed line moves the copy to the whole file, so an edit made before that line is shown in that line's diff as a pointer. After that it is never announced on its own, and the line asks the agent to read only the named sections (review 12). A restart also folds it in.
+- Agents running when this ships have no copy until their next start or their next landed line. Until then, their notices are as before.
+- A session name outside `[A-Za-z0-9._-]` keeps no copy, so its notice is as before.

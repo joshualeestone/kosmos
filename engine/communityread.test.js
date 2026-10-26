@@ -81,7 +81,8 @@ test('#4373: reduced: only the text, the author\'s name, where and when; nothing
   // for a post (this fixture), so it still leaks nothing the service sends.
   // #5623 Rule 2: `person` joins it too: a boolean from the service's own kind, so it carries nothing the service sent.
   // #5924: `edited` joins it: a date the board re-shapes from the service's edited_at, or empty.
-  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'body', 'commentId', 'edited', 'id', 'person', 'title', 'where']);
+  // kosmos#7150: `authorId` joins it: the author's id only in an id's shape (UUID_RE), else empty, and never printed.
+  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'authorId', 'body', 'commentId', 'edited', 'id', 'person', 'title', 'where']);
   assert.equal(it.commentId, '', 'a post carries no commentId');
   assert.equal(it.person, false, 'an agent\'s post was marked as a person\'s');
   assert.ok(!JSON.stringify(it).includes('secret') && !JSON.stringify(it).includes('1.2.3.4'));
@@ -2728,4 +2729,79 @@ test('#7056: in the owed section, a person shown nowhere else comes before one t
   assert.match(r.text, /newer replies not shown yet/, 'fixture: the budget cut nothing');
   const first = (r.text.match(/^\[p1\] by ([^,(]+)/m) || [])[1];
   assert.equal(first && first.trim().split(' ')[0], 'Ada', 'the owed section did not start with the person shown nowhere else: ' + first);
+});
+
+test('#7150: a post, comment or reply by ANOTHER agent of this board says it takes no vote; the reader\'s own and others\' do not', () => {
+  const A = 'a0000000-0000-4000-8000-00000000000a';   // mara, the reader
+  const B = 'b0000000-0000-4000-8000-00000000000b';   // lena, another agent on this computer
+  const C = 'c0000000-0000-4000-8000-00000000000c';   // an agent elsewhere
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  let before = null;
+  try { before = fs.readFileSync(cs._paths.keysFile()); } catch { /* none yet */ }
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ mara: { remoteId: A, name: 'mara' }, lena: { remoteId: B.toUpperCase(), name: 'lena' }, quiet: { name: 'quiet' } }));
+  try {
+    const post = (id, author) => cr.itemOf({ id, agent: { id: author, name: 'n' + author.slice(0, 1) }, channel: 'general', created_at: '2026-10-25T00:00:00Z', title: 't', body: 'b' });
+    const items = [post('10000000-0000-4000-8000-000000000001', B), post('10000000-0000-4000-8000-000000000002', A), post('10000000-0000-4000-8000-000000000003', C)];
+    const comment = (id, author, replies) => cr.commentOf({ id, state: 'live', agent: { id: author, name: 'c' }, body: 'x', created_at: '2026-10-25T00:00:00Z', replies }, false);
+    const comments = [comment('20000000-0000-4000-8000-000000000001', C, [{ id: '20000000-0000-4000-8000-000000000002', state: 'live', agent: { id: B, name: 'r' }, body: 'y' }])];
+    cr.markHere('mara', items, comments);
+    const lines = cr.frame(items, 'h', { comments, more: false }).split('\n');
+    const header = (needle) => lines.find((l) => l.includes(needle)) || '';
+    assert.ok(header('(post 10000000-0000-4000-8000-000000000001)').includes(cr.HERE_MARK), 'another agent of this board (an upper-case stored id) was not marked');
+    assert.ok(!header('(post 10000000-0000-4000-8000-000000000002)').includes(cr.HERE_MARK), 'the reader\'s own post was marked');
+    assert.ok(!header('(post 10000000-0000-4000-8000-000000000003)').includes(cr.HERE_MARK), 'an agent elsewhere was marked');
+    assert.ok(header('(comment 20000000-0000-4000-8000-000000000002)').includes(cr.HERE_MARK), 'a reply by another agent of this board was not marked');
+    assert.ok(!header('(comment 20000000-0000-4000-8000-000000000001)').includes(cr.HERE_MARK), 'a comment from elsewhere was marked');
+    // No reader: nothing is marked (a read the board cannot attribute).
+    const plain = [post('10000000-0000-4000-8000-000000000004', B)];
+    cr.markHere(undefined, plain);
+    assert.ok(!cr.frame(plain, 'h').includes(cr.HERE_MARK));
+    // CONTROL: the same item, read by lena, is HER own and not marked; read by mara it is.
+    const again = [post('10000000-0000-4000-8000-000000000005', B)];
+    cr.markHere('lena', again);
+    assert.ok(!cr.frame(again, 'h').includes(cr.HERE_MARK), 'lena\'s own post was marked for lena');
+    cr.markHere('mara', again);
+    assert.ok(cr.frame(again, 'h').includes(cr.HERE_MARK), 'CONTROL: the mark is applied when it should be');
+    // A Following entry's listed reply (votable by its own comment id, #5463) is marked too.
+    const entry = post('10000000-0000-4000-8000-000000000006', C);
+    entry.replies = [{ author: 'r', at: '', id: '30000000-0000-4000-8000-000000000001', authorId: B, edited: '', body: 'z' },
+      { author: 's', at: '', id: '30000000-0000-4000-8000-000000000002', authorId: C, edited: '', body: 'w' }];
+    cr.markHere('mara', [entry]);
+    const out = cr.frame([entry], 'h').split('\n');
+    assert.ok((out.find((l) => l.includes('(comment 30000000-0000-4000-8000-000000000001)')) || '').includes(cr.HERE_MARK), 'a listed reply by another agent here was not marked');
+    assert.ok(!(out.find((l) => l.includes('(comment 30000000-0000-4000-8000-000000000002)')) || '').includes(cr.HERE_MARK), 'a listed reply from elsewhere was marked');
+  } finally {
+    if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
+  }
+});
+
+test('#7150: read (the feed, and one post with its comments) prints the no-vote note for another agent of this board, end to end', async () => {
+  on();
+  const B = 'b0000000-0000-4000-8000-00000000000b';
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  let before = null;
+  try { before = fs.readFileSync(cs._paths.keysFile()); } catch { /* none yet */ }
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ mara: { remoteId: 'a0000000-0000-4000-8000-00000000000a', name: 'mara' }, lena: { remoteId: B, name: 'lena' } }));
+  try {
+    const OTHER = '2b2c3d4e-0000-4000-8000-000000000002';
+    serve({
+      '/posts/feed': () => ({ status: 200, json: { posts: [post({ agent: { id: B, name: 'lena' } }), post({ id: OTHER, agent: { id: 'c0000000-0000-4000-8000-00000000000c', name: 'neo' } })], next_cursor: null } }),
+      ['/posts/' + ID]: () => ({ status: 200, json: post({ agent: { id: B, name: 'lena' } }) }),
+      ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [{ id: '20000000-0000-4000-8000-000000000001', state: 'live', agent: { id: B, name: 'lena' }, body: 'mine', created_at: '2026-10-25T00:00:00Z' }], next_cursor: null } }),
+    });
+    const lineOf = (text, needle) => text.split('\n').find((l) => l.includes(needle)) || '';
+    const feed = await cr.read({ reader: 'mara' });
+    assert.equal(feed.ok, true, feed.because);
+    assert.ok(lineOf(feed.text, '(post ' + ID + ')').includes(cr.HERE_MARK), 'the feed did not mark lena\'s post: ' + feed.text);
+    assert.ok(!lineOf(feed.text, '(post ' + OTHER + ')').includes(cr.HERE_MARK), 'the feed marked neo\'s post');
+    const one = await cr.read({ post: ID, reader: 'mara' });
+    assert.equal(one.ok, true, one.because);
+    assert.ok(lineOf(one.text, '(post ' + ID + ')').includes(cr.HERE_MARK), 'one post did not mark lena\'s post: ' + one.text);
+    assert.ok(lineOf(one.text, '(comment 20000000-0000-4000-8000-000000000001)').includes(cr.HERE_MARK), 'one post did not mark lena\'s comment: ' + one.text);
+    // CONTROL: read without a reader marks nothing (the same answers otherwise).
+    assert.ok(!(await cr.read({})).text.includes(cr.HERE_MARK));
+  } finally {
+    cr.setFetcher(null);
+    if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
+  }
 });

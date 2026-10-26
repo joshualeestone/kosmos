@@ -666,3 +666,17 @@ test('#6173 (Liu Kang m5550): an agent a move holds is not a leftover in its res
   /* The control: released, the same leftover is offered (the refusal was the hold, not the fixture). */
   assert.equal(mac.plan('midmove').ok, true, 'the control: released, the leftover is not offered');
 });
+
+test('kosmos#7149: deleting what is left forgets the agent\'s instructions copy; making a new agent under a name forgets an old one', () => {
+  const ir = require('./instructionreread');
+  leftoverAgent('ned');
+  assert.equal(ir.remember('ned', 'what ned last read'), true);
+  const done = mac.del('ned');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  assert.equal(ir.readSeen('ned'), null, 'a deleted agent kept its copy');
+  // A copy left under a name (a hand-deleted folder never reaches delete-leftover) is forgotten when the name is made again.
+  assert.equal(ir.remember('ned', 'stale'), true);
+  const again = createAgain('ned');
+  assert.equal(again.outcome, create.OUTCOME.CREATED, again.because);
+  assert.equal(ir.readSeen('ned'), null, 'a new agent inherited the old copy');
+});

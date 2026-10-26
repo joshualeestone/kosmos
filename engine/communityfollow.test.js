@@ -685,6 +685,79 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
   } finally { await b.close(); }
 });
 
+test('#7150 read --following: posts already shown give way to the next unseen ones, so every post the count names is reachable', async () => {
+  fresh(); const b = await backend();
+  const neo = { name: 'NEO' };
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const post = (n, day) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: '2026-10-' + day + 'T10:00:00Z', channel: 'general', sub_channel: null,
+    body: 'POST' + n, post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
+  try {
+    await cf.follow('mara', 'quill');
+    // Six new posts: the newest page carries three, the next page three more.
+    b.st.pages = [[post(1, '12'), post(2, '12'), post(3, '12')], [post(4, '11'), post(5, '11'), post(6, '11')]];
+    const first = await cf.readFollowing('mara');
+    assert.equal(first.ok, true, first.because);
+    assert.deepEqual(b.st.feedCalls, [null], 'three unseen posts on the first page: no further page is read');
+    assert.ok(!first.text.includes('POST4'), first.text);
+    // The same feed again: the first page is all shown, so the next page is read and ITS posts are listed. Before
+    // #7150 the first page's three posts satisfied POSTS_WANTED and posts 4 to 6 were never reached.
+    b.st.feedCalls = [];
+    const second = await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the next page was not read for unseen posts');
+    for (const n of [4, 5, 6]) assert.ok(second.text.includes('POST' + n), 'POST' + n + ' is not reachable: ' + second.text);
+    assert.ok(second.text.includes('POST1'), 'CONTROL: the newest page is still shown as it was');
+    // All six shown: an already-shown older post does not fill a page that already has POSTS_WANTED posts.
+    b.st.feedCalls = [];
+    const third = await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1']);
+    assert.ok(!third.text.includes('POST4'), 'a shown older post filled a full page: ' + third.text);
+    // A new post BEHIND an all-shown older page is still reached: the read does not stop at that page (an early stop
+    // there would leave home counting a post no read shows).
+    b.st.feedCalls = [];
+    b.st.pages = [[post(1, '12'), post(2, '12'), post(3, '12')], [post(4, '11'), post(5, '11'), post(6, '11')], [post(7, '10')]];
+    const behind = await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'the read stopped before the page holding the new post');
+    assert.ok(behind.text.includes('POST7'), 'a new post behind an all-shown page was not reached: ' + behind.text);
+    // A first page of replies only, with every older post already shown: those shown posts still fill it, so a
+    // comment on a followed post remains possible (#5636 F7c).
+    const reply = (n) => ({ kind: 'reply', id: uuid(n), agent: neo, created_at: '2026-10-12T12:00:00Z', channel: 'general', sub_channel: null,
+      body: 'REPLY' + n, post: { id: uuid(900 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
+    b.st.pages = [[reply(20), reply(21)], [post(4, '11'), post(5, '11')]];
+    const filled = await cf.readFollowing('mara');
+    assert.ok(filled.text.includes('POST4') && filled.text.includes('POST5'), 'shown posts did not fill a page of replies: ' + filled.text);
+  } finally { await b.close(); }
+});
+
+test('#7150 read --following: a post, and a reply listed under one, by ANOTHER agent of this board carries the no-vote note', async () => {
+  fresh(); const b = await backend();
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const LENA = 'b0000000-0000-4000-8000-00000000000b';
+  const lena = { id: LENA, name: 'lena' };
+  const neo = { id: 'c0000000-0000-4000-8000-00000000000c', name: 'NEO' };
+  const post = (n, agent) => ({ kind: 'post', id: uuid(n), agent, created_at: '2026-10-12T10:00:00Z', channel: 'general', sub_channel: null,
+    body: 'POST' + n, post: { id: uuid(n), title: 'Post ' + n, agent }, parent_id: null });
+  try {
+    await cf.follow('mara', 'quill');   // registers mara: her own row in keys.json
+    const keys = JSON.parse(fs.readFileSync(keysFile(), 'utf8'));
+    keys.lena = { remoteId: LENA, name: 'lena' };   // another agent registered from this board
+    // The fake service's ids are not UUIDs; give mara one, as the real service does, so her own posts can be told.
+    const maraId = 'a0000000-0000-4000-8000-00000000000a';
+    keys.mara.remoteId = maraId;
+    fs.writeFileSync(keysFile(), JSON.stringify(keys));
+    const replyByLena = { kind: 'reply', id: uuid(50), agent: lena, created_at: '2026-10-12T11:00:00Z', channel: 'general', sub_channel: null,
+      body: 'REPLY50', post: { id: uuid(2), title: 'Post 2', agent: neo }, parent_id: null };
+    b.st.pages = [[post(1, lena), post(2, neo), replyByLena, post(3, { id: maraId, name: 'mara' })]];
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    const line = (needle) => r.text.split('\n').find((l) => l.includes(needle)) || '';
+    assert.ok(line('(post ' + uuid(1) + ')').includes(cr.HERE_MARK), 'lena\'s post is not marked: ' + r.text);
+    assert.ok(!line('(post ' + uuid(2) + ')').includes(cr.HERE_MARK), 'NEO\'s post was marked');
+    assert.ok(line('(comment ' + uuid(50) + ')').includes(cr.HERE_MARK), 'lena\'s reply listed under a post is not marked: ' + r.text);
+    // CONTROL: mara's own post is not marked for her (her own id is not "another agent here").
+    assert.ok(!line('(post ' + uuid(3) + ')').includes(cr.HERE_MARK), 'mara\'s own post was marked for her');
+  } finally { await b.close(); }
+});
+
 test('#5925 read --following: an edited post, an edited listed reply and an edited reply entry each say ", edited <day>"; unedited ones do not', async () => {
   fresh(); const b = await backend();
   const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';

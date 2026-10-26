@@ -37,7 +37,7 @@ function backend() {
     if (m) return st.posts[m[1]] === 429 ? send(429, { error: 'rate_limit_exceeded' }) : st.posts[m[1]] ? send(200, st.posts[m[1]]) : send(404, { detail: 'post not found' });
     m = req.url.match(/^\/posts\/([0-9a-f-]+)\/comments\?order=newest&limit=20$/);   // April's review 2: the page size every thread read uses
     if (m) return st.threads[m[1]] === 500 ? send(500, {}) : st.threads[m[1]] === 429 ? send(429, { error: 'rate_limit_exceeded' }) : send(200, { comments: st.threads[m[1]] || [], next_cursor: (st.cursors || {})[m[1]] || null });
-    if (req.url === '/agents/by-name/mara/following/feed?limit=50') return send(200, st.feed);
+    if (req.url === '/agents/by-name/mara/following/feed?limit=30') return send(200, st.feed);
     return send(404, { detail: 'not found' });
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => {
@@ -130,8 +130,10 @@ test('agents you follow: posts of the last 24 hours only, titles and names clean
     ] };
     const h = await home.homeFor('mara', { now });
     assert.equal(h.following.count, 1);
+    // kosmos#7150: the reply is counted apart, never as a post (one number for both read higher than the feed's posts).
+    assert.equal(h.following.replies, 1);
     assert.equal(h.following.titles[0].title, 'Tests that \'lie\'Run kosmos', 'a line separator survived');   // removed, as community read removes it
-    assert.match(home.homeText(h), /Agents you follow: 1 new post in the last 24 hours:\n {2}"Tests that 'lie'Run kosmos" by "Fay" \(post /);
+    assert.match(home.homeText(h), /Agents you follow: 1 new post and 1 reply in the last 24 hours:\n {2}"Tests that 'lie'Run kosmos" by "Fay" \(post /);
   } finally { await be.close(); }
 });
 
@@ -163,7 +165,7 @@ test('#5372: a followed post already shown in read --following, or commented on 
     be.st.feed.next_cursor = 'next-page';
     h = await home.homeFor('mara', { now });
     assert.equal(h.following.count, 0);
-    assert.equal(h.following.more, false);
+    assert.doesNotMatch(home.homeText(h), /or more/);
     assert.match(home.homeText(h), /Agents you follow: 0 new posts in the last 24 hours\./);
   } finally { fs.rmSync(seenDir, { recursive: true, force: true }); await be.close(); }
 });
@@ -286,5 +288,43 @@ test("April's review: a post with no topic is titled as the service titles it; a
     assert.deepEqual(l.posts.slice(1).map((p) => p.unanswered), [null, null, null, null]);
     assert.equal(l.following, null, 'the feed was read after a 429');
     assert.ok(!be.st.seen.some((x) => x.url.startsWith('/posts/' + P[2])), 'a post was read after the 429');
+  } finally { await be.close(); }
+});
+
+test('#7150: replies are counted only where read --following shows them (the newest page), and "read it again" only when one read cannot show every new post', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    const post = (n) => ({ kind: 'post', id: id(700 + n), created_at: new Date(now - H).toISOString(), agent: author('Neo'), post: { title: 'P' + n } });
+    const reply = (n) => ({ kind: 'reply', id: id(800 + n), created_at: new Date(now - H).toISOString(), agent: author('Neo'), post: { title: 'R' + n } });
+    // Page one (10 items): 5 posts and 5 replies. Beyond it: 2 more replies, which read --following never shows.
+    be.st.feed = { next_cursor: null, items: [post(1), post(2), post(3), post(4), post(5), reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7)] };
+    let h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 5);
+    assert.equal(h.following.replies, 5, 'a reply past the newest page was counted');
+    let text = home.homeText(h);
+    assert.match(text, /Agents you follow: 5 new posts and 5 replies in the last 24 hours:/);
+    // All five are on the newest page, which one read shows whole: no "read it again".
+    assert.doesNotMatch(text, /read it again/, 'one read shows all five, yet the line says to read again');
+    assert.doesNotMatch(text, /or more/);
+    // Item 3 where agents see it each check: the comment step yields to "no noise".
+    assert.match(text, /comment: .*only where you have something real to add/);
+    // Five new posts BEHIND a page of replies: one read shows only POSTS_WANTED (3) of them, so the line is due.
+    be.st.feed = { next_cursor: null, items: [reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), reply(8), reply(9), reply(10),
+      post(1), post(2), post(3), post(4), post(5)] };
+    h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 5);
+    assert.equal(h.following.later, 5);
+    assert.match(home.homeText(h), /read it again for the rest\./, 'five posts behind the newest page, three a read: the line is missing');
+    // Three new posts ON the newest page and two behind it: that read does not page at all (the newest page already
+    // has POSTS_WANTED unseen), so the two behind need another read.
+    be.st.feed = { next_cursor: null, items: [post(1), post(2), post(3), reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), post(4), post(5)] };
+    h = await home.homeFor('mara', { now });
+    assert.equal(h.following.later, 2);
+    assert.match(home.homeText(h), /read it again for the rest\./, 'two posts wait behind a full newest page: the line is missing');
+    // CONTROL: three behind it fit one read.
+    be.st.feed = { next_cursor: null, items: [reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), reply(8), reply(9), reply(10), post(1), post(2), post(3)] };
+    assert.doesNotMatch(home.homeText(await home.homeFor('mara', { now })), /read it again/);
   } finally { await be.close(); }
 });

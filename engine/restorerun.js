@@ -2,7 +2,7 @@
 /**
  * kosmos#5536 (E0.7, restore) slice 1: ONE snapshot restored onto this computer, composed from the reviewed parts.
  * Design: #5536 comment 6399924599. Every source is injected, so this is tested against fakes now and wired to the
- * real routes later (the read grants, kosmos#5686 c; the device-key history, kosmos#7116).
+ * real routes later (the read grants, kosmos#5686 c, through engine/restorefetch.js; the device-key history, kosmos#7116).
  *
  *   engine/backupkeys.js     the member key, opened from the release's wrap with this computer's destination key
  *   engine/devkeyhist.js     the device-key history escrowd signs, and which key was valid when
@@ -41,6 +41,9 @@ const KEY_HEX_RE = /^[0-9a-f]{64}$/;
 const MAX_LISTED = 5000;   // more than the coordinator lists (3,000)
 // The fixed DER prefix of an Ed25519 public key (SPKI), so a raw 32-byte key becomes a KeyObject.
 const SPKI_ED25519 = Buffer.from('302a300506032b6570032100', 'hex');
+// backuprestore's own sentences for a file whose chunk did not arrive (restoreFile), as opposed to one that did and
+// was wrong: only these let a fetch reason head a restore that restored nothing.
+const FETCH_FAILURES = new Set(['a chunk could not be fetched', 'a chunk is missing']);
 
 /* The time inside a snapshot id (engine/backuprun.js newSnapshotId: the UTC time, then 4 random bytes), in Unix
    seconds, or null for anything else. */
@@ -131,7 +134,12 @@ async function fetchBounded(fetchObject, key, o, ms) {
      fetchObject(key, { maxBytes }) -> bytes | null   one stored object (a read grant's GET, later). It should refuse
                            more than maxBytes; each call is also cut off after fetchTimeoutMs (default 2 min).
      sink, maxTotalBytes   as backuprestore.restoreSnapshot
-   Resolves { ok: true, deviceKey, backfill, takenAt, result } (result is restoreSnapshot's) or { ok: false, because }.
+     plan, planned         optional: engine/restorefetch.js readGrantFetcher's, given with its fetchObject
+   Resolves { ok: true, deviceKey, backfill, takenAt, result, fetchProblems } (result is restoreSnapshot's;
+   fetchProblems the fetcher's reasons for any file it could not fetch), or { ok: false, because }, or, when the fetcher
+   stopped part way, { ok: false, because, result, fetchProblems }, with partial: true when some files were restored.
+   ok: true still allows files in result.failed (one damaged file does not fail the rest), as before, but never with
+   none restored: then it is { ok: false, because, result, fetchProblems }.
    Never throws on what a store, a coordinator or a history hands it; a caller's own mistake (no sink) still throws
    from restoreSnapshot, as there. */
 async function runRestore(opts) {
@@ -152,7 +160,15 @@ async function runRestore(opts) {
   if (!candidates.length) return { ok: false, because: 'no device key of this member was valid when this backup was recorded' };
   if (!keyOk(manifest.key, org, member)) return { ok: false, because: 'the backup\'s manifest is not filed under this member' };
   const bytes = await fetchBounded(opts.fetchObject, manifest.key, { maxBytes: MAX_MANIFEST_OBJECT }, ms);
-  if (!bytes) return { ok: false, because: 'the backup\'s manifest could not be fetched' };
+  if (!bytes) {
+    // slice 2: a refused read grant says why (a 429's wait included), rather than only that nothing came back.
+    let why = null;
+    // review 4: or why the manifest itself did not come (the storage service timing out on a large one).
+    if (typeof opts.planned === 'function') {
+      try { const p = opts.planned() || {}; why = p.because || (Array.isArray(p.unreadableBecause) ? p.unreadableBecause[0] : null); } catch { why = null; }
+    }
+    return { ok: false, because: typeof why === 'string' && why ? why : 'the backup\'s manifest could not be fetched' };
+  }
   if (bytes.length > MAX_MANIFEST_OBJECT) return { ok: false, because: 'the backup\'s manifest is larger than any manifest can be' };
   if (crypto.createHash('sha256').update(bytes).digest('hex') !== manifest.sha256) {
     return { ok: false, because: 'the backup\'s manifest is not the one Kosmos+ recorded' };
@@ -167,6 +183,27 @@ async function runRestore(opts) {
   }
   if (!opened) return { ok: false, because: 'the backup\'s manifest does not open under this member\'s device key for that time' };
   const objects = opened.objects && typeof opened.objects === 'object' ? opened.objects : {};
+  // slice 2: a read-grant fetcher (engine/restorefetch.js) is told every chunk key before the first chunk, in the order
+  // backuprestore will ask for them (file by file, review 1: the opened objects map is ordered by chunk name), so it
+  // grants them in batches rather than one call per chunk. Its plan grants the first batch, so a refusal (no release,
+  // the hourly cap) stops the restore here with its reason, before any file is begun.
+  const planOf = (p) => (p && typeof p === 'object' ? p : {});
+  if (typeof opts.plan === 'function') {
+    const inOrder = [];
+    for (const f of Array.isArray(opened.files) ? opened.files : []) {
+      for (const name of (f && Array.isArray(f.chunks) ? f.chunks : [])) {
+        const k = typeof name === 'string' && Object.prototype.hasOwnProperty.call(objects, name) ? objects[name] : null;
+        if (keyOk(k, org, member)) inOrder.push(k);
+      }
+    }
+    const keys = [...new Set(inOrder)];
+    let p;
+    // review 2: under the same deadline as a fetch, so a plan that never answers cannot hang the restore.
+    let timer;
+    const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve({ ok: false }), ms); });
+    try { p = planOf(await Promise.race([Promise.resolve().then(() => opts.plan(keys)), deadline])); } catch { p = { ok: false }; } finally { clearTimeout(timer); }
+    if (p.ok === false) return { ok: false, because: typeof p.because === 'string' && p.because ? p.because : 'the backup\'s files could not be fetched' };
+  }
   const fetchChunk = async (name, o) => {
     const key = Object.prototype.hasOwnProperty.call(objects, name) ? objects[name] : null;
     if (!keyOk(key, org, member)) return null;
@@ -182,7 +219,31 @@ async function runRestore(opts) {
     const what = result && (result.malformed || result.overBound);
     return { ok: false, because: `the backup could not be restored${what ? ` (${what})` : ''}` };
   }
-  return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result };
+  // slice 2: why some files were not fetched (a grant refused part way, or files under an earlier key), so the person
+  // is told the reason and not only which files failed.
+  let fetchProblems = [], stoppedBecause = null;
+  if (typeof opts.planned === 'function') {
+    let p;
+    try { p = planOf(opts.planned()); } catch { p = {}; }
+    if (typeof p.because === 'string' && p.because) { stoppedBecause = p.because; fetchProblems.push(p.because); }
+    if (Array.isArray(p.unreadableBecause)) fetchProblems = fetchProblems.concat(p.unreadableBecause.filter((x) => typeof x === 'string'));
+  }
+  // review 2: a fetcher that stopped (a refusal part way, Kosmos+ out of reach, the hourly limit) is no success, even
+  // with some files restored: those are in the sink and in result, and partial says so.
+  if (stoppedBecause) {
+    // review 3: the result and the reasons come back even when nothing was restored, so the failed files are named.
+    return Object.assign({ ok: false, because: stoppedBecause }, result.restored.length ? { partial: true } : {}, { result, fetchProblems });
+  }
+  // review 4: files failed and none came back is no success either, stopped or not (every chunk under another key, say).
+  if (!result.restored.length && result.failed.length) {
+    // review 5: the fetch's reason heads it only when every file failed on a fetch; a file that failed for its own
+    // reason (a damaged chunk, a path clash) must not be blamed on the fetch. Only the failures backuprestore lists
+    // are seen (it caps the list), so a long list decides on its listed part (review 6, stated).
+    const fetchOnly = result.failed.every((x) => x && FETCH_FAILURES.has(x.why));
+    const why = fetchOnly && fetchProblems.length ? fetchProblems[0] : 'no file of this backup could be restored';
+    return { ok: false, because: why, result, fetchProblems };
+  }
+  return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result, fetchProblems };
 }
 
 module.exports = { newDestination, listSnapshots, runRestore, snapshotTimeOf, SNAPSHOT_TO_GRANT_SECS, CLOCK_SKEW_SECS };

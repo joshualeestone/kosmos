@@ -100,8 +100,9 @@ const USAGE = {
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   fingerprint: 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
-  inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
+  inbox: 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
+  notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, joined into one line, at most 4000 characters; <source> names the job, such as "builder alarm")',
   task: [
     'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
@@ -870,17 +871,26 @@ async function verbWhoami(ctx) {
 async function verbInbox(ctx, args) {
   let limit = '';
   let given = false;
+  let unanswered = false;   // #7155, as install/kosmos
+  let since = null;
   while (args.length) {
     const a = args.shift();
     if (a === '--limit') { given = true; limit = args.shift() || ''; continue; }
     const m = /^--limit=(.*)$/.exec(a);
     if (m) { given = true; limit = m[1]; continue; }
+    if (a === '--unanswered') { unanswered = true; continue; }
+    if (a === '--since') { since = args.length ? args.shift() : ''; continue; }
+    const sm = /^--since=(.*)$/.exec(a);
+    if (sm) { since = sm[1]; continue; }
     ctx.err(USAGE.inbox);
     return 2;
   }
   // Review 2, as install/kosmos: a given --limit is a whole number from 1 to 50.
   if (given && !(/^[1-9]\d?$/.test(limit) && Number(limit) <= 50)) { ctx.err('--limit takes a whole number from 1 to 50.'); return 2; }
-  const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=');
+  // #7155: the board checks the time; here only that one was given, in the characters a time can hold.
+  if (since !== null && !/^[0-9A-Za-z:.+ ][0-9A-Za-z:.+ -]*$/.test(since)) { ctx.err('--since takes a date and a clock time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22".'); return 2; }
+  const extra = (unanswered ? '&unanswered=1' : '') + (since !== null ? '&since=' + encodeURIComponent(since) : '');
+  const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=' + extra);
   if (!r.reached) return ctx.unreachable('read your messages');
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   if (r.status >= 400) { tokenRefusedHint(ctx, r); return 1; }   // #5333
@@ -924,6 +934,54 @@ async function roomReopen(ctx, args) {
   const because = r.json && typeof r.json.because === 'string' ? r.json.because : '';
   ctx.err('We could not reopen that room' + (because ? ': ' + because : ''));
   return 1;
+}
+
+/* kosmos#7153, as install/kosmos cmd_notice: a job on this computer (a scheduled task, with no agent token) writes a
+   line into a room in Kosmos's own voice. Board token only, the text on stdin, its source named. */
+async function verbNotice(ctx, args) {
+  let source = '';
+  let project = '';
+  let fromStdin = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === '--from') { if (i + 1 >= args.length) { ctx.err(USAGE.notice); return 2; } source = args[i + 1]; i += 1; }
+    else if (a.startsWith('--from=')) source = a.slice('--from='.length);
+    else if (a === '--stdin') fromStdin = true;
+    else if (a.startsWith('-')) { ctx.err(USAGE.notice); return 2; }
+    else if (!project) project = a;
+    else { ctx.err(USAGE.notice); return 2; }
+  }
+  if (!source || !project || !fromStdin) { ctx.err(USAGE.notice); return 2; }
+  // A job's notice may be its only copy (an alarm fires when the fleet is down), so it is read first and every failure
+  // after the read keeps it, and says where: a wrong source or project in the job's own setup included.
+  const got = await readPipedMessage(ctx, 'written', 'kosmos notice --from "<source>" --stdin <project-id>, with the message piped in.');
+  if (got.code !== undefined) return got.code;
+  // For jobs, not agents: an agent session speaks in rooms with `kosmos post`. A tripwire for an agent reading the help,
+  // not a lock: the board token is what the route checks.
+  if (ctx.agentToken()) { ctx.err('kosmos notice is for a job on this computer (an alarm, a digest), not an agent session. To speak in a room, use kosmos post.'); keepPipedCopy(ctx, got.text); return 2; }
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(source)) { ctx.err('The source is a few plain words (letters, digits, spaces, . _ -), such as "builder alarm".'); keepPipedCopy(ctx, got.text); return 2; }
+  // A write goes only to the project named: a name the slug would change is refused, never sent somewhere else.
+  if (projectSlug(project) !== project || /^\.+$/.test(project)) { ctx.err('There is no project called "' + project + '", so there is no room to write into.'); keepPipedCopy(ctx, got.text); return 1; }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/notice', { text: got.text, source }, { agent: false });
+  if (!r.reached) {
+    // Not connected: it was not written. Anything else (a cut or a slow answer) may have been: exit 3, never 1, so a job
+    // that retries on 1 does not write it twice.
+    if (r.refused || r.notConnected) { const code = ctx.unreachable('write that notice'); keepPipedCopy(ctx, got.text); return code; }
+    ctx.err('Kosmos did not finish answering, so the notice may have been written. Check the room before sending it again.');
+    keepPipedCopy(ctx, got.text, true);
+    return 3;
+  }
+  if (r.status >= 200 && r.status < 300) { ctx.out('Written to ' + project + ' as a Kosmos notice from ' + source + '.'); return 0; }
+  const because = r.json && typeof r.json.error === 'string' ? r.json.error : '';
+  if (r.status === 404) {
+    ctx.err(/no project by that name/.test(because) ? 'There is no project called "' + project + '", so there is no room to write into.'
+      : 'This board does not know kosmos notice yet: update Kosmos, then try again.');
+  } else {
+    ctx.err('The notice was not written' + (because ? ': ' + because : '') + '.');
+  }
+  keepPipedCopy(ctx, got.text);
+  // The board refused the notice itself (too long, no words, a bad source): a retry sends the same refusal, so exit 2.
+  return r.status === 400 ? 2 : 1;
 }
 
 /* kosmos#7057, as install/kosmos: --stale's days are empty (7) or a whole number 1 to 3650. Returns the number, or null. */
@@ -2514,6 +2572,7 @@ const VERB_HANDLERS = {
   fingerprint: verbFingerprint,
   inbox: verbInbox,
   room: verbRoom,
+  notice: verbNotice,
   task: subcommandRequired('task'),
   project: subcommandRequired('project'),
   agent: subcommandRequired('agent'),
@@ -2563,6 +2622,7 @@ const DESCRIBE = {
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
   fingerprint: 'print the fingerprint of a file, to check a handed-off copy (the dates and ID inside a PDF are left out)',
   room: 'read a project room',
+  notice: "a job on this computer writes a line in a room, in Kosmos's voice",
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',
   records: "a project's records (accounts, leads, vendors): list, set, remove, label",

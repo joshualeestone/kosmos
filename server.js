@@ -1436,6 +1436,10 @@ async function instructionRereadPass() {
       stoodDown: (session) => require('./engine/replynudge').stoodDown(session, projects.readAll()),   // the person's pause, as the other lines
       deliver: (session, line, r) => chat.deliverAutomaticAsync(session, line, r, undefined, undefined),
       DELIVERY: chat.DELIVERY,
+      // kosmos#7149: the changed lines since the agent last read its file, named in the line; the copy moves on when it lands.
+      prepareChanges: (session) => ir.prepareChanges(session),
+      remember: (session, text) => ir.remember(session, text),
+      dropChanges: (session) => ir.dropChanges(session),
     });
     for (const d of done) if (['sent', 'restarted', 'gone', 'expired'].includes(d.act)) process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
   } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
@@ -1737,6 +1741,11 @@ function hookRateProblem(id, projectId, now = Date.now()) {
 }
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
+// kosmos#7153: the longest room notice a job may write, and its source label.
+const ROOM_NOTICE_MAX = 4000;
+const INVISIBLE_IN_NOTICE = require('./engine/externalname').INVISIBLE;
+// Letters, digits, spaces and . _ - only, so the source cannot carry a colon, a bracket or a control character.
+const ROOM_NOTICE_SOURCE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/;
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
 const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
@@ -1797,6 +1806,18 @@ const os = require('node:os');
    INBOX_DROP is C0 and C1 controls (tab kept) plus the bidirectional marks and overrides that can reorder a row. */
 const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
 const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+/* #7155: `kosmos inbox --since <time>`. A date WITH a clock time, as ISO (Z or an offset) or "YYYY-MM-DD HH:MM" (read
+   as this computer's local time, which is the board's). A bare date is refused: Date.parse reads it as UTC midnight,
+   which is not what someone in Central time means by "since the 25th". */
+function inboxSince(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  const m = /^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d)(:(\d\d)(\.\d+)?)?(Z|[+-]\d\d:?\d\d)?$/.exec(s);
+  if (!m) return NaN;
+  // Date.parse rolls 2026-02-30 over to March 2 rather than refusing it, so the fields are range-checked first.
+  const [y, mo, d, h, mi, se] = [m[1], m[2], m[3], m[4], m[5], m[7] || '0'].map(Number);
+  if (y < 1970 || mo < 1 || mo > 12 || d < 1 || d > new Date(Date.UTC(y, mo, 0)).getUTCDate() || h > 23 || mi > 59 || se > 59) return NaN;
+  return Date.parse(s.replace(' ', 'T').replace(/([+-]\d\d)(\d\d)$/, '$1:$2'));
+}
 
 /**
  * Who is sending this? One derivation, used by every route that needs it.
@@ -17112,17 +17133,28 @@ const server = http.createServer(async (req, res) => {
     let asText = false;
     let fromPane = null;
     let limit = 10;
+    /* #7155: after a gap (out of usage, a crash, a restart), only what you have not answered (`unanswered=1`) and
+       only what came at or after a time (`since=`). Both are filters BEFORE the limit. */
+    let unanswered = false;
+    let sinceRaw = null;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
       fromPane = q.get('from_pane');
       const n = Number.parseInt(q.get('limit') || '', 10);
       if (Number.isFinite(n) && n > 0) limit = Math.min(n, 50);
+      unanswered = q.get('unanswered') === '1';
+      sinceRaw = q.has('since') ? q.get('since') : null;
     } catch { asText = false; fromPane = null; }
     const fail = (status, msg) => {
       if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
       else sendJson(res, status, { ok: false, because: msg });
     };
+    const since = sinceRaw === null ? null : inboxSince(sinceRaw);
+    if (since !== null && !Number.isFinite(since)) {
+      fail(400, '--since takes a date and a clock time, like 2026-10-25T05:22:00Z, 2026-10-25T05:22-05:00 or "2026-10-25 05:22" (this computer\'s time)');
+      return;
+    }
     try {
       const roster = safeRoster();
       if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who is asking'); return; }
@@ -17143,9 +17175,38 @@ const server = http.createServer(async (req, res) => {
            pasted to it is not shown back, here either.
          - An attachment and a menu choice are said, and a message of the person's that never reached the
            agent is marked: that is the message this verb most often exists to recover. */
-      const kept = (thread && Array.isArray(thread.messages) ? thread.messages : [])
-        .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments))
-        .slice(-limit);
+      let all = (thread && Array.isArray(thread.messages) ? thread.messages : [])
+        .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments));
+      /* #7155: unanswered is the person's messages newer than your newest reply by time, menu answers left out as they
+         owe nothing. Two differences from chat.dmOwes, both on purpose: one that did not reach you is kept (marked
+         below), and Kosmos's own notice (dropped above) never counts as your reply, even during the pause it was
+         written in, since this is read to catch up after one. A row with no readable time is kept by both filters. */
+      const timeOf = (m) => (typeof m.at === 'string' && Number.isFinite(Date.parse(m.at)) ? Date.parse(m.at) : null);
+      const me = sender.card.sessionName;
+      if (unanswered) {
+        let lastYou = null;
+        for (const m of all) {
+          const t = timeOf(m);
+          if (m.from === me && t !== null && (lastYou === null || t > lastYou)) lastYou = t;
+        }
+        all = all.filter((m) => !(typeof m.from === 'string' && m.from) && !(typeof m.wire === 'string' && m.wire)
+          && (lastYou === null || timeOf(m) === null || timeOf(m) > lastYou));
+      }
+      if (since !== null) all = all.filter((m) => timeOf(m) === null || timeOf(m) >= since);
+      /* With a filter the rows are put in time order (a held DM can be stored after a newer one; a row with no readable
+         time goes last) and the OLDEST are kept, so the first message to answer is never the one cut; the rest are named
+         by the --since that shows them. Without one, inbox keeps the newest stored rows, as it always has. */
+      const filtered = unanswered || since !== null;
+      if (filtered) {
+        all = all.map((m, i) => ({ m, i, t: timeOf(m) }))
+          .sort((a, b) => (a.t === null) - (b.t === null) || (a.t !== null && b.t !== null && a.t - b.t) || a.i - b.i)
+          .map((x) => x.m);
+      }
+      const kept = filtered ? all.slice(0, limit) : all.slice(-limit);
+      const later = filtered ? all.length - kept.length : 0;
+      const nextAt = later && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(all[kept.length].at || '') ? all[kept.length].at : null;
+      // When every shown row would pass --since nextAt, that --since shows this same page again, so name --limit instead.
+      const stuck = nextAt !== null && kept.every((m) => timeOf(m) === null || timeOf(m) >= Date.parse(nextAt));
       const masked = guideMaskedRows(kept, isSetupGuide(sender.card.sessionName) ? true : null);
       const rows = masked.map((m) => {
         const person = !(typeof m.from === 'string' && m.from);
@@ -17168,9 +17229,13 @@ const server = http.createServer(async (req, res) => {
             : (m.delivery.state === chat.DELIVERY.COULD_NOT || m.delivery.state === 'held' ? 'no' : 'maybe'),
         };
       });
-      if (!asText) { sendJson(res, 200, { ok: true, messages: rows }); return; }
+      if (!asText) { sendJson(res, 200, { ok: true, messages: rows, later, nextAt }); return; }
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-      if (!rows.length) { res.end('No messages between you and the person yet.\n'); return; }
+      if (!rows.length) {
+        if (unanswered) { res.end('Nothing unanswered from the person' + (since !== null ? ' since then' : '') + '.\n'); return; }
+        if (since !== null) { res.end('No messages between you and the person since then.\n'); return; }
+        res.end('No messages between you and the person yet.\n'); return;
+      }
       /* One row per message; a message's own further lines are INDENTED, so text a person typed can never read
          as another row ("<time> you: ...") in the agent's context. */
       /* Review 2: the markers sit BEFORE the colon, so nothing the person typed (it all comes after it) can
@@ -17192,7 +17257,11 @@ const server = http.createServer(async (req, res) => {
         const body = r.text.split(INBOX_BREAK).map((l) => l.replace(INBOX_DROP, ''));
         return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
       });
-      res.end(lines.join('\n') + '\n');
+      const more = later ? [later + ' later ' + (later === 1 ? 'message' : 'messages') + ' not shown'
+        + ((stuck || !nextAt) ? (limit < 50 ? ': add --limit 50 to see more.' : '.')
+          : nextAt ? ': run kosmos inbox' + (unanswered ? ' --unanswered' : '') + (limit !== 10 ? ' --limit ' + limit : '')
+          + ' --since ' + nextAt + ' to see ' + (later === 1 ? 'it' : 'them') + '.' : '.')] : [];
+      res.end(lines.concat(more).join('\n') + '\n');
     } catch (err) {
       fail(500, 'Kosmos could not read your messages just now');
     }
@@ -17450,6 +17519,10 @@ const server = http.createServer(async (req, res) => {
              refused over a standing waiting state; see selfreport.record. */
           auto: body.auto === true,
         });
+        /* kosmos#7149: a session start is when the agent reads its whole instructions file, so the copy that the next
+           re-read notice diffs against is taken here. Never fails the report. */
+        // Review 7: only a RECORDED start, the same row startedSince ends a debt on, so the copy never runs ahead of it.
+        if (body.state === 'started' && kept && kept.recorded === true) { try { require('./engine/instructionreread').rememberRead(who); } catch { /* the next notice is as before */ } }
         /* #2146 WORK-ACTIVITY MARKER (Renet Tilley). A separate, WORK-SPECIFIC
            signal, distinct from the liveness beat below. It records that the
            agent was ACTIVELY WORKING at a moment, so #2146's activeWhileWaiting
@@ -20763,7 +20836,8 @@ const server = http.createServer(async (req, res) => {
       : allProjects ? all.filter((t) => !t.projectArchived && (!tokenProjects || tokenProjects.has(t.projectId))) : all;
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
-       them: the agents' `kosmos tasks` reads the list exactly as cheaply as before. */
+       them: the agents' `kosmos tasks` reads the list as cheaply as before (kosmos#7151: the stale list adds one board
+       snapshot, only when some row would be offered for retiring). */
     if (!forTasksView) {
       if (listOnly !== null && !tasks.LIST_GROUPS.includes(listOnly)) {
         sendJson(res, 400, { error: 'the state to list must be one of: ' + tasks.LIST_GROUPS.join(', ') });
@@ -20784,6 +20858,15 @@ const server = http.createServer(async (req, res) => {
           .filter((x) => !Number.isFinite(x.ms) || x.ms <= cutoff)
           .sort((a, b) => (Number.isFinite(a.ms) ? a.ms : -Infinity) - (Number.isFinite(b.ms) ? b.ms : -Infinity))
           .map((x) => Object.assign({}, withRepeatWords(x.t), { lastActivityAt: x.at || null }));
+        /* kosmos#7151 (feedback): a quiet task an agent left under work that has since finished is OFFERED for retiring
+           (`leftUnder`, the closed parent's number); nothing is retired here. The rule is tasks.retireOffers'. The
+           roster (a board snapshot) and each candidate's transcript are read only when some row would be offered. */
+        const taskchat = require('./engine/taskchat');
+        // Review 4: the offer is never worth the list. Anything it throws offers nothing, and the list still answers.
+        try {
+          tasks.retireOffers(quiet, everyProject, () => safeRoster(), (pid, num) => taskchat.read(pid, num))
+            .forEach((parent, i) => { quiet[i].leftUnder = parent; });
+        } catch { /* no offers */ }
         sendJson(res, 200, { tasks: quiet, count: quiet.length, project: projectScope, listState: 'open', quietDays: days, ...(allProjects ? { all: true } : {}) });
         return;
       }
@@ -22022,6 +22105,53 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#7153 (part of #5941, the fleet off Discord): Kosmos speaking in a room on behalf of a job on this Mac, such
+     as the builder alarm or an email digest. A launchd job has no agent token and no pane, so `kosmos post` refuses it,
+     and the room route above posts as the person. This writes a roomNote: Kosmos's own voice, typed into nobody's
+     session, its first words naming its source. Board-token gated like every /api route and not on the agent-token
+     list, so an agent cannot pass as Kosmos with its own token. */
+  const roomNotice = pathname.match(/^\/api\/project\/([^/]+)\/notice$/);
+  if (roomNotice && req.method === 'POST') {
+    const id = decodeSegment(roomNotice[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body = null;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          sendJson(res, 400, { error: 'that request is not something we can read' });
+          return;
+        }
+        /* One line: the room's text view prints a note as written, so a line break in a job's text (an email digest
+           carries other people's words) would read there as a separate row by the person or an agent. */
+        // Control and format characters become spaces and the blank-looking INVISIBLE set goes, so a raw request cannot
+        // reorder or hide what the line says.
+        const text = body && typeof body.text === 'string'
+          ? body.text.replace(INVISIBLE_IN_NOTICE, '').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
+            .replace(/\s+/g, ' ').trim() : '';
+        const source = body && typeof body.source === 'string' ? body.source.trim() : '';
+        if (!text) { sendJson(res, 400, { error: 'a notice needs words' }); return; }
+        // A code point is one or two UTF-16 units, so over twice the limit is too long without counting it.
+        if (text.length > 2 * ROOM_NOTICE_MAX || [...text].length > ROOM_NOTICE_MAX) {
+          sendJson(res, 400, { error: 'a notice is at most ' + ROOM_NOTICE_MAX + ' characters' });
+          return;
+        }
+        if (!ROOM_NOTICE_SOURCE.test(source)) {
+          sendJson(res, 400, { error: 'a notice needs a short source in plain words, such as "builder alarm"' });
+          return;
+        }
+        const roster = safeRoster();
+        let found = null;
+        try { found = projects.get(id, roster || []); } catch { found = null; }
+        if (!found) { sendJson(res, 404, { error: 'there is no project by that name, so there is no room to post into' }); return; }
+        /* Marked as automated in its own words: a digest carries other people's text, and agents read the note in Kosmos's
+           voice, so it must not read as an instruction from Kosmos. */
+        if (!messages.roomNote(found.id, source + ' (automated notice): ' + text)) { sendJson(res, 500, { error: 'we could not write the notice' }); return; }
+        sendJson(res, 200, { ok: true, project: found.id });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   /* #2710: the operator REOPENS a held room. The valve holds a room that went
      back and forth without landing; this clears that hold so the next post
      lands, without the operator having to type a content post to do it. Its own

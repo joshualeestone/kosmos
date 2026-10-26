@@ -1683,3 +1683,38 @@ test('kosmos#7118: the manifest upload carries its snapshot id, and with it anot
     assert.equal(bf.openManifest(k.member.sk, k.dev.publicKey, wrong, st.manifests[0].bytes), null);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('kosmos#7156: an index entry stored under another key epoch is a stale index, so the chunks are sealed and stored again (option a)', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const first = await take(k, w.root, st);
+    assert.equal(first.ok, true, first.because);
+    assert.ok(first.added.size > 0);
+    for (const e of first.added.values()) assert.match(e.key, /^o1\/acct1\/1\//, 'fixture: the first run is under epoch 1');
+    // The same member key under epoch 2 (the invariant that a registered key never changes epoch is the coordinator's
+    // and backupmemberkey's; this snapshot does not lean on it).
+    const ctx2 = Object.assign({}, k.ctx, { epoch: '2', snapshot: 's-' + crypto.randomBytes(4).toString('hex') });
+    const r = await take(k, w.root, st, { input: { ctx: ctx2, index: first.added, bucket: first.bucket } });
+    assert.equal(r.ok, false, 'a snapshot under epoch 2 named chunks stored under epoch 1');
+    assert.equal(r.staleIndex, true);
+    assert.match(r.because, /another key epoch/);
+    // CONTROL: the same index under its own epoch is used as before.
+    const again = await take(k, w.root, st, { input: { index: first.added, bucket: first.bucket } });
+    assert.equal(again.ok, true, again.because);
+    assert.equal(again.staleIndex, undefined);
+    // Review 2, the recovery: withRun drops a stale index, so the next epoch-2 run seals and stores everything under /2/.
+    const dropped = require('./backupstate').withRun(
+      { periods: [] }, { label: PERIOD, namingKey: k.nk, bucket: first.bucket, index: first.added }, r);
+    const kept = dropped.periods && dropped.periods.length ? dropped.periods[dropped.periods.length - 1].index : null;
+    assert.ok(kept instanceof Map && kept.size === 0, 'withRun kept entries after a stale index (review 3: an empty index, exactly)');
+    // A store granting under epoch 2, as the coordinator does for an epoch-2 key (the fake hands out its own epoch).
+    const st2 = store({ epoch: '2' });
+    const next = await take(k, w.root, st2, { input: { ctx: Object.assign({}, ctx2, { snapshot: 's-' + crypto.randomBytes(4).toString('hex') }), index: kept, bucket: dropped.periods[dropped.periods.length - 1].bucket || first.bucket } });
+    assert.equal(next.ok, true, JSON.stringify(next.because || next));
+    assert.ok(next.added.size > 0 && [...next.added.values()].every((e) => /^o1\/acct1\/2\//.test(e.key)), 'the re-seal left a chunk outside epoch 2');
+    // The first (epoch 1) snapshot still restores: nothing it names was touched.
+    const { r: rr, sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.equal(rr.failed.length, 0, JSON.stringify(rr.failed).slice(0, 300));
+    assert.ok(sink.committed.size > 0, 'the epoch-1 snapshot restored nothing');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

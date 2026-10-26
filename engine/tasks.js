@@ -1793,6 +1793,132 @@ function inListOrder(rows, only = null) {
     .map((x) => x.t);
 }
 
+/* When a task finished, as an ISO string: its own closedAt, else (closed by all its parts) the latest part's closedAt.
+   null when it is not closed, or when no date says when. */
+function closedAtOf(t) {
+  if (!t) return null;
+  if (typeof t.closedAt === 'string' && t.closedAt) return t.closedAt;
+  const pr = progressOf(t);
+  if (!pr.closed) return null;
+  const dates = pr.parts.map((x) => x.closedAt).filter((d) => typeof d === 'string' && Number.isFinite(Date.parse(d)));
+  return dates.length ? dates.sort((a, b) => Date.parse(a) - Date.parse(b))[dates.length - 1] : null;
+}
+
+/* kosmos#7151: filed through the CLI by a named agent, and nothing on it the person set up (a repeat, a due date, a
+   done-when, a part added or moved from the screen). */
+function agentsOwn(t) {
+  if (!t || t.addedVia !== 'process' || typeof t.addedBy !== 'string' || !t.addedBy.trim()) return false;
+  if (t.repeat || t.dueDate || t.doneWhen) return false;
+  return !partsOf(t).some((x) => x && (x.addedVia === 'screen' || x.movedVia === 'screen'));
+}
+/**
+ * kosmos#7151 (feedback: tasks left behind by finished cycles pile up across releases): the closed parent this open task
+ * was LEFT UNDER, or null. Strict on purpose: any sign a person may still want the task means it is not offered. The
+ * rule, which the list prints with each offer:
+ *   - the task is open (the list's open group: not done, held, or built, which wait on purpose or on review);
+ *   - an agent filed it (`addedVia` process, naming the agent in `addedBy`); a task the person filed, one with no
+ *     record of who did, or one with no agent named, is never offered;
+ *   - nothing on it says the person set it up: no repeat, no due date, no done-when, and no part the person added or
+ *     moved from the screen; and no task under it;
+ *   - its parent is closed as done (not replaced by another task: that work moved on, it did not finish), and this
+ *     task was made BEFORE the parent closed. Filing a follow-up under finished work is allowed on purpose
+ *     (parentProblem), so a task made after its parent closed is new work. Every task above the parent is closed as
+ *     done too: a closed step of open work is work still going on. And no other task under the parent is still open
+ *     and the person's, built or held. A task or a close with no date is never offered.
+ * The rest is the caller's (retireOffers): its history, its agent, the list's quiet days. `tree` is treeOf(p), passed
+ * in so a list builds it once per project.
+ */
+function leftUnder(p, task, tree = treeOf(p)) {
+  if (!task || listGroup(task) !== 'open') return null;
+  if (!agentsOwn(task)) return null;
+  // Nothing under it at all (review 6): closing a task writes a history row that names nobody, so a step under it can
+  // never be shown to be only an agent's; open steps are work still going on. Strict, as the rest.
+  if (tree.under(task.number).length > 0) return null;
+  const made = typeof task.createdAt === 'string' ? Date.parse(task.createdAt) : NaN;
+  if (!Number.isFinite(made)) return null;
+  const up = tree.up(task);
+  if (up === null) return null;
+  const parent = tree.byNum.get(up);
+  if (!parent || Number.isSafeInteger(parent.replacedBy)) return null;
+  const done = closedAtOf(parent);
+  if (!(done && Number.isFinite(Date.parse(done)) && made < Date.parse(done))) return null;
+  // Review 8: a parent can be closed with work still open under it. Another task under the same parent that is still
+  // open and the person's (or built, waiting on review, or held) means the work it was part of has not finished.
+  if (tree.under(up).some((sib) => sib && sib.number !== task.number && !closedAtOf(sib)
+    && (!agentsOwn(sib) || listGroup(sib) !== 'open'))) return null;
+  // Every task above the parent is finished too, so the whole piece of work it belonged to has ended: a closed step of
+  // a task still open is work still going on (review 2). Bounded on a store that loops.
+  const seen = new Set([task.number, up]);
+  for (let at = tree.up(parent); at !== null; at = tree.up(tree.byNum.get(at))) {
+    if (seen.has(at)) return null;
+    seen.add(at);
+    const above = tree.byNum.get(at);
+    if (!above || Number.isSafeInteger(above.replacedBy) || !closedAtOf(above)) return null;
+  }
+  return up;
+}
+
+/* kosmos#7151 review 2: a task's history (its transcript) shows ONLY things an agent did, naming itself. An allow-list:
+   most rows a person's screen writes carry no mark of who wrote them (a message, a due date set and cleared, a part
+   moved), so a row that cannot be shown to be an agent's rules the task out. It must begin with its own creation by a
+   named agent through the CLI, which also means an empty or unreadable history (taskchat.read answers [] for both)
+   is never taken for "the person never touched it". */
+const AGENT_ROW = {
+  created: (e) => e.addedVia === 'process' && typeof e.addedBy === 'string' && e.addedBy.trim() !== '',
+  assigned: (e) => typeof e.by === 'string' && e.by.trim() !== '',
+  built: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
+  unbuilt: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
+  run: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
+  // Not hold-set / hold-cleared (review 3): their `via: 'agent'` means "not the screen", which includes the person's
+  // own terminal, and the row names nobody.
+};
+function agentOnlyHistory(history) {
+  if (!Array.isArray(history) || history.length === 0) return false;
+  if (!history[0] || history[0].kind !== 'created' || !AGENT_ROW.created(history[0])) return false;
+  return history.every((e) => e && Object.prototype.hasOwnProperty.call(AGENT_ROW, e.kind) && AGENT_ROW[e.kind](e));
+}
+/**
+ * kosmos#7151: which of a stale list's rows to OFFER for retiring, as a Map from the row's index to the closed parent
+ * it was left under. Nothing is retired here. On top of leftUnder:
+ *   - a project held in more than one record (a shared project) is never offered: which record's tree a row came from
+ *     cannot be told, so its parent cannot be;
+ *   - never one whose agent needs the person about it (waitingOnPerson, with the project's members);
+ *   - only one whose whole history (`historyOf(projectId, number)`, the task's transcript) is rows an agent wrote,
+ *     naming itself, starting with its creation (agentOnlyHistory); anything else, or no history, is not offered.
+ * `getRoster` is called only when some row would be offered, so a list with none costs nothing more; a roster that
+ * cannot be read (not an array) offers nothing at all, never everything.
+ */
+function retireOffers(rows, records, getRoster, historyOf) {
+  const out = new Map();
+  if (!Array.isArray(rows) || rows.length === 0) return out;
+  const byId = new Map();
+  for (const r of records || []) if (r && r.id) byId.set(r.id, [...(byId.get(r.id) || []), r]);
+  const trees = new Map();
+  const candidates = [];
+  rows.forEach((t, i) => {
+    const recs = t ? byId.get(t.projectId) || [] : [];
+    if (recs.length !== 1) return;
+    const r = recs[0];
+    if (!trees.has(r.id)) trees.set(r.id, treeOf(r));
+    const n = leftUnder(r, t, trees.get(r.id));
+    if (n !== null) candidates.push({ i, n, r });
+  });
+  if (candidates.length === 0) return out;
+  let roster = null;
+  try { roster = typeof getRoster === 'function' ? getRoster() : null; } catch { roster = null; }
+  if (!Array.isArray(roster)) return out;
+  for (const { i, n, r } of candidates) {
+    const t = rows[i];
+    const members = Array.isArray(r.agents) ? r.agents : [];
+    // Its holders, and the agent that filed it (review 4: an unassigned task's filer may be the one asking), by the same rule.
+    if (waitingOnPerson(t, roster, members) || waitingOnPerson({ ...t, parts: [{ who: t.addedBy }] }, roster, members)) continue;
+    let history = null;
+    try { history = typeof historyOf === 'function' ? historyOf(t.projectId, t.number) : null; } catch { history = null; }
+    if (agentOnlyHistory(history)) out.set(i, n);
+  }
+  return out;
+}
+
 /**
  * Where a task's work actually is, for the Tasks view (#3559), DERIVED from
  * evidence, never a column somebody drags it into (Josh, 2026-09-24).
@@ -2225,6 +2351,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 
 module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

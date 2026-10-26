@@ -544,6 +544,7 @@ function del(name, opts) {
   try { require('./stuckterminal').forget(p.name); } catch { /* #5154 slice C: its stuck-terminal anchor goes too */ }
   try { require('./toolloop').forget(p.name); } catch { /* #6071: nor a run of repeated tool failures */ }
   try { require('./ownbounds').forget(p.name); } catch { /* #5154 slice B: its own-bound give-up episodes go too */ }
+  try { require('./instructionreread').forget(p.name); } catch { /* kosmos#7149: its copy of what it last read, and its changes file */ }
   try { require('./liveness').forget(p.name); } catch { /* #5957 slice 3: and its last report */ }
   try { tokens = sendertoken.revoke(p.name); } catch (err) {
     tokens = { ok: false, because: String((err && err.message) || err) };
