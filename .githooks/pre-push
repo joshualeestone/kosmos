@@ -35,7 +35,8 @@ done
 git diff --quiet "$base...HEAD" -- web/ 2>/dev/null && exit 0
 # Review 3: a stale origin/main counts other people's newer web/ commits as this branch's (a branch rebased onto a main
 # this clone has not fetched), refusing a push CI would pass. So one fetch, which never asks for a password or key
-# (review 4: a prompt mid-push, with no reason given) and gives up on a stalled connection, over https or ssh. A failed fetch (offline,
+# (review 4: a prompt mid-push, with no reason given) and gives up on a stalled transfer over https and a stalled
+# connect or transfer over ssh (an https connect to a silent host waits for the system's own timeout; review 6). A failed fetch (offline,
 # or another worktree's fetch holding the shared ref) is said, so a refusal below can be read for what it may be.
 # Review 5: the ssh options are added to the person's own ssh setting (core.sshCommand), never in place of it; an
 # ssh command or program the environment already names is left exactly as it is.

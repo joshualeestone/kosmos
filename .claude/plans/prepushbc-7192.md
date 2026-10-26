@@ -70,3 +70,8 @@ every web/ push slower too.
 - W3 "a stale base only over-counts" is false for a branch that merged a newer main's web/ change and reverted it ->
   comment corrected: that push reads clean here and goes on to CI, which refuses it, as every push did before this
   hook (fail-open to CI, accepted).
+
+## Iteration 6 (opus): CONVERGED, ready to merge
+- No BLOCKER or WARNING. N1 the test read the environment the hook reads -> FIXED (unset beside the git-config
+  isolation). N2 an https connect to a silent host is not limited -> comment says so (git sets no curl connect timeout;
+  the hook runs after git already reached the remote it pushes to).
