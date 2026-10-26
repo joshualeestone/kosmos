@@ -671,3 +671,18 @@ test('an agents folder that cannot be read leaves the list marked incomplete', {
   assert.deepEqual(l.agents, []);
   assert.equal(l.more, true);
 });
+
+test('node_modules at the top of workers is held back; a lookalike held-back folder from the snapshot is not reported as held back', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(p.restoreDir, rel)), { recursive: true }); fs.writeFileSync(path.join(p.restoreDir, rel), text); };
+  put('workers/ann/CLAUDE.md', '# ann\n');
+  put('workers/node_modules/evil/package.json', '{"bin":"x.js"}\n');
+  put('held-back-snapshot/workers/fake', 'x\n');
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  assert.deepEqual(r.heldBack, ['workers/node_modules']);
+  assert.deepEqual(fs.readdirSync(worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS), ['ann']);
+  assert.ok(r.kept.includes('held-back-snapshot'), 'the snapshot\'s own root is kept, as any other');
+  assert.ok(!r.kept.some((n) => n.startsWith('held-back-') && n !== 'held-back-snapshot'), 'this run\'s held-back folder is itemised, not listed as kept');
+});

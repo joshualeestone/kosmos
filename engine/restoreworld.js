@@ -175,7 +175,9 @@ function renameRetrying(src, dst) {
 function finishRestoreWorld(opts = {}) {
   const { base, world, restoreDir } = opts;
   let moved = [], failedFiles = 0, fetchProblems = [];
-  const answer = (ok, because) => Object.assign({ ok, moved, kept: keptIn(restoreDir, base, world), heldBack: heldIn(restoreDir, base, world), failedFiles, fetchProblems }, because ? { because } : {});
+  let held = null;   // this run's held-back folder, once made
+  const answer = (ok, because) => Object.assign({ ok, moved, kept: keptIn(restoreDir, base, world).filter((n) => !held || n !== path.basename(held)),
+    heldBack: heldIn(held), failedFiles, fetchProblems }, because ? { because } : {});
   const refuse = (because) => ({ ok: false, moved: [], kept: [], heldBack: [], failedFiles: 0, fetchProblems: [], because });
   const dir = worldDirOf(base, world);
   if (!dir || !realDir(dir)) return refuse('the restore did not name its Kosmos');
@@ -219,13 +221,13 @@ function finishRestoreWorld(opts = {}) {
   }
   // Between the checks and the renames only this user's own processes can change these folders (the sink assumes the
   // same: the restore folder is private to the person).
-  const held = path.join(restoreDir, HELD_PREFIX + crypto.randomBytes(6).toString('hex'));
+  const heldName = path.join(restoreDir, HELD_PREFIX + crypto.randomBytes(6).toString('hex'));
   let heldMade = false;
   for (const { name, src, dst, hold } of plan) {
     try {
-      if (hold.length && !heldMade) { fs.mkdirSync(held, { mode: 0o700 }); heldMade = true; }   // new: refuses one already there
-      if (hold.length) fs.mkdirSync(path.join(held, name), { mode: 0o700 });
-      for (const n of hold) renameRetrying(path.join(src, n), path.join(held, name, n));
+      if (hold.length && !heldMade) { fs.mkdirSync(heldName, { mode: 0o700 }); heldMade = true; held = heldName; }   // new: refuses one already there
+      if (hold.length) fs.mkdirSync(path.join(heldName, name), { mode: 0o700 });
+      for (const n of hold) renameRetrying(path.join(src, n), path.join(heldName, name, n));
     } catch (e) {
       const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
       return answer(false, `the top of the restored ${name} could not be set aside${code}`);
@@ -250,26 +252,24 @@ function finishRestoreWorld(opts = {}) {
   return answer(true);
 }
 
-/* A plain-named folder at the top of a root: what becomes the world's. Not a dot-entry, not HEAD (git), not a file,
-   not a link. */
+/* A plain-named folder at the top of a root: what becomes the world's. Not a dot-entry, not HEAD (git), not
+   node_modules (npm resolves packages up the tree, so npx in any agent folder below would run its scripts), not a
+   file, not a link. */
+const NOT_PLAIN = new Set(['head', 'node_modules']);
 function plainFolder(parent, n) {
-  if (n.startsWith('.') || n.toLowerCase() === 'head') return false;
+  if (n.startsWith('.') || NOT_PLAIN.has(n.toLowerCase())) return false;
   try { const st = fs.lstatSync(path.join(parent, n)); return st.isDirectory() && !st.isSymbolicLink(); } catch { return false; }
 }
 
-/* What was held back, as `<root>/<label>`, for the screen, from every held-back folder (one per finish run). */
-function heldIn(restoreDir, base, world) {
-  const dir = worldDirOf(base, world);
-  if (!dir || restoreDir !== path.join(dir, RESTORE_DIR)) return [];
-  let runs = [];
-  try { runs = fs.readdirSync(restoreDir).filter((n) => n.startsWith(HELD_PREFIX)).sort(); } catch { return []; }
+/* What this run held back, as `<root>/<label>`, for the screen. Only the folder this run made is read: a snapshot
+   chooses its own root names and could supply a lookalike. */
+function heldIn(held) {
+  if (!held) return [];
   const out = [];
-  for (const run of runs) {
-    for (const name of MOVED) {
-      let names = [];
-      try { names = fs.readdirSync(path.join(restoreDir, run, name)); } catch { continue; }
-      for (const n of names.sort()) out.push(`${name}/${labelOf(n)}`);
-    }
+  for (const name of MOVED) {
+    let names = [];
+    try { names = fs.readdirSync(path.join(held, name)); } catch { continue; }
+    for (const n of names.sort()) out.push(`${name}/${labelOf(n)}`);
   }
   return out;
 }
@@ -382,7 +382,10 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    review list is what shows every file. Labels can look alike (homoglyphs), so rows are told apart by `folder`. A
    git repository (a .git, or HEAD, objects and refs) in a project or at the top of projects is shared, not refused
    (projects are usually repositories; one at the top reaches every project without its own); one in an agent folder
-   or at the top of workers refuses. A backup can force `more` with enough empty folders, so the screen should let the
+   or at the top of workers refuses. Projects keep their own .git (restoring a repository whole is the point), so an
+   agent made in this world later meets it without this review: start agents in a Restored world with git's hooks
+   and fsmonitor switched off (4c). Agents kept elsewhere sit under the restore folder, whose top a snapshot chooses,
+   so never run git or open a terminal there. A backup can force `more` with enough empty folders, so the screen should let the
    person review past the cap rather than stop. Nothing is registered, started or written.
    A world not on the list (no registry row, hidden, or its folder swapped for a link) answers with no rows and a
    `because`, so a refusal cannot read as an empty restore.
@@ -392,7 +395,7 @@ function listRestoredAgents(opts = {}) {
   const worldDir = worldDirOf(opts.base, opts.world);
   const listable = worldDir && realDir(worldDir) && onTheList(opts.base, opts.world.id);
   if (!listable) return { agents: [], shared: [], more: false, because: 'this is not a Kosmos on your list, so nothing in it is offered' };
-  const roots = listable ? worlds.envOverridesFor(opts.base, opts.world) : {};
+  const roots = worlds.envOverridesFor(opts.base, opts.world);
   const budget = { left: Number.isSafeInteger(opts.briefTotal) && opts.briefTotal >= 0 ? Math.min(opts.briefTotal, MAX_BRIEF_TOTAL) : MAX_BRIEF_TOTAL };
   const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;
   const agents = [], shared = [];
@@ -455,7 +458,7 @@ function listRestoredAgents(opts = {}) {
   if (isGit(projectsTop)) projectsTop.push(GIT_WHY);
   if (projectsTop.length) shared.push({ where: 'projects', label: '(the projects folder itself)', runs: projectsTop });
   scan(roots.AGENT_WORKFORCE_WORKERS, 'workers', workersNames);
-  if (listable && opts.restoreDir === path.join(worldDir, RESTORE_DIR) && realDir(opts.restoreDir)) {
+  if (opts.restoreDir === path.join(worldDir, RESTORE_DIR) && realDir(opts.restoreDir)) {
     const agentsDir = path.join(opts.restoreDir, 'agents');
     scan(agentsDir, 'elsewhere', entriesOf(agentsDir));
   }
