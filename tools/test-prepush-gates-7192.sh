@@ -118,6 +118,24 @@ if raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/web-bad $Z"; then
 elif grep -q 'origin main could not be fetched just now' "$T/out"; then ok 'a failed fetch is said beside the refusal'
 else bad 'a failed fetch was not said: '"$(cat "$T/out")"; fi
 git remote set-url origin "$T/origin.git"
+# Review 5: the fetch builds on the person's own ssh setting (core.sshCommand) and never replaces it. A fake ssh, named
+# by core.sshCommand, records how it was called; origin is an ssh URL so git calls it.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/ssh.log"\nexit 1\n' "$T" > "$T/myssh"; chmod +x "$T/myssh"
+git config core.sshCommand "$T/myssh -i mykey"
+git remote set-url origin "ssh://example.invalid/repo.git"
+rm -f "$T/ssh.log"
+raw "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/web-bad $Z" || true
+if grep -q -- '-i mykey' "$T/ssh.log" 2>/dev/null && grep -q -- 'BatchMode=yes' "$T/ssh.log" && grep -q -- 'ConnectTimeout=10' "$T/ssh.log"; then
+  ok "the fetch uses the person's own ssh command, with no prompts and a connect timeout added"
+else bad "the fetch did not use core.sshCommand with the options added: $(cat "$T/ssh.log" 2>/dev/null)"; fi
+# ...and an ssh command the environment names is left exactly as it is.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/envssh.log"\nexit 1\n' "$T" > "$T/envssh"; chmod +x "$T/envssh"
+rm -f "$T/envssh.log"
+printf 'refs/heads/web-bad %s refs/heads/web-bad %s\n' "$(git rev-parse web-bad)" "$Z" | GIT_SSH_COMMAND="$T/envssh" bash .githooks/pre-push origin x >"$T/out" 2>&1 || true
+if [ -s "$T/envssh.log" ] && ! grep -q -- 'BatchMode' "$T/envssh.log"; then ok 'an ssh command from the environment is used as it is'
+else bad "the environment's ssh command was changed or not used: $(cat "$T/envssh.log" 2>/dev/null)"; fi
+git config --unset core.sshCommand
+git remote set-url origin "$T/origin.git"
 # Review 4: a branch with no web/ change against the base spends no fetch (origin unreachable would show it as a delay
 # only, so the arm checks the ref did not move instead).
 git checkout -q docs-only
