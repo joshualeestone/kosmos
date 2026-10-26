@@ -146,7 +146,7 @@ test('each agent is linked once: a pass minted for ITS community name, sent with
   assert.equal(ownerCalls().length, before, 'a linked agent is not linked again');
 });
 
-test('a new computer identity (a Forget and a new sign-in) links every agent again', async () => {
+test('a new computer identity (a Forget and a new sign-in) links the agent again', async () => {
   await registered('ava');
   await cs.sweep();
   const n = ownerCalls().length;
@@ -525,4 +525,54 @@ test('a mint that throws is treated as no answer: the pass waits', async () => {
   await cs.sweep();
   assert.equal(R.mints.length, 1, 'asked once, then the pass waits');
   assert.equal(ownerCalls().length, 0);
+});
+
+// The lines this pass logs, caught for the test that runs fn (console.error is put back after).
+async function ownerLogs(fn) {
+  const lines = [];
+  const was = console.error;
+  console.error = (...a) => { const s = a.join(' '); if (s.includes('owner link')) lines.push(s); };
+  try { await fn(); } finally { console.error = was; }
+  return lines;
+}
+
+test('a pass-wide reason is logged once while it lasts, and again after a link has cleared it', async () => {
+  await registered('ava');
+  cs._ownerLinkReset(0);   // every sweep asks again, so only the once-said record keeps the log quiet
+  R.mint = () => ({ ok: false, because: 'coordinator answered 503', refusal: { status: 503, code: null, currentEpoch: null } });
+  let lines = await ownerLogs(async () => { await cs.sweep(); await cs.sweep(); await cs.sweep(); });
+  assert.equal(R.mints.length, 3, 'control: asked on every sweep');
+  assert.equal(lines.length, 1, 'said once: ' + JSON.stringify(lines));
+  R.mint = null;
+  await cs.sweep();
+  assert.ok(agentNamed('ava').owner, 'linked');
+  R.mac = 'mac-2';   // a new identity, so the agent is asked again
+  R.mint = () => ({ ok: false, because: 'coordinator answered 503', refusal: { status: 503, code: null, currentEpoch: null } });
+  lines = await ownerLogs(() => cs.sweep());
+  assert.equal(lines.length, 1, 'said again after the link cleared it: ' + JSON.stringify(lines));
+});
+
+test("one agent's reason is logged once while it lasts", async () => {
+  await registered('ava');
+  be.st.mode.statusFor = { name: keyName('ava'), status: 422 };
+  cs._ownerLinkReset(0);
+  const lines = await ownerLogs(async () => { await cs.sweep(); await cs.sweep(); await cs.sweep(); });
+  assert.equal(ownerCalls().length, 3, 'control: asked on every sweep');
+  assert.equal(lines.length, 1, 'said once: ' + JSON.stringify(lines));
+});
+
+test('an agent linked before the pass ends early keeps its marker', async () => {
+  await registered('ava');
+  await registered('bo');
+  R.mint = (body) => (body.agent === keyName('bo')
+    ? { ok: false, notSent: true, because: 'a register is out' }
+    : { ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } });
+  await cs.sweep();
+  assert.equal(ownerCalls().length, 1, 'ava linked, then bo was not sent and the pass ended');
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.ok(keys.ava.ownerLinked, "ava's marker was saved although the pass returned early");
+  R.mint = null;
+  await cs.sweep();
+  assert.equal(ownerCalls().length, 2, 'only bo is linked next; ava is not linked again');
+  assert.ok(agentNamed('bo').owner);
 });
