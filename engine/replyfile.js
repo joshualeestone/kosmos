@@ -81,6 +81,17 @@ const CANNOT_READ = 'that file could not be read';
    (review r1, finding 3, decided). A copy, not a link, is what the agent sends. */
 const HARD_LINK = 'that file has another name somewhere else on this computer (a hard link), so it cannot be attached; attach a copy of it instead';
 const NOT_YOURS = 'only a file directly in your Files folder, or inside the folder of a project you are on, can be attached';
+/* #7221: the Windows refusals, said as what they are. */
+const ON_NETWORK = 'that path is on another computer on the network, or names a device, so it cannot be attached; copy the file into your Files folder and attach it from there';
+const DEVICE_NAME = 'that name belongs to a Windows device, not a file, so it cannot be attached';
+const STREAM = 'that names a part of a file (an alternate data stream) or a device, not a file, so it cannot be attached';
+const TOO_MANY_LINKS = 'that path goes through too many links to follow, so it cannot be attached';
+const LONG_FORM = 'write the file\'s path with its drive letter (C:\\...), not in the \\\\?\\ form, to attach it';
+const UNREADABLE_LINK = 'that path goes through a link that cannot be followed, so it cannot be attached';
+/* A link the walk found listed in its folder but could not lstat: a junction aimed at a share is one (Windows lets a
+   junction name only a local volume, so it leads nowhere this computer can read). allowedRoot leaves such a folder of
+   another agent unresolved (review 15 finding 1), as it does a link to a share. */
+const DEAD_LINK = 'that path goes through a link that leads nowhere this computer can read, so it cannot be attached';
 
 /* The ON-DISK spelling, as projects.js resolveReal reads a project's folder: realpathSync.native,
    never the JS realpathSync, which keeps the caller's case and Unicode form. On a case-insensitive,
@@ -268,7 +279,7 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
       /* A walk that gave up after MAX_HOPS links is skipped too: Windows follows more (63), so the realpath could still
          reach a share at the end of a longer chain (review 13 finding 1). */
       const walked = !isNetworkSpelling(p.folder) && winLinkRefusal(asDrivePath(p.folder), null);
-      if (otherShare || walked === ON_NETWORK || walked === TOO_MANY_LINKS) {
+      if (otherShare || walked === ON_NETWORK || walked === TOO_MANY_LINKS || walked === DEAD_LINK) {
         skippedOthers.push(p.folder);
         continue;
       }
@@ -368,8 +379,6 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    (review 4 finding 2): a project written \\fileserver\x whose real path reads \\10.0.0.5\x (or a DFS path, or
    another name for the server) is not matched to its files, which are then refused, where main matched by identity.
    Write the project folder as Windows resolves it. */
-const ON_NETWORK = 'that path is on another computer on the network, or names a device, so it cannot be attached; copy the file into your Files folder and attach it from there';
-const DEVICE_NAME = 'that name belongs to a Windows device, not a file, so it cannot be attached';
 /* The agent's roots: `drives`, the letters every root is written on or reaches through its own links, and `folders`, the
    agent's own project folders (on a drive letter, or a plain share). A project may live on a share, written as a
    mapped drive (projects.js opens "a Z:\ record whose realpath is \\server\share") or as \\server\share itself; that
@@ -427,7 +436,6 @@ function readProjects() {
   try { all = projects.readAll(); } catch { all = []; }
   return Array.isArray(all) ? all : [];
 }
-const STREAM = 'that names a part of a file (an alternate data stream) or a device, not a file, so it cannot be attached';
 /* The refusal for a Windows path by its spelling alone, or null. Called before anything touches the path. `roots`
    is the agent's (agentRoots); null when the path is a project folder being checked, with no owner to compare. */
 function winSpellingRefusal(given, roots) {
@@ -459,9 +467,6 @@ function unfollowedLinkRefusal(to) {
 /* Follow the links in `p` by lstat and readlink only, and say why not if any of them leaves for the network, a
    device or a drive outside the roots. Null when the path may be resolved. A chain of more than 32 links is refused. */
 const MAX_HOPS = 32;
-const TOO_MANY_LINKS = 'that path goes through too many links to follow, so it cannot be attached';
-const LONG_FORM = 'write the file\'s path with its drive letter (C:\\...), not in the \\\\?\\ form, to attach it';
-const UNREADABLE_LINK = 'that path goes through a link that cannot be followed, so it cannot be attached';
 /* Reads the folder's names, so it is asked only after an lstat ENOENT (a missing part, usually a mistyped name). The
    name is matched in any case: a junction aimed at a share lstats ENOENT in EVERY case, so an exact match would let
    the same junction typed in another case through to realpath (review 7 finding 1). In a case-sensitive folder the
@@ -503,8 +508,10 @@ function walkLinks(p, onPath, hops = 0, acceptLink = null) {
          asked, a local read: an entry under that name is a link this walk cannot follow, refused rather than handed
          to realpath; no entry is really missing, and the realpath that follows says so. Any other error (EACCES,
          EPERM) is a part that cannot be read, said as that (review 1 finding 4). */
+      /* A part missing here ends the walk: the realpath that follows answers ENOENT for it. A part made between this
+         walk and that realpath (a link to a share, say) is never walked: the swap window the header names as (a). */
       if (!err || err.code !== 'ENOENT') return CANNOT_READ;
-      return listed(cur) ? UNREADABLE_LINK : null;
+      return listed(cur) ? DEAD_LINK : null;
     }
     if (!lst.isSymbolicLink()) continue;
     let to;
@@ -720,4 +727,4 @@ function discard(rec) {
 
 /* winSpellingRefusal is exported for engine/replyfile.win32-7221.test.js only; nothing else should call it (review 4
    NIT). The pure path rules it builds on are engine/winpath.js. */
-module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, LONG_FORM, TOO_MANY_LINKS, winSpellingRefusal };
+module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, LONG_FORM, TOO_MANY_LINKS, DEAD_LINK, winSpellingRefusal };

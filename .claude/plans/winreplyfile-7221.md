@@ -161,18 +161,25 @@ compare `ino` as numbers too; they are #7229 (filed), not this branch, with refu
    whose files' real paths read `\\10.0.0.5\x` (or a DFS path, or another name for the server) is not matched to them,
    and they are refused where main matched by identity. Narrow; the remedy is to write the project folder as Windows
    resolves it. Named in the code comment too.
-6. The agent's own project written as a local volume without a letter (`\\?\Volume{GUID}\...`) adds no drive to
+4. The agent's own project written as a local volume without a letter (`\\?\Volume{GUID}\...`) adds no drive to
    its roots, so a file in it named by a drive-letter path on a drive no other root reaches is refused, where main
    attached it by identity (review 12 NIT). Rare; the safe direction. A share written `\\?\UNC\host\share` is read
    as the plain share it is.
-4. A path on a drive no root is written on (any caller of `/api/reply` can name `Q:\x`) walks the agent's OWN roots'
+5. A path on a drive no root is written on (any caller of `/api/reply` can name `Q:\x`) walks the agent's OWN roots'
    links to learn the drives they reach (review 6 finding 2). One of the agent's own projects on a mapped drive whose
    server is down then stalls that attach, as any attach of a file in that project already would. Named in the code.
-5. Not changed here (review 6 finding 1; review 11 finding 4 asked for a card): every Windows attach of a project
+6. Not changed here (review 6 finding 1; review 11 finding 4 asked for a card): every Windows attach of a project
    file walks every OTHER agent's project folder by lstat before `folderState` resolves it. For a folder on a mapped
    drive the walk touches the same server the realpath touches next, so it adds no new place contacted; it is what
    skips a folder that is a local link to a share (review 3 finding 1), which a spelling-only filter could not see.
    Cost and the dead-mapped-drive stall are #7232 (filed), with three options.
+7. A link to a share ABOVE one of the agent's own project folders (`C:\x -> \\host\share\x`, project `C:\x\proj`) is
+   refused, where main attached its files: only a link that IS the project folder is followed onto a share (review 15
+   NIT). The safe direction; writing the project folder as the share, or linking the folder itself, works.
+8. Another agent's project folder that is a junction aimed at a share (listed in its folder, unreadable by lstat) is
+   left unresolved like a link to a share (review 15 finding 1), so whether realpath contacts the share through it is
+   never put to the test. The earlier "0 ms ENOENT" for such a junction was measured just after a stalled realpath on
+   the same host, so Windows may have answered from its cache of the failure; it is not relied on.
 
 What would change my mind: a Windows build where `lstat` or `readlink` itself contacts a share (measured not to, here).
 
@@ -252,6 +259,10 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
 - Review 14: a Files link to `\??\Global\UNC\<unroutable>\share` is refused unresolved as a network path, and the same
   link as another agent's project folder is never resolved while this agent's project file attaches. Against
   iteration 13's code (07f1a94): both fail, the second by resolving that folder (the contact, shown).
+- Review 15: another agent's project folder that is a junction aimed at a share is never resolved while this agent's
+  project file attaches (against f50df47: fails, by resolving it); a junction in Files is refused with its own
+  sentence (`DEAD_LINK`: "leads nowhere this computer can read"). The Windows refusal sentences now sit with the
+  module's other sentences at the top.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -260,7 +271,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 42/42 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 43/43 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

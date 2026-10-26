@@ -179,9 +179,9 @@ test('#7221: a junction in Files out to a share is refused without resolving it'
   const j = path.join(FILES, 'share-junction');
   fs.symlinkSync('\\\\10.255.255.1\\share', j, 'junction');
   try {
-    refusedUnresolved(path.join(j, 'f.txt'), replyfile.UNREADABLE_LINK, 'a junction to a share');
+    refusedUnresolved(path.join(j, 'f.txt'), replyfile.DEAD_LINK, 'a junction to a share');
     // review 7 finding 1: the same junction typed in another case lstats ENOENT too, and is refused the same way
-    refusedUnresolved(path.join(FILES, 'SHARE-JUNCTION', 'f.txt'), replyfile.UNREADABLE_LINK, 'the junction typed in upper case');
+    refusedUnresolved(path.join(FILES, 'SHARE-JUNCTION', 'f.txt'), replyfile.DEAD_LINK, 'the junction typed in upper case');
   } finally { fs.rmSync(j, { recursive: true, force: true }); }
 });
 
@@ -754,4 +754,28 @@ test('#7221 review 14-1: another agent\'s project folder linked through \\??\\Gl
     assert.deepEqual(resolved, [mine], 'the Global\\UNC project folder was not resolved');
     assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
   } finally { fs.rmSync(theirs, { force: true }); }
+});
+
+/* ---------- review 15 ---------- */
+
+test('#7221 review 15-1: another agent\'s project folder that is a junction aimed at a share is never resolved', winOnly, () => {
+  const theirs = path.join(SANDBOX, 'their-dead-junction');
+  fs.symlinkSync('\\\\10.255.255.1\\share', theirs, 'junction');
+  const mine = path.join(SANDBOX, 'mine-beside-junction');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'notes.txt'), 'mine\n');
+  PROJECTS = [
+    { id: 'p-dead-junction', name: 'Dead junction', folder: theirs, agents: ['someone-else'] },
+    { id: 'p-mine-junction', name: 'Mine', folder: mine, agents: [WHO] },
+  ];
+  const resolved = [];
+  projects.folderState = (folder) => { resolved.push(folder); return realFolderState(folder); };
+  const started = Date.now();
+  try {
+    const r = replyfile.attach(WHO, path.join(mine, 'notes.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    replyfile.discard(r.rec);
+    assert.deepEqual(resolved, [mine], 'the junction aimed at a share was not resolved');
+    assert.ok(Date.now() - started < SOON_MS, 'no network attempt on the way');
+  } finally { fs.rmSync(theirs, { recursive: true, force: true }); }
 });
