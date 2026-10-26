@@ -105,3 +105,14 @@ what fires, wherever the board runs.
   - Nits taken: this plan's top section describes what ships (plain words, the fresh reads); the README row lists every
     arm and says it boots its own board and is gated; the two hold buttons are never in flight together (Save disables
     Put on hold / Take off hold and the reverse).
+- Round 6: 2 blockers, 0 warnings, 3 nits.
+  - [BLOCKER] round 5's `getElementById('tk-hold')` put the bare token `tk-hold` into the diff, so the #2518 gate also
+    named render-task-taps-5200.js (and tools.shell-shard-4317.test.js, which runs run-tests.sh, went red with it). The
+    check passes on this branch through the harness (4ecdcd06c6): Browser-check-surface trailer added.
+  - [BLOCKER] on a phone a long task sentence widened the task choice past the card (the page 516px wide at 390): the
+    select and its row get max-width 100% and min-width 0. The check's fifth task now has a long sentence; without the
+    rule its no-sideways-scroll arm goes red at both sizes.
+  - Nits taken: the hold button's off-while-Save-is-in-flight is asserted; the picker starts at the next minute (the
+    current one is refused as passed); Save's two fallback lines are sentences like their siblings.
+- Every root *.test.js at 8ec5a56011: 10386 tests, 1 fail, which was the round-6 surface-gate blocker reached through
+  run-tests.sh (tools.shell-shard-4317.test.js), fixed by the trailer.
