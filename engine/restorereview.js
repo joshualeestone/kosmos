@@ -37,7 +37,8 @@ const MAX_FLAGS_PER_KIND = 200;
 const MAX_REMOVED = 200;
 const PLACEHOLDER = '{{NAME}}';
 const NAME_MAX = 64;
-const INSTRUCTION_FILES = new Set(['claude.md', 'agents.md', 'gemini.md']);
+const INSTRUCTION_FILES = new Set(['claude.md', 'claude.local.md', 'agents.md', 'gemini.md']);   // .claude/CLAUDE.md by its name
+const MAX_TESTED_LINES = 200 * 1000;   // per review (review 5: cost follows lines, and 2M short lines took seconds)
 
 /* Invisible code points (review 2): format characters (zero-width, bidi, the Unicode tag block), variation
    selectors, and the tag block itself. A line holding one is never a template line and is flagged. */
@@ -131,8 +132,10 @@ const KINDS = [['url', URL_RE], ['credential', CREDENTIAL_RE], ['schedule', SCHE
 /* Each kind a line is, with where it matched: [{ kind, at }]. Tests the first MAX_TEST_CHARS only. */
 function matchesOf(line) {
   const raw = String(line).slice(0, MAX_TEST_CHARS);
-  const { text: c, map, end } = canonicalMap(raw);
-  const back = (k) => (k < map.length ? map[k] : end);   // a canonical position, in the raw line
+  // Fast path (review 5): plain printable ASCII with nothing to decode is its own canonical form.
+  const plain = /^[\x20-\x7e\t]*$/.test(raw) && !/hxxp|[\[({]/i.test(raw);
+  const { text: c, map, end } = plain ? { text: raw, map: null, end: raw.length } : canonicalMap(raw);
+  const back = (k) => (!map ? k : k < map.length ? map[k] : end);   // a canonical position, in the raw line
   const out = [];
   for (const [kind, re] of KINDS) {
     const m = re.exec(c);
@@ -194,7 +197,11 @@ function closestTemplate(lines, templates) {
 /* A line that can make what follows it stop being instructions in Markdown or HTML: a fence, a comment, or a block
    whose content is not rendered as text (review 4: a parser of these regions kept falling out of step with Markdown,
    so there is no parser: see the rule where it is used). */
-const HIDE_RE = /```|~~~|<!--|-->|<\/?(?:script|style|pre|textarea|template|noscript|xmp|plaintext|iframe|object|details)\b/i;
+// Review 5: not a list of tag names (any element can be hidden, <div hidden>, and <? <![CDATA[ <!x <svg> all hide
+// what follows), but any tag-like '<' at all, plus a link reference definition opening a title. Only ADDED lines
+// count: the templates' own '<name>' placeholders are matched lines, so a clean restore never trips it. A member
+// who adds a line with a placeholder makes everything after it count as removed: noisy, never unsafe.
+const HIDE_RE = /```|~~~|-->|<[A-Za-z!?\/]|^\s{0,3}\[[^\]]+\]:\s*\S*\s*["'(]/;
 
 /* The longest common subsequence of a file's non-blank lines and the template's, IN ORDER (review 2: a set let a
    reordered template, or a rule moved to another file, review clean). Returns which file lines (by index) are matched
@@ -267,6 +274,8 @@ function reviewAgent({ name, files, templates } = {}) {
     counts[x.kind] += 1;
     flags.push(x);
   };
+  let tested = 0;
+  const untested = new Set();
   const out = read.map((f) => {
     const al = f.instructions && closest ? align(f.normed, closest.lines) : { matchedFile: new Set(), matchedTpl: new Set(), pairs: [], diffed: false };
     // After the first ADDED line with a hiding marker, every template line further down counts as removed (review
@@ -286,6 +295,12 @@ function reviewAgent({ name, files, templates } = {}) {
     f.raw.forEach((line, i) => {
       if (!isAdded(i)) return;
       added.push(i + 1);
+      // Past the per-review line budget, an added line is listed but not tested, and the file is unreviewed.
+      if (tested >= MAX_TESTED_LINES) {
+        if (!untested.has(f.name)) { untested.add(f.name); unreviewed.push({ file: f.name, why: 'it has more lines than the review tests, so the rest were listed but not checked' }); }
+        return;
+      }
+      tested += 1;
       if (line.length > MAX_TEST_CHARS) flag({ file: f.name, line: i + 1, kind: 'long', text: shown(line, 0), at: 0, length: line.length });
       const hm = HIDE_RE.exec(line);
       if (hm) flag({ file: f.name, line: i + 1, kind: 'hides', text: shown(line, hm.index), at: hm.index, length: line.length });
@@ -293,7 +308,8 @@ function reviewAgent({ name, files, templates } = {}) {
       for (const m of here) flag({ file: f.name, line: i + 1, kind: m.kind, text: shown(line, m.at), at: m.at, length: line.length });
       // An instruction split over two lines: only the joint is tested (the end of this line, the start of the next).
       const next = f.raw[i + 1];
-      if (typeof next === 'string' && next.trim()) {
+      // Only between two lines with something to split (review 5: one-character lines doubled the cost).
+      if (typeof next === 'string' && next.trim().length >= 3 && line.trim().length >= 3) {
         const alone = new Set([...here.map((m) => m.kind), ...(isAdded(i + 1) ? matches(i + 1) : matchesOf(next)).map((m) => m.kind)]);
         const joint = `${line.slice(-JOINT)} ${next.slice(0, JOINT)}`;
         for (const m of matchesOf(joint)) {
