@@ -287,8 +287,8 @@ function failureDetail(output, expected = []) {
 }
 
 /* #7247: the environment each test file runs with. On a Windows computer that is not CI, NODE_OPTIONS gains
-   `--require tools/no-schtasks-preload.cjs`, so the file and every process it starts are kept off the live Task
-   Scheduler, where one test that reaches it could end the board's own task. CI's runner is throwaway and its real
+   `--require tools/no-schtasks-preload.cjs`, so the file, and every process it starts that keeps NODE_OPTIONS, is
+   kept off the live Task Scheduler, where one test that reaches it could end the board's own task. CI's runner is throwaway and its real
    scheduler is part of what this job measures, so it is left as it was; KOSMOS_TESTS_REAL_SCHTASKS=1 asks for the
    real scheduler on a Windows computer too. tools/run-tests.sh reads this same rule (it runs childEnv), so the two
    runners cannot disagree. */
@@ -305,7 +305,8 @@ function childEnv(env = process.env, platform = process.platform) {
   const require_ = `--require "${PRELOAD.replace(/\\/g, '/')}"`;
   const prior = env.NODE_OPTIONS || '';
   /* Not added twice; a different copy of a preload already there (an older one kept outside the repo) does not count,
-     so this checkout's own is always loaded. */
+     so this checkout's own is always loaded. Matched by its exact spelling on purpose: a second load of the same
+     preload only wraps wrappers that already refuse the same calls, so a missed match costs nothing. */
   return { ...env, NODE_OPTIONS: prior.includes(require_) ? prior : (prior ? prior + ' ' : '') + require_ };
 }
 /* The one line a run prints about the scheduler on a Windows computer, guarded or not. */

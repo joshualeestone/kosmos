@@ -11,7 +11,8 @@
  * no business changing (review 1 of #7247).
  *
  * It reads command lines with a small tokenizer, not a full shell parser. What it does not see: a command built at run
- * time inside the shell (a variable, a script file run by powershell -File or cmd /c script.cmd).
+ * time inside the shell (a variable, a script file run by powershell -File or cmd /c script.cmd), a PowerShell script
+ * block or Start-Process (powershell -Command "& {schtasks}"), and cmd /c with no space before the command.
  */
 
 const PROGRAM = /^schtasks(\.exe)?$/i;

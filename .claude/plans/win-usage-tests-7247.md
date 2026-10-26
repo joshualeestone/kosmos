@@ -60,7 +60,9 @@ scheduler on this box could end the board's task. The Windows `npm test` limit i
 
 ## Weakest part, named
 "Not CI" is read from the `CI` variable. A developer who sets CI locally gets the real scheduler; the run says so in
-one line ("REAL Task Scheduler (CI is set)"). And the matcher reads a shell command line by a small splitter, not a
+one line ("REAL Task Scheduler (CI is set)"). The bigger gap: a test that starts a process with an environment of its
+own that leaves NODE_OPTIONS out runs that process unguarded (round 3; the reason it stays is under Review rounds).
+And the matcher reads a shell command line by a small splitter, not a
 shell parser: an unusual quoting could hide a schtasks call from it. Kosmos's own calls never go through a shell.
 
 ## Tests
@@ -90,3 +92,11 @@ shell parser: an unusual quoting could hide a schtasks call from it. Kosmos's ow
   shell arms fail with ENOENT, not a shell's status, and that the log holds command lines; CI=false and CI=0 are not
   CI. Negative control: against round 1's code the two new behaviour tests fail. This file 11/11; with
   windows-tests-1777 34/34; under the guard 0 fail.
+- Round 3: no BLOCKER. Fixed: a refused call with null or undefined in its options slot lost its callback (a guarded
+  test would hang rather than see ENOENT); the probe now covers execFile and exec with both (against round 2's preload
+  the arms test fails). Decided, not changed: a process started with an environment of its own that leaves
+  NODE_OPTIONS out runs unguarded, as does everything it starts. Re-adding the preload there was rejected because
+  those callers strip NODE_OPTIONS on purpose (engine/manifest-verify.js does, and tests check that env); it is now
+  said in the preload's header and in the runner's comment, and it is the guard's main gap (see Weakest part). The
+  matcher's header lists what it does not read (script blocks, Start-Process, cmd /c with no space). 34/34 with
+  windows-tests-1777.

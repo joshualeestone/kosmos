@@ -6,7 +6,11 @@
  * through schtasks.exe. Most tests stub those calls, but one that does not would run against the computer's live
  * tasks, where it could end the board's own task. This guard costs nothing when nothing calls schtasks.
  *
- * Loaded with --require, through NODE_OPTIONS so every test subprocess inherits it. A child_process call that RUNS
+ * Loaded with --require, through NODE_OPTIONS so every test subprocess inherits it: every one that keeps
+ * NODE_OPTIONS. A process started with an environment of its own that leaves NODE_OPTIONS out (some tests build one,
+ * and engine/manifest-verify.js strips it on purpose) runs unguarded, and so does everything it starts. This guard
+ * does not put itself back there: those callers remove NODE_OPTIONS deliberately and tests check that they do.
+ * A child_process call that RUNS
  * schtasks (tools/lib/schtasks-call.cjs decides) is sent, with no shell, to a program that cannot exist,
  * REFUSED_PROGRAM, so it fails with Node's own ENOENT: the sync calls throw or return it, the async ones emit 'error'
  * (with their streams) and call back with it, and promisify rejects with it. For spawn and execFile that is exactly
@@ -42,7 +46,10 @@ function split(rest) {
   const args = Array.isArray(rest[0]) ? rest[0] : null;
   const after = hasArgs ? rest.slice(1) : rest;
   const options = after[0] && typeof after[0] === 'object' ? after[0] : null;
-  return { args, options, tail: options ? after.slice(1) : after };
+  /* A null or undefined in the options slot with a callback after it is still the options slot (Node moves past it),
+     so the callback is kept (review 3: execFile(file, args, null, cb) lost cb when refused). */
+  const slot = options || (after[0] == null && after.length > 1);
+  return { args, options, tail: slot ? after.slice(1) : after };
 }
 /* The same call aimed at REFUSED_PROGRAM, with no shell, so it fails as a missing program rather than as a shell
    that could not find a command. */
@@ -68,7 +75,8 @@ function shellCall(name, run, refusedRun) {
     if (!commandRuns(command)) return run.call(this, command, ...rest);
     note(name, String(command));
     const options = rest[0] && typeof rest[0] === 'object' ? rest[0] : null;
-    return refusedRun.call(this, ...refused({ args: null, options, tail: options ? rest.slice(1) : rest }));
+    const slot = options || (rest[0] == null && rest.length > 1);
+    return refusedRun.call(this, ...refused({ args: null, options, tail: slot ? rest.slice(1) : rest }));
   };
 }
 

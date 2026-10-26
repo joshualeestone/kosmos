@@ -113,6 +113,9 @@ out.spawnStdout = !!child.stdout;
 done.push(new Promise((r) => child.on('error', (e) => { out.spawn = code(e); r(); })));
 done.push(new Promise((r) => cp.execFile(SCH, ['/Query'], (e) => { out.execFile = code(e); r(); })));
 done.push(new Promise((r) => cp.exec('schtasks /Query', (e) => { out.exec = code(e); r(); })));
+done.push(new Promise((r) => cp.execFile(SCH, ['/Query'], null, (e) => { out.nullOptions = code(e); r(); })));
+done.push(new Promise((r) => cp.execFile(SCH, ['/Query'], undefined, (e) => { out.undefOptions = code(e); r(); })));
+done.push(new Promise((r) => cp.exec('schtasks /Query', null, (e) => { out.execNullOptions = code(e); r(); })));
 done.push(util.promisify(cp.execFile)(SCH, ['/Query']).then(() => { out.pExecFile = 'ran'; }, (e) => { out.pExecFile = code(e); }));
 done.push(util.promisify(cp.execFile)(process.execPath, ['-e', 'process.stdout.write("x")']).then((r) => { out.pShape = typeof r === 'object' && r.stdout === 'x' && 'stderr' in r; }));
 done.push(util.promisify(cp.exec)('echo shape').then((r) => { out.pExecShape = typeof r === 'object' && /shape/.test(r.stdout); }));
@@ -138,7 +141,7 @@ function probe(source, nodeOptions) {
 
 test('#7247: under the preload every arm fails as a missing schtasks.exe would, and everything else runs unchanged', () => {
   const got = probe(PROBE, wt.childEnv(WIN_DEV, 'win32').NODE_OPTIONS);
-  for (const arm of ['execFileSync', 'spawnSync', 'execSync', 'spawn', 'execFile', 'exec', 'pExecFile', 'undefArgs']) {
+  for (const arm of ['execFileSync', 'spawnSync', 'execSync', 'spawn', 'execFile', 'exec', 'pExecFile', 'undefArgs', 'nullOptions', 'undefOptions', 'execNullOptions']) {
     assert.equal(got[arm], 'ENOENT', arm + ': ' + JSON.stringify(got));
   }
   assert.equal(got.spawnStdout, true, 'a refused spawn still has its streams, as a missing program\'s child does');
