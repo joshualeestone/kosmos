@@ -583,10 +583,9 @@ extension Board {
         let agentsUnreadable: Bool
     }
 
-    // kosmos#7114: which AI a project's agents run on, as one tally beside "N agents" (web/index.html pjProviderTally,
-    // #6966). `provider` is the engine's family name; a member without one is left out, so the tally can count fewer
-    // than the members. One entry per word, in PJ_TALLY order, then any other provider by its own name as it comes.
-    // `mark` is the asset of the board's own mark (nil: the board's initial-letter chip).
+    // kosmos#7114: the board's provider table (web/index.html PJ_TALLY: the engine's family name, its pick, its word) and
+    // its marks. kosmos#7269 took the tally off the phone's project row (Josh: "remove the model indicators"); the table
+    // and marks stay, kept equal to the board's by LogicTests, for the agent page's AI Settings (#7267).
     static let providerTallyOrder: [(provider: String, pick: String, word: String)] = [
         ("Claude", "claude", "Claude"), ("OpenAI", "openai", "GPT"), ("Gemini", "google", "Gemini"),
         ("Gemini (Google subscription)", "antigravity", "Gemini"), ("Grok", "xai", "Grok"), ("Meta Muse", "meta", "Meta"),
@@ -599,58 +598,6 @@ extension Board {
         "claude": "MarkClaude", "anthropic": "MarkClaude", "openai": "MarkOpenAI", "google": "MarkGemini",
         "antigravity": "MarkGemini", "xai": "MarkGrok", "meta": "MarkMeta", "alibaba": "MarkQwen",
     ]
-    struct TallyEntry: Equatable, Identifiable {
-        let word: String
-        let mark: String?
-        let n: Int
-        var id: String { word }
-        // The board's initial-letter chip, for a provider without a mark.
-        var initial: String {
-            let first = String(word.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()   // JS trim
-            return first.isEmpty ? "?" : first   // the board's || '?'
-        }
-    }
-    static func providerTally(_ members: [ProjectMember]) -> [TallyEntry] {
-        var counts: [String: (pick: String, n: Int, at: Int)] = [:]
-        var order: [String] = []
-        for m in members {
-            guard let provider = m.provider, !provider.isEmpty else { continue }
-            let row = providerTallyOrder.firstIndex { $0.provider == provider }
-            let word = row.map { providerTallyOrder[$0].word } ?? provider
-            if let got = counts[word] { counts[word] = (got.pick, got.n + 1, got.at); continue }
-            counts[word] = (row.map { providerTallyOrder[$0].pick } ?? provider.lowercased(), 1, row ?? providerTallyOrder.count)
-            order.append(word)
-        }
-        // A stable sort by PJ_TALLY position, as the board's: unknown providers keep the order they came in.
-        let sorted = order.enumerated().sorted { (counts[$0.element]!.at, $0.offset) < (counts[$1.element]!.at, $1.offset) }.map(\.element)
-        return sorted.map { w in TallyEntry(word: w, mark: providerMarkAsset[counts[w]!.pick], n: counts[w]!.n) }
-    }
-    // The tally's line breaking (review 3: the layout measured with one rule and placed with another, so a line could
-    // be drawn below the height it reported). One rule for both: an entry goes on the next line when it and the
-    // spacing before it would pass the width. Returns each line's entry indices, in order.
-    static func flowLines(_ widths: [Double], width: Double, spacing: Double) -> [[Int]] {
-        flowLayout(widths, width: width, spacing: spacing).lines
-    }
-    // The same, with each line's width summed exactly as it was compared (review 5): reporting these widths means that
-    // breaking again at the reported width, or anywhere between it and the proposal, replays the same lines.
-    static func flowLayout(_ widths: [Double], width: Double, spacing: Double) -> (lines: [[Int]], widths: [Double]) {
-        var lines: [[Int]] = []
-        var lineWidths: [Double] = []
-        var x = 0.0
-        for (i, w) in widths.enumerated() {
-            if let last = lines.indices.last, !lines[last].isEmpty, x + spacing + w <= width {
-                lines[last].append(i); x = x + spacing + w
-            } else {
-                lines.append([i]); x = w; lineWidths.append(0)
-            }
-            lineWidths[lineWidths.count - 1] = x
-        }
-        return (lines, lineWidths)
-    }
-    // What VoiceOver hears after the count (the board's visually hidden ", 2 Claude, 1 Gemini").
-    static func providerTallySpoken(_ tally: [TallyEntry]) -> String {
-        tally.isEmpty ? "" : ", " + tally.map { "\($0.n) \($0.word)" }.joined(separator: ", ")
-    }
 
     // kosmos#7106: the room's needs-you notice (the board's pjNeedsNotice, PJ_NEEDS_WHY): one row per member the route
     // counts here, with the board's reason and action words, and the key Dismiss sends.
@@ -872,7 +819,24 @@ extension Board {
     struct ProjectTreeRow: Equatable, Identifiable {
         let project: ProjectRow
         let depth: Int
+        // kosmos#7269: the last of its parent's sub-projects, so its connector line stops at its elbow (the board's
+        // .pj-lastkid, #5712). Always false at the top level, which draws no line.
+        var lastKid = false
+        // kosmos#7269: it has sub-projects shown right under it, so it starts their line below its first face.
+        var hasKids = false
+        // kosmos#7269: the levels (1 = under a top-level project) whose line runs on past this row to a later sibling of
+        // one of its ancestors, so a deeper row carries that line through instead of breaking it.
+        var through: [Int] = []
         var id: String { project.id }
+    }
+
+    // kosmos#7269 (Josh, 2026-10-26: "show the members as small avatar bubbles", "the first N, then +3"): how many faces a
+    // project row draws and the "+N" after them. Up to `room` faces fit, so a crowd shows room - 1 faces and the rest as
+    // "+N" (12 members: 9 faces, +3). 0 members: no faces, no "+".
+    static func faceBubbles(_ count: Int, room: Int = 10) -> (faces: Int, more: Int) {
+        let n = max(0, count)
+        let fit = max(1, room)
+        return n <= fit ? (n, 0) : (fit - 1, n - (fit - 1))
     }
 
     // The active projects as the board's tree (pjTreeRows): sorted, then each sub-project right after its parent, one
@@ -885,14 +849,19 @@ extension Board {
         for p in active { kids[(p.parent.flatMap { ids.contains($0) ? $0 : nil }) ?? "", default: []].append(p) }
         var out: [ProjectTreeRow] = []
         var seen = Set<String>()
-        func emit(_ parent: String, _ depth: Int) {
-            for c in kids[parent] ?? [] where !seen.contains(c.id) {
+        // `open`: the levels above this one whose line runs on (an ancestor at that level has a later sibling).
+        func emit(_ parent: String, _ depth: Int, _ open: [Int]) {
+            let under = (kids[parent] ?? []).filter { !seen.contains($0.id) }
+            for (i, c) in under.enumerated() where !seen.contains(c.id) {
                 seen.insert(c.id)
-                out.append(ProjectTreeRow(project: c, depth: depth))
-                emit(c.id, depth + 1)
+                let last = depth > 0 && i == under.count - 1
+                out.append(ProjectTreeRow(project: c, depth: depth, lastKid: last, through: open))
+                let at = out.count - 1
+                emit(c.id, depth + 1, depth > 0 && !last ? open + [depth] : open)
+                out[at].hasKids = out.count > at + 1 && out[at + 1].depth == depth + 1
             }
         }
-        emit("", 0)
+        emit("", 0, [])
         for p in active where !seen.contains(p.id) {   // a cycle kept it out of the walk: still shown, at the top
             seen.insert(p.id)
             out.append(ProjectTreeRow(project: p, depth: 0))

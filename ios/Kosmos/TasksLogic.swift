@@ -142,6 +142,22 @@ enum Tasks {
         g.key == "decision" && (count == 0 || rosterUnknown) ? "--tsk-nobody" : g.token
     }
 
+    // kosmos#7269 (Josh, 2026-10-26: "a row of tiles with counts at the top", "open, needs you, working, done", "nice
+    // and clean"): four counts over the tasks in view (the picked project, or all), in Josh's order. Open is every task
+    // not completed; Needs you counts Needs Your Decision and is nil (shown "?") when the agents could not be read, as
+    // the board's tile says it cannot tell rather than 0. Display only: a tile does not filter.
+    struct Tile: Equatable { let key: String; let label: String; let count: Int? }
+    static func tiles(_ read: Board.TasksRead, project: String?) -> [Tile] {
+        let rows = scoped(read.tasks, project: project)
+        func n(_ state: String) -> Int { rows.filter { $0.state == state }.count }
+        return [
+            Tile(key: "open", label: "Open", count: rows.filter { $0.state != "closed" }.count),
+            Tile(key: "decision", label: "Needs you", count: read.rosterUnknown ? nil : n("decision")),
+            Tile(key: "working", label: "Working", count: n("working")),
+            Tile(key: "closed", label: "Done", count: n("closed")),
+        ]
+    }
+
     // One group as the list draws it. `unknown` is the decision group that cannot tell (drawn even when empty).
     struct Section: Equatable {
         let group: Group

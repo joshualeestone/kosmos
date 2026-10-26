@@ -223,6 +223,28 @@ check(Board.projectTree([orphan, underArchived, archivedParent], sort: .az).map 
 let x = proj(name: "X", parent: "y", id: "x"), y = proj(name: "Y", parent: "x", id: "y")
 check(Board.projectTree([x, y], sort: .az).map { $0.project.name } == ["X", "Y"], "a cycle shows each project once and hides none")
 
+section("the tree's connector lines and the faces (kosmos#7269)")
+// Root has two children (the second with its own child), then a second root with none.
+let rt = proj(name: "Root", id: "rt"), k1 = proj(name: "Kid one", parent: "rt", id: "k1"), k2 = proj(name: "Kid two", parent: "rt", id: "k2")
+let gk = proj(name: "Grandkid", parent: "k2", id: "gk"), solo = proj(name: "Solo", id: "solo")
+let lined = Board.projectTree([solo, gk, k2, rt, k1], sort: .az)
+check(lined.map { "\($0.depth):\($0.project.name):\($0.lastKid ? "L" : "-")\($0.hasKids ? "K" : "-")" }
+      == ["0:Root:-K", "1:Kid one:--", "1:Kid two:LK", "2:Grandkid:L-", "0:Solo:--"],
+      "the last of each parent's children stops its line; a parent with children shown under it starts one: \(lined.map { "\($0.depth):\($0.project.name):\($0.lastKid ? "L" : "-")\($0.hasKids ? "K" : "-")" })")
+check(lined.map { $0.through } == [[], [], [], [], []], "Kid two is the last child, so no line runs past its grandchild")
+let k3 = proj(name: "Kid zed", parent: "rt", id: "k3")
+let ladder = Board.projectTree([solo, gk, k2, rt, k1, k3], sort: .az)
+check(ladder.map { "\($0.project.name):\($0.through)" } == ["Root:[]", "Kid one:[]", "Kid two:[]", "Grandkid:[1]", "Kid zed:[]", "Solo:[]"],
+      "a grandchild carries its grandparent's line on to Kid zed: \(ladder.map { "\($0.project.name):\($0.through)" })")
+check(Board.projectTree([orphan, underArchived, archivedParent], sort: .az).allSatisfy { !$0.lastKid && !$0.hasKids },
+      "a child lifted to the top level (parent gone or archived) draws no line and its old parent starts none")
+check(Board.projectTree([x, y], sort: .az).allSatisfy { !$0.lastKid }, "a cycle's rows, both at the top, draw no line")
+check(Board.faceBubbles(0) == (0, 0) && Board.faceBubbles(3) == (3, 0) && Board.faceBubbles(10) == (10, 0), "up to ten: every face, no +")
+check(Board.faceBubbles(12) == (9, 3) && Board.faceBubbles(15) == (9, 6) && Board.faceBubbles(11) == (9, 2), "a crowd: nine faces and the rest as +N (Josh's +3 for twelve)")
+check(Board.faceBubbles(5, room: 4) == (3, 2) && Board.faceBubbles(4, room: 4) == (4, 0) && Board.faceBubbles(3, room: 2) == (1, 2),
+      "less room (large text, a deep row): fewer faces, the +N grows, the total always adds up")
+check(Board.faceBubbles(-1) == (0, 0) && Board.faceBubbles(5, room: 0) == (0, 5), "nonsense in: never a negative or a lost member")
+
 section("posting: the board's reading of the answer")
 let pr = Board.roomPostRequest(mac: mac, project: "spring-catalogue", text: "  @dana how are pages 9 to 12?  ", replyTo: "m4")
 let prBody = pr?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -669,25 +691,7 @@ for phrase in ["'\">Add ' + esc(nameR)\n        + ' to this project</button>", "
     check(boardPage.contains(phrase), "the board's Add still says: \(phrase.prefix(60))")
 }
 
-section("the provider tally on a project row (kosmos#7114)")
-func member(_ s: String, _ provider: String?) -> Board.ProjectMember { Board.ProjectMember(session: s, name: s, hasAvatar: false, provider: provider) }
-let tally = Board.providerTally([member("a", "Gemini"), member("b", "Claude"), member("c", "Gemini (Google subscription)"), member("d", nil),
-                                 member("e", "zeta"), member("f", "Claude"), member("g", ""), member("h", "acme"), member("i", "OpenAI")])
-check(tally.map(\.word) == ["Claude", "GPT", "Gemini", "zeta", "acme"], "the board's order, then others as they came: \(tally.map(\.word))")
-check(tally.map(\.n) == [2, 1, 2, 1, 1], "counted per word: both Gemini families as one, members with no provider left out")
-check(tally.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", nil, nil], "the board's marks; a chip for a provider without one")
-// Every row of the table, each with its word and mark (review 1: three rows were never exercised).
-let everyRow = Board.providerTally(Board.providerTallyOrder.reversed().map { member($0.provider, $0.provider) })
-check(everyRow.map(\.word) == ["Claude", "GPT", "Gemini", "Grok", "Meta", "Qwen"], "every provider's word, in the board's order: \(everyRow.map(\.word))")
-check(everyRow.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", "MarkGrok", "MarkMeta", "MarkQwen"], "every provider's own mark")
-check(Board.providerTally([member("z", "Anthropic")]).first?.mark == "MarkClaude", "Anthropic wears Claude's mark, as on the board")
-check(tally.first { $0.word == "acme" }?.initial == "A", "a provider without a mark: its initial, as the board's chip")
-check(Board.providerTallySpoken(tally) == ", 2 Claude, 1 GPT, 2 Gemini, 1 zeta, 1 acme", "what VoiceOver hears after the count")
-// The wrapping layout's line breaking: an entry moves on when it and the spacing before it would pass the width.
-check(Board.flowLines([30, 30, 30], width: 100, spacing: 8) == [[0, 1], [2]], "30+8+30+8+30 = 106 over 100: the third moves on")
-check(Board.flowLines([30, 30, 24], width: 100, spacing: 8) == [[0, 1, 2]], "exactly 100: one line")
-check(Board.flowLines([120, 10], width: 100, spacing: 8) == [[0], [1]], "an entry wider than the row takes a line of its own")
-check(Board.TallyEntry(word: "  ", mark: nil, n: 1).initial == "?", "a blank provider: the board's ?")
+section("the provider marks the phone carries (kosmos#7114; the row's tally itself went in #7269)")
 // The phone's pick-to-mark pairs are the board's PROVIDER_MARK_KEY (review 4).
 let markKeyName = ["MarkClaude": "claude", "MarkOpenAI": "openai", "MarkGemini": "gemini", "MarkGrok": "xai", "MarkMeta": "meta", "MarkQwen": "qwen"]
 let keyBlock = boardPage.range(of: "const PROVIDER_MARK_KEY = {").flatMap { s in boardPage.range(of: "};", range: s.upperBound..<boardPage.endIndex).map { String(boardPage[s.upperBound..<$0.lowerBound]) } } ?? ""
@@ -705,18 +709,6 @@ for (key, mark) in boardKeyPairs where carried.contains(mark) {
 for (pick, asset) in Board.providerMarkAsset.sorted(by: { $0.key < $1.key }) {
     check(keyBlock.contains("\(pick): '\(markKeyName[asset] ?? "?")'"), "the board's PROVIDER_MARK_KEY maps \(pick) to \(markKeyName[asset] ?? "?")")
 }
-// Breaking again at the reported width replays the same lines (review 5's measured case: fractional widths, no width).
-let fuzzCase = [26.119318709913866, 49.06327076039232, 58.943043076048966, 24.890714868242927, 79.20508911955574, 57.18406969193589, 35.76352088355623]
-let once = Board.flowLayout(fuzzCase, width: .infinity, spacing: 8)
-check(once.lines.count == 1 && Board.flowLines(fuzzCase, width: once.widths.max() ?? 0, spacing: 8) == once.lines,
-      "placed at the width it reported, the tally keeps its lines")
-let twoLines = Board.flowLayout([30, 30, 30], width: 100, spacing: 8)
-check(twoLines.widths == [68, 30] && Board.flowLines([30, 30, 30], width: twoLines.widths.max()!, spacing: 8).count >= 2,
-      "each line's width as compared")
-check(Board.flowLines([], width: 100, spacing: 8).isEmpty && Board.flowLines([5, 5], width: .infinity, spacing: 8) == [[0, 1]],
-      "nothing: no lines; no width given: one line")
-check(Board.providerTally([member("d", nil)]).isEmpty && Board.providerTallySpoken([]) == "", "nobody with a provider: no tally, nothing said")
-// The board still counts so, with these words.
 // The phone's table written as the board's PJ_TALLY rows, so any field of any row drifting fails (review 1).
 let tallyRows = Board.providerTallyOrder.map { "['\($0.provider)', '\($0.pick)', '\($0.word)']" }
 check(boardPage.contains(tallyRows[0...2].joined(separator: ", ") + ",") && boardPage.contains(tallyRows[3...6].joined(separator: ", ") + ","),
@@ -727,7 +719,6 @@ if let start = boardPage.range(of: "const PJ_TALLY = ["), let end = boardPage.ra
     let boardRows = block.components(separatedBy: "[").dropFirst().map { "[" + ($0.components(separatedBy: "]").first ?? "") + "]" }
     check(boardRows == tallyRows, "the board's PJ_TALLY, row for row: \(boardRows.count) rows")
 } else { check(false, "the board's PJ_TALLY was not found") }
-check(boardPage.contains("esc(', ' + rows.map(([word, c]) => c.n + ' ' + word).join(', '))"), "the board says it so to a screen reader")
 // Each mark is the board's own first-run mark (the template ones drawn in the text colour, so currentColor is black).
 let markKeys = ["MarkClaude": "claude", "MarkOpenAI": "openai", "MarkGemini": "gemini", "MarkGrok": "xai", "MarkMeta": "meta", "MarkQwen": "qwen"]
 for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {

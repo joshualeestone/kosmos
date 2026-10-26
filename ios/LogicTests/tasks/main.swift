@@ -93,6 +93,22 @@ check(blindSections.first?.group.key == "decision" && blindSections.first?.unkno
       "agents unread: Needs Your Decision shows that it cannot tell, even empty, never a zero")
 check(Tasks.sections(few, project: nil).allSatisfy { !$0.unknown }, "control: agents read, no cannot-tell group")
 
+section("the count tiles (kosmos#7269)")
+func tileCounts(_ r: Board.TasksRead, _ project: String? = nil) -> [String] {
+    Tasks.tiles(r, project: project).map { (t: Tasks.Tile) -> String in
+        let n: String = t.count.map { String($0) } ?? "?"
+        return t.label + "=" + n
+    }
+}
+check(tileCounts(mixed) == ["Open=8", "Needs you=1", "Working=1", "Done=1"], "Josh's order; Open is every task not completed, an unknown state included: \(tileCounts(mixed))")
+check(tileCounts(blind) == ["Open=1", "Needs you=?", "Working=1", "Done=0"], "agents unread: Needs you cannot tell, never 0")
+check(tileCounts(Board.TasksRead(tasks: [], rosterUnknown: false)) == ["Open=0", "Needs you=0", "Working=0", "Done=0"], "nothing yet: every tile 0")
+let twoProjects = Board.TasksRead(tasks: [row(1, "working", project: "p1"), row(2, "decision", project: "p2"), row(3, "closed", project: "p2")], rosterUnknown: false)
+let pickedTiles: [String] = tileCounts(twoProjects, "p2")
+let allTiles: [String] = tileCounts(twoProjects)
+check(pickedTiles == ["Open=1", "Needs you=1", "Working=0", "Done=1"], "the picked project's tasks only, as the list under them")
+check(allTiles == ["Open=2", "Needs you=1", "Working=1", "Done=1"], "All projects counts them all")
+
 section("a live update keeps every row where it was drawn")
 let first = Board.TasksRead(tasks: [row(1, "working", created: 10), row(2, "nobody", created: 20), row(3, "working", created: 30)], rosterUnknown: false)
 let drawn = Tasks.sections(first, project: nil)
