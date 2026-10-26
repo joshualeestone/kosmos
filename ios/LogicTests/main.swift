@@ -3098,7 +3098,8 @@ check(anyURL.allSatisfy { AppTabs.afterAnswer(.refused, pageURL: $0).barTo != .a
 
 section("app tabs: the bar's labels")
 check(AppTabs.visible(tasksTab: true, todayTab: true).map(\.title) == ["Today", "Agents", "Projects", "Tasks", "Settings"], "the bar's words, in order")
-check(AppTabs.visible(tasksTab: true, todayTab: true).map(\.symbol) == ["sun.max", "person.2", "folder", "checklist", "gearshape"], "the spec's symbols")
+check(AppTabs.visible(tasksTab: true, todayTab: true).map(\.symbol) == ["sun.max", "person.2", "briefcase", "checklist", "gearshape"], "the spec's symbols (#7266: a briefcase for Projects)")
+check(AppTabs.Tab.agents.asset == "TabAgent" && AppTabs.Tab.allCases.filter { $0 != .agents }.allSatisfy { $0.asset == nil }, "#7266: Agents draws its own icon, the rest SF Symbols")
 
 section("app tabs: press bookkeeping")
 do {
@@ -3662,8 +3663,9 @@ do {
 
 check(AppTabs.todayTab == false, "#7252: the shipped app has the Today tab switched off")
 check(AppTabs.visible(tasksTab: true) == [.agents, .projects, .tasks, .settings], "#7252: no Today in the bar, Tasks earned")
-check(AppTabs.visible(tasksTab: false) == [.agents, .projects, .settings], "#7252: no Today in the bar, before Tasks")
-check(AppTabs.keep(.tasks, tasksTab: false) == .agents, "#7252: Tasks leaving the bar goes to Agents, not a hidden Today")
+check(AppTabs.visible(tasksTab: false) == [.agents, .projects, .tasks, .settings], "#7266: four tabs, Tasks shown whether or not the board has earned it")
+check(AppTabs.keep(.tasks, tasksTab: false) == .tasks, "#7266: Tasks never leaves the four-tab bar")
+check(AppTabs.visible(tasksTab: false, todayTab: true) == [.today, .agents, .projects, .settings], "#7266: the five-tab bar (screenshot build) still earns Tasks")
 check(AppTabs.keep(.today, tasksTab: true) == .agents, "#7252: a selection on the hidden Today goes to Agents")
 check(AppTabs.barTab(forPage: .today, tasksTab: true) == .today, "#7252: the board's home page is still the board page (shown over the tabs)")
 check(AppTabs.barTab(forPage: .settings, tasksTab: true) == .today, "#7252: the board's Settings is the board page, not the native Settings")
@@ -3671,6 +3673,23 @@ check(AppTabs.barTab(forPage: .settings, tasksTab: true) == .today, "#7252: the 
 for sel in AppTabs.visible(tasksTab: true) {
     let a = URL(string: "https://mac.example/#agents"), b = URL(string: "https://mac.example/#settings")
     check(AppTabs.follow(from: a, to: b, selected: sel, barHeld: false, tasksTab: true) == nil, "#7252: a page move leaves \(sel) where it is")
+}
+
+// MARK: - kosmos#7266: the + buttons ask the board's door for a create
+
+check(AppTabs.pressScript(door: "new-agent").contains("window.kosmosAppTab('new-agent')"), "#7266: the create name goes to the door")
+check(AppTabs.pressScript(.agents) == nil && AppTabs.pressScript(.projects) == AppTabs.pressScript(door: "projects"), "#7266: a section press is unchanged")
+do {
+    var t = PressTracker()
+    let waited = t.press(.agents, page: .loading, section: true, door: AppTabs.Create.agent.rawValue)
+    check(waited == nil && t.pending == .agents && t.pendingDoor == "new-agent", "#7266: a create on a loading page waits, with its door kept for the replay")
+    let run = t.press(.agents, page: .ready, section: true, door: t.pendingDoor)
+    check(run?.script.contains("'new-agent'") == true, "#7266: the replay presses the create, not the bare section")
+    _ = t.press(.agents, page: .ready)   // the native Agents tab
+    check(t.pending == nil && t.pendingDoor == nil, "#7266: the native tab ends a waiting create")
+    _ = t.press(.projects, page: .loading, section: true, door: AppTabs.Create.project.rawValue)
+    t.loadingOwnPage()
+    check(t.pendingDoor == nil, "#7266: a page the app loads itself clears a waiting create")
 }
 
 print("")
