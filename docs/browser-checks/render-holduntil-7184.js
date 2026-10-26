@@ -85,8 +85,12 @@ function chk(ok, label, extra) {
         && await page.isHidden('#tk-hold-until') && await page.isHidden('#tk-hold-takeover'),
         `${tag} held: Wait for shows Nothing in particular, Save off, no waiting line, no takeover line (it is the person's hold)`);
 
+      /* Review 1: the new selects wear the field fill, as the Repeats select beside them does (render-fields asserts that
+         rule, but never opens a held task). */
+      const fills = await page.evaluate(() => ['tk-hold-for', 'tk-hold-task', 'tk-repeat-every'].map((id) => getComputedStyle(document.getElementById(id)).backgroundColor));
+      chk(fills[0] === fills[2] && fills[1] === fills[2], `${tag} Wait for and its task choice wear the Repeats select's field fill`, JSON.stringify(fills));
       await page.selectOption('#tk-hold-for', 'task');
-      const opts = await page.evaluate(() => [...document.querySelectorAll('#tk-hold-task option')].map((o) => o.value));
+      const opts =await page.evaluate(() => [...document.querySelectorAll('#tk-hold-task option')].map((o) => o.value));
       chk(await page.isVisible('#tk-hold-task') && JSON.stringify(opts) === JSON.stringify(['', '2', '3']) && await page.isDisabled('#tk-hold-save'),
         `${tag} Another task to close offers the project's other open tasks, Save still off until one is chosen`, JSON.stringify(opts));
       await page.selectOption('#tk-hold-task', '2');

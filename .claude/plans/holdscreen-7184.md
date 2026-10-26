@@ -43,3 +43,29 @@ what fires, wherever the board runs.
 - docs/browser-checks/render-holduntil-7184.js (gated.txt, README row), light 1400 and dark 390: all pass; with the
   stale-page guard disabled it goes red (4), showing the agent's condition replaced and the hold made the person's.
 - render-onhold-4771.js still passes. Related node tests 329/329, fixture-discipline and no-name-refs 24/24.
+
+## Changes after the first shots (06:20)
+- The waiting line names the task in plain words, not as a link: the inline link was a sub-44px tap target on a phone,
+  and the Until choice right below names the task.
+- The activity says a hold's time in the person's clock ("Put on hold until Wed, Oct 28, 9:30 AM"), on the page and in
+  taskactphrase's page wording (its when()); agents (forAgent) keep the exact instant. holdcond-7180.test.js now pins
+  both. Each shot screen has its own throwaway project: a reused name inherits task activity (#7185, filed).
+
+## Review
+- Round 1: 1 blocker, 4 warnings, 6 nits.
+  - [BLOCKER] the page tests that lift paintTaskPage with a fixed helper list (web.task-page 11 red,
+    web.notonproject-6895 1 red) had no tkPaintHoldUntil: stand-ins added; all fourteen web/server tests that lift these
+    functions pass (129 + the six).
+  - [WARNING] the new selects lacked the field fill render-fields asserts: added to the rule beside the Repeats selects.
+  - [WARNING] the stale-page guard trusted the poll's list, which a failed read keeps and an overtaken read skips:
+    both buttons now read the task fresh (tkHoldFresh) and change nothing when it cannot be read (tested with a 500).
+  - [WARNING] Save could put back on hold, as the person's, a task an agent had just taken off: it reads first and
+    changes nothing then (tested; with the guard disabled the check goes red).
+  - [WARNING] a stored task that is gone left the select blank, which read as an unsaved change forever: it stays a
+    choice, "#3 (no longer on this project)" (tested).
+  - Nits taken: "This is already on hold, so nothing changed." (a page can be stale for hours, so not "a moment ago");
+    the picker's min/max (now to a year ahead, the engine's bounds); the select's accessible name starts with its
+    visible label; a bad task row cannot fail the projects read (holdUntil in a try).
+  - Nits left: the repeated hour when the clocks go back (a stored time in that hour comes back an hour early through
+    the picker; Save is off unless the person changes something, so nothing moves on its own); no year in the activity's
+    time (holds are at most a year ahead); both recorded here, neither changes what is stored.
