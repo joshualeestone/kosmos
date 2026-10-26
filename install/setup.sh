@@ -496,12 +496,6 @@ version_at_least() {
     for (i = 1; i <= k; i++) { p = x[i] + 0; q = y[i] + 0; if (p > q) exit 0; if (p < q) exit 1 } exit 0 }'
 }
 
-# #5913: can this install REUSE the sealed icon at $1 instead of making a second icon in ~/Applications? Only a real
-# bundle (never a link) that is a sealed Kosmos app we built (no per-install file, and bundle_is_sealed), owned by
-# ANOTHER account, and only when this run would place the sealed app itself (sealed_placeable: this account's config
-# is written where that app reads it). The sealed app reads the CLICKING account's own config, so the icon already
-# there opens this install. #7203: and only when it is not older than the app this install ships (a newer one is
-# fine: the window only warns when it is BEHIND its board).
 # #7203: called once this install has PLACED its own icon (APP_MADE=yes): the account no longer depends on a shared
 # icon it reused on an earlier run, so its own reuse marker is taken back, or the owner's uninstall keeps an icon nobody
 # here opens. Never before the icon exists: an icon step that skips or fails leaves the marker, and the shared icon with
@@ -510,6 +504,12 @@ own_icon_placed() {
   sealed_icon_unmark || true
 }
 
+# #5913: can this install REUSE the sealed icon at $1 instead of making a second icon in ~/Applications? Only a real
+# bundle (never a link) that is a sealed Kosmos app we built (no per-install file, and bundle_is_sealed), owned by
+# ANOTHER account, and only when this run would place the sealed app itself (sealed_placeable: this account's config
+# is written where that app reads it). The sealed app reads the CLICKING account's own config, so the icon already
+# there opens this install. #7203: and only when it is not older than the app this install ships (a newer one is
+# fine: the window only warns when it is BEHIND its board).
 sealed_icon_reusable() {
   [ -d "$1" ] && [ ! -L "$1" ] || return 1
   # Review 1: a per-install bundle opens its own baked home, never the clicking account's, so it is never reused.
