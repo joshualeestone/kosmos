@@ -893,8 +893,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 #set-accounts .acct-expiring-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }   /* #set-accounts: outranks the panel's p margin (Mona Lisa's gap) */
 .acct-actions > button.acct-reauth-main { text-decoration: none; font-weight: 600; padding: .45em .95em; border-radius: 8px;
   border: 1px solid var(--gold-bright); min-height: 32px; }
-.acct-box.acct-land { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold-bright) 75%, transparent); }
-@media (prefers-reduced-motion: no-preference) { .acct-box.acct-land { transition: box-shadow .3s ease; } }
 /* #5407: on Settings > AI Models a login notice steps aside when ITS row there says the same thing (marked
    adv-covered by loginAdvSyncCovered); floating over the list, notices covered the very row Refresh login lands on.
    Review 2: only then. A notice whose row is missing or not warned (a symlinked folder, a date read still on its
@@ -23822,13 +23820,13 @@ function paintLoginAdvisories(advs) {
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '.' + (tail ? ' ' + esc(tail) : '') + '</small></div>'
       /* #5407 (Josh): one press to where the person signs in again: Settings > AI Models, at this account's row. */
-      + '<div class="uacts"><button type="button" class="uprime login-adv-go" data-adv-dir="' + esc(a.dir || '') + '" aria-label="'
+      + '<div class="uacts"><button type="button" class="uprime login-adv-go" data-adv-dir="' + esc(a.dir || '') + '" data-adv-email="' + esc(a.email || '') + '" aria-label="'
       + esc('Refresh login: ' + (a.provider || 'Claude') + (a.email ? ', ' + a.email : '')) + '">Refresh login</button></div>'
       + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');
   loginAdvSyncCovered();
-  slot.querySelectorAll('.login-adv-go').forEach((btn) => btn.addEventListener('click', () => loginAdvGo(btn.getAttribute('data-adv-dir'))));
+  slot.querySelectorAll('.login-adv-go').forEach((btn) => btn.addEventListener('click', () => loginAdvGo(btn.getAttribute('data-adv-dir'), btn.getAttribute('data-adv-email'), btn)));
   slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
     loginAdvDismiss(btn.getAttribute('data-adv-key'));
     delete slot.dataset.v;   // always repaint, so an X that did not stick shows as a notice still there, never a dead button
@@ -23911,18 +23909,19 @@ async function rebootNoteCheck() {
     if (res.ok && got) paintRebootNote(got.note);   // a refused or failed re-check leaves a showing note alone
   } catch { /* the note is a courtesy */ }
 }
-/* #5407 (Josh): the notice's Refresh login opens Settings > AI Models at that account's row, highlighted, with its
-   Sign in again focused. The account list paints after a live read, so the row is found when it paints (acctLand,
-   called from paintAccounts) as well as at once when it is already there. The highlight stays a short while across
-   the list's own follow-up repaints, then a timer takes it off. With no row for that folder (removed meanwhile), the section opens
-   with nothing highlighted, never a wrong row. */
-let ACCT_LAND_DIR = '';
-let ACCT_LAND_UNTIL = 0;
-const ACCT_LAND_MS = 20000;
 let ACCT_SOON_SEQ = 0;   // unique ids for each row's warning line (aria-describedby)
-function loginAdvGo(dir) {
-  ACCT_LAND_DIR = typeof dir === 'string' ? dir : '';
-  ACCT_LAND_UNTIL = Date.now() + ACCT_LAND_MS;
+function loginAdvGo(dir, email, opener) {
+  /* kosmos#7198 (Josh, 08:32: "lets update per Kitty's plan on the ai model modal"): a notice tied to one account
+     opens that account's Sign in again dialog right where the person is, on any page; the dialog is a window over the
+     page, so the page underneath stays as it was and closing it leaves them there. The notice names a folder only when
+     it is the one its AI Models row reads (status.js dirOf), so the dialog signs in again as that account. A notice
+     with no such folder still goes to AI Models, below. */
+  if (typeof dir === 'string' && dir && typeof openAcctReauth === 'function') {
+    ACCT_ADD_RETURN_FOCUS = opener && typeof opener.focus === 'function' ? opener : null;
+    openAcctReauth(dir, typeof email === 'string' ? email : '');
+    return;
+  }
+  // #5407: no account row for this notice: AI Models, where the person picks the account (focus goes into the section).
   if (document.body.classList.contains('consolidated')) {
     SETTINGS_SEC = 'accounts';
     openConsolidatedSettings();
@@ -23930,10 +23929,6 @@ function loginAdvGo(dir) {
     showTab('settings');
     settingsOpen('accounts');
   }
-  /* Review 1: the pressed button sat in a notice that has just stepped aside. Opening the section already puts focus
-     in it (settingsOpen), and acctLand moves it on to the row's Sign in again once the row paints; with no row for that
-     folder it stays in the section (render-refreshlogin-5407 C2). */
-  acctLand();
 }
 /* Review 2: mark each login notice whose account's row in AI Models carries the warning; only those step aside there.
    Called after either side paints. */
@@ -23943,26 +23938,6 @@ function loginAdvSyncCovered() {
     const d = n.getAttribute('data-adv-dir');
     n.classList.toggle('adv-covered', !!d && warned.has(d));
   });
-}
-/* Whether this row is the one the person arrived at (drawn highlighted while the window lasts). */
-function acctLanded(dir) { return !!dir && dir === ACCT_LAND_DIR && Date.now() < ACCT_LAND_UNTIL; }
-/* Bring the landed row into view and focus its Sign in again, once: the first paint that has the row. */
-let ACCT_LAND_DONE = '';
-function acctLand() {
-  if (!acctLanded(ACCT_LAND_DIR) || ACCT_LAND_DONE === ACCT_LAND_DIR + ':' + ACCT_LAND_UNTIL) return;
-  const box = document.getElementById('set-accounts');
-  const row = box && [...box.querySelectorAll('.acct-box[data-acct-dir]')].find((r) => r.getAttribute('data-acct-dir') === ACCT_LAND_DIR);
-  if (!row) return;
-  ACCT_LAND_DONE = ACCT_LAND_DIR + ':' + ACCT_LAND_UNTIL;
-  row.classList.add('acct-land');
-  // Review 1: the ring goes when its time is up, not at the next repaint (which may never come).
-  setTimeout(() => {
-    if (Date.now() < ACCT_LAND_UNTIL) return;   // a newer landing extended it
-    document.querySelectorAll('#set-accounts .acct-box.acct-land').forEach((r) => r.classList.remove('acct-land'));
-  }, Math.max(0, ACCT_LAND_UNTIL - Date.now()) + 50);
-  row.scrollIntoView({ block: 'center' });
-  const go = row.querySelector('.acct-reauth');
-  if (go) go.focus({ preventScroll: true });
 }
 /* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing
    notice (a focused element scrolled into view must not land under it). 0 when nothing shows. */
@@ -29510,7 +29485,7 @@ async function paintAccounts(opts) {
       + (main && soonId ? 'aria-describedby="' + soonId + '" ' : '')
       + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
       + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>';
-    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (loginEnded && claudeSignIn ? ' acct-ended' : '') + (acctLanded(a.dir) ? ' acct-land' : '') + '" tabindex="-1" data-acct-dir="' + esc(a.dir || '') + '">'   // #6175 review 9: a repaint can hand focus back to the row
+    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (loginEnded && claudeSignIn ? ' acct-ended' : '') + '" tabindex="-1" data-acct-dir="' + esc(a.dir || '') + '">'   // #6175 review 9: a repaint can hand focus back to the row
       + '<div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + qualTag + keyDetail + org + '</div>'
@@ -29719,7 +29694,6 @@ async function paintAccounts(opts) {
   const fAttr = fEl ? [...fEl.attributes].find((x) => x.name.startsWith('data-')) : null;
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
   loginAdvSyncCovered();   // #5407: a notice whose row now says the same thing steps aside here
-  acctLand();   // #5407: arriving from the login notice
   if (fAttr) {
     const back = [...box.querySelectorAll('[' + fAttr.name + ']')].find((x) => x.getAttribute(fAttr.name) === fAttr.value);
     if (back && typeof back.focus === 'function') back.focus();
