@@ -1312,7 +1312,12 @@ function promptCommunityOnTaskDone({ projectId, taskNumber, session, name, trigg
       deliver: (s, text) => chat.deliverAutomatic(s, text, roster),
       DELIVERY: chat.DELIVERY,
     });
-    if (r && r.recorded) communitytaskdone.writeBook(book);
+    // #5313: the prompt has already reached the pane when recorded; if the book write fails (disk full,
+    // permissions) nothing is persisted, so a later mark of this task could prompt again (breaking
+    // "one per task ever"). writeBook returns false on failure -- surface it so the break is visible.
+    if (r && r.recorded && communitytaskdone.writeBook(book) === false) {
+      process.stdout.write(`community-task-done: book-write-failed for ${name} (${session}) ${trigger} task ${taskNumber} -- a later mark may re-prompt\n`);
+    }
     if (r && r.act && r.act !== 'deduped' && r.act !== 'off' && r.act !== 'not-in-community') {
       process.stdout.write(`community-task-done: ${r.name} (${r.session}) ${trigger} ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`);
     }
@@ -23471,6 +23476,7 @@ const server = http.createServer(async (req, res) => {
        their own, and safeRoster answers null. */
     let actor = null;   // #6157: the agent its token named, recorded on a reopen as who put it back
     let actorCard = null;   // #5313: its card too, for the community prompt's display name
+    let closedBeforeThisCall = false;   // #5313: a no-op re-close (the task was already closed) must NOT fire the prompt, mirroring the built route's out.changed gate (setClosed is idempotent, transition 0)
     if (presentedAgentToken(req, {})) {
       const notDone = 'the task was not ' + (taskAct[3] === 'close' ? 'closed' : 'reopened');
       const who = processCaller(req, {}, safeRoster(), false, notDone);
@@ -23484,6 +23490,10 @@ const server = http.createServer(async (req, res) => {
     if (taskAct[3] === 'close' && !isViaScreen(req, {})) {
       let held = null;
       try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, taskAct[2]) : null; } catch { held = null; }
+      // #5313: was it already closed before this call? A re-close of an already-closed task is a no-op
+      // (setClosed records no transition), so it must not fire the community prompt. Read the derived
+      // closed state the same way setClosed does (progressOf), not raw closedAt (a parts task derives it).
+      try { closedBeforeThisCall = !!(held && tasks.progressOf(held).closed); } catch { closedBeforeThisCall = false; }
       // slice 3 review 6: a reviewer the person chose is theirs too, and closing would drop it with the rule.
       if (held && held.repeat && (held.repeatByPerson === true || held.repeatReviewerByPerson === true)) {
         sendJson(res, 409, { error: 'the person set this task to repeat, or chose who reviews it, so only they can close it; record each run with kosmos task ran' });
@@ -23504,9 +23514,10 @@ const server = http.createServer(async (req, res) => {
         let told = tellEveryoneOn(t);
         sendJson(res, 200, { task: t, told });
         // #5313: an agent CLOSING its own task gets one community prompt too (not a reopen, not the
-        // person from the screen). After the response; the per-task dedup book means a task already
-        // prompted on its built mark, or re-closed, sends none. Best-effort, never fails the close.
-        if (taskAct[3] === 'close' && actor && !isViaScreen(req, {})) {
+        // person from the screen, and not a no-op re-close of an already-closed task -- closedBeforeThisCall).
+        // After the response; the per-task dedup book means a task already prompted on its built mark
+        // sends none. Best-effort, never fails the close.
+        if (taskAct[3] === 'close' && actor && !isViaScreen(req, {}) && !closedBeforeThisCall) {
           promptCommunityOnTaskDone({ projectId: id, taskNumber: taskAct[2], session: actor, name: (actorCard && actorCard.name) || actor, trigger: 'closed', roster: safeRoster() });
         }
       } catch (err) {

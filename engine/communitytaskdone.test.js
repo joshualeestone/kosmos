@@ -184,6 +184,32 @@ test('a throw from deliver is UNCONFIRMED (reached) and books the task', () => {
   assert.equal(r.recorded, true);
 });
 
+test('an odd deliver verdict (null/undefined/non-object) is not-reached and does not book', () => {
+  for (const v of [null, undefined, {}, 'nope', 42, { state: 'mystery' }]) {
+    const { o } = setup({ deliver: () => v });
+    const r = td.promptOnTaskDone(o);
+    assert.equal(r.act, 'not-reached', `verdict ${JSON.stringify(v)} must be not-reached`);
+    assert.equal(r.recorded, false, `verdict ${JSON.stringify(v)} must not record`);
+    assert.equal(o.book.size, 0, `verdict ${JSON.stringify(v)} must not book`);
+  }
+});
+
+test('queued:true on a NON-reached state does not read as queued (only reached + queued is Queued)', () => {
+  // A stray queued flag on a COULD_NOT verdict must not be treated as a landed Queued prompt.
+  const { o } = setup({ deliver: () => ({ state: D.COULD_NOT, queued: true }) });
+  const r = td.promptOnTaskDone(o);
+  assert.equal(r.act, 'not-reached');
+  assert.equal(r.recorded, false);
+  assert.equal(o.book.size, 0);
+});
+
+test('an unknown trigger falls back to the built wording (never throws, always a string)', () => {
+  assert.match(td.taskDoneText('built'), /you just marked a task built/);
+  assert.match(td.taskDoneText('closed'), /you just marked a task closed/);
+  assert.match(td.taskDoneText('weird'), /you just marked a task built/);   // anything but 'closed' -> built
+  assert.match(td.taskDoneText(undefined), /you just marked a task built/);
+});
+
 test('bad input never throws', () => {
   assert.equal(td.promptOnTaskDone(null).act, 'bad-input');
   assert.equal(td.promptOnTaskDone({}).act, 'bad-input');
@@ -191,9 +217,19 @@ test('bad input never throws', () => {
   assert.equal(td.promptOnTaskDone({ deliver: () => ({}), projectId: 'p', taskNumber: 1 }).act, 'bad-input'); // no session
 });
 
-test('a throwing gate reads as closed, never throws', () => {
+test('a throwing PROCEED gate reads as closed, never throws', () => {
   const { o } = setup({ switchOn: () => { throw new Error('boom'); } });
   assert.equal(td.promptOnTaskDone(o).act, 'off');
+});
+
+test('a throwing operator brake reads as ENGAGED (fail-safe: a STOP gate throw must stop)', () => {
+  // The brake is a stop gate, so unlike the proceed gates a throw must read as ON, not off, or a
+  // broken brake would let prompts through exactly when the operator meant to stop them.
+  const { o } = setup({ brakeOn: () => { throw new Error('brake read failed'); } });
+  const r = td.promptOnTaskDone(o);
+  assert.equal(r.act, 'off');
+  assert.equal(r.recorded, false);
+  assert.equal(o.book.size, 0, 'a fail-safe brake must not book');
 });
 
 test('readBook / writeBook round-trip, prune past retention, unreadable reads empty', () => {

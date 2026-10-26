@@ -27,13 +27,17 @@
  * (mid-turn, Queued) agent is the whole point; an agent that is paused cannot act on a prompt anyway.
  *
  * "Respect the same daily limits and the community switch" (card): the community switch (global +
- * per-agent), the daily post ceiling (POSTS_PER_DAY_MAX, same as the sweep's `due`), and a per-agent
- * daily event cap (PROMPTS_PER_DAY) so a burst of completions cannot spam one agent.
+ * per-agent), the daily post ceiling (POSTS_PER_DAY_MAX, same as the sweep's `due`, and shared because
+ * it counts real posts in the last 24h -- both paths see the same posts), and a per-agent daily event
+ * cap (PROMPTS_PER_DAY) so a burst of completions cannot spam one agent.
  *
- * NOTE (weakest point, see the plan): this path does NOT count into the board-wide per-HOUR log the
- * sweep shares (AGENT_NUDGE_SENT), because that array lives in the boot block and the request
- * handler cannot see it without lifting it to module scope and threading it through the hot nudge
- * path. Bounded instead by the per-task dedup + the per-agent daily cap + the daily-post-max gate.
+ * NOTE (weakest point, see the plan): two caps are per-path, NOT shared with the sweep. (1) The
+ * per-agent daily event cap counts only THIS module's own book, not the sweep's COMMUNITY_TURN_BOOK,
+ * so across both paths an agent could get up to PROMPTS_PER_DAY sweep prompts AND PROMPTS_PER_DAY
+ * task-done prompts in a day. (2) This path does NOT count into the board-wide per-HOUR log the sweep
+ * shares (AGENT_NUDGE_SENT), because that array lives in the boot block and the request handler cannot
+ * see it without lifting it to module scope and threading it through the hot nudge path. Bounded
+ * instead by the per-task dedup (one per task ever) + this per-agent daily cap + the daily-post-max gate.
  *
  * Pure apart from the injected reads/deliver; never throws (a prompt is best-effort and must never
  * fail a task mark). The dedup book is kept on disk (readBook/writeBook), so a board that restarts
@@ -111,7 +115,12 @@ function promptOnTaskDone(o) {
 
     // The sweep's gates, in the sweep's order. Any off and nothing is sent or booked.
     if (!on(o.liveAllowed)) return { session, name, act: 'off', delivery: null, recorded: false };
-    if (on(o.brakeOn)) return { session, name, act: 'off', delivery: null, recorded: false };
+    // The operator brake is a STOP gate, so a throw must read as ENGAGED (fail-safe: if we cannot tell
+    // whether the brake is on, do not prompt). on()'s throw -> false is the right polarity for the
+    // PROCEED gates around it, but the wrong one here, so the brake gets its own check.
+    let braked = false;
+    if (typeof o.brakeOn === 'function') { try { braked = o.brakeOn() === true; } catch { braked = true; } }
+    if (braked) return { session, name, act: 'off', delivery: null, recorded: false };
     if (!on(o.switchOn) || !on(o.prompterOn)) return { session, name, act: 'off', delivery: null, recorded: false };
     let inComm = false;
     try { inComm = o.inCommunity(session) === true; } catch { inComm = false; }
