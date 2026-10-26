@@ -10,7 +10,8 @@ Owner: Ice Cream Kitty. Josh, #admin 2026-10-26 08:32: "lets update per Kitty's 
   lists it (`accounts.list`, from disk, no live check; seam `opts.rowDirs`), so the dialog is never opened for a folder
   with no account row.
 - The #5407 row landing (ring, timer, focus) is removed: with the dialog opening in place it had no path left.
-- `#acct-add-dialog .btn` is 44px on touch screens (the dialog now reaches phones from any page).
+- `#acct-add-dialog #acct-add` is 44px on touch screens (the dialog now reaches phones from any page; scoped to that one
+  button since review 6, not every dialog button).
 
 ## Rejected
 - Fetching `/api/accounts` on press to confirm the row: it live-checks every account, so the dialog would wait seconds.
@@ -55,3 +56,10 @@ dialog. Accepted: the person still lands where they can sign in.
 - An API-key row is never a Sign in again target (#2433): status.js leaves API-key rows out of rowDirs, and the
   page guard needs a non-API-key row; the engine test and C5 pin both.
 - The phone sizing is scoped to the dialog's Start the sign-in (#acct-add), the one button P1 measures.
+
+## Review 8 (opus)
+- W the notices' repaint signature left out the folder, so when the board stopped naming one (its row removed from
+  another device) Refresh login kept it for the notice's whole life and opened Sign in again for a folder the board
+  refuses -> FIXED: the folder is in the signature; web.loginadvdir-7198.test.js runs the shipped paint (red before
+  the fix, green after; an unchanged notice still does not repaint).
+- N this plan's Change section still named the 44px rule as every dialog button -> corrected.
