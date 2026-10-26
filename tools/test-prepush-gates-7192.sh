@@ -5,6 +5,8 @@
 # never reaches the gates.
 #   bash tools/test-prepush-gates-7192.sh
 set -u
+# Review 1: the throwaway repos must not read the person's own git config (a global hooksPath or commit signing).
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/prepush-gates-7192.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
@@ -71,5 +73,29 @@ printf '<div class="seat-chip">d</div>\n' > web/index.html; git add web; git com
 if hook docs-only; then ok 'a push of another branch is not checked against the checkout'
 else bad 'a push of another branch was checked against the checkout: '"$(cat "$T/out")"; fi
 if hook web-bad; then bad 'CONTROL: the checked-out bad branch was let through'; else ok 'CONTROL: the checked-out bad branch is refused'; fi
+
+# 5. Review 1: the other shapes git sends. A delete of the checked-out branch (local sha all zeros) sends no commit.
+Z=0000000000000000000000000000000000000000
+raw() { printf '%s\n' "$@" | bash .githooks/pre-push origin "$T/origin.git" >"$T/out" 2>&1; }
+if raw "(delete) $Z refs/heads/web-bad $(git rev-parse web-bad)"; then ok 'a delete is not checked'; else bad 'a delete was checked: '"$(cat "$T/out")"; fi
+# Several refs, the checked-out branch's not first: still checked.
+if raw "refs/heads/docs-only $(git rev-parse docs-only) refs/heads/docs-only $Z" "refs/heads/web-bad $(git rev-parse web-bad) refs/heads/web-bad $Z"; then
+  bad 'a push of several refs let the checked-out bad branch through (only the first line read?)'
+else ok 'a push of several refs checks the line that sends HEAD, wherever it is'; fi
+# A tag at HEAD sends HEAD's commit, so it is checked the same.
+git tag t-bad web-bad
+if raw "refs/tags/t-bad $(git rev-parse web-bad) refs/tags/t-bad $Z"; then bad 'a tag at HEAD was let through'; else ok 'a tag at HEAD is checked like the branch'; fi
+
+# 6. Review 1: a real git push through core.hooksPath, so git's own stdin, the hook's working directory and the
+#    refusal stopping the push are measured, not assumed.
+git config core.hooksPath .githooks
+if git push -q origin web-bad >"$T/out" 2>&1; then bad 'a real push of the bad branch went through'
+elif git --git-dir="$T/origin.git" rev-parse -q --verify refs/heads/web-bad >/dev/null; then bad 'the refused push still reached origin'
+elif ! grep -q 'pre-push (#7192): refused by the browser-check-gate' "$T/out"; then bad 'the real push failed, but not by this hook: '"$(cat "$T/out")"
+else ok 'a real push of the bad branch is refused and origin does not get it'; fi
+git checkout -q web-surface
+if git push -q origin web-surface >"$T/out" 2>&1 && git --git-dir="$T/origin.git" rev-parse -q --verify refs/heads/web-surface >/dev/null; then
+  ok 'CONTROL: a real push of a passing branch lands'
+else bad 'CONTROL: a real push of a passing branch did not land: '"$(cat "$T/out")"; fi
 
 [ "$fails" -eq 0 ] && echo 'prepush-gates-7192: all passed' || { echo "prepush-gates-7192: $fails failed"; exit 1; }
