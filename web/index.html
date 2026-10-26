@@ -72519,7 +72519,7 @@ function pjCiteKey(core, names) {
  */
 function pjLinkPaths(text, names) {
   const raw = String(text == null ? '' : text);
-  if (!names || !names.size) return pjInline(raw, { bare: false });   // a code block's path label: never a website (kosmos#7239)
+  if (!names || !names.size) return pjInline(raw);
   /* Split on whitespace RUNS but keep them, so the reassembled body preserves
      the spacing the person typed. A body is not a sentence: agents paste
      columns and indentation, and collapsing it would edit what they said. */
@@ -72534,15 +72534,15 @@ function pjLinkPaths(text, names) {
     const m = /^(.*?)([.,;:!?)\]]*)$/.exec(tok);
     const core = m[1];
     const tail = m[2];
-    if (!core) return pjInline(tok, { bare: false });
+    if (!core) return pjInline(tok);
     /* A cited path may be written with folders in front of it. It is matched
        by pjCiteKey (#2245) -- but only
        when the whole token has no `..` in it, because a token that walks up
        is not describing a file in this project and should not be dressed as
        one even if its basename collides. */
-    if (core.includes('..')) return pjInline(tok, { bare: false });
+    if (core.includes('..')) return pjInline(tok);
     const key = pjCiteKey(core, names);
-    if (key === null) return pjInline(tok, { bare: false });
+    if (key === null) return pjInline(tok);
     hit = true;
     return '<span class="ref">' + esc(core)
       + '<button class="refgo" type="button" data-ref="' + esc(key)
@@ -72551,7 +72551,7 @@ function pjLinkPaths(text, names) {
   /* ⚠️ Identical output to the old path when nothing matched, byte for byte:
      the reassembly above escapes every token and every whitespace run, so a
      body with no citation is unchanged rather than merely equivalent. */
-  return hit ? out : pjInline(raw, { bare: false });
+  return hit ? out : pjInline(raw);
 }
 
 /**
@@ -72837,20 +72837,27 @@ function pjBareWeb(tok) {
   if (ambiguous.has(m[2]) && !m[3] && !m[4] && m[1].split('.').length === 2) return '';
   return 'https://' + m[0];
 }
-/* kosmos#7239 review 1: one word, split into what goes before a bare address, the address, and what goes after:
+/* kosmos#7239: one word of RAW text, split into what goes before a bare address, the address, and what goes after:
    quotes, angle brackets, an opening paren, emphasis marks, a possessive 's and sentence punctuation stay outside.
-   Works on raw text (pjInline) and on escaped text (pjRich: &quot; &lt; &gt; arrive whole). A ")" stays in the
-   address when the address opened one (en.wikipedia.org/wiki/Foo_(bar)). Returns null when the middle is not one. */
+   A ")" stays in the address when the address opened one (en.wikipedia.org/wiki/Foo_(bar)). The tail is found by a
+   backwards scan, so a long run of punctuation costs a single pass. Returns null when the middle is not an address. */
 function pjBareSplit(tok) {
   const t = String(tok || '');
-  if (t.length > 2048 || t.indexOf('.') === -1) return null;
-  const lead = (/^(?:&quot;|&lt;|["'<(*~_])+/.exec(t) || [''])[0];
-  let rest = t.slice(lead.length);
-  let tail = (/(?:&quot;|&gt;|&#39;s|'s|["'>.,;:!?\])*~_])+$/.exec(rest) || [''])[0];
-  let core = rest.slice(0, rest.length - tail.length);
-  while (tail[0] === ')' && (core.split('(').length - 1) > (core.split(')').length - 1)) { core += ')'; tail = tail.slice(1); }
+  if (t.length > 512 || t.indexOf('.') === -1) return null;   // no real address is this long
+  let a = 0;
+  while (a < t.length && '"\'<(*~_“‘'.indexOf(t[a]) !== -1) a += 1;
+  let b = t.length;
+  for (;;) {
+    if (b - 2 > a && (t.slice(b - 2, b) === "'s" || t.slice(b - 2, b) === '’s')) { b -= 2; continue; }
+    if (b > a && '"\'>.,;:!?])*~_”’'.indexOf(t[b - 1]) !== -1) { b -= 1; continue; }
+    break;
+  }
+  let core = t.slice(a, b);
+  let opens = 0, closes = 0;
+  for (const c of core) { if (c === '(') opens += 1; else if (c === ')') closes += 1; }
+  while (b < t.length && t[b] === ')' && opens > closes) { core += ')'; b += 1; closes += 1; }
   const web = typeof pjBareWeb === 'function' ? pjBareWeb(core) : '';
-  return web ? { lead, core, tail, web } : null;
+  return web ? { lead: t.slice(0, a), core, tail: t.slice(b), web } : null;
 }
 
 /* 🔑 EVERY PLACE A PERSON'S MESSAGE IS DRAWN GOES THROUGH THIS (#355). It was
@@ -72858,19 +72865,11 @@ function pjBareSplit(tok) {
    same pasted URL was a link in one box and dead characters in the next box
    along; nobody chose that. Escaping is still done here, token by token, so a
    message with no URL in it renders exactly as before. */
-function pjInline(text, opts) {
+function pjInline(text) {
   const raw = String(text == null ? '' : text);
-  // A code block's path label is a file name by construction: never a website (review 1).
-  const bareOk = !(opts && opts.bare === false);
-  if (raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1 && raw.indexOf('.') === -1) return esc(raw);
+  if (raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) return esc(raw);
   return raw.split(/(\s+)/).map((tok) => {
     if (!tok || /^\s+$/.test(tok)) return esc(tok);
-    // kosmos#7239: a bare web address, with what surrounds it kept outside the link. Guarded: tests lift pjInline alone.
-    const bare = bareOk && typeof pjBareSplit === 'function' ? pjBareSplit(tok) : null;
-    if (bare) {
-      return esc(bare.lead) + '<a class="xlink" href="' + esc(bare.web) + '" target="_blank" rel="noreferrer noopener">'
-        + esc(bare.core) + '</a>' + esc(bare.tail);
-    }
     if (!/^https?:\/\/[^\s]+$/.test(tok)) return esc(tok);
     /* Trailing punctuation is not part of the link: "see https://x.test." */
     const m = /^(.*?)([.,;:!?)\]]*)$/.exec(tok);
@@ -72984,7 +72983,10 @@ function pjRichSpans(seg, names, agentNames) {
       /* Held so the emphasis pass leaves it alone, unless it already carries a held span (inline code
          inside the address): restoring is one pass, so a placeholder held inside another would leak. */
       : (u.includes('\uFFFC') ? u : hold(u));
-    return label + ' (' + shown + ')';
+    // Review 2: a label that is itself an address ([example.com](https://example.com)) stays plain, or it is a second link.
+    const rawLabel = label.replace(/&(amp|lt|gt|quot);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e]));
+    const lb = typeof pjBareSplit === 'function' ? pjBareSplit(rawLabel) : null;
+    return (lb && !lb.lead && !lb.tail ? hold(label) : label) + ' (' + shown + ')';
   });
   /* A URL (or, with `names`, a cited file) is a whole whitespace-delimited
      token. Trailing sentence punctuation and trailing emphasis stars
@@ -73053,8 +73055,18 @@ function pjRichSpans(seg, names, agentNames) {
        its Show me (review 1). The token is already escaped; a host, port and path carry nothing esc changes except &
        in a query, which stays escaped in the href as the https arm above leaves it. Guarded: tests lift pjRich alone. */
     if (!tok.includes('\uFFFC')) {
-      const bare = typeof pjBareSplit === 'function' ? pjBareSplit(tok) : null;
-      if (bare) return bare.lead + hold('<a class="xlink" href="' + bare.web + '" target="_blank" rel="noreferrer noopener">' + bare.core + '</a>') + bare.tail;
+      // Split the RAW word (review 2: so an entity is never cut), then escape each piece on the way out.
+      const rawTok = tok.replace(/&(amp|lt|gt|quot);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e]));
+      const bare = typeof pjBareSplit === 'function' ? pjBareSplit(rawTok) : null;
+      if (bare) {
+        // Review 2: a cited project file dressed in bold, quotes, parens or 's is still the file, with its Show me.
+        const key = hasNames ? pjCiteKey(bare.core, names) : null;
+        const mid = key !== null
+          ? '<span class="ref">' + esc(bare.core) + '<button class="refgo" type="button" data-ref="' + esc(key)
+            + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>'
+          : '<a class="xlink" href="' + esc(bare.web) + '" target="_blank" rel="noreferrer noopener">' + esc(bare.core) + '</a>';
+        return esc(bare.lead) + hold(mid) + esc(bare.tail);
+      }
     }
     return tok;
   }).join('');

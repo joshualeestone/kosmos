@@ -40,3 +40,12 @@ In a DM and a project room, example.com, example.com/path and https://example.co
   - Nits: a 2048-character cap (a 50,000-dot token now costs 0 ms); quotes, angle brackets, emphasis and 's stay
     outside the link (pjBareSplit, for raw and escaped text alike); a ")" the address opened stays in it; README row
     corrected; the check's room half has a cited file and an @mention in play.
+- Round 2 (.claude/plans/barelinks-7239-review2.md): 0 blockers, 1 warning, 4 nits. All taken:
+  - A cited project file dressed in bold, quotes, parens or 's is checked against the doc names too, and keeps (or
+    now gains) its Show me; never a website link. Unit cases for four dressings; the room check has **brand.io**.
+  - pjBareSplit takes raw text only; pjRich decodes the word, splits it, and escapes each piece, so an entity is never
+    cut (no stray ; after & or <). Its tail is a backwards scan and the parens are counted once: 50 tokens of 2040
+    dots cost 0 ms (were 399 ms), 1 ms with an address (were 773 ms). Token cap 512.
+  - pjInline's bare arm is gone (its only caller is a code block's path label): pjInline and pjLinkPaths are main's.
+  - [example.com](https://example.com): the label that is itself the address is held plain, so one link, not two.
+  - Left as judgement calls (recorded in review2): hello.world, this.io, a three-part settings module, curly quotes.

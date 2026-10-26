@@ -80,7 +80,7 @@ const FX = {
     const room = await page.evaluate((text) => {
       PJ_DOC_NAMES = new Set(['brand.io']);
       const html = pjRoomBody({ kind: 'post', id: 'r1', from: 'you', operator: true, at: new Date().toISOString(),
-        text: text + ' See brand.io, @april.' }, { id: 'p', agents: [{ sessionName: 'april', name: 'April' }] });
+        text: text + ' See brand.io, **brand.io** and @april.' }, { id: 'p', agents: [{ sessionName: 'april', name: 'April' }] });
       PJ_DOC_NAMES = null;
       const box = document.createElement('div');
       box.className = 'msg-bd';
@@ -89,7 +89,7 @@ const FX = {
       return {
         links: [...box.querySelectorAll('a')].map((a) => ({ text: a.textContent, href: a.getAttribute('href'), target: a.getAttribute('target') })),
         text: box.textContent,
-        chip: !!box.querySelector('.ref .refgo[data-ref="brand.io"]'),
+        chip: box.querySelectorAll('.ref .refgo[data-ref="brand.io"]').length === 2,   // plain and bold (review 2)
         mention: [...box.querySelectorAll('.pjmention')].map((x) => x.textContent),
       };
     }, TEXT);

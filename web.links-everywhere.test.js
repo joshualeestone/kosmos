@@ -237,8 +237,9 @@ const expectBare = (html, where) => {
 };
 
 test('kosmos#7239: a bare web address is a link everywhere a message is drawn, look-alikes stay plain', () => {
-  const inline = new Function(lift(['esc', 'pjBareWeb', 'pjBareSplit', 'pjInline']) + '\nreturn pjInline;')();
-  expectBare(inline(BARE), 'pjInline');
+  // pjInline has no bare arm: its only caller is a code block's path label, which is a file name (review 2).
+  const inline = new Function(lift(['esc', 'pjInline']) + '\nreturn pjInline;')();
+  assert.doesNotMatch(inline('Makefile.in example.com'), /<a /, 'pjInline linked a bare word');
   const rich = new Function(lift(['esc', 'pjBareWeb', 'pjBareSplit', 'pjRich', 'pjRichSpans', 'pjListDepth', 'pjCiteKey']) + '\nreturn pjRich;')();
   expectBare(rich(BARE), 'pjRich');
   // Code is never linked, in a span or a block.
@@ -247,15 +248,26 @@ test('kosmos#7239: a bare web address is a link everywhere a message is drawn, l
   // CONTROL: the https:// form still links, as #355 has it.
   assert.match(rich('see https://example.com.'), /href="https:\/\/example\.com"/);
   // Review 1: a stronger sign links an ambiguous ending; a markdown link target is a link; quotes stay outside.
-  assert.match(inline('see claude.ai/settings'), /href="https:\/\/claude\.ai\/settings"/);
+  assert.match(rich('see claude.ai/settings'), /href="https:\/\/claude\.ai\/settings"/);
   assert.match(rich('[the dashboard](meridianworks.kosmosplus.com)'), /<a class="xlink" href="https:\/\/meridianworks\.kosmosplus\.com"[^>]*>meridianworks\.kosmosplus\.com<\/a>/);
-  assert.match(inline('"example.com"'), /^&quot;<a class="xlink" href="https:\/\/example\.com"[^>]*>example\.com<\/a>&quot;$/);
+  assert.match(rich('say "example.com" now'), /&quot;<a class="xlink" href="https:\/\/example\.com"[^>]*>example\.com<\/a>&quot;/);
+  // Review 2: an & or < after the address is never cut, so no stray ; is shown.
+  assert.match(rich('see example.com/a& now'), /<a class="xlink" href="https:\/\/example\.com\/a&amp;"[^>]*>example\.com\/a&amp;<\/a> now/);
+  // Review 2: a label that is itself the address is not a second link.
+  const twice = rich('[example.com](https://example.com)');
+  assert.equal((twice.match(/<a /g) || []).length, 1, 'the label and the target are both links: ' + twice);
   // Review 1: a cited project file keeps its Show me, even when its name looks like a host.
   const spans = new Function(lift(['esc', 'pjBareWeb', 'pjBareSplit', 'pjRichSpans', 'pjCiteKey', 'pjListDepth']) + '\nreturn pjRichSpans;')();
   const cited = spans('see brand.io and example.com', new Set(['brand.io']));
   assert.match(cited, /<span class="ref">brand\.io<button class="refgo"/, 'a cited file lost its Show me chip: ' + cited);
   assert.doesNotMatch(cited, /href="https:\/\/brand\.io"/, 'a cited file became a website link');
   assert.match(cited, /href="https:\/\/example\.com"/, 'CONTROL: the address beside it is still a link');
+  // Review 2: dressed in bold, quotes, parens or 's, it is still the file.
+  for (const dressed of ['**brand.io**', '(brand.io)', '"brand.io"', "brand.io's"]) {
+    const out = spans('see ' + dressed + ' now', new Set(['brand.io']));
+    assert.match(out, /<span class="ref">brand\.io<button/, dressed + ' lost its Show me: ' + out);
+    assert.doesNotMatch(out, /xlink/, dressed + ' became a website link: ' + out);
+  }
 });
 
 test('kosmos#7239 review 1: a code block\'s path label is never a website', () => {
