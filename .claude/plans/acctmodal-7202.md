@@ -14,15 +14,18 @@
 - Stops are worked out on each key press (`acctAddTabStops`): the dialog's focusable controls that are shown,
   enabled, visible, not inert and have a box, plus the Sign in again ask's buttons when it shows (as first run's trap does,
   #6616), so the ask stays reachable.
-- One trap covers every opener (openAcctAdd, openAcctReauth, openAcctReauthOpenai, openAcctReauthGrok, and the
-  login notice's in-place opener from #7198), because it keys on the dialog being open, not on who opened it.
+- One trap covers every opener (openAcctAdd, openAcctReauth, openAcctReauthOpenai, openAcctReauthGrok), because it
+  keys on the dialog being open, not on who opened it. #7198's in-place opener from the login notice is NOT on this
+  branch or on main yet; when it lands its opener should join the check's list. Conjunctive risk to check then: if
+  its notice slot inerts the dialog's ancestors while it opens the dialog, the dialog is inert and this trap stands
+  down entirely.
 - `docs/browser-checks/render-acct-modal-trap-7202.js`: hermetic board with one agent; real key presses on the
   Agents tab and on an agent's page for all four openers, in Chromium and WebKit; wired in gated.txt, the README and
   SITE_COUNTS. Reds on origin/main in both engines, and in WebKit on an ends-only trap.
 
 ## Rejected
 - Making the page behind inert. First run (`frOpen`), its first screen (`frChoiceInert`), the restart screen
-  (`restartScreenInert`) and #7198's login-notice slot each keep their own inert set, and frClose un-inerts every
+  (`restartScreenInert`) each keep their own inert set (and #7198, unmerged, adds one for the login-notice slot), and frClose un-inerts every
   body child wholesale. A page-wide inert set added here would have to be kept from undoing theirs and from being
   undone by them. A trap sets nothing, so it has nothing to give back.
 - A focusin backstop (pull stray focus back into the dialog). First run already pulls stray focus to its heading;
@@ -53,3 +56,10 @@
    picker's list, showed another dialog or the one-stop success view (arms for each; each reds on the round 1 trap,
    both engines). Not taken: the plan file's name has no timestamp (precedent: muse-acct-3939.md); Shift+Tab from a
    focused container skips its descendants (no focusable container in the dialog).
+3. (default model) W: the comment said another dialog's trap "has the keyboard", stronger than true (several act only
+   at their ends; now "Tab is left to it", and the arm says why it runs on a step with no field). W: no walk covered
+   a step with a text field (now the OpenAI and Grok key steps, password field included). C: the plan named #7198's
+   opener as covered though it is not on this branch (now marked pending, with the inert risk to check). Nits taken:
+   the IME and inert stand-downs had no arm (now sent key events, with a plain Tab as the control); the radio rule's
+   backward case is stated; the defaultPrevented comment named the wrong case; the check picks a provider through the
+   picker a person uses, not the hidden native select.
