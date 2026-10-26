@@ -638,7 +638,12 @@ async function verbReply(ctx, args) {
       if (file === null) {
         // A relative path refused because the folder it is joined onto is not on a drive: say so, naming that folder.
         const rel = !/^[A-Za-z]:/.test(given) && !/^[\\/]/.test(given);
-        ctx.err(rel && !here()
+        // Review 13: the Git Bash shim leaves a /c/... path with a `..` unconverted (cygpath would shorten it), so here
+        // it has no drive; the reason to give is the `..`, which the board refuses wherever it is.
+        const dotdot = given.split(/[\\/]/).includes('..');
+        ctx.err(dotdot
+          ? 'A path with .. in it cannot be attached, so nothing was sent: give the file\'s own full path, without ..'
+          : rel && !here()
           ? 'The folder this command runs in could not be read, so ' + given + ' cannot be joined onto it and nothing was sent. Give the file\'s full path.'
           : rel
             ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + here().replace(REPLY_FILE_CONTROL_ALL, '?') + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:/... or C:\\...).'

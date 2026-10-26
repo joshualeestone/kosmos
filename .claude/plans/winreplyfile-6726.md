@@ -107,3 +107,7 @@ code would be Homer's; this touches none.
    (#7221). Nits taken: refusals name C:/..., which survives Git Bash quoting; a working folder deleted under the
    command is a refusal, never a crash or a join onto `/` (tested); the sibling help arms compare the other verbs'
    real text again.
+13. (sonnet) Nit taken: a /c/... path with a `..`, which the shim now leaves unconverted, was refused for having no
+   drive; it is refused for the `..` (tested). Deferred as duplicates: the board-side refusals (#7221), bidi and
+   zero-width characters (review 8, parity), the sibling help arms (review 12), the stand-in cygpath (review 8).
+

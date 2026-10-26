@@ -126,6 +126,11 @@ test('#6726 review 3: under the Windows path rules, reply refuses a path with no
   const escDir = await run(['reply', '--file', 'Files\\x.txt', 'x'], kept, undefined, { ...win, cwd: () => '\\\\host\\s\u001b[2J' });
   assert.equal(escDir.code, 2, escDir.err);
   assert.ok(!escDir.err.includes('\u001b'), 'the folder\'s escape sequence reached the terminal');
+  /* Review 13: a /c/... path with a .. (left unconverted by the shim) is refused for the .., not for a missing drive. */
+  const dd = await run(['reply', '--file', '/c/Users/a/Files/sub/../x.txt', 'x'], kept, undefined, win);
+  assert.equal(dd.code, 2, dd.err);
+  assert.match(dd.err, /A path with \.\. in it cannot be attached/);
+  assert.equal(replies(dd).length, 0);
   /* Review 12: a working folder deleted under the command is a refusal, not a crash. */
   const gone = await run(['reply', '--file', 'Files/x.txt', 'x'], kept, undefined, { cwd: () => { const e = new Error('uv_cwd'); e.code = 'ENOENT'; throw e; } });
   assert.equal(gone.code, 2, gone.err);
