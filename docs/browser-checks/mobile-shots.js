@@ -1626,6 +1626,26 @@ const SCREENS = [
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
   } },
+  /* kosmos#7205: the setup choice screen the Mac app shows first (its dot field, the two-computer drawings, the three
+     options). The app's bridge is stood in for (it only records), and ?mode=unreadable asks even after first run. */
+  { name: 'setup-choice-7205', owner: 'Mona Lisa', go: async (page) => {
+    await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosMode: { postMessage() {} }, kosmosBadge: { postMessage() {} } } }; });
+    await at(page, '?mode=unreadable');
+    await page.waitForSelector('#fr-choice', { state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(600);   // the dot field settles in
+  } },
+  /* kosmos#7205: Welcome with Back to the setup choice (as after the choice screen in the app). */
+  { name: 'setup-welcome-back-7205', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?first-run=1');
+    await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => { FR_CHOSE_HERE = true; FR_FORCED = false; frGo(1); });
+    await page.waitForSelector('#fr-alt:not([hidden])', { timeout: 5000 });
+  } },
+  /* kosmos#7205: Help make Kosmos better (pane 6), the Community switch in Josh's words. */
+  { name: 'setup-community-7205', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?first-run=1&fr-step=6');
+    await page.waitForSelector('#fr-s6-community-lbl', { state: 'visible', timeout: 5000 });
+  } },
   /* #5977: first run's Model step (pane 5), scrolled to the Qwen row, which says it is added in Settings (or, on
      Windows, that it is coming there). */
   { name: 'first-run-model', owner: 'PigeonPete', go: async (page) => {
