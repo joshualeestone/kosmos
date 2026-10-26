@@ -16,7 +16,8 @@ const devkeyhist = require('./devkeyhist');
 const snap = require('./backupsnapshot');
 const rr = require('./restorerun');
 const rf = require('./restorefetch');
-const { createRestoreSink, RECORD_NAME, setRecordMaxBytesForTests } = require('./restoresink');
+const { createRestoreSink, RECORD_NAME, LOCK_NAME, setRecordMaxBytesForTests } = require('./restoresink');
+const { spawnSync } = require('child_process');
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const PERIOD = '2026-W41';
@@ -284,7 +285,10 @@ test('#5536 slice 3 review 1: a record that would pass its cap is dropped, and t
   } finally { setRecordMaxBytesForTests(256 * 1024 * 1024); }
 });
 
-test('#5536 slice 3 review 2: folders that differ only in case, one folder on this disk, still resume (control: a case-sensitive disk keeps both)', (t) => {
+test('#5536 slice 3 review 2: folders that differ only in case, one folder on this disk, still resume (skipped on a case-sensitive disk)', (t) => {
+  const probe = fresh(t);
+  fs.mkdirSync(path.join(probe, 'A'));
+  if (!fs.existsSync(path.join(probe, 'a'))) { t.skip('a case-sensitive disk keeps A and a apart, so there is nothing to fold'); return; }
   const root = fresh(t);
   const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
   for (const [rel, text] of [['A/x.txt', 'ex'], ['a/y.txt', 'why']]) { const o = sink.begin(rel); o.write(Buffer.from(text)); o.commit(); }
@@ -344,4 +348,83 @@ test('#5536 slice 3 review 2: two names that are one name in NFC refuse, where t
   try { fs.writeFileSync(path.join(root, 'café.md'), 'coffee', { flag: 'wx', mode: 0o600 }); } catch { t.skip('this disk holds one name for both forms'); return; }
   if (fs.readdirSync(root).filter((n) => n.normalize('NFC') === 'café.md').length < 2) { t.skip('this disk folded the two names'); return; }
   assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /two names that are one name/);
+});
+
+test('#5536 slice 3 review 3: a record write that fails part way is cut back, so the next line is whole and the folder still resumes', (t) => {
+  const real = fs.writeSync;
+  const root = fresh(t);
+  const sink = createRestoreSink(root, { record: true, snapshot: SNAP });
+  const o1 = sink.begin('a.txt'); o1.write(Buffer.from('alpha')); o1.commit();
+  let failNext = true;
+  try {
+    // A full disk: half of b.txt's line goes down, then the write fails.
+    fs.writeSync = function (fd, buf, off, len, pos) {
+      if (failNext && Buffer.isBuffer(buf) && buf.includes('"sha256"')) {
+        failNext = false;
+        real.call(fs, fd, buf, off, Math.ceil(len / 2), pos);
+        const e = new Error('no space'); e.code = 'ENOSPC'; throw e;
+      }
+      return real.apply(fs, arguments);
+    };
+    const o2 = sink.begin('b.txt'); o2.write(Buffer.from('beta'));
+    assert.throws(() => o2.commit(), /no space/);
+    o2.abort();
+  } finally { fs.writeSync = real; }
+  assert.equal(fs.existsSync(path.join(root, 'b.txt')), false, 'not published without its line');
+  const o3 = sink.begin('c.txt'); o3.write(Buffer.from('gamma')); o3.commit();
+  sink.close({ keepRecord: true });
+  const lines = fs.readFileSync(path.join(root, RECORD_NAME), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(lines.slice(1).map((l) => l.path), ['a.txt', 'c.txt']);
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.equal(r.has('c.txt', sha(Buffer.from('gamma')), 5), true);
+  r.close();
+});
+
+test('#5536 slice 3 review 3: Finder and Explorer metadata in a half-restored folder does not stop it continuing (control: other files still refuse)', (t) => {
+  const root = stoppedRoot(t);
+  fs.writeFileSync(path.join(root, '.DS_Store'), 'finder', { mode: 0o600 });
+  fs.writeFileSync(path.join(root, 'd', 'Thumbs.db'), 'thumbs', { mode: 0o600 });
+  fs.writeFileSync(path.join(root, 'd', 'desktop.ini'), 'ini', { mode: 0o600 });
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });
+  assert.ok(fs.existsSync(path.join(root, '.DS_Store')), 'left where it was');
+  fs.writeFileSync(path.join(root, 'd', 'notes.txt'), 'planted', { mode: 0o600 });
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /did not put there/);
+});
+
+test('#5536 slice 3 review 3: one recording sink per folder at a time; a lock left by a process that is gone is taken over', (t) => {
+  const root = stoppedRoot(t);
+  const first = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /another restore is running in this folder/);
+  const o = first.begin('later.txt'); o.write(Buffer.from('still mine')); o.commit();   // the first sink was not disturbed
+  first.close({ keepRecord: true });
+  assert.equal(fs.existsSync(path.join(root, LOCK_NAME)), false, 'released at close');
+  // A crash: the lock names a process that has exited.
+  const gone = spawnSync(process.execPath, ['-e', '0']).pid;
+  fs.writeFileSync(path.join(root, LOCK_NAME), `${gone}\n`, { mode: 0o600 });
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  assert.equal(r.has('later.txt', sha(Buffer.from('still mine')), 10), true);
+  r.close();
+  // A refused resume releases the lock it took.
+  const other = stoppedRoot(t);
+  assert.throws(() => createRestoreSink(other, { resume: true, snapshot: 'another snapshot' }), /another backup/);
+  assert.equal(fs.existsSync(path.join(other, LOCK_NAME)), false);
+  // And a sink with no record takes no lock (every existing caller).
+  const plain = fresh(t);
+  const p = createRestoreSink(plain);
+  assert.equal(fs.existsSync(path.join(plain, LOCK_NAME)), false);
+  p.close();
+});
+
+test('#5536 slice 3 review 3: the record is cut back by bytes, so a damaged byte earlier in it does not move the cut', (t) => {
+  const root = stoppedRoot(t);
+  const rec = path.join(root, RECORD_NAME);
+  // A line holding a byte that is not UTF-8 (it decodes to three), then a torn tail.
+  fs.appendFileSync(rec, Buffer.concat([Buffer.from('{"path":"x'), Buffer.from([0xff]), Buffer.from('y.txt","size":1,"sha256":"' + 'a'.repeat(64) + '"}\n{"path":"torn')]));
+  const r = createRestoreSink(root, { resume: true, snapshot: SNAP });
+  const o = r.begin('n.txt'); o.write(Buffer.from('new')); o.commit();
+  r.close({ keepRecord: true });
+  const raw = fs.readFileSync(rec);
+  const tail = raw.subarray(raw.lastIndexOf(0x0a, raw.length - 2) + 1).toString('utf8');
+  assert.equal(JSON.parse(tail).path, 'n.txt', 'the new line starts on its own line, not inside the damaged one');
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close();
 });
