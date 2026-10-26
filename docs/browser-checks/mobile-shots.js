@@ -176,6 +176,7 @@ const OVERFLOW_SELECTORS = ['html', 'body', 'main', '.view', '.panel', '[role="m
    take the chat agent off it (its tasks stay with it). Answers the project's id. offProject6895Gone deletes it. */
 const OFFPROJECT_6895 = 'Plan the autumn launch';
 const ROLLUP_6501 = 'Autumn brochure';   // kosmos#6501: the task-rollup-6501 screen's throwaway project
+const HOLDUNTIL_7184 = 'Supplier order';   // kosmos#7184: the task-holduntil-7184 screens' throwaway project
 async function offProject6895(page, data) {
   return page.evaluate(async ([name, chat, ask]) => {
     const call = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -202,6 +203,33 @@ async function throwawayProjectGone(page, projectName) {
   if (st !== 200) throw new Error('could not delete the throwaway project "' + projectName + '" after the shot (' + st + ')');
 }
 async function offProject6895Gone(page) { await throwawayProjectGone(page, OFFPROJECT_6895); }
+/* kosmos#7184: a throwaway project with three tasks; task 1 held from the screen until task 2 closes ('task') or until a
+   time ('at'), then its page opened and scrolled to the hold row. */
+async function holdUntil7184(page, data, kind) {
+  const id = await page.evaluate(async ([name, chat, k]) => {
+    const call = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const made = await (await call('POST', '/api/projects', { name, agents: [chat] })).json().catch(() => ({}));
+    const pid = made && made.project && made.project.id;
+    if (!pid) throw new Error('task-holduntil-7184: the board made no project');
+    const base = '/api/project/' + encodeURIComponent(pid);
+    for (const sentence of ['Order the parts', 'Get the price approved', 'Book the courier']) {
+      const r = await call('POST', base + '/tasks', { sentence });
+      if (r.status !== 200 && r.status !== 201) throw new Error('task-holduntil-7184: adding a task answered ' + r.status);
+    }
+    const d = new Date(Date.now() + 2 * 86400000); d.setHours(9, 30, 0, 0);
+    const until = k === 'task' ? { task: 2 } : { at: d.toISOString() };
+    const h = await call('POST', base + '/task/1/hold', { onHold: true, until });
+    if (h.status !== 200) throw new Error('task-holduntil-7184: the hold answered ' + h.status);
+    return pid;
+  }, [HOLDUNTIL_7184, data.chatAgent, kind]);
+  await openTab(page, 'projects');
+  await page.click(`#pj-list .pj-row[data-project="${id}"]`);
+  await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+  await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+  await page.waitForSelector('#tk-hold-until:not([hidden])', { state: 'visible', timeout: 8000 });
+  await page.evaluate(() => document.getElementById('tk-hold-row').scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(300);
+}
 async function openTab(page, tab) {
   // kosmos#6846 (--app-tabs): the iPhone app opens a section from its native tab bar, through the board's own door.
   if (await page.evaluate(() => document.documentElement.classList.contains('kapptabs') && typeof window.kosmosAppTab === 'function')) {
@@ -1813,6 +1841,12 @@ const SCREENS = [
     await page.evaluate(() => document.getElementById('tk-subs-built').scrollIntoView({ block: 'center' }));
     await page.waitForTimeout(300);
   }, after: async (page) => { await throwawayProjectGone(page, ROLLUP_6501); } },
+  /* kosmos#7184: what a held task waits for, on its page: held (from the screen) until task 2 closes, or until a time two
+     days ahead at 9:30 in the shot's own clock. A throwaway project, deleted after the shot. */
+  { name: 'task-holduntil-7184', owner: 'Mona Lisa', go: async (page, data) => { await holdUntil7184(page, data, 'task'); },
+    after: async (page) => { await throwawayProjectGone(page, HOLDUNTIL_7184); } },
+  { name: 'task-holdtime-7184', owner: 'Mona Lisa', go: async (page, data) => { await holdUntil7184(page, data, 'at'); },
+    after: async (page) => { await throwawayProjectGone(page, HOLDUNTIL_7184); } },
   /* kosmos#4787 slice 1b: the task page's Repeats control with a rule set (every Tuesday at 10:30am), scrolled to it. */
   { name: 'task-repeat', owner: 'Mona Lisa', go: async (page, data) => {
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ every: 'week', on: 'tue', at: '10:30' }) }).then((r) => r.status), data.projectId);
