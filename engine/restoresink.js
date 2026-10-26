@@ -310,19 +310,36 @@ const liveTokens = new Set();   // the tokens of the locks this thread's open si
 const LOCK_STALE_MS = 10000;
 const LOCK_BUSY = 'a restore of this folder is already running; wait for it to finish. If none is, remove the hidden file .kosmos-restore-lock from the folder';
 
-/* POSIX: when process pid started, as ps prints it, or null when there is no such process (or no ps to ask, which
-   the caller treats as unknown). review 7: a pid alone is reused (within seconds on Windows, after a wrap or a reboot
-   elsewhere), and a start time that differs is a different process. */
+/* POSIX: an identity for when process pid started, or null when ps or /proc says there is no such process, or
+   undefined when it cannot be asked. review 7: a pid alone is reused. review 8: it must read the same from any
+   process: on Linux the start ticks since boot and the boot's id (/proc), which no clock step or locale moves; elsewhere
+   ps with a fixed locale and time zone (residual, stated: a large wall-clock step on macOS moves it). */
 function processStart(pid) {
+  if (process.platform === 'linux') {
+    let stat;
+    try { stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch (e) { return e.code === 'ENOENT' ? null : undefined; }
+    let boot;
+    try { boot = fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch { return undefined; }
+    // Fields after the command name, which is in parentheses and may itself hold spaces or parentheses.
+    const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    const ticks = rest[19];   // field 22 overall: starttime, in clock ticks since boot
+    return /^\d+$/.test(ticks || '') ? `linux ${boot} ${ticks}` : undefined;
+  }
   for (const ps of ['/bin/ps', '/usr/bin/ps']) {
     if (!fs.existsSync(ps)) continue;
-    const r = spawnSync(ps, ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 });
+    const r = spawnSync(ps, ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000, env: { LC_ALL: 'C', LANG: 'C', TZ: 'UTC0', PATH: '/bin:/usr/bin' } });
     if (r.error) return undefined;
     const out = String(r.stdout || '').trim();
     return r.status === 0 && out ? out : null;
   }
   return undefined;
 }
+
+/* Whether pid is a live process, by signal 0: true unless it says there is no such process (ESRCH). */
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (k) { return k.code !== 'ESRCH'; }
+}
+
 function acquireLock(rootReal) {
   const { threadId } = require('worker_threads');
   const file = path.join(rootReal, LOCK_NAME);
@@ -356,18 +373,25 @@ function acquireLock(rootReal) {
       const pid = Number(pidS);
       let stale;
       if (!text || !Number.isSafeInteger(pid) || pid <= 0) stale = Date.now() - Number(at.mtimeMs) > LOCK_STALE_MS;
-      else if (pid === process.pid) stale = Number(threadS) === threadId && !liveTokens.has(held);
+      else if (pid === process.pid) {
+        // An earlier process that had this pid is not this one (review 8): its start time differs.
+        const mine = process.platform === 'win32' ? '' : (processStart(process.pid) || '');
+        if (recordedStart && mine && recordedStart !== mine) stale = true;
+        else stale = Number(threadS) === threadId && !liveTokens.has(held);
+      }
       else if (process.platform !== 'win32' && recordedStart) {
         // review 7: the same pid AND the same start time, or it is not the owner (a reuse after a crash, a reboot or a
         // wrap). This replaces the boot rule here: a wall-clock step on Linux moved it, and a live lock read as stale.
         const now = processStart(pid);
-        stale = now === undefined ? false : now !== recordedStart;
+        // Unknown (cannot ask) or no such process by ps: decided by signal 0, so a ps that merely failed never makes a
+        // live owner stale (review 8).
+        stale = typeof now === 'string' ? now !== recordedStart : !pidAlive(pid);
       } else {
         // Windows (no cheap start time): a lock written before the last boot is stale, else the pid's liveness.
         // Residuals, stated: Windows reuses pids within seconds, and Fast Startup does not count as a boot.
         const bootMs = Date.now() - os.uptime() * 1000;
         if (Number(at.mtimeMs) < bootMs - 1000) stale = true;
-        else { try { process.kill(pid, 0); stale = false; } catch (k) { stale = k.code !== 'EPERM'; } }
+        else stale = !pidAlive(pid);
       }
       if (!stale) throw new Error(`restoresink: ${LOCK_BUSY}`);
       // Taken over only if it is still the stale lock just read (review 4: narrows, does not close, the race where two
