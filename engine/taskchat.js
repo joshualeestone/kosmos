@@ -56,6 +56,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
+const projectborn = require('./projectborn');
 
 const DIRNAME = 'task-chats';
 
@@ -143,24 +144,10 @@ function record(projectId, number, event) {
  * no file or it cannot be read -- "no transcript" and "unreadable" both render as
  * nothing rather than an error, the same rule the record itself follows. Each
  * returned row is shape-validated (a string `at` and a string `kind`); a
- * malformed or partially-written line is skipped, not fatal.
+ * malformed or partially-written line is skipped, not fatal. A row written by an
+ * earlier project of the same name is left out (#7185, engine/projectborn.js).
  */
-/* #7185: a project's id comes from its name, so a project deleted and made again under the same name has the same
-   id and the same task files. The rows the old project wrote stay on disk (nothing here deletes a person's words, and
-   an owner may want them back), but they are not the new project's: a row stamped before the project's createdAt
-   was written by an earlier project of that name. The same createdAt rule the webhooks use (#1307). null when the
-   project has no record or no valid stamp: then every row is kept. */
-function bornOf(projectId) {
-  try {
-    const found = require('./projects').readAll().find((p) => p && p.id === projectId);
-    const t = found ? Date.parse(found.createdAt) : NaN;
-    return Number.isFinite(t) ? t : null;
-  } catch {
-    return null;
-  }
-}
-
-function read(projectId, number, born = bornOf(projectId)) {
+function read(projectId, number) {
   const file = taskChatFile(projectId, number);
   if (!file) return [];
   let raw;
@@ -169,6 +156,7 @@ function read(projectId, number, born = bornOf(projectId)) {
   } catch {
     return [];
   }
+  const earlier = projectborn.olderThanProject();   // #7185
   const out = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
@@ -186,7 +174,7 @@ function read(projectId, number, born = bornOf(projectId)) {
     if (obj && typeof obj === 'object'
         && typeof obj.at === 'string' && Number.isFinite(Date.parse(obj.at))
         && typeof obj.kind === 'string'
-        && (born == null || Date.parse(obj.at) >= born)) {
+        && !earlier(projectId, obj.at)) {
       out.push(obj);
     }
   }
@@ -215,7 +203,6 @@ function progressTimes(projectId, now = Date.now(), since = 0) {
   try {
     const k = keyOf(projectId);
     if (!k) return out;
-    const born = bornOf(projectId);   // #7185: read once, not once per task file
     const prefix = `${k}.task-`;
     for (const name of fs.readdirSync(taskChatsDir())) {
       if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
@@ -236,7 +223,7 @@ function progressTimes(projectId, now = Date.now(), since = 0) {
         if (!held.has(key)) held.set(key, new Set());
         return held.get(key);
       };
-      for (const row of read(projectId, n, born)) {
+      for (const row of read(projectId, n)) {
         if (!PROGRESS_KINDS.has(row.kind)) continue;
         let counts = false;
         if (row.kind === 'created' || row.kind === 'part-added') {
