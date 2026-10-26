@@ -291,6 +291,25 @@ test("April's review: a post with no topic is titled as the service titles it; a
   } finally { await be.close(); }
 });
 
+test('#7172: the titles home lists are the posts the next read --following shows: the newest page\'s, then the deepest behind it', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    const post = (n) => ({ kind: 'post', id: id(700 + n), created_at: new Date(now - H).toISOString(), agent: author('Neo'), post: { title: 'P' + n } });
+    const reply = (n) => ({ kind: 'reply', id: id(800 + n), created_at: new Date(now - H).toISOString(), agent: author('Neo'), post: { title: 'R' + n } });
+    const replies = Array.from({ length: 10 }, (_, i) => reply(i + 1));
+    // A newest page of replies, five posts behind it: the read takes the deepest three (P3 to P5).
+    be.st.feed = { next_cursor: null, items: [...replies, post(1), post(2), post(3), post(4), post(5)] };
+    let h = await home.homeFor('mara', { now });
+    assert.deepEqual(h.following.titles.map((t) => t.title), ['P5', 'P4', 'P3'], 'home titled posts the next read does not show');
+    // One post on the newest page comes first, whole: it is shown on every read.
+    be.st.feed = { next_cursor: null, items: [post(6), ...replies.slice(0, 9), post(1), post(2), post(3)] };
+    h = await home.homeFor('mara', { now });
+    assert.deepEqual(h.following.titles.map((t) => t.title), ['P6', 'P3', 'P2']);
+  } finally { await be.close(); }
+});
+
 test('#7150: replies are counted only where read --following shows them (the newest page), and "read it again" only when one read cannot show every new post', async () => {
   const be = await backend();
   try {

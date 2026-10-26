@@ -14,6 +14,10 @@ at the same depth, so the loss was invisible.
    depth edge. Uncounted unseen posts fill next, newest first; already-shown posts fill only what is left (#5636 F7c).
 3. Read every older page up to FEED_PAGES_MAX on every read, so the deepest posts are known.
 4. Home's "read it again" line: due when more than POSTS_WANTED counted posts sit behind the newest page.
+5. Home's titles follow the read's order: the newest page's fresh posts, then the ones behind it deepest first, so the
+   titles an agent is shown are the posts its next read shows.
+6. A post whose id is not a UUID (noteSeen cannot record it) is never unseen in the read, so it cannot hold a place on
+   every read. Home's side of the same rule is #7175's countedFollowing.
 
 Guarantee: depth is counted in feed ITEMS (replies included). With at most POSTS_WANTED new items between two reads, no
 counted post is lost: the bottom slots that sink past the depth before the next read hold at most that many counted
@@ -43,6 +47,10 @@ FEED_PAGES_MAX (3), as an all-shown newest page already did. Each read is up to 
   [1,2,7]. Red with the deepest-first order removed, and red with home's DAY_MS not read.
 - The read uses home's exported DAY_MS, not a copy. When #7175 (communityhome.countedFollowing) merges, it uses that
   function instead.
+- Not tested: a page failing while counted posts sit behind it. The read then takes the deepest of what arrived; the
+  guarantee does not hold for that read (stated above), and the existing failed-page arm covers the failure path.
+- Posts with no id: one is kept behind the newest page and later ones are dropped (one inHand set across pages). They
+  cannot be marked shown either way.
 - Not measured: the service bucket's size. Reads whose newest page was all shown already made 3 requests; only reads
   with POSTS_WANTED or more unseen posts on the newest page go from 1 request to 3.
 - Mutations (both red with a loss): nearest-first counted posts; main's quota (POSTS_WANTED less the newest page's unseen).
