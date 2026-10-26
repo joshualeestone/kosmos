@@ -407,8 +407,9 @@ test('a cut-short list says more, and a git folder at the top of workers blocks 
   assert.equal(l.more, true);
   assert.equal(rw.listRestoredAgents({ base, world: p.world, nameOk }).more, false);
   fs.mkdirSync(path.join(w, '.git'));
-  l = rw.listRestoredAgents({ base, world: p.world, nameOk: () => true, maxListed: 1 });
-  assert.deepEqual(l.agents.map((a) => a.folder), ['!first'], '! sorts before .git, so the cap stops the scan before reaching it');
+  // The workers folder's own git row comes first and fills one place; ! sorts before .git, so the cap stops there.
+  l = rw.listRestoredAgents({ base, world: p.world, nameOk: () => true, maxListed: 2 });
+  assert.deepEqual(l.agents.map((a) => a.folder), ['!first']);
   assert.match(l.agents[0].because, /workers folder holds a git folder/);
 });
 
@@ -441,4 +442,53 @@ test('finish says how many files the restore listed as failed, and refuses a wor
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: { ok: true, result: { restored: ['a'], failed: [{ path: 'b' }, { path: 'c' }] } } });
   assert.equal(r.ok, true, r.because);
   assert.equal(r.failedFiles, 2);
+});
+
+test('git reads HEAD, objects and refs as a repository with no .git: in an agent it refuses, at the top of workers it blocks all, at the top of projects it is shared', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const roots = worlds.envOverridesFor(base, p.world);
+  const bare = (dir) => { fs.writeFileSync(path.join(dir, 'HEAD'), 'ref: refs/heads/main\n'); fs.mkdirSync(path.join(dir, 'objects')); fs.mkdirSync(path.join(dir, 'refs')); fs.writeFileSync(path.join(dir, 'config'), '[core]\n'); };
+  const w = roots.AGENT_WORKFORCE_WORKERS;
+  for (const n of ['ann', 'barry']) { fs.mkdirSync(path.join(w, n)); fs.writeFileSync(path.join(w, n, 'CLAUDE.md'), '# x\n'); }
+  bare(path.join(w, 'barry'));
+  fs.mkdirSync(path.join(roots.AGENT_WORKFORCE_PROJECTS, 'plain'));
+  fs.mkdirSync(path.join(roots.AGENT_WORKFORCE_PROJECTS, '.git'));
+  let l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  let by = Object.fromEntries(l.agents.map((a) => [a.folder, a]));
+  assert.equal(by.ann.because, null);
+  assert.match(by.barry.because, /git folder/);
+  assert.ok(by.barry.runs.some((r) => /HEAD, objects and refs/.test(r)));
+  assert.ok(l.shared.some((x) => x.where === 'projects' && x.label === '(the projects folder itself)' && x.runs.includes('.git')));
+  assert.ok(l.shared.some((x) => x.where === 'projects' && x.label === '.git' && x.runs.includes('.git')), 'the .git row says why it is shared');
+  bare(w);
+  l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  by = Object.fromEntries(l.agents.map((a) => [a.folder, a]));
+  assert.match(by.ann.because, /workers folder holds a git folder/);
+  assert.ok(l.shared.some((x) => x.label === '(the workers folder itself)'));
+});
+
+test('failedFiles counts the failures past the listed ones; a busy Kosmos list asks to try again; a folder too big to read in full says so', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: { ok: true, result: { restored: ['a'], failed: [{ path: 'b' }], failedNotListed: 12000 } } });
+  assert.equal(r.failedFiles, 12001);
+  const busy = rw.prepareRestoreWorld(base, { member: 'Bo', now: NOW, createWorld: () => { const e = new Error('busy'); e.code = 'EWORLDLOCK'; throw e; } });
+  assert.equal(busy.ok, false);
+  assert.match(busy.because, /try again in a moment/);
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  fs.writeFileSync(path.join(w, 'ann', 'CLAUDE.md'), '# ann\n');
+  for (let i = 0; i < 4001; i++) fs.writeFileSync(path.join(w, 'ann', `f${i}`), '');
+  const a = rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.find((x) => x.folder === 'ann');
+  assert.ok(a.runs.includes('(the folder holds more entries than were checked)'));
+});
+
+test('listing refuses a world that is not in the registry', (t) => {
+  const base = fresh(t);
+  const ghost = { id: 'ghost' };
+  const dir = worlds.worldBaseDir(base, ghost);
+  fs.mkdirSync(path.join(dir, 'workers', 'ann'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'workers', 'ann', 'CLAUDE.md'), '# ann\n');
+  assert.deepEqual(rw.listRestoredAgents({ base, world: ghost, nameOk }).agents, []);
 });

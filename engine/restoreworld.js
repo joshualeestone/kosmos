@@ -35,6 +35,8 @@ const MAX_MEMBER_CHARS = 60;
 const MAX_LISTED = 1000;
 const BRIEFS = ['CLAUDE.md', 'AGENTS.md', 'AGENTS.override.md', 'GEMINI.md'];
 const MAX_BRIEF_BYTES = 512 * 1024;
+const MAX_ENTRIES_READ = 4 * MAX_LISTED;          // entries read from any one folder; past it the listing says `more`
+const MAX_BRIEF_TOTAL = 32 * 1024 * 1024;         // brief bytes read across one listing, so a hostile backup cannot stall it
 const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);   // Windows: a scanner holding a just-written file
 /* What in a folder a provider may read or run when it starts there: every dot-entry at its top (settings, hooks,
    skills, MCP servers, an environment file, any provider's own folder, git) except HARMLESS, and these plain names. */
@@ -42,7 +44,10 @@ const PLAIN_AT_START = ['CLAUDE.local.md', 'opencode.json', 'opencode.jsonc'];  
 /* A git folder's config (core.fsmonitor, core.hooksPath) runs commands when git runs there, which a provider does as
    soon as an agent starts. So an agent folder holding one is not offered, and one in the workers folder blocks all. */
 const GIT = '.git';
-const HARMLESS = new Set(['.DS_Store']);   // Finder's own metadata, which no provider reads
+const HARMLESS = new Set(['.DS_Store']);
+/* Git also reads a folder holding HEAD, objects and refs as a repository (a bare layout, accepted by default), with no
+   .git at all. */
+const BARE = 'HEAD, objects and refs (git reads a folder holding them as a repository)';   // Finder's own metadata, which no provider reads
 /* Fillers and blanks that draw nothing, beside the Cc/Cf/Zl/Zp and private-use classes: braille blank, Hangul fillers. */
 const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
 
@@ -51,7 +56,7 @@ const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160].map((c) =
    left. */
 function cleanText(text, max, fallback) {
   const s = String(text == null ? '' : text).normalize('NFC')
-    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}]/gu, '')
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cs}]/gu, '')
     .replace(BLANKS, '')
     .replace(/(\p{M}{2})\p{M}+/gu, '$1')
     .replace(/\s+/g, ' ').trim();
@@ -84,9 +89,10 @@ function prepareRestoreWorld(base, opts = {}) {
   let world = null;
   for (let n = 1; n <= MAX_NAME_TRIES && !world; n++) {
     const name = worldName(opts.member, opts.now, n);
-    try { world = create(base, name); } catch {
+    try { world = create(base, name); } catch (e) {
       // Taken (a hidden Kosmos keeps its id too): try the next name. Anything else is a failure.
       if (takenIds(base).has(store.safeKey(name))) continue;
+      if (e && e.code === 'EWORLDLOCK') return { ok: false, because: 'another change to your Kosmos list is under way, so try again in a moment' };
       return { ok: false, because: 'the Kosmos for the restore could not be made' };
     }
     // createWorld reuses a world folder already on disk (its mkdirs are recursive). One left behind keeps its files
@@ -149,7 +155,8 @@ function finishRestoreWorld(opts = {}) {
   if (!opts.result || opts.result.ok !== true) return { ok: false, moved: [], kept: [], because: 'the restore did not succeed, so its files stay where it can continue' };
   if (!takenIds(base).has(world.id)) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
   const inner = opts.result.result;
-  const failedFiles = inner && Array.isArray(inner.failed) ? inner.failed.length : 0;
+  const notListed = inner && Number.isSafeInteger(inner.failedNotListed) && inner.failedNotListed > 0 ? inner.failedNotListed : 0;
+  const failedFiles = (inner && Array.isArray(inner.failed) ? inner.failed.length : 0) + notListed;
   if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) {
     return { ok: false, moved: [], kept: [], because: 'the restore folder is not the one made for this Kosmos' };
   }
@@ -226,20 +233,51 @@ function readBrief(file) {
   } finally { fs.closeSync(fd); }
 }
 
-/* What in a folder runs or loads something when a provider starts there: its dot-entries and PLAIN_AT_START names (a
-   link counts, unopened), linked briefs, briefs that are not plain UTF-8 text, and `@` imports in any brief. */
-function runsIn(folder) {
+/* Up to `limit` entry names of a folder, sorted, and whether more were left unread; null if it cannot be read. */
+function namesIn(folder, limit) {
+  let dir;
+  try { dir = fs.opendirSync(folder); } catch { return null; }
+  const names = [];
+  let cut = false;
+  try {
+    for (let e = dir.readSync(); e !== null; e = dir.readSync()) {
+      if (names.length >= limit) { cut = true; break; }
+      names.push(e.name);
+    }
+  } catch { return null; } finally { try { dir.closeSync(); } catch { /* read already */ } }
+  return { names: names.sort(), cut };
+}
+
+/* What makes git treat `folder` itself as a repository: a .git entry, or the bare layout. Asked by lstat on exact
+   names, so the filesystem's own case rule decides, as it does for git. */
+function gitIn(folder) {
+  const has = (n) => { try { fs.lstatSync(path.join(folder, n)); return true; } catch { return false; } };
   const out = [];
-  let names = [];
-  try { names = fs.readdirSync(folder); } catch { return ['(the folder could not be read)']; }
-  for (const n of names.filter((x) => x.startsWith('.') && !HARMLESS.has(x)).sort()) out.push(labelOf(n));
-  const folded = new Set(names.map((x) => x.toLowerCase()));
+  if (has(GIT)) out.push(GIT);
+  if (has('HEAD') && has('objects') && has('refs')) out.push(BARE);
+  return out;
+}
+const isGit = (runs) => runs.some((r) => r === BARE || r.toLowerCase() === GIT);
+
+/* What in a folder runs or loads something when a provider starts there: its dot-entries and PLAIN_AT_START names (a
+   link counts, unopened), a git repository in either form, linked briefs, briefs that are not plain UTF-8 text, and
+   `@` imports in any brief. `budget.left` is the brief bytes the whole listing may still read. */
+function runsIn(folder, budget) {
+  const listed = namesIn(folder, MAX_ENTRIES_READ);
+  if (!listed) return ['(the folder could not be read)'];
+  const out = [];
+  for (const n of listed.names.filter((x) => x.startsWith('.') && !HARMLESS.has(x))) out.push(labelOf(n));
+  if (listed.cut) out.push('(the folder holds more entries than were checked)');
+  for (const g of gitIn(folder)) if (!out.includes(g)) out.push(g);
+  const folded = new Set(listed.names.map((x) => x.toLowerCase()));
   for (const n of PLAIN_AT_START) if (folded.has(n.toLowerCase())) out.push(n);
   const briefs = briefsIn(folder);
   for (const b of briefs.linked) out.push(`${b} is a link`);
   for (const brief of briefs.plain) {
+    if (budget.left <= 0) { out.push(`${brief} (not checked: the listing has read as much as it may)`); continue; }
     let bytes;
     try { bytes = readBrief(path.join(folder, brief)); } catch { out.push(`${brief} (could not be read)`); continue; }
+    budget.left -= bytes.length;
     const head = bytes.subarray(0, MAX_BRIEF_BYTES);
     // UTF-16 (a byte-order mark, or NUL bytes) cannot be checked as text here; a provider may still read it.
     if (head.includes(0) || (head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff)) out.push(`${brief} (not plain text, so not checked)`);
@@ -264,42 +302,53 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    server there runs the moment the agent starts; and enable nothing while `more` is true, since the list is then cut
    short. An empty `runs` means only that nothing at the folder's top was flagged, not that the agent is safe: 4a's
    review list is what shows every file. Labels can look alike (homoglyphs), so rows are told apart by `folder`. A
-   git folder in a project is shared, not refused (projects are usually repositories); one in an agent folder or at
-   the top of workers refuses. Nothing is registered, started or written.
+   git repository (a .git, or HEAD, objects and refs) in a project or at the top of projects is shared, not refused
+   (projects are usually repositories; one at the top reaches every project without its own); one in an agent folder
+   or at the top of workers refuses. A backup can force `more` with enough empty folders, so the screen should let the
+   person review past the cap rather than stop. Nothing is registered, started or written.
    opts.maxListed lowers MAX_LISTED (tests). */
 function listRestoredAgents(opts = {}) {
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
   const worldDir = worldDirOf(opts.base, opts.world);
-  const roots = worldDir && realDir(worldDir) ? worlds.envOverridesFor(opts.base, opts.world) : {};
+  const listable = worldDir && realDir(worldDir) && takenIds(opts.base).has(opts.world.id);
+  const roots = listable ? worlds.envOverridesFor(opts.base, opts.world) : {};
+  const budget = { left: MAX_BRIEF_TOTAL };
   const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;
   const agents = [], shared = [];
   let more = false;
   const full = () => { if (agents.length + shared.length >= cap) { more = true; return true; } return false; };
   const entriesOf = (parent) => {
     if (!parent || !realDir(parent)) return [];
-    try { return fs.readdirSync(parent).sort(); } catch { return []; }
+    const listed = namesIn(parent, MAX_ENTRIES_READ);
+    if (!listed) return [];
+    if (listed.cut) more = true;
+    return listed.names;
   };
+  const gitRow = (n) => (n.toLowerCase() === GIT ? [GIT] : []);
   const isTopFolder = (parent, n) => {
     if (n.startsWith('.')) return false;
     try { const st = fs.lstatSync(path.join(parent, n)); return st.isDirectory() || st.isSymbolicLink(); } catch { return false; }
   };
-  // Read before any capped loop, so no number of entries can hide it.
-  const gitAbove = entriesOf(roots.AGENT_WORKFORCE_WORKERS).some((n) => n.toLowerCase() === GIT);
-  const scan = (parent, from) => {
-    for (const folder of entriesOf(parent)) {
+  // Asked before any capped loop, so no number of entries can hide it.
+  const workersGit = roots.AGENT_WORKFORCE_WORKERS && realDir(roots.AGENT_WORKFORCE_WORKERS) ? gitIn(roots.AGENT_WORKFORCE_WORKERS) : [];
+  const workersNames = entriesOf(roots.AGENT_WORKFORCE_WORKERS);
+  const gitAbove = workersGit.length > 0 || workersNames.some((n) => n.toLowerCase() === GIT);
+  if (workersGit.length) shared.push({ where: 'workers', label: '(the workers folder itself)', runs: workersGit });
+  const scan = (parent, from, names) => {
+    for (const folder of names) {
       if (full()) return;
       const at = path.join(parent, folder);
       const label = labelOf(folder);
       if (from === 'workers' && !isTopFolder(parent, folder)) {
         if (HARMLESS.has(folder)) continue;
-        shared.push({ where: 'workers', label, runs: [] });
+        shared.push({ where: 'workers', label, runs: gitRow(folder) });
         continue;
       }
       let st;
       try { st = fs.lstatSync(at); } catch { continue; }
       if (st.isSymbolicLink()) { agents.push({ folder, label, from, name: null, dir: at, brief: null, runs: [], because: 'it is a link to somewhere else, so it was not opened' }); continue; }
       if (!st.isDirectory()) continue;
-      const runs = runsIn(at);
+      const runs = runsIn(at, budget);
       const brief = briefsIn(at).plain[0] || null;
       let because = null, name = null;
       if (from === 'elsewhere') because = 'its folder was kept outside the workers folder, so it cannot be started from where it is';
@@ -308,16 +357,22 @@ function listRestoredAgents(opts = {}) {
       if (!because && !brief) because = 'it has no instructions file, so it may not be an agent';
       // NTFS aliases of .git (a trailing dot or space, an 8.3 short name) never get this far: restoresink.js
       // plainSegments refuses them.
-      if (!because && runs.some((r) => r.toLowerCase() === GIT)) because = 'it holds a git folder, whose settings can run commands as soon as it starts';
+      if (!because && isGit(runs)) because = 'it holds a git folder, whose settings can run commands as soon as it starts';
       agents.push({ folder, label, from, name, dir: at, brief, runs, because });
     }
   };
-  scan(roots.AGENT_WORKFORCE_WORKERS, 'workers');
-  if (worldDir && opts.restoreDir === path.join(worldDir, RESTORE_DIR)) scan(path.join(opts.restoreDir, 'agents'), 'elsewhere');
-  for (const n of entriesOf(roots.AGENT_WORKFORCE_PROJECTS)) {
+  const pr = roots.AGENT_WORKFORCE_PROJECTS;
+  const projectsGit = pr && realDir(pr) ? gitIn(pr) : [];
+  if (projectsGit.length) shared.push({ where: 'projects', label: '(the projects folder itself)', runs: projectsGit });
+  scan(roots.AGENT_WORKFORCE_WORKERS, 'workers', workersNames);
+  if (listable && opts.restoreDir === path.join(worldDir, RESTORE_DIR)) {
+    const agentsDir = path.join(opts.restoreDir, 'agents');
+    scan(agentsDir, 'elsewhere', entriesOf(agentsDir));
+  }
+  for (const n of entriesOf(pr)) {
     if (full() || HARMLESS.has(n)) continue;
-    if (!isTopFolder(roots.AGENT_WORKFORCE_PROJECTS, n)) { shared.push({ where: 'projects', label: labelOf(n), runs: [] }); continue; }
-    const runs = realDir(path.join(roots.AGENT_WORKFORCE_PROJECTS, n)) ? runsIn(path.join(roots.AGENT_WORKFORCE_PROJECTS, n)) : ['it is a link'];
+    if (!isTopFolder(pr, n)) { shared.push({ where: 'projects', label: labelOf(n), runs: gitRow(n) }); continue; }
+    const runs = realDir(path.join(pr, n)) ? runsIn(path.join(pr, n), budget) : ['it is a link'];
     if (runs.length) shared.push({ where: 'projects', label: labelOf(n), runs });
   }
   if (gitAbove) {   // folded: APFS and NTFS read .GIT as .git
