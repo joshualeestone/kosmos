@@ -529,6 +529,14 @@ function firstStartOfImport(entry, platform) {
      keeps it from starting here (it is not stopped where it came from). */
   // #5977: the provider from the entry's own account folder (a codex entry on a Qwen account is Qwen), as for a job.
   const entryProvider = create.jobProvider({ runner, configDir: typeof entry.configDir === 'string' ? entry.configDir : null });
+  /* #7206 (1b review 3): an entry on a vendor account (DeepSeek) is not started here while this Kosmos's switch for it is
+     off: it would only be refused at every launch. Said, and its provider and account recorded, so a later Repair (with
+     the switch on) rebuilds it on its own account rather than as a Claude agent. */
+  { const compat = require('./anthropiccompat'); const v = compat.vendorOf(entryProvider);
+    if (v) {
+      try { store.writeProfile(entry.name, { provider: entryProvider, vendorAccount: entry.configDir }); } catch { /* the entry retries here */ }
+      if (!compat.enabled()) return `${entry.name} was not started here: ${compat.notYet(v.id)}`;
+    } }
   const allowed = create.policyAllows(entryProvider, entry.model, typeof entry.configDir === 'string' ? entry.configDir : null);
   /* Marked on its profile, so Repair (which restores agents that lost their job, and is not gated) does not start
      the agent the policy just held; the mark clears when the policy allows it. */

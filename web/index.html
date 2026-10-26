@@ -22453,7 +22453,9 @@ function modelLine(a) {
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
   // #5977 (UI review): a Qwen agent runs on codex too, and is never "OpenAI": its model, or Qwen while none is known.
   if (a.runner === 'codex' && a.account && a.account.provider === 'alibaba') return name ? (/qwen/i.test(name) ? name : 'Qwen ' + name) : 'Qwen';
-  if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
+  if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';
+  // #7206 (1b review 3): a claude agent on a DeepSeek account is never "Claude": its model, or DeepSeek while none is known.
+  if (a.account && a.account.provider === 'deepseek') return name ? (/deepseek/i.test(name) ? name : 'DeepSeek ' + name) : 'DeepSeek';   // "o3" alone is less recognisable than "OpenAI o3"
   /* #5804: a running Gemini agent whose reply came from a model other than the one it is set to (the CLI's own
      fallback) says so. The board decides (engine/geminimodelswitch.js) and sends settingModelName only then; kept
      inside modelLine so every caller and test that lifts it from the page gets the same words. */
@@ -57439,11 +57441,13 @@ async function paintModelPicker(a) {
      form (#2167), here on the detail surface. Delegate and return. */
   /* #5977: a Qwen agent runs on codex but its account names its one model, so it gets no OpenAI list. */
   const isQwen = !!(a && a.runner === 'codex' && a.account && a.account.provider === 'alibaba');
+  // #7206 (1b review 3): a claude agent on a DeepSeek account runs the model its account names, as a Qwen agent does.
+  const isVendor = !!(a && a.runner !== 'codex' && a.account && a.account.provider === 'deepseek');
   if (a && !isQwen && (a.provider === 'openai' || a.runner === 'codex')) { await paintOpenaiDetailModel(a, forWhom); return; }
   /* #3566: Kosmos has no list of Gemini's or Grok's models to offer, so the menu states
      what the agent runs as its one option and Switch stays down. The Claude flow below would otherwise offer Claude models under a
      Gemini agent, the #2167 "Claude models under an OpenAI agent" shape again. */
-  if (a && (isQwen || a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity' || a.runner === 'muse')) {   // #3568: antigravity too; #3939 3c-3b: muse; #5977: Qwen
+  if (a && (isQwen || isVendor || a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity' || a.runner === 'muse')) {   // #3568: antigravity too; #3939 3c-3b: muse; #5977: Qwen
     /* An OpenAI models fetch started for this panel (e.g. just before a switch to Gemini)
        must not land on it, and an OpenAI note must not stay under a Gemini agent. */
     OPENAI_DETAIL_GEN += 1;
@@ -57453,7 +57457,8 @@ async function paintModelPicker(a) {
        menu says the same model the card does. Antigravity and Muse really do pick their own. */
     const runsOn = menuRunsOn(a);
     // #5977: a Qwen agent says the model its account names, or that the account names it.
-    const qwenSays = isQwen ? ((a.modelName || a.plannedModelName) ? 'Runs on ' + modelLine(a) : 'The Qwen account names the model') : '';
+    const qwenSays = isQwen ? ((a.modelName || a.plannedModelName) ? 'Runs on ' + modelLine(a) : 'The Qwen account names the model')
+      : isVendor ? ((a.modelName || a.plannedModelName) ? 'Runs on ' + modelLine(a) : 'The DeepSeek account names the model') : '';
     const one = '<option value="" selected>' + (qwenSays ? esc(qwenSays) : esc(runsOn ? 'Runs on ' + runsOn : word + ' picks its own model')) + '</option>';
     if (sel.innerHTML !== one) sel.innerHTML = one;
     sel.dataset.current = '';
@@ -57720,6 +57725,7 @@ function acctMoveWorld(a, accounts) {
      apart from the keyed map, which #3566's pin holds to the key-based providers. */
   const keyedProvider = (a && (a.runner === 'antigravity' || a.runner === 'muse')) ? a.runner   // #3939 3c-3b: muse has no rows either
     : (a && a.runner === 'codex' && a.account && a.account.provider === 'alibaba') ? 'alibaba'   // #5977: a Qwen agent moves among Qwen accounts
+    : (a && a.runner !== 'codex' && a.account && a.account.provider === 'deepseek') ? 'deepseek'   // #7206: a DeepSeek agent among DeepSeek accounts
     : ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
   const isCodex = keyedProvider === 'openai';
   const isKeyed = !!keyedProvider;
@@ -59487,7 +59493,7 @@ async function changeProviderNow(say) {
     if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, provName, 'Switched to ' + provName);
     /* #4008 (round 3): Runs on names the provider it moved to now, in modelLine's own words for a runner
        with no transcript yet (the same line the next open would draw once the runner is recorded). */
-    const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude', alibaba: 'Qwen' }[want];   // #5977
+    const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude', alibaba: 'Qwen', deepseek: 'DeepSeek' }[want];   // #5977, #7206
     /* #5091 round 2: a partial (switched to Claude, but not onto the picked account) DID change the provider and is
        starting again, so "Runs on" says so too; only the wake hello is skipped for it. */
     const moved = restarted || (out.outcome === 'partial' && out.provider === want && out.restarted === true);

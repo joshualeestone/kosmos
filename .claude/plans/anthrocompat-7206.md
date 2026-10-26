@@ -195,3 +195,9 @@ Accepted: the hidden test's ON controls prove the gate opens, not that the full 
    'deepseek' to acctMoveWorld's keyedProvider, the runsOnWord map and the model-name display.
 Nits to take: import (worldstarts firstStartOfImport) refuses a vendor entry while off; the test message "the marker does
 not turn it on" is inverted; one sentence that the variable is gone and the marker only turns it on.
+Review 3 item 2 DONE: the detail panel treats a DeepSeek agent like Qwen (one disabled model option: its model, or "The
+DeepSeek account names the model"), the move list offers only DeepSeek accounts (keyedProvider 'deepseek'), runsOnWord
+and modelLine name DeepSeek (modelLine pinned by a test, red-checked). NOT separately tested: the panel's model picker
+and move list (page wiring), and the import refusal in worldstarts (a vendor entry is not started while the switch is
+off, its provider and account recorded for Repair); both mirror Qwen's arms. Existing import and move tests pass.
+The reviewer's "inverted message" nit was a misread: assert messages state the failure, which is what that one says.
