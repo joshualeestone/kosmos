@@ -160,7 +160,7 @@ test('#5536 slice 3: a resumed folder must hold only what the record names; each
     ['a folder added', (r) => fs.mkdirSync(path.join(r, 'extra')), /did not put there/],
     ['a file changed', (r) => fs.writeFileSync(path.join(r, 'a.txt'), 'ALPHA'), /has changed/],
     ['a file grown', (r) => fs.appendFileSync(path.join(r, 'd', 'b.txt'), '!'), /has changed/],
-    ['a file replaced by a link', (r) => { fs.rmSync(path.join(r, 'a.txt')); fs.symlinkSync('/etc/hosts', path.join(r, 'a.txt')); }, /link the restore did not make/],
+
     ['a folder replaced by a link', (r) => { fs.rmSync(path.join(r, 'd'), { recursive: true }); fs.symlinkSync(os.tmpdir(), path.join(r, 'd'), 'junction'); }, /link the restore did not make/],
     ['the record removed', (r) => fs.rmSync(path.join(r, RECORD_NAME)), /no restore record/],
     ['the record damaged', (r) => fs.appendFileSync(path.join(r, RECORD_NAME), 'not json\n'), /damaged/],
@@ -168,6 +168,8 @@ test('#5536 slice 3: a resumed folder must hold only what the record names; each
     ['the record naming the temp prefix', (r) => fs.appendFileSync(path.join(r, RECORD_NAME), `${JSON.stringify({ path: '.kosmos-restore-x/y', size: 1, sha256: 'a'.repeat(64) })}\n`), /damaged/],
   ];
   if (process.platform !== 'win32') {
+    // A file symlink needs a privilege on Windows (a folder junction does not, and is tested above).
+    cases.push(['a file replaced by a link', (r) => { fs.rmSync(path.join(r, 'a.txt')); fs.symlinkSync(path.join(os.tmpdir(), 'x'), path.join(r, 'a.txt')); }, /link the restore did not make/]);
     cases.push(['the record readable by others', (r) => fs.chmodSync(path.join(r, RECORD_NAME), 0o644), /not a private file/]);
     const elsewhere = fresh(t);
     cases.push(['the record a link', (r) => { const rec = path.join(r, RECORD_NAME); const moved = path.join(elsewhere, `${path.basename(r)}.record`); fs.renameSync(rec, moved); fs.symlinkSync(moved, rec); }, /no restore record/]);
