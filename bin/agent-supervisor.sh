@@ -1457,9 +1457,10 @@ if [ -z "$adopt" ]; then
     unset _MUSE_ENV _MUSE_DIR
   else
     # #7206: an account home named for a vendor whose endpoint speaks Claude Code's API (~/.kosmos-deepseek-<label>,
-    # engine/anthropiccompat.js) points this agent at that vendor with the person's key. Every ANTHROPIC_* variable the
-    # launch owns is first dropped from what this pane would inherit (a -e pair, a launch secret, or the tmux server's
-    # global environment through env -u), so nothing inherited can send the agent or its key somewhere else. The key
+    # engine/anthropiccompat.js) points this agent at that vendor with the person's key. The one way an ANTHROPIC_*
+    # value reaches a pane today is the tmux server's global environment (nothing above forwards one or hands one in as
+    # a secret): each variable the account sets is a -e pair, which beats it, and every other launch variable is
+    # removed with env -u, so nothing inherited can send the agent or its key somewhere else. The key
     # travels as a launch secret, never in tmux's environment. A folder named for a vendor whose settings cannot be used
     # stops the launch with the reason: starting Claude Code against Anthropic with no sign-in would only fail later,
     # in words about Claude.
@@ -1486,27 +1487,6 @@ if [ -z "$adopt" ]; then
           say "$SESSION: its provider account gave no launch settings; the agent was not started"
           exit 1
         fi
-        # Drop every inherited ANTHROPIC_* -e pair and launch secret (the forwarding loop and the env door can add them).
-        _kept=()
-        _i=0
-        _n=${#PANE_ENV[@]}
-        while [ "$_i" -lt "$_n" ]; do
-          if [ "${PANE_ENV[$_i]}" = "-e" ] && [ $((_i + 1)) -lt "$_n" ]; then
-            case "${PANE_ENV[$((_i + 1))]}" in
-              ANTHROPIC_*=*) ;;
-              *) _kept+=(-e "${PANE_ENV[$((_i + 1))]}") ;;
-            esac
-            _i=$((_i + 2))
-          else
-            _kept+=("${PANE_ENV[$_i]}")
-            _i=$((_i + 1))
-          fi
-        done
-        PANE_ENV=(${_kept[@]+"${_kept[@]}"})
-        for _cx_var in ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_MODEL ANTHROPIC_SMALL_FAST_MODEL \
-          ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_CUSTOM_HEADERS; do
-          remove_launch_secret "$_cx_var"
-        done
         # Set what the account names: the key as a launch secret, the rest as -e pairs (a -e pair beats tmux's global
         # environment). The model also goes to --model, since $MODEL would otherwise send a claude-* id to the vendor.
         _cx_unset=(ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS)
@@ -1520,7 +1500,7 @@ if [ -z "$adopt" ]; then
         # The variables the account does not set are removed outright, so a server-global value cannot reach the pane.
         COMPAT_PREFIX=(/usr/bin/env)
         for _cx_var in "${_cx_unset[@]}"; do COMPAT_PREFIX+=(-u "$_cx_var"); done
-        unset _cx_file _cx_rc _cx_why _cx_set _cx_pair _cx_var _cx_unset _kept _i _n
+        unset _cx_file _cx_rc _cx_why _cx_set _cx_pair _cx_var _cx_unset
         ;;
     esac
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
