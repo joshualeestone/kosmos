@@ -129,12 +129,15 @@ test('control, format and bidi characters never reach the world name, and a long
   assert.equal(rw.worldName('q' + mark.repeat(5) + 'oe', NOW), `Restored: q${mark}${mark}oe, ${DAY}`, 'stacked combining marks are capped at two');
 });
 
-test('a restore folder that cannot be made hides the new Kosmos again and says so', (t) => {
+test('a restore folder that cannot be made hides the new Kosmos again and says so', { skip: process.platform === 'win32' ? 'a read-only folder needs POSIX modes' : false }, (t) => {
   const base = fresh(t);
   const hidden = [];
+  let dir = null;
+  t.after(() => { if (dir) fs.chmodSync(dir, 0o755); });
   const r = rw.prepareRestoreWorld(base, {
     member: 'Ann', now: NOW,
-    createWorld: (b, n) => { const w = worlds.createWorld(b, n); fs.mkdirSync(path.join(worlds.worldBaseDir(b, w), rw.RESTORE_DIR)); return w; },
+    // A fresh world whose folder cannot be written: the restore folder inside it cannot be made.
+    createWorld: (b, n) => { const w = worlds.createWorld(b, n); dir = worlds.worldBaseDir(b, w); fs.chmodSync(dir, 0o555); return w; },
     hideWorld: (b, id) => { hidden.push(id); return worlds.hideWorld(b, id); },
   });
   assert.equal(r.ok, false);
