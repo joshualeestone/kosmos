@@ -2552,8 +2552,13 @@ function setProvider(name, provider, opts) {
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen') };
     if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used (${acct.endpointProblem}), so nothing was changed` };
     switchAccount = { ...acct, chosen: opts.pickedByPerson === true };
+    /* Review 3, corrected in review 7: the supervisor runs codex on a private runtime home (#4592) and writes the
+       folder-trust entry there on every launch, which is the one codex reads. This entry in the account folder only
+       mirrors the OpenAI arm, so a failure here never refuses the switch. */
+    try { trustCodexFolder(workerDir(clean), acct.dir, false); } catch { /* the launch writes the one codex reads */ }
   }
-  /* #7206: a vendor account, by name only, fail-closed like Qwen's: unknown or unusable refuses and changes nothing. */
+  /* #7206: a vendor account, by name only, fail-closed like Qwen's: unknown or unusable refuses and changes nothing.
+     (No codex trust entry: a vendor folder is Claude Code's CLAUDE_CONFIG_DIR, and claude's trust is written at launch.) */
   if (compatVendor && !DRY_RUN) {
     const compat = require('./anthropiccompat');
     const wantDir = path.resolve(opts.accountDir);
@@ -2561,10 +2566,6 @@ function setProvider(name, provider, opts) {
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal(compatVendor.name) };
     if (acct.accountProblem) return { outcome: OUTCOME.REFUSED, because: `that ${compatVendor.name} account cannot be used (${acct.accountProblem}), so nothing was changed` };
     switchAccount = { ...acct, isDefault: false, chosen: opts.pickedByPerson === true };
-    /* Review 3, corrected in review 7: the supervisor runs codex on a private runtime home (#4592) and writes the
-       folder-trust entry there on every launch, which is the one codex reads. This entry in the account folder only
-       mirrors the OpenAI arm, so a failure here never refuses the switch. */
-    try { trustCodexFolder(workerDir(clean), acct.dir, false); } catch { /* the launch writes the one codex reads */ }
   }
   if ((runner === 'gemini' || runner === 'grok') && !DRY_RUN) {
     const mod = runner === 'gemini' ? require('./geminiaccounts') : require('./grokaccounts');
@@ -2613,7 +2614,7 @@ function setProvider(name, provider, opts) {
   let qwenBefore = null;
   if (qwenSide && !DRY_RUN) {
     try { const p0 = store.readProfile(clean) || {}; qwenBefore = { provider: p0.provider || null, qwenAccount: p0.qwenAccount || null, vendorAccount: p0.vendorAccount || null }; } catch { qwenBefore = null; }
-    try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null }); }
+    try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, ...((compatVendor || fromVendor) ? { vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null } : {}) }); }
     catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which provider ${spoken} is on, so nothing was changed` }; }
   }
   /* ⚠️ `job.tmux` is kept (the recorded path is the working one); the model
@@ -2702,7 +2703,7 @@ function setProvider(name, provider, opts) {
     try { fs.renameSync(oldBrief, newBrief); }
     catch { /* plist is the launch truth; a same-dir rename of an existing source effectively cannot fail */ }
   }
-  try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null }); }   // #5977 review 5
+  try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, ...((compatVendor || fromVendor) ? { vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null } : {}) }); }   // #5977 review 5
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */

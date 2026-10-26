@@ -48,7 +48,8 @@ function home(files, prefix) {
 }
 function run(configDir, model, extraEnv) {
   const rec = nodePath.join(SANDBOX, `rec-${++n}.txt`);
-  const env = { PATH: process.env.PATH, HOME: SANDBOX, REC: rec, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: configDir, ...(extraEnv || {}) };
+  // Slice 1b: the launch obeys the switch (a kill switch); these runs have it ON unless a test says otherwise.
+  const env = { PATH: process.env.PATH, HOME: SANDBOX, REC: rec, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: configDir, AGENT_WORKFORCE_COMPAT_PROVIDERS: '1', ...(extraEnv || {}) };
   const r = spawnSync('/bin/bash', [SUP, `agent-d${n}`, SANDBOX, '/usr/bin/true', FAKE_TMUX, '', model || '', 'claude'],
     { env, encoding: 'utf8', timeout: 30000 });
   const argv = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
@@ -135,7 +136,7 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
       tm('set-environment', '-g', k, v);
     }
     const dir = home({ 'kosmos-vendor.json': JSON.stringify(ACCT) });
-    const env = { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: dir };
+    const env = { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: dir, AGENT_WORKFORCE_COMPAT_PROVIDERS: '1' };
     const r = spawnSync('/bin/bash', [SUP, session, SANDBOX, fake, wrap, '', 'claude-sonnet-5', 'claude'], { env, encoding: 'utf8', timeout: 30000 });
     for (let i = 0; i < 100 && !fs.existsSync(out); i += 1) await new Promise((res) => setTimeout(res, 100));
     assert.ok(fs.existsSync(out), 'the pane never ran: ' + (r.stdout || '') + (r.stderr || ''));
@@ -157,6 +158,14 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
     // tm() passes no TMUX_TMPDIR, so the server's socket is always under /tmp (review 5).
     try { fs.rmSync(nodePath.join('/tmp', `tmux-${process.getuid()}`, sock), { force: true }); } catch { /* best effort */ }
   }
+});
+
+test('1b review 2: with the switch OFF a DeepSeek agent is not started (a kill switch), and its key goes nowhere', () => {
+  const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), '', { AGENT_WORKFORCE_COMPAT_PROVIDERS: '0' });
+  assert.notEqual(r.code, 0);
+  assert.equal(/new-session/.test(r.argv), false, 'a DeepSeek agent was started with the switch off');
+  assert.match(r.out, /DeepSeek is not available in Kosmos yet, so this agent was not started on it/);
+  assert.equal((r.argv + r.secrets + r.out).includes(KEY), false);
 });
 
 test('CONTROL: a Claude home launches exactly as before: its own model, no vendor address, no env prefix', () => {

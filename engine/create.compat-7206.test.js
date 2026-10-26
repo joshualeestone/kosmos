@@ -239,3 +239,26 @@ test('the setup guide masks a DeepSeek account\'s key by value', () => {
   const held = require('./knownsecrets').collect({ home: HOME });
   assert.ok(held.includes('sk-deepseek-0123456789abcdef'), 'the DeepSeek key is not among the known secrets');
 });
+
+test('1b review 2: a switch onto Qwen still writes its codex trust entry; a switch onto DeepSeek writes no codex config', (t) => {
+  // The Qwen account block runs only out of dry-run (earlier tests' setRunner(null) turns dry-run back on).
+  create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
+  t.after(() => create.setRunner(null));
+  const qwen = require('./qwenaccounts');
+  const qdir = nodePath.join(HOME, qwen.DIR_PREFIX + 'trust7206');
+  qwen.storeEndpoint(qdir, { baseUrl: 'http://localhost:11434/v1', model: 'kosmos-qwen2.5-7b-16k:latest', contextWindow: 16384 });
+  const toQwen = born('c7206-trust-qwen', null, 'anthropic');
+  const codexBin = nodePath.join(BIN, 'codex');
+  fs.writeFileSync(codexBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const q = create.setProvider(toQwen, 'alibaba', { ...BINS, codexBin, accountDir: qdir, platform: 'darwin' });
+  assert.equal(q.outcome, 'created', q.because);
+  const qcfg = nodePath.join(qdir, 'config.toml');
+  assert.ok(fs.existsSync(qcfg) && fs.readFileSync(qcfg, 'utf8').includes(fs.realpathSync(create.workerDir(toQwen)))   /* the trust file holds the real path (/private/var) */, 'the Qwen switch lost its codex trust entry');
+
+  const DS3 = nodePath.join(HOME, '.kosmos-deepseek-trust');
+  compat.storeAccount(DS3, { vendor: 'deepseek', model: 'deepseek-chat', key: 'sk-deepseek-trust-0123456789' });
+  const toDs = born('c7206-trust-ds', null, 'anthropic');
+  const d = withSwitch(true, () => create.setProvider(toDs, 'deepseek', { ...BINS, accountDir: DS3, platform: 'darwin' }));
+  assert.equal(d.outcome, 'created', d.because);
+  assert.equal(fs.existsSync(nodePath.join(DS3, 'config.toml')), false, 'a codex config was written into a DeepSeek (Claude Code) folder');
+});
