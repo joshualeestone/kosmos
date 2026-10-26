@@ -74,3 +74,17 @@ that line (another vendor is refused first as unknown); a mutant removing it sur
 
 ## Not in this slice
 GLM and MiniMax rows (slices 2, 3). Usage or cost reading for vendor accounts (none exists for Qwen either).
+
+## Slice 1a review 1 (2026-10-26 14:0x)
+No blockers. FIXED: the add route now reclaims an abandoned claim (ported from the Qwen add); a key with a character
+a header cannot carry is refused; the launch also removes CLAUDE_CODE_USE_BEDROCK/VERTEX/FOUNDRY and
+CLAUDE_CODE_OAUTH_TOKEN and sets CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1; the key's temp file is removed by the
+EXIT trap; the inherited-variable test now asserts every set variable is a -e pair and every other is removed, and
+says what the fake tmux cannot show; the 404 test uses a real Claude folder. Each fix red-checked with a mutant.
+Accepted, not changed:
+- redirect:'manual' has no test (every test uses setFetcher). Defence in depth: fetch drops Authorization on a
+  cross-origin redirect anyway.
+- If the launch-secret handoff cannot be built, the supervisor says so and launches without the key (the vendor then
+  refuses the agent's first request). No leak; the same behaviour every other launch secret has.
+- keyTail (the key's last four characters) is in /api/accounts, as for every other key account.
+- Proxies (HTTPS_PROXY) are left alone: a person's proxy is theirs to set.
