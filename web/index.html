@@ -28507,7 +28507,7 @@ function accountQualifiers(list) {
         const prov = !providerDistinguishes ? ''
           : (provId === 'openai' ? 'OpenAI'
             : (provId === 'anthropic' ? 'Claude'
-              : (provId === 'google' ? 'Gemini' : (provId === 'xai' ? 'Grok' : (provId === 'alibaba' ? 'Qwen' : '')))));  // #3566, #5977
+              : (provId === 'google' ? 'Gemini' : (provId === 'xai' ? 'Grok' : (provId === 'alibaba' ? 'Qwen' : (provId === 'deepseek' ? 'DeepSeek' : ''))))));  // #3566, #5977, #7206
         qual = (prov && !takenAlready(prov)) ? prov : distinctly(dir);
       }
     }
@@ -66520,6 +66520,7 @@ function pjTeamMap(p, board, redHere) {
     const runner = m.runner || c.runner;
     const account = m.account || c.account;
     if (runner === 'codex' && account && account.provider === 'alibaba') return 'Qwen';
+    if (account && account.provider === 'deepseek') return 'DeepSeek';   // #7206: Claude Code on a DeepSeek account is never "Claude"
     return WV_PROVIDER[runner] || '';
   };
   // A member the board cannot see says so rather than a state it does not know (as its row does).
@@ -67622,6 +67623,7 @@ function pjSortByChain(list) {
 const PJ_TALLY = [
   ['Claude', 'claude', 'Claude'], ['OpenAI', 'openai', 'GPT'], ['Gemini', 'google', 'Gemini'],
   ['Gemini (Google subscription)', 'antigravity', 'Gemini'], ['Grok', 'xai', 'Grok'], ['Meta Muse', 'meta', 'Meta'], ['Qwen', 'alibaba', 'Qwen'],
+  ['DeepSeek', 'deepseek', 'DeepSeek'],   // #7206
 ];
 const PJ_TALLY_MARKS = new Map();   // pick -> the mark's HTML (cloned from the first-run screen's marks, which stay in the page)
 function pjProviderTally(agents) {

@@ -815,6 +815,19 @@ test('#2612: a case-variant provider id still RESOLVES where the group does span
     + 'to a name, so the row fell to its path: the two normalisations have drifted apart');
 });
 
+/* #7206: a DeepSeek row is named by its key tail ("API key ending 1234"), as Gemini's and Grok's are, so a DeepSeek
+   key and a Grok key that end alike share a group that spans providers. The DeepSeek row is then qualified by
+   DeepSeek's name (the ternary used to fall through to '' for it, so it was told apart by its folder path). The Grok
+   row beside it is the control: the same group, the arm that already resolved. Rows shaped as GET /api/accounts gives
+   them (provider, keyTail, dir, no email). */
+test('#7206: a DeepSeek key row in a cross-provider group is qualified as DeepSeek', () => {
+  const grok = { provider: 'xai', keyTail: '1234', dir: '/Users/x/.grok', label: null, isDefault: false };
+  const deepseek = { provider: 'deepseek', keyTail: '1234', dir: '/Users/x/.kosmos-deepseek-work', label: null, isDefault: false };
+  const q = qualifiers([grok, deepseek]);
+  assert.equal(q.get(grok.dir), 'Grok', 'CONTROL: the two rows are not one cross-provider group, or the Grok arm broke');
+  assert.equal(q.get(deepseek.dir), 'DeepSeek', 'a DeepSeek row fell to its folder path: ' + JSON.stringify([...q]));
+});
+
 /* 🔑 AND THE MISSING PROVIDER, which is the same class as the case-variant one
    arm above and was left open when that one was closed. A row with no
    `provider` must not vote on whether the group spans providers: an absent

@@ -57,6 +57,14 @@ test('the provider map: a vendor runs on claude and is named by the vendor', () 
   assert.equal(create.providerLabel('constructor'), 'Anthropic', 'an inherited name is not a vendor');
 });
 
+test('the org rollup sends a DeepSeek agent as deepseek, never as anthropic or as no provider', () => {
+  const rollup = require('./orgrollup');
+  const src = rollup.defaultSources();
+  assert.equal(rollup.KNOWN_PROVIDERS.has('deepseek'), true);
+  assert.equal(src.providerOf('claude', DS), 'deepseek', 'a DeepSeek agent went to the coordinator as something else');
+  assert.equal(src.providerOf('claude', CL), 'anthropic', 'CONTROL: a Claude agent beside it');
+});
+
 test('jobProvider: a claude job on a vendor folder is that vendor; a Claude folder and a codex job are unchanged', () => {
   assert.equal(create.jobProvider({ runner: 'claude', configDir: DS_HOME }), 'deepseek');
   // A vendor folder whose account file went missing is still the vendor's (it fails closed at launch).
