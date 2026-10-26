@@ -56,6 +56,9 @@ old task 1's conversation (a person's words included), and its room showed the o
 - roomhold: forgotten when the project is removed (engine/remove.js).
 - attachments: fetched only by a random id named in a post row; hidden posts name nothing.
 - activity: per agent, not per project.
+- outbox (an agent's room post kept by its client while Kosmos was closed): drained later under the project id it
+  named, so a post kept across a delete-and-remake lands in the new room, stamped then. They are that agent's own
+  unsent words, not a deleted project's history; not changed.
 - filewriters (which agent last changed a project file): a writer is named only for a file change within minutes of
   the record, so an old project's names cannot attach to a re-made project's files in practice; not changed.
 - assigner-asked.json (when each project was last asked about its goal, and a hash of what it looked like): timing

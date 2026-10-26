@@ -469,7 +469,7 @@ async function work(projectId, task, { now = Date.now() } = {}) {
       if (kept && kept.closedAt === closedIso && (kept.version === VERSION || keptStillRight(kept))) return kept;
     } catch { /* none kept yet */ }
   }
-  const stampsKnown = require('./projectborn').snapshot().ok;   // #7185: taken with the read, so the keep below is by it
+  const stampsKnown = require('./projectborn').snapshot().ok;   // #7185: before the read, and checked again at the keep
   const events = taskchat.read(projectId, task.number);
   const holds = holdsFrom(events, closedAt);
   const create = require('./create');
@@ -491,7 +491,7 @@ async function work(projectId, task, { now = Date.now() } = {}) {
   /* Kept only once the close has settled (a transcript can still be written for a few seconds after it), and only when
      every transcript was read through: a partial read is shown, then worked out again next time. */
   /* #7185: and never from a read made while the projects file could not be read (the transcript then reads as empty). */
-  if (keep && now - closedAt >= SETTLE_MS && agents.every((a) => a.complete !== false) && stampsKnown) {
+  if (keep && now - closedAt >= SETTLE_MS && agents.every((a) => a.complete !== false) && stampsKnown && require('./projectborn').snapshot().ok) {
     try { fs.mkdirSync(path.dirname(keep), { recursive: true }); fs.writeFileSync(keep, JSON.stringify(receipt)); }
     catch { /* worked out again next time */ }
   }
