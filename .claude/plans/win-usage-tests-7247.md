@@ -137,3 +137,10 @@ form could hide a schtasks call from it (its header lists the ones known). Kosmo
   matcher the new test fails); bash -O/+O and --rcfile/--init-file are read past their values; -c is matched
   case-sensitively, so bash -C (noclobber) is not taken for it. This file alone: 19/19; with windows-tests-1777 under
   the guard: 42/42.
+- Round 8 (last; the fleet rule stops a loop at 8 rounds unless a BLOCKER is open): no BLOCKER. Reviewer re-ran this
+  file 19/19 and ten existing win32 test files under the preload (green, zero refusals), and checked every refusal path
+  ends ENOENT without hanging. Two WARNINGs and three NITs, all in the matcher, none a call the code makes today, are
+  DEFERRED to #7270: prefixes that end the scan (NAME=value, @, if exist, nohup/exec/time/timeout, `>` with no space,
+  backticks) and launcher args joined without their quoting (refuses `cmd /c echo "a & schtasks"` and heredoc bodies).
+  NIT taken into the PR body: run-tests.sh's Windows block is proven only under stubbed uname until #7257.
+  Converged: no (stopped by the round cap; round 8 had no BLOCKER).
