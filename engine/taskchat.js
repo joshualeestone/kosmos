@@ -145,7 +145,10 @@ function record(projectId, number, event) {
  * nothing rather than an error, the same rule the record itself follows. Each
  * returned row is shape-validated (a string `at` and a string `kind`); a
  * malformed or partially-written line is skipped, not fatal. A row written by an
- * earlier project of the same name is left out (#7185, engine/projectborn.js).
+ * earlier project of the same name is left out (#7185, engine/projectborn.js); while
+ * the projects file cannot be read every row is, so this answers [] then, the same as
+ * "no transcript" (a receipt is never kept from such a read; other readers show the
+ * task as quiet until the file reads again).
  */
 function read(projectId, number) {
   const file = taskChatFile(projectId, number);
