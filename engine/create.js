@@ -4655,7 +4655,8 @@ async function accountConnectable({ provider, accountDir } = {}) {
     return { ok: true };
   }
   /* #7206: a vendor account (DeepSeek), checked the way Qwen's is: its own live check (the vendor's model list, free),
-     never the Claude sign-in probe. Only while the switch is on: off, createAgentInner refuses it right after. */
+     never the Claude sign-in probe. Only while the switch is on: off, createAgentInner refuses it right after. The
+     switch is read for this computer's own platform (no caller passes one; only a test's opts.platform can differ). */
   { const compat = require('./anthropiccompat'); const v = compat.vendorOf(prov);
     if (v) {
       if (!dir || !compat.enabled()) return { ok: true };
