@@ -7903,6 +7903,13 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
   border: 1px solid var(--k-rule); padding: 3px 8px; text-align: left; vertical-align: top; }
 .dm-b .mdtable th, .pj-msg-text .mdtable th, .msg-b .mdtable th, .tkdetail .mdtable th {
   font-weight: 700; background: var(--k-sunk, rgba(20,22,26,.06)); }
+/* kosmos#7214 (Josh: a 64-character sha256 pushed the table wide): a code span in a cell (a hash, a path) may break
+   anywhere, so it wraps inside its column instead of widening the table. Code spans only: plain cell text keeps
+   word breaks, so a column of words is never crushed to a letter per line (#718). */
+/* Only a long code span (pjRoomPara marks it .mdc-long: a hash, a path, a file name) may break anywhere, in a column
+   no narrower than 10ch; short names and flags size to their words and a table of them scrolls (#718). */
+#pj-room .mdtable .mdc-long { overflow-wrap: anywhere; }
+#pj-room .mdtable td:has(.mdc-long) { min-width: 10ch; }   /* not only a direct child: a bolded hash too */
 .dm-b .mdc, .pj-msg-text .mdc, .msg-b .mdc, .tkdetail .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .85em; background: var(--k-sunk, rgba(20,22,26,.08)); padding: .05em .35em; border-radius: 5px; }
 .dm-b .mdcb, .pj-msg-text .mdcb, .msg-b .mdcb, .tkdetail .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;
@@ -74948,6 +74955,45 @@ function pjReceiptSentence(outcomes, p) {
    blockquote asserts "these are not my words", and that is never inferred.
    A tag this code cannot trust (offsets outside the text, overlapping, no
    source row) is not "probably a quote", it is the flat paragraph. */
+/* kosmos#7214: a room post's paragraphs. A <p> cannot hold a block: the parser closes it where a <table> starts, which
+   left the table outside its scroll wrapper (.mdtablewrap) and ran it past the bubble's edge. So the body is built as
+   the browser would show it, on purpose: each run of words is a <p>, and each block (a table's wrapper, a code block,
+   a code block's path) sits between them, where a code block already landed. A body with no block is one <p>. */
+const PJ_ROOM_BLOCK = /^(address|article|aside|blockquote|center|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|li|listing|main|menu|nav|ol|p|plaintext|pre|search|section|summary|table|ul|xmp)$/i;
+function pjRoomPara(html) {
+  if (typeof document === 'undefined') return '<p>' + html + '</p>';
+  const t = document.createElement('template');
+  t.innerHTML = html;   // a template does not close a <p> at a block: the structure stays as pjBody wrote it
+  const nodes = t.content && t.content.childNodes ? [...t.content.childNodes] : [];
+  // Unit tests run this without a DOM (web.quoteb stubs document): there it is one <p>, and only the browser check
+  // (render-richtext-room-2239) can see the split. That check is the guard.
+  const isBlock = (n) => n.nodeType === 1 && (PJ_ROOM_BLOCK.test(n.tagName) || n.classList.contains('mdtablewrap'));
+  if (!nodes.some(isBlock)) return '<p>' + html + '</p>';
+  // A long code span in a table (a hash, a path) may wrap; a short one keeps its words (see the #pj-room .mdc-long rule).
+  t.content.querySelectorAll('.mdtable .mdc').forEach((c) => { if (c.textContent.length > 16) c.classList.add('mdc-long'); });
+  // The parser drops one newline right after <pre>, so a code block that starts with a blank line keeps it only if
+  // the serialised form carries an extra one for the second parse to eat.
+  t.content.querySelectorAll('pre').forEach((pre) => {
+    const first = pre.firstChild;
+    if (first && first.nodeType === 3 && first.data.startsWith('\n')) first.data = '\n' + first.data;
+  });
+  const parts = [];   // { block: true, html } or { block: false, run: <p> }
+  let run = document.createElement('p');
+  const close = () => { if (run.childNodes.length) parts.push({ block: false, run }); run = document.createElement('p'); };
+  for (const n of nodes) {
+    if (isBlock(n)) { close(); parts.push({ block: true, html: n.outerHTML }); } else run.appendChild(n);
+  }
+  close();
+  // A run with words or anything but line breaks (a rule, an image) is a paragraph. A run of only line breaks between
+  // two blocks stays as it was, raw, so two tables stack with their blank line, as before; at either end it goes.
+  const real = (r) => !!(r.textContent.trim() || r.querySelector(':not(br)'));
+  return parts.map((x, k) => {
+    if (x.block) return x.html;
+    if (real(x.run)) return x.run.outerHTML;
+    const between = k > 0 && k < parts.length - 1;
+    return between ? x.run.innerHTML : '';
+  }).join('');
+}
 function pjRoomBody(m, p) {
   let words = pjWords(m);
   if (!words) return '';
@@ -74991,7 +75037,7 @@ function pjRoomBody(m, p) {
   if (m && (Array.isArray(m.mentioned) || m.external === true)) {
     agentNames.addressed = new Set(Array.isArray(m.mentioned) ? m.mentioned : []);
   }
-  const flat = '<p>' + pjBody(words, PJ_DOC_NAMES, agentNames) + '</p>';
+  const flat = pjRoomPara(pjBody(words, PJ_DOC_NAMES, agentNames));
   const qs = Array.isArray(quotes) ? quotes.filter((q) => q && typeof q === 'object'
     && typeof q.of === 'string' && q.of
     && Number.isInteger(q.start) && Number.isInteger(q.end)
@@ -75003,7 +75049,7 @@ function pjRoomBody(m, p) {
      the whitespace at its edges goes, since that only separated it from the
      quote, so no empty paragraph or hanging indent is drawn beside the bar. */
   // #3679: trim(), not /\s+$/, which backtracks on a long space run the store now keeps.
-  const prose = (t) => { const k = t.trim(); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES, agentNames) + '</p>' : ''; };
+  const prose = (t) => { const k = t.trim(); return k ? pjRoomPara(pjBody(k, PJ_DOC_NAMES, agentNames)) : ''; };
   let out = '';
   let at = 0;
   for (const q of qs) {
