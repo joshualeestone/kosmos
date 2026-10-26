@@ -34,7 +34,10 @@ function weeklyNow(row, nowMs) {
 /* A five-hour reading that is current: a number, with its reset still ahead. */
 function fiveHourNow(row, nowMs) {
   const f = row && row.fiveHour;
-  return !!f && Number.isFinite(f.usedPct) && Number.isFinite(f.resetsAt) && f.resetsAt > nowMs ? f : null;
+  if (!f || !Number.isFinite(f.usedPct)) return null;
+  /* Slice 3 review 9: a reading with no reset time is current (the usage record keeps one only while it is fresh), so a
+     99% window with no reset still keeps a target out, rather than failing open. */
+  return f.resetsAt === null || (Number.isFinite(f.resetsAt) && f.resetsAt > nowMs) ? f : null;
 }
 
 /* The login has stopped working: the live check's own two confirmed states. */
@@ -213,13 +216,17 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs }) {
     if (!a || typeof a.dir !== 'string' || !a.dir || a.apiKey) continue;
     let rec = null;
     try { rec = readUsage(a.dir, nowMs); } catch { rec = null; }
+    /* Review 9: a record written for another login (the folder signed in again since) says nothing about this one. */
+    if (rec && typeof rec.email === 'string' && typeof a.email === 'string' && rec.email.toLowerCase() !== a.email.toLowerCase()) rec = null;
     const badge = rec && rec.state === 'ok' ? 'working' : (rec && LOGIN_REFUSED.test(String(rec.state)) ? 'rejected' : null);
     let here = { names: [], complete: false };
     try { here = agentsOn(a.dir, a.isDefault === true) || here; } catch { here = { names: [], complete: false }; }
     out.push({ provider: 'anthropic', dir: a.dir, label: a.label || null, isDefault: a.isDefault === true,
       email: a.email || null, organization: a.organization || null, memoryShared: a.memoryShared === true, apiKey: false,
-      connection: { badge }, weekly: rec && rec.state === 'ok' ? ms(rec.weekly) : null,
-      fiveHour: rec && rec.state === 'ok' ? ms(rec.fiveHour) : null, agentsHere: here});
+      /* Review 9: the figures whatever the latest state. readUsage has already aged them out (30 minutes), and slice 1
+         keeps the last good ones through a failed read on purpose, so one network blip does not empty the decision. The
+         badge alone says whether the latest read worked, and only a 'working' one is ever a target. */
+      connection: { badge }, weekly: rec ? ms(rec.weekly) : null, fiveHour: rec ? ms(rec.fiveHour) : null, agentsHere: here });
   }
   return out;
 }

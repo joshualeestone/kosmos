@@ -28,9 +28,12 @@ const CLOCK_SLACK_MS = 60 * 1000;   // a record line stamped further ahead than 
 /* AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF=1 is the operator's brake on the sweep (the setting is the person's). */
 function sweepOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF !== '1'; }
 
+/* Review 9: only a record that does not exist yet is an empty one. Any other read failure THROWS, so create() leaves the
+   sweep off and append() refuses to write, rather than either taking a record it could not read for an empty one and
+   replacing 500 lines of history with one. */
 function readLines(file) {
   let text = '';
-  try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
+  try { text = fs.readFileSync(file, 'utf8'); } catch (err) { if (err && err.code === 'ENOENT') return []; throw err; }
   const out = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
@@ -59,8 +62,9 @@ function append(file, entry) {
 
 const objects = (x) => (Array.isArray(x) ? x : []).filter((y) => y && typeof y === 'object');   // an odd line must not throw
 
-/* The newest RECENT decisions Settings draws, newest first: only those with a move in them (one with only an account at
-   risk and nothing to move draws no line, so it is not counted either). */
+/* The newest RECENT decisions Settings draws, newest first: only those with a move in them. A decision with an account at
+   risk and nothing that could move (none idle, or no account able to take them) is recorded but not drawn: the record
+   is of what Kosmos would have moved. Throws when the record cannot be read (the route answers it as empty). */
 function recent(file, n = RECENT) {
   return readLines(file).filter((l) => l.kind === 'decision' && objects(l.moves).length).slice(-n).reverse();
 }

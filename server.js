@@ -2881,18 +2881,6 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
   return { usedBy, complete };
 }
 
-/* #6174, for the account-move route: the restart, with the agent's tmux session start read before it and the note
-   written once the outcome is known. Only a PARTIAL outcome with the SAME session still running (same start) is noted:
-   the window could not be closed, so the agent runs on the account it was moved from until it restarts. Any other
-   outcome clears a note an earlier move wrote, including a REFUSED restart (nothing confirmed as ours, or tmux could
-   not be read: the mark goes early, the safe direction). Not marked, by decision: launchd or systemd refusing to stop
-   the old job after the window closed. The session running right after cannot be told apart from a genuine relaunch
-   onto the new account, which would then be marked wrongly with nothing to clear it, so that case stays unmarked.
-   The session is found as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so
-   a legacy session (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. Both
-   session-start reads are fresh (no cache), so a session restarted moments ago is read as it is. The note keeps the account the
-   agent ran on before its FIRST partial move (`from`), so moving it back there is not marked. `deps` (restart,
-   sessionOf, roster, startedAt) is for tests. Never throws: the note is not the move. */
 /* kosmos#7152 slice 3: whether the auto-balance sweep records on this board: live execution, slice 1's usage reading
    switched on and allowed (never under a test or a dry run), no brake, and its record read at start. The sweep and the
    page both ask this, so the page never says it records where it does not. */
@@ -2931,6 +2919,18 @@ function autobalanceSweepDeps() {
   };
 }
 
+/* #6174, for the account-move route: the restart, with the agent's tmux session start read before it and the note
+   written once the outcome is known. Only a PARTIAL outcome with the SAME session still running (same start) is noted:
+   the window could not be closed, so the agent runs on the account it was moved from until it restarts. Any other
+   outcome clears a note an earlier move wrote, including a REFUSED restart (nothing confirmed as ours, or tmux could
+   not be read: the mark goes early, the safe direction). Not marked, by decision: launchd or systemd refusing to stop
+   the old job after the window closed. The session running right after cannot be told apart from a genuine relaunch
+   onto the new account, which would then be marked wrongly with nothing to clear it, so that case stays unmarked.
+   The session is found as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so
+   a legacy session (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. Both
+   session-start reads are fresh (no cache), so a session restarted moments ago is read as it is. The note keeps the account the
+   agent ran on before its FIRST partial move (`from`), so moving it back there is not marked. `deps` (restart,
+   sessionOf, roster, startedAt) is for tests. Never throws: the note is not the move. */
 function moveFromDir(rawName) {   // the account folder the agent is on before the move (null: the default account)
   try { return create.readJob(create.cleanName(rawName)).configDir || null; } catch { return null; }
 }
@@ -26175,16 +26175,22 @@ function start(port = PORT) {
       catch (err) { process.stdout.write(`autobalance-sweep: off, its record could not be read (${String((err && err.message) || err)})\n`); }
       let abSweepBusy = 0;   // when the running tick started, or 0
       const abSweepTick = () => {
-        if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a stale busy flag (see slice 1's review 12)
-        if (!abSweep || !autobalanceSweepRuns()) return;
-        const started = Date.now();
-        abSweepBusy = started;
-        abSweep.tick(autobalanceSweepDeps())
-          .then((r) => { if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n'); })
-          .catch(() => { /* best-effort, like the sweeps above */ })
-          .finally(() => { if (abSweepBusy === started) abSweepBusy = 0; });
+        /* Review 9: nothing here may throw out of a timer into the board, and a throw must not leave the busy flag set. */
+        try {
+          if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a stale busy flag (see slice 1's review 12)
+          if (!abSweep || !autobalanceSweepRuns()) return;
+          const started = Date.now();
+          abSweepBusy = started;
+          let ticking;
+          try { ticking = abSweep.tick(autobalanceSweepDeps()); } catch (err) { ticking = Promise.reject(err); }
+          ticking
+            .then((r) => { if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n'); })
+            .catch(() => { /* best-effort, like the sweeps above */ })
+            .finally(() => { if (abSweepBusy === started) abSweepBusy = 0; });
+        } catch { abSweepBusy = 0; }
       };
-      const abSweepTimer = setInterval(abSweepTick, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) : usagePoll.POLL_MS); // the env is the test seam only
+      const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : usagePoll.POLL_MS;   // the env is the test seam only, floored at a second (review 9)
+      const abSweepTimer = setInterval(abSweepTick, abSweepMs);
       if (abSweepTimer && typeof abSweepTimer.unref === 'function') abSweepTimer.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
