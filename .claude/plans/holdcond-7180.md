@@ -38,6 +38,10 @@ to the hold as to any other: an owner that keeps working in the room is told aga
 Also: an unmet condition parks the hold with no ceiling. That is the point of the card (no asking while it is unmet),
 and the list and instructions show what it waits for. A task waited for that never closes keeps its waiter parked.
 
+## Known, not changed
+- A hold whose history row was lost (taskchat.record is best-effort) has no known hold time, so neither the met line nor
+  the posts line is told about it: the same skip the posts rule already makes (holdstale.holdSet). Fixing it is for both.
+
 ## Not in this slice
 - The screen (web/index.html) still shows a plain "on hold" and cannot set a condition; the condition is in the CLI,
   instructions and activity. A follow-up for the screen if a person asks why a hold is silent.
