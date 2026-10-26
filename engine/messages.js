@@ -2316,6 +2316,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* #4580: the fold runs BEFORE the which-room ask below: a retry of a post that was already delivered must not be
      held back to ask which room it meant, which would read as "not posted". */
   const rec = record();
+  /* #7185: with the projects file unreadable the room's rows are left out (record() says ok:false), so the fold, the
+     reply check and the valve below would all read an empty room. Say so rather than post on that. */
+  if (!rec.ok) return { state: chat.DELIVERY.COULD_NOT, because: 'we could not read this room right now, so nothing was posted; try again in a moment', id: null, at, outcomes: null };
   const log = rec.rows;
   /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
      refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
@@ -3821,6 +3824,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     }
   }
   const rec = record();
+  if (!rec.ok) return { ok: false, because: 'we could not read this room right now, so the reaction was not changed' };   // #7185
   const rows = rec.rows;
   const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };
@@ -4033,10 +4037,11 @@ function roomHeld(project, now, roomRecipients) {
   if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
   const memo = HELD_MEMO.get(projectId);
   const size = Number.isInteger(roomRecipients) && roomRecipients > 0 ? roomRecipients : null;
-  if (memo && memo.rows === rec.rows.length && memo.size === size && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
+  const stamp = require('./projectborn').snapshot().stamp;   // #7185: the rows are filtered by it, so the count alone is not the rows
+  if (memo && memo.rows === rec.rows.length && memo.stamp === stamp && memo.size === size && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
   const out = roomHeldRead(projectId, at, lim, rec.rows, undefined, undefined, size);
   if (HELD_MEMO.size > 200) HELD_MEMO.clear();
-  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, size, out });
+  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, stamp, size, out });
   return out;
 }
 /* `charge`: the size of the post asking (#6420, a refused post's own recipients); without it, the latest post's.

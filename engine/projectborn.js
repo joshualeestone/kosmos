@@ -20,6 +20,7 @@ const fs = require('node:fs');
 
 let CACHE = null;
 const NO_PROJECTS = { ok: true, born: new Map() };   // one object, so a caller's work against it is kept
+const UNREADABLE = { ok: false };                     // the same, while the projects file cannot be read
 
 function births() {
   const projects = require('./projects');
@@ -27,14 +28,14 @@ function births() {
   try {
     st = fs.statSync(projects.file());
   } catch (err) {
-    return err && err.code === 'ENOENT' ? NO_PROJECTS : { ok: false };
+    return err && err.code === 'ENOENT' ? NO_PROJECTS : UNREADABLE;
   }
   if (CACHE && CACHE.ino === st.ino && CACHE.size === st.size && CACHE.mtimeMs === st.mtimeMs && CACHE.ctimeMs === st.ctimeMs) return CACHE.value;
   let all;
   try {
     all = projects.readAll();
   } catch {
-    return { ok: false };
+    return UNREADABLE;
   }
   const born = new Map();
   for (const p of Array.isArray(all) ? all : []) {
