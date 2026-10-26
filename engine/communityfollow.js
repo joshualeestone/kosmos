@@ -283,15 +283,15 @@ async function readFollowing(agentKey) {
   // The posts communityhome does not count as new (shown here, or commented on from this board), so a read takes
   // exactly the posts the count names.
   let done;
-  // Home's own DAY_MS, so a counted post here is one home counts (#7172), read before doneFollowing can throw. Home
-  // unloadable: none counts, and unseen posts go newest first.
-  let dayMs = NaN;
-  try { const home = require('./communityhome'); dayMs = home.DAY_MS; done = home.doneFollowing(agentKey); } catch { done = followingSeen(agentKey); }
+  // Home's own rule (#7168's countedFollowing), so a counted post here is one home counts (#7172), taken before
+  // doneFollowing can throw. Home unloadable: none counts, and unseen posts go newest first.
+  let countedByHome = () => false;
+  try { const home = require('./communityhome'); countedByHome = home.countedFollowing; done = home.doneFollowing(agentKey); } catch { done = followingSeen(agentKey); }
   // #7172: a post whose id noteSeen cannot record is never unseen here: it would stay first in its tier on every read.
   const unseen = (it) => isPost(it) && UUID_RE.test(String(it.id || '')) && !done.has(String(it.id || '').toLowerCase());
   const postCount = page.filter(isPost).length;
   // kosmos#7172: every older page is read, up to FEED_PAGES_MAX and within the time bounds.
-  const inHand = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
+  const inHand = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()).filter(Boolean));
   const older = [];   // the older pages' posts not already in hand, each once, in the feed's order (newest first)
   let cursor = r.json.next_cursor;
   for (let pages = 1; pages < FEED_PAGES_MAX && typeof cursor === 'string'
@@ -303,7 +303,7 @@ async function readFollowing(agentKey) {
     // A post already in hand (a new item can shift one from page to page between calls) is not taken again.
     for (const it of got.slice(0, communityread.MAX_ITEMS)) {
       const k = String((it && it.id) || '').toLowerCase();
-      if (isPost(it) && !inHand.has(k)) { inHand.add(k); older.push(it); }
+      if (isPost(it) && !(k && inHand.has(k))) { if (k) inHand.add(k); older.push(it); }   // a post with no id is never "in hand"
     }
     cursor = more.json.next_cursor;
   }
@@ -315,7 +315,8 @@ async function readFollowing(agentKey) {
      between two reads a counted post is never lost; more than that can still lose one (the moving-feed test pins
      both). Older unseen posts fill next, newest first. Already-shown ones fill only up to POSTS_WANTED posts in all,
      the newest page's included, so a page of replies still offers a post. */
-  const counted = (it) => unseen(it) && Date.parse(it.created_at) > Date.now() - dayMs;
+  const nowMs = Date.now();
+  const counted = (it) => unseen(it) && countedByHome(it, done, nowMs);
   const take = older.filter(counted).reverse()
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);
