@@ -31,7 +31,6 @@ process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-compat-hidden-launch-');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(SANDBOX, '.gemini');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
-delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;   // the default: OFF
 
 const compat = require('./engine/anthropiccompat');
 const runners = require('./engine/runners');
@@ -62,7 +61,7 @@ function vendorAsked() {
   compat.setFetcher(async (url) => { urls.push(url); return { status: 200, body: { data: [{ id: 'deepseek-chat' }] } }; });
   return urls;
 }
-function withSwitch(on) { if (on) process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1'; else delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; }
+function withSwitch(on) { require('./test-support/compat-switch').setAt(SANDBOX, on); }   // the marker in this test's data folder
 const bodyText = async (r) => { const t = await r.text(); try { return JSON.parse(t); } catch { return { raw: t }; } };
 
 async function everyRoute() {

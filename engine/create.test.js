@@ -7085,15 +7085,15 @@ test('#7206: createAgent on DeepSeek is refused while the switch is off, and run
   const compat = require('./anthropiccompat');
   const acct = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.kosmos-deepseek-create-test');
   compat.storeAccount(acct, { vendor: 'deepseek', model: 'deepseek-chat', key: 'sk-deepseek-create-0123456789' });
-  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  const sw = require('../test-support/compat-switch');
   try {
-    delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+    sw.set(false);
     const off = create.createAgent({ ...BINS, name: 'ds-create-off', role: 'pm', provider: 'deepseek', account: acct, platform: 'darwin' });
     assert.equal(off.outcome, create.OUTCOME.REFUSED);
     assert.equal(off.because, 'DeepSeek is not available in Kosmos yet');
     assert.equal(create.readJob('ds-create-off'), null, 'the switch is off and a job was written');
 
-    process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
+    sw.set(true);
     const made = create.createAgent({ ...BINS, name: 'ds-create', role: 'pm', provider: 'deepseek', account: acct, platform: 'darwin' });
     assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
     assert.equal(create.readJob('ds-create').runner, 'claude');
@@ -7111,7 +7111,7 @@ test('#7206: createAgent on DeepSeek is refused while the switch is off, and run
     for (const n of ['ds-create-none', 'ds-create-unknown', 'ds-create-model']) {
       assert.equal(create.readJob(n), null, `${n}: nothing was written for a refused create`);
     }
-  } finally { if (prev === undefined) delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; else process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev; }
+  } finally { sw.set(false); }
 });
 
 test('#5977: a Qwen agent moves between Qwen accounts with setAccount, refuses an OpenAI folder there, and refuses a model change', WIN_LAUNCHD, () => {

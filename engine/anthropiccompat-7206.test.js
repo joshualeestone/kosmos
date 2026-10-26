@@ -231,7 +231,8 @@ test('launchEnv refuses an account file that is a link', () => {
 
 test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal with exit 2', () => {
   const script = nodePath.join(__dirname, 'anthropiccompat.js');
-  const on = { ...process.env, AGENT_WORKFORCE_COMPAT_PROVIDERS: '1' };   // slice 1b: launch-env obeys the switch
+  const dataOn = nodePath.join(SANDBOX, 'cli-data-on'); require('../test-support/compat-switch').setAt(dataOn, true);   // slice 1b: launch-env obeys the switch
+  const on = { ...process.env, AGENT_WORKFORCE_DATA: dataOn };
   const out = execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: on });
   const pairs = out.split('\0').filter(Boolean);
   assert.ok(pairs.includes('ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic'));
@@ -253,22 +254,21 @@ test('a vendor account folder is never a Qwen home (the two keep different accou
   assert.equal(qwen.isQwenHome(dir), false);
 });
 
-test('slice 1b: the switch is OFF by default, on by the variable or the marker, and never on off a Mac', () => {
+test('slice 1b: the switch is OFF by default, ON only by the marker (no variable), and never on off a Mac', () => {
   const store = require('./store');
-  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
-  delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
   const marker = nodePath.join(store.ROOT, compat.ON_MARKER);
+  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
   try {
     try { fs.rmSync(marker, { force: true }); } catch { /* absent */ }
     assert.equal(compat.enabled('darwin'), false, 'on by default');
-    for (const v of ['1', 'true', 'ON', ' yes ']) { process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = v; assert.equal(compat.enabled('darwin'), true, v); }
-    for (const v of ['0', 'off', '', 'maybe']) { process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = v; assert.equal(compat.enabled('darwin'), false, v); }
+    // Review 3: the old variable is gone; it reached the board but never an agent's launch, so it must do nothing.
+    process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
+    assert.equal(compat.enabled('darwin'), false, 'the environment variable still turns it on');
     delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
     fs.mkdirSync(store.ROOT, { recursive: true });
     fs.writeFileSync(marker, '');
     assert.equal(compat.enabled('darwin'), true, 'the marker does not turn it on');
     assert.equal(compat.enabled('win32'), false, 'on on Windows, whose launch does not point an agent at a vendor');
-    process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
     assert.equal(compat.enabled('linux'), false);
   } finally {
     try { fs.rmSync(marker, { force: true }); } catch { /* best effort */ }
@@ -279,7 +279,8 @@ test('slice 1b: the switch is OFF by default, on by the variable or the marker, 
 
 test('1b review 2: launch-env refuses while the switch is off (a kill switch for an agent made while it was on)', () => {
   const script = nodePath.join(__dirname, 'anthropiccompat.js');
-  const off = { ...process.env }; delete off.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  const dataOff = nodePath.join(SANDBOX, 'cli-data-off'); fs.mkdirSync(dataOff, { recursive: true });
+  const off = { ...process.env, AGENT_WORKFORCE_DATA: dataOff };
   let rc = 0; let said = '';
   try { execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: off }); } catch (e) { rc = e.status; said = String(e.stdout); }
   assert.equal(rc, 2);
