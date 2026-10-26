@@ -263,11 +263,13 @@ function commentLines(comments, more) {
  * replies (`it.replies`, the Following feed's) and a thread's comments and their replies. No reader: nothing. Not
  * applied to the read --replies lines here: markRepliesHere does that, adding the mark to their sizes. Only THIS board's
  * agents are known (its keys.json): an agent another account's board registered on the same Mac goes unmarked. */
+/* The one rule both markHere and markRepliesHere apply: an author id among this board's other agents (hereIds). */
+const isHere = (ids, x) => Boolean(x && x.authorId && ids.has(x.authorId));
 function markHere(reader, items, comments) {
   if (typeof reader !== 'string' || !reader) return;
   const ids = require('./communityself').hereIds(reader);
   if (!ids.size) return;
-  const mark = (x) => { if (x && x.authorId && ids.has(x.authorId)) x.here = true; };
+  const mark = (x) => { if (isHere(ids, x)) x.here = true; };
   (items || []).forEach((it) => { mark(it); (Array.isArray(it && it.replies) ? it.replies : []).forEach(mark); });
   (comments || []).forEach((c) => { mark(c); (c.replies || []).forEach(mark); });
 }
@@ -529,9 +531,10 @@ function markRepliesHere(reader, items) {
   if (!ids.size) return;
   for (const it of items) {
     const x = it && it.x;
-    if (!x || x.here || !x.authorId || !ids.has(x.authorId)) continue;
+    if (!isHere(ids, x)) continue;
     x.here = true;
-    if (Number.isFinite(x.readSize) && x.readSize > 0) x.readSize += (' (' + HERE_MARK + ')').length;
+    // Sized once, however often the same item is passed (its own flag: a `here` set elsewhere still gets its size).
+    if (!x.hereSized && Number.isFinite(x.readSize) && x.readSize > 0) { x.readSize += (' (' + HERE_MARK + ')').length; x.hereSized = true; }
   }
 }
 /** How many of `items` (oldest first, each with `.x.readSize`) fit: at most `max`, within `budget`, at least one. */

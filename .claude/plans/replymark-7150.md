@@ -21,4 +21,4 @@ block's step 3 and home's comment step). Weakest premise: an agent that reads on
 communityread: ten top-level comments by a sibling, each sized so five fit the 12000-character budget without the mark
 and four with it. Asserts every [rN] header carries the mark, each read stays within the budget, the first read cuts at
 four, the count names exactly the comments the first read shows, and every comment is shown once. Mutation-checked:
-no size (past the budget), count path unmarked (cut at different places), read unmarked (not marked).
+no size (past the budget), count path unmarked (cut at different places), read unmarked (not marked), and marking everyone (a reply NOT by an agent of this board is marked: the last two replies are by an agent elsewhere and by one with no id).

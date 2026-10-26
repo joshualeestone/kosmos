@@ -2809,6 +2809,8 @@ test('#7150: read (the feed, and one post with its comments) prints the no-vote 
 test('#7150 follow-up: read --replies marks replies by another agent of this board, still within its text budget, and its count cuts at the same place', async () => {
   on(); clearSeen();
   const B = 'b0000000-0000-4000-8000-00000000000b';
+  let keysBefore = null;
+  try { keysBefore = fs.readFileSync(cs._paths.keysFile()); } catch { /* none yet */ }
   writeSendState({ a: { state: 'sent', agent: 'Big7150', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } },
     { Big7150: { name: 'Big7150', remoteId: 'a0000000-0000-4000-8000-00000000000a', apiKey: 'K', token: 'T' }, lena: { name: 'lena', remoteId: B } });
   // Ten top-level comments (COMMENTS_ASKED: more would make the count uncertain, naming nobody) by lena, another agent of this board, each sized (by commentOf's own measure) so that FIVE
@@ -2816,7 +2818,11 @@ test('#7150 follow-up: read --replies marks replies by another agent of this boa
   const MARK = (' (' + cr.HERE_MARK + ')').length;
   const cidOf = (k) => 'c7150000-0000-4000-8000-0000000000' + String(k).padStart(2, '0');
   const at = (k) => '2026-10-01T' + String(k).padStart(2, '0') + ':00:00Z';   // all before NOW (12:00)
-  const make = (k, len) => comment({ id: cidOf(k), created_at: at(k), agent: { id: B, name: 'lena' }, body: 'y'.repeat(len) });
+  // The last two are NOT by an agent of this board (one from elsewhere, one with no id): never marked. Same name
+  // length as lena, so every item has the same size; last, so the first read (all lena) cuts as calibrated.
+  const authorOf = (k) => (k === cr.COMMENTS_ASKED - 2 ? { id: 'c0000000-0000-4000-8000-00000000000c', name: 'nora' }
+    : k === cr.COMMENTS_ASKED - 1 ? { name: 'noid' } : { id: B, name: 'lena' });
+  const make = (k, len) => comment({ id: cidOf(k), created_at: at(k), agent: authorOf(k), body: 'y'.repeat(len) });
   const base = cr.commentOf(make(0, 1), false, cr.POST_COMMENT_CAP).readSize - 1;
   const size = Math.floor(cr.REPLIES_TEXT_BUDGET / 5) - 5;            // five fit: 5 * size <= budget
   assert.ok(5 * (size + MARK) > cr.REPLIES_TEXT_BUDGET, 'fixture: the mark would not change the cut');
@@ -2835,7 +2841,10 @@ test('#7150 follow-up: read --replies marks replies by another agent of this boa
     const r = await cr.readReplies('Big7150', { now: NOW + i * 60000 });
     const heads = r.text.split('\n').filter((l) => /^\[r\d+\] by /.test(l));
     if (!heads.length) break;
-    for (const h of heads) assert.ok(h.includes(cr.HERE_MARK), 'a reply by lena is not marked: ' + h);
+    for (const h of heads) {
+      const lena = h.includes(' by lena');
+      assert.equal(h.includes(cr.HERE_MARK), lena, (lena ? 'a reply by lena is not marked: ' : 'a reply NOT by an agent of this board is marked: ') + h);
+    }
     const from = r.text.indexOf('[r1]');
     const end = r.text.search(/\n\((\d+ newer replies not shown yet|no new replies)/);
     const replies = r.text.slice(from, end >= 0 ? end : r.text.length);
@@ -2853,4 +2862,5 @@ test('#7150 follow-up: read --replies marks replies by another agent of this boa
   assert.equal(firstShown, 4, 'the first read did not cut at four (the mark is not in the size)');
   // CONTROL: another reader of this board is lena herself; her own replies are not "another agent here" for her.
   assert.equal(require('./communityself').hereIds('lena').has(B), false);
+  if (keysBefore) fs.writeFileSync(cs._paths.keysFile(), keysBefore); else fs.rmSync(cs._paths.keysFile(), { force: true });
 });
