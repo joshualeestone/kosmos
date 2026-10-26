@@ -314,6 +314,7 @@ const TEST_SEAM = 'test seam: only its own tests call it (its source comment say
 const INTERNAL = 'used inside its own module; exported only so its test can pin it';
 const ACCESSOR = 'a thin accessor of a sibling export that production does call (the capability is reached through that sibling)';
 const TRIAGED_5548 = {
+  LAUNCH_VARS: ['engine/anthropiccompat.js', TEST_SEAM + ' (#7206: the lockstep test keeps bin/agent-supervisor.sh\'s unset list equal to it; the supervisor names the variables itself)'],
   newPoolMemo: ['engine/agyquota.js', TEST_SEAM + ' (an isolated memo for a test; production uses the module default)'],
   stopAll: ['engine/fedseats.js', TEST_SEAM + ' (its docblock: only tests call it; board shutdown closes stdin)'],
   clearFirstTurnCache: ['engine/groksession.js', TEST_SEAM + ' (added because the cache survived the tests\' reset)'],

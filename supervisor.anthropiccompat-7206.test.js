@@ -126,7 +126,8 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
   const out = nodePath.join(SANDBOX, `seen-${sock}.txt`);
   const fake = nodePath.join(SANDBOX, `fake-claude-${sock}.sh`);
   fs.writeFileSync(fake, `#!/bin/bash\n{ printf 'ARGS %s\\n' "$*"; env; } > "${out}.part" && mv "${out}.part" "${out}"\nsleep 2\n`, { mode: 0o755 });
-  const tm = (...a) => spawnSync(wrap, a, { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: SANDBOX } });   // no TMUX_TMPDIR: /tmp
+  const tm = (...a) => spawnSync(wrap, a, { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: SANDBOX } });
+  const session = `agent-t${++n}`;   // the agent's tmux session on the private server   // no TMUX_TMPDIR: /tmp
   try {
     tm('new-session', '-d', '-s', 'keepalive', 'sleep 60');
     for (const [k, v] of [['ANTHROPIC_API_KEY', 'sk-ant-global-leak'], ['ANTHROPIC_BASE_URL', 'https://global.example'],
@@ -135,7 +136,7 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
     }
     const dir = home({ 'kosmos-vendor.json': JSON.stringify(ACCT) });
     const env = { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: dir };
-    const r = spawnSync('/bin/bash', [SUP, `agent-t${n}`, SANDBOX, fake, wrap, '', 'claude-sonnet-5', 'claude'], { env, encoding: 'utf8', timeout: 30000 });
+    const r = spawnSync('/bin/bash', [SUP, session, SANDBOX, fake, wrap, '', 'claude-sonnet-5', 'claude'], { env, encoding: 'utf8', timeout: 30000 });
     for (let i = 0; i < 100 && !fs.existsSync(out); i += 1) await new Promise((res) => setTimeout(res, 100));
     assert.ok(fs.existsSync(out), 'the pane never ran: ' + (r.stdout || '') + (r.stderr || ''));
     const seen = fs.readFileSync(out, 'utf8');
@@ -149,8 +150,10 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
     assert.equal(/sk-ant-global-leak|global\.example|tok-global-leak|claude-opus-5|claude-sonnet-5/.test(seen), false, 'a global or Claude value reached the pane');
     assert.match(seen, /^ARGS .*--model deepseek-chat/m);
   } finally {
-    tm('kill-server');
-    // kill-server leaves its socket file; remove this test's own (its unique name), never anything else there.
+    // Its two sessions ended, this private server exits by itself (the repo never stops a tmux server outright, #6857).
+    tm('kill-session', '-t', 'keepalive');
+    tm('kill-session', '-t', session);
+    // An exited server leaves its socket file; remove this test's own (its unique name), never anything else there.
     // tm() passes no TMUX_TMPDIR, so the server's socket is always under /tmp (review 5).
     try { fs.rmSync(nodePath.join('/tmp', `tmux-${process.getuid()}`, sock), { force: true }); } catch { /* best effort */ }
   }
