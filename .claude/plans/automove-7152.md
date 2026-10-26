@@ -168,3 +168,13 @@ reads idle, and a restart kills the job.
   the board logs a gap once per reason.
 - Stated, not changed: movableFor compares the seeded guide name by trim and lower case, the walk by create.cleanName.
   The folder marker is the primary guard, and the walk already leaves the guide out of every account's agents.
+
+## Review 21
+- Settings keeps saying an account could not be measured while a written gap lasts (the route's unmeasuredNow), not
+  only on the tick that found it.
+- Stated, not changed: a 401 or 403 from the usage or profile call is read as a stopped login (review 2's rule). The
+  endpoint is undocumented, so a token the agents use fine could be refused there; then the record holds that account
+  at risk by login while Settings' live check may call it working. Moves off a stopped login are never drawn in
+  Settings, so the record says it only in its file. What would change it: such a refusal seen on a working account.
+- Stated, not changed: an agents walk failing for longer than GAP_TICKS writes a line with that account's agent list
+  marked short and no moves; when the walk recovers, the earlier move is written again. Each line is true as written.
