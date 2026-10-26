@@ -273,3 +273,22 @@ enum PushBridge {
         }
     }
 }
+
+// MARK: - When to ask for notification permission (kosmos#7222)
+
+// iOS shows its notification permission box once. Build 3 asked at launch, over the sign-in screen, before the person
+// knew what Kosmos would tell them, so a "Don't Allow" there turned off every "an agent needs you" buzz for good. It is
+// asked now where it means something: the Agents tab, with a Mac connected and its agents listed, behind one line that
+// says why. A launch only re-registers a phone that has already said yes (APNs tokens can change between launches).
+extension PushBridge {
+    enum Permission: Equatable { case unknown, notDetermined, allowed, denied }
+
+    // Register with APNs at launch without asking: only once permission is already given.
+    static func registersAtLaunch(_ permission: Permission) -> Bool { permission == .allowed }
+
+    // Offer the ask on the Agents tab: never asked yet, the agents of a connected Mac are on screen and current (a
+    // list marked not updating is not "connected" enough to be worth the one ask), and the person has not said not now.
+    static func offersAsk(permission: Permission, agentsCurrent: Bool, dismissed: Bool) -> Bool {
+        permission == .notDetermined && agentsCurrent && !dismissed
+    }
+}

@@ -3636,6 +3636,28 @@ do {
 
 await boardLoopTests()
 
+// MARK: - kosmos#7222: notification permission is asked on the Agents tab, not at launch
+
+do {
+    typealias P = PushBridge.Permission
+    // A launch registers only a phone that already said yes; it never asks.
+    check(PushBridge.registersAtLaunch(.allowed), "#7222 launch: an allowed phone re-registers with APNs")
+    for p in [P.notDetermined, .denied, .unknown] {
+        check(!PushBridge.registersAtLaunch(p), "#7222 launch: \(p) does not register (and nothing at launch asks)")
+    }
+    // The ask is offered only when it can mean something.
+    check(PushBridge.offersAsk(permission: .notDetermined, agentsCurrent: true, dismissed: false),
+          "#7222 never asked, agents of a connected Mac current on screen: offered")
+    check(!PushBridge.offersAsk(permission: .notDetermined, agentsCurrent: false, dismissed: false),
+          "#7222 no current agents list (signed out, no Mac, reaching, not updating): not offered")
+    check(!PushBridge.offersAsk(permission: .notDetermined, agentsCurrent: true, dismissed: true),
+          "#7222 the person said not now: not offered again")
+    for p in [P.allowed, .denied, .unknown] {
+        check(!PushBridge.offersAsk(permission: p, agentsCurrent: true, dismissed: false),
+              "#7222 permission \(p) (already answered, or not read yet): not offered")
+    }
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

@@ -295,7 +295,7 @@ struct ContentView: View {
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { showBoardToday() })
         } else if which == .agents {
-            AgentsView(client: board, openChat: { url in
+            AgentsView(client: board, push: pushManager, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { showBoardToday() })
         } else if which == .projects {
