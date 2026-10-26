@@ -896,6 +896,23 @@ const SCREENS = [
        that message's hover bar. Park it in the corner, as the other screens here do. */
     await page.mouse.move(1, 1);
   } },
+  /* kosmos#7189 (Angel): a room notice from a job (an email digest) keeps its lines in the room's note band. Posted
+     once through the board's own notice route (the board lives across themes and sizes), then the room is opened as
+     project-room does and the note is scrolled into view. */
+  { name: 'room-notice-7189', owner: 'Angel', go: async (page, data) => {
+    await page.evaluate(async (id) => {
+      const base = '/api/project/' + encodeURIComponent(id);
+      const room = await (await fetch(base + '/room')).json().catch(() => ({}));
+      if ((room.rows || []).some((r) => r && r.kind === 'note' && /Email cleanup/.test(r.text || ''))) return;
+      await fetch(base + '/notice', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'email digest', text: 'Email cleanup, 07:01 (mark-read only, nothing moved)\n- main inbox: 3 marked read\n- shop inbox: 0\n\nNothing needs you today.' }) });
+    }, data.projectId);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, data);
+    await page.evaluate(() => {
+      const bands = [...document.querySelectorAll('#pj-room .msg-valve')].filter((b) => /Email cleanup/.test(b.textContent || ''));
+      if (bands.length) bands[bands.length - 1].scrollIntoView({ block: 'center' });
+    });
+  } },
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
      and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
   { name: 'project-head', owner: 'Mona Lisa', go: async (page, data) => {
