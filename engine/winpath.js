@@ -8,7 +8,7 @@
 const path = require('node:path');
 
 const NAMESPACE = /^[\\/]{2}/;                                   // \\host\share, //host/share, \\?\..., \\.\...
-const LOCAL_LONG = /^[\\/]{2}\?[\\/](?=[A-Za-z]:[\\/])/;         // \\?\C:\..., the long-path spelling of a local drive
+const LOCAL_LONG = /^[\\/]{2}[?.][\\/](?=[A-Za-z]:[\\/])/;       // \\?\C:\ and \\.\C:\, the namespace spellings of a local drive
 /* Names Windows maps to devices whatever folder they are in, with any extension and with spaces before it (CON,
    nul.txt, COM1.log, `con .txt`), and the superscript digits: the names Microsoft documents as reserved. One copy for
    every module that checks a Windows name (#7221: replyfile, backuprestore and win32zip had three). Exactly what
@@ -37,10 +37,22 @@ function followableLinkTarget(to) {
   if (/^[\\/]/.test(t) || t.includes(':')) return null;
   return t;
 }
-/* `\\host\share` of a network path, lower-cased (\\?\UNC\host\share read the same), or null. */
+/* A share path's namespace spellings (\\?\UNC\host\share, \??\UNC\..., and the Mup device that serves shares,
+   \\?\GLOBALROOT\Device\Mup\host\share) read as the plain \\host\share they name. */
+const SHARE_NAMESPACE = /^(?:[\\/]{2}\?[\\/]UNC|\\\?\?\\UNC|[\\/]{2}[?.][\\/]GLOBALROOT[\\/]Device[\\/]Mup|\\\?\?\\GLOBALROOT\\Device\\Mup)[\\/]/i;
+function asShareSpelling(p) {
+  return String(p).replace(SHARE_NAMESPACE, '\\\\');
+}
+/* `\\host\share` of a network path, lower-cased (its namespace spellings read the same), or null. */
 function shareOf(p) {
-  const m = /^[\\/]{2}([^\\/?.][^\\/]*)[\\/]+([^\\/]+)/.exec(String(p).replace(/^[\\/]{2}\?[\\/]UNC[\\/]/i, '\\\\'));
+  const m = /^[\\/]{2}([^\\/?.][^\\/]*)[\\/]+([^\\/]+)/.exec(asShareSpelling(p));
   return m ? (m[1] + '\\' + m[2]).toLowerCase() : null;
+}
+/* A local volume named without a drive letter: \\?\Volume{GUID}\ or \\?\GLOBALROOT\Device\HarddiskVolumeN\. Local, so
+   resolving it reaches no other computer; but its spelling cannot be compared with a drive path. */
+const LOCAL_VOLUME = /^[\\/]{2}[?.][\\/](?:Volume\{[0-9a-f-]+\}|GLOBALROOT[\\/]Device[\\/]HarddiskVolume\d+)[\\/]/i;
+function isLocalVolumeSpelling(p) {
+  return LOCAL_VOLUME.test(String(p));
 }
 /* A path written as a plain share, \\host\share\... or //host/share/..., not the \\?\ or \\.\ namespaces. */
 function isPlainShare(p) {
@@ -60,15 +72,18 @@ function writtenInside(given, folder) {
    address) give the same tail, so a check that must fail closed can match on it. */
 function shareTail(p) {
   if (!shareOf(p)) return null;
-  const s = path.win32.normalize(String(p).replace(/^[\\/]{2}\?[\\/]UNC[\\/]/i, '\\\\')).toLowerCase();
+  const s = path.win32.normalize(asShareSpelling(p)).toLowerCase();
   return s.replace(/^\\\\[^\\]+/, '').replace(/\\+$/, '');
 }
 /* Whether a project folder left unresolved may hold the file, by spelling, erring toward yes: inside it as given or as
-   resolved, or on a share whose path below the server matches, whatever the server is called (review 5 finding 1). */
+   resolved, or on a share whose path below the server matches, whatever the server is called (review 5 finding 1).
+   A folder in a namespace this cannot place (not a drive, a share or a local volume: \\.\pipe\..., another device)
+   answers yes (review 8 finding 1): unknown is treated as "may hold", so it refuses rather than lets through. */
 function mayHold(folder, given, real) {
   if (writtenInside(given, folder) || writtenInside(real, folder)) return true;
+  if (isNetworkSpelling(folder) && !shareOf(folder) && !isLocalVolumeSpelling(folder)) return true;
   const ft = shareTail(folder);
   return !!ft && [given, real].some((p) => { const t = shareTail(p); return !!t && t.startsWith(ft + '\\'); });
 }
 
-module.exports = { NAMESPACE, LOCAL_LONG, NT_LOCAL, WINDOWS_DEVICE_NAME, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, asDrivePath, writtenInside, shareTail, mayHold };
+module.exports = { NAMESPACE, LOCAL_LONG, NT_LOCAL, WINDOWS_DEVICE_NAME, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, shareTail, mayHold };

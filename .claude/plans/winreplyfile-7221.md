@@ -83,6 +83,12 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    (inside it as given or as resolved, or on a share whose path below the server matches whatever the server is
    called), the attach is refused. Erring toward refusal can refuse a file main allowed in one rare layout (another
    agent's OUTER project skipped while the agent's own nested one holds the file); refusing is the safe direction.
+   Review 8 finding 1 (a second fail-open): a folder in a namespace spelling (`\\.\C:\`, `\\?\Volume{GUID}\`,
+   `\\?\GLOBALROOT\Device\HarddiskVolumeN\`) was skipped and could not be placed by spelling. Now `\\.\C:\` reads as
+   the drive path it is (like `\\?\C:\`); the Mup device and `\??\UNC` read as the shares they name; a local volume
+   written without a letter is resolved as on main (local, no other computer is reached), so identity decides; and
+   any other namespace a skip cannot place counts as "may hold", so it refuses. That last rule lets an agent that
+   registers such a folder make another agent's project attach refuse: a nuisance, in the safe direction.
 
 On Windows `attach` reads `dmfiles.filesDir` and the projects list once and hands both on, so an attach still reads
 each agent's instructions path once (#6726 r5-3) and parses the projects file once.
@@ -178,6 +184,12 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   ENOENT in every case, so `listed()` matches names in any case); the shared device rule refuses `con  .txt` but not a
   no-break or ideographic space before the extension, nor `CLOCK$`; `driveOf` reads `C:\`, `\\?\D:\` and `\??\E:\`.
   Against iteration 6's code (74f929a): all three fail.
+- Review 8: the namespace spellings (`\\.\C:\` is drive C and local; the Mup device and `\??\UNC` name shares; Volume
+  GUID and HarddiskVolume spellings are local volumes; an unplaceable namespace "may hold"); a nested project of
+  another agent written `\\.\C:\...` and one written by its volume GUID (read at run time with `mountvol`; skipped if
+  none) each keep their file from the agent on the outer project. Against iteration 7's code (324f51b): all three
+  fail, the two live arms by attaching the nested file. The six arms that make symbolic links now skip, with that
+  reason, where the account cannot make them (no Developer Mode, not elevated); the junction arm needs neither.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -186,10 +198,12 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 26/26 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 29/29 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
-  O_NONBLOCK: Mac filesystem behaviours).
+  O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary
+  project file as KEPT_FOR_KOSMOS; it did not recur in 2 more full runs on the branch, nor in 10 runs of that arm alone
+  on the branch and 10 on main (each run executed the 1 arm). Recorded as seen once, not explained.
 - `server.attachment-stream-6734.test.js`: 25/31 (+2 skipped), the same 6 failures as main, two runs each (download
   streaming on win32). One run showed a 7th (an upload arm) once; it passed in both re-runs on this branch: a flake.
 - The shared device-name rule, A/B against main's three modules on this box: `engine/backuprestore.test.js` 24/24,

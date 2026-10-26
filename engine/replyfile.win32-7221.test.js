@@ -139,6 +139,14 @@ test.afterEach(() => {
 });
 
 const winOnly = { skip: !WIN && 'the Windows board rule; links and device names mean this only on win32' };
+/* Arms that make a symbolic link need Developer Mode or an elevated process on Windows (review 8 NIT); where neither
+   holds, they skip with that reason instead of failing on EPERM. A junction needs neither, so its arm is winOnly. */
+function canMakeSymlinks() {
+  if (!WIN) return false;
+  const probe = path.join(SANDBOX, 'symlink-probe');
+  try { fs.symlinkSync(path.join(SANDBOX, 'nowhere'), probe, 'file'); fs.rmSync(probe, { force: true }); return true; } catch { return false; }
+}
+const linkOnly = { skip: !WIN ? 'the Windows board rule' : (!canMakeSymlinks() && 'this account cannot make symbolic links (no Developer Mode, not elevated)') };
 
 test('#7221 CONTROL: an ordinary file in Files attaches on a Windows board, resolved once on the way in', winOnly, () => {
   counting();
@@ -157,7 +165,7 @@ test('#7221: a share, a device namespace and a long-path spelling are refused be
   refusedUnresolved('\\\\?\\' + path.join(FILES, 'report.txt'), replyfile.ON_NETWORK, 'the \\\\?\\ spelling of a local file');
 });
 
-test('#7221: a symbolic link in Files that points at a share is refused without resolving it (no SMB contact)', winOnly, () => {
+test('#7221: a symbolic link in Files that points at a share is refused without resolving it (no SMB contact)', linkOnly, () => {
   const link = path.join(FILES, 'share-link.txt');
   fs.symlinkSync(SHARE, link, 'file');
   try { refusedUnresolved(link, replyfile.ON_NETWORK, 'a file link to a share'); } finally { fs.rmSync(link, { force: true }); }
@@ -176,7 +184,7 @@ test('#7221: a junction in Files out to a share is refused without resolving it'
   } finally { fs.rmSync(j, { recursive: true, force: true }); }
 });
 
-test('#7221: a chain of links that ends at a share is followed link by link and refused', winOnly, () => {
+test('#7221: a chain of links that ends at a share is followed link by link and refused', linkOnly, () => {
   const last = path.join(OUTSIDE, 'to-share.txt');
   const first = path.join(FILES, 'chain.txt');
   fs.symlinkSync(SHARE, last, 'file');
@@ -184,7 +192,7 @@ test('#7221: a chain of links that ends at a share is followed link by link and 
   try { refusedUnresolved(first, replyfile.ON_NETWORK, 'a link to a link to a share'); } finally { fs.rmSync(first, { force: true }); fs.rmSync(last, { force: true }); }
 });
 
-test('#7221: a link that points at another drive no root is on is refused without resolving it', winOnly, (t) => {
+test('#7221: a link that points at another drive no root is on is refused without resolving it', linkOnly, (t) => {
   const other = freeDriveLetter();
   if (!other) { t.skip('no free drive letter'); return; }
   const link = path.join(FILES, 'to-other-drive.txt');
@@ -274,7 +282,7 @@ test('#7221 review 2-1: a link target is followed only when it is a drive path o
   }
 });
 
-test('#7221 review 2-1: a link in Files aimed at a share through \\\\?\\GLOBALROOT\\Device\\Mup is refused without resolving it', winOnly, () => {
+test('#7221 review 2-1: a link in Files aimed at a share through \\\\?\\GLOBALROOT\\Device\\Mup is refused without resolving it', linkOnly, () => {
   const link = path.join(FILES, 'mup-link.txt');
   fs.symlinkSync('\\\\?\\GLOBALROOT\\Device\\Mup\\10.255.255.1\\share\\x', link, 'file');
   try { refusedUnresolved(link, replyfile.ON_NETWORK, 'a GLOBALROOT link to a share'); } finally { fs.rmSync(link, { force: true }); }
@@ -348,7 +356,7 @@ test('#7221 review 3-2: a file in one of the agent\'s own share-written projects
   refusedUnresolved(path.join(adminShareOf(SANDBOX), 'outside', 'f.txt'), replyfile.ON_NETWORK, 'a share path outside the project');
 });
 
-test('#7221 review 3-1: a project folder that is a link out to a share is never resolved to judge a local file', winOnly, () => {
+test('#7221 review 3-1: a project folder that is a link out to a share is never resolved to judge a local file', linkOnly, () => {
   const linked = path.join(SANDBOX, 'linkedproj');
   fs.symlinkSync('\\\\10.255.255.1\\share\\proj', linked, 'dir');
   const proj = path.join(SANDBOX, 'localproj');
@@ -373,7 +381,7 @@ test('#7221 review 3-1: a project folder that is a link out to a share is never 
 
 /* ---------- review 4 ---------- */
 
-test('#7221 review 4-1: a project written on C: that lives on another local drive through a link attaches its files', winOnly, (t) => {
+test('#7221 review 4-1: a project written on C: that lives on another local drive through a link attaches its files', linkOnly, (t) => {
   /* A second local drive made for the arm with subst (no admin needed): `<letter>:` is the folder `ddrive`. The project
      is written under a C: folder that is a link onto that drive, the C:\Users\me\work -> D:\work layout. */
   const { execFileSync } = require('node:child_process');
@@ -456,4 +464,53 @@ test('#7221 review 5-2: a file directly in Files touches no project folder, even
   } finally { fs.lstatSync = realLstat; }
   const lower = proj.toLowerCase();
   assert.deepEqual(touched.filter((p) => p.toLowerCase().startsWith(lower)), [], 'no lstat under the project folder');
+});
+
+/* ---------- review 8 ---------- */
+
+test('#7221 review 8-1: the namespace spellings of a drive, a share and a local volume are read for what they are', () => {
+  assert.equal(winpath.driveOf('\\\\.\\C:\\work\\inner'), 'C', '\\\\.\\C:\\ is drive C');
+  assert.equal(winpath.isNetworkSpelling('\\\\.\\C:\\work'), false, 'and is not a network path');
+  assert.equal(winpath.shareOf('\\\\?\\GLOBALROOT\\Device\\Mup\\Host\\Share\\x'), 'host\\share', 'the Mup device names a share');
+  assert.equal(winpath.shareOf('\\??\\UNC\\host\\share\\x'), 'host\\share');
+  assert.equal(winpath.isLocalVolumeSpelling('\\\\?\\Volume{8567e582-9e23-4c72-a97e-1fbdfc2f255f}\\work'), true);
+  assert.equal(winpath.isLocalVolumeSpelling('\\\\?\\GLOBALROOT\\Device\\HarddiskVolume3\\work'), true);
+  assert.equal(winpath.isLocalVolumeSpelling('\\\\host\\share\\x'), false);
+  // a folder in a namespace mayHold cannot place answers "may hold", so a skip of it refuses rather than lets through
+  assert.equal(winpath.mayHold('\\\\.\\pipe\\x', 'C:\\work\\f.txt', 'C:\\work\\f.txt'), true);
+  assert.equal(winpath.mayHold('\\\\.\\C:\\work\\inner', 'C:\\work\\inner\\f.txt', 'C:\\work\\inner\\f.txt'), true, 'read as C:\\work\\inner');
+  assert.equal(winpath.mayHold('\\\\.\\C:\\work\\inner', 'C:\\work\\other\\f.txt', 'C:\\work\\other\\f.txt'), false);
+});
+
+test('#7221 review 8-1: a nested project of another agent written \\\\.\\C:\\ keeps its files from the outer project', winOnly, () => {
+  const outer = path.join(SANDBOX, 'douter');
+  const nested = path.join(outer, 'nested');
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(path.join(nested, 'secret.txt'), 'not for the outer project\n');
+  PROJECTS = [
+    { id: 'p-douter', name: 'Outer', folder: outer, agents: [WHO] },
+    { id: 'p-dnested', name: 'Nested', folder: '\\\\.\\' + nested, agents: ['someone-else'] },
+  ];
+  const r = replyfile.attach(WHO, path.join(nested, 'secret.txt'), { platform: 'win32' });
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as on main: ' + JSON.stringify(r));
+});
+
+test('#7221 review 8-1: a nested project of another agent written by its volume GUID keeps its files from the outer project', winOnly, (t) => {
+  const { execFileSync } = require('node:child_process');
+  let volume = null;
+  try {
+    const out = execFileSync('mountvol', [path.parse(SANDBOX).root.slice(0, 2), '/L'], { encoding: 'utf8' });
+    volume = (/\\\\\?\\Volume\{[0-9a-f-]+\}\\/i.exec(out) || [null])[0];
+  } catch { volume = null; }
+  if (!volume) { t.skip('mountvol gave no volume name here'); return; }
+  const outer = path.join(SANDBOX, 'vouter');
+  const nested = path.join(outer, 'nested');
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(path.join(nested, 'secret.txt'), 'not for the outer project\n');
+  PROJECTS = [
+    { id: 'p-vouter', name: 'Outer', folder: outer, agents: [WHO] },
+    { id: 'p-vnested', name: 'Nested', folder: volume + nested.slice(3), agents: ['someone-else'] },
+  ];
+  const r = replyfile.attach(WHO, path.join(nested, 'secret.txt'), { platform: 'win32' });
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it by identity: ' + JSON.stringify(r));
 });
