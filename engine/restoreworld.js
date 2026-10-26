@@ -201,7 +201,7 @@ function finishRestoreWorld(opts = {}) {
   if (problems.length > 20) fetchProblems.push('(more not listed)');
   if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) return refuse('the restore folder is not the one made for this Kosmos');
   const lock = takeFinishLock(dir);
-  if (lock.busy) return refuse('a finish of this restore is already under way');
+  if (lock.busy) return refuse('a finish of this restore is already under way (a finish that stopped frees it within ten minutes)');
   if (!lock.release) return refuse(`the new Kosmos's folder could not be locked for the finish (${lock.code})`);
   try { return finishLocked(); } finally { lock.release(); }
   function finishLocked() {
@@ -314,6 +314,13 @@ function takeFinishLock(dir) {
     if (live) return { busy: true };
     const aside = `${at}.stale-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
     try { fs.renameSync(at, aside); } catch { return { busy: true }; }   // another taker won the rename
+    // What was moved must be the lock judged stale: another taker may have put a fresh one there in between.
+    let movedPid = NaN;
+    try { movedPid = Number(fs.readFileSync(path.join(aside, 'pid'), 'utf8')); } catch { /* no pid */ }
+    if (!(movedPid === pid || (Number.isNaN(movedPid) && Number.isNaN(pid)))) {
+      try { fs.renameSync(aside, at); } catch { /* the new owner's lock stays aside; it releases nothing of ours */ }
+      return { busy: true };
+    }
     try { fs.rmSync(aside, { recursive: true, force: true }); } catch { /* aside, harmless */ }
   }
   return { busy: true };

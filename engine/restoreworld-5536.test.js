@@ -815,3 +815,16 @@ test('a lock with no pid blocks only while young, and one that cannot be made do
   assert.equal(s.ok, false);
   assert.match(s.because, /could not be locked for the finish \(EACCES\)/, 'not "already under way"');
 });
+
+test('a lone surrogate never reaches a label or the world name', (t) => {
+  const lone = String.fromCharCode(0xd800);
+  assert.equal(rw.worldName(`Ann${lone}`, NOW), `Restored: Ann, ${DAY}`);
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const w = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS;
+  let made = true;
+  try { fs.mkdirSync(path.join(w, `ann${lone}x`)); } catch { made = false; }
+  if (!made) { t.skip('this filesystem refuses a lone surrogate in a name'); return; }
+  const labels = rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.map((a) => a.label);
+  assert.ok(labels.every((l) => !/[\uD800-\uDFFF]/.test(l)), labels.join(','));
+});
