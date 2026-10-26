@@ -145,3 +145,47 @@ test('#7210 push: a muted event spends no cooldown, so unmuting does not swallow
   phonenotify.happened({ kind: 'needs_you', id: 'c2', agent: 'Cool', session: 'cool', project: 'Push Cooldown', levelProjectId: p.id });
   assert.equal(sent.length, 1, 'the muted event took the agent\'s 5-minute window, so the first unmuted one was dropped');
 });
+
+/* Review 2: the two board routes that send a project's events must hand the level its project, or a muted project's
+   agent still buzzes the phone. Through the REAL routes: a needs_you report standing under the project, and an agent's
+   task-built mark. Each muted arm has an All control on the same route, so a zero is the level, not a dead route. */
+test('#7210 routes: a muted project\'s needs_you report and built mark send nothing; on All the same routes send', async () => {
+  const messages = require('./engine/messages');
+  const sendertoken = require('./engine/sendertoken');
+  const tasks = require('./engine/tasks');
+  const WHO = 'mira';
+  const board = fleet.install([fleet.agent(WHO, { state: 'idle' })]);
+  messages.setRunner(() => ({ ok: true, session: WHO + '-discord' }));
+  const h = { 'content-type': 'application/json', 'x-kosmos-agent-token': sendertoken.mint(WHO).token };
+  const post = (p, body) => fetch(base + p, { method: 'POST', headers: h, body: JSON.stringify(body) });
+  try {
+    const p = projects.create({ name: 'Route Mute' });
+    projects.addAgent(p.id, WHO, board.agents);
+    const round = async (level) => {
+      projects.edit(p.id, { notify: level });
+      phonenotify.resetCooldownForTests();
+      sent.length = 0;
+      await post('/api/report', { state: 'working', project: p.id, text: 'x' });
+      await post('/api/report', { state: 'needs_you', text: 'x' });   // names no project: carried forward
+      const needs = sent.filter((s) => s.kind === 'needs_you').length;
+      sent.length = 0;
+      const n = tasks.create(p.id, { sentence: 'Wrap the parcel ' + level, who: WHO }).number;
+      const r = await post(`/api/project/${p.id}/task/${n}/built`, {});
+      assert.equal(r.status, 200, await r.text());
+      const ready = sent.filter((s) => s.kind === 'ready').length;
+      return { needs, ready };
+    };
+    assert.deepEqual(await round('all'), { needs: 1, ready: 1 }, 'CONTROL: on All the routes did not send');
+    assert.deepEqual(await round('muted'), { needs: 0, ready: 0 }, 'a muted project\'s route still buzzed the phone');
+    assert.deepEqual(await round('mentions'), { needs: 1, ready: 1 }, 'Mentions only dropped what is addressed to the person');
+  } finally {
+    sendertoken.revoke(WHO); messages.setRunner(null); board.restore();
+  }
+});
+
+test('#7210 badge: a project on Mentions only or Muted adds nothing to the Dock and Projects badge total', () => {
+  const { projectsUnreadTotal } = require('./engine/status');
+  const rows = [{ id: 'a' }, { id: 'b', notify: 'muted' }, { id: 'c', notify: 'mentions' }, { id: 'd', notify: 'all' }];
+  assert.equal(projectsUnreadTotal(rows, { a: 2, b: 5, c: 7, d: 1 }), 3, 'a quiet project was counted in the badge');
+  assert.equal(projectsUnreadTotal(rows.map((r) => ({ id: r.id })), { a: 2, b: 5, c: 7, d: 1 }), 15, 'CONTROL: with no levels every project counts');
+});

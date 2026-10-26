@@ -41,8 +41,11 @@ after trying it. Design shots before merge. The call is written on the card (com
 
 ## Deliberate gaps
 
-- The dock badge (counts.waiting) is not muted: it counts agents waiting on the person, not messages, and belongs to
-  agents rather than projects.
+- RETRACTED (review 2): this plan first said the Dock badge counts only agents waiting on the person, so it was left
+  alone. False: counts.waiting adds counts.projectsUnread (engine/status.js waitingTotal; native-app/main.swift says
+  "needs-you + unread DMs + unread project messages"). Now a project on Mentions only or Muted is left out of
+  projectsUnreadTotal (the Dock and Windows taskbar badge, and the Projects tab badge) and of the page's Messages tally
+  (pjDmTotal), which must agree with it; the open room is subtracted only when it is on All. Its own row keeps its count.
 - An event whose project cannot be told (a needs_you with no project in its self-report) is never muted.
 - A needs_you is attributed to the project in the agent's self-report, carried forward; an agent that moved to another
   project without reporting it is muted or not by its last-reported room (review 1, accepted: it follows "work in a
@@ -52,6 +55,13 @@ after trying it. Design shots before merge. The call is written on the card (com
 - Iteration 1 (sonnet): no BLOCKER or WARNING. N3 a save answered after a later choice was dropped from the page's
   cache, so a later refusal put back an older level -> FIXED (kept, only the paint waits; test). N1 carried project
   -> accepted above. N2 tokenless local Origin passes isViaScreen -> pre-existing, same as pause. N4 copy -> fine.
+- Iteration 2 (opus): W1 going back to the held level while a save was in flight sent nothing, so the earlier save
+  landed and the board held a level the choice no longer showed -> FIXED (sent while any save is in flight; test).
+  W2 the Dock badge premise above was false -> FIXED (quiet projects leave the badge and tally; tests on both sides;
+  web.pj-tally-2863's harness now lifts pjNotifyLevel). W3 nothing tested the server's wiring of the project id ->
+  FIXED (needs_you through /api/report and ready through the built route, muted and All arms). N4 two doc comments
+  above the wrong code -> FIXED. N5 the sound switch reads On while quiet -> a note under it. Mutations red: in-flight
+  send, needs_you wiring, ready wiring, badge exclusion.
 
 ## Tests
 

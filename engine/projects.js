@@ -3125,21 +3125,6 @@ function dismissNeeds(projectId, sessionName, reason) {
   return { ...stored[at].needsDismissed };
 }
 
-/**
- * Every writable field, applied in ONE mutate.
- *
- * ⚠️ One write on purpose. The PUT route used to run rename and two separate
- * setters (description, archived) as independent read-modify-writes -- so a failure in a
- * later one answered the caller "your save failed" about a change that had
- * already persisted. Validation happens for EVERY carried field BEFORE any
- * write (cleanName and cleanDescription throw; archived refuses anything
- * but a boolean, because `!!` would turn {"archived": "false"} into an
- * archive, the opposite of what the caller wrote), so a request either
- * applies whole or not at all.
- * `viaScreen` (#4771) is carried, not stored: only `true` counts, and it says a
- * `paused` change came from the person on the screen (their pause is lifted only
- * from there).
- */
 /* #7210 (Josh, 2026-10-26: "mute projects so that I can select the notifications on a project-by-project basis"): what
    reaches the person from one project. 'all' is today's behaviour and is never stored (an absent field reads as all, as
    every older record does); 'mentions' keeps only what is addressed to them; 'muted' sends nothing but keeps the unread
@@ -3156,6 +3141,21 @@ function notifyLevel(id) {
   try { return notifyOfRecord(readAll().find((p) => p.id === id)); } catch { return 'all'; }
 }
 
+/**
+ * Every writable field, applied in ONE mutate.
+ *
+ * ⚠️ One write on purpose. The PUT route used to run rename and two separate
+ * setters (description, archived) as independent read-modify-writes -- so a failure in a
+ * later one answered the caller "your save failed" about a change that had
+ * already persisted. Validation happens for EVERY carried field BEFORE any
+ * write (cleanName and cleanDescription throw; archived refuses anything
+ * but a boolean, because `!!` would turn {"archived": "false"} into an
+ * archive, the opposite of what the caller wrote), so a request either
+ * applies whole or not at all.
+ * `viaScreen` (#4771) is carried, not stored: only `true` counts, and it says a
+ * `paused` change came from the person on the screen (their pause is lifted only
+ * from there).
+ */
 function edit(id, fields = {}) {
   const want = {};
   if (fields.name !== undefined) want.name = cleanName(fields.name);

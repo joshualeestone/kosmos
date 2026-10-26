@@ -17953,7 +17953,8 @@ window.kosmosMeasureScrollbarWidth();
     <div class="field">
       <div class="setrow" id="pjs-sound-row">
         <div><b>Play a sound when a new message lands</b>
-          <p class="dhint" id="pjs-sound-hint" style="margin:2px 0 0;">A soft pop on this device when a new message arrives on this project, so you notice without watching. On by default; turn it off for a noisy project. Several at once make one sound, not a flurry.</p></div>
+          <p class="dhint" id="pjs-sound-hint" style="margin:2px 0 0;">A soft pop on this device when a new message arrives on this project, so you notice without watching. On by default; turn it off for a noisy project. Several at once make one sound, not a flurry.</p>
+          <p class="dhint" id="pjs-sound-off-note" style="margin:4px 0 0;" hidden>Quiet while this project is on Mentions only or Muted.</p></div>
         <button class="toggle on" id="pjs-sound-toggle" role="switch" aria-checked="true" aria-label="Play a sound when a new message lands on this project"><i></i></button>
       </div>
     </div>
@@ -26371,7 +26372,8 @@ async function tick() {
        active project's unread (correct: you are not viewing any room). Clamped >= 0; setNavBadge
        hides <=0/NaN. */
     const openProj = PJ_CURRENT ? pjById(PJ_CURRENT) : null;
-    const openUnread = (openProj && !openProj.archived) ? Math.max(0, Number(openProj.unread) || 0) : 0;
+    // kosmos#7210: the server total leaves out a project not on All, so its unread is not subtracted either.
+    const openUnread = (openProj && !openProj.archived && pjNotifyLevel(openProj) === 'all') ? Math.max(0, Number(openProj.unread) || 0) : 0;
     setNavBadge('nav-badge-projects', Math.max(0, (Number(c.projectsUnread) || 0) - openUnread));
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose
@@ -66724,6 +66726,7 @@ function paintProjects() {
        badges agree on the room you are reading -- the projects poll can still
        report unread=1 for that room before this tick's /seen lands. */
     if (PJ_CURRENT && p && p.id === PJ_CURRENT) return n;
+    if (pjNotifyLevel(p) !== 'all') return n;   // kosmos#7210: as engine projectsUnreadTotal, a quiet project adds nothing
     const v = Number(p && p.unread);
     return n + (Number.isFinite(v) && v > 0 ? v : 0);
   }, 0);
@@ -71637,6 +71640,9 @@ function pjNotifyPaint(level) {
     b.tabIndex = on ? 0 : -1;
   }
   document.getElementById('pjs-notify-hint').textContent = PJ_NOTIFY_HINT[level] || PJ_NOTIFY_HINT.all;
+  // Review 2: the sound switch below stays as the person set it on this device, but says it is quiet for now.
+  const off = document.getElementById('pjs-sound-off-note');
+  if (off) off.hidden = level === 'all';
 }
 function pjHeadNotifyPaint(p) {
   const b = document.getElementById('pj-head-notify');
@@ -71649,10 +71655,14 @@ function pjHeadNotifyPaint(p) {
 /* Saved as it is chosen. Each choice counts itself, so an earlier answer arriving late never repaints over a later
    choice; a refusal puts back what the board holds and says why, under the choice. */
 let PJ_NOTIFY_SEQ = 0;
+let PJ_NOTIFY_INFLIGHT = 0;   // saves sent and not yet answered
 async function pjNotifyChoose(level) {
   const p = pjById(PJ_CURRENT);
-  if (!p || !PJ_NOTIFY_HINT[level] || level === pjNotifyLevel(p)) { pjNotifyPaint(level); return; }
+  /* Review 2: nothing to send only when no save is on its way; going back to the held level while one is in flight is
+     a choice too, or the earlier save would land and leave the board on a level the choice no longer shows. */
+  if (!p || !PJ_NOTIFY_HINT[level] || (level === pjNotifyLevel(p) && PJ_NOTIFY_INFLIGHT === 0)) { pjNotifyPaint(level); return; }
   const seq = ++PJ_NOTIFY_SEQ;
+  PJ_NOTIFY_INFLIGHT += 1;
   const msg = document.getElementById('pjs-notify-msg');
   pjNotifyPaint(level);
   msg.textContent = '';
@@ -71664,6 +71674,7 @@ async function pjNotifyChoose(level) {
     got = await res.json().catch(() => ({}));
     ok = res.ok;
   } catch { ok = false; }
+  PJ_NOTIFY_INFLIGHT -= 1;
   const now = pjById(p.id);
   /* Review 1: a saved answer is what the board holds even when a later choice has been made since, so it is kept;
      only painting waits for the latest choice (a later refusal then puts back this one, not an older value). */

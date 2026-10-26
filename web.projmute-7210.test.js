@@ -40,6 +40,7 @@ function load(project) {
     lift(SCRIPT, 'pjNotifyPaint'),
     lift(SCRIPT, 'pjHeadNotifyPaint'),
     'let PJ_NOTIFY_SEQ = 0;',
+    'let PJ_NOTIFY_INFLIGHT = 0;',
     lift(SCRIPT, 'pjNotifyChoose'),
     'return { pjNotifyChoose, pjNotifyPaint, pjHeadNotifyPaint, pjNotifyLevel };',
   ].join('\n');
@@ -115,4 +116,18 @@ test('#7210 review 1: a save answered after a later choice is still kept, so a l
   await second;
   assert.equal(t.project.notify, 'muted', 'the board saved muted, but the page forgot it');
   assert.equal(t.checked(), 'muted', 'the refusal put back an older level than the board holds');
+});
+
+test('#7210 review 2: going back to the held level while a save is on its way is sent, so the board ends where the choice shows', async () => {
+  const t = load({ id: 'p7', name: 'P' });
+  const first = t.api.pjNotifyChoose('muted');
+  const back = t.api.pjNotifyChoose('all');   // the cache still says all: before review 2 this sent nothing
+  assert.equal(t.pending.length, 2, 'going back to All while Muted was being saved sent nothing');
+  assert.deepEqual(t.pending[1].body, { notify: 'all' });
+  t.answer(0, true, { project: { notify: 'muted' } });
+  await first;
+  t.answer(1, true, { project: { notify: 'all' } });
+  await back;
+  assert.equal(t.project.notify, 'all');
+  assert.equal(t.checked(), 'all');
 });
