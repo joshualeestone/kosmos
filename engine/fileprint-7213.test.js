@@ -73,7 +73,7 @@ test('#7213: compare refuses what is not a hash, and a PDF fingerprint against a
     const txt = path.join(dir, 'a.txt');
     fs.writeFileSync(txt, 'hello\n');
     for (const bad of ['', 'md5:' + 'a'.repeat(32), 'sha256:' + 'a'.repeat(63), 'abc', null]) assert.equal(fp.compare(txt, bad).ok, false, String(bad));
-    const c = fp.compare(txt, 'pdf-normalized:' + hex(txt));
+    const c = fp.compare(txt, 'pdf-normalized:' + 'c'.repeat(64));
     assert.equal(c.ok, true);
     assert.equal(c.match, false, 'a pdf-normalized value matched a file that is not a normalized PDF');
     assert.match(c.words, /this file has none.*Its plain sha256 is sha256:/);
@@ -108,5 +108,31 @@ test('#7213: the handoff line for a PDF gives both, each labelled; any other fil
     fs.writeFileSync(txt, 'hello\n');
     assert.equal(handoff.artifactPrint(txt), 'sha256:' + hex(txt));
     assert.equal(handoff.artifactPrint(path.join(dir, 'nope')), 'missing (no such file)');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#7213 review 1: a mark sent before this (a normalized PDF hash labelled sha256:) still matches its unchanged PDF, and says which', () => {
+  const p = at('cups-a.pdf');
+  const fpHex = fp.fingerprint(p).slice('pdf-normalized:'.length);
+  const old = fp.compare(at('cups-b.pdf'), 'sha256:' + fpHex);
+  assert.equal(old.match, true, 'an older mark of the same render read as a changed file');
+  assert.equal(old.kind, 'pdf-normalized');
+  assert.match(old.words, /^matches the PDF fingerprint .*which an older mark labelled sha256:$/);
+  assert.equal(fp.compare(at('cups-changed.pdf'), 'sha256:' + fpHex).match, false, 'CONTROL: a changed PDF still differs from an older mark');
+});
+
+test('#7213 review 1: a PDF whose dates are already empty matches a PDF fingerprint with the same hex, whatever its label', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fileprint-7213-'));
+  try {
+    const dated = path.join(dir, 'dated.pdf');
+    fs.writeFileSync(dated, '%PDF-1.7\n1 0 obj << /Title (x) /ModDate (D:20261026) >> endobj\n', 'latin1');
+    const emptied = path.join(dir, 'emptied.pdf');
+    fs.writeFileSync(emptied, fp.stablePdf(fs.readFileSync(dated)));
+    const want = fp.fingerprint(dated);
+    assert.match(want, /^pdf-normalized:/);
+    assert.equal(fp.fingerprint(emptied), 'sha256:' + want.slice('pdf-normalized:'.length), 'CONTROL: the emptied copy is labelled by its plain bytes');
+    const c = fp.compare(emptied, want);
+    assert.equal(c.match, true, 'the same hex read as differs because the label differed');
+    assert.match(c.words, /^matches the PDF fingerprint/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

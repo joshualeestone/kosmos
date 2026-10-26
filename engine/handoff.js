@@ -151,8 +151,8 @@ function gitFact(cwd) {
 }
 
 /* The fingerprint, or an honest reason, for one artifact path (#6506 axis 5): engine/fileprint.js since #6849, the
-   one `kosmos task built --file` and `kosmos fingerprint` give, so a PDF re-rendered from the same source matches. */
-/* #7213: a PDF's fingerprint (pdf-normalized:) is not what shasum prints, and an approval usually cites a plain sha256,
+   one `kosmos task built --file` and `kosmos fingerprint` give, so a PDF re-rendered from the same source matches.
+   #7213: a PDF's fingerprint (pdf-normalized:) is not what shasum prints, and an approval usually cites a plain sha256,
    so the line gives both, each labelled, and a reader compares like with like. */
 function artifactPrint(p) {
   const fp = fingerprint(p);
