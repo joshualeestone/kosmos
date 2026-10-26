@@ -424,3 +424,21 @@ test('start-time names are matched in any case, and AGENTS.override.md is read a
   const a = rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.find((x) => x.folder === 'cased');
   assert.deepEqual(a.runs, ['CLAUDE.local.md', 'opencode.jsonc', 'AGENTS.override.md imports']);
 });
+
+test('finish says how many files the restore listed as failed, and refuses a world that is not in the registry', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  // A world folder shaped like a real one, with no registry row.
+  const ghost = { id: 'ghost' };
+  const ghostDir = worlds.worldBaseDir(base, ghost);
+  for (const leaf of ['workers', 'projects', rw.RESTORE_DIR]) fs.mkdirSync(path.join(ghostDir, leaf), { recursive: true });
+  fs.mkdirSync(path.join(ghostDir, rw.RESTORE_DIR, 'workers', 'x'), { recursive: true });
+  const g = rw.finishRestoreWorld({ base, world: ghost, restoreDir: path.join(ghostDir, rw.RESTORE_DIR), result: OK });
+  assert.equal(g.ok, false);
+  assert.match(g.because, /did not name its Kosmos/);
+  assert.ok(fs.existsSync(path.join(ghostDir, rw.RESTORE_DIR, 'workers', 'x')), 'nothing moved');
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: { ok: true, result: { restored: ['a'], failed: [{ path: 'b' }, { path: 'c' }] } } });
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.failedFiles, 2);
+});

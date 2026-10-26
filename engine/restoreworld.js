@@ -139,13 +139,17 @@ function renameRetrying(src, dst) {
 
 /* After a restore that SUCCEEDED, and after its sink is closed. opts: { base, world, restoreDir, result } where
    `result` is engine/restorerun.js runRestore's answer, which must be ok. { ok, moved: [name], kept: [label],
-   because? }. Every check runs before anything moves, so a refusal moves nothing;
+   failedFiles, because? }: `failedFiles` counts the files runRestore listed as failed (it answers ok with some failed,
+   since one damaged file does not fail the rest), for the screen to say. Every check runs before anything moves, so a refusal moves nothing;
    only a rename failing part way leaves one root moved, and `moved` says which. */
 function finishRestoreWorld(opts = {}) {
   const { base, world, restoreDir } = opts;
   const dir = worldDirOf(base, world);
   if (!dir || !realDir(dir)) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
   if (!opts.result || opts.result.ok !== true) return { ok: false, moved: [], kept: [], because: 'the restore did not succeed, so its files stay where it can continue' };
+  if (!takenIds(base).has(world.id)) return { ok: false, moved: [], kept: [], because: 'the restore did not name its Kosmos' };
+  const inner = opts.result.result;
+  const failedFiles = inner && Array.isArray(inner.failed) ? inner.failed.length : 0;
   if (restoreDir !== path.join(dir, RESTORE_DIR) || !realDir(restoreDir)) {
     return { ok: false, moved: [], kept: [], because: 'the restore folder is not the one made for this Kosmos' };
   }
@@ -184,11 +188,11 @@ function finishRestoreWorld(opts = {}) {
       let back = true;
       try { if (!realDir(dst)) fs.mkdirSync(dst); } catch { back = false; }
       const code = e && typeof e.code === 'string' ? ` (${e.code})` : '';
-      return { ok: false, moved, kept: keptIn(restoreDir),
+      return { ok: false, moved, kept: keptIn(restoreDir), failedFiles,
         because: `the restored ${name} could not be moved into the new Kosmos${code}${back ? '' : `, and its empty ${name} folder could not be put back`}` };
     }
   }
-  return { ok: true, moved, kept: keptIn(restoreDir) };
+  return { ok: true, moved, kept: keptIn(restoreDir), failedFiles };
 }
 
 function keptIn(restoreDir) {
@@ -258,8 +262,10 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    Contract for the screen (slice 4c): show `label`, never `folder`; show `runs` and `shared`; enable an agent whose
    `runs` is not empty, or while `shared` is not empty, only after the person acknowledges them, since a hook or an MCP
    server there runs the moment the agent starts; and enable nothing while `more` is true, since the list is then cut
-   short. A git folder in a project is shared, not refused (projects are usually repositories); one in an agent folder
-   or at the top of workers refuses. Nothing is registered, started or written.
+   short. An empty `runs` means only that nothing at the folder's top was flagged, not that the agent is safe: 4a's
+   review list is what shows every file. Labels can look alike (homoglyphs), so rows are told apart by `folder`. A
+   git folder in a project is shared, not refused (projects are usually repositories); one in an agent folder or at
+   the top of workers refuses. Nothing is registered, started or written.
    opts.maxListed lowers MAX_LISTED (tests). */
 function listRestoredAgents(opts = {}) {
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
@@ -300,6 +306,8 @@ function listRestoredAgents(opts = {}) {
       else if (!nameOk(folder)) because = 'its folder name cannot be used to start it here';
       else name = folder;
       if (!because && !brief) because = 'it has no instructions file, so it may not be an agent';
+      // NTFS aliases of .git (a trailing dot or space, an 8.3 short name) never get this far: restoresink.js
+      // plainSegments refuses them.
       if (!because && runs.some((r) => r.toLowerCase() === GIT)) because = 'it holds a git folder, whose settings can run commands as soon as it starts';
       agents.push({ folder, label, from, name, dir: at, brief, runs, because });
     }

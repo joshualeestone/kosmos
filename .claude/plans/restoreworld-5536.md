@@ -64,6 +64,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    Deferred: `more` can be set when only skipped entries remained (it errs toward saying the list is incomplete);
    readBrief's identity refusal has no test (it needs a swap between two system calls).
 
+6. W: finish moved a restore that runRestore answered ok with some files failed and said nothing (now `failedFiles`);
+   finish trusted any world id with a folder (now it must be in the registry); the contract now says an empty `runs`
+   is not "safe" and that labels can look alike. The NTFS .git aliases are refused upstream by restoresink.js
+   plainSegments, now said at the check. The shared nine-name pool is filed as #7181. Deferred: O_NOFOLLOW and
+   O_NONBLOCK (the #1732 guard refuses POSIX-only flags; the identity check covers a swapped link).
+
 ## Residuals, stated
 - Between finish's emptiness check and its rename, another process of the person's own (an agent already running in
   the new world) could write into a target; rmdir then fails and the failure is reported, nothing is lost.
