@@ -8936,12 +8936,12 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
         } catch { return null; }
       });
       /* #5407: the account's folder as Settings > AI Models names its row (accounts.list: the default is
-         ~/.claude, any other the folder itself), so the notice's Refresh login can open that row.
+         ~/.claude, any other the folder itself), so the notice's Refresh login can sign in again as that account.
          Review 5: ONLY when that row reads the same login. The row's login is the keychain entry for its folder
          (claudeloginlive: the default reads the bare entry, any other its folder's own); the notice's is a.service,
          from the agents' exact CLAUDE_CONFIG_DIR. An explicit ~/.claude, or a folder with a trailing slash, reads a
-         different entry from the row of that folder, so it names no row (null): Refresh login then opens AI Models
-         with nothing ringed, and the notice stays up there. */
+         different entry from the row of that folder, so it names no row (null): Refresh login then opens AI Models,
+         and the notice stays up there. */
       const dirOf = (adv) => {
         const set = adv.ccd == null ? '' : String(adv.ccd).replace(/[\r\n]+$/, '');
         const def = path.join(accounts.homeDir(), '.claude');

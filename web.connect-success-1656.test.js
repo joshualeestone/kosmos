@@ -116,7 +116,8 @@ test('kosmos#1656: closeAcctAdd puts the modal back to its form state on the way
   // function does not throw ReferenceError on the read.
   // #3566: closeAcctAdd also clears the Gemini/Grok key step (acctApikeyShow(null)).
   // #3939: closeAcctAdd also puts Meta Muse's step away (acctMuseShow(false)), and (slice 3c-2) counts the visit.
-  const close = new Function('document', 'acctAddConfirmReset', 'acctOpenaiSubStop', 'acctOpenaiSubReset', 'ACCT_ADD_RETURN_FOCUS', 'acctApikeyShow', 'acctMuseShow', 'ACCT_ADD_VISIT', 'acctQwenShow', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {}, () => {}, () => {}, null, () => {}, () => {}, 0, () => {});
+  // kosmos#7198: closeAcctAdd also gives back the login notices' inert (loginAdvInert(false), render-refreshlogin-5407 D4).
+  const close = new Function('document', 'acctAddConfirmReset', 'acctOpenaiSubStop', 'acctOpenaiSubReset', 'ACCT_ADD_RETURN_FOCUS', 'acctApikeyShow', 'acctMuseShow', 'ACCT_ADD_VISIT', 'acctQwenShow', 'loginAdvInert', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {}, () => {}, () => {}, null, () => {}, () => {}, 0, () => {}, () => {});
   close();
   assert.equal(dom.els.get('acct-success').hidden, true, 'the success panel is hidden on close');
   for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) {

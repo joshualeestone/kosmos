@@ -894,7 +894,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-actions > button.acct-reauth-main { text-decoration: none; font-weight: 600; padding: .45em .95em; border-radius: 8px;
   border: 1px solid var(--gold-bright); min-height: 32px; }
 /* #5407: on Settings > AI Models a login notice steps aside when ITS row there says the same thing (marked
-   adv-covered by loginAdvSyncCovered); floating over the list, notices covered the very row Refresh login lands on.
+   adv-covered by loginAdvSyncCovered); floating over the list, notices covered the very row that says it.
    Review 2: only then. A notice whose row is missing or not warned (a symlinked folder, a date read still on its
    way) stays, so an expiring login is never left with no warning on screen. Every other screen shows them all. */
 body:has(#panel-settings:not([hidden]) #s-sec-accounts:not([hidden])) #login-adv-slot .login-adv.adv-covered { display: none; }
@@ -23821,7 +23821,7 @@ function paintLoginAdvisories(advs) {
     return '<div class="utoast login-adv ' + sev + '" data-adv-dir="' + esc(a.dir || '') + '">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '.' + (tail ? ' ' + esc(tail) : '') + '</small></div>'
-      /* #5407 (Josh): one press to where the person signs in again: Settings > AI Models, at this account's row. */
+      /* #5407 (Josh): one press to where the person signs in again; kosmos#7198: loginAdvGo opens it in place. */
       + '<div class="uacts"><button type="button" class="uprime login-adv-go" data-adv-dir="' + esc(a.dir || '') + '" data-adv-email="' + esc(a.email || '') + '" aria-label="'
       + esc('Refresh login: ' + (a.provider || 'Claude') + (a.email ? ', ' + a.email : '')) + '">Refresh login</button></div>'
       + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
@@ -31050,12 +31050,23 @@ function acctReauthChrome(on, email) {
      acctShowSuccess and closeAcctAdd toggle. */
   document.getElementById('acct-provider-field').hidden = !!on;
 }
+/* kosmos#7198 review 1: the login notices sit outside the account dialog, so each way it opens calls this with true,
+   and while it is open their Refresh login is out of reach of Tab and the pointer; closeAcctAdd calls it with false,
+   which gives back only what it made inert, as frChoiceInert does. */
+let ACCT_ADD_INERTED_ADV = false;
+function loginAdvInert(on) {
+  const advSlot = document.getElementById('login-adv-slot');
+  if (!advSlot) return;
+  if (on && !advSlot.inert) { advSlot.inert = true; ACCT_ADD_INERTED_ADV = true; }
+  else if (!on && ACCT_ADD_INERTED_ADV) { advSlot.inert = false; ACCT_ADD_INERTED_ADV = false; }
+}
 function openAcctReauth(dir, email) {
   ACCT_REAUTH_DIR = dir;
   acctReauthChrome(true, email);
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
   document.getElementById('acct-add-modal').hidden = false;
+  loginAdvInert(true);
   acctPick('claude', { focus: false });
   document.getElementById('acct-add').focus();
 }
@@ -31071,6 +31082,7 @@ function openAcctReauthOpenai(dir, email) {
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
   document.getElementById('acct-add-modal').hidden = false;
+  loginAdvInert(true);
   acctPick('openai', { focus: false });
 }
 /* #1704 slice-3: the multiple-Kosmos switcher (list + create). Creates a new Kosmos
@@ -33420,6 +33432,7 @@ function openAcctAdd(ev) {
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
   modal.hidden = false;
+  loginAdvInert(true);
   // Reopening onto a sign-in already in flight lands focus on whatever
   // step it is actually on, not back at the top of the dialog -- a
   // person awaiting the code field would otherwise have their focus
@@ -33464,13 +33477,17 @@ function closeAcctAdd() {
   });
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-add-t');
   document.getElementById('acct-add-modal').hidden = true;
+  loginAdvInert(false);
   // #2802: return focus to whatever opened the modal, falling back to the Accounts
   // door. A recorded opener that is no longer rendered (offsetParent === null =
   // display:none or detached) cannot take focus, so fall back rather than strand
   // focus on <body>.
-  const backEl = (ACCT_ADD_RETURN_FOCUS && document.contains(ACCT_ADD_RETURN_FOCUS) && ACCT_ADD_RETURN_FOCUS.offsetParent !== null)
+  let backEl = (ACCT_ADD_RETURN_FOCUS && document.contains(ACCT_ADD_RETURN_FOCUS) && ACCT_ADD_RETURN_FOCUS.offsetParent !== null)
     ? ACCT_ADD_RETURN_FOCUS
     : document.getElementById('acct-add-open');
+  /* kosmos#7198 review 1: the Accounts door is hidden off Settings, so a notice's opener repainted away (the sign-in
+     worked) falls back to a Refresh login still showing, and with none, to nothing rather than a hidden element. */
+  if (backEl && backEl.offsetParent === null) backEl = [...document.querySelectorAll('#login-adv-slot .login-adv-go')].find((b) => b.offsetParent !== null) || null;
   ACCT_ADD_RETURN_FOCUS = null;
   if (backEl) backEl.focus();
 }
@@ -34714,6 +34731,7 @@ function openAcctReauthGrok(dir, email) {
   acctReauthChrome(true, email);
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-add-modal').hidden = false;
+  loginAdvInert(true);
   acctPick('xai', { focus: false });
   document.getElementById('acct-grok-sub-go').focus();
 }
