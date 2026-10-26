@@ -209,7 +209,7 @@ async function offProject6895Gone(page) { await throwawayProjectGone(page, OFFPR
 const BUSY_7196 = 'Busy room 7196';
 /* Review 2: a throwaway project, not the shared sample one, so its 24 posts never reach another screen; `after`
    deletes it. Made once per shot (sizes and themes share one board), with its agent on it so the room takes posts. */
-async function busyProject7196(page, agent) {
+async function project7196(page, name, agent) {
   return page.evaluate(async ({ name, agent }) => {
     const list = await (await fetch('/api/projects')).json().catch(() => ({}));
     let p = (list.projects || []).find((x) => x && x.name === name);
@@ -217,29 +217,42 @@ async function busyProject7196(page, agent) {
       p = (await (await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json()).project;
       await fetch('/api/project/' + p.id + '/agent/' + encodeURIComponent(agent), { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     }
-    const base = '/api/project/' + encodeURIComponent(p.id);
-    const room = await (await fetch(base + '/room')).json().catch(() => ({}));
-    const have = (room.rows || []).filter((r) => r && /^Room busy 7196 post/.test(r.text || '')).length;
-    for (let i = have + 1; i <= 24; i++) {
-      await fetch(base + '/room', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: 'Room busy 7196 post ' + i + ': a line or two of ordinary project talk, so the room scrolls.' }) });
-    }
     return p.id;
-  }, { name: BUSY_7196, agent });
+  }, { name, agent });
+}
+/* The posts go straight into the store's log, as the seed writes the sample room (the room's POST refuses on this
+   board: the design-shots run's first pass showed both rooms empty, "Nothing here yet"). Once per project id. */
+const SEEDED_7196 = new Set();
+function seedPosts7196(pid, from, texts) {
+  if (SEEDED_7196.has(pid)) return;
+  SEEDED_7196.add(pid);
+  const t0 = Date.now() - 3600e3;
+  const lines = texts.map((text, i) => ({ kind: 'post', id: 'r7196-' + pid + '-' + (i + 1), project: pid, from, to: [], text,
+    at: new Date(t0 + i * 60e3).toISOString(), outcomes: {} }));
+  const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
+  fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+}
+async function busyProject7196(page, agent) {
+  const pid = await project7196(page, BUSY_7196, agent);
+  seedPosts7196(pid, agent, Array.from({ length: 24 }, (_, i) => 'Room busy 7196 post ' + (i + 1) + ': a line or two of ordinary project talk, so the room scrolls.'));
+  return pid;
 }
 async function roomFloor7196(page) {
   await page.evaluate(() => { window.scrollTo(0, 0); const r = document.querySelector('#pj-room'); if (r) r.scrollTop = r.scrollHeight; });
   await page.waitForTimeout(250);
 }
-async function newestAbove7196(page) {
-  const m = await page.evaluate(() => {
-    if (!matchMedia('(max-width: 30rem)').matches) return null;
+async function newestAbove7196(page, minPosts, postsOnly) {
+  const m = await page.evaluate(({ minPosts, postsOnly }) => {
     const room = document.querySelector('#pj-room'), comp = document.querySelector('.pjmid .composer');
+    /* Real posts, at every size (round 2: an empty room's "Nothing here yet" line passed as the newest row). */
+    const posts = room ? room.querySelectorAll('.msg').length : 0;
+    if (posts < minPosts) return { posts, minPosts, noPosts: true };
+    if (postsOnly || !matchMedia('(max-width: 30rem)').matches) return null;
     const rows = room ? [...room.children].filter((e) => e.getBoundingClientRect().height > 0) : [];
     if (!rows.length || !comp) return { missing: true };
     return { last: Math.round(rows[rows.length - 1].getBoundingClientRect().bottom), comp: Math.round(comp.getBoundingClientRect().top) };
-  });
-  if (m && (m.missing || m.last > m.comp)) throw new Error('#7196: the newest row is not above the composer: ' + JSON.stringify(m));
+  }, { minPosts, postsOnly: !!postsOnly });
+  if (m && (m.noPosts || m.missing || m.last > m.comp)) throw new Error('#7196: the room is not the one meant, or its newest row is under the composer: ' + JSON.stringify(m));
 }
 /* kosmos#7184: a throwaway project with three tasks; task 1 held from the screen until task 2 closes ('task') or until a
    time ('at'), then its page opened and scrolled to the hold row. */
@@ -1064,22 +1077,14 @@ const SCREENS = [
     const id = await busyProject7196(page, data.chatAgent);
     await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
     await roomFloor7196(page);
-  }, verify: async (page) => { await newestAbove7196(page); },
+  }, verify: async (page) => { await newestAbove7196(page, 24); },
   after: async (page) => { await throwawayProjectGone(page, BUSY_7196); } },
   { name: 'room-short-7196', owner: 'Angel', go: async (page, data) => {
-    const id = await page.evaluate(async (agent) => {
-      const list = await (await fetch('/api/projects')).json().catch(() => ({}));
-      const had = (list.projects || []).find((p) => p && p.name === 'Short room');
-      if (had) return had.id;
-      const r = await (await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Short room' }) })).json();
-      const pid = r.project.id;
-      await fetch('/api/project/' + pid + '/agent/' + encodeURIComponent(agent), { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      await fetch('/api/project/' + pid + '/room', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'Just one message so far.' }) });
-      return pid;
-    }, data.chatAgent);
+    const id = await project7196(page, 'Short room', data.chatAgent);
+    seedPosts7196(id, data.chatAgent, ['Just one message so far.']);
     await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
     await roomFloor7196(page);
-  }, verify: async (page) => { await newestAbove7196(page); },
+  }, verify: async (page) => { await newestAbove7196(page, 1); },
   after: async (page) => { await throwawayProjectGone(page, 'Short room'); } },
   { name: 'room-keyboard-7196', owner: 'Angel', phoneOnly: true, go: async (page, data) => {
     const id = await busyProject7196(page, data.chatAgent);
@@ -1093,7 +1098,7 @@ const SCREENS = [
     /* Review 2: on a short phone (the SE, 667px) the page header above the room takes almost all of what the keyboard
        leaves, so with the page at its top no thread height can clear the composer. A stated limit of this fix (#7196),
        not checked there; the phone sizes from 700px up are. */
-    if (page.__vp7196 && page.__vp7196.height >= 700) await newestAbove7196(page);
+    await newestAbove7196(page, 24, !(page.__vp7196 && page.__vp7196.height >= 700));
   },
   after: async (page) => {
     if (page.__vp7196) { await page.setViewportSize(page.__vp7196); page.__vp7196 = null; }
