@@ -126,6 +126,12 @@ at 0%, had no reading at all (the card's opening).
   Ten mutants were run against it; the one that survived (clearing the memory copy after a reading) showed that line
   did nothing observable, and it was removed. Not taken: requiring an email on a record to show it (only a build that
   never shipped could write one without), and two boards racing on one record.
+- Review 23: the rule is stated by exclusion. Every answer to a request that was sent is a refusal except a reading,
+  a 5xx, or no answer: so a redirect (not followed) and a reply that cannot be read as what this expects hold the
+  account too. While held, the record's state is the refusal (it said `ok` when a refused token came back). A copy of
+  the refusal still within its hour beats a newer copy that has expired. Two older tests had passed through the hold
+  rather than the code they name (their failures were 429s); they now fail with a 5xx, and deleting the line each
+  guards turns it red.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -178,7 +184,7 @@ reader recording only the field's type, never the address: on all four accounts 
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 52 tests (counted from a run after review 22), with an injected Keychain reader and
+- engine/usagepoll-7152.test.js, 55 tests (counted from a run after review 23), with an injected Keychain reader and
   request, no real credential and no network. Each review's tests are named for it in the file.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

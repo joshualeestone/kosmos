@@ -53,9 +53,12 @@ const EXPIRY_MARGIN_MS = 60 * 1000;
 const BACKOFF_MS = 60 * 60 * 1000;
 
 /* Review 22: the backoff as one rule, replacing the case-by-case additions of reviews 14 to 21.
-   - A REFUSAL is any answer that says "do not send this again soon": a 4xx from either request, a profile that answers
-     but names no login or organization (the endpoint is not what this reads), or another login's token. A server
-     error (5xx) or no answer at all is not a refusal and is read again on the next sweep.
+   - A REFUSAL is every answer to a request that was sent, other than a reading, a server error (5xx) or no answer at
+     all: any other status from either request (4xx, and a redirect, which is not followed), an answer that cannot be
+     read as what this expects (review 23: the endpoint has changed shape), a profile naming no login (or no
+     organization when the folder names one), and another login's token. Only a 5xx or no answer is read again on the
+     next sweep. A state from a sweep that sent nothing (no credential, an expired token, no email listed) is not a
+     refusal.
    - A refusal holds the account for an hour, for the login that was refused (a new login is read at once), and for
      the token that was refused (identified by its expiry time, not a secret), except a 429, which is the account's
      rate limit and holds across a renewed token.
@@ -63,14 +66,17 @@ const BACKOFF_MS = 60 * 60 * 1000;
      expired (review 18).
    - The refusal is kept in memory as well as in the record, and the newer copy wins, so a folder that cannot be
      written, or a record that cannot be read, does not erase it, and every record that is not a reading carries a
-     refusal still within its hour, so a restarted board keeps it too. A reading with another token does not clear it:
+     refusal still within its hour, so a restarted board keeps it too. While held, the record's state is the refusal. A reading with another token does not clear it:
      the refused token stays refused for its hour if it comes back. */
 function isRefusal(state) {
-  return typeof state === 'string' && (/^(profile-)?http-4\d\d$/.test(state) || state === 'profile-unreadable' || state === 'other-account');
+  if (typeof state !== 'string') return false;
+  if (/^(profile-)?http-5\d\d$/.test(state)) return false;
+  return /^(profile-)?http-\d{3}$/.test(state)
+    || ['unreadable-response', 'profile-unreadable', 'other-account'].includes(state);
 }
 const refusals = new Map();   // account folder -> its last refusal, the in-memory copy
 
-function refusalOf(dir, rec) {
+function refusalOf(dir, rec, nowMs) {
   const fromFile = rec && typeof rec.refusedAt === 'number' && Number.isFinite(rec.refusedAt)
     && isRefusal(typeof rec.refusedState === 'string' ? rec.refusedState : rec.state)
     ? { refusedState: typeof rec.refusedState === 'string' ? rec.refusedState : rec.state, refusedAt: rec.refusedAt,
@@ -79,6 +85,11 @@ function refusalOf(dir, rec) {
   const inMemory = refusals.get(dir) || null;
   if (!fromFile) return inMemory;
   if (!inMemory) return fromFile;
+  /* Review 23: a copy still within its hour beats one that is not, whichever is newer (a clock step can make the
+     expired one look newer); between two live copies, the newer. */
+  const liveFile = withinHour(fromFile, nowMs);
+  const liveMemory = withinHour(inMemory, nowMs);
+  if (liveFile !== liveMemory) return liveMemory ? inMemory : fromFile;
   return inMemory.refusedAt >= fromFile.refusedAt ? inMemory : fromFile;
 }
 
@@ -227,8 +238,8 @@ async function readOne(a, { now = Date.now(), request, timeoutMs, identityOf = (
   const p = await getUsage(t.token, { request, path: PROFILE_PATH, ...(timeoutMs ? { timeoutMs } : {}) });
   /* Review 15: a refused profile request is a refusal of the same token (review 22: any 4xx). A server error or no
      answer is not, and is not a reading either. */
-  if (p.code >= 400 && p.code < 500) return { at: now, state: `profile-http-${p.code}` };
-  if (p.code !== 200) return { at: now, state: 'profile-unreachable' };
+  if (p.code === 0 || (p.code >= 500 && p.code < 600)) return { at: now, state: 'profile-unreachable' };
+  if (p.code !== 200) return { at: now, state: `profile-http-${p.code}` };
   let email = null;
   let org = null;
   try {
@@ -299,11 +310,11 @@ async function pollAll(list, deps = {}) {
     if (a && typeof a.dir === 'string' && a.dir && !a.apiKey) {
       try { t = await tokenStateFor(a, deps); } catch { t = { state: 'no-credential' }; }
     }
-    const ref = a && typeof a.dir === 'string' ? refusalOf(a.dir, before) : null;
+    const ref = a && typeof a.dir === 'string' ? refusalOf(a.dir, before, nowMs) : null;
     if (holds(ref, a, t, nowMs)) {
       /* While it waits, the record's `at` moves on so its state (why it is not measured) stays shown; kept figures
          still age out by measuredAt. */
-      write(a.dir, { ...(before || { state: ref.refusedState }), ...ref, at: nowMs });
+      write(a.dir, { ...(before || {}), ...ref, state: ref.refusedState, at: nowMs });   // review 23: its state is the refusal
       continue;
     }
     let rec = null;

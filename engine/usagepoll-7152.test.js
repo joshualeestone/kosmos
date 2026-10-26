@@ -404,7 +404,7 @@ test('#7152 review 9: a folder signed in again as another login does not keep th
 test('#7152 review 10: figures survive consecutive failed reads until they are stale, not just one', async (t) => {
   const d = tmpDir(t);
   const ok = { now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 200, body: BODY }, {}) };
-  const failAt = (now) => ({ ...ok, now, request: fakeRequest({ code: 429, body: '' }, {}) });
+  const failAt = (now) => ({ ...ok, now, request: fakeRequest({ code: 503, body: '' }, {}) });   // review 23: a 5xx, which is never held, so each sweep really reads
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], ok);
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], failAt(NOW + 10 * 60000));
   assert.equal(usagepoll.readUsage(d, NOW + 10 * 60000).weekly.usedPct, 56, 'CONTROL: one failed read keeps the figures');
@@ -430,7 +430,7 @@ test('#7152 review 11: the same email in another organization does not keep the 
   const d = tmpDir(t);
   const resets = Math.floor((NOW + 86400000) / 1000);
   const old = { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: EMAIL, org: 'org-personal', weekly: { usedPct: 12, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null };
-  const failing = (org) => ({ now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 429, body: '' }, {}),
+  const failing = (org) => ({ now: NOW, platform: 'darwin', realHome: '/', readCred: async () => cred(), request: fakeRequest({ code: 503, body: '' }, {}),   // review 23: never held
     identityOf: () => ({ email: EMAIL, organizationUuid: org }) });
   usagepoll.write(d, old);
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], failing('org-team'));
@@ -735,4 +735,47 @@ test('#7152 review 22: a refusal from an earlier run survives a sweep that sent 
   assert.equal(rec.state, 'token-expired', 'CONTROL: the sweep had no usable token');
   assert.equal(rec.refusedState, 'http-429', 'a sweep that sent nothing dropped the refusal from the record');
   assert.equal(rec.refusedAt, NOW);
+});
+
+test('#7152 review 23: a redirect or an answer that cannot be read is a refusal too; the held record says why', async (t) => {
+  const seen = {};
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: NOW + 10 * 3600000 }), request: fakeRequest(answer, seen) });
+  for (const [label, answer, state] of [
+    ['a redirect', { code: 302, body: '' }, 'http-302'],
+    ['an answer of another shape', { code: 200, body: '{"something":"else"}' }, 'unreadable-response'],
+    ['a profile redirect', (opts) => (opts.path === '/api/oauth/profile' ? { code: 301, body: '' } : { code: 200, body: BODY }), 'profile-http-301'],
+  ]) {
+    const d = tmpDir(t);
+    await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, answer));
+    await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+    assert.equal(seen.calls.length, 0, `${label} was sent again ten minutes later`);
+    assert.equal(usagepoll.readUsage(d, NOW + 10 * 60000).state, state, `while held, ${label} did not say why`);
+  }
+});
+
+test('#7152 review 23: a held account shows its refusal, not the last reading\'s state', async (t) => {
+  const d = tmpDir(t);
+  const seen = {};
+  let expiresAt = NOW + 10 * 3600000;
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt }), request: fakeRequest(answer, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
+  expiresAt = NOW + 20 * 3600000;
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(usagepoll.readUsage(d, NOW + 10 * 60000).state, 'ok', 'CONTROL: the renewed token was read');
+  expiresAt = NOW + 10 * 3600000;   // the refused token comes back
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 20 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'CONTROL: the refused token is held');
+  assert.equal(usagepoll.readUsage(d, NOW + 20 * 60000).state, 'http-401', 'a held account said it was being read');
+});
+
+test('#7152 review 23: a refusal still within its hour beats a newer copy that has expired', async (t) => {
+  const d = tmpDir(t);
+  const seen = {};
+  const exp = NOW + 10 * 3600000;
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt: exp }), request: fakeRequest(answer, seen) });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 401, body: '' }));
+  /* The record now carries a refusal stamped two hours ahead (a clock that was wrong, then corrected): newer, expired. */
+  usagepoll.write(d, { at: NOW, state: 'http-401', refusedState: 'http-401', refusedAt: NOW + 2 * 3600000, refusedEmail: EMAIL, refusedExpiresAt: exp });
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'an expired copy that looked newer released a refusal still within its hour');
 });
