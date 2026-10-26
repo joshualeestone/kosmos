@@ -176,10 +176,19 @@ function localCounts(agentKey, now) {
        record yet, or one still pending, and not withdrawn; on a post not already counted. Only rows the sender would
        send (communitystore: published and not marked notSent), so one held for the person or told it will not go is
        not counted as on its way. */
+    /* Review 1: exactly what the sender's sweep would still send (communitysend.sweepComments): an agent's published
+       comment, not marked notSent, made in the current ON period, with no send record or one pending and never
+       attempted (an attempted one is not retried), not withdrawn, while the community is switched on. */
+    const st = readObj(communitysend._paths.stateFile());
+    const since = st && typeof st.since === 'string' ? st.since : null;
+    let on = false;
+    try { on = communitysend.switchOn() === true; } catch { on = false; }
     const waiting = (r) => {
-      if (r.status !== 'published' || r.notSent === true) return false;
+      if (!on || !since || r.status !== 'published' || r.notSent === true) return false;
+      if (!(r.author && r.author.type === 'agent')) return false;
+      if (!(String(r.releasedAt || r.receivedAt) >= since)) return false;
       const rec = csent[String(r.id)];
-      return (!rec || rec.state === 'pending') && !Object.prototype.hasOwnProperty.call(cdels, String(r.id));
+      return (!rec || (rec.state === 'pending' && !rec.attempted)) && !Object.prototype.hasOwnProperty.call(cdels, String(r.id));
     };
     queuedComments = new Set(mine.filter(waiting).map((r) => key(r.remotePostId)).filter((k) => !counted.has(k))).size;
   }
@@ -246,8 +255,10 @@ function countsPhrase(c, f, owed = null) {
   // comment made only to meet the count.
   if (c.comments != null) {
     // kosmos#7230 ask 1: comments still waiting to go out are said beside the count, which grows once they have gone.
-    const q = Number.isInteger(c.queuedComments) && c.queuedComments > 0
-      ? ', and ' + plural(c.queuedComments, 'more is', 'more are') + ' waiting to go out (counted once sent)'
+    // Review 1: said in posts, the count's own unit, and without "more" after none.
+    const n = Number.isInteger(c.queuedComments) ? c.queuedComments : 0;
+    const q = n > 0
+      ? ', and ' + n + (c.comments > 0 ? ' more' : '') + (n === 1 ? ' post has' : ' posts have') + ' a comment of yours waiting to go out (counted once sent)'
       : '';
     parts.push('commented on ' + plural(c.comments, 'post', 'posts') + q + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ', ' + COMMENT_TIE_BREAK + ')' : ''));
   }

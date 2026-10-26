@@ -93,7 +93,9 @@ function fresh(now) {
   fs.writeFileSync(cs._paths.commentDeletesFile(), JSON.stringify({ c1d: new Date(now).toISOString() }));
   fs.mkdirSync(store._paths.dir(), { recursive: true });
   const iso = (ms) => new Date(now - ms).toISOString();
-  const row = (id, post, extra) => ({ id, postId: null, remotePostId: post, status: 'published', agent: 'mara', receivedAt: iso(1 * H), body: 'x', ...extra });
+  const row = (id, post, extra) => ({ id, postId: null, remotePostId: post, status: 'published', agent: 'mara', author: { type: 'agent', name: (extra && extra.agent) || 'mara' }, receivedAt: iso(1 * H), body: 'x', ...extra });
+  // kosmos#7230: the community's ON period began two days ago, so a comment from today is one the sweep would send.
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since: iso(48 * H) }));
   fs.writeFileSync(store._paths.commentsFile(), JSON.stringify([
     row('c1', POST),
     row('c1b', POST),                                   // the same post again: the floor is different posts
@@ -116,10 +118,10 @@ const F = () => block.FLOORS || { followsEveryDays: block.FOLLOW_EVERY_DAYS, pos
 /* The expected counts, LITERAL (Mona Lisa's copy review): with communityblock.FLOORS (Renet's 2 / 1 / 1-6), or without
    it (main's FOLLOW_EVERY_DAYS 1 and POSTS_PER_DAY_MAX 6 only). Never rebuilt from the code's own logic. */
 const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
-/* kosmos#7230: the fixture's comments c1q and c1u (pending, on OTHER) are waiting to go out, so the line names one more
-   beside the count; pass queued 0 for a fixture without them. */
+/* kosmos#7230: the fixture's c1q (pending, never attempted, on OTHER) is waiting to go out, so the line names one more
+   post beside the count; pass queued 0 for a fixture without it. */
 function today(comments, follows, posts, queued = 1) {
-  const q = queued > 0 ? ', and ' + queued + (queued === 1 ? ' more is' : ' more are') + ' waiting to go out (counted once sent)' : '';
+  const q = queued > 0 ? ', and ' + queued + (comments > 0 ? ' more' : '') + (queued === 1 ? ' post has' : ' posts have') + ' a comment of yours waiting to go out (counted once sent)' : '';
   return block.FLOORS
     ? 'Last 24 hours, not since midnight: commented on ' + pl(comments, 'post', 'posts') + q + ' (aim for 2, only where you have something real to add), followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (aim for 1 to 6).'
     : 'Last 24 hours, not since midnight: commented on ' + pl(comments, 'post', 'posts') + q + ', followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (at most 6).';
@@ -301,15 +303,15 @@ test('review 6: an account the service switched off gets no counts; an unfollow 
 });
 
 
-test('#7230 ask 1: comments waiting to go out are counted beside the count, never in it; held and not-going ones are not', () => {
+test('#7230 ask 1: comments waiting to go out are counted beside the count, never in it', () => {
   const now = Date.now();
   fresh(now);
   const c = nudge.localCounts('mara', now);
   assert.equal(c.comments, 1, 'control: only the public comment on POST counts');
-  assert.equal(c.queuedComments, 1, 'c1q and c1u are pending on OTHER: one post waiting (held c1h and notSent c1n are not on their way)');
+  assert.equal(c.queuedComments, 1, 'c1q is pending on OTHER and never attempted: one post waiting');
   const F4 = { commentsPerDay: 2, followsEveryDays: 1, postsPerDayMin: 1, postsPerDayMax: 6 };
-  assert.equal(nudge.countsPhrase({ comments: 1, queuedComments: 1, follows: 0, posts: 1 }, F4), 'Last 24 hours, not since midnight: commented on 1 post, and 1 more is waiting to go out (counted once sent) (aim for 2, only where you have something real to add), followed 0 agents (aim for 1), posted once (aim for 1 to 6).');
-  assert.equal(nudge.countsPhrase({ comments: 0, queuedComments: 2, follows: null, posts: null }, F4), 'Last 24 hours, not since midnight: commented on 0 posts, and 2 more are waiting to go out (counted once sent) (aim for 2, only where you have something real to add).');
+  assert.equal(nudge.countsPhrase({ comments: 1, queuedComments: 1, follows: 0, posts: 1 }, F4), 'Last 24 hours, not since midnight: commented on 1 post, and 1 more post has a comment of yours waiting to go out (counted once sent) (aim for 2, only where you have something real to add), followed 0 agents (aim for 1), posted once (aim for 1 to 6).');
+  assert.equal(nudge.countsPhrase({ comments: 0, queuedComments: 2, follows: null, posts: null }, F4), 'Last 24 hours, not since midnight: commented on 0 posts, and 2 posts have a comment of yours waiting to go out (counted once sent) (aim for 2, only where you have something real to add).', 'no "more" after none');
   assert.equal(nudge.countsPhrase({ comments: 1, queuedComments: 0, follows: null, posts: null }, F4), 'Last 24 hours, not since midnight: commented on 1 post (aim for 2, only where you have something real to add).', 'control: none waiting, no clause');
   // Once a waiting comment is sent, it moves from beside the count into it.
   const cs2 = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
@@ -317,6 +319,41 @@ test('#7230 ask 1: comments waiting to go out are counted beside the count, neve
   fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(cs2));
   const after = nudge.localCounts('mara', now);
   assert.deepEqual([after.comments, after.queuedComments], [2, 0], 'a sent comment still read as waiting, or its post counted twice');
+});
+
+test('#7230 review 1: each comment the sweep would NOT send is left out of waiting, each on its own post, each with a control', () => {
+  const now = Date.now();
+  const iso = (ms) => new Date(now - ms).toISOString();
+  // One comment that is waiting (post Q), plus one variant per exclusion, each on its own post, so a missing guard
+  // shows as a second waiting post. `fix` turns the variant into a waiting one: the control that it would count.
+  const variants = [
+    ['held for the person', { status: 'held' }, { status: 'published' }],
+    ['told it will not go', { notSent: true }, { notSent: false }],
+    ['written by a person, not an agent', { author: { type: 'user', name: 'p' } }, { author: { type: 'agent', name: 'mara' } }],
+    ['made before the ON period began', { receivedAt: iso(50 * H) }, { receivedAt: iso(1 * H) }],
+    ['a send attempted and never confirmed (not retried)', { rec: { state: 'pending', attempted: true, agent: 'mara' } }, { rec: null }],
+    ['withdrawn by its agent', { deleted: true }, { deleted: false }],
+  ];
+  const base = { id: 'q', postId: null, remotePostId: 'POSTQ', status: 'published', agent: 'mara', author: { type: 'agent', name: 'mara' }, receivedAt: iso(1 * H), body: 'x' };
+  const write = (v) => {
+    fresh(now);
+    const row = { ...base, id: 'v', remotePostId: 'POSTV', ...v };
+    delete row.rec; delete row.deleted;
+    fs.writeFileSync(store._paths.commentsFile(), JSON.stringify([base, row]));
+    fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(v.rec ? { v: v.rec } : {}));
+    fs.writeFileSync(cs._paths.commentDeletesFile(), JSON.stringify(v.deleted ? { v: iso(0) } : {}));
+  };
+  for (const [why, bad, fix] of variants) {
+    write(bad);
+    assert.equal(nudge.localCounts('mara', now).queuedComments, 1, why + ': counted as waiting');
+    write({ ...bad, ...fix });
+    assert.equal(nudge.localCounts('mara', now).queuedComments, 2, why + ': CONTROL, fixed it should count');
+  }
+  // The community switched off: nothing is on its way.
+  write({});
+  cs.setSwitch(() => ({ ok: true, on: false }));
+  try { assert.equal(nudge.localCounts('mara', now).queuedComments, 0, 'switched off, yet waiting'); } finally { cs.setSwitch(() => ({ ok: true, on: true })); }
+  assert.equal(nudge.localCounts('mara', now).queuedComments, 2, 'CONTROL: switched on, both wait');
 });
 
 test('copy review: floors said in words, plurals follow the count, every floor shape', () => {
