@@ -40,7 +40,7 @@ site page.
    Delete.
 
 ## Progress
-- [x] 1 - [x] 2 - [x] 3 - [x] 4 - [ ] 5 (challenge loop running) - [ ] 6
+- [x] 1 - [x] 2 - [x] 3 - [x] 4 - [ ] 5 (challenge loop in round 6; design shots after the queued browser check) - [ ] 6
 
 ## Deferred in review
 - Comments unreadable and no posts: the fold and the count hide, and the could-not-read line shows, so the page says
@@ -52,3 +52,8 @@ site page.
 - A comment the community's moderators removed still counts in the summary (iteration 4): the service gives the board
   no way to ask about a comment once it is sent, so the board holds no fact to exclude it with. Posts do carry
   takenDown and are excluded.
+- The fold holds every row, including ones the count leaves out (held, coming down, refused); each row says its own
+  state, and the fold is labelled "every one", so the count above it is not claimed to describe the fold
+  (iteration 5).
+- The live rule is written twice, once for posts and once for comments, because only a post can carry takenDown
+  (iteration 5); a shared helper would hide that difference rather than remove it.
