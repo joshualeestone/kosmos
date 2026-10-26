@@ -18563,12 +18563,12 @@ window.kosmosMeasureScrollbarWidth();
            write already queued. Focus a container, let the live region speak. -->
       <div id="set-accounts" tabindex="-1"></div>
       <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
-      <!-- kosmos#7152 slice 2: usage auto-balance. Nothing moves yet: the lines say what it WOULD do, so a person can
-           read its decisions first. Shown only when /api/accounts?agents=1 reports two or more Claude subscription
+      <!-- kosmos#7152 slice 2: usage auto-balance. The lines say what it WOULD do; slice 3's box under them (#ab-recent)
+           says whether Kosmos moves them itself on this computer, and what it did. Shown only when /api/accounts?agents=1 reports two or more Claude subscription
            accounts; the switch, as every status control here, stays hidden until a read says on or off. -->
       <div class="setrow" id="ab-row" style="margin-top:14px;" hidden>
         <div><b>Move agents off an account that is running out</b>
-          <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 90% of its weekly limit and does not reset within 6 hours, or its login stops working, Kosmos picks the idle agents on it to move to the account with the most room (one Kosmos has measured, under 70%). For now it only says what it would do. Nothing is moved.</p>
+          <p class="dhint" style="margin:2px 0 0;">When a Claude account reaches 90% of its weekly limit and does not reset within 6 hours, or its login stops working, Kosmos picks the idle agents on it to move to the account with the most room (one Kosmos has measured, under 70%).</p>
           <div id="ab-lines"></div>
           <div id="ab-recent"></div>
           <p class="dhint" id="ab-msg" role="status" style="margin:8px 0 0;"></p></div>
@@ -28870,7 +28870,8 @@ function paintAutobalance(ab, list) {
     if (!html) html = line('Nothing to move right now.');
     /* Slice 3: whether Kosmos moves them itself on this computer, and what it did or would have done lately. */
     if (recentBox) {
-      recentBox.innerHTML = (ab.movesOn !== true ? line('Moving agents on its own is not switched on for this computer yet, so Kosmos keeps a record of what it would move.') : '')
+      recentBox.innerHTML = (ab.movesOn !== true ? line('Moving agents on its own is not switched on for this computer yet, so Kosmos keeps a record of what it would move.')
+        : line('Kosmos moves them itself, one agent at a time, and says each move here.'))
         + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
     }
   }
