@@ -262,6 +262,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    no, so an ordinary world is never treated as restored), tested with a mark that is a folder. Not taken: the three
    EXCUSED entries share one text (the file's existing pattern for sibling exports).
 
+35. (sonnet) Nits taken: markCertainlyPresent says it is never the start gate (doubt must read Restored there) and is
+   not exported; a test pins prepare's taken-id check to createWorld's own derivation; the held-back folder comment
+   says it is made new, never reused. Deferred as duplicates: the opts hooks are prose-guarded (round 33, with its
+   weakest premise), and finish's read of the target folder is unbounded (round 11's unbounded tops). Not new: the
+   EXCUSED text (round 34).
+
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
 - On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that
