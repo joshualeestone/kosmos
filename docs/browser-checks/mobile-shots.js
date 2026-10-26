@@ -2810,6 +2810,11 @@ async function seed(base, roots) {
   /* The log lives in the store's own root (engine/messages.js: store.ROOT, which is
      DATA/<app>), not at the top of DATA: written there, the room showed no posts at all. */
   const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
+  /* #7225: the room is seeded with rows from half an hour ago, and since #7185 a row stamped before its project's
+     createdAt belongs to an earlier project of that name and is shown to no reader, so every room shot came out empty.
+     The project is dated back first, as #7185's own tests do. */
+  const projectsMod = require(path.join(REPO, 'engine', 'projects'));
+  projectsMod.writeAll(projectsMod.readAll().map((q) => (q.id === pid ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q)));
   fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   if (DATA.dmRead) await post('/api/agent/' + DATA.chatAgent + '/seen');
   /* The store set's question names its project, as an agent on a project would, so it
