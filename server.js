@@ -2880,6 +2880,44 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
   return { usedBy, complete };
 }
 
+/* kosmos#7152 slice 3: what the auto-balance sweep reads and does, built fresh for each tick (the agents walk and the
+   projects are read at most once per tick). A function, not inline in the sweep, so a test can drive a real tick
+   against the real board's wiring. */
+function automoveDeps() {
+  const usagePoll = require('./engine/usagepoll');
+  let walk = null;
+  const agentsOn = (dir, isDefault) => {
+    if (!walk) walk = claudeAgentsByAccount();
+    let moving = [];
+    try { moving = walk.moving(dir, isDefault); } catch { moving = []; }
+    return { names: walk.on(dir, isDefault), complete: walk.complete === true, moving };
+  };
+  const labelOf = (dir) => {
+    const a = (accounts.list() || []).find((x) => x && x.dir === dir);
+    return a ? (a.isDefault ? 'the main account' : (a.label || path.basename(dir))) : null;
+  };
+  let records;
+  return {
+    list: () => accounts.list(),
+    readUsage: (dir, nowMs) => usagePoll.readUsage(dir, nowMs),
+    isRefusal: (st) => usagePoll.isRefusal(st),
+    agentsOn,
+    roster: () => safeRoster(),   // a NEW read each time it is asked: the move re-checks idleness from it
+    records: () => (records || (records = projects.readAll())),
+    freshRecords: () => projects.readAll(),   // the re-check just before a move (review 1)
+    readCommitment: (session) => commitments.read(session),
+    settingOn: () => { try { return autobalanceSetting.read().on === true; } catch { return false; } },
+    movesOn: () => automove.movesOn(),
+    accountBusy: () => accountmove.busy(),
+    boardRestarting: () => boardRestartingSoon(),
+    startMove: (body) => accountmove.start(body, accountMoveDeps()),
+    readMove: (id) => accountmove.read(id),
+    lastSeen: (agent) => observed.read(observed.PROVIDER.ANTHROPIC, agent),
+    tell: (agent, text) => keepAgentReply(agent, text, undefined, { kosmos: true }),
+    labelOf,
+  };
+}
+
 /* #6173 / kosmos#7152 slice 3: what an account move needs from the board, for the bulk-move route and the automatic
    move alike, so the two cannot drift. A fresh object per move: the maps hold that move's own facts. */
 function accountMoveDeps() {
@@ -26142,37 +26180,7 @@ function start(port = PORT) {
         if (!liveExecution.liveExecutionAllowed() || !usagePoll.liveAllowed() || !usagePoll.enabled() || !automove.sweepOn()) return;
         const started = Date.now();
         automoveBusy = started;
-        let walk = null;
-        const agentsOn = (dir, isDefault) => {
-          if (!walk) walk = claudeAgentsByAccount();
-          let moving = [];
-          try { moving = walk.moving(dir, isDefault); } catch { moving = []; }
-          return { names: walk.on(dir, isDefault), complete: walk.complete === true, moving };
-        };
-        const labelOf = (dir) => {
-          const a = (accounts.list() || []).find((x) => x && x.dir === dir);
-          return a ? (a.isDefault ? 'the main account' : (a.label || path.basename(dir))) : null;
-        };
-        let records;
-        automoveRun.tick({
-          list: () => accounts.list(),
-          readUsage: (dir, nowMs) => usagePoll.readUsage(dir, nowMs),
-          isRefusal: (st) => usagePoll.isRefusal(st),
-          agentsOn,
-          roster: () => safeRoster(),   // a NEW read each time it is asked: the move re-checks idleness from it
-          records: () => (records || (records = projects.readAll())),
-          freshRecords: () => projects.readAll(),   // the re-check just before a move (review 1)
-          readCommitment: (session) => commitments.read(session),
-          settingOn: () => { try { return autobalanceSetting.read().on === true; } catch { return false; } },
-          movesOn: () => automove.movesOn(),
-          accountBusy: () => accountmove.busy(),
-          boardRestarting: () => boardRestartingSoon(),
-          startMove: (body) => accountmove.start(body, accountMoveDeps()),
-          readMove: (id) => accountmove.read(id),
-          lastSeen: (agent) => observed.read(observed.PROVIDER.ANTHROPIC, agent),
-          tell: (agent, text) => keepAgentReply(agent, text, undefined, { kosmos: true }),
-          labelOf,
-        })
+        automoveRun.tick(automoveDeps())
           .then((r) => { if (r && r.did !== 'off' && r.did !== 'nothing') process.stdout.write(`automove: ${r.did}${r.agent ? ' ' + r.agent : ''}${r.outcome ? ' ' + r.outcome : ''}\n`); })
           .catch(() => { /* best-effort, like the sweeps above */ })
           .finally(() => { if (automoveBusy === started) automoveBusy = 0; });
@@ -27343,6 +27351,7 @@ if (require.main === module) {
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
 module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
+  _automoveDepsForTest: automoveDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test

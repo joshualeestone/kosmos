@@ -26,7 +26,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server } = require('./server');
+const { start, server, _automoveDepsForTest } = require('./server');
 const statusline = require('./engine/kosmos-statusline');
 const jobfix = require('./test-support/jobfixture');
 const fleet = require('./test-support/fleet');
@@ -181,4 +181,50 @@ test('#7152 slice 3: Settings is told that moves are off, and gets the record ne
   automove.append(file, { kind: 'skipped', at: 2, agent: 'ada', because: 'it was no longer idle' });
   const recent = (await call('GET', '/api/accounts?agents=1')).json.autobalance.recent;
   assert.deepEqual(recent.map((e) => e.at), [2, 1], 'the record did not reach Settings newest first');
+});
+
+test('#7152 slice 3: one real tick through the board wiring records the decision, moves nothing, and names no email', async () => {
+  const automove = require('./engine/automove');
+  const usagepoll = require('./engine/usagepoll');
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  const main = path.join(home, '.claude');
+  fs.mkdirSync(main, { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.test' } }));
+  const spare = path.join(home, '.claude-spare');
+  fs.mkdirSync(spare, { recursive: true });
+  fs.writeFileSync(path.join(spare, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'other@example.test' } }));
+  fs.mkdirSync(path.join(main, 'projects'), { recursive: true });
+  try { fs.symlinkSync(path.join(main, 'projects'), path.join(spare, 'projects')); } catch { /* already linked by an earlier test */ }
+  /* Slice 1's usage records, as its poll writes them: a fresh reading that worked, for each account. */
+  const now = Date.now();
+  const usage = (dir, usedPct, email) => fs.writeFileSync(path.join(dir, usagepoll.FILE), JSON.stringify({ at: now - 60e3, measuredAt: now - 60e3,
+    state: 'ok', email, weekly: { usedPct, resetsAt: Math.floor((now + 40 * 3600e3) / 1000) }, fiveHour: null }));
+  usage(main, 95, 'person@example.test');
+  usage(spare, 10, 'other@example.test');
+  const pp = jobfix.jobPath('ada');
+  fs.mkdirSync(path.dirname(pp), { recursive: true });
+  fs.writeFileSync(pp, jobfix.jobFor('ada', '/bin/claude', '/bin/tmux', 'opus', null, 'claude'));
+  const file = path.join(SANDBOX, 'automove-tick.jsonl');
+  const board = fleet.install([fleet.agent('ada', { state: 'idle' })], { strict: false });
+  let r;
+  let deps;
+  try {
+    deps = _automoveDepsForTest();
+    assert.equal(deps.movesOn(), false, 'CONTROL: moves are off in this process');
+    r = await automove.create({ file }).tick(deps, now);
+  } finally { board.restore(); }
+  const lines = automove.readLines(file);
+  assert.equal(r.did, 'recorded', 'the tick did not record a decision: ' + JSON.stringify(r) + ' ' + JSON.stringify(lines));
+  const d = lines[0];
+  assert.deepEqual(d.moves.map((m) => [m.agent, m.from, m.to, m.toLabel, m.fromLabel]), [['ada', main, spare, 'spare', 'the main account']],
+    'the real wiring did not name ada moving to the measured spare account');
+  assert.equal(d.live, false);
+  assert.equal(fs.readFileSync(file, 'utf8').includes('@'), false, 'an email reached the record');
+  /* CONTROL: without a fresh reading the spare account is not a target, so the same wiring holds instead. */
+  fs.rmSync(path.join(spare, usagepoll.FILE), { force: true });
+  const board2 = fleet.install([fleet.agent('ada', { state: 'idle' })], { strict: false });
+  try { await automove.create({ file: file + '.2' }).tick(_automoveDepsForTest(), now); } finally { board2.restore(); }
+  assert.deepEqual(automove.readLines(file + '.2')[0].held.map((h) => h.from), [main], 'an unmeasured account was taken as a target');
+  fs.rmSync(path.join(main, usagepoll.FILE), { force: true });
+  fs.rmSync(pp, { force: true });
 });
