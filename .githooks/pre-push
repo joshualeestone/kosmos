@@ -8,8 +8,8 @@
 #         `Browser-check-surface: <check>.js` trailer
 # The same functions tools/run-tests.sh calls, sourced the same way (a subshell each), so the two cannot disagree.
 #
-# Only for a push of the branch checked out here (the gates read origin/main...HEAD), and only when that branch
-# changes web/; any other push pays nothing. Both gates are fail-soft (no origin/main, detached HEAD: they pass).
+# Only for a push that sends HEAD's commit (a pushed ref whose tip is HEAD; the gates read origin/main...HEAD), and
+# only when that range changes web/; any other push pays nothing. Both gates pass when there is no origin/main.
 # Skip once with `git push --no-verify`.
 #
 # Wire it once per clone (worktrees inherit it):   git config core.hooksPath .githooks
