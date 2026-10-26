@@ -69,3 +69,12 @@ what fires, wherever the board runs.
   - Nits left: the repeated hour when the clocks go back (a stored time in that hour comes back an hour early through
     the picker; Save is off unless the person changes something, so nothing moves on its own); no year in the activity's
     time (holds are at most a year ahead); both recorded here, neither changes what is stored.
+- Round 2: 1 blocker, 0 warnings, 5 nits.
+  - [BLOCKER] the #2518 surface gate names four checks whose tokens the diff touches (render-onhold-4771: tk-hold-msg;
+    render-unread-edge-3743 and render-agentdm-3414: msg; render-runrollup-5643: paintTaskActivity). All four were run
+    through the harness on this branch and pass unchanged, so each gets a Browser-check-surface trailer saying so
+    (the tokens are shared names; none of those checks' surfaces changed).
+  - Nits taken: Save stays off while a save is in flight (a busy mark tkHoldDirty reads); a hold line is written only
+    while its task is still on screen (tkHoldSay, the Repeats Save's still()); a task that is gone says so ("That task
+    is no longer on this project, so nothing changed."), not "could not check"; the Until fields' accessible names
+    start with "Until"; projects.js filters the task list once per read, not once per task.
