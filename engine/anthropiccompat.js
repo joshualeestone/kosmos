@@ -237,7 +237,8 @@ async function checkLive(dir, opts) {
   if (got.kind === 'absent') return { state: STATE.NONE, checkedLive: true, because: 'nobody has set up this account yet' };
   if (got.kind === 'unreadable') return { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not read this account' };
   if (got.kind === 'invalid') return { state: STATE.NONE, checkedLive: true, because: got.because };
-  const key = path.resolve(String(dir)) + '\u0000' + JSON.stringify(got.account);
+  /* Review 5: a hash, so the cache holds no second copy of the key. */
+  const key = path.resolve(String(dir)) + '\u0000' + require('node:crypto').createHash('sha256').update(JSON.stringify(got.account)).digest('hex');
   const hit = liveCache.get(key);
   const ttl = hit && hit.value && hit.value.state === STATE.UNKNOWN ? UNREACHABLE_CACHE_MS : CACHE_MS;
   if (opts && opts.cached && hit && Date.now() - hit.at >= 0 && Date.now() - hit.at < ttl) return hit.value;

@@ -116,3 +116,10 @@ server's global environment carries stray ANTHROPIC_* and Bedrock values; a stan
 the vendor's address, key and model arrive and none of the globals do; red with env -u removed, "tmux's global
 ANTHROPIC_API_KEY reached the pane"); one link check in readAccount for every reader.
 Accepted: the provider-switch list is fixed (recorded in review 2).
+
+## Slice 1a review 5 (2026-10-26 14:2x): converged
+No blockers, no warnings. Taken: the live cache keys on a hash (no second copy of the key in memory); the real-tmux
+test removes its socket from where its server actually puts it. SLICE 1b ALSO OWNS: the setup guide's masked-by-value
+set (engine/knownsecrets.js ACCOUNT_DIR) learning .kosmos-<vendor>- folders (Qwen's are missing from it too).
+Accepted: a vendor model list that answers 200 without the table's model reads NONE (the add is refused with a clear
+reason); the launch would fail on that model anyway, and a live run with a real key is still to be measured.
