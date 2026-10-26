@@ -6,7 +6,7 @@
 #   bash tools/test-prepush-gates-7192.sh
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/prepush-gates-7192.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 fails=0
 ok() { printf 'OK    %s\n' "$1"; }
