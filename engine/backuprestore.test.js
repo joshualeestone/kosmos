@@ -260,19 +260,27 @@ test('#5536 an empty chunk is refused, and a deep folder clash is found', async 
 test('#5536 the collision check scales linearly with path depth (a ratio, so machine load does not decide it)', async () => {
   // Every entry is listed twice, so all are refused before any fetch and the time is the path and collision checks.
   // Measured 10-08: depth x4 costs x3.8 to x4.5 with the trie, x13 with the quadratic check it replaced.
-  const timeAt = async (depth) => {
+  // kosmos#7235: one sample at a depth; the best of several is taken below.
+  const timeOnce = async (depth) => {
     const deep = Array(depth).fill('a').join('/');
     const { run } = handMade((entry) => Array.from({ length: 400 }, (_, i) => entry(`${deep}${i >> 1}`)));
-    let best = Infinity;
-    for (let k = 0; k < 3; k++) {
-      const t0 = process.hrtime.bigint();
-      const { r } = await run();
-      best = Math.min(best, Number(process.hrtime.bigint() - t0));
-      assert.equal(r.failed.length, 400);
-    }
-    return best;
+    const t0 = process.hrtime.bigint();
+    const { r } = await run();
+    const ns = Number(process.hrtime.bigint() - t0);
+    assert.equal(r.failed.length, 400);
+    return ns;
   };
-  const ratio = (await timeAt(2000)) / (await timeAt(500));
+  /* kosmos#7235: measured alone this ratio is about 3.8 (12 of 12, x3.75 to x3.88), but inside a full suite it read
+     x8 to x9 about one run in four. The samples were taken in two blocks (all of one depth, then all of the other), so
+     a load spike during one block landed on one side of the ratio. Now both depths are warmed, then sampled
+     alternately, and each side keeps its best: a spike lands on both sides, or on neither best. */
+  await timeOnce(500); await timeOnce(2000);
+  let shallow = Infinity, deepest = Infinity;
+  for (let k = 0; k < 5; k++) {
+    shallow = Math.min(shallow, await timeOnce(500));
+    deepest = Math.min(deepest, await timeOnce(2000));
+  }
+  const ratio = deepest / shallow;
   assert.ok(ratio < 7.5, `depth x4 cost x${ratio.toFixed(1)}; the trie measured about 4, the quadratic check about 13`);
 });
 
