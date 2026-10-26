@@ -73,3 +73,16 @@ test('#7194: nothing is logged while there is no notice at all (the board starts
   run(() => ({ ccd: '/x', pid: '1' }), state, lines, 30);   // 30 days left: outside the warning window
   assert.deepEqual(lines, [], 'a board with no notice wrote lines');
 });
+
+test('#7194 review 1: the line names the program read, says "today" at 0 days, and a changed email is a change', () => {
+  const lines = [];
+  const state = { sig: '' };
+  const reads = new Map([['casey', { ccd: '/x', pid: '7', cmd: 'claude', target: 'casey-discord:0.0' }]]);
+  const adv = (email, daysLeft) => [{ service: 's', email, daysLeft, expired: false, agents: ['casey'] }];
+  status.logLoginAdvReads(adv('a@example.com', 0), reads, (l) => lines.push(l), state);
+  assert.match(lines[0], / from ps eww of pid 7 \(claude\) \(pane casey-discord:0\.0\), in the notice for a@example\.com \(s\), expires today$/);
+  status.logLoginAdvReads(adv('a@example.com', 0), reads, (l) => lines.push(l), state);
+  assert.equal(lines.length, 1, 'CONTROL: the same notice wrote again');
+  status.logLoginAdvReads(adv('b@example.com', 0), reads, (l) => lines.push(l), state);
+  assert.equal(lines.length, 2, 'a notice whose email changed was not logged');
+});

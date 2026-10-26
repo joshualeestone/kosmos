@@ -8814,12 +8814,11 @@ const LOGIN_ADV_TTL_MS = 5 * 60 * 1000;
 const loginAdvCache = { at: 0, value: [] }; // mutated in place by loginexpiry.cachedAdvisories
 
 /* Resolve the CCD an agent's claude process actually reads. pane_pid IS the claude process (tmux
- * runs it as the pane leader -- measured), so `ps eww <pane_pid>` carries its env. Returns the CCD
- * string, null (env read, genuinely unset), or undefined (could not resolve -> caller SKIPS it,
- * never guesses the bare account). See loginexpiry.ccdFromPsEnv for why the job's configDir cannot
- * be used here (it is null for the default account even when CCD is set: the #2129 class). */
-/* kosmos#7194: the read with where it was made: { ccd, pid }. ccd is paneCcd's answer (undefined when unreadable); pid
-   is the process whose environment was read, so a logged reading can be checked against that process later. */
+ * runs it as the pane leader -- measured), so `ps eww <pane_pid>` carries its env. Returns { ccd, pid, cmd }: ccd is
+ * the CCD string, null (env read, genuinely unset), or undefined (could not resolve -> caller SKIPS it, never guesses
+ * the bare account). See loginexpiry.ccdFromPsEnv for why the job's configDir cannot be used here (it is null for the
+ * default account even when CCD is set: the #2129 class). kosmos#7194: pid and cmd (the base name of the program, from
+ * the same output; never its arguments or environment) say which process was read, for the board log. */
 function paneCcdRead(target) {
   const d = shDetail(tmuxBin(), ['display-message', '-p', '-t', target, '#{pane_pid}']);
   if (!d.ran || d.status !== 0) return { ccd: undefined, pid: null };
@@ -8829,35 +8828,38 @@ function paneCcdRead(target) {
   try {
     env = execFileSync('ps', ['eww', pid], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
   } catch { return { ccd: undefined, pid }; }
-  return { ccd: require('./loginexpiry').ccdFromPsEnv(env), pid };
+  // `ps eww` prints a header line, then PID TT STAT TIME and the COMMAND, whose first word is the program's path.
+  const prog = String(env).split('\n')[1] ? String(env).split('\n')[1].trim().split(/\s+/)[4] : '';
+  const cmd = prog ? path.basename(prog).replace(/[^\w.@+-]/g, '').slice(0, 64) : null;
+  return { ccd: require('./loginexpiry').ccdFromPsEnv(env), pid, cmd: cmd || null };
 }
-function paneCcd(target) { return paneCcdRead(target).ccd; }
 
 /* kosmos#7194: Josh's board once named eight agents on a login they had left the evening before, and nothing recorded
    what it had read, so the cause could not be found. When the notices change (raised, changed, or cleared), the board
-   log gets one line per named agent: the folder read, from which process, in which pane. Only on a change, so a notice
-   that stands for days writes its lines once. `state` holds the last notices logged. */
+   log gets one line per named agent: the folder read, from which process (pid and program), in which pane. Only on a
+   change; a notice's days left are part of it, so a standing notice writes its lines once a day as it counts down.
+   `state` holds the last notices logged, set after its lines are written. */
 const LOGIN_ADV_LOGGED = { sig: '' };
 function logLoginAdvReads(out, reads, log, state = LOGIN_ADV_LOGGED) {
   const list = Array.isArray(out) ? out : [];
   // A key, not a path list: joined with control characters, which no service name, day count or agent name holds.
-  const sig = list.map((a) => [a.service || '', a.expired ? 'x' : a.daysLeft, (a.agents || []).slice().sort().join('\u0000')].join('\u0001')).sort().join('\u0002');
+  const sig = list.map((a) => [a.service || '', a.email || '', a.expired ? 'x' : a.daysLeft, (a.agents || []).slice().sort().join('\u0000')].join('\u0001')).sort().join('\u0002');
   if (sig === state.sig) return 0;
   const had = state.sig !== '';
-  state.sig = sig;
   const say = typeof log === 'function' ? log : (line) => { try { console.error(line); } catch { /* no console */ } };
-  if (!list.length) { if (had) say('[loginadv] #7194: no login notice now'); return 0; }
+  if (!list.length) { if (had) say('[loginadv] #7194: no login notice now'); state.sig = sig; return 0; }
   let n = 0;
   for (const a of list) {
-    const when = a.expired ? 'expired' : 'expires in ' + a.daysLeft + (a.daysLeft === 1 ? ' day' : ' days');
+    const when = a.expired ? 'expired' : a.daysLeft <= 0 ? 'expires today' : 'expires in ' + a.daysLeft + (a.daysLeft === 1 ? ' day' : ' days');
     for (const name of a.agents || []) {
       const r = reads.get(name) || {};
       const dir = r.ccd == null ? 'no CLAUDE_CONFIG_DIR (the default login)' : 'CLAUDE_CONFIG_DIR=' + r.ccd;
-      say('[loginadv] #7194: ' + name + ' read ' + dir + ' from ps eww of pid ' + (r.pid || 'unknown') + ' (pane '
+      say('[loginadv] #7194: ' + name + ' read ' + dir + ' from ps eww of pid ' + (r.pid || 'unknown') + (r.cmd ? ' (' + r.cmd + ')' : '') + ' (pane '
         + (r.target || 'unknown') + '), in the notice for ' + (a.email || 'an unread email') + ' (' + (a.service || '') + '), ' + when);
       n += 1;
     }
   }
+  state.sig = sig;
   return n;
 }
 
@@ -8870,7 +8872,7 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
   /* kosmos#7194: every read is kept with its process, for the board log when the notices change (logLoginAdvReads). */
   const reads = new Map();
   const readDetail = opts.readCcd ? ((a) => ({ ccd: opts.readCcd(a), pid: null })) : (opts.readDetail || ((a) => paneCcdRead(a.target)));
-  const readCcd = (a) => { const r = readDetail(a) || {}; reads.set(a.name, { ccd: r.ccd, pid: r.pid || null, target: a.target }); return r.ccd; };
+  const readCcd = (a) => { const r = readDetail(a) || {}; reads.set(a.name, { ccd: r.ccd, pid: r.pid || null, cmd: r.cmd || null, target: a.target }); return r.ccd; };
   // The TTL + last-good-on-failure logic lives in loginexpiry.cachedAdvisories (unit-tested);
   // here we supply the impure compute: filter to our named panes, resolve each one's live CCD.
   return le.cachedAdvisories({
@@ -8919,7 +8921,6 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
         const rowReads = le.serviceNameFor(dir === def ? undefined : dir);
         return rowReads === adv.service ? dir : null;
       };
-      reads.clear();
       const out = le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
         .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf), dir: dirOf(a) }));
       try { logLoginAdvReads(out, reads, opts.log, opts.logState); } catch { /* a log line never costs the notice */ }

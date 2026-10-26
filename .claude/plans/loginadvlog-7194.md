@@ -4,7 +4,8 @@ Owner: Ice Cream Kitty. Asked by Splinter 2026-10-26 08:03 after #7194 could not
 agents on a login they had left, and nothing recorded what it had read, so the cause was unrecoverable.
 
 ## Change
-- engine/status.js `paneCcdRead(target)`: the pane read with where it was made, { ccd, pid } (paneCcd is now its ccd).
+- engine/status.js `paneCcdRead(target)`: the pane read with where it was made, { ccd, pid, cmd } (it replaces paneCcd,
+  whose one caller was computeLoginAdvisories).
 - computeLoginAdvisories keeps each agent's read (folder, pid, pane). `logLoginAdvReads` writes to the board log
   (console.error, which the board sends to ~/.local/share/kosmos/logs/board.log) ONLY when the notices change:
   - one line per named agent: `[loginadv] #7194: casey read CLAUDE_CONFIG_DIR=<dir> from ps eww of pid <pid> (pane
@@ -14,8 +15,10 @@ agents on a login they had left, and nothing recorded what it had read, so the c
 - No change to what the notice shows or who it names.
 
 ## Decided
-- On change only (a signature of service, days or expired, and agents): a notice that stands for days writes once,
-  and every raise or change is on record. A board with no notice writes nothing.
+- On change only (a signature of service, email, days or expired, and agents): a standing notice writes its lines once
+  a day as its days count down, and every raise or change is on record. A board with no notice writes nothing.
+- The line names the program read (the base name of `ps eww`'s COMMAND, from the same output, never its arguments or
+  environment), so a pid that has since exited still says what it was.
 - The log, not /api/status: the record must outlive the moment, and a person should not have to fetch it.
 - No secret is written: a folder path, a process id, a pane name, the email the notice already shows, and the keychain
   service name (not its contents).
