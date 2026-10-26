@@ -13,7 +13,14 @@
   project-room shot from origin/main is empty; from this branch it shows the posts and reactions.
 
 ## Change
-Both date the project back (createdAt 2020-01-01) before writing the rows, as #7185's tests do.
+render-roomfree-6949 dates its project back to just before its claims (four hours) before writing them, as #7185's
+tests date theirs. Only that check: it is what the 0.7.70 cut waits on.
+
+## Split out (review round 2)
+mobile-shots.js has the same defect (its sample room is seeded 30 minutes back, so room shots come out empty since
+#7185), but its seed is shared by every screen and createdAt also decides a project's "new" state (roomLive, the
+file-created slack). Dating it back changes more than the room, and that needs every shot re-measured. It is a
+follow-up card, not this cut's blocker.
 
 ## Rejected
 - Dating the rows to now: the check's age arm needs "claimed 3 hours ago", and the shots' sample room needs its times.

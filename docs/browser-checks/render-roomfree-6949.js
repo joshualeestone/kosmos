@@ -95,9 +95,9 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
       const [claimed, other, twoForms] = made.posts;
       /* #7225: the claims below are dated three hours back, and since #7185 a room row stamped before its project's
          createdAt belongs to an earlier project of that name, so no reader is given it (every pill went missing on the
-         10-26 nightly). The project is dated back first, as #7185's own tests do. */
+         10-26 nightly). The project is dated back to just before them first, as #7185's own tests do. */
       const projects = require('../../engine/projects');
-      projects.writeAll(projects.readAll().map((q) => (q.id === made.id ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q)));
+      projects.writeAll(projects.readAll().map((q) => (q.id === made.id ? { ...q, createdAt: new Date(Date.now() - 4 * 3600 * 1000).toISOString() } : q)));   // just before the claims
       const at = new Date(Date.now() - 3 * 3600 * 1000).toISOString();   // claimed three hours ago
       fs.appendFileSync(LOG, JSON.stringify({ kind: 'reaction', project: made.id, of: claimed, emoji: HAND, op: 'add', claim: true, from: made.member, at }) + '\n');
       fs.appendFileSync(LOG, JSON.stringify({ kind: 'reaction', project: made.id, of: other, emoji: THUMB, op: 'add', from: made.member, at }) + '\n');
