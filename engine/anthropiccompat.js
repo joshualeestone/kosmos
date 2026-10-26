@@ -91,6 +91,10 @@ function normalize(ep) { return { vendor: String(ep.vendor), model: String(ep.mo
  * name is invalid: the name is what every other reader goes by.
  */
 function readAccount(dir) {
+  /* Review 4: ONE answer to "is this an account" for every reader (list, check, delete, launch): neither the folder
+     nor its file may be a link. The launch refused a linked file while the list followed it, so they disagreed. */
+  try { if (fs.lstatSync(path.resolve(String(dir || ''))).isSymbolicLink()) return { kind: 'invalid', because: 'its folder is a link' }; } catch { /* absent: below */ }
+  try { if (fs.lstatSync(endpointFile(dir)).isSymbolicLink()) return { kind: 'invalid', because: 'its settings file is a link' }; } catch { /* absent: below */ }
   let raw;
   try { raw = fs.readFileSync(endpointFile(dir), 'utf8'); } catch (e) {
     return e && e.code === 'ENOENT' ? { kind: 'absent' } : { kind: 'unreadable' };
@@ -333,8 +337,7 @@ const LAUNCH_VARS = Object.freeze([
 function launchEnv(dir) {
   const named = vendorOfName(dir);
   const refuse = (because) => ({ ok: false, because: `this ${named ? vendorOf(named).name + ' ' : ''}account cannot be used: ${because}` });
-  try { if (fs.lstatSync(endpointFile(dir)).isSymbolicLink()) return refuse('its settings file is a link'); } catch { /* absent: below */ }
-  const got = readAccount(dir);
+  const got = readAccount(dir);   // refuses a linked folder or settings file itself (review 4)
   if (got.kind !== 'ok') {
     return refuse(got.kind === 'invalid' ? got.because : (got.kind === 'absent' ? 'it has no key set up' : 'its settings file could not be read'));
   }

@@ -205,6 +205,19 @@ test('launchEnv points Claude Code at the vendor with the key and the model, and
   assert.equal(no.because, 'this DeepSeek account cannot be used: it has no key set up');
 });
 
+test('review 4: a linked folder is not an account to any reader (list, check, launch), however it is named', async () => {
+  const real = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-compat-7206-realdir-'));
+  compat.storeAccount(nodePath.join(real, '.kosmos-deepseek-x'), GOOD);   // a real account, somewhere else
+  const linked = nodePath.join(SANDBOX, '.kosmos-deepseek-dirlink');
+  fs.symlinkSync(nodePath.join(real, '.kosmos-deepseek-x'), linked);
+  assert.equal(compat.readAccount(linked).kind, 'invalid');
+  assert.equal(compat.launchEnv(linked).ok, false);
+  compat.resetLiveCacheForTest();
+  const calls = answering(models('deepseek-chat'));
+  assert.equal((await compat.checkLive(linked)).state, compat.STATE.NONE);
+  assert.equal(calls.length, 0, 'a linked folder\'s key was sent to the vendor');
+});
+
 test('launchEnv refuses an account file that is a link', () => {
   const dir = nodePath.join(SANDBOX, '.kosmos-deepseek-filelink');
   fs.mkdirSync(dir);
