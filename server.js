@@ -2910,6 +2910,7 @@ function automoveDeps() {
     list,
     readUsage: (dir, nowMs) => usagePoll.readUsage(dir, nowMs),
     agentsOn,
+    isDefaultDir: (dir) => !!((list() || []).find((x) => x && x.dir === dir) || {}).isDefault,
     roster: () => safeRoster(),   // a NEW read each time it is asked: the move re-checks idleness from it
     records: () => (records || (records = projects.readAll())),
     freshRecords: () => projects.readAll(),   // the re-check just before a move (review 1)

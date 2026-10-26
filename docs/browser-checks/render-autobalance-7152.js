@@ -61,7 +61,6 @@ const CASES = {
     { kind: 'skipped', at: now - 5 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare' },
     { kind: 'decision', at: now - 10 * 60e3, live: false, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY }], held: [], atRisk: [] }] } },
   recentOn: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, movesOn: true, recent: [
-    { kind: 'move', at: now - 30e3, agent: 's-a', from: '/home/.claude-spare', to: '/home/.claude-full', outcome: 'changed', back: true },
     { kind: 'move', at: now - 45e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'stopped' },
     { kind: 'works', at: now - 1 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'yes' },
     { kind: 'move', at: now - 2 * 60e3, agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-gone', toLabel: 'Old', why: WHY, outcome: 'changed' },
@@ -217,12 +216,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       const want = [
         /^Kosmos moves them itself, one agent at a time, and says each move here\.$/,
         /^Lately$/,
-        /^At 11:59\sAM, Kosmos moved Ada back to Work, because its first request on Spare was refused\.$/,
         /^At 11:59\sAM, the move of Ada to Spare was stopped, so it stays on Work\.$/,
         /^At 11:59\sAM, Ada was seen working on Spare\.$/,
         new RegExp('^At 11:58\\sAM, Kosmos moved <b>Bo</b> from Work to Old, because ' + WHY + '\\.$'),
         /^At 11:57\sAM, Kosmos saved Spare for Ada but could not start it again, so it stays on Work until it restarts\.$/,
-        /^At 11:56\sAM, Ada\u2019s first request on Spare was refused, so Kosmos will not move agents there for a while\.$/,
+        /^At 11:56\sAM, Ada\u2019s first request on Spare was refused\. Move it back here if it needs to work now; Kosmos will not move agents to Spare for a day\.$/,
         /^At 11:55\sAM, Kosmos tried to move Ada to Spare, and the move was refused\.$/,
         /^At 11:54\sAM, Ada has not been seen working on Spare in the day since it moved\.$/,
         /^On [A-Z][a-z]{2} \d{1,2} at 12:00\sPM, Kosmos did not move Ada, because it was no longer idle\.$/,

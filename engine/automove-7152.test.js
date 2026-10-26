@@ -38,11 +38,12 @@ const USAGE = { '/u/.claude-work': reading(93, 35), '/u/.claude-spare': reading(
 function deps(o = {}) {
   const calls = { starts: [], tells: [] };
   const cards = o.cards || realCards(['ada']);
+  /* Where each agent is, as the agents walk would say: on Work unless a test says otherwise, and moved by a move. */
+  const where = o.where || Object.fromEntries((o.names || ['ada']).map((a) => [a, '/u/.claude-work']));
   const d = {
     list: () => LIST,
     readUsage: (dir) => (o.usage || USAGE)[dir] || null,
-    agentsOn: o.where ? (dir) => ({ names: Object.keys(o.where).filter((a) => o.where[a] === dir).sort(), complete: true, moving: [] })
-      : (dir) => ({ names: dir === '/u/.claude-work' ? (o.names || ['ada']) : [], complete: true, moving: [] }),
+    agentsOn: (dir) => ({ names: Object.keys(where).filter((a) => where[a] === dir).sort(), complete: true, moving: [] }),
     roster: o.roster || (() => cards),
     records: () => [],
     readCommitment: () => ({ state: 'clear' }),
@@ -55,7 +56,7 @@ function deps(o = {}) {
     startMove: (body) => {
       calls.starts.push(body);
       const r = o.start ? o.start(body) : { status: 202, body: { id: 'm1', agents: [{ name: body.names[0], outcome: 'pending' }] }, done: Promise.resolve() };
-      if (o.where && r && r.status === 202 && (o.moveOutcome || 'changed') === 'changed') o.where[body.names[0]] = body.dir;   // the agent is where it was moved
+      if (r && r.status === 202 && ((r.body.agents || [])[0] || {}).outcome !== 'refused' && (o.moveOutcome || 'changed') === 'changed') where[body.names[0]] = body.dir;   // the agent is where it was moved
       return r;
     },
     readMove: () => ({ agents: [{ name: 'ada', outcome: o.moveOutcome || 'changed' }] }),
@@ -167,7 +168,7 @@ test('#7152 slice 3: no move while another account move runs; refused, partial a
   }
 });
 
-test('#7152 slice 3: the works-again check: seen working, seen refused (the target is held, the agent moved back), or not seen in a day', async () => {
+test('#7152 slice 3: the works-again check: seen working, seen refused (the target held a day, the person told), or not seen in a day', async () => {
   let seen = null;
   const file = fileFor();
   const run = automove.create({ file });
@@ -181,19 +182,18 @@ test('#7152 slice 3: the works-again check: seen working, seen refused (the targ
   await run.tick(d, NOW + 3000);
   assert.equal(automove.readLines(file).filter((l) => l.kind === 'works').length, 0, 'a call from before the move counted');
   seen = { outcome: '401', at: Date.now() + 5000 };
-  const back = await run.tick(d, NOW + 4000);
+  const starts = calls.starts.length;
+  await run.tick(d, NOW + 4000);
   assert.equal(automove.readLines(file).filter((l) => l.kind === 'works').pop().works, 'no');
-  assert.deepEqual([back.did, back.back], ['moved', true], 'an agent refused on its new account was not moved back');
-  assert.deepEqual(calls.starts.pop(), { dir: '/u/.claude-work', names: ['ada'] }, 'the move back went somewhere else');
-  assert.equal(automove.readLines(file).pop().back, true);
-  assert.match(calls.tells.pop()[1], /^Kosmos moved this agent back to work, because its first request on spare was refused\.$/);
-  assert.equal(where.ada, '/u/.claude-work');
-  seen = null;
-  const before = calls.starts.length;
-  await twoTicks(run, d, NOW + 5000);
-  assert.equal(calls.starts.length, before, 'an agent was moved onto a target where the last move did not work');
-  await twoTicks(run, d, NOW + automove.FAILED_HOLD_MS + 6000);
-  assert.equal(calls.starts.length, before + 1, 'CONTROL: the hold ends');
+  assert.equal(calls.starts.length, starts, 'Kosmos moved an agent back on its own (review 4: it tells the person instead)');
+  assert.match(calls.tells.pop()[1], /^Kosmos moved this agent to spare, and its first request there was refused\. Move it back in Settings, AI Models, if it needs to work now\. Kosmos will not move agents to spare for a day\.$/);
+  /* Another agent on work is not sent to spare for a day. */
+  where.bo = '/u/.claude-work';
+  const { d: d2, calls: c2 } = deps({ movesOn: true, where, cards: realCards(['ada'], ['bo']) });
+  await twoTicks(run, d2, NOW + 5000);
+  assert.deepEqual(c2.starts, [], 'an agent was moved onto a target where the last move did not work');
+  await twoTicks(run, d2, NOW + automove.FAILED_HOLD_MS + 6000);
+  assert.equal(c2.starts.length, 1, 'CONTROL: the hold ends after a day');
 
   const f2 = fileFor();
   const r2 = automove.create({ file: f2 });
@@ -209,21 +209,17 @@ test('#7152 slice 3: the works-again check: seen working, seen refused (the targ
   await r3.tick(dn, Date.now() + automove.WATCH_MS + 60000);
   assert.equal(automove.readLines(f3).filter((l) => l.kind === 'works').pop().works, 'not-seen');
 });
-
-test('#7152 slice 3 review 2: an agent that left an account whose login had stopped is not moved back onto it', async () => {
+test('#7152 slice 3 review 4: an account whose login has stopped is recorded, never acted on', async () => {
   const file = fileFor();
   const run = automove.create({ file });
-  let seen = { outcome: '401', at: NOW - 60000 };   // its own last request was refused
-  const where = { ada: '/u/.claude-work' };
-  const { d, calls } = deps({ movesOn: true, lastSeen: () => seen, where,
+  const { d, calls } = deps({ movesOn: true, lastSeen: () => ({ outcome: '401', at: NOW - 60000 }),
     usage: { ...USAGE, '/u/.claude-work': { at: NOW, state: 'http-401' } } });
   await twoTicks(run, d);
-  assert.equal(calls.starts.length, 1, 'CONTROL: the agent left the account whose login stopped');
-  seen = { outcome: '401', at: Date.now() + 5000 };
   await run.tick(d, NOW + 2000);
-  assert.equal(calls.starts.length, 1, 'an agent was moved back onto an account whose login had stopped');
+  assert.deepEqual(calls.starts, [], 'an agent was moved off a stopped login on its own');
+  const dec = automove.readLines(file).find((l) => l.kind === 'decision');
+  assert.deepEqual([dec.atRisk[0].kind, dec.moves.map((m) => m.agent)], ['login', ['ada']], 'CONTROL: the decision names the move it would make');
 });
-
 test('#7152 slice 3 review 2: a first call made while the move was still finishing counts', async () => {
   let release;
   const done = new Promise((res) => { release = res; });
@@ -370,81 +366,50 @@ test('#7152 slice 3: the guide fails closed, and words left unsent in an agent\'
   assert.equal(ab.movableFor({ ...base, cards: [waiting], isGuide: () => false, guideName: () => null })('ada'), false, 'an agent with unsent words in its box was movable');
 });
 
-test('#7152 slice 3 review 3: a stopped login moves an agent only when its own request was refused, within the hour', async () => {
-  const usage = { ...USAGE, '/u/.claude-work': { at: NOW, state: 'http-403' } };
-  for (const [seen, moves, why] of [[null, 0, 'with no request of its own seen'], [{ outcome: 'ok', at: NOW - 60000 }, 0, 'whose own requests work'],
-    [{ outcome: '401', at: NOW - 2 * automove.LOGIN_SEEN_MS }, 0, 'refused long ago'], [{ outcome: '401', at: NOW - 60000 }, 1, null]]) {
-    const { d, calls } = deps({ movesOn: true, usage, lastSeen: () => seen });
-    await twoTicks(automove.create({ file: fileFor() }), d);
-    assert.equal(calls.starts.length, moves, why ? 'an agent was moved off a login the usage endpoint refused, ' + why : 'CONTROL: its own refused request moves it');
-  }
-});
-
-test('#7152 slice 3 review 3: a move back owed waits for its agent without blocking the rest; a 409 keeps it owed', async () => {
-  const list3 = [...LIST, { dir: '/u/.claude-third', label: 'third', email: 't@example.test', memoryShared: true, apiKey: false }];
-  const usage = { ...USAGE, '/u/.claude-third': reading(5, 100) };   // the best target, since spare is held
-  const where = { ada: '/u/.claude-spare', bo: '/u/.claude-work' };   // ada was moved to spare and refused there
-  const [adaBusy] = realCards(['ada', 'working']);
-  const [bo] = realCards(['bo']);
-  let refuse409 = false;
-  const { d, calls } = deps({ movesOn: true, usage, where, roster: () => [adaBusy, bo],
-    start: (body) => (refuse409 ? { status: 409, body: { outcome: 'refused', because: 'busy' } } : { status: 202, body: { id: 'm', agents: [{ name: body.names[0], outcome: 'pending' }] }, done: Promise.resolve() }) });
-  d.list = () => list3;
-  d.readMove = (id) => ({ agents: [{ outcome: 'changed' }] });
-  const run = automove.create({ file: fileFor() });
-  run.state.back.push({ agent: 'ada', from: '/u/.claude-spare', to: '/u/.claude-work', fromLabel: 'spare', toLabel: 'work', owedAt: NOW });
-  run.state.failed.set('/u/.claude-spare', NOW);
-  const r = await twoTicks(run, d);
-  assert.deepEqual([r.did, r.agent], ['moved', 'bo'], 'a move back whose agent was busy blocked every other move');
-  assert.equal(run.state.back.length, 1, 'CONTROL: the move back is still owed');
-  /* Now ada is idle, and the board answers 409: it stays owed, and ada is not held as refused. */
-  const [adaIdle] = realCards(['ada']);
-  d.roster = () => [adaIdle, bo];
-  refuse409 = true;
-  const busy = await run.tick(d, NOW + 5000);
-  assert.equal(busy.because, 'busy');
-  assert.equal(run.state.back.length, 1, 'a 409 lost the move back');
-  assert.equal(run.state.refused.has('ada'), false, 'a 409 held a healthy agent as refused');
-  refuse409 = false;
-  const back = await run.tick(d, NOW + 6000);
-  assert.deepEqual([back.did, back.back, calls.starts.pop()], ['moved', true, { dir: '/u/.claude-work', names: ['ada'] }]);
-  assert.equal(run.state.back.length, 0);
-});
-
-test('#7152 slice 3 review 3: a move back is dropped when a person has moved the agent since, and given up after a day', async () => {
-  const where = { ada: '/u/.claude-third' };   // moved by hand somewhere else
-  const { d, calls } = deps({ movesOn: true, where, usage: { ...USAGE, '/u/.claude-work': reading(50, 35) } });
-  const run = automove.create({ file: fileFor() });
-  run.state.back.push({ agent: 'ada', from: '/u/.claude-spare', to: '/u/.claude-work', owedAt: NOW });
-  await run.tick(d, NOW);
-  assert.deepEqual([calls.starts, run.state.back], [[], []], 'a move back undid where a person had put the agent');
+test('#7152 slice 3 review 3 and 4: the watch is rebuilt from the record, a move that only started included; a line from the future is not trusted', async () => {
   const file = fileFor();
-  const r2 = automove.create({ file });
-  const where2 = { ada: '/u/.claude-spare' };
-  const [busy] = realCards(['ada', 'working']);
-  const { d: d2 } = deps({ movesOn: true, where: where2, roster: () => [busy], usage: { ...USAGE, '/u/.claude-work': reading(50, 35) } });
-  r2.state.back.push({ agent: 'ada', from: '/u/.claude-spare', to: '/u/.claude-work', owedAt: NOW });
-  await r2.tick(d2, NOW + 1000);
-  assert.equal(r2.state.back.length, 1, 'CONTROL: a busy agent keeps its move back owed');
-  await r2.tick(d2, NOW + automove.BACK_MAX_MS + 1000);
-  assert.equal(r2.state.back.length, 0, 'a move back was owed for ever');
-  assert.equal(automove.readLines(file).pop().kind, 'back-given-up');
-});
-
-test('#7152 slice 3 review 3: the watch and a move back owed are rebuilt from the record when the board starts', async () => {
-  const file = fileFor();
-  automove.append(file, { kind: 'move', at: NOW - 60000, startedAt: NOW - 70000, agent: 'ada', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'changed', fromKind: 'usage' });
-  automove.append(file, { kind: 'move', at: NOW - 50000, startedAt: NOW - 55000, agent: 'bo', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'changed', fromKind: 'usage' });
-  automove.append(file, { kind: 'works', at: NOW - 40000, agent: 'bo', from: '/u/.claude-work', to: '/u/.claude-spare', fromKind: 'usage', works: 'no' });
+  automove.append(file, { kind: 'move', at: NOW - 60000, startedAt: NOW - 70000, agent: 'ada', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'changed' });
+  automove.append(file, { kind: 'move', at: NOW - 50000, startedAt: NOW - 50000, agent: 'cy', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'started' });
+  automove.append(file, { kind: 'move', at: NOW - 40000, startedAt: NOW - 45000, agent: 'bo', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'started' });
+  automove.append(file, { kind: 'move', at: NOW - 30000, startedAt: NOW - 45000, agent: 'bo', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'partial' });
+  automove.append(file, { kind: 'works', at: NOW + 10 * automove.CLOCK_SLACK_MS, agent: 'zed', to: '/u/.claude-third', works: 'no' });
   const run = automove.create({ file, nowMs: NOW });
-  assert.deepEqual(run.state.watching.map((w) => [w.agent, w.movedAt]), [['ada', NOW - 70000]], 'the watch on a moved agent was lost by a restart');
-  assert.deepEqual(run.state.back.map((b) => [b.agent, b.to]), [['bo', '/u/.claude-work']], 'a move back owed was lost by a restart');
-  automove.append(file, { kind: 'move', at: NOW - 30000, agent: 'bo', from: '/u/.claude-spare', to: '/u/.claude-work', outcome: 'changed', back: true });
-  assert.equal(automove.create({ file, nowMs: NOW }).state.back.length, 0, 'CONTROL: a move back made is not owed again');
+  assert.deepEqual(run.state.watching.map((w) => [w.agent, w.movedAt]).sort(), [['ada', NOW - 70000], ['cy', NOW - 50000]],
+    'the watch was lost by a restart, or a move that came back partial is still watched');
+  assert.equal(run.state.failed.has('/u/.claude-third'), false, 'a line stamped in the future held a target');
   automove.append(file, { kind: 'works', at: NOW - 20000, agent: 'ada', to: '/u/.claude-spare', works: 'yes' });
-  assert.equal(automove.create({ file, nowMs: NOW }).state.watching.length, 0, 'CONTROL: a watch that ended is not rebuilt');
+  assert.deepEqual(automove.create({ file, nowMs: NOW }).state.watching.map((w) => w.agent), ['cy'], 'CONTROL: a watch that ended is not rebuilt');
 });
 
+test('#7152 slice 3 review 4: a move says it started before its restarts run, so a board that stops mid-move still knows', async () => {
+  const file = fileFor();
+  let lines = null;
+  const { d } = deps({ movesOn: true,
+    start: (body) => ({ status: 202, body: { id: 'm', agents: [{ name: body.names[0], outcome: 'pending' }] },
+      done: new Promise((res) => { lines = automove.readLines(file).map((l) => l.kind + ':' + (l.outcome || '')); res(); }) }) });
+  await twoTicks(automove.create({ file }), d);
+  assert.ok(lines && lines.includes('move:started'), 'nothing was recorded before the restarts ran: ' + JSON.stringify(lines));
+  assert.equal(automove.recent(file).some((l) => l.outcome === 'started'), false, 'Settings was handed a started line it draws as nothing');
+});
+
+test('#7152 slice 3 review 4: one watch per agent, and a watch whose agent a person moved elsewhere is dropped, not blamed on the account', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  let seen = null;
+  const where = { ada: '/u/.claude-work' };
+  const { d, calls } = deps({ movesOn: true, where, lastSeen: () => seen });
+  await twoTicks(run, d);
+  where.ada = '/u/.claude-work';   // it came back to work (by hand), and is moved again
+  await twoTicks(run, d, NOW + 10000);
+  assert.equal(calls.starts.length, 2, 'CONTROL: it was moved twice');
+  assert.equal(run.state.watching.length, 1, 'a second move of one agent left two watches, so one call would close both');
+  where.ada = '/u/.claude-third';   // now a person moves it somewhere else
+  seen = { outcome: '401', at: Date.now() + 5000 };
+  await run.tick(d, NOW + 20000);
+  assert.equal(automove.readLines(file).some((l) => l.kind === 'works'), false, 'a refused call on another account was blamed on spare');
+  assert.equal(run.state.failed.has('/u/.claude-spare'), false, 'spare was held for a call made somewhere else');
+  assert.equal(run.state.watching.length, 0, 'the watch on an agent that left was kept');
+});
 test('#7152 slice 3 review 3: with fewer than two subscription accounts the sweep stops before the agents walk', async () => {
   let walks = 0;
   const { d } = deps({ movesOn: true });
