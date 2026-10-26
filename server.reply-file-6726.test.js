@@ -798,7 +798,7 @@ test('#7226: ~/.aws reached through a link to home is refused', () => withLeo(as
     // CONTROL: a non-hidden file through the same link attaches, so the link itself is not what is refused.
     const r = await reply({ text: 'hi', file: path.join(via, 'dotfiles', 'aws', 'credentials') });
     assert.equal(r.json.kept, true, 'CONTROL: the same link to a non-hidden name attaches: ' + r.text);
-    assert.ok(creds);
+    assert.equal(fs.realpathSync(path.join(via, '.aws', 'credentials')), fs.realpathSync(creds), 'the refused path is the same file');
   }));
 }));
 

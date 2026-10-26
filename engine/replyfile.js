@@ -396,8 +396,12 @@ function skippedMayHold(skipped, given, real) {
    prefix that cannot be read: nothing found here, and the spelling test above still applies. */
 function givenHiddenUnderHome(given, homeId) {
   if (!homeId) return false;
-  const parts = given.split(/[\\/]/).filter(Boolean);
-  let cur = path.parse(given).root;
+  /* Review 1: only what follows the root (on Windows the drive or the \\server\\share is the root, and splitting the whole
+     path walked it twice and matched nothing); a backslash separates only where it is a separator (on a Mac it is part
+     of a name); and a "." segment is no name (as path.relative read it before). */
+  const root = path.parse(given).root;
+  const parts = given.slice(root.length).split(path.sep === '\\' ? /[\\/]/ : /\//).filter((seg) => seg && seg !== '.');
+  let cur = root;
   for (let i = 0; i < parts.length - 1; i++) {
     cur = path.join(cur, parts[i]);
     if (idOf(cur) === homeId) return parts.slice(i + 1).some((seg) => seg.startsWith('.'));
