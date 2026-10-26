@@ -291,6 +291,24 @@ const RELPORT = freePort();
     if (rbNone.after !== 'Kosmos is answering again. Press Roll back to roll back: if it already started, this joins it.')
       die('#7207: a Roll back, once the board answered, said: ' + rbNone.after);
     await p.evaluate(() => setUpdConfirmMode('update'));
+    /* #7207: a button turned into Reload only reloads. The 409 "no update to install" turns it into Reload; its click
+       used to ALSO run the press listener and POST an update on its way out. The navigation is swapped for a marker
+       (location.reload cannot be stubbed) so the dialog survives for the legs below; what is measured is whether the
+       click reaches the route. */
+    answer = (route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'There is no update to install right now.' }) });
+    {
+      const before = pressed;
+      await p.click('#uc-go');
+      await p.waitForFunction(() => document.getElementById('uc-go').textContent.trim() === 'Reload', null, { timeout: 10000 });
+      if (pressed !== before + 1) die('#7207: the press before Reload did not reach the stubbed route (' + pressed + ')');
+      await p.evaluate(() => { document.getElementById('uc-go').onclick = () => { window.__ucReloaded = true; }; });
+      await p.click('#uc-go');
+      await p.waitForFunction(() => window.__ucReloaded === true, null, { timeout: 5000 });
+      await new Promise((r) => setTimeout(r, 500));   // a stray POST from the same click would land within this
+      if (pressed !== before + 1) die('#7207: pressing Reload also pressed Update (' + (pressed - before - 1) + ' extra POST)');
+    }
+    await p.evaluate(() => { const go = document.getElementById('uc-go'); go.onclick = null; delete go.dataset.reloadOnly;
+      go.textContent = 'Update'; document.getElementById('uc-err').hidden = true; });
     await p.unroute('**/api/update', stub);
     await p.unroute('**/api/update/rollback', stub);
 
