@@ -535,7 +535,14 @@ test('#5536 slice 3 review 6: a lock written before this computer last started i
 test('#5536 slice 3 review 7: an owner is its pid AND its start time, so a reused pid is not the owner (POSIX)', { skip: process.platform === 'win32' && 'no cheap start time on Windows (stated)' }, (t) => {
   const root = stoppedRoot(t);
   const lockFile = path.join(root, LOCK_NAME);
-  const startOf = (pid) => spawnSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
+  // As the sink reads it: Linux from /proc, elsewhere ps in a fixed locale and time zone.
+  const startOf = (pid) => {
+    if (process.platform === 'linux') {
+      const st = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      return `linux ${fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()} ${st.slice(st.lastIndexOf(')') + 2).split(' ')[19]}`;
+    }
+    return spawnSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { LC_ALL: 'C', LANG: 'C', TZ: 'UTC0', PATH: '/bin:/usr/bin' } }).stdout.trim();
+  };
   const parentStart = startOf(process.ppid);
   assert.ok(parentStart, 'ps reads a start time here');
   // The live parent with its own start time: busy.
@@ -548,4 +555,23 @@ test('#5536 slice 3 review 7: an owner is its pid AND its start time, so a reuse
   const s2 = createRestoreSink(root, { resume: true, snapshot: SNAP });
   assert.ok(fs.readFileSync(lockFile, 'utf8').trim().endsWith(startOf(process.pid)), 'the start time is in the lock');
   s2.close({ keepRecord: true });
+});
+
+test('#5536 slice 3 review 8: a live owner in another time zone and language is still the owner (POSIX)', { skip: process.platform === 'win32' && 'POSIX start time', timeout: 30000 }, async (t) => {
+  const root = stoppedRoot(t);
+  const { spawn } = require('child_process');
+  // A second Kosmos, started with other settings, holds a resumed sink of this folder open.
+  const code = `const { createRestoreSink } = require(${JSON.stringify(path.join(__dirname, 'restoresink'))});
+    const s = createRestoreSink(${JSON.stringify(root)}, { resume: true, snapshot: ${JSON.stringify(SNAP)} });
+    process.stdout.write('ready\\n'); setTimeout(() => { s.close({ keepRecord: true }); }, 4000);`;
+  const child = spawn(process.execPath, ['-e', code], { env: Object.assign({}, process.env, { TZ: 'Asia/Tokyo', LC_ALL: 'fr_FR.UTF-8', LANG: 'fr_FR.UTF-8' }), stdio: ['ignore', 'pipe', 'inherit'] });
+  t.after(() => { try { child.kill(); } catch { /* gone */ } });
+  await new Promise((resolve, reject) => {
+    child.stdout.on('data', (d) => { if (String(d).includes('ready')) resolve(); });
+    child.on('exit', (c) => reject(new Error(`the holder exited first (${c})`)));
+  });
+  // This process, in its own settings: busy, not stale.
+  assert.throws(() => createRestoreSink(root, { resume: true, snapshot: SNAP }), /already running; wait for it to finish/);
+  await new Promise((resolve) => child.on('exit', resolve));
+  createRestoreSink(root, { resume: true, snapshot: SNAP }).close({ keepRecord: true });   // and free once it closed
 });
