@@ -6687,7 +6687,9 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
-#tk-repeat-every, #tk-repeat-day, #tk-review-who, #tk-hold-for, #tk-hold-task { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too) */
+#tk-repeat-every, #tk-repeat-day, #tk-review-who, #tk-hold-for, #tk-hold-task { background-color: var(--field-fill); }
+#tk-hold-task { max-width: 100%; min-width: 0; }   /* kosmos#7184 round 6: a long task sentence never widens the page on a phone */
+#tk-hold-for-when .tk-repeat-when { min-width: 0; max-width: 100%; }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too) */
 @media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who, #tk-hold-for, #tk-hold-task, #tk-hold-save { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
@@ -70212,7 +70214,7 @@ function tkPaintHoldUntil(p, t) {
     sel.dataset.stored = stored;
   }
   const atIn = document.getElementById('tk-hold-at');
-  const lo = tkHoldLocalValue(Date.now()); const hi = tkHoldLocalValue(Date.now() + 365 * 86400000);
+  const lo = tkHoldLocalValue(Date.now() + 60000); const hi = tkHoldLocalValue(Date.now() + 365 * 86400000);
   if (atIn.min !== lo) atIn.min = lo;
   if (atIn.max !== hi) atIn.max = hi;
   tkHoldShowWhen();
@@ -70255,14 +70257,14 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
       body: JSON.stringify(until ? { onHold: true, until } : { onHold: true }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'we could not change what that hold waits for'); return; }
+    if (!res.ok) { tkHoldSay(key, (out && out.error) || 'We could not change what that hold waits for.'); return; }
     await pjReload();
     paintTaskActivity(TK_OPEN);
     tkHoldSay(key, 'Saved.');
     // Round 3: Save goes off under focus, so focus returns to the choice; round 4: only if it is still on Save (or lost).
     if (PJ_CURRENT + '#' + TK_OPEN === key && (document.activeElement === btn || document.activeElement === document.body || !document.activeElement)) document.getElementById('tk-hold-for').focus();
   } catch {
-    tkHoldSay(key, 'we could not reach Kosmos to change that task');
+    tkHoldSay(key, 'We could not reach Kosmos to change that task.');
   } finally {
     delete btn.dataset.busy;
     holdBtn.disabled = false;

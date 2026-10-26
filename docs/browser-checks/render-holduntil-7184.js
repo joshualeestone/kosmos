@@ -72,7 +72,8 @@ function chk(ok, label, extra) {
       tasks.create(p.id, { sentence: 'Get the price approved', who: 'ada' });  // 2: what 1 waits for
       tasks.create(p.id, { sentence: 'Book the courier', who: 'ada' });        // 3: held by an agent under a stale page
       tasks.create(p.id, { sentence: 'Pack the boxes', who: 'ada' });          // 4: open, the page a person moves to mid-Save
-      tasks.create(p.id, { sentence: 'Send the invoice', who: 'ada' });        // 5: open, an unsaved choice on another task's page
+      // 5: open, an unsaved choice on another task's page; round 6: a long sentence, so the phone's no-sideways-scroll arm can fail
+      tasks.create(p.id, { sentence: 'Send the invoice to the supplier with the signed delivery note and the corrected quantities', who: 'ada' });
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
@@ -190,6 +191,7 @@ function chk(ok, label, extra) {
         try { if (slow && route.request().method() === 'GET') await new Promise((r) => setTimeout(r, 1200)); await route.fallback(); } catch { await route.abort().catch(() => {}); }
       });
       await page.click('#tk-hold-save');
+      chk(await page.isDisabled('#tk-hold'), `${tag} round 5: Take off hold waits while Save is in flight`);
       await page.evaluate(() => openTaskPage(4));
       await page.waitForTimeout(2500);
       slow = false;
