@@ -84,3 +84,9 @@ Accepted, not changed:
   nothing is lost.
 - The Reload legs swap the navigation for a marker (location.reload cannot be stubbed); what they prove is that the
   click does not reach the update route.
+
+## Review 5 (2026-10-26): converged, nits only, accepted
+- pressNoAnswer reads "Waiting..." just after the error line shows; the wait's first status read is 2 s later, so a
+  very slow machine could read after it. Accepted: the page sets the text and the disabled state in the same task as
+  the error line, and the read is milliseconds later. If it ever flakes, read the state inside the same waitForFunction.
+- The wiring tests are text matches; the behaviour is covered by the browser check and the verdict by the pure tests.
