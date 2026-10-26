@@ -7,6 +7,8 @@
 set -u
 # Review 1: the throwaway repos must not read the person's own git config (a global hooksPath or commit signing).
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+# Review 6: nor the environment the hook and the gates read (an exported one would turn correct arms red).
+unset GIT_SSH_COMMAND GIT_SSH KOSMOS_BCG_BASE KOSMOS_BCG_FILES KOSMOS_BCG_MSGS KOSMOS_BCSG_WEBDIFF KOSMOS_BCSG_DIR
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/prepush-gates-7192.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
