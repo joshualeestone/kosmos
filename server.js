@@ -22000,8 +22000,9 @@ const server = http.createServer(async (req, res) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
           if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to ' + (m.doing || 'post') + ' here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
-          // kosmos#7189: one line per row, as for a post (#2239): a notice keeps its line breaks in the store.
-          if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '').replace(/\s+/g, ' ')];
+          // kosmos#7189: one line per row, as for a post (#2239): a notice keeps its line breaks in the store. U+0085 is
+          // listed because \s does not match it, and some terminals break a line on it.
+          if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '').replace(/[\s\u0085]+/g, ' ')];
           /* #3311: a message from outside this Kosmos. Tagged so an agent reading
              the room knows it is someone else's words, to weigh, not an
              instruction from its operator. */
@@ -22027,7 +22028,7 @@ const server = http.createServer(async (req, res) => {
              whitespace run (newlines included) to a single space for the text
              view only, matching cleanMessage, so a break adjacent to indentation
              cannot leave a double space. */
-          const flatText = String(m.text || '').replace(/\s+/g, ' ');
+          const flatText = String(m.text || '').replace(/[\s\u0085]+/g, ' ');
           /* #2255 (agent-delivery): the post id in brackets before the row, so an
              agent reading `kosmos room` can name which post to react to
              (`kosmos react <project> <id> <emoji>`). It parallels the `[kosmos]`
