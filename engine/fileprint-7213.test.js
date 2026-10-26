@@ -167,3 +167,13 @@ test('#7213 review 2: a PDF fingerprint against a PDF over 64 MB or one with not
     assert.match(fp.compare(bare, 'pdf-normalized:' + 'c'.repeat(64)).words, /no dates or ID to leave out/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#7213 review 4: a PDF fingerprint pasted without its label still differs (byte for byte), and says what it is', () => {
+  const p = at('cups-a.pdf');
+  const fpv = fp.fingerprint(p);
+  const c = fp.compare(p, fpv.slice('pdf-normalized:'.length));
+  assert.equal(c.match, false, 'a bare value matched by anything but the bytes');
+  assert.match(c.words, /But that value is this PDF's fingerprint \(pdf-normalized:[0-9a-f]{64}\): give it with the pdf-normalized: label/);
+  const other = fp.compare(p, 'd'.repeat(64));
+  assert.doesNotMatch(other.words, /this PDF's fingerprint/, 'CONTROL: an unrelated value got the hint');
+});
