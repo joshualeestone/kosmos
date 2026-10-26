@@ -338,9 +338,9 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
    follows. `leadsTo` is the share path a link to a plain share names (the rest of the folder's path joined on), so a
    skipped folder is judged by where it goes, never by its own spelling alone (review 16 finding 1). */
 function otherFolderSkip(folder, fileShare) {
-  /* A namespace that names no share and is not the object manager's root (\\.\pipe\..., \\.\COM1) holds no files: it
-     leads nowhere, so it cannot make another agent's attach refuse (review 12 finding 2, kept through review 22). An
-     unknown that MAY name a drive (\\?\GLOBALROOT\...) stays unknown, and fails closed. mayHold answers which. */
+  /* Only the namespaces on winpath's allow-list hold no files (a pipe, a mailslot, a DOS device: \\.\pipe\..., \\.\COM1):
+     such a folder leads nowhere, so it cannot make another agent's attach refuse (reviews 12 and 23). Any other
+     namespace that names no share may name a drive (\\?\GLOBALROOT\...), so it stays unknown and fails closed. */
   const holdsNoFiles = (p) => isNetworkSpelling(p) && !shareOf(p) && isNoFileNamespace(p);
   if (isNetworkSpelling(folder)) {
     if (fileShare && shareOf(folder) === fileShare) return null;

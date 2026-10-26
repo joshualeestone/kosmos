@@ -305,7 +305,7 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   Named, not changed (review 19 NIT): a project written `C:\link\proj` where `C:\link` is itself a link to `D:\real`
   and `D:\real\proj` links to a share is refused (only a link written exactly as the project folder is followed onto
   a share); the safe direction. A single path classifier (one `{kind}` for any spelling, unknown = network) would
-  replace the growing set of predicates; a good follow-up, not this card.
+  replace the growing set of predicates; a good follow-up, not this card: #7249 (filed at review 27).
 - Review 20: the earlier-link case above is now named in the code header too, as residual (d). `agentRoots` keeps
   the project folders in their own list (the second guard's exemption) instead of filtering the Files folder out by
   string. winpath's NT constants sit above their first use. Not changed: "the Windows arms run only on win32" is
@@ -356,6 +356,16 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   `replyfile.js` the new arm fails. Review 26 NITs left: `ownShareProject` checks `roots.folders` (Files included, as
   review 25 noted); `hiddenRefusal` rule 1's home prefix is case-sensitive (existing code; rules 2 and 3 judge by
   identity); the long winpath import; a classification table for winpath's spellings.
+- Review 27: (1) a Volume Shadow Copy (`\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopyN\`) is a local volume, so
+  `LOCAL_VOLUME` now accepts it; before, another agent's folder on one read as unplaceable and refused every project
+  file. Against the previous winpath its arm fails. (2) The arms that reproduce the fail-opens skip when the machine
+  lacks the admin share, a free drive letter, mountvol, subst or mklink, and a skip exits zero; on Windows CI
+  (`CI` set) they now fail instead (`setupSkip`), and an arm asserts symbolic links can be made there. Control: with
+  the admin share made unreachable, CI mode fails the 8 admin-share arms and plain mode skips them. The arm needing two
+  folders with equal number ids still skips where none collide: it is chance, not setup. (3) The single classifier
+  is filed as #7249. Decided, not changed: `\Device\LanmanRedirector\...` stays unplaceable (its path below the
+  device carries a session and drive prefix, so the share cannot be read off it safely); it fails closed. Plan file
+  name without a timestamp: the repo's plans are named `<branch>.md`, and the proof lookup matches on the branch.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -364,7 +374,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 56/56 (none skipped), also with TMP/TEMP written as an 8.3 short name; `engine/winpath.test.js`: 3/3. `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 58 arms, 57 run (the CI-only symlink arm skips off CI), and 58/58 with `CI=1` and TMP/TEMP written as an 8.3 short name; `engine/winpath.test.js`: 3/3. `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

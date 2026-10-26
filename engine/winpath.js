@@ -3,7 +3,7 @@
  * How Windows spells a path, read without touching the disk (#7221). Pure functions of a string: a share or a device
  * namespace, a drive letter, a link target Kosmos may follow, a DOS device name, whether one path is written inside
  * another. engine/replyfile.js builds its Windows refusals on these; the device-name rule is shared with
- * engine/backuprestore.js and engine/win32zip.js.
+ * engine/backuprestore.js and engine/win32zip.js. One classifier returning a single kind per spelling is #7249.
  */
 const path = require('node:path');
 
@@ -67,8 +67,9 @@ function shareOf(p) {
 }
 /* A local volume named without a drive letter: \\?\Volume{GUID}\ or \\?\GLOBALROOT\Device\HarddiskVolumeN\, and the
    same in the NT spelling a link target reads back in (\??\Volume{GUID}\, \??\GLOBALROOT\Device\HarddiskVolumeN\).
-   Local, so resolving it reaches no other computer; but its spelling cannot be compared with a drive path. */
-const LOCAL_VOLUME = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)(?:Volume\{[0-9a-f-]+\}|GLOBALROOT[\\/]Device[\\/]HarddiskVolume\d+)[\\/]/i;
+   Local, so resolving it reaches no other computer; but its spelling cannot be compared with a drive path. A Volume
+   Shadow Copy (\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopyN\) is a local volume too (review 27 finding 1). */
+const LOCAL_VOLUME = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)(?:Volume\{[0-9a-f-]+\}|GLOBALROOT[\\/]Device[\\/]HarddiskVolume(?:ShadowCopy)?\d+)[\\/]/i;
 function isLocalVolumeSpelling(p) {
   return LOCAL_VOLUME.test(String(p));
 }

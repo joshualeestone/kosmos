@@ -150,6 +150,17 @@ function canMakeSymlinks() {
   try { fs.symlinkSync(path.join(SANDBOX, 'nowhere'), probe, 'file'); fs.rmSync(probe, { force: true }); return true; } catch { return false; }
 }
 const linkOnly = { skip: !WIN ? 'the Windows board rule' : (!canMakeSymlinks() && 'this account cannot make symbolic links (no Developer Mode, not elevated)') };
+/* The arms that reproduce the fail-opens need the machine's admin share, a free drive letter, mountvol, subst and
+   mklink. Where one is missing an arm skips, and a skip exits zero; on Windows CI, the one place every arm is meant
+   to run, a missing one fails instead, so a runner change cannot quietly turn those arms off (review 27 finding 2). */
+const ON_WINDOWS_CI = WIN && !!process.env.CI;
+function setupSkip(t, why) {
+  if (ON_WINDOWS_CI) assert.fail('on Windows CI this arm must run, but: ' + why);
+  t.skip(why);
+}
+test('#7221: on Windows CI, this account can make symbolic links, so no link arm skips', { skip: !ON_WINDOWS_CI && 'only on Windows CI' }, () => {
+  assert.equal(canMakeSymlinks(), true);
+});
 
 test('#7221 CONTROL: an ordinary file in Files attaches on a Windows board, resolved once on the way in', winOnly, () => {
   counting();
@@ -197,7 +208,7 @@ test('#7221: a chain of links that ends at a share is followed link by link and 
 
 test('#7221: a link that points at another drive no root is on is refused without resolving it', linkOnly, (t) => {
   const other = freeDriveLetter();
-  if (!other) { t.skip('no free drive letter'); return; }
+  if (!other) { setupSkip(t, 'no free drive letter'); return; }
   const link = path.join(FILES, 'to-other-drive.txt');
   fs.symlinkSync(other + ':\\f.txt', link, 'file');
   try { refusedUnresolved(link, replyfile.NOT_YOURS, 'a link to drive ' + other); } finally { fs.rmSync(link, { force: true }); }
@@ -215,7 +226,7 @@ test('#7221: an alternate data stream on a file in Files is refused before it is
 
 test('#7221: a drive no root is on (a mapped drive is a share under a letter) is refused before it is touched', winOnly, (t) => {
   const other = freeDriveLetter();
-  if (!other) { t.skip('no free drive letter'); return; }
+  if (!other) { setupSkip(t, 'no free drive letter'); return; }
   refusedUnresolved(other + ':\\Files\\report.txt', replyfile.NOT_YOURS, 'drive ' + other);
 });
 
@@ -238,7 +249,7 @@ test('#7221 review 1-2: a file named on one of the agent\'s project drives may r
      answers the share path a mapped drive resolves to. 127.0.0.1 with no such share fails fast, so the read after the
      guard refuses for its own reason, and the arm asserts only that the NETWORK guard let the project file through. */
   const mapped = freeDriveLetter();
-  if (!mapped) { t.skip('no free drive letter'); return; }
+  if (!mapped) { setupSkip(t, 'no free drive letter'); return; }
   PROJECTS = [{ id: 'p-7221', name: 'Mapped', folder: mapped + ':\\proj', agents: [WHO] }];
   const shareReal = '\\\\127.0.0.1\\nosuchshare7221\\proj\\f.txt';
   replyfile.setRealpathForTests(() => shareReal);
@@ -324,7 +335,7 @@ test('#7221 review 2-3: a file on a share resolves only the share-written projec
   fs.mkdirSync(proj, { recursive: true });
   fs.writeFileSync(path.join(proj, 'f.txt'), 'on the share\n');
   const projUnc = adminShareOf(proj);
-  if (!projUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  if (!projUnc) { setupSkip(t, 'this machine\'s admin share is not reachable'); return; }
   const sameShare = adminShareOf(SANDBOX);
   PROJECTS = [
     { id: 'p-mine', name: 'Mine', folder: proj, agents: [WHO] },
@@ -360,7 +371,7 @@ test('#7221 review 3-2: a file in one of the agent\'s own share-written projects
   fs.mkdirSync(proj, { recursive: true });
   fs.writeFileSync(path.join(proj, 'f.txt'), 'on the share project\n');
   const projUnc = adminShareOf(proj);
-  if (!projUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  if (!projUnc) { setupSkip(t, 'this machine\'s admin share is not reachable'); return; }
   PROJECTS = [{ id: 'p-unc', name: 'Unc', folder: projUnc, agents: [WHO] }];
   const r = replyfile.attach(WHO, path.join(projUnc, 'f.txt'), { platform: 'win32' });
   assert.equal(r.ok, true, 'attaches as on main: ' + JSON.stringify(r));
@@ -401,8 +412,8 @@ test('#7221 review 4-1: a project written on C: that lives on another local driv
   fs.mkdirSync(path.join(ddrive, 'proj'), { recursive: true });
   fs.writeFileSync(path.join(ddrive, 'proj', 'f.txt'), 'on the other drive\n');
   const letter = freeDriveLetter();
-  if (!letter) { t.skip('no free drive letter'); return; }
-  try { execFileSync('subst', [letter + ':', ddrive], { stdio: 'ignore' }); } catch { t.skip('subst is not available here'); return; }
+  if (!letter) { setupSkip(t, 'no free drive letter'); return; }
+  try { execFileSync('subst', [letter + ':', ddrive], { stdio: 'ignore' }); } catch { setupSkip(t, 'subst is not available here'); return; }
   /* A subst drive outlives the process that made it, so it is removed on exit too, should the arm be cut off. */
   const unsubst = () => { try { execFileSync('subst', [letter + ':', '/D'], { stdio: 'ignore' }); } catch { /* already gone */ } };
   process.once('exit', unsubst);
@@ -460,7 +471,7 @@ test('#7221 review 5-1: a nested share project written with another name for the
   fs.mkdirSync(nested, { recursive: true });
   fs.writeFileSync(path.join(nested, 'secret.txt'), 'not for the outer project\n');
   const outerUnc = adminShareOf(outer);
-  if (!outerUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  if (!outerUnc) { setupSkip(t, 'this machine\'s admin share is not reachable'); return; }
   // the outer project on \\127.0.0.1, the nested one written on \\localhost: one server, two spellings
   PROJECTS = [
     { id: 'p-souter', name: 'Outer', folder: outerUnc, agents: [WHO] },
@@ -553,7 +564,7 @@ test('#7221 review 8-1: a nested project of another agent written by its volume 
     const out = execFileSync('mountvol', [path.parse(SANDBOX).root.slice(0, 2), '/L'], { encoding: 'utf8' });
     volume = (/\\\\\?\\Volume\{[0-9a-f-]+\}\\/i.exec(out) || [null])[0];
   } catch { volume = null; }
-  if (!volume) { t.skip('mountvol gave no volume name here'); return; }
+  if (!volume) { setupSkip(t, 'mountvol gave no volume name here'); return; }
   const outer = path.join(SANDBOX, 'vouter');
   const nested = path.join(outer, 'nested');
   fs.mkdirSync(nested, { recursive: true });
@@ -587,7 +598,7 @@ test('#7221 review 11-3: a root-relative link target is a path on the link\'s ow
 
 test('#7221 review 11-3: a root-relative link in Files to a file in Files attaches', linkOnly, (t) => {
   const link = path.join(FILES, 'rootrel.txt');
-  if (!mklinkRootRelative(link, path.join(FILES, 'report.txt').slice(2), false)) { t.skip('mklink could not make a root-relative link here'); return; }
+  if (!mklinkRootRelative(link, path.join(FILES, 'report.txt').slice(2), false)) { setupSkip(t, 'mklink could not make a root-relative link here'); return; }
   try {
     const r = replyfile.attach(WHO, link, { platform: 'win32' });
     assert.equal(r.ok, true, JSON.stringify(r));
@@ -602,7 +613,7 @@ test('#7221 review 11-1: a nested project of another agent that is a link the wa
   const { execFileSync } = require('node:child_process');
   let volume = null;
   try { volume = (/\\\\\?\\Volume\{[0-9a-f-]+\}\\/i.exec(execFileSync('mountvol', [path.parse(SANDBOX).root.slice(0, 2), '/L'], { encoding: 'utf8' })) || [null])[0]; } catch { volume = null; }
-  if (!volume) { t.skip('mountvol gave no volume name here'); return; }
+  if (!volume) { setupSkip(t, 'mountvol gave no volume name here'); return; }
   const outer = path.join(SANDBOX, 'router');
   const data = path.join(outer, 'deep', 'data');
   fs.mkdirSync(data, { recursive: true });
@@ -625,7 +636,7 @@ test('#7221 review 11-1: the same with a root-relative link (the reviewer\'s exa
   fs.mkdirSync(data, { recursive: true });
   fs.writeFileSync(path.join(data, 'secret.txt'), 'B\'s project file\n');
   const nested = path.join(outer, 'nested');
-  if (!mklinkRootRelative(nested, data.slice(2), true)) { t.skip('mklink could not make a root-relative link here'); return; }
+  if (!mklinkRootRelative(nested, data.slice(2), true)) { setupSkip(t, 'mklink could not make a root-relative link here'); return; }
   try {
     PROJECTS = [
       { id: 'p-rrouter', name: 'Outer', folder: outer, agents: [WHO] },
@@ -641,7 +652,7 @@ test('#7221 review 11-2: the agent\'s own project folder that is a link to a sha
   fs.mkdirSync(target, { recursive: true });
   fs.writeFileSync(path.join(target, 'f.txt'), 'on the share\n');
   const targetUnc = adminShareOf(target);
-  if (!targetUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  if (!targetUnc) { setupSkip(t, 'this machine\'s admin share is not reachable'); return; }
   const proj = path.join(SANDBOX, 'own-share-link');
   fs.symlinkSync(targetUnc, proj, 'dir');
   try {
@@ -662,7 +673,7 @@ test('#7221 review 12-1: past the agent\'s own project link to a share, a link f
   fs.mkdirSync(target, { recursive: true });
   fs.writeFileSync(path.join(target, 'f.txt'), 'on the share\n');
   const targetUnc = adminShareOf(target);
-  if (!targetUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  if (!targetUnc) { setupSkip(t, 'this machine\'s admin share is not reachable'); return; }
   fs.symlinkSync('\\\\10.255.255.1\\share2', path.join(target, 'elsewhere'), 'dir');   // on the share, a link out
   const proj = path.join(SANDBOX, 'own-share-link2');
   fs.symlinkSync(targetUnc, proj, 'dir');
@@ -694,7 +705,7 @@ test('#7221 review 12 NIT: the agent\'s own project written \\\\?\\UNC\\host\\sh
   fs.mkdirSync(proj, { recursive: true });
   fs.writeFileSync(path.join(proj, 'f.txt'), 'on the share project\n');
   const projUnc = adminShareOf(proj);
-  if (!projUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  if (!projUnc) { setupSkip(t, 'this machine\'s admin share is not reachable'); return; }
   PROJECTS = [{ id: 'p-unc-long', name: 'Unc long', folder: '\\\\?\\UNC\\' + projUnc.slice(2), agents: [WHO] }];
   const r = replyfile.attach(WHO, path.join(projUnc, 'f.txt'), { platform: 'win32' });
   assert.equal(r.ok, true, 'attaches as on main: ' + JSON.stringify(r));
@@ -802,7 +813,7 @@ test('#7221 review 16-1: a nested project of another agent that is a local link 
   fs.writeFileSync(path.join(nested, 'secret.txt'), 'theirs\n');
   fs.writeFileSync(path.join(outer, 'mine.txt'), 'mine\n');
   const outerUnc = adminShareOf(outer);
-  if (!outerUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  if (!outerUnc) { setupSkip(t, 'this machine\'s admin share is not reachable'); return; }
   const theirLink = path.join(SANDBOX, 's16-their-link');
   fs.symlinkSync(path.join(outerUnc, 'nested'), theirLink, 'dir');
   try {
@@ -854,7 +865,7 @@ test('#7221 review 17-1: a connected agent whose Files folder is on a share atta
   fs.mkdirSync(cfiles, { recursive: true });
   fs.writeFileSync(path.join(cfiles, 'r.txt'), 'from a Files folder on a share\n');
   const cfilesUnc = adminShareOf(cfiles);
-  if (!cfilesUnc) { t.skip('this machine\'s admin share is not reachable'); return; }
+  if (!cfilesUnc) { setupSkip(t, 'this machine\'s admin share is not reachable'); return; }
   const realFiles = dmfiles.filesDir;
   dmfiles.filesDir = (name) => (name === WHO ? cfilesUnc : null);
   try {
@@ -901,7 +912,7 @@ test('#7221 review 19-1: another agent\'s folder written as a local volume, with
   const { execFileSync } = require('node:child_process');
   let volume = null;
   try { volume = (/\\\\\?\\Volume\{[0-9a-f-]+\}\\/i.exec(execFileSync('mountvol', [path.parse(SANDBOX).root.slice(0, 2), '/L'], { encoding: 'utf8' })) || [null])[0]; } catch { volume = null; }
-  if (!volume) { t.skip('mountvol gave no volume name here'); return; }
+  if (!volume) { setupSkip(t, 'mountvol gave no volume name here'); return; }
   const under = path.join(SANDBOX, 'vol-under');
   fs.mkdirSync(under, { recursive: true });
   fs.symlinkSync('\\\\10.255.255.1\\share\\proj', path.join(under, 'lnk'), 'dir');
@@ -1043,4 +1054,16 @@ test('#7221 review 26-1: another agent\'s folder that leads somewhere unplaceabl
     assert.equal(back.ok, true, JSON.stringify(back));
     replyfile.discard(back.rec);
   } finally { fs.rmSync(theirs, { force: true }); }
+});
+
+/* ---------- review 27 ---------- */
+
+test('#7221 review 27-1: a Volume Shadow Copy is a local volume, so another agent\'s folder on one does not refuse every project file', () => {
+  const shadow = '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\x';
+  assert.equal(winpath.isLocalVolumeSpelling(shadow), true);
+  assert.equal(winpath.isLocalVolumeSpelling('\\??\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy12\\x'), true);
+  assert.equal(winpath.isNetworkSpelling(shadow), false, 'local, not a network path');
+  // CONTROLS: any other device under GLOBALROOT stays unplaced
+  assert.equal(winpath.isLocalVolumeSpelling('\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy\\x'), false, 'no number, no volume');
+  assert.equal(winpath.isLocalVolumeSpelling('\\\\?\\GLOBALROOT\\Device\\SomethingElse1\\x'), false);
 });
