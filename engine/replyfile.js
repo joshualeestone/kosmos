@@ -336,8 +336,12 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    agent's project folders the open is not refused either (a project's files may be share paths by design);
    everywhere else the open is refused; (b) the OTHER folders an attach resolves to judge containment: a project
    folder on a drive letter that is mapped to a share (telling a mapped letter apart needs a call Node does not
-   have), and the folders Kosmos itself made (the Files folder and its parent, each agent's folder, ~/.ssh,
-   ~/.config), which a person or a process of this user would have to replace with a link to a share. */
+   have; the lstat walk of that folder touches the share too, before its realpath does), and the folders Kosmos
+   itself made (the Files folder and its parent, each agent's folder, ~/.ssh, ~/.config), which a person or a
+   process of this user would have to replace with a link to a share; (c) a share is matched by how it is WRITTEN
+   (review 4 finding 2): a project written \\fileserver\x whose real path reads \\10.0.0.5\x (or a DFS path, or
+   another name for the server) is not matched to its files, which are then refused, where main matched by identity.
+   Write the project folder as Windows resolves it. */
 const ON_NETWORK = 'that path is on another computer on the network, or names a device, so it cannot be attached; copy the file into your Files folder and attach it from there';
 const DEVICE_NAME = 'that name belongs to a Windows device, not a file, so it cannot be attached';
 const NAMESPACE = /^[\\/]{2}/;                                   // \\host\share, //host/share, \\?\..., \\.\...
@@ -380,7 +384,7 @@ function writtenInside(given, folder) {
   const f = norm(folder);
   return (!!driveOf(f) || isPlainShare(f)) && norm(given).startsWith(f + '\\');
 }
-/* The agent's roots as written, with no filesystem call: `drives`, the letters every root is on, and `folders`, the
+/* The agent's roots: `drives`, the letters every root is written on or reaches through its own links, and `folders`, the
    agent's own project folders (on a drive letter, or a plain share). A project may live on a share, written as a
    mapped drive (projects.js opens "a Z:\ record whose realpath is \\server\share") or as \\server\share itself; that
    is the person's own choice of folder, and those files attached on main. So a file written inside one of these
@@ -391,15 +395,41 @@ function writtenInside(given, folder) {
 function agentRoots(sessionName, filesDir, projectList) {
   const drives = new Set();
   const folders = [];
-  const filesDrive = typeof filesDir === 'string' ? driveOf(filesDir) : null;
-  if (filesDrive) drives.add(filesDrive);
+  /* A root written on C: may live on D: through a junction or link on its way (C:\Users\me\work -> D:\work), so the
+     drives a root reaches are collected by walking its own links, lstat and readlink only (review 4 finding 1): a
+     path to it that the walk follows onto D: is then judged on D:, as it was by identity on main. */
+  if (typeof filesDir === 'string' && driveOf(filesDir)) drivesReached(filesDir, drives);
   for (const p of projectList) {
     if (!p || typeof p.folder !== 'string' || !(p.agents || []).includes(sessionName)) continue;
     const d = driveOf(p.folder);
-    if (d) drives.add(d);
+    if (d) drivesReached(p.folder, drives);
     if (d || isPlainShare(p.folder)) folders.push(p.folder);
   }
   return { drives, folders };
+}
+/* Add to `out` the drive `p` is written on and every drive its links lead to, followed as winLinkRefusal follows
+   them (lstat and readlink, the allow-list of targets, at most MAX_HOPS links). Stops quietly where the walk would
+   refuse or cannot read: a root it cannot walk adds only the drives seen so far. */
+function drivesReached(p, out, hops = 0) {
+  const d = driveOf(p);
+  if (!d) return;
+  out.add(d);
+  if (hops > MAX_HOPS) return;
+  const root = path.win32.parse(p).root;
+  const parts = p.slice(root.length).split(/[\\/]+/).filter(Boolean);
+  let cur = root;
+  for (let i = 0; i < parts.length; i++) {
+    cur = path.win32.join(cur, parts[i]);
+    let lst;
+    try { lst = fs.lstatSync(cur); } catch { return; }
+    if (!lst.isSymbolicLink()) continue;
+    let to;
+    try { to = fs.readlinkSync(cur); } catch { return; }
+    const target = followableLinkTarget(to);
+    if (target === null) return;
+    drivesReached(path.win32.resolve(path.win32.dirname(cur), target, ...parts.slice(i + 1)), out, hops + 1);
+    return;
+  }
 }
 function readProjects() {
   let all = [];
@@ -655,4 +685,6 @@ function discard(rec) {
   if (ledger && key && ledger.has(key)) ledger.get(key).delete(rec.id);
 }
 
+/* isDevicePart, winSpellingRefusal and followableLinkTarget are exported for engine/replyfile.win32-7221.test.js
+   only; nothing else should call them (review 4 NIT). */
 module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, isDevicePart, winSpellingRefusal, followableLinkTarget };

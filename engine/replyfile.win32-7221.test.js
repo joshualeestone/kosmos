@@ -342,3 +342,34 @@ test('#7221 review 3-1: a project folder that is a link out to a share is never 
     assert.ok(Date.now() - started < 2000, 'no network attempt on the way');
   } finally { fs.rmSync(linked, { force: true }); }
 });
+
+/* ---------- review 4 ---------- */
+
+test('#7221 review 4-1: a project written on C: that lives on another local drive through a link attaches its files', winOnly, (t) => {
+  /* A second local drive made for the arm with subst (no admin needed): `<letter>:` is the folder `ddrive`. The project
+     is written under a C: folder that is a link onto that drive, the C:\Users\me\work -> D:\work layout. */
+  const { execFileSync } = require('node:child_process');
+  const ddrive = path.join(SANDBOX, 'ddrive');
+  fs.mkdirSync(path.join(ddrive, 'proj'), { recursive: true });
+  fs.writeFileSync(path.join(ddrive, 'proj', 'f.txt'), 'on the other drive\n');
+  const here = path.parse(FILES).root[0].toUpperCase();
+  const letter = 'QRSTUVWXYZ'.split('').find((d) => d !== here && !fs.existsSync(d + ':\\'));
+  try { execFileSync('subst', [letter + ':', ddrive], { stdio: 'ignore' }); } catch { t.skip('subst is not available here'); return; }
+  const view = path.join(SANDBOX, 'cview');
+  try {
+    fs.symlinkSync(letter + ':\\', view, 'dir');
+    const proj = path.join(view, 'proj');
+    PROJECTS = [{ id: 'p-other-drive', name: 'Other drive', folder: proj, agents: [WHO] }];
+    const r = replyfile.attach(WHO, path.join(proj, 'f.txt'), { platform: 'win32' });
+    assert.equal(r.ok, true, 'attaches as on main: ' + JSON.stringify(r));
+    replyfile.discard(r.rec);
+    // CONTROL: once no root reaches that drive (the project gone), a link from Files onto it is refused unresolved
+    PROJECTS = [];
+    const out = path.join(FILES, 'to-other-drive-file.txt');
+    fs.symlinkSync(letter + ':\\proj\\f.txt', out, 'file');
+    try { refusedUnresolved(out, replyfile.NOT_YOURS, 'a Files link onto a drive no root reaches'); } finally { fs.rmSync(out, { force: true }); }
+  } finally {
+    fs.rmSync(view, { force: true });
+    try { execFileSync('subst', [letter + ':', '/D'], { stdio: 'ignore' }); } catch { /* already gone */ }
+  }
+});

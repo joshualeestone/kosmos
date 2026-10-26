@@ -49,9 +49,11 @@ realpath, and may use only `lstat` and `readlink`, which do not touch the networ
    - a colon past the drive (an alternate data stream, `COM1:`), said as a stream, not a network path (review 3 NIT);
    - a last part that is a DOS device name (CON, PRN, AUX, NUL, CONIN$, CONOUT$, COM0-9, LPT0-9 and the superscript
      digits, any extension, trailing dots and spaces dropped as Windows does);
-   - a drive letter none of the agent's roots (its Files folder, the folders of the projects it is on) is written on.
-     A mapped drive is a share under a letter, and a file on a drive no root is written on cannot be inside a root.
-     Read from how the roots are written, with no filesystem call.
+   - a drive letter none of the agent's roots (its Files folder, the folders of the projects it is on) is written on
+     or reaches through its own links. A mapped drive is a share under a letter, and a file on a drive no root reaches
+     cannot be inside a root. The drives a root reaches are collected by walking its links, lstat and readlink only
+     (review 4 finding 1: `C:\Users\me\work` as a junction to `D:\work` put a project's files on D:, which a written-
+     only drive rule refused where main attached them).
 2. **The links, by lstat and readlink only** (`winLinkRefusal`): each part of the path is lstat'd; a link's target is
    read and followed ONLY when it is a drive path (`X:\...`, also written `\\?\X:\` or `\??\X:\`) or a plain relative
    one (`followableLinkTarget`, an allow-list). Anything else is refused unfollowed: review 2 finding 1 measured a
@@ -93,9 +95,14 @@ each agent's instructions path once (#6726 r5-3) and parses the projects file on
    as the double-swap the file header already names.
 2. The OTHER folders an attach resolves to judge containment (review 1 finding 3): a project folder on a drive letter
    that is mapped to a share is still resolved on every attach (a written `\\`, and a local link out to a share, are
-   skipped; telling a mapped letter apart needs a call Node does not have), and so are the folders Kosmos itself made (the Files folder and its parent,
+   skipped; telling a mapped letter apart needs a call Node does not have; the lstat walk of such a folder touches the
+   share too, before its realpath does), and so are the folders Kosmos itself made (the Files folder and its parent,
    each agent's folder, `~/.ssh`, `~/.config`), which a person or a process of this user would have to replace with a
    link to a share. Named in the code comment too.
+3. A share is matched by how it is WRITTEN, not by identity (review 4 finding 2): a project written `\\fileserver\x`
+   whose files' real paths read `\\10.0.0.5\x` (or a DFS path, or another name for the server) is not matched to them,
+   and they are refused where main matched by identity. Narrow; the remedy is to write the project folder as Windows
+   resolves it. Named in the code comment too.
 
 What would change my mind: a Windows build where `lstat` or `readlink` itself contacts a share (measured not to, here).
 
@@ -130,14 +137,17 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   is refused unresolved.
 - Review 3-1: a project folder that is a local link to a share, and a project folder under it, are never resolved
   while a local project file attaches.
+- Review 4-1: with a second local drive made by `subst` for the arm (removed after; skipped where subst is missing), a
+  project written under a C: link onto that drive attaches its files; once no root reaches the drive, a Files link
+  onto it is refused unresolved (the control).
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
-(5f08d3d): all 3 fail.
+(5f08d3d): all 3 fail. The review-4 arm against iteration 3's (d5bced0): fails.
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 21/21 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 22/22 (none skipped). `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours).
