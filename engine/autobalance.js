@@ -215,7 +215,6 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
    The record's resets are seconds; rows carry ms, as /api/accounts does. */
 const LOGIN_REFUSED = /^(profile-)?http-40[13]$/;
 const BLIP_STATES = /^(http-429|(profile-)?http-5\d\d|unreachable|profile-unreachable|token-expired)$/;
-const SIGNED_OUT_STATES = /^(no-credential|no-token)$/;
 function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
   const ms = (w) => (w && Number.isFinite(w.usedPct) ? { usedPct: w.usedPct, resetsAt: Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null } : null);
   const out = [];
@@ -239,10 +238,10 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
     const refused = !!rec && LOGIN_REFUSED.test(String(rec.state));
     const measured = !!rec && !!(rec.weekly || rec.fiveHour);
     const blip = !!rec && BLIP_STATES.test(String(rec.state));
-    /* Review 16: a folder with no credential at all is signed out, as Settings' live check calls it, so a login that
-       was at risk stays at risk rather than "ending" in the record. */
-    const signedOut = !!rec && SIGNED_OUT_STATES.test(String(rec.state));
-    const badge = refused ? 'rejected' : signedOut ? 'signed_out' : (rec && (rec.state === 'ok' || (measured && blip)) ? 'working' : null);
+    /* Review 18: "no credential" is NOT read as signed out (review 16 did, wrongly). Slice 1 says it for any Keychain
+       failure too (a timeout, a locked keychain), so one hiccup would have marked every account a stopped login. It
+       gives no badge, and the row is unmeasured, which the sweep treats as a gap. */
+    const badge = refused ? 'rejected' : (rec && (rec.state === 'ok' || (measured && blip)) ? 'working' : null);
     let here = { names: [], complete: false };
     try { here = agentsOn(a.dir, a.isDefault === true) || here; } catch { here = { names: [], complete: false }; }
     out.push({ provider: 'anthropic', dir: a.dir, label: a.label || null, isDefault: a.isDefault === true,
@@ -251,10 +250,10 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
          keeps the last good ones through a failed read on purpose, so one network blip does not empty the decision. The
          badge alone says whether the latest read worked, and only a 'working' one is ever a target. */
       connection: { badge }, weekly: rec ? ms(rec.weekly) : null, fiveHour: rec ? ms(rec.fiveHour) : null, agentsHere: here,
-      /* Review 14, 16: whether this reading can say the account's state: a figure that is still fresh, or a login
-         that was refused or is signed out. A fresh record whose figures have aged out (slice 1 rewrites its time on
+      /* Review 14, 16, 18: whether this reading can say the account's state: a figure that is still fresh, or a login
+         that was refused. A fresh record whose figures have aged out (slice 1 rewrites its time on
          every poll, a failed one included) says nothing, so the sweep must not take it for the end of a risk. */
-      measured: refused || signedOut || measured });
+      measured: refused || measured });
   }
   return out;
 }

@@ -75,8 +75,7 @@ function recent(file, n = RECENT) {
 /* What a decision is, for "has it changed": the moves, the held accounts and the accounts at risk. Built from the
    decision or from its record line alike, so a restart does not record the same decision again. */
 function keyOf(d) {
-  /* Review 17: each list sorted, so the order entries arrive in (an account carried through a gap is appended) never
-     makes one decision look like two. */
+  /* Review 17: each list sorted, so the order entries arrive in never makes one decision look like two. */
   const sorted = (xs) => xs.map((x) => JSON.stringify(x)).sort();
   return JSON.stringify({ m: sorted(objects(d.moves).map((x) => [x.agent, x.from, x.to])), h: sorted(objects(d.held).map((x) => x.from)),
     r: sorted(objects(d.atRisk).map((x) => [x.from, x.kind])) });
@@ -99,7 +98,7 @@ function create({ file, nowMs = Date.now() }) {
    * deps: list() (accounts.list), readUsage(dir, nowMs), agentsOn(dir, isDefault), roster() (the board roster, or null
    * when it cannot be read), records() (every project), readCommitment(session), settingOn() (true only when the switch
    * reads on), labelOf(dir); optional sameLogin(rec, account) (rowsFromReadings'), isGuide/guideName (movableFor's).
-   * Resolves to { did: 'off' | 'nothing' | 'recorded' | 'cleared' | 'unreadable' }. state.writeFailed says the last write failed.
+   * Resolves to { did: 'off' | 'nothing' | 'recorded' | 'cleared' | 'gap' | 'unreadable' }. state.writeFailed says the last write failed.
    */
   async function tick(deps, nowMs = Date.now()) {
     if (deps.settingOn() !== true) return { did: 'off' };
@@ -117,19 +116,16 @@ function create({ file, nowMs = Date.now() }) {
         ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) }));
       decision = ab.decide({ rows, movable, nowMs });
     } catch (err) { return { did: 'unreadable', because: String((err && err.message) || err) }; }   // review 17: the board logs why
-    /* Review 14, 16: an account that was at risk and now cannot be read (no figure still fresh, no refused or signed-out
-       login) is a gap in the measuring, not the end of the risk. It keeps its entries from the last decision, so its
-       risk does not "end" in the record, while changes on every other account are still written. Its line says so. */
-    const last = state.last || { moves: [], held: [], atRisk: [] };
+    /* Review 14, 16, 18: WHEN IT CANNOT MEASURE, IT WRITES NOTHING. A tick is a gap, and records nothing, when an
+       account that was at risk at the last recorded decision cannot be read now (no figure still fresh, no refused
+       login), or when an account at risk now has an agent list that may be short (the walk failed or is incomplete).
+       Reviews 16 and 17 tried carrying the unmeasured account's last entries instead; that kept old reasons alive past
+       their reset and redrew them as new would-moves (review 18), so the simpler rule won. The cost, stated in the
+       plan: a real change elsewhere during a gap is recorded only once the gap ends. A missed line, never a false one. */
     const unmeasured = new Set(rows.filter((r) => r.measured === false).map((r) => r.dir));
-    const carried = [...new Set(last.atRisk.map((x) => x.from))].filter((dir) => unmeasured.has(dir));
-    if (carried.length) {
-      const away = (x) => !carried.includes(x.from);
-      decision = { ...decision,
-        moves: decision.moves.filter(away).concat(last.moves.filter((x) => carried.includes(x.from)).map((x) => ({ agent: x.agent, from: x.from, to: x.to, why: x.why }))),
-        held: decision.held.filter(away).concat(last.held.filter((x) => carried.includes(x.from)).map((x) => ({ from: x.from, why: x.why }))),
-        atRisk: decision.atRisk.filter(away).concat(last.atRisk.filter((x) => carried.includes(x.from)).map((x) => ({ from: x.from, why: x.why, kind: x.kind }))) };
-    }
+    const wasAtRisk = state.last ? state.last.atRisk.map((x) => x.from) : [];
+    if (wasAtRisk.some((dir) => unmeasured.has(dir))) return { did: 'gap', because: 'an account at risk could not be measured' };
+    if (decision.short.length) return { did: 'gap', because: 'an account at risk has an agent list that may be short' };
     const key = keyOf(decision);
     /* Review 17: the record already holds this decision, so there is nothing a failed write left unsaid. */
     if (key === state.lastKey) { state.writeFailed = false; return { did: 'nothing' }; }
@@ -139,7 +135,7 @@ function create({ file, nowMs = Date.now() }) {
     if (empty && state.lastKey === null) { state.lastKey = key; state.last = null; return { did: 'nothing' }; }
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;
-    const written = append(file, { kind: 'decision', at: nowMs, ...(carried.length ? { unmeasured: carried } : {}),
+    const written = append(file, { kind: 'decision', at: nowMs,
       moves: decision.moves.map((m) => ({ agent: m.agent, from: m.from, to: m.to, fromLabel: label(m.from), toLabel: label(m.to), why: m.why, kind: kindOf(m.from) })),
       held: decision.held.map((h) => ({ from: h.from, fromLabel: label(h.from), why: h.why })),
       atRisk: decision.atRisk.map((x) => ({ from: x.from, fromLabel: label(x.from), why: x.why, kind: x.kind })) });
