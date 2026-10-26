@@ -7909,7 +7909,7 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 /* Only a long code span (pjRoomPara marks it .mdc-long: a hash, a path, a file name) may break anywhere, in a column
    no narrower than 10ch; short names and flags size to their words and a table of them scrolls (#718). */
 #pj-room .mdtable .mdc-long { overflow-wrap: anywhere; }
-#pj-room .mdtable td:has(> .mdc-long) { min-width: 10ch; }
+#pj-room .mdtable td:has(.mdc-long) { min-width: 10ch; }   /* not only a direct child: a bolded hash too */
 .dm-b .mdc, .pj-msg-text .mdc, .msg-b .mdc, .tkdetail .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .85em; background: var(--k-sunk, rgba(20,22,26,.08)); padding: .05em .35em; border-radius: 5px; }
 .dm-b .mdcb, .pj-msg-text .mdcb, .msg-b .mdcb, .tkdetail .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;

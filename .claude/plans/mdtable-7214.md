@@ -56,3 +56,5 @@ table loose in .msg-bd, with no max-width and no scroll. Dumped from the real ro
     harness stubs document); Built rewritten.
   - render-richtext-room-2239: 98 checks. Each new rule red when removed: two tables stack, a rule at the end, the
     first blank line, the hash table not scrolling at 393.
+- Round 3 (.claude/plans/mdtable-7214-review3.md): 0 blockers, 0 warnings, 1 nit; converged. The floor now applies to
+  a cell holding a long code span at any depth (`td:has(.mdc-long)`), so a bolded hash gets its 10ch column too.
