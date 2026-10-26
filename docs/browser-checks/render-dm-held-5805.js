@@ -91,12 +91,14 @@ function readRow(page, words) {
     /* 1. A held row: why, until when, and the way through. */
     const held = await readRow(page, 'ship it tonight');
     console.log('  held row: ' + JSON.stringify(held));
-    chk(/^Held: April is out of usage until .+\. Kosmos sends it after the reset\.$/.test(held.pill || ''), 'the held row says it is held, until when, and that it goes after the reset', held.pill);
+    // kosmos#7208: plain words, no "Held:" (Josh read it as an error), and when it goes.
+    chk(/^April is out of usage until .+\. This delivers when April is back\.$/.test(held.pill || ''), 'the held row says April is out of usage, until when, and that it delivers when she is back', held.pill);
     chk(/ held/.test(' ' + (held.pillClass || '')) && !/ failed/.test(' ' + (held.pillClass || '')), 'as held, not as a failed delivery', held.pillClass);
     chk(held.button === 'Send now anyway' && held.buttonShown, 'Send now anyway is on the row, visible', JSON.stringify(held));
     chk(held.buttonAt === HELD_AT, 'the button carries this row\'s own at', held.buttonAt);
 
-    /* 2. A new message the board answers held: the box empties and the line under it says why. */
+    /* 2. A new message the board answers held: the box empties, and (kosmos#7208) the reason is said once, on the
+       row, not again under the box. */
     await page.evaluate((u) => {
       window.__sendAnswer = { delivery: { state: 'held', heldUntil: u, because: 'held: out of usage', at: new Date().toISOString() }, recorded: true, recordedBecause: null };
       const s = document.getElementById('d-say'); s.value = 'and the notes'; sendTalk('and the notes');
@@ -104,7 +106,7 @@ function readRow(page, words) {
     await page.waitForTimeout(400);
     const under = await page.evaluate(() => ({ line: document.getElementById('d-say-msg').textContent, box: document.getElementById('d-say').value }));
     console.log('  after a held send: ' + JSON.stringify(under));
-    chk(/^Held: April is out of usage until .+\. Kosmos sends it after the reset\. To send it now, use Send now anyway on the message\.$/.test(under.line), 'the line under the box says it is held and how to send it now', under.line);
+    chk(under.line.trim() === '', 'kosmos#7208: nothing under the box repeats the row', JSON.stringify(under.line));
     chk(under.box === '', 'the words are not put back in the box (the message is kept, a second send would be a copy)', JSON.stringify(under.box));
 
     /* 3. Send now anyway: the row's at is posted, and the row repaints as sent. */
@@ -114,7 +116,30 @@ function readRow(page, words) {
     chk(posted.length === 1 && posted[0].at === HELD_AT, 'Send now anyway posts that row\'s at, once', JSON.stringify(posted));
     const after = await readRow(page, 'ship it tonight');
     console.log('  after Send now anyway: ' + JSON.stringify(after));
-    chk(after.button === null && !/^Held/.test(after.pill || ''), 'the row then reads as sent, with no button', JSON.stringify(after));
+    chk(after.button === null && !/out of usage/.test(after.pill || ''), 'the row then reads as sent, with no button', JSON.stringify(after));
+
+    /* 4. kosmos#7208: each reason in its own words, the real one first. */
+    const wordsFor = async (delivery, card) => {
+      await page.evaluate(({ dl, c }) => {
+        window.__fx = Object.assign({}, window.__fx, { messages: [{ at: new Date(Date.now() - 30e3).toISOString(), text: 'the words row', delivery: dl }] });
+        CURRENT = Object.assign({ sessionName: 'april', name: 'April' }, c || {});
+      }, { dl: delivery, c: card });
+      await page.evaluate(() => paintTalk('april', 'April'));
+      await page.waitForTimeout(200);
+      return (await readRow(page, 'the words row')).pill || '';
+    };
+    const BOX = "Waiting to deliver: April's message box has unsent text in it. Yours goes through as soon as that is cleared.";
+    let w = await wordsFor({ state: 'held', heldFor: 'input' });
+    chk(w === BOX, 'held for the message box: says so, and that nothing is wrong', w);
+    w = await wordsFor({ state: 'held', heldFor: 'input' }, { state: 'rate_limited', limitUntil: UNTIL });
+    chk(/^April is out of usage until .+\. This delivers when April is back\.$/.test(w), 'held for the box but April is out of usage: the usage is the reason said', w);
+    w = await wordsFor({ state: 'held', heldFor: 'input' }, { running: false, state: 'stopped' });
+    chk(w === 'April is not running. This delivers when April is running again.', 'held for the box but April is stopped: says she is not running', w);
+    w = await wordsFor({ state: 'held', behind: true, behindFor: 'input' });
+    chk(w === 'Queued behind your earlier message to April.', 'a later message: queued behind the earlier one', w);
+    w = await wordsFor({ state: 'held', heldFor: 'signin' });
+    chk(w === 'April is signed out. This delivers once April is signed in again.', 'signed out: says so', w);
+    chk(!/Held:|input box/.test(BOX + w), 'CONTROL: none of the old words', w);
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

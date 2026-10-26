@@ -78252,7 +78252,7 @@ function dmHeldWords(name, d, a) {
   }
   if (stopped) return name + ' is not running. This delivers when ' + name + ' is running again.' + stuck;
   // #5948: its sign-in stopped working; there is no reset to name, only signing in again.
-  if (d.heldFor === 'signin') return name + ' is signed out. This delivers once ' + name + ' is signed in again.' + stuck;
+  if (d && d.heldFor === 'signin') return name + ' is signed out. This delivers once ' + name + ' is signed in again.' + stuck;
   // #6774: its message box holds text not yet sent; the minute sweep sends this once the box reads empty.
   return 'Waiting to deliver: ' + name + "'s message box has unsent text in it. Yours goes through as soon as that is cleared." + stuck;
 }
