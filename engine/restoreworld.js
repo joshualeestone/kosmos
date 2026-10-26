@@ -186,10 +186,19 @@ function renameRetrying(src, dst) {
    writes. What an agent start path checks before starting an agent in that world (git hooks and fsmonitor off).
    Fails closed: only a world folder or a mark that is certainly absent (ENOENT, ENOTDIR) reads as not Restored.
    A folder swapped for a link or a file, a mark of any kind, and any other error (EACCES, EMFILE, ELOOP) read as
-   Restored, so agents there start with hooks off (finish refuses a linked folder before it asks this). A world it
-   cannot place at all (no world, a relative base) cannot be vouched for either, so it reads as Restored too. */
+   Restored, so agents there start with hooks off. A world it cannot place at all (no world, a relative base, an
+   unsafe id) cannot be vouched for either, so it reads as Restored too. The default world is never one: prepare
+   cannot make it, and it has no folder of its own to hold a mark. */
 const certainlyAbsent = (e) => !!(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'));
+/* The opposite direction, for the two gates that move files into a world or offer agents from it: the mark is
+   CERTAINLY there, in a real world folder. Any doubt reads as no, so an ordinary world is never treated as restored. */
+function markCertainlyPresent(base, world) {
+  const dir = worldDirOf(base, world);
+  if (!dir || !realDir(dir)) return false;
+  try { return fs.lstatSync(path.join(dir, RESTORED_MARK)).isFile(); } catch { return false; }
+}
 function isRestoredWorld(base, world) {
+  if (world && world.id === worlds.DEFAULT_ID) return false;
   const dir = worldDirOf(base, world);
   if (!dir) return true;
   let st;
@@ -223,7 +232,7 @@ function finishRestoreWorld(opts = {}) {
   if (!opts.result || opts.result.ok !== true) return refuse('the restore did not succeed, so its files stay where it can continue');
   if (!onTheList(base, world.id)) return refuse('this is not a Kosmos on your list, so nothing is moved into it');
   // Only into a world prepare made: its mark is what tells every agent start path there to start git with hooks off.
-  if (!isRestoredWorld(base, world)) return refuse('this Kosmos was not made for a restore, so nothing is moved into it');
+  if (!markCertainlyPresent(base, world)) return refuse('this Kosmos was not made for a restore, so nothing is moved into it');
   const inner = opts.result.result;
   const notListed = inner && Number.isSafeInteger(inner.failedNotListed) && inner.failedNotListed > 0 ? inner.failedNotListed : 0;
   failedFiles = (inner && Array.isArray(inner.failed) ? inner.failed.length : 0) + notListed;
@@ -600,7 +609,7 @@ function listRestoredAgents(opts = {}) {
   const listable = worldDir && realDir(worldDir) && onTheList(opts.base, opts.world.id);
   if (!listable) return { agents: [], shared: [], more: false, because: 'this is not a Kosmos on your list, so nothing in it is offered' };
   // An ordinary world's own agents are not restored ones: only a world prepare made is listed.
-  if (!isRestoredWorld(opts.base, opts.world)) return { agents: [], shared: [], more: false, because: 'this Kosmos was not made for a restore, so nothing in it is offered' };
+  if (!markCertainlyPresent(opts.base, opts.world)) return { agents: [], shared: [], more: false, because: 'this Kosmos was not made for a restore, so nothing in it is offered' };
   const roots = worlds.envOverridesFor(opts.base, opts.world);
   const budget = { left: Number.isSafeInteger(opts.briefTotal) && opts.briefTotal >= 0 ? Math.min(opts.briefTotal, MAX_BRIEF_TOTAL) : MAX_BRIEF_TOTAL };
   const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;

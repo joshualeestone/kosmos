@@ -706,7 +706,25 @@ test('isRestoredWorld reads Restored for anything but a certainly absent mark', 
   fs.chmodSync(p.dir, 0o700);
   assert.equal(rw.isRestoredWorld(base, p.world), false, 'control: with the folder searchable again and no mark, not Restored');
   assert.equal(rw.isRestoredWorld(base, null), true, 'no world to place cannot be vouched for');
+  assert.equal(rw.isRestoredWorld(base, { id: 'default' }), false, 'the default world is never Restored: hooks stay on for a person who never restored anything');
   assert.equal(rw.isRestoredWorld('relative/base', p.world), true, 'nor can a world under a relative base');
+});
+
+test('finish and the listing need the mark certainly present: a mark that cannot be looked up reads as no', { skip: process.platform === 'win32' ? 'POSIX modes' : (process.getuid && process.getuid() === 0 ? 'root reads through modes' : false) }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  const mark = path.join(p.dir, 'restored-world.json');
+  fs.rmSync(mark);
+  fs.mkdirSync(mark);   // a mark that is not a file: Restored for the hooks, not certain for moving files
+  assert.equal(rw.isRestoredWorld(base, p.world), true, 'control: the hooks decision reads it as Restored');
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /not made for a restore/);
+  assert.match(rw.listRestoredAgents({ base, world: p.world, nameOk }).because || '', /not made for a restore/);
+  fs.rmdirSync(mark);
+  fs.writeFileSync(mark, '{}');
+  assert.equal(rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK }).ok, true, 'control: with the mark a file, finish goes ahead');
 });
 
 test('the listing offers nothing in a world prepare did not make', (t) => {

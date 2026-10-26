@@ -255,6 +255,13 @@ no profile record, and STARTS the agent: enable then bootstrap).
    plainFolder and readBrief differ on ino 0 (readBrief is the stricter); the held-back temp name is reused under the
    lock and swept.
 
+34. (default model) W: round 33's change read the default world (no folder of its own) as Restored, so every agent on
+   a computer that never restored anything would start with git hooks off; the default world now reads as not
+   Restored, tested. Nit taken: one predicate served two gates with opposite safe directions; the hooks decision keeps
+   isRestoredWorld (doubt reads Restored), while finish and the listing now need markCertainlyPresent (doubt reads
+   no, so an ordinary world is never treated as restored), tested with a mark that is a folder. Not taken: the three
+   EXCUSED entries share one text (the file's existing pattern for sibling exports).
+
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
 - On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that
