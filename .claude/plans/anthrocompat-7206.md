@@ -123,3 +123,22 @@ test removes its socket from where its server actually puts it. SLICE 1b ALSO OW
 set (engine/knownsecrets.js ACCOUNT_DIR) learning .kosmos-<vendor>- folders (Qwen's are missing from it too).
 Accepted: a vendor model list that answers 200 without the table's model reads NONE (the add is refused with a clear
 reason); the launch would fail on that model anyway, and a live run with a real key is still to be measured.
+
+## Slice 1b map (branch anthrocompat-7206b, from 1a's head f0932ade30)
+Mirror every Qwen ('alibaba') site with the vendor ('deepseek'), on the claude runner instead of codex:
+- engine/create.js (about 25 sites): runnerFor(provider) ('deepseek' -> 'claude'), jobProvider (a claude job on a
+  vendor home -> its vendor), agentProvider / the memo for claude agents too (0.023 ms per job read, measured),
+  providerLabel, the create path (provider accepted; a named account required; Windows refused; models from the
+  table; the profile records the account), the switch path (setProvider: onto and off a vendor account; "already runs
+  on"), the move between vendor accounts, accountConnectable (live check through anthropiccompat, never the Claude
+  sign-in), policyAllows, the model gate (the vendor's models only).
+- server.js (about 6): accountForAgent marks a claude agent on a vendor home with provider 'deepseek'; isKeyedRow;
+  the switch route; the roster's providerWord; GET /api/accounts lists and checks vendor rows (moved here from 1a).
+- web/index.html (about 31): ACCT_KEYED_ROUTE (deepseek -> 'compat' routes), acctProvider, switchKeyedWord, the
+  Add a provider menu (DeepSeek no longer "coming soon"; Mac only), the key-only connect form, the account row (no
+  Sign in again; Check now through /compat/check; delete through /compat), the create form and switch picker (the
+  vendor's models), PROVIDER_ORDER, providerOf, the agent-page provider word.
+- engine/knownsecrets.js: mask .kosmos-<vendor>- endpoint files by value for the setup guide.
+- engine/accountproblem.js: name the vendor and the key, never "Claude sign-in".
+- Tests per site; design shots for the connect row (light/dark, desktop/phone); a browser check for the row.
+GATE: 1b does not merge until the Claude Code premise is measured (asked of Splinter 14:2x).
