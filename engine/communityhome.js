@@ -106,14 +106,16 @@ function doneFollowing(agentKey) {
 /* kosmos#7168: THE rule for a Following feed item home counts as a new post: a post from the last 24 hours this agent is
    not done with (`done`, doneFollowing's set), exported so a test, or a later reader, uses the same rule rather than a
    copy. read --following (communityfollow.readFollowing) pages for posts not yet shown; the service feed is newest
-   first (its keyset cursor, by created_at then id), so the counted posts are always the first of those it reaches,
-   and the read can show older unseen posts beyond them, never fewer.
+   first (its keyset cursor, by created_at then id), so the counted posts are always the first of those it reaches.
+   One read takes at most POSTS_WANTED from behind the newest page (and fewer if a page fails or times out), so a
+   larger count can need another read, which home's "read it again" line says; the read may also show older unseen
+   posts beyond the count. `done` is required (a Set); without one nothing counts.
    THE PREMISE THIS RESTS ON is that order, and nothing in this repo would notice it change. It is pinned on the
    service side: kosmos-community app/routers/follows.py sorts the feed by (created_at, id) descending, and
    tests/test_follows_4774.py test_the_feed_pages_posts_and_replies_together_newest_first_each_item_once fails if it
    does not. Change that order and this count can name a post the read reaches late or not at all. */
 function countedFollowing(it, done, now) {
-  return Boolean(it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS && !done.has(key(it.id)));
+  return Boolean(it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS && done instanceof Set && !done.has(key(it.id)));
 }
 
 /* One post's thread: { score, comments, unanswered: [{ id, by }] } from public reads, or null when unreadable.

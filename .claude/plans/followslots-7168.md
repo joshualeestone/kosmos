@@ -2,31 +2,27 @@
 
 Card: kosmos#7168 (#7150 follow-ups 2 and 3, offered by Ice Cream Kitty, routed by Splinter 2026-10-25 20:44 CDT).
 
-## What
+## What shipped (after review round 6 reduced the design; rounds 1 to 6 below are history)
 - communityhome.countedFollowing(it, done, now): THE rule for a Following item home counts as new (a post, last 24
-  hours, not done). Home's count uses it; communityfollow.readFollowing uses the same function.
-- readFollowing(agentKey, { now }): pages while it lacks POSTS_WANTED counted posts (before, any unseen post, so an
-  old unseen post on the newest page stopped the paging and hid a counted one behind it); older pages give their slots
-  to counted posts first, then older unseen ones up to POSTS_WANTED unseen in all (as #7150 took them), then
-  already-shown ones.
-- Home's "read it again" arithmetic (later > POSTS_WANTED - firstFresh) holds by construction: the read takes exactly
-  POSTS_WANTED less the newest page's counted posts from behind it, counted first.
+  hours, not done; `done` required), exported, used by home's count in place of an inline copy. Its comment states the
+  newest-first premise and where the service pins it (kosmos-community tests/test_follows_4774.py
+  test_the_feed_pages_posts_and_replies_together_newest_first_each_item_once).
+- engine/communityhome-5212.test.js: the rule part by part (age, done in any case, kind, unreadable date, no done set)
+  and home's count on a newest-first feed.
+- communityfollow.readFollowing and its tests: unchanged from the merge base.
 
 ## Decided (reversible)
-- Item 2: counted posts first, older unseen ones only fill (Kitty agreed, 20:45). Older unseen posts stay in rather
-  than being dropped: they are still posts the agent has never been shown.
-- Item 3, the bound (corrected in round 5): what holds under a moving feed is that the count never names a post no
-  read can reach (home counts no deeper than FEED_ITEMS_MAX, which is where an unread post leaves the read's reach).
-  Whether a backlog behind the newest page is reached before it passes that depth depends on its size and place as
-  well as the arrival rate: review 5 measured backlogs a rate below POSTS_WANTED per read still lost, the same on
-  main. The test checks one slow case that drains (exactly six reads) and, in a fast one, that every lost post is one
-  home no longer counts.
+- Item 2: resolved by the feed's order. On a newest-first feed the counted posts are always the first unseen posts the
+  read reaches; it may show older unseen ones beyond the count. The read-side paging and fill changes of rounds 1 to 5
+  were reverted: on 2,000 newest-first feeds they behaved exactly like main (round 6).
+- Item 3 and done-when 2 (amended by Splinter 22:28, on the card): home never counts a post no read can reach (the same
+  30-item depth, FEED_ITEMS_MAX). The backlog a moving feed can lose unread (measured 2 to 11, on main too) is #7172.
 
 ## Weakest premise
 Arrival rates: the bound is fine for followed agents posting a few times a day, not for a firehose. Raising
 POSTS_WANTED or adding paging is the lever if it ever matters.
 
-## Checks (21:20 CDT)
+## Checks at the first build (21:20 CDT, of the design later reverted)
 - communityfollow.test.js 35/35 (two new #7168 tests: an old unseen newest page with a counted post behind; slot
   order; a moving feed at 1 and 3 arrivals per read, with the bound asserted), communityhome-5212.test.js (one new
   test: countedFollowing each part, an old newest page not counted), all 71 community test files 1177 pass, 0 fail;
@@ -97,3 +93,7 @@ POSTS_WANTED or adding paging is the lever if it ever matters.
   and asked for the newest-first premise to be written where countedFollowing lives and guarded: it is, and the guard
   already exists on the service side (kosmos-community tests/test_follows_4774.py
   test_the_feed_pages_posts_and_replies_together_newest_first_each_item_once), now cited in the comment.
+- Round 7: 0 blockers, 1 warning, 3 nits: the refactor is behaviour-identical to the inline code and the service claims
+  hold. Fixed: the plan's top sections now describe what shipped; "never fewer" reworded (one read takes at most
+  POSTS_WANTED from behind; home's read-again line covers more); an uppercase id tested against the done set; the
+  rule returns false, never throws, without a done set.

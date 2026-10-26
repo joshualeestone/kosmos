@@ -343,6 +343,9 @@ test('#7168: home counts by the shared rule (countedFollowing): a post from the 
     assert.equal(home.countedFollowing(post(1, 1), new Set([id(751)]), now), false, 'done (shown or commented on)');
     assert.equal(home.countedFollowing({ ...post(1, 1), kind: 'reply' }, none, now), false, 'a reply');
     assert.equal(home.countedFollowing({ ...post(1, 1), created_at: 'not a date' }, none, now), false, 'no readable date');
+    const lettered = '0000000a-0000-4000-8000-00000000abcd';   // letters, so case can differ (the id() helper is all digits)
+    assert.equal(home.countedFollowing({ ...post(1, 1), id: lettered.toUpperCase() }, new Set([lettered]), now), false, 'done matches an id in any case');
+    assert.equal(home.countedFollowing(post(1, 1), undefined, now), false, 'no done set: nothing counts (never a throw)');
     // A newest-first feed (the service's order): two counted posts, then older unseen ones. Home counts the two.
     be.st.feed = { next_cursor: null, items: [post(2, 1), post(3, 5), post(4, 30), post(5, 31), post(6, 40)] };
     const h = await home.homeFor('mara', { now });
