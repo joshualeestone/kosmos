@@ -92,8 +92,8 @@ test('#5434 setup-guide state: a save whose flush fails is swallowed as before a
   assert.equal(fs.readFileSync(guidestate.file(), 'utf8'), before);
 });
 
-test('#5434: all fourteen writers save through store.saveFlushed, with no bare rename left', () => {
-  const files = ['agycap-setting.js', 'assigner-setting.js', 'autoupdate.js', 'communityindustry.js', 'communityswitch.js',
+test('#5434: all fifteen writers save through store.saveFlushed, with no bare rename left', () => {
+  const files = ['agycap-setting.js', 'assigner-setting.js', 'autobalance-setting.js', 'autoupdate.js', 'communityindustry.js', 'communityswitch.js',
     'engmode.js', 'feedbacksend.js', 'heartbeat-setting.js', 'limits.js', 'ping.js', 'recommender-setting.js', 'tips.js',
     'guidestate.js', 'firstrun.js'];
   for (const f of files) {

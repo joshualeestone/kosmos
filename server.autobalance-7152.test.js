@@ -131,6 +131,9 @@ test('#7152 review 6: an idle agent the real board lists, on an account running 
   const spare = path.join(home, '.claude-spare');
   fs.mkdirSync(spare, { recursive: true });
   fs.writeFileSync(path.join(spare, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'other@example.test' } }));
+  /* Review 9: the spare account shares the default's memory (its projects link), so the route has a row it marks true. */
+  fs.mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
+  try { fs.symlinkSync(path.join(home, '.claude', 'projects'), path.join(spare, 'projects')); } catch { /* already linked by an earlier test */ }
   const weekly = (dir, usedPct) => fs.writeFileSync(path.join(dir, statusline.FILE),
     JSON.stringify({ usedPct, resetsAt: Math.floor((Date.now() + 40 * 3600e3) / 1000), at: Date.now() - 60e3, history: [] }));
   weekly(path.join(home, '.claude'), 95);
@@ -150,14 +153,16 @@ test('#7152 review 6: an idle agent the real board lists, on an account running 
   assert.equal(ab.unreadable, undefined, 'the decision failed through the real route');
   assert.deepEqual(ab.atRisk.map((x) => x.from), [path.join(home, '.claude')]);
   /* `held` is filled only when the account has MOVABLE agents and no target, so it proves the real roster card went
-     through movableFor (idle, commitments free, no open work) and decide. No target here: the sandbox's second
-     account shares no memory with the default (no projects link), which the bulk move also refuses. */
+     through movableFor (idle, commitments free, no open work) and decide. No target here: the spare account shares
+     memory, so the page's bulk move may offer it (bulkTargetable true), but nothing has checked its login yet
+     (unchecked), and an automatic move needs a positively signed-in one. */
   assert.deepEqual(ab.held.map((h) => h.from), [path.join(home, '.claude')],
     'an idle agent the real board lists was not found movable (moves ' + JSON.stringify(ab.moves) + ', held ' + JSON.stringify(ab.held) + ')');
   const spareRow = (idle.accounts || []).find((a) => a.dir === spare);
   assert.ok(spareRow && spareRow.weekly && spareRow.weekly.usedPct === 10, 'CONTROL: the spare account is measured at 10%');
-  assert.equal(spareRow.memoryShared, false, 'CONTROL: the spare account shares no memory here, which is why nothing may take them');
-  assert.equal(spareRow.bulkTargetable, false);
+  assert.equal(spareRow.memoryShared, true, 'CONTROL: the spare account shares the default\'s memory');
+  assert.equal(spareRow.bulkTargetable, true, 'the route did not mark a row the bulk move may take as true');
+  assert.equal(spareRow.connection.badge, 'unchecked', 'CONTROL: its login is unchecked, which is why the automatic move holds');
   const busy = (await read('working')).autobalance;
   assert.deepEqual(busy.held, [], 'CONTROL: a working agent is not found movable');
   assert.deepEqual(busy.moves, []);

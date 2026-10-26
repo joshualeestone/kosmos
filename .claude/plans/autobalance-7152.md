@@ -2,7 +2,8 @@
 
 ## Goal
 A pure decision that, given the Claude accounts and the agents on them, says which agents WOULD move and where, and
-a setting for it, so a person (and we) can read a day of decisions before slice 3 moves anything.
+a setting for it, so a person (and we) can read its current decision before slice 3 moves anything. (Review 9: it shows
+the current decision only; a day's record is slice 3's, below.)
 
 ## The rule (from the card, slice 2)
 - At risk: an account whose weekly usage is at or above 90% and does not reset within 6 h, or whose login has
@@ -27,7 +28,7 @@ the decision is logged once per change (a line in the board's log), which is the
 
 ## Pieces
 - engine/autobalance.js: decide({ rows, movable, nowMs }) -> { moves: [{ agent, from, to, why }], held: [{ from, why }],
-  short: [dir], atRisk: [{ from, why }] }. Pure: no fs, no clock beyond nowMs. bulkTargetable(row, nowMs) is the page's old row rule, moved;
+  short: [dir], atRisk: [{ from, why, kind }] }. Pure: no fs, no clock beyond nowMs. bulkTargetable(row, nowMs) is the page's old row rule, moved;
   markTargets puts it on every Claude row the route sends, and web/index.html's acctBulkTarget reads that field, so
   the page and the decision cannot disagree. movableFor composes the Assigner's three free tests.
 - Review 1: the switch and the account count are read before the decision, so a failure says "could not work out"
@@ -73,6 +74,11 @@ the decision is logged once per change (a line in the board's log), which is the
   "could not work out" only when it matters. For slice 3, stated so it is not assumed: a target's room is not counted
   across at-risk accounts (two at-risk accounts both name the same emptiest target, each with all its agents), so slice
   3 must pick the target again before each one-at-a-time move.
+- Review 9 (no new warning; its nits taken, then reviewed again): one bad entry in the projects file is skipped, as
+  the Assigner skips it, not a failed decision; a stopped login reads "cannot be used right now", not "running out"
+  (atRisk carries kind); the page keeps each read's decision to that read; the route test has a row it marks true (a
+  spare account that shares memory, held because its login is unchecked); 6108's "gone full" row is worked out by the
+  engine; the fsync guard lists the new setting writer.
 - engine/autobalance-setting.js: the assigner-setting pattern. Missing reads ON; a corrupt file reads off. Effective
   only with two or more eligible accounts; with one it does nothing and says nothing.
 - GET /api/accounts?agents=1: `autobalance: { on, ok, eligible, moves, held, short, atRisk, unreadable? }`; every Claude row also

@@ -48,6 +48,7 @@ const CASES = {
   badtwo: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], unreadable: true } },
   /* The shape the route sends for a setting file it could not read (review 5): off on the engine, ok false. */
   unset: { accounts: TWO, autobalance: { on: false, ok: false, eligible: 2, moves: [], held: [], short: [], atRisk: [] } },
+  loginrisk: { accounts: TWO, autobalance: { on: true, ok: true, eligible: 2, moves: [], held: [], short: [], atRisk: [{ from: '/home/.claude-full', why: 'its login has stopped working', kind: 'login' }] } },
   heldshort: { accounts: TWO, autobalance: { on: true, ok: true, eligible: 2, moves: [], held: [{ from: '/home/.claude-full', why: WHY }], short: ['/home/.claude-full'], atRisk: [{ from: '/home/.claude-full', why: WHY }] } },
   shortrisk: { accounts: TWO, autobalance: { on: true, ok: true, eligible: 2, moves: [], held: [], short: ['/home/.claude-full'], atRisk: [{ from: '/home/.claude-full', why: WHY }] } },
   busy: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [{ from: '/home/.claude-full', why: WHY }] } },
@@ -172,6 +173,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.bad && !r.bad.shown, tag + ' a failed decision with one account still hides the row', JSON.stringify(r.bad));
       say(r.badtwo && r.badtwo.shown && r.badtwo.lines[0] === 'Kosmos could not work out what it would move just now.', tag + ' an unreadable decision says so', JSON.stringify(r.badtwo && r.badtwo.lines));
       say(r.unset && r.unset.shown && r.unset.checked === null && r.unset.togHidden && r.unset.lines[0] === 'We could not read this setting just now.', tag + ' a setting file that could not be read shows unknown, not a confident Off', JSON.stringify(r.unset));
+      say(r.loginrisk && r.loginrisk.lines[0] === 'Work cannot be used right now, because its login has stopped working, but none of its agents is idle, so there is nothing to move yet.', tag + ' a stopped login is said as such, not as running out', JSON.stringify(r.loginrisk && r.loginrisk.lines));
       say(r.heldshort && r.heldshort.lines.length === 2 && r.heldshort.lines.filter((x) => x.indexOf(WHY) !== -1).length === 1 && r.heldshort.lines[1] === 'Kosmos could not read every agent on Work, so there may be more to move.', tag + ' held and short: the reason is said once', JSON.stringify(r.heldshort && r.heldshort.lines));
       say(r.shortrisk && r.shortrisk.lines.length === 1 && r.shortrisk.lines[0] === 'Work is running out, because ' + WHY + '. Kosmos could not read every agent on Work, so there may be more to move.', tag + ' a short list still says why the account is running out', JSON.stringify(r.shortrisk && r.shortrisk.lines));
       say(r.busy && r.busy.lines.length === 1 && r.busy.lines[0] === 'Work is running out, because ' + WHY + ', but none of its agents is idle, so there is nothing to move yet.', tag + ' an account running out with no idle agent is said, not silent', JSON.stringify(r.busy && r.busy.lines));

@@ -266,3 +266,19 @@ test('#7152 review 8: the movable test is built only when an at-risk account has
   once('a'); once('b');
   assert.equal(calls, 1, 'the movable test was built more than once');
 });
+
+test('#7152 review 9: one bad entry in the projects file is skipped, not a failed decision; the rest of the moved rule', () => {
+  const m = ab.movableFor({ cards: [{ sessionName: 'ada', isNamedOurs: true, state: 'idle' }], records: [null, { id: 'p1', tasks: [] }], readCommitment: () => ({ state: 'clear' }) });
+  assert.equal(m('ada'), true, 'a null project entry failed the movable test');
+  const tgt = (o) => row('/u/.claude-t', { connection: { state: 'connected' }, weekly: null, ...o });
+  assert.equal(ab.bulkTargetable(tgt({ weekly: { usedPct: 99.5, resetsAt: NOW + H } }), NOW), false, 'a week at 99.5% (shown as 100%) was offered');
+  assert.equal(ab.bulkTargetable(tgt({ weekly: { usedPct: 99.4, resetsAt: NOW + H } }), NOW), true, 'CONTROL: 99.4% shows as 99% and is offered');
+  assert.equal(ab.bulkTargetable(tgt({ memoryShared: false }), NOW), false, 'an account that shares no memory was offered');
+  assert.equal(ab.bulkTargetable(tgt({ apiKey: true }), NOW), false, 'an API key was offered');
+  assert.equal(ab.bulkTargetable(tgt({ provider: 'openai' }), NOW), false, 'another provider was offered');
+  assert.equal(ab.bulkTargetable(tgt({ offerable: false }), NOW), false, 'a row that says it is not offerable was offered');
+  assert.equal(ab.bulkTargetable(tgt(), NOW), true, 'CONTROL: the plain row is offered');
+  const stopped = ab.decide({ rows: [row('/u/.claude-a', { connection: { badge: 'signed_out' }, weekly: null }), row('/u/.claude-b')], movable: () => false, nowMs: NOW });
+  assert.equal(stopped.atRisk[0].kind, 'login', 'a stopped login was not told apart from usage');
+  assert.equal(ab.decide({ rows: [row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + 40 * H } }), row('/u/.claude-b')], movable: () => false, nowMs: NOW }).atRisk[0].kind, 'usage', 'CONTROL');
+});

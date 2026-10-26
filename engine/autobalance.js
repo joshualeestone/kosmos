@@ -110,7 +110,7 @@ function eligible(rows) {
  * The decision. `rows`: the Claude account rows (/api/accounts shape: dir, provider, email, organization,
  * memoryShared, offerable, apiKey, connection.badge, weekly, fiveHour, agentsHere.names and .complete).
  * `movable(session)`: whether that agent may move now. Returns { moves: [{ agent, from, to, why }], held: [{ from,
- * why }], short: [dir], atRisk: [{ from, why }] }: `held` names an at-risk account with movable agents but no target,
+ * why }], short: [dir], atRisk: [{ from, why, kind: 'usage' | 'login' }] }: `held` names an at-risk account with movable agents but no target,
  * so the page can say nothing could take them; `short` names an at-risk account whose list of agents may be incomplete
  * (review 1), so the page does not read "nothing to move" as the whole truth; `atRisk` names every account at risk,
  * so an at-risk account with no idle agent on it is said, not silent (review 3).
@@ -125,7 +125,7 @@ function decide({ rows, movable, nowMs }) {
   for (const from of all) {
     const why = riskOf(from, nowMs);
     if (!why) continue;
-    atRisk.push({ from: from.dir, why });
+    atRisk.push({ from: from.dir, why, kind: loginStopped(from) ? 'login' : 'usage' });   // review 9: the page words the two apart
     if (!from.agentsHere || from.agentsHere.complete !== true) short.push(from.dir);
     const names = from.agentsHere && Array.isArray(from.agentsHere.names) ? from.agentsHere.names : [];
     /* Review 2: an agent already being moved is not named again. */
@@ -166,7 +166,10 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
     let rec = null;
     try { rec = readCommitment(session); } catch { rec = null; }
     const all = typeof records === 'function' ? records() : records;
-    return assigner.commitmentsFree(rec) && !assigner.hasOpenWork(session, Array.isArray(all) ? all : []);
+    /* Review 9: the Assigner's own filter (assigner.js step), so one bad entry in the projects file is skipped rather
+       than failing the whole decision. */
+    const valid = (Array.isArray(all) ? all : []).filter((p) => p && typeof p.id === 'string');
+    return assigner.commitmentsFree(rec) && !assigner.hasOpenWork(session, valid);
   };
 }
 
