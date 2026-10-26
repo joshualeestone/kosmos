@@ -21,6 +21,9 @@ cli=$(cygpath -w "$here/kosmos-cli.js")
 # If cygpath cannot convert it, the path goes as typed, so the CLI's refusal names it.
 convert_next=
 past_options=
+# A reply --file value with a `..` in it is passed on unconverted: cygpath shortens `..` by text, so the board would
+# never see the `..` it refuses (review 12). Unconverted, /c/... has no drive, and the CLI refuses it.
+has_dotdot() { case $1 in ..|../*|*/..|*/../*) return 0 ;; esac; return 1; }
 flag=
 # Every verb either names its path flag here or sets past_options: an empty $flag below would match an empty
 # argument (review 11), so a verb added to this case must do one or the other.
@@ -30,14 +33,14 @@ for arg do
   if [ -n "$convert_next" ]; then
     convert_next=
     case $arg in
-      /*) conv=$(cygpath -w -- "$arg" 2>/dev/null) && [ -n "$conv" ] && arg=$conv ;;
+      /*) if [ "$flag" = --file ] && has_dotdot "$arg"; then :; else conv=$(cygpath -w -- "$arg" 2>/dev/null) && [ -n "$conv" ] && arg=$conv; fi ;;
       --) past_options=1 ;;   # no value given; the CLI refuses it, and nothing after it is converted
     esac
   elif [ -z "$past_options" ]; then
     case $arg in
       --) past_options=1 ;;
       "$flag") convert_next=1 ;;
-      "$flag"=/*) conv=$(cygpath -w -- "${arg#"$flag"=}" 2>/dev/null) && [ -n "$conv" ] && arg="$flag=$conv" ;;
+      "$flag"=/*) if [ "$flag" = --file ] && has_dotdot "${arg#"$flag"=}"; then :; else conv=$(cygpath -w -- "${arg#"$flag"=}" 2>/dev/null) && [ -n "$conv" ] && arg="$flag=$conv"; fi ;;
     esac
   fi
   set -- "$@" "$arg"
