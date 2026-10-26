@@ -180,3 +180,18 @@ DONE 15:4x (was open): the agent page treated a DeepSeek agent as
 Claude (server accountForAgent provider, page providerOf, RUNNER.deepseek and CURRENT.account), so switching it back to
 Claude from the page is disabled and the account picker lists Claude accounts (setAccount refuses them, safely).
 Accepted: the hidden test's ON controls prove the gate opens, not that the full vendor path works (the engine tests do).
+
+## Slice 1b review 3 (2026-10-26 15:4x): no blockers; two warnings, DECIDED, being fixed
+1. The env-var half of the switch is broken by design: AGENT_WORKFORCE_COMPAT_PROVIDERS=1 reaches the board but never an
+   agent's launchd job (the plist carries a fixed env), so create succeeds and launch-env then refuses every restart. My
+   supervisor and CLI tests hid it by setting the variable in the child's env. DECISION: the MARKER is the only on-state
+   (enabled() reads only `compat-providers-on` in the data folder; the variable is dropped). Tests write and remove the
+   marker in THEIR data root (in-process: store.ROOT; supervisor/CLI children: pass AGENT_WORKFORCE_DATA=<sandbox> and
+   write the marker there, never the real folder). Weakest premise: that an agent's launch resolves the same data folder
+   as the board (the plist does not pass AGENT_WORKFORCE_DATA, so a board on a non-default data root would disagree;
+   acceptable: the default data root is the only shipped one).
+2. The agent detail panel treats a DeepSeek agent as Claude for its model picker and account-move list (dead-end
+   controls; the engine refuses). Fix: treat account.provider === 'deepseek' like isQwen in paintDetailModel, add
+   'deepseek' to acctMoveWorld's keyedProvider, the runsOnWord map and the model-name display.
+Nits to take: import (worldstarts firstStartOfImport) refuses a vendor entry while off; the test message "the marker does
+not turn it on" is inverted; one sentence that the variable is gone and the marker only turns it on.
