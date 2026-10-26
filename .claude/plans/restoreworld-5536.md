@@ -246,6 +246,15 @@ no profile record, and STARTS the agent: enable then bootstrap).
    isRestoredWorld. Not taken: heldBack can be the cap plus its "(more not listed)" marker, by design, as kept is.
    Deferred as duplicate: ids that fold together (round 6, #7181).
 
+33. (sonnet) W: isRestoredWorld read a world it could not place (no world, a relative base) as not Restored, the
+   fail-open the doc says it avoids; now Restored, tested. W: prepare's createWorld and hideWorld hooks sit in the
+   production options; the contract now says 4c builds opts by hand, never forwarding a request's object (weakest
+   premise: that 4c reads the contract; a test-only setter, as restoresink has, would enforce it, rejected for now as
+   a wider change to six tests in a slice that wires nothing). Deferred as duplicate: the three-taker lock race (stated
+   at the code, round 26). Not issues, as the reviewer found: answer()'s dir is checked on every path above it today;
+   plainFolder and readBrief differ on ino 0 (readBrief is the stricter); the held-back temp name is reused under the
+   lock and swept.
+
 ## Residuals, stated
 - Three finishes of one world within the same instant can defeat the stale-lock put-back and overlap.
 - On a filesystem that reports no inode (FAT, exFAT), plainFolder decides by name alone: the identity check that
