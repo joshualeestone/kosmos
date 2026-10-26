@@ -141,8 +141,9 @@ function readRow(page, words) {
       const s = document.getElementById('d-say'); s.value = 'ship it'; sendTalk('ship it');
     }, UNTIL);
     await page.waitForTimeout(400);
-    const byYou = await page.evaluate(() => ({ line: document.getElementById('d-say-msg').textContent, shown: [...document.querySelectorAll('#d-dmthread .msg')].some((x) => /ship it/.test(x.textContent)) }));
-    chk(byYou.shown === false && byYou.line === 'Your message is kept to send later. Clear the search to see it.', 'a search that hides the person\'s own row says where it went', JSON.stringify(byYou));
+    // The line is the assertion: the stub does not add the sent row to the thread, so the row itself is not read here.
+    const byYou = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(byYou === 'Your message is kept to send later. Clear the search to see it.', 'a search that hides the person\'s own row says where it went', JSON.stringify(byYou));
     await page.evaluate(() => { TALK_QUERY = ''; document.getElementById('d-say-msg').textContent = ''; window.__fx = Object.assign({}, window.__fx, { messages: window.__fx.messages.filter((m) => m.text !== 'one more' && m.text !== 'send the invoice tonight' && m.text !== 'ship it') }); paintTalk('april', 'April'); });
     await page.waitForTimeout(300);
 

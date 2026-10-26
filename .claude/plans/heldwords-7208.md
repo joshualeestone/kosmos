@@ -76,3 +76,6 @@ again under the composer.
     case: a "you" search hides the row and the line is said; red with the old shape.
   - A lost connection with the message box also blocking says "... connected again and its message box is clear".
   - The em dash in review4 removed.
+- Round 6 (.claude/plans/heldwords-7208-review6.md): 0 blockers, 0 warnings, 1 nit; converged. The nit (the "you"
+  search case's row-hidden half read an older row) is fixed by dropping that half: the line under the box is the
+  assertion, and it is red with round 4's test shape.
