@@ -29,6 +29,20 @@ is a board-task setting that follows what the Mac boards do; asked on the card, 
 - Forward slashes: measured on the box, NODE_OPTIONS reads a backslash inside quotes as an escape, so
   `--require "C:\Users\..."` fails to load and `--require "C:/Users/..."` loads.
 
+## Measured: how many real schtasks calls (the card's premise)
+On the Windows box, 2026-10-26, with the guard on and `KOSMOS_SCHTASKS_BLOCK_LOG` set:
+- `node tools/windows-tests.js` (197 files): 1 call refused in the whole set, from this branch's own test (its probe named
+  schtasks on its own command line; fixed). Four sampled win32 files that drive scheduler code (agystatus, job-read,
+  launch-570, jobexists) stub their own calls: 0 refused.
+- `npm test` (tools/run-tests.sh) cannot run on Windows at all: line 845 passes every file on one node command line and
+  bash stops with "Argument list too long". Before that it refuses on its harness and suite probes, which exit 2 here
+  (KOSMOS_TESTS_IGNORE_HARNESS=1 and KOSMOS_TESTS_IGNORE_SUITE=1 pass them).
+- Plain `node --test` discovery over the repo hung after about 10 minutes (8 test processes idle for 50 minutes) and
+  was stopped. In that time it refused 2 calls, both from this branch's test.
+So "thousands of real calls" is not reproduced on current code. It describes runs before more of the scheduler code
+got seams. The guard stays: it costs nothing when nothing calls schtasks, and one test that does reach the live
+scheduler on this box could end the board's task. The Windows `npm test` limit is #7257, not fixed here.
+
 ## Rejected
 - Refusing to run without the guard: the runner can apply it itself, and a refusal only adds a step for the person.
 - Applying it on CI: the runner is throwaway, and windows.yml's KNOWN_RED list is measured against the real scheduler.
