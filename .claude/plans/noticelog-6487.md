@@ -28,3 +28,9 @@ Never the words, never the id's time; the agent's session name, control characte
   judges the id AS SENT (cut to 120 bytes; a cut id that still parses says the phone's ask finds no words); the doc no
   longer claims a missing ask always means the phone never reached the computer; a report:/reply:/post: id that does
   not parse answers `malformed-id`, not `unaskable`; no "for" with an empty session; the unused setLog seam is gone.
+- Round 2 (noticelog-6487-review2.md): 0 blockers, 1 warning, 5 nits. Fixed: the doc's "no ask" rule applies only to
+  a sent line that says the phone can ask; the sent line is written after the send (a throw logs nothing, tested with
+  a control); names go through logName (C0, C1, U+2028/9 blanked, 80 chars); the ask line no longer claims the phone
+  asked or says "a unknown"; a post ask is in the route test; the doc says <session>. KEPT: no route test for
+  borrowed-name (it needs a stranger's pane claiming a name, the 6487 route test's borrowedName case covers the 404;
+  the log branch is one ternary arm, read).

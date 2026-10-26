@@ -7805,10 +7805,11 @@ const server = http.createServer(async (req, res) => {
     try { noticeId = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { noticeId = null; }
     const { got, why } = require('./engine/phonenotice').explain(noticeId, { mask: guideMasked });   // #3769: rows kept before the write-side mask
     const borrowed = !!got && borrowedName(got.session);
-    /* kosmos#6487: say in the board's log what the phone was answered, so a plain notice explains itself. The id's kind
-       and the agent only, never the words. */
-    process.stderr.write('phonenotice: the phone asked about a ' + require('./engine/phonenotice').idKind(noticeId) + ' notice' +
-      (got ? ' for ' + String(got.session).replace(/[\x00-\x1f\x7f]/g, ' ') : '') + '; ' + (got && !borrowed ? 'answered its words' : 'answered nothing (' + (borrowed ? 'borrowed-name' : why) + '), so it shows plain') + '\n');
+    /* kosmos#6487: say in the board's log what was answered, so a plain notice explains itself. The id's kind and the
+       session only, never the words. Any caller of this gated route is logged, not only a phone. */
+    const pnotice = require('./engine/phonenotice');
+    process.stderr.write('phonenotice: asked for the words of a notice (' + pnotice.idKind(noticeId) + ')' +
+      (got ? ' for ' + pnotice.logName(got.session) : '') + '; ' + (got && !borrowed ? 'answered them' : 'answered nothing (' + (borrowed ? 'borrowed-name' : why) + '), so it shows plain') + '\n');
     if (!got || borrowed) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
     const roster = safeRoster();
     const card = ourCardByName(roster, got.session);   // as the thread readers find it: any spelling, tied only

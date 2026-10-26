@@ -127,9 +127,9 @@ test('the real send is the request the coordinator expects, under a self-hosted 
 test('#6487 a needs-you the phone cannot ask about says so in the log, with the id\'s kind only', async () => {
   const c = await coordinator(204);
   try {
-    const r = await runChild(`http://127.0.0.1:${c.port}`, { ...EVENT, id: 'crashloop:leo:2026-09-27T11:00:00Z', session: 'le\no' });
+    const r = await runChild(`http://127.0.0.1:${c.port}`, { ...EVENT, id: 'crashloop:leo:2026-09-27T11:00:00Z', session: 'le\no\u009b\u2028' + 'x'.repeat(100) });
     assert.equal(c.seen.length, 1);
-    assert.match(r.stderr, /phonenotify: sent needs_you \(crashloop\) for le o; the phone cannot ask for its words, so it shows plain\n/);
+    assert.match(r.stderr, /phonenotify: sent needs_you \(crashloop\) for le o  x{74}; the phone cannot ask for its words, so it shows plain\n/);
   } finally { c.srv.close(); }
 });
 

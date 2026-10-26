@@ -139,11 +139,13 @@ test('#6487 each ask writes one board-log line saying what the phone was answere
     assert.equal((await ask('report:' + kept.at + ':irma')).status, 200);
     assert.equal((await ask('report:2020-01-01T00:00:00.000Z:irma')).status, 404);
     assert.equal((await ask('crashloop:irma:2026-10-26T17:23:00.000Z')).status, 404);
+    assert.equal((await ask('post:m999999999')).status, 404);
   } finally { process.stderr.write = realWrite; }
   assert.deepEqual(lines, [
-    'phonenotice: the phone asked about a report notice for irma; answered its words\n',
-    'phonenotice: the phone asked about a report notice; answered nothing (no-report-words), so it shows plain\n',
-    'phonenotice: the phone asked about a crashloop notice; answered nothing (unaskable), so it shows plain\n',
+    'phonenotice: asked for the words of a notice (report) for irma; answered them\n',
+    'phonenotice: asked for the words of a notice (report); answered nothing (no-report-words), so it shows plain\n',
+    'phonenotice: asked for the words of a notice (crashloop); answered nothing (unaskable), so it shows plain\n',
+    'phonenotice: asked for the words of a notice (post); answered nothing (no-post), so it shows plain\n',
   ]);
   assert.ok(!lines.join('').includes('Logged words'), 'the words reached the log');
 });

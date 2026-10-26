@@ -532,16 +532,17 @@ function happened(event) {
     }
     const url = coordinatorUrl(NOTIFY_ROUTE);
     const body = JSON.stringify(payload(s.notifyId, event));
+    (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body);
     // kosmos#6487: a plain lock-screen notice is explained by this line and the phonenotice line after it. The id's
-    // kind and the agent only, never the words. The phone asks with the id AS SENT (cut to CAPS.id), so judge that one.
+    // kind and the session only, never the words. Written after the send, so a send that throws logs nothing. The
+    // phone asks with the id AS SENT (cut to CAPS.id), so judge that one.
     const notice = require('./phonenotice');
     const sentId = cap(event.id, CAPS.id);
     const can = notice.parseId(sentId) === null ? '; the phone cannot ask for its words, so it shows plain'
       : sentId !== event.id ? '; its id was cut to fit, so the phone\'s ask finds no words and it shows plain'
         : '; the phone can ask for its words';
-    const who = String(event.session || '').replace(/[\x00-\x1f\x7f]/g, ' ');
+    const who = notice.logName(event.session);
     process.stderr.write('phonenotify: sent ' + event.kind + ' (' + notice.idKind(event.id) + ')' + (who ? ' for ' + who : '') + can + '\n');
-    (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body);
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 

@@ -127,12 +127,12 @@ computer), the notification shows as in Sent today. Every other row of Sent toda
 ready) is not asked about and always shows as there. Android and the browser do not ask yet: they show Sent today's words.
 
 **Why a notice showed plain, from the board's log (kosmos#6487).** The sending computer's `logs/board.log` has one
-`phonenotify: sent <kind> (<id kind>) for <agent>` line per notification, saying whether the phone can ask for its
-words, and one `phonenotice: the phone asked about a <id kind> notice` line per ask, saying whether it answered words
-or why not (`unaskable`, `malformed-id`, `no-report-words`, `no-reply`, `no-post`, `mask-failed`, `borrowed-name`).
-A sent line with no ask after it, and no `could not reach Kosmos+` or `answered <status>` line beside it, means an
-iPhone with the extension never reached the computer (Android, the browser and older iPhone builds never ask).
-Neither line carries the words.
+`phonenotify: sent <kind> (<id kind>) for <session>` line per notification, saying whether the phone can ask for its
+words, and one `phonenotice: asked for the words of a notice (<id kind>)` line per ask, saying whether it answered
+them or why not (`unaskable`, `malformed-id`, `no-report-words`, `no-reply`, `no-post`, `mask-failed`,
+`borrowed-name`). A sent line ending `the phone can ask for its words` with no ask after it, and no
+`could not reach Kosmos+` or `answered <status>` line beside it, means an iPhone with the extension never reached the
+computer (Android, the browser and older iPhone builds never ask). Neither line carries the words.
 
 **A permission request puts the command on the lock screen.** When an agent stops to ask permission, its report's
 reason names the tool and the command (up to 200 characters of it), and that is the text an iPhone shows. The

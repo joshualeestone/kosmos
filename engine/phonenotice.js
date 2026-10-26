@@ -106,6 +106,12 @@ function idKind(id) {
   return m ? m[1] : 'unknown';
 }
 
+/** An agent's session name for one board-log line: C0 and C1 controls and the line and paragraph separators blanked
+ *  (a terminal tailing the log acts on them), at most 80 characters. */
+function logName(v) {
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').slice(0, 80);
+}
+
 /** kosmos#6487: wordsFor, and why it answered nothing: { got, why }. `why` is null when there are words, else
  *  'unaskable' (a kind this board never answers, such as crashloop:), 'malformed-id' (a report:, reply: or post: id
  *  that does not parse, such as one cut short), 'no-report-words' (no needs_you report with words
@@ -142,4 +148,4 @@ function wordsFor(id, deps = {}) {
   return explain(id, deps).got;
 }
 
-module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, idKind, shorten, reportNote, replyText, postWords, explain, wordsFor };
+module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, idKind, logName, shorten, reportNote, replyText, postWords, explain, wordsFor };
