@@ -2888,7 +2888,8 @@ function automoveRuns() {
 }
 
 /* kosmos#7152 slice 3: what the auto-balance sweep reads and does, built fresh for each tick (the agents walk and the
-   projects are read at most once per tick). A function, not inline in the sweep, so a test can drive a real tick
+   projects are read once for the decision; the re-check before a move reads the roster and the projects again,
+   on purpose). A function, not inline in the sweep, so a test can drive a real tick
    against the real board's wiring. */
 function automoveDeps() {
   const usagePoll = require('./engine/usagepoll');

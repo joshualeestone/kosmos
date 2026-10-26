@@ -12,15 +12,18 @@
  * idle reading is a moment), and idleness is read again from a NEW roster just before the move.
  *
  * 🛑 IT MOVES ONLY FOR USAGE. An account whose login has stopped is recorded (its would-move lines carry kind 'login', so
- * Settings can say they are not acted on) but never acted on, and an agent
- * whose first request on its new account is refused is NOT moved back: the target is held and the person is told
- * (review 4: both moves needed an idle card, and a refused agent's card reads auth_failed, so neither could have fired
- * where it was needed; the plan says what replaces them).
+ * Settings can say they are not acted on) but never acted on, and an agent whose first request on its new account is
+ * refused is NOT moved back: the target is held and the person is told (review 4: both moves needed an idle card, and a
+ * refused agent's card reads auth_failed, so neither could have fired where it was needed; the plan says what replaces
+ * them).
+ *
+ * 🛑 A PERSON'S MOVE WINS (review 6). An agent a person has moved off the account Kosmos put it on, or that Kosmos told
+ * the person to move back, is left alone for a day: Kosmos never undoes a person's choice on the next tick.
  *
  * THE RECORD: JSON lines in the board's data folder, newest last, at most KEEP_LINES. Agent names, account folders and
  * labels, and the decision's own reason (percentages and hours, or "its login has stopped working"): never an email,
- * and never the move's own sentence (it can name the account by its email). The holds and the watch on each moved agent
- * are rebuilt from it when the board starts, so a restart forgets neither.
+ * and never the move's own sentence (it can name the account by its email). The holds, the watch on each moved agent
+ * and the last decision are rebuilt from it when the board starts, so a restart forgets none of them.
  */
 
 const crypto = require('node:crypto');
@@ -31,10 +34,13 @@ const ab = require('./autobalance');
 const FILE = 'autobalance-record.jsonl';
 const KEEP_LINES = 500;
 const RECENT = 10;
-const WATCH_MS = 24 * 60 * 60 * 1000;       // a moved agent is watched for its first real call this long
-const FAILED_HOLD_MS = 24 * 60 * 60 * 1000; // a target where an automatic move did not work is not used again this long (review 4: a day)
-const REFUSED_HOLD_MS = 60 * 60 * 1000;     // review 1: an agent whose move was refused is passed over this long, so it cannot block the rest
-const CLOCK_SLACK_MS = 60 * 1000;           // review 4: a record line stamped further ahead than this is not trusted
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WATCH_MS = DAY_MS;          // a moved agent is watched for its first real call this long
+const FAILED_HOLD_MS = DAY_MS;    // a target where a move did not work, or was not seen to work in WATCH_MS, is not used again this long (review 4, 6)
+const PERSON_HOLD_MS = DAY_MS;    // review 6: an agent a person moved, or was told to move, is left alone this long
+const REFUSED_HOLD_MS = 60 * 60 * 1000;   // review 1: an agent whose move was refused is passed over this long, so it cannot block the rest
+const REFUSED_TIMES = 3;          // review 6: refused this many times in a day, it is passed over for the day
+const CLOCK_SLACK_MS = 60 * 1000; // review 4: a record line stamped further ahead than this is not trusted
 
 /* Moves are the operator's to switch on for now (the plan's call): without AGENT_WORKFORCE_AUTOMOVE=1 every tick
    records "would move" only. AGENT_WORKFORCE_AUTOMOVE_OFF=1 is the brake on the whole sweep. */
@@ -76,50 +82,74 @@ function append(file, entry) {
    login (review 5: never made, so said); a move that only started draws nothing (its ending line says how it went). */
 function recent(file, n = RECENT) {
   return readLines(file).filter((l) => (l.kind === 'decision' && Array.isArray(l.moves) && l.moves.some((m) => !l.live || (m && m.kind === 'login')))
-    || (l.kind === 'move' && l.outcome !== 'started') || l.kind === 'works' || l.kind === 'skipped')
+    || (l.kind === 'move' && l.outcome !== 'started') || l.kind === 'works' || l.kind === 'skipped' || l.kind === 'released')
     .slice(-n).reverse();
 }
 
-/* What a decision is, for "has it changed": the moves, the held accounts and the accounts at risk. */
+/* What a decision is, for "has it changed": the moves, the held accounts and the accounts at risk. Built from the
+   decision or from its record line alike (review 6: so a restart does not record the same decision again). */
 function keyOf(d) {
-  return JSON.stringify({ m: d.moves.map((x) => [x.agent, x.from, x.to]), h: d.held.map((x) => x.from), r: d.atRisk.map((x) => [x.from, x.kind]) });
+  const a = (x) => (Array.isArray(x) ? x : []);
+  return JSON.stringify({ m: a(d.moves).map((x) => [x.agent, x.from, x.to]), h: a(d.held).map((x) => x.from), r: a(d.atRisk).map((x) => [x.from, x.kind]) });
 }
 
 /**
  * One sweep's state: the last decision recorded, the agents movable on the last tick, the moves being watched, and the
- * targets and agents held after a failed or refused move. The last three are rebuilt from the record here (review 3:
- * a board restarts several times a day). A rebuilt watch still works: observed starts empty, and the first call it
- * sees after the restart is after the move. A move whose line says only that it STARTED (the board stopped before
- * the restart finished: review 4) is watched too, since the agent may well be on its new account.
+ * holds (targets after a failed move; agents after a refusal or a person's move). All but the movable set are rebuilt
+ * from the record here (review 3: a board restarts several times a day). A rebuilt watch still works: observed starts
+ * empty, and the first call it sees after the restart is after the move. A move whose line says only that it STARTED
+ * (the board stopped before the restart finished) gets an 'unknown' ending written here (review 6), so Settings says
+ * it, and is watched, since the agent may well be on its new account.
  */
 function create({ file, nowMs = Date.now() }) {
-  const state = { lastKey: null, lastMovable: new Set(), watching: [], failed: new Map(), refused: new Map() };
-  const watched = new Map();   // agent -> its watch, from its newest forward move, until a works line or a failed end closes it
+  const state = { lastKey: null, lastMovable: new Set(), watching: [], failed: new Map(), refused: new Map(), refusedCount: new Map(), personHold: new Map() };
+  const watched = new Map();   // agent -> its watch, from its newest forward move, until a works line closes it
+  const open = new Map();      // agent -> a 'started' line with no ending yet
   for (const l of readLines(file)) {
     if (!Number.isFinite(l.at) || l.at > nowMs + CLOCK_SLACK_MS) continue;   // review 4: a line from the future is not trusted
-    if (l.kind !== 'decision' && (typeof l.agent !== 'string' || !l.agent)) continue;   // review 5: a line that names no agent
-    if (l.kind === 'works' && l.works === 'no' && nowMs - l.at < FAILED_HOLD_MS) state.failed.set(l.to, l.at);
-    if (l.kind === 'move' && (l.outcome === 'refused' || l.outcome === 'unknown') && nowMs - l.at < REFUSED_HOLD_MS) state.refused.set(l.agent, l.at);
-    if (l.kind === 'move' && (l.outcome === 'started' || l.outcome === 'changed' || l.outcome === 'unknown')) {
-      const movedAt = Number.isFinite(l.startedAt) ? Math.min(l.startedAt, l.at) : l.at;   // review 5: never later than the line itself
-      if (nowMs - movedAt <= WATCH_MS) watched.set(l.agent, { agent: l.agent, from: l.from, to: l.to, fromLabel: l.fromLabel, toLabel: l.toLabel, movedAt });
-      else watched.delete(l.agent);
+    if (l.kind === 'decision') { state.lastKey = keyOf(l); continue; }
+    if (typeof l.agent !== 'string' || !l.agent) continue;   // review 5: a line that names no agent
+    const fresh = (ms) => nowMs - l.at < ms;
+    if (l.kind === 'works' && (l.works === 'no' || l.works === 'not-seen') && fresh(FAILED_HOLD_MS)) state.failed.set(l.to, l.at);
+    if (l.kind === 'works' && l.works === 'no' && fresh(PERSON_HOLD_MS)) state.personHold.set(l.agent, l.at);
+    if (l.kind === 'released' && fresh(PERSON_HOLD_MS)) state.personHold.set(l.agent, l.at);
+    if (l.kind === 'move' && (l.outcome === 'refused' || l.outcome === 'unknown') && fresh(DAY_MS)) {
+      state.refused.set(l.agent, l.at);
+      state.refusedCount.set(l.agent, (state.refusedCount.get(l.agent) || 0) + 1);
     }
-    if (l.kind === 'move' && (l.outcome === 'partial' || l.outcome === 'stopped' || l.outcome === 'refused')) watched.delete(l.agent);
-    if (l.kind === 'works') watched.delete(l.agent);
+    if (l.kind === 'move') {
+      const movedAt = Number.isFinite(l.startedAt) ? Math.min(l.startedAt, l.at) : l.at;   // review 5: never later than the line itself
+      if (l.outcome === 'started') open.set(l.agent, l); else open.delete(l.agent);
+      /* Review 6: a partial move (saved on the target, lands there at its next restart) is watched too. */
+      if ((l.outcome === 'started' || l.outcome === 'changed' || l.outcome === 'unknown' || l.outcome === 'partial') && nowMs - movedAt <= WATCH_MS) {
+        watched.set(l.agent, { agent: l.agent, from: l.from, to: l.to, fromLabel: l.fromLabel, toLabel: l.toLabel, movedAt });
+      } else watched.delete(l.agent);
+    }
+    if (l.kind === 'works' || l.kind === 'released') watched.delete(l.agent);
+  }
+  for (const l of open.values()) {
+    append(file, { kind: 'move', at: nowMs, agent: l.agent, from: l.from, to: l.to, fromLabel: l.fromLabel, toLabel: l.toLabel, why: l.why,
+      startedAt: l.startedAt, outcome: 'unknown', because: 'the board stopped before the move finished' });
   }
   state.watching = [...watched.values()];
 
+  const holdPerson = (agent, nowMs) => state.personHold.set(agent, nowMs);
+
   /* The works-again check: the first real call each moved agent makes after its move. A watch whose agent is no longer
-     on the account it was moved to (a person moved it) is dropped, so a later call is never blamed on that account
-     (review 4). On a refused first call the target is held, and the agent's conversation says what happened and what
-     to do: Kosmos does not move it back (see the header). */
+     on the account it was moved to (a person moved it) is closed with a 'released' line, and the agent is left alone for
+     a day (review 6), so a later call is never blamed on that account and the person's choice is not undone. On a
+     refused first call the target is held, and the agent's conversation says what happened and what to do: Kosmos does
+     not move it back (see the header), and does not move it again for a day either. */
   function check(deps, nowMs) {
     const still = [];
     for (const w of state.watching) {
       let here = null;
       try { here = deps.agentsOn(w.to, deps.isDefaultDir ? deps.isDefaultDir(w.to) : false); } catch { here = null; }
-      if (here && Array.isArray(here.names) && here.complete === true && !here.names.includes(w.agent)) continue;
+      if (here && Array.isArray(here.names) && here.complete === true && !here.names.includes(w.agent)) {
+        append(file, { kind: 'released', at: nowMs, agent: w.agent, from: w.from, to: w.to, fromLabel: w.fromLabel, toLabel: w.toLabel, because: 'it is no longer on the account Kosmos moved it to' });
+        holdPerson(w.agent, nowMs);
+        continue;
+      }
       let seen = null;
       try { seen = deps.lastSeen(w.agent); } catch { seen = null; }
       if (seen && Number.isFinite(seen.at) && seen.at > w.movedAt) {
@@ -127,6 +157,7 @@ function create({ file, nowMs = Date.now() }) {
         append(file, { kind: 'works', at: nowMs, agent: w.agent, from: w.from, to: w.to, fromLabel: w.fromLabel, toLabel: w.toLabel, works });
         if (works === 'no') {
           state.failed.set(w.to, nowMs);
+          holdPerson(w.agent, nowMs);
           try {
             deps.tell(w.agent, `Kosmos moved this agent to ${w.toLabel || 'another account'}, and its first request there was refused. `
               + `Move it back in Settings, AI Models, if it needs to work now. Kosmos will not move agents to ${w.toLabel || 'that account'} for a day.`);
@@ -135,7 +166,9 @@ function create({ file, nowMs = Date.now() }) {
         continue;
       }
       if (nowMs - w.movedAt > WATCH_MS) {
+        /* Review 6: not seen to work in a day is not proof that it works, so the target waits a day before the next one. */
         append(file, { kind: 'works', at: nowMs, agent: w.agent, from: w.from, to: w.to, fromLabel: w.fromLabel, toLabel: w.toLabel, works: 'not-seen' });
+        state.failed.set(w.to, nowMs);
         continue;
       }
       still.push(w);
@@ -143,34 +176,42 @@ function create({ file, nowMs = Date.now() }) {
     state.watching = still;
   }
 
+  const watch = (m, movedAt) => {
+    state.watching = state.watching.filter((w) => w.agent !== m.agent);   // review 4: one watch per agent
+    state.watching.push({ agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, movedAt });
+  };
+  const refuse = (agent, nowMs) => {
+    state.refused.set(agent, nowMs);
+    state.refusedCount.set(agent, (state.refusedCount.get(agent) || 0) + 1);
+  };
+
   /* One move through the board's account move. Resolves to the line that ends it, or null for a 409. */
   async function move(deps, nowMs, m) {
     const movedAt = Date.now();   // review 2: before the move, so a first call made as the restart finishes counts
+    const base = { kind: 'move', agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, why: m.why, startedAt: movedAt };
     let started;
     try { started = deps.startMove({ dir: m.to, names: [m.agent] }); }
     catch {
       /* Review 5: the account move writes the account before anything else can throw, so a throw is NOT a refusal: the
          agent may be on its new account. Recorded as unknown, held like a refused agent, and watched. */
-      const line = { kind: 'move', agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, why: m.why, startedAt: movedAt, at: nowMs, outcome: 'unknown' };
+      const line = { ...base, at: nowMs, outcome: 'unknown' };
       append(file, line);
-      state.refused.set(m.agent, nowMs);
-      state.watching = state.watching.filter((w) => w.agent !== m.agent);
-      state.watching.push({ agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, movedAt });
+      refuse(m.agent, nowMs);
+      watch(m, movedAt);
       return line;
     }
     /* Review 3: a 409 is the board saying no move may start now (one began since accountBusy() was asked, or the board
        is about to restart): nothing about this agent, so no hold and no line. */
     if (started && started.status === 409) return null;
     const first = started && started.body && Array.isArray(started.body.agents) ? started.body.agents[0] : null;
-    const base = { kind: 'move', agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, why: m.why, startedAt: movedAt };
     if (!started || started.status !== 202 || !first || first.outcome === 'refused') {
-      state.refused.set(m.agent, nowMs);
+      refuse(m.agent, nowMs);
       const line = { ...base, at: nowMs, outcome: 'refused' };
       append(file, line);
       return line;
     }
     /* Review 4: said BEFORE the restarts run, so a board that stops mid-move still knows, on its next start, that this
-       agent may be on its new account (create() watches it). */
+       agent may be on its new account (create() ends it as unknown and watches it). */
     append(file, { ...base, at: Date.now(), outcome: 'started' });
     try { await started.done; } catch { /* the move's record says how it went */ }
     let outcome = 'partial';
@@ -181,10 +222,10 @@ function create({ file, nowMs = Date.now() }) {
     } catch { outcome = 'partial'; }
     const line = { ...base, at: Date.now(), outcome };
     append(file, line);
+    /* Review 6: a partial move is saved on the target and lands there at its next restart, so it is watched (and the
+       target unproven) too; only the person is not told it moved, since it has not yet. */
+    if (outcome === 'changed' || outcome === 'partial') watch(m, movedAt);
     if (outcome === 'changed') {
-      /* Review 4: one watch per agent; a newer move replaces the older one. */
-      state.watching = state.watching.filter((w) => w.agent !== m.agent);
-      state.watching.push({ agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, movedAt });
       try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.why}.`); }
       catch { /* telling is best-effort; the record has it */ }
     }
@@ -199,11 +240,17 @@ function create({ file, nowMs = Date.now() }) {
    * startMove({ dir, names }) (accountmove.start with the board's deps), readMove(id), lastSeen(agent) ({ outcome, at }
    * or null), tell(agent, text), labelOf(dir); optional isGuide/guideName (movableFor's).
    * Resolves to what it did, for the log and tests: { did: 'off' | 'nothing' | 'recorded' | 'moved' | 'refused' |
-   * 'skipped' | 'unreadable', ... }.
+   * 'unknown' | 'skipped' | 'unreadable', ... }.
    */
   async function tick(deps, nowMs = Date.now()) {
     check(deps, nowMs);
     if (deps.settingOn() !== true) { state.lastMovable = new Set(); return { did: 'off' }; }
+    const live = deps.movesOn() === true;
+    /* Review 6: with moves on, a target the sweep holds (a failed move, or one moved there not yet seen to work) is left
+       out of the decision itself, so the next-best account is chosen rather than nothing. */
+    const heldTarget = (dir) => state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS;
+    const unproven = (dir) => state.watching.some((w) => w.to === dir);
+    const skipTarget = live ? (dir) => heldTarget(dir) || unproven(dir) : undefined;
     let decision;
     const movableArgs = (cards, records) => ({ cards, records: records || deps.records, readCommitment: deps.readCommitment,
       ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) });
@@ -217,13 +264,12 @@ function create({ file, nowMs = Date.now() }) {
       }
       const rows = ab.rowsFromReadings({ list, readUsage: deps.readUsage, agentsOn: deps.agentsOn, nowMs });
       const movable = ab.movableOnDemand(() => ab.movableFor(movableArgs(deps.roster())));
-      decision = ab.decide({ rows, movable, nowMs });
+      decision = ab.decide({ rows, movable, nowMs, skipTarget });
     } catch { state.lastMovable = new Set(); return { did: 'unreadable' }; }
     /* Review 1: the re-check reads the projects again too (the tick's own read is cached for the decision). */
     const recheck = () => ab.movableFor(movableArgs(deps.roster(), deps.freshRecords));
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;
-    const live = deps.movesOn() === true;
     const before = state.lastMovable;
     state.lastMovable = new Set(decision.moves.map((x) => `${x.agent}\n${x.from}`));
     const key = keyOf(decision);
@@ -240,14 +286,15 @@ function create({ file, nowMs = Date.now() }) {
     const quiet = { did: recorded ? 'recorded' : 'nothing' };
     if (!live) return quiet;
     if (deps.accountBusy() || deps.boardRestarting()) return { did: 'nothing', because: 'busy' };
-    const held = (dir) => state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS;
-    const passedOver = (agent) => state.refused.has(agent) && nowMs - state.refused.get(agent) < REFUSED_HOLD_MS;
-    /* Usage only (see the header): a move off an account whose login has stopped is recorded, never made. */
-    /* Review 5: no second agent onto a target while the first one moved there has not shown it can work (a watch still
-       open). An idle agent may take no turn for hours; without this, one per tick would follow it onto a target that
-       answers usage calls but refuses turns. */
-    const unproven = (dir) => state.watching.some((w) => w.to === dir);
-    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !held(x.to) && !unproven(x.to) && !passedOver(x.agent) && before.has(`${x.agent}\n${x.from}`));
+    const passedOver = (agent) => {
+      if (state.personHold.has(agent) && nowMs - state.personHold.get(agent) < PERSON_HOLD_MS) return true;   // review 6
+      if (!state.refused.has(agent)) return false;
+      const since = nowMs - state.refused.get(agent);
+      return (state.refusedCount.get(agent) || 0) >= REFUSED_TIMES ? since < DAY_MS : since < REFUSED_HOLD_MS;   // review 6: backs off
+    };
+    /* Usage only (see the header): a move off an account whose login has stopped is recorded, never made. The target
+       is already one the sweep does not hold (skipTarget above); the checks are kept here as well, as the last word. */
+    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !heldTarget(x.to) && !unproven(x.to) && !passedOver(x.agent) && before.has(`${x.agent}\n${x.from}`));
     if (!next) return quiet;
     const m = { ...next, fromLabel: label(next.from), toLabel: label(next.to) };
     /* Review 1: a roster that cannot be read now is not "no longer idle": nothing is moved and nothing recorded. */
@@ -261,10 +308,10 @@ function create({ file, nowMs = Date.now() }) {
     }
     const line = await move(deps, nowMs, m);
     if (!line) return { did: 'nothing', because: 'busy' };
-    return { did: line.outcome === 'refused' ? 'refused' : 'moved', agent: m.agent, outcome: line.outcome };
+    return { did: line.outcome === 'refused' ? 'refused' : line.outcome === 'unknown' ? 'unknown' : 'moved', agent: m.agent, outcome: line.outcome };
   }
 
   return { tick, check, state };
 }
 
-module.exports = { create, recent, append, readLines, movesOn, sweepOn, FILE, KEEP_LINES, RECENT, WATCH_MS, FAILED_HOLD_MS, REFUSED_HOLD_MS, CLOCK_SLACK_MS };
+module.exports = { create, recent, append, readLines, movesOn, sweepOn, FILE, KEEP_LINES, RECENT, WATCH_MS, FAILED_HOLD_MS, PERSON_HOLD_MS, REFUSED_HOLD_MS, REFUSED_TIMES, CLOCK_SLACK_MS };

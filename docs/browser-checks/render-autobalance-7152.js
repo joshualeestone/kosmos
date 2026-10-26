@@ -59,6 +59,9 @@ const CASES = {
   loginmove: { accounts: TWO, autobalance: { on: true, ok: true, eligible: 2, held: [], short: [], atRisk: [{ from: '/home/.claude-full', why: 'its login has stopped working', kind: 'login' }],
     moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: 'its login has stopped working' }] } },
   /* Slice 3: the record, as the route sends it (newest first). */
+  /* Review 6: the record still shows when the current decision cannot be worked out. */
+  badRecent: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], unreadable: true, recording: true, movesOn: true,
+    recent: [{ kind: 'skipped', at: now - 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare' }] } },
   notRecording: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: false, movesOn: false, recent: [] } },
   recentOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, movesOn: false, recent: [
     { kind: 'skipped', at: now - 5 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare' },
@@ -72,6 +75,7 @@ const CASES = {
     { kind: 'works', at: now - 4 * 60e3, agent: 's-a', to: '/home/.claude-spare', works: 'no' },
     { kind: 'move', at: now - 5 * 60e3, agent: 's-a', to: '/home/.claude-spare', outcome: 'refused' },
     { kind: 'works', at: now - 6 * 60e3, agent: 's-a', to: '/home/.claude-spare', works: 'not-seen' },
+    { kind: 'released', at: now - 6.5 * 60e3, agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-spare' },
     { kind: 'decision', at: now - 7 * 60e3, live: true, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }], held: [], atRisk: [] },
     { kind: 'decision', at: now - 8 * 60e3, live: true, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: 'its login has stopped working', kind: 'login' }], held: [], atRisk: [] },
     { kind: 'skipped', at: now - 3 * 24 * H, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare' }] } },
@@ -228,7 +232,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /^At 11:57\sAM, Kosmos saved Spare for Ada but could not start it again, so it stays on Work until it restarts\.$/,
         /^At 11:56\sAM, Ada\u2019s first request on Spare was refused\. Move it back here if it needs to work now; Kosmos will not move agents to Spare for a day\.$/,
         /^At 11:55\sAM, Kosmos tried to move Ada to Spare, and the move was refused\.$/,
-        /^At 11:54\sAM, Ada has not been seen working on Spare in the day since it moved\.$/,
+        /^At 11:54\sAM, Ada has not been seen working on Spare in the day since it moved, so Kosmos waits a day before moving another agent there\.$/,
+        /^At 11:53\sAM, <b>Bo<\/b> is no longer on Spare, so someone moved it; Kosmos leaves it where it is for a day\.$/,
         /^At 11:52\sAM, it would have moved Ada from Work to Spare, but its login had stopped, and Kosmos does not move agents off a stopped login itself\.$/,
         /^On [A-Z][a-z]{2} \d{1,2} at 12:00\sPM, Kosmos did not move Ada, because it was no longer idle\.$/,
       ];
@@ -236,6 +241,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.recentOn && !r.recentOn.recentMarkup, tag + ' a name with markup in the record is shown as text', '');
       say(r.loginmove && r.loginmove.lines[0] === 'Ada could move from Work to Spare, because its login has stopped working. Kosmos does not move agents off a stopped login itself.',
         tag + ' a would-move off a stopped login says it is never made', JSON.stringify(r.loginmove && r.loginmove.lines));
+      const br = r.badRecent;
+      say(br && br.lines[0] === 'Kosmos could not work out what it would move just now.' && br.recent.length === 3 && /no longer idle\.$/.test(br.recent[2]),
+        tag + ' an unreadable decision still shows the record', JSON.stringify(br && br.recent));
       const nr = r.notRecording && r.notRecording.recent;
       say(nr && nr.length === 1 && nr[0] === 'Kosmos does not check these accounts on a schedule on this computer, so it does not move agents or keep a record of what it would move.',
         tag + ' where the sweep does not run, it says so, and claims neither moves nor a record', JSON.stringify(nr));

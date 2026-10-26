@@ -35,7 +35,7 @@ its rows from the cheap reads instead:
 - movable: movableFor on the walk's roster.
 
 ## The rule changes, both from slice 2's round 11
-- The guide fails CLOSED: movableFor asks setup-assistant isGuideFolder itself, and a check that throws is "not
+- The guide fails CLOSED: movableFor asks setup-assistant isGuideFolderStrict and guideNameStrict itself, and a check that throws is "not
   movable". The walk's own guide test treats a throw as "not the guide", which is fine for a display line and wrong
   for a move.
 - A target whose five-hour usage is at or above 90% (a fresh reading) is not a target: agents sent there would stall
@@ -94,7 +94,8 @@ is not trusted.
 - The moved agent's conversation gets one Kosmos line (keepAgentReply, kosmos: true): which account to which and why.
 - GET /api/accounts?agents=1 adds autobalance.recording (the sweep's own gate: live execution, the usage reading on
   and allowed, no brake), autobalance.movesOn (recording and the move switch) and autobalance.recent (the last 10
-  entries the page draws, newest first; a decision made with moves on is not one of them);
+  entries the page draws, newest first; a decision made with moves on is one only for its moves off a stopped login,
+  which are never made and so are said);
   Settings shows them in their own box (#ab-recent) under the decision's lines, with one line saying moves are not
   switched on when they are not. Their own box so slice 2's lines, and its browser check's claims about them, are
   unchanged.
@@ -106,3 +107,16 @@ is not trusted.
 Codex (slice 4). Counting a target's room across several at-risk accounts (one move per tick makes it moot: the next
 tick reads the target's new figure... only after the next usage reading, stated: two moves in a row can land on one
 target before its figure moves).
+
+## Review 6
+- A PERSON'S MOVE WINS. When a moved agent is no longer on the account Kosmos put it on (a person moved it), the watch
+  ends with a 'released' line and the agent is left alone for a day (PERSON_HOLD_MS), rebuilt on restart; an agent
+  whose first request was refused (the person is told to move it back) is left alone for a day too. Before this, the
+  next tick saw an idle agent on an at-risk account and moved it straight back off.
+- With moves on, a held or unproven target is left out of the decision (decide's skipTarget), so the next-best account
+  takes the move rather than nothing. With moves off the record names the best account, as Settings does.
+- A partial move (saved; lands at the next restart) is watched and leaves its target unproven; a 'not-seen' close
+  holds the target a day. A started move with no ending found at startup gets an 'unknown' ending, so Settings says it.
+- An agent refused three times in a day is passed over for the day, not retried hourly.
+- The last decision is rebuilt from the record, so a restart does not write it again.
+- Settings shows the record even when the current decision could not be worked out.
