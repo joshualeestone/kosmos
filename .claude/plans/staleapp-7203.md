@@ -40,3 +40,11 @@ agent cannot create (no sudo).
 ## Not changed
 - The .pkg install (it installs /Applications as root, a separate path).
 - The alert's own wording; it was accurate for the board it described.
+
+## Review 4 (2026-10-26)
+No blockers or warnings. Done: own_icon_placed moved above the #5913 doc block so each comment heads its own
+function; two fail-closed arms pinned in the refusal test (a pre-release shared version, and this install's own
+version unreadable), the second proven red by removing its gate (19 pass, 1 fail).
+Reasoned, not measured: `plutil -extract ... raw` exists on every macOS this installer accepts (floor 13.5). Measured
+only on this Mac (it reads /Applications/Kosmos.app as 0.7.69). If it were missing, both reads come back empty and
+reuse is refused: an extra icon, never a wrong window.

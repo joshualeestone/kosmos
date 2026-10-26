@@ -95,8 +95,10 @@ it('#7203: another account\'s sealed icon OLDER than this install\'s app is not 
   const ask = (versions) => run(w, 'resolve_app_dir; echo "skip=$APP_SKIP_ICON reason=$APP_SKIP_REASON dir=$APP_DIR"', { other: w.shared, versions }).out;
   assert.match(ask({ shared: '0.7.69', ours: '0.7.69' }), /skip=yes reason=shared-sealed/, 'CONTROL: the same version is reused');
   assert.match(ask({ shared: '0.7.70', ours: '0.7.69' }), /skip=yes reason=shared-sealed/, 'CONTROL: a newer shared icon is reused');
-  for (const shared of ['0.7.61', '0.7.9', '', 'garbage']) {
-    const out = ask({ shared, ours: shared === '0.7.9' ? '0.7.10' : '0.7.63' });
+  // Review 4: a pre-release on the shared side, and THIS install's own version unreadable, are refused too.
+  const ourFor = { '0.7.9': '0.7.10', 'unreadable-ours': '' };
+  for (const shared of ['0.7.61', '0.7.9', '', 'garbage', '0.7.70-rc1', 'unreadable-ours']) {
+    const out = ask({ shared: shared === 'unreadable-ours' ? '0.7.69' : shared, ours: shared in ourFor ? ourFor[shared] : '0.7.63' });
     assert.doesNotMatch(out, /shared-sealed/, `an older or unreadable shared icon (${shared || 'none'}) was reused: ` + out);
     // And this account gets its own icon instead: placed (not skipped) in its home Applications, which setup opens.
     assert.match(out, /skip=no /, `no icon of its own was placed (${shared || 'none'}): ` + out);
