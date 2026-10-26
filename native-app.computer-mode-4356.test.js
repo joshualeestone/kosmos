@@ -74,7 +74,9 @@ test('#4356: only the board\'s own page, in the main frame, while the app is ask
     'another origin, Kosmos Plus included, could change this computer\'s mode');
   assert.match(SRC, /config\.userContentController\.add\(ModeMessageProxy\(delegate\), name: "kosmosMode"\)/);
   const chose = body('func pageChoseMode(_ body: Any)');
-  assert.match(chose, /computerMode == \.unset \|\| computerMode == \.unreadable/, 'a page can flip the mode at any time');
+  // kosmos#7205: the whole condition, anchored on the guard's else, so a widened third clause cannot pass as a prefix.
+  assert.match(chose, /computerMode == \.unset \|\| computerMode == \.unreadable \|\| \(modeAskedThisLaunch && computerMode != \.connect\)\n\s+else/,
+    'a page can flip the mode at any time');
   assert.match(chose, /guard writeComputerMode\(\.connect, kosmosHome: home\) else \{[\s\S]*?loadBoard\(\)\n\s+return\n\s+\}/,
     'a connect choice that could not be saved still switches, so the next launch starts the board again');
 });
@@ -270,4 +272,22 @@ test('#4356: the bundle build runs the mode selftest and fails on a wrong row or
   assert.match(BUILD, /--kosmos-app-mode-selftest/);
   assert.match(BUILD, /\*"mode-check: all good"\*\) ;;/);
   assert.match(SRC, /let expected = 205[^\n]*\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
+});
+
+test('kosmos#7205: a second answer is heard only in a launch that asked, and never after Connect', () => {
+  assert.match(body('private func switchToConnect(home: String)'), /modeAskedThisLaunch = false/,
+    'after Connect, then Run agents here, a board page could rewrite the mode for the rest of the launch');
+  const sets = [...SRC.matchAll(/(?<!var )modeAskedThisLaunch = /g)].length;   // the declaration is not a set
+  assert.equal(sets, 2, 'modeAskedThisLaunch is set only in readLaunchComputerMode and cleared in switchToConnect, found ' + sets);
+  assert.match(body('func readLaunchComputerMode'), /modeAskedThisLaunch = computerMode == \.unset \|\| computerMode == \.unreadable/);
+});
+
+test('kosmos#7205: a start after the choice that lands after Connect is stopped again, before the generation check', () => {
+  const ens = body('private func ensureBoardRunning(home: String)');
+  const late = ens.slice(ens.indexOf('if self.computerMode == .connect {'));
+  assert.notEqual(ens.indexOf('if self.computerMode == .connect {'), -1, 'Run, Back, Connect can leave a board running on a connect computer');
+  assert.match(late, /self\.boardStartInFlight = false\n\s+self\.boardStartGeneration \+= 1\n\s+self\.stopsInFlight \+= 1/);
+  assert.match(late, /_ = stopBoard\(kosmosHome: home, port: port\)\n\s+DispatchQueue\.main\.async \{ self\?\.stopsInFlight -= 1 \}/);
+  assert.ok(ens.indexOf('if self.computerMode == .connect {') < ens.indexOf('guard self.boardStartGeneration == generation'),
+    'the generation check drops a late start before it can be undone');
 });

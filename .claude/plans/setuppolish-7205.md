@@ -65,3 +65,8 @@ the board it started for Run, which is the path a first-time Connect already tak
   Fixed: setup-welcome-back-7205 stands in the Mac bridge (Back needs it now); frChoiceForget's catch comment;
   switchToConnect clears modeAskedThisLaunch so the doc line is exactly true; the plan's counts; the win32 trailer's
   reason restated correctly on the round-2 commit.
+- Round 3 (.claude/plans/setuppolish-7205-review3.md): 0 blockers, 1 warning, 1 nit. Fixed: native-app.computer-mode-4356
+  now pins the guard's whole condition, the switchToConnect clear (and that it is the only other set), and
+  ensureBoardRunning's late-start undo before the generation check; the reviewer's four mutations (M1 guard true, M2 no
+  clear, M3 no undo, M4 connect allowed) each fail it, the unmutated file passes. The Connect save-failure alert says
+  "it still runs agents on this computer" when run or both is already saved (Run, Back, Connect, a failed write).
