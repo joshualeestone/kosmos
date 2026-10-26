@@ -121,11 +121,12 @@ test('#5536 slice 4a review 1: template lines the member removed are listed', ()
   assert.equal(x.flagged, true, 'a removed rule is something to look at');
 });
 
-test('#5536 slice 4a review 2: line numbers are an editor\'s (a lone CR, U+2028 and U+2029 are each a break)', () => {
+test('#5536 slice 4a review 8: line numbers are Markdown\'s: LF, CR and CRLF break a line, U+2028 does not and is flagged', () => {
   const x = rv.reviewAgent({ name: 'Ada', files: [{ name: 'a.md', text: 'x\ry\nhttps://a.example' }] });
   assert.equal(x.flags.find((f) => f.kind === 'url').line, 3);
   const y = rv.reviewAgent({ name: 'Ada', files: [{ name: 'a.md', text: 'harmless\u2028https://a.example' }] });
-  assert.equal(y.flags.find((f) => f.kind === 'url').line, 2);
+  assert.equal(y.flags.find((f) => f.kind === 'url').line, 1);
+  assert.ok(y.flags.some((f) => f.kind === 'invisible'));
 });
 
 test('#5536 slice 4a: several files, one closest template, and bad input skipped by name, never a crash', () => {
@@ -278,10 +279,10 @@ test('#5536 slice 4a review 4: any shape that can hide template rules leaves the
   assert.deepEqual(feff.files[0].added, [k + 1]);
 });
 
-test('#5536 slice 4a review 4: added lines come back with their text, split as an editor splits them', () => {
-  const x = rv.reviewAgent({ name: 'Ada', files: [{ name: 'notes.md', text: 'first second\rthird' }] });
-  assert.deepEqual(x.files[0].added, [1, 2, 3]);
-  assert.deepEqual(x.files[0].addedText, ['first', 'second', 'third']);
+test('#5536 slice 4a review 4: added lines come back with their text, split where Markdown splits them', () => {
+  const x = rv.reviewAgent({ name: 'Ada', files: [{ name: 'notes.md', text: 'first\u2028second\rthird' }] });
+  assert.deepEqual(x.files[0].added, [1, 2]);
+  assert.deepEqual(x.files[0].addedText, ['first\u2028second', 'third']);
 });
 
 test('#5536 slice 4a review 4: many marker lines stay cheap', () => {

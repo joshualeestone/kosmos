@@ -43,7 +43,7 @@ const MAX_TESTED_CHARS = 1024 * 1024;   // characters run through the tests, joi
 
 /* Invisible code points (review 2): format characters (zero-width, bidi, the Unicode tag block), variation
    selectors, and the tag block itself. A line holding one is never a template line and is flagged. */
-const INVISIBLE_CLASS = String.raw`\p{Cf}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u034F\u115F\u1160\u2800\u3164\uFFA0`;   // review 3: blank fillers too
+const INVISIBLE_CLASS = String.raw`\p{Cf}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u034F\u115F\u1160\u2800\u3164\uFFA0\u2028\u2029`;   // review 3: blank fillers too
 const INVISIBLE_RE = new RegExp(`[${INVISIBLE_CLASS}]`, 'u');
 const INVISIBLE_ONE = new RegExp(`^[${INVISIBLE_CLASS}]$`, 'u');
 /* For the tests only: tag characters (U+E0020-E007E) are decoded to the ASCII they spell, so a hidden URL is still a
@@ -59,6 +59,8 @@ function canonicalMap(line) {
     const cp = ch.codePointAt(0);
     let out;
     if (cp >= 0xE0020 && cp <= 0xE007E) out = String.fromCharCode(cp - 0xE0000);
+    // A line or paragraph separator reads as a space (review 8: deleting it fused the words either side of it).
+    else if (cp === 0x2028 || cp === 0x2029) out = ' ';
     else if (INVISIBLE_ONE.test(ch)) out = '';
     else out = ch.normalize('NFKC');
     for (let k = 0; k < out.length; k += 1) map.push(i);
@@ -170,7 +172,9 @@ function defaultTemplates(name, plain) {
 }
 
 // Every line break an editor counts (review 2: VS Code and git count a lone CR; U+2028 and U+2029 too).
-const linesOf = (text) => String(text).split(/\r\n|\r|\n|\u2028|\u2029/);
+// Where Markdown ends a line: LF, CR or CRLF only (review 8: splitting on U+2028/2029 as an editor does let a fence
+// after one match the template while Markdown read it as part of the line before). U+2028/2029 are invisible instead.
+const linesOf = (text) => String(text).split(/\r\n|\r|\n/);
 // Compared as written, after NFKC and whitespace only: invisible characters are NOT stripped (review 2), so a line
 // with any is never equal to a template line.
 // Leading whitespace is kept (review 4: an indented block is code in Markdown, so an indent change must count), and
@@ -186,8 +190,9 @@ function closestTemplate(lines, templates) {
   const kept = [];
   templates.forEach((t) => {
     if (!t || typeof t.text !== 'string') return;
-    const theirs = linesOf(t.text).map(norm).filter(Boolean);
-    const ti = kept.push({ key: t.key, lines: theirs }) - 1;
+    const all = linesOf(t.text).map(norm);
+    const theirs = all.filter(Boolean);
+    const ti = kept.push({ key: t.key, lines: theirs, all }) - 1;
     for (const l of new Set(theirs)) { if (!index.has(l)) index.set(l, []); index.get(l).push(ti); }
   });
   const counts = new Uint32Array(kept.length);
@@ -213,9 +218,9 @@ const HIDE_RE = /[`\[\]]|~~~|-->|<[A-Za-z!?\/]/;
    reordered template, or a rule moved to another file, review clean). Returns which file lines (by index) are matched
    and which template lines are. Past MAX_DIFF_CELLS, nothing matches: every line is added (the safe direction). */
 function align(fileLines, tpl) {
-  const idx = [];
-  fileLines.forEach((l, i) => { if (l) idx.push(i); });
-  const a = idx.map((i) => fileLines[i]);
+  // Every line, blank ones too (review 8: a blank line regroups Markdown paragraphs and can break a code span).
+  const idx = fileLines.map((_, i) => i);
+  const a = fileLines;
   const n = a.length, m = tpl.length;
   const matchedFile = new Set(), matchedTpl = new Set();
   const pairs = [];
@@ -288,18 +293,20 @@ function reviewAgent({ name, files, templates } = {}) {
   for (const { f, k } of testOrder) outByIndex[k] = reviewFile(f);
   const out = outByIndex;
   function reviewFile(f) {
-    const al = f.instructions && closest ? align(f.normed, closest.lines) : { matchedFile: new Set(), matchedTpl: new Set(), pairs: [], diffed: false };
+    const al = f.instructions && closest ? align(f.normed, closest.all) : { matchedFile: new Set(), matchedTpl: new Set(), pairs: [], diffed: false };
     // After the first ADDED line with a hiding marker, every template line further down counts as removed (review
     // 4): it may no longer be read as an instruction, and telling which it is would need a Markdown parser that a
     // hostile file could again fall out of step with. Noisy for a member who added one (rare), never unsafe. A
     // template's own fence is a matched line, so it never starts this.
     if (f.instructions && al.pairs.length) {
-      let cut = f.raw.findIndex((l, i) => !al.matchedFile.has(i) && HIDE_RE.test(l));
+      // An added marker, or an added blank line (review 8), starts the cut.
+      let cut = f.raw.findIndex((l, i) => !al.matchedFile.has(i) && (HIDE_RE.test(l) || !f.normed[i]));
       if (cut < 0) cut = Infinity;
       // From the other side too (review 7): a REMOVED template line that is itself a marker (a template's own fence)
       // re-pairs every later one, so the cut starts where it was, the file position of the next matched pair after it.
-      for (let tj = 0; tj < closest.lines.length; tj += 1) {
-        if (al.matchedTpl.has(tj) || !HIDE_RE.test(closest.lines[tj])) continue;
+      for (let tj = 0; tj < closest.all.length; tj += 1) {
+        // A removed marker, or a removed blank line (review 8), re-groups what follows.
+        if (al.matchedTpl.has(tj) || !(HIDE_RE.test(closest.all[tj]) || !closest.all[tj])) continue;
         const nextPair = al.pairs.find(([, pj]) => pj > tj);
         cut = Math.min(cut, nextPair ? nextPair[0] - 0.5 : Infinity);
       }
@@ -341,7 +348,7 @@ function reviewAgent({ name, files, templates } = {}) {
       }
     });
     // Removed, per instruction file (review 2: a rule moved into a notes file is still gone from the instructions).
-    const removed = f.instructions && closest ? closest.lines.filter((_, j) => !al.matchedTpl.has(j)) : [];
+    const removed = f.instructions && closest ? closest.all.filter((l, j) => l && !al.matchedTpl.has(j)) : [];
     // The added lines' own text too (review 4), so a screen never re-splits the file its own way and numbers drift.
     const addedText = added.map((n) => f.raw[n - 1]);
     return { name: f.name, instructions: f.instructions, lines: f.raw.length, added, addedText, removed: removed.slice(0, MAX_REMOVED), removedNotListed: Math.max(0, removed.length - MAX_REMOVED), truncated: f.truncated };
