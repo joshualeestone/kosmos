@@ -908,9 +908,10 @@ const SCREENS = [
         body: JSON.stringify({ source: 'email digest', text: 'Email cleanup, 07:01 (mark-read only, nothing moved)\n- main inbox: 3 marked read\n- shop inbox: 0\n\nNothing needs you today.' }) });
     }, data.projectId);
     await SCREENS.find((s) => s.name === 'project-room').go(page, data);
-    /* To the end of the page, as a person reading the newest row is: the composer is sticky, so it covers rows only
-       while the page is scrolled part way (Mona Lisa's review asked which this was). */
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    /* To the end of the room, as a person reading the newest row is: its composer at the foot of the screen. The
+       composer is sticky, so it covers rows only while the room is scrolled part way (Mona Lisa's review asked
+       which this was). Not the end of the page: on a phone the members, files and tasks stack below the room. */
+    await page.evaluate(() => { const c = document.querySelector('.pjmid .composer'); if (c) c.scrollIntoView({ block: 'end' }); });
     await page.waitForTimeout(150);
   } },
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
