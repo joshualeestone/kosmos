@@ -45,12 +45,13 @@ FEED_PAGES_MAX (3), as an all-shown newest page already did. Each read is up to 
   zero lost; controls at 2 posts + 2 replies and at 6 posts a read: loss seen.
 - Direct test: two older pages, counted 1-5 and two older than 24 hours: the reads take [3,4,5], then [1,2,6], then
   [1,2,7]. Red with the deepest-first order removed, and red with home's DAY_MS not read.
-- The read uses home's exported DAY_MS, not a copy. When #7175 (communityhome.countedFollowing) merges, it uses that
-  function instead.
+- Rebased onto #7175 (03dfea5a5f): the read's "counted" IS communityhome.countedFollowing (24 hours, not done, a UUID
+  id), so home and the read share one rule. countedFollowing's comment now describes the read's deepest-first take.
+  Mutation: the read without home's rule turns the direct test red.
 - Not tested: a page failing while counted posts sit behind it. The read then takes the deepest of what arrived; the
   guarantee does not hold for that read (stated above), and the existing failed-page arm covers the failure path.
-- Posts with no id: one is kept behind the newest page and later ones are dropped (one inHand set across pages). They
-  cannot be marked shown either way.
+- Posts with no id are never de-duplicated against each other (inHand keys only real ids); they cannot be marked shown
+  either way.
 - Not measured: the service bucket's size. Reads whose newest page was all shown already made 3 requests; only reads
   with POSTS_WANTED or more unseen posts on the newest page go from 1 request to 3.
 - Mutations (both red with a loss): nearest-first counted posts; main's quota (POSTS_WANTED less the newest page's unseen).
