@@ -91,3 +91,42 @@ test('#7212: flush reports why each message it typed was held, so the board log 
   assert.match(limitqueue.deliveredLine(done[0]), /once its input box was empty/);
   assert.match(limitqueue.deliveredLine(done[1]), /after its usage reset/);
 });
+
+test('#7212 review: a held stretch is said once while it drains, and a new stretch is said again', () => {
+  const now = Date.parse('2026-10-26T12:00:00Z');
+  const at = (m) => new Date(now - m * MIN).toISOString();
+  for (const [id, m] of [['s1', 50], ['s2', 45], ['s3', 40]]) {
+    assert.ok(limitqueue.add('drainer', { id, from: 'x', envelope: 'e', at: at(m), reset: at(m), input: true }));
+  }
+  const said = new Set();
+  const say = () => limitqueue.heldInputToSay(now, limitqueue.HELD_INPUT_SAY_MS, said).filter((h) => h.name === 'drainer');
+  assert.equal(say().length, 1, 'CONTROL: a stretch held half an hour is said');
+  assert.equal(say().length, 0, 'said again the next minute');
+  // The oldest is delivered (or dropped at a day): the next oldest is also past half an hour. Still the same stretch.
+  assert.ok(limitqueue.remove('drainer', 's1'));
+  assert.equal(say().length, 0, 'delivering the oldest message said the stretch again');
+  assert.ok(limitqueue.remove('drainer', 's2'));
+  assert.equal(say().length, 0, 'dropping another said the stretch again');
+  // The stretch ends when nothing is held behind the box; a later hold is a new stretch and is said.
+  assert.ok(limitqueue.remove('drainer', 's3'));
+  assert.equal(say().length, 0);
+  assert.ok(!said.has('drainer'), 'an ended stretch was remembered');
+  assert.ok(limitqueue.add('drainer', { id: 's4', from: 'x', envelope: 'e', at: at(35), reset: at(35), input: true }));
+  assert.equal(say().length, 1, 'a new stretch was never said');
+});
+
+test('#7212 review: the stuck-input sweep says nothing when the box has emptied', async () => {
+  const lines = [];
+  const now = Date.parse('2026-10-26T12:00:00Z');
+  const since = new Date(now - 40 * MIN).toISOString();
+  const tick = stuckinput.makeTick({
+    allowed: () => true,
+    roster: () => [{ name: 'Ema', sessionName: 'ema', state: 'idle', runner: 'claude', unsentInput: { since } }],
+    recover: async () => ({ outcome: 'waiting', because: 'empty' }),
+    stuckMs: 10 * MIN,
+    log: (l) => lines.push(l),
+    now: () => now,
+  });
+  await tick();
+  assert.deepEqual(lines, [], 'an emptied box was reported as text still unsent');
+});
