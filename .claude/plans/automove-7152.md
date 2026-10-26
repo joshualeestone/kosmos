@@ -178,3 +178,11 @@ reads idle, and a restart kills the job.
   Settings, so the record says it only in its file. What would change it: such a refusal seen on a working account.
 - Stated, not changed: an agents walk failing for longer than GAP_TICKS writes a line with that account's agent list
   marked short and no moves; when the walk recovers, the earlier move is written again. Each line is true as written.
+
+## Review 22
+- Every written line names every account not measured when it was decided (`notMeasured`, outside the key), so a held
+  line made while a possible target was unmeasured says so instead of reading as "none could take them". Settings warns
+  while any account is not measured, named by a decision or not, worded "Kosmos could not check everything at its last
+  check" (it also covers a roster or agents walk that could not be read).
+- Stated: the route's lastTick and unmeasuredNow come from the sweep's state, which no route test can drive (the sweep
+  never ticks under a test); the engine test pins the state, and the browser check pins the page's use of them.

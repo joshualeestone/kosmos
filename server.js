@@ -13086,8 +13086,8 @@ const server = http.createServer(async (req, res) => {
           autobalance.lastTick = autobalanceSweepRun && typeof autobalanceSweepRun.state.lastDid === 'string' ? autobalanceSweepRun.state.lastDid : null;
           /* Review 21: whether the decision the record holds was made with some accounts unmeasured: once a gap has been
              written, ticks say "nothing" until it ends, so lastTick alone would go quiet while the gap lasts. */
-          autobalance.unmeasuredNow = !!(autobalanceSweepRun && autobalanceSweepRun.state.last && Array.isArray(autobalanceSweepRun.state.last.unmeasured)
-            && autobalanceSweepRun.state.last.unmeasured.length);
+          autobalance.unmeasuredNow = !!(autobalanceSweepRun && ((autobalanceSweepRun.state.last && Array.isArray(autobalanceSweepRun.state.last.unmeasured)
+            && autobalanceSweepRun.state.last.unmeasured.length) || (Array.isArray(autobalanceSweepRun.state.unmeasuredNow) && autobalanceSweepRun.state.unmeasuredNow.length)));   // review 22: any account, named or not
           autobalance.recent = [];
           if (setting.on === true) {   // review 13: the page shows the record only with the switch on, so read it only then
             try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }

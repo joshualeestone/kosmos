@@ -253,7 +253,7 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
       connection: { badge }, weekly: rec ? ms(rec.weekly) : null, fiveHour: rec ? ms(rec.fiveHour) : null, agentsHere: here,
       /* Review 14, 16, 18, 20: whether this reading can say the account's state: a figure that is still fresh, or a login
          that was refused. Review 20: never after a read that could not get at the credential (no-credential, no-token),
-         whatever figures slice 1 copied across from before it: one Keychain hiccup must not decide anything. A fresh record whose figures have aged out (slice 1 rewrites its time on
+         whatever figures slice 1 copied across from before it, so one Keychain hiccup on a named account is a gap. A fresh record whose figures have aged out (slice 1 rewrites its time on
          every poll, a failed one included) says nothing, so the sweep must not take it for the end of a risk. */
       measured: refused || (measured && !NO_CREDENTIAL.test(String(rec && rec.state))) });   // review 20
   }

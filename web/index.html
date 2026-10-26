@@ -28877,7 +28877,7 @@ function paintAutobalance(ab, list) {
       ? line('Kosmos is not keeping a record of what it would move on this computer.')   // review 10: what is known, not why
       : line('Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.')
         /* Review 20: said when the last check could not measure every account, so a quiet record is not read as calm. */
-        + (ab.lastTick === 'gap' || ab.lastTick === 'unreadable' || ab.unmeasuredNow === true ? line('Kosmos could not measure every account at its last check, so the record may be missing a change.') : '')   // review 21: and while a written gap lasts
+        + (ab.lastTick === 'gap' || ab.lastTick === 'unreadable' || ab.unmeasuredNow === true ? line('Kosmos could not check everything at its last check, so the record may be missing a change.') : '')   // review 21: and while a written gap lasts
         + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
   }
   if (lines) lines.innerHTML = html;
@@ -28901,7 +28901,7 @@ function abRecentHtml(recent, label, who, line) {
       const mv = esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel));
       const when = at(e.at);   // review 9: no time read from the entry, so the line starts with a capital
       out.push((when ? when + 'it' : 'It') + ' would have moved ' + mv + (m.why ? ', because ' + esc(m.why) : '') + '.'
-        + (Array.isArray(e.unmeasured) && e.unmeasured.length ? ' Some accounts could not be measured then.' : ''));   // review 20
+        + ((Array.isArray(e.unmeasured) && e.unmeasured.length) || (Array.isArray(e.notMeasured) && e.notMeasured.length) ? ' Some accounts could not be measured then.' : ''));   // review 20, 22
     }
   }
   return out.length ? '<p class="dhint" style="margin:12px 0 0;font-weight:600;">Lately</p>' + out.map(line).join('') : '';
