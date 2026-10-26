@@ -393,3 +393,26 @@ test('a site 422 about one agent does not hold the agents after it', async () =>
   assert.equal(agentNamed('ava').owner, null);
   assert.ok(agentNamed('bo').owner, 'linked although the agent before it got a 422');
 });
+
+test('Kosmos+ switched off during a mint: the pass is not sent', async () => {
+  R.on = false;
+  await registered('ava');
+  R.on = true;
+  R.mint = (body) => { R.on = false; return { ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } }; };
+  await cs.sweep();
+  assert.equal(R.mints.length, 1);
+  assert.equal(ownerCalls().length, 0, 'Kosmos+ off after the mint: nothing sent');
+});
+
+test("the agent's delete begins during the mint: the pass is not sent", async () => {
+  R.on = false;
+  await registered('ava');
+  R.on = true;
+  R.mint = (body) => {
+    writeRetireRequest('ava.json', JSON.stringify({ agent: 'ava', at: '2026-10-26T00:00:00Z', done: [], stuck: [] }));
+    return { ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } };
+  };
+  await cs.sweep();
+  assert.equal(R.mints.length, 1);
+  assert.equal(ownerCalls().length, 0, 'a name being retired is not linked, even if it began during the mint');
+});
