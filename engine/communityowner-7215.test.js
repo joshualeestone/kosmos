@@ -416,3 +416,17 @@ test("the agent's delete begins during the mint: the pass is not sent", async ()
   assert.equal(R.mints.length, 1);
   assert.equal(ownerCalls().length, 0, 'a name being retired is not linked, even if it began during the mint');
 });
+
+test('a pass-wide failure on one agent does not keep the agents after it from ever being reached', async () => {
+  R.on = false;
+  await registered('ava');
+  await registered('bo');
+  R.on = true;
+  be.st.mode.statusFor = { name: keyName('ava'), status: 500 };
+  cs._ownerLinkRetry(0);   // the pass-wide pause ends at once
+  await cs.sweep();
+  assert.equal(agentNamed('bo').owner, null, 'the first pass stopped on ava');
+  await cs.sweep();
+  assert.ok(agentNamed('bo').owner, 'the next pass starts after ava and reaches bo');
+  cs._ownerLinkRetry(15 * 60 * 1000);
+});
