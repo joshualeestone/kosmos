@@ -104,6 +104,24 @@ it('#7203: another account\'s sealed icon OLDER than this install\'s app is not 
   }
 });
 
+it('#7203: a refused reuse takes back THIS account\'s own reuse marker and leaves another account\'s alone', () => {
+  const w = world(); occupy(w);
+  // This account reused the icon on an earlier run (the real marker writer), and another account did too.
+  assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=0/, 'CONTROL: this account\'s marker was written');
+  const mine = path.join(w.users, ME);
+  const theirs = path.join(w.users, OTHER_UID);
+  fs.writeFileSync(theirs, 'another account\'s marker\n');
+  assert.ok(fs.existsSync(mine), 'CONTROL: this account\'s marker is there');
+  // CONTROL: still reused at the same version, so the marker stays.
+  run(w, 'resolve_app_dir', { other: w.shared, versions: { shared: '0.7.69', ours: '0.7.69' } });
+  assert.ok(fs.existsSync(mine), 'a reuse that still holds took back the marker');
+  // Refused (the shared icon is older): this account's marker goes, the other account's stays.
+  const out = run(w, 'resolve_app_dir; echo "skip=$APP_SKIP_ICON reason=$APP_SKIP_REASON"', { other: w.shared, versions: { shared: '0.7.61', ours: '0.7.63' } }).out;
+  assert.doesNotMatch(out, /shared-sealed/, 'CONTROL: the reuse was refused: ' + out);
+  assert.ok(!fs.existsSync(mine), 'this account\'s marker stayed after it stopped reusing the icon');
+  assert.equal(fs.readFileSync(theirs, 'utf8'), 'another account\'s marker\n', 'another account\'s marker was touched');
+});
+
 it('#7203: app_bundle_version reads the real bundle\'s version (the fixtures above stand it in)', () => {
   const w = world(); occupy(w);
   assert.equal(run(w, 'app_bundle_version "$SYS_APP_DIR/Kosmos.app"').out.trim(), '0.7.69');

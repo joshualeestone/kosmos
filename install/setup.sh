@@ -709,9 +709,10 @@ resolve_app_dir() {
       APP_SKIP_REASON=shared-sealed
       return 0
     fi
-    # #7203: not reused this time (an older shared icon, most often), so this account no longer depends on it: take
-    # back its own reuse marker, or the owner's uninstall keeps an icon nobody here opens. Only ever this account's own
-    # marker naming this install (sealed_icon_unmark), so a no-op for an account that never reused it.
+    # #7203: not reused this time (an older shared icon, a filled home slot, an icon this run cannot place, a stranger's
+    # app), so this account no longer depends on it: take back its own reuse marker, or the owner's uninstall keeps an
+    # icon nobody here opens. Only ever this account's own marker naming this install (sealed_icon_unmark), so a no-op
+    # for an account that never reused it.
     [ "$APP_OWN_SEALED" = no ] && { sealed_icon_unmark || true; }
     # ⚠️ THE DIVERT ITSELF NEEDS THE ALIASING GUARD. "Send the icon to the
     # per-user folder instead" is only an escape if the per-user folder is
