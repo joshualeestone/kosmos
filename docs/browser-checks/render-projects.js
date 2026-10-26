@@ -523,6 +523,9 @@ async function main() {
         outcomes: { [agents[0]]: 'placed', [agents[1]]: 'could_not' } },
       { kind: 'valve', from: agents[0], to: 'hendersonlease', project: 'hendersonlease',
         because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.', at },
+      /* kosmos#7189: a job's room notice (an email digest) keeps its lines; the band must draw them as lines. */
+      { kind: 'note', from: 'kosmos', to: 'hendersonlease', project: 'hendersonlease',
+        text: 'email digest (automated notice): Email cleanup\n- inbox one: 3 marked read\n- inbox two: 0', at },
     ];
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     for (const row of seeded) fs.appendFileSync(logFile, JSON.stringify(row) + '\n');
@@ -578,6 +581,19 @@ async function main() {
           escaped: msgs[0] ? msgs[0].querySelector('p').textContent : null,
           bold: Boolean(box.querySelector('.msg p b')),
           valve: (box.querySelector('.msg-valve') || {}).textContent || null,
+          /* kosmos#7189: the notice band, found by its words (the valve row shares .msg-valve): its breaks, and how many
+             distinct visual lines its text really occupies, measured from the rendered text, not the markup. */
+          notice: (() => {
+            const b = [...box.querySelectorAll('.msg-valve')].find((x) => /Email cleanup/.test(x.textContent || ''));
+            if (!b) return null;
+            const tops = new Set();
+            for (const n of b.childNodes) {
+              if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+              const r = document.createRange(); r.selectNodeContents(n);
+              for (const q of r.getClientRects()) tops.add(Math.round(q.top));
+            }
+            return { brs: b.querySelectorAll('br').length, lines: tops.size, text: b.textContent };
+          })(),
           visible: box.getBoundingClientRect().height > 0,
         };
       });
@@ -613,6 +629,10 @@ async function main() {
       }
       if (!seen.valve || !/asked everyone to bring you in/.test(seen.valve)) {
         throw new Error('the room valve row is missing or lost the ruled sentence: ' + JSON.stringify(seen.valve));
+      }
+      // kosmos#7189: three lines of notice, three visual lines (a flattened notice is one line, maybe wrapped to two).
+      if (!seen.notice || seen.notice.brs !== 2 || seen.notice.lines < 3) {
+        throw new Error('#7189: the room notice did not draw its lines as lines: ' + JSON.stringify(seen.notice));
       }
     });
     // Removed so every later state (could-not-tell, contrast, archive)
