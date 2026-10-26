@@ -93,7 +93,7 @@ it. Fix: collect every `w` into an array and test each. The check also only pain
 panel path, where finding 3 lives, has no browser coverage.
 
 ## [NIT] 7. A literal em dash in a committed plan file
-.claude/plans/heldwords-7208-review1.md:104 ("entities, — escape")
+.claude/plans/heldwords-7208-review1.md:104 ("entities, u2014 escape")
 
 Fix: write it as "the u2014 escape".
 

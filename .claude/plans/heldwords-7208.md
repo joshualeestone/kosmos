@@ -51,3 +51,15 @@ again under the composer.
   - Plan "Built" rewritten; the browser check's control tests every row; the em dash in review1 removed.
   - Evidence: unit cases per finding, incl. a session lookup over real fleet cards (two agents named Gemini, one named
     as another's session); render-dm-held-5805 15 passed.
+- Round 3 (.claude/plans/heldwords-7208-review3.md): 1 blocker, 2 warnings, 3 nits. All taken:
+  - BLOCKER: dmHeldAgent read CURRENT first, which is the card as it was when the chat was opened (the poll never
+    reassigns it). Now the poll's card (LAST) first, CURRENT only when the poll has none. Browser case: a stale idle
+    CURRENT with a polled rate_limited card says out of usage; with the old order it goes red.
+  - A held send is announced once in the quiet region (#d-reply-say), and while a search hides the row the line under
+    the box says "Your message is kept to send later. Clear the search to see it." Browser cases for both.
+  - A card that knows decides, as the server does (signinHeldVerdict, limitHeldVerdict): a sign-in or usage hold keeps
+    its words only when there is no card or it cannot say (no state, unknown, stale, a lost connection, error,
+    restarting, remembered). A stopped card on a sign-in hold says not running; a working one the neutral line.
+  - The "waiting on an answer" line is gone: a question on screen may or may not hold the sweep, so the neutral line
+    ("X is back. This goes through when Kosmos can type it.") is the true one.
+  - The em dash quoted in review2 removed.

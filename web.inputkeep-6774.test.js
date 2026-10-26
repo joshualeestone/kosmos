@@ -56,10 +56,16 @@ test('#6774: a row kept for the box says so, and one behind such messages says w
   // Review 1: restarting is not "not running"; signed out on the card wins over the box and over a scraped limit.
   assert.match(words('casey', { state: 'held', heldFor: 'input' }, { running: false, state: 'restarting' }), /^Waiting to deliver/);
   assert.equal(words('casey', { state: 'held', heldFor: 'input' }, { state: 'auth_failed' }), 'casey is signed out. This delivers once casey is signed in again.');
-  assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'rate_limited' }), 'casey is signed out. This delivers once casey is signed in again.');
+  // Review 3: the server keeps a sign-in hold only while the card reads signed out; a card out of usage is held for that.
+  assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'rate_limited' }), 'casey is out of usage. This delivers when casey is back.');
   // Review 2: "back" is the card's release state, as the server types on it: idle, and nothing failing.
   const ago = new Date(Date.now() - 60e3).toISOString(), ahead = new Date(Date.now() + 3600e3).toISOString();
-  assert.equal(words('casey', { state: 'held', heldUntil: ago }, { state: 'needs_you', running: true }), 'casey is waiting on an answer from you. This delivers once that is answered.');
+  // Review 3: a question on screen may or may not hold the sweep (a menu does, prose does not), so no promise either way.
+  assert.equal(words('casey', { state: 'held', heldUntil: ago }, { state: 'needs_you', running: true }), 'casey is back. This goes through when Kosmos can type it.');
+  // Review 3: a card that knows decides: a stopped card on a sign-in hold, a working card on a usage hold.
+  assert.equal(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'stopped', running: false }), 'casey is not running. This delivers when casey is running again.');
+  assert.equal(words('casey', { state: 'held', heldUntil: ahead }, { state: 'working', running: true }), 'casey is back. This goes through when Kosmos can type it.');
+  assert.match(words('casey', { state: 'held', heldFor: 'signin' }, { state: 'unknown' }), /^casey is signed out/, 'CONTROL: a card that cannot say leaves the sign-in hold its words');
   assert.equal(words('casey', { state: 'held', heldUntil: ago, stuck: { because: 'no window' } }, { state: 'idle', running: true }), 'casey is back. This goes through when Kosmos can type it. Kosmos tried to send it and could not: no window.');
   assert.match(words('casey', { state: 'held', heldUntil: ago }, { state: 'unknown', running: true }), /^casey is out of usage/, 'a card that does not know leaves the hold its words');
   assert.equal(words('casey', { state: 'held', heldUntil: ahead }, { state: 'idle', running: true }), 'casey is back. This goes through in a minute or so.', 'released on the card, whatever heldUntil says');
@@ -85,7 +91,9 @@ test('#6774: Send now anyway is not offered on a row kept for the box, and the l
   // Anchored on the code, not its comment (review 1): the held arm clears the box and says nothing under it.
   const heldArm = PAGE.slice(PAGE.indexOf("if (d.state === 'held' && inThread) {"));
   assert.notEqual(PAGE.indexOf("if (d.state === 'held' && inThread) {"), -1, 'CONTROL: the held arm of sendTalk was not found');
-  assert.match(heldArm.slice(0, 600), /clearSent\(\);\n\s+line = '';/, 'the held line under the box is not empty');
+  // Review 3: nothing under the box unless a search hides the row; the reason is announced once, in the quiet region.
+  assert.match(heldArm.slice(0, 900), /clearSent\(\);[\s\S]*?line = TALK_QUERY\.trim\(\) \? 'Your message is kept to send later\. Clear the search to see it\.' : '';/, 'the held line under the box is not empty');
+  assert.match(heldArm.slice(0, 900), /if \(!flightMoved\(\)\) dmReplyAnnounce\(dmHeldWords\(/, 'a held send tells a screen reader nothing');
   assert.doesNotMatch(PAGE, /line = dmHeldWords\(/, 'a held message is still repeated under the box');
 });
 
@@ -154,6 +162,10 @@ test('kosmos#7208 review 2: the held row reads its own agent\'s card, by session
   const find = (cur, session, name) => lift('dmHeldAgent', { CURRENT: cur, LAST: all })(null, name, session);
   assert.equal(find(null, 'gemini2', 'Gemini'), card('gemini2'), 'the panel for the second Gemini borrowed the first one\'s card');
   assert.equal(find(card('gemini'), 'gemini2', 'Gemini'), card('gemini2'), 'the open chat\'s card won over the session asked for');
+  // Review 3: the poll's card wins over CURRENT, which is the card as it was when the chat was opened.
+  const stale = Object.assign({}, card('gemini2'), { state: 'idle' });
+  assert.equal(find(stale, 'gemini2', 'Gemini'), card('gemini2'), 'the card frozen at open time won over the polled one');
+  assert.equal(lift('dmHeldAgent', { CURRENT: stale, LAST: [] })(null, 'Gemini', 'gemini2'), stale, 'CONTROL: with no polled card, the open one');
   assert.equal(find(null, 'raph2', 'raph'), card('raph2'), 'another agent\'s session name matched this one\'s display name');
   assert.equal(find(null, null, 'raph'), card('raph2'), 'with no session, the display name finds the card');
   assert.equal(find(null, null, 'Raph Old'), card('raph'), 'CONTROL: the other name finds the other card');

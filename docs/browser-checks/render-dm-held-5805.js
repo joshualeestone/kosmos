@@ -108,6 +108,21 @@ function readRow(page, words) {
     console.log('  after a held send: ' + JSON.stringify(under));
     chk(under.line.trim() === '', 'kosmos#7208: nothing under the box repeats the row', JSON.stringify(under.line));
     chk(under.box === '', 'the words are not put back in the box (the message is kept, a second send would be a copy)', JSON.stringify(under.box));
+    // Review 3: the row is not announced, so the quiet region says it once.
+    const heard = await page.evaluate(() => (document.getElementById('d-reply-say') || {}).textContent || '');
+    chk(/^April is out of usage until .+\. This delivers when April is back\.$/.test(heard), 'a screen reader hears why the message waits', heard);
+
+    /* 2b. Review 3: with a search the new row does not match, the row is out of sight, so one line says where it went. */
+    await page.evaluate((u) => {
+      TALK_QUERY = 'zzz-no-match';
+      window.__sendAnswer = { delivery: { state: 'held', heldUntil: u, because: 'held: out of usage', at: new Date().toISOString() }, recorded: true, recordedBecause: null };
+      const s = document.getElementById('d-say'); s.value = 'one more'; sendTalk('one more');
+    }, UNTIL);
+    await page.waitForTimeout(400);
+    const searching = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(searching === 'Your message is kept to send later. Clear the search to see it.', 'while searching, the line under the box says where the message went', searching);
+    await page.evaluate(() => { TALK_QUERY = ''; document.getElementById('d-say-msg').textContent = ''; window.__fx = Object.assign({}, window.__fx, { messages: window.__fx.messages.filter((m) => m.text !== 'one more') }); paintTalk('april', 'April'); });
+    await page.waitForTimeout(300);
 
     /* 3. Send now anyway: the row's at is posted, and the row repaints as sent. */
     await page.evaluate((at) => { window.__fx = Object.assign({}, window.__fx, { messages: window.__fx.messages.filter((m) => m.text !== 'and the notes') }); document.querySelector('.dm-held-send[data-held-at="' + at + '"]').click(); }, HELD_AT);
@@ -129,6 +144,19 @@ function readRow(page, words) {
       return (await readRow(page, 'the words row')).pill || '';
     };
     const BOX = "Waiting to deliver: April's message box has unsent text in it. Yours goes through as soon as that is cleared.";
+    /* 4a. Review 3: the poll's card, not the card as it was when the chat was opened. */
+    const stale = await page.evaluate(async () => {
+      CURRENT = { sessionName: 'april', name: 'April', state: 'idle', running: true };
+      LAST = [{ sessionName: 'april', name: 'April', state: 'rate_limited', limitUntil: new Date(Date.now() + 2 * 3600e3).toISOString() }];
+      window.__fx = Object.assign({}, window.__fx, { messages: [{ at: new Date(Date.now() - 30e3).toISOString(), text: 'the words row', delivery: { state: 'held', heldFor: 'input' } }] });
+      paintTalk('april', 'April');
+      await new Promise((r) => setTimeout(r, 200));
+      const row = [...document.querySelectorAll('#d-dmthread .msg')].find((x) => /the words row/.test(x.textContent));
+      const pill = row && row.querySelector('.delivery');
+      return pill ? pill.textContent : '';
+    });
+    chk(/^April is out of usage until .+ This delivers once April is back and its message box is clear\.$/.test(stale), 'the row reads the polled card (out of usage), not the one from when the chat opened (idle)', stale);
+    await page.evaluate(() => { LAST = []; });
     const seen = [];
     let w = await wordsFor({ state: 'held', heldFor: 'input' }); seen.push(w);
     chk(w === BOX, 'held for the message box: says so, and that nothing is wrong', w);
