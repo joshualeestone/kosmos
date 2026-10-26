@@ -18,7 +18,10 @@ Owner: Ice Cream Kitty. Josh, #admin 2026-10-26 08:32: "lets update per Kitty's 
 
 ## Weakest premise
 That a folder AI Models listed at the last notice recompute (at most five minutes ago) still holds. The page's own
-loaded list closes that window when it has one; otherwise a row removed in the last minutes could get a Sign in again.
+loaded list narrows that window when it has one (it does not close it: the list can be minutes old too), and the
+dialog's start request refuses a folder the board no longer knows (server.js /api/connect/start); otherwise a row
+removed in the last minutes could get a Sign in again. A signed-out folder (no account email) has no AI Models row,
+so the board names none and the notice lands on AI Models, where Add a provider signs in (review 7).
 The other direction fails safe: the page's list can be older than the board's (read once by a picker and not
 refreshed), so an account added since is missing from it, and Refresh login then opens AI Models instead of the
 dialog. Accepted: the person still lands where they can sign in.

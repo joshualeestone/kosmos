@@ -12,7 +12,7 @@
  *   D1  kosmos#7198: pressing it opens that account's Sign in again dialog over the board; Settings stays shut, and
  *       closing it leaves the board as it was
  *   D3  while the dialog is open, Refresh login can be reached neither by the pointer nor by the keyboard (inert)
- *   D4  closing gives focus back to the notice's button; one repainted away while the dialog was open gives it to a
+ *   D4  closing gives focus back to the notice's button; one removed from the page (repainted) while the dialog was open gives it to a
  *       Refresh login still showing; with no notice left, focus is never on a hidden element; the notices are no
  *       longer inert
  *   R1  the expiring row: warning edge, "Expires in 2 days." (#6520), badge

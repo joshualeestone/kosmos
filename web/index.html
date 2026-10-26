@@ -23918,7 +23918,8 @@ function loginAdvGo(dir, email, opener) {
      opens that account's Sign in again dialog right where the person is, on any page; the dialog is a window over the
      page, so the page underneath stays as it was and closing it leaves them there. The board names a folder only when
      AI Models lists it and its row reads the same login (status.js dirOf); if this page has read its own account list
-     and no longer has that row (removed since), and for a notice with no folder, AI Models instead, below. */
+     and no longer has that row (removed since), and for a notice with no folder (a signed-out folder has no row, so
+     the board names none), AI Models instead, below, where Add a provider signs in. */
   const listed = !(typeof ACCOUNTS_LOADED !== 'undefined' && ACCOUNTS_LOADED && Array.isArray(ACCOUNTS)) || ACCOUNTS.some((a) => a && a.dir === dir && !a.apiKey);
   if (typeof dir === 'string' && dir && listed && typeof openAcctReauth === 'function') {
     ACCT_ADD_RETURN_FOCUS = opener && typeof opener.focus === 'function' ? opener : null;
