@@ -27,11 +27,18 @@ const assert = require('node:assert/strict');
 const store = require('./store');
 const limitqueue = require('./limitqueue');
 const stuckinput = require('./stuckinput');
+const fleet = require('../test-support/fleet');
 const { assertSandboxedDataRoot } = require('../test-support/data-root-sandbox');
 
 assertSandboxedDataRoot(SANDBOX, [store.ROOT, limitqueue.dir()]);
 
 const MIN = 60 * 1000;
+/* fixture-discipline: real idle cards from test-support/fleet, never hand-built, with `extra` laid over each (the
+   stuck-input sweep's unsentInput). The board is restored when `fn` settles. */
+async function withCards(names, extra, fn) {
+  const board = fleet.install(names.map((n) => fleet.agent(n, { state: 'idle' })));
+  try { return await fn(board.agents.map((c) => ({ ...c, ...extra }))); } finally { board.restore(); }
+}
 
 test('#7212: a message held by the input box is logged as such, never as a usage reset', () => {
   const input = limitqueue.deliveredLine({ name: 'dario', id: 'm1', state: 'placed', why: limitqueue.heldWhy({ input: true }) });
@@ -58,10 +65,10 @@ test('#7212: the stuck-input sweep says once why it keeps waiting, after half an
   const lines = [];
   let since = new Date(Date.parse('2026-10-26T12:00:00Z') - 31 * MIN).toISOString();
   const now = Date.parse('2026-10-26T12:00:00Z');
-  const card = () => ({ name: 'Dario', sessionName: 'dario', state: 'idle', runner: 'claude', unsentInput: { since } });
+  await withCards(['dario'], {}, async (cards) => {
   const tick = stuckinput.makeTick({
     allowed: () => true,
-    roster: () => [card()],
+    roster: () => [{ ...cards[0], unsentInput: { since } }],
     recover: async () => ({ outcome: 'waiting', because: 'gate' }),
     stuckMs: 10 * MIN,
     log: (l) => lines.push(l),
@@ -75,6 +82,7 @@ test('#7212: the stuck-input sweep says once why it keeps waiting, after half an
   since = new Date(now - 20 * MIN).toISOString();
   await tick();
   assert.equal(lines.length, 1, 'a text stuck 20 minutes was reported as a long wait');
+  });
 });
 
 test('#7212: flush reports why each message it typed was held, so the board log line comes from the real path', async () => {
@@ -82,11 +90,10 @@ test('#7212: flush reports why each message it typed was held, so the board log 
   const now = new Date().toISOString();
   assert.ok(limitqueue.add('flushpat', { id: 'f1', from: 'x', envelope: 'e1', at: now, reset: now, input: true }));
   assert.ok(limitqueue.add('flushpat', { id: 'f2', from: 'x', envelope: 'e2', at: now, reset: now }));
-  const roster = [{ name: 'flushpat', sessionName: 'flushpat', state: 'idle' }];
-  const done = await limitqueue.flush(roster, {
+  const done = await withCards(['flushpat'], {}, (roster) => limitqueue.flush(roster, {
     deliver: async () => ({ state: chat.DELIVERY.PLACED }), isReleased: () => true,
-    resolveCard: (r, k) => r.find((c) => c.sessionName === k) || null, DELIVERY: chat.DELIVERY,
-  });
+    resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
+  }));
   assert.deepEqual(done.map((d) => [d.id, d.why]), [['f1', 'input'], ['f2', 'limit']]);
   assert.match(limitqueue.deliveredLine(done[0]), /once its input box was empty/);
   assert.match(limitqueue.deliveredLine(done[1]), /after its usage reset/);
@@ -119,15 +126,17 @@ test('#7212 review: the stuck-input sweep says nothing when the box has emptied'
   const lines = [];
   const now = Date.parse('2026-10-26T12:00:00Z');
   const since = new Date(now - 40 * MIN).toISOString();
+  await withCards(['ema'], { unsentInput: { since } }, async (roster) => {
   const tick = stuckinput.makeTick({
     allowed: () => true,
-    roster: () => [{ name: 'Ema', sessionName: 'ema', state: 'idle', runner: 'claude', unsentInput: { since } }],
+    roster: () => roster,
     recover: async () => ({ outcome: 'waiting', because: 'empty' }),
     stuckMs: 10 * MIN,
     log: (l) => lines.push(l),
     now: () => now,
   });
   await tick();
+  });
   assert.deepEqual(lines, [], 'an emptied box was reported as text still unsent');
 });
 
@@ -154,10 +163,11 @@ test('#7212 review 2: the board knows a flush is still typing, so the box is not
   let finish;
   const typed = new Promise((r) => { finish = r; });
   assert.equal(limitqueue.isFlushing(), false, 'CONTROL: nothing is typing yet');
-  const run = limitqueue.flush([{ name: 'slowpat', sessionName: 'slowpat', state: 'idle' }], {
+  const board = fleet.install([fleet.agent('slowpat', { state: 'idle' })]);
+  const run = limitqueue.flush(board.agents, {
     deliver: async () => { await typed; return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true,
-    resolveCard: (r, k) => r.find((c) => c.sessionName === k) || null, DELIVERY: chat.DELIVERY,
-  });
+    resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
+  }).finally(() => board.restore());
   assert.equal(limitqueue.isFlushing(), true, 'a run typing a message was not seen');
   assert.deepEqual(await limitqueue.flush([], {}), [], 'CONTROL: a second run skips while one is in flight');
   assert.equal(limitqueue.isFlushing(), true);
@@ -170,15 +180,17 @@ test('#7212 review 2: a thrown error is logged by its kind, never its message te
   const lines = [];
   const now = Date.parse('2026-10-26T12:00:00Z');
   const since = new Date(now - 40 * MIN).toISOString();
+  await withCards(['ira'], { unsentInput: { since } }, async (roster) => {
   const tick = stuckinput.makeTick({
     allowed: () => true,
-    roster: () => [{ name: 'Ira', sessionName: 'ira', state: 'idle', runner: 'claude', unsentInput: { since } }],
+    roster: () => roster,
     recover: async () => { throw new Error('secret words from the box'); },
     stuckMs: 10 * MIN,
     log: (l) => lines.push(l),
     now: () => now,
   });
   await tick();
+  });
   assert.equal(lines.length, 1);
   assert.match(lines[0], /still waiting \(failed\)/);
   assert.doesNotMatch(lines[0], /secret/);
