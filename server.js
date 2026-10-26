@@ -8051,9 +8051,17 @@ const server = http.createServer(async (req, res) => {
     let base;
     try { base = worldBase(); } catch (_e) { sendJson(res, 500, { because: 'the world registry is not readable on this machine' }); return; }
     const roster = safeRoster();   // null when the cards could not be read
-    /* #5977: a codex card on a Qwen home is Qwen (its job says so; codex cards only, one read each). */
+    /* #5977: a codex card on a Qwen home is Qwen (its job says so; codex cards only, one read each). #7206: a claude
+       card on a vendor account (DeepSeek) is that vendor, so its pause or failed sign-in is never counted under Claude. */
     const cards = Array.isArray(roster)
-      ? roster.map((c) => (c && c.runner === 'codex' && create.agentProvider(c.sessionName, 'codex') === 'alibaba' ? { ...c, providerWord: 'qwen' } : c))
+      ? roster.map((c) => {
+        if (c && c.runner === 'codex' && create.agentProvider(c.sessionName, 'codex') === 'alibaba') return { ...c, providerWord: 'qwen' };
+        if (c && c.runner === 'claude') {
+          const p = create.agentProvider(c.sessionName, 'claude');
+          if (require('./engine/anthropiccompat').vendorOf(p)) return { ...c, providerWord: p };
+        }
+        return c;
+      })
       : roster;
     try {
       const runningId = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
