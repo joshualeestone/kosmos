@@ -2820,9 +2820,14 @@ body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
 /* kosmos#7210: a project not on All says so beside its title, in the pause button's shape, so a quiet room does not
    look broken. Pressing it opens the project's settings, where the choice is made. */
 .linkish.pj-head-notify { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; flex: none; position: relative;
-                 height: 22px; padding: 0 8px; border-radius: 7px; font: 600 .75rem/1 var(--font-ui); color: var(--k-ink-2);
-                 border: 1px solid var(--k-rule); background: var(--k-surface); }
+                 /* Design review (Mona Lisa): a state, not an action, so no outline and the muted ink, unlike Pause beside it. */
+                 height: 22px; padding: 0 4px; border-radius: 7px; font: 600 .75rem/1 var(--font-ui); color: var(--k-ink-2);
+                 border: 0; background: none; }
 .linkish.pj-head-notify:hover { color: var(--k-ink); background: var(--k-sunk); }
+/* On a phone the title keeps its room: the bell alone, its words in the aria-label (design review). */
+@media (max-width: 40rem) { #pj-head-notify-t { display: none; } }
+/* The sound switch while the project is quiet: its saved value kept, dimmed and not pressable (design review). */
+#pjs-sound-toggle:disabled { opacity: .45; cursor: default; }
 .pjs-notify-seg { margin: 6px 0 0; }
 #pjs-notify-msg:empty { display: none; }
 /* On touch, the label takes the pause button's 36px-tall tap (an invisible ring) and the choice a full 44px row. */
@@ -17954,7 +17959,7 @@ window.kosmosMeasureScrollbarWidth();
       <div class="setrow" id="pjs-sound-row">
         <div><b>Play a sound when a new message lands</b>
           <p class="dhint" id="pjs-sound-hint" style="margin:2px 0 0;">A soft pop on this device when a new message arrives on this project, so you notice without watching. On by default; turn it off for a noisy project. Several at once make one sound, not a flurry.</p>
-          <p class="dhint" id="pjs-sound-off-note" style="margin:4px 0 0;" hidden>Quiet while this project is on Mentions only or Muted.</p></div>
+          <p class="dhint" id="pjs-sound-off-note" style="margin:4px 0 0;" hidden>Off while this project is on Mentions only or Muted. Your choice comes back on All.</p></div>
         <button class="toggle on" id="pjs-sound-toggle" role="switch" aria-checked="true" aria-label="Play a sound when a new message lands on this project"><i></i></button>
       </div>
     </div>
@@ -71626,7 +71631,7 @@ document.getElementById('pjs-sound-toggle').addEventListener('click', () => {
 /* kosmos#7210: the project's notification level. The words under the choice say what it does, so nobody has to guess
    what "Mentions only" keeps. */
 const PJ_NOTIFY_HINT = {
-  all: 'Everything from this project: its new-message sound, and phone notifications as you set them in Settings.',
+  all: 'Everything from this project: phone notifications as you set them in Settings, and the new-message sound if it is on.',
   mentions: 'Only what is addressed to you: an agent that needs you, a post that names you, and work waiting for your check. No new-message sound.',
   muted: 'Nothing from this project: no sound and no phone notifications. Its unread count still shows, so nothing is lost.',
 };
@@ -71640,9 +71645,16 @@ function pjNotifyPaint(level) {
     b.tabIndex = on ? 0 : -1;
   }
   document.getElementById('pjs-notify-hint').textContent = PJ_NOTIFY_HINT[level] || PJ_NOTIFY_HINT.all;
-  // Review 2: the sound switch below stays as the person set it on this device, but says it is quiet for now.
+  /* Review 2 and design review: the sound switch keeps the person's saved choice on this device, but while the project
+     is not on All it is dimmed and cannot be pressed, and the line under it says why, so nobody turns it on and wonders
+     why nothing plays. */
   const off = document.getElementById('pjs-sound-off-note');
   if (off) off.hidden = level === 'all';
+  const sound = document.getElementById('pjs-sound-toggle');
+  if (sound) {
+    sound.disabled = level !== 'all';
+    if (level === 'all') sound.removeAttribute('aria-describedby'); else sound.setAttribute('aria-describedby', 'pjs-sound-off-note');
+  }
 }
 function pjHeadNotifyPaint(p) {
   const b = document.getElementById('pj-head-notify');
@@ -71650,7 +71662,7 @@ function pjHeadNotifyPaint(p) {
   const level = pjNotifyLevel(p);
   b.hidden = level === 'all';
   document.getElementById('pj-head-notify-t').textContent = PJ_NOTIFY_HEAD[level] || '';
-  b.setAttribute('aria-label', level === 'all' ? '' : 'Notifications: ' + PJ_NOTIFY_HEAD[level] + '. Change in project settings');
+  b.setAttribute('aria-label', level === 'all' ? '' : PJ_NOTIFY_HEAD[level] + ': change this project\'s notifications');
 }
 /* Saved as it is chosen. Each choice counts itself, so an earlier answer arriving late never repaints over a later
    choice; a refusal puts back what the board holds and says why, under the choice. */
