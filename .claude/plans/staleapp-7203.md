@@ -48,3 +48,11 @@ version unreadable), the second proven red by removing its gate (19 pass, 1 fail
 Reasoned, not measured: `plutil -extract ... raw` exists on every macOS this installer accepts (floor 13.5). Measured
 only on this Mac (it reads /Applications/Kosmos.app as 0.7.69). If it were missing, both reads come back empty and
 reuse is refused: an extra icon, never a wrong window.
+
+## Review 5 (2026-10-26): converged, nits only, both accepted
+- The version whitelist `[0-9.]` lets `.` or `1..2` through as all-zero fields. Accepted: the value comes only from a
+  signed bundle's CFBundleShortVersionString, which never has that shape; a stricter pattern would be a new review
+  round for no reachable case.
+- Recorded trade: a Mac with two accounts gets a second sealed icon in the second account's ~/Applications whenever that
+  account installs a release newer than the shared icon, and that icon stays at its version until its own account
+  updates. Intended: an icon of the right version beats a shared one that opens an old window.
