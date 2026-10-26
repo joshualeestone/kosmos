@@ -158,6 +158,16 @@ function readRows(page) {
     chk(dlg.title === 'Sign in again' && /soon@example\.com/.test(dlg.intro), theme + ' D1: it is the Sign in again dialog for that account', JSON.stringify(dlg));
     chk(dlg.reauthDir === '/home/.claude-soon', theme + ' D1: it signs in again as that account\'s folder', JSON.stringify(dlg));
     chk(!dlg.settings && dlg.tab === 'agents', theme + ' D1: Settings does not open; the board stays where it was', JSON.stringify(dlg));
+    // D3 (Mona Lisa's review): while the dialog is open, the notice's Refresh login is under its backdrop, so a second press
+    // reaches nothing; the dialog stays as it was.
+    const again = await page.evaluate(() => {
+      const b = document.querySelector('#login-adv-slot button.login-adv-go');
+      if (!b) return { button: false };
+      const q = b.getBoundingClientRect();
+      const hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+      return { button: true, reachable: !!hit && (hit === b || b.contains(hit)) };
+    });
+    chk(again.button && !again.reachable, theme + ' D3: with the dialog open, Refresh login cannot be pressed again', JSON.stringify(again));
     if (OUT) await page.screenshot({ path: nodePath.join(OUT, 'refreshlogin-7198-dialog-' + theme + '.png'), fullPage: false });
     await page.evaluate(() => closeAcctAdd());
     const closed = await page.evaluate(() => ({ open: !document.getElementById('acct-add-modal').hidden, tab: URL_TAB,
