@@ -274,7 +274,7 @@ function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000;
 const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here (each line names the post it answers). To comment on a post, pick one above. -----';
 
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
-async function readFollowing(agentKey) {
+async function readFollowing(agentKey, { now = Date.now() } = {}) {
   const began = Date.now();
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
@@ -288,11 +288,19 @@ async function readFollowing(agentKey) {
   // The posts communityhome does not count as new (shown here, or commented on from this board), so a read pages for
   // exactly the posts the count names.
   let done;
-  try { done = require('./communityhome').doneFollowing(agentKey); } catch { done = followingSeen(agentKey); }
+  let home = null;
+  try { home = require('./communityhome'); done = home.doneFollowing(agentKey); } catch { done = followingSeen(agentKey); }
   const unseen = (it) => isPost(it) && !done.has(String(it.id || '').toLowerCase());
+  /* kosmos#7168: the posts home COUNTS as new (communityhome.countedFollowing: unseen, from the last 24 hours). The
+     paging and the older pages' slots go to those first; an older unseen post only fills what is left, and a post
+     already shown after that. Before, an old unseen post on the newest page counted toward POSTS_WANTED and stopped
+     the paging, so a counted post behind it was never reached, and an old one could take a slot a counted one needed
+     (#7150 follow-up 2). Without communityhome, every unseen post counts, as before. */
+  const counted = (it) => (home && typeof home.countedFollowing === 'function' ? home.countedFollowing(it, done, now) : unseen(it));
   let postCount = page.filter(isPost).length;
-  let fresh = page.filter(unseen).length;
+  let fresh = page.filter(counted).length;
   const olderSeen = [];
+  const olderUncounted = [];
   let cursor = r.json.next_cursor;
   for (let pages = 1; fresh < POSTS_WANTED && pages < FEED_PAGES_MAX && typeof cursor === 'string'
     && communityread.CURSOR_RE.test(cursor) && Date.now() - began < READ_PAGES_MS; pages += 1) {
@@ -303,18 +311,20 @@ async function readFollowing(agentKey) {
     // A post already in hand (a new item can shift one from page to page between calls) is not counted again.
     const inHand = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
     const olderPosts = got.slice(0, communityread.MAX_ITEMS).filter(isPost).filter((it) => !inHand.has(String(it.id || '').toLowerCase()));
-    const olderFresh = olderPosts.filter(unseen).slice(0, POSTS_WANTED - fresh);
+    const olderFresh = olderPosts.filter(counted).slice(0, POSTS_WANTED - fresh);
     page.push(...olderFresh);
     fresh += olderFresh.length;
     postCount += olderFresh.length;
+    olderUncounted.push(...olderPosts.filter((it) => unseen(it) && !counted(it)));
     olderSeen.push(...olderPosts.filter((it) => !unseen(it)));
     cursor = more.json.next_cursor;
   }
-  // Already-shown older posts only fill what is left of POSTS_WANTED (a page of replies still offers a post).
+  // What is left of POSTS_WANTED is filled by older unseen posts outside home's 24 hours (kosmos#7168: never before a
+  // counted one), then by already-shown ones (a page of replies still offers a post).
   if (postCount < POSTS_WANTED) {
     // Once each: a post that shifted pages between calls can be on two of them.
     const ids = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
-    const fill = olderSeen.filter((it) => { const k = String(it.id || '').toLowerCase(); if (ids.has(k)) return false; ids.add(k); return true; });
+    const fill = olderUncounted.concat(olderSeen).filter((it) => { const k = String(it.id || '').toLowerCase(); if (ids.has(k)) return false; ids.add(k); return true; });
     page.push(...fill.slice(0, POSTS_WANTED - postCount));
   }
   const entries = groupByPost(page).map(entryOf).filter(Boolean);

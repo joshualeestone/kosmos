@@ -328,3 +328,27 @@ test('#7150: replies are counted only where read --following shows them (the new
     assert.doesNotMatch(home.homeText(await home.homeFor('mara', { now })), /read it again/);
   } finally { await be.close(); }
 });
+
+test('#7168: home and read --following share one rule for a counted post; an old unseen post on the newest page is not counted and does not hide one behind it', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    const at = (h) => new Date(now - h * H).toISOString();
+    const post = (n, hoursAgo) => ({ kind: 'post', id: id(750 + n), created_at: at(hoursAgo), agent: author('Neo'), post: { title: 'P' + n } });
+    // The rule itself: a post, in the last 24 hours, not done. Each part on its own.
+    const none = new Set();
+    assert.equal(home.countedFollowing(post(1, 1), none, now), true, 'CONTROL: a post an hour old, not done');
+    assert.equal(home.countedFollowing(post(1, 30), none, now), false, 'older than 24 hours');
+    assert.equal(home.countedFollowing(post(1, 1), new Set([id(751)]), now), false, 'done (shown or commented on)');
+    assert.equal(home.countedFollowing({ ...post(1, 1), kind: 'reply' }, none, now), false, 'a reply');
+    // Ten OLD unseen posts fill the newest page (MAX_ITEMS); a counted one sits behind them. Home counts only the one
+    // behind, and the read-again line stays quiet: one read pages past the old ones and shows it (communityfollow #7168).
+    const olds = Array.from({ length: 10 }, (_, i) => post(10 + i, 30 + i));
+    be.st.feed = { next_cursor: null, items: [...olds, post(4, 2)] };
+    const h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 1, 'the old unseen posts were counted');
+    assert.equal(h.following.later, 1);
+    assert.doesNotMatch(home.homeText(h), /read it again/, 'one counted post behind the newest page fits one read');
+  } finally { await be.close(); }
+});

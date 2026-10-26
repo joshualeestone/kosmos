@@ -615,13 +615,18 @@ test('#5636 F7: the followed agents\' posts are listed before their "Reply to:" 
   } finally { await b.close(); }
 });
 
+/* kosmos#7168: read --following pages for the posts home COUNTS (unseen, last 24 hours), so the two tests below give
+   their posts hours on one day (the day argument is the hour; newer is still later) and read at a fixed now that
+   evening, inside every post's 24 hours, as their "new post" meaning always assumed. */
+const NOW_7168 = Date.parse('2026-10-12T20:00:00Z');
+
 test('#5636 F7c: a page of replies does not crowd out the posts: older pages are read for posts only, at most FEED_PAGES_MAX', async () => {
   fresh(); const b = await backend();
   const neo = { name: 'NEO' };
   const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
-  const reply = (n, day) => ({ kind: 'reply', id: uuid(n), agent: neo, created_at: '2026-10-' + day + 'T12:00:00Z', channel: 'general', sub_channel: null,
+  const reply = (n, day) => ({ kind: 'reply', id: uuid(n), agent: neo, created_at: '2026-10-12T' + day + ':30:00Z', channel: 'general', sub_channel: null,
     body: 'REPLY' + n, post: { id: uuid(900 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
-  const post = (n, day) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: '2026-10-' + day + 'T10:00:00Z', channel: 'general', sub_channel: null,
+  const post = (n, day) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: '2026-10-12T' + day + ':00:00Z', channel: 'general', sub_channel: null,
     body: 'POST' + n, post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
   const tens = (from, day) => Array.from({ length: 10 }, (_, i) => reply(from + i, day));
   try {
@@ -631,7 +636,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     const first = tens(1, '12');
     first[9] = { ...first[9], post: { id: uuid(500), title: 'Post 500', agent: neo } };   // a reply on the older post 500
     b.st.pages = [first, [...tens(11, '11').slice(0, 9), post(500, '11')], [post(501, '10')], [post(502, '09')]];
-    const r = await cf.readFollowing('mara');
+    const r = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.equal(r.ok, true, r.because);
     assert.ok(r.text.includes('POST500') && r.text.includes('POST501'), 'the posts behind a page of replies were not read: ' + r.text);
     assert.ok(!r.text.includes('POST502'), 'more than FEED_PAGES_MAX pages were read');
@@ -645,18 +650,18 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.ok(r.text.includes('REPLY10'), 'the reply on post 500 was dropped');
     b.st.feedCalls = [];
     b.st.pages = [[...tens(1, '12').slice(0, 8), post(800, '12'), post(801, '12')], [post(802, '11'), post(803, '11'), post(804, '11')]];
-    const capped = await cf.readFollowing('mara');
+    const capped = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.ok(capped.text.includes('POST802') && !capped.text.includes('POST803'), 'POST803 was shown: ' + capped.text);
     // Enough posts on the first page: no further page is asked for.
     b.st.feedCalls = [];
     b.st.pages = [[post(600, '12'), post(601, '12'), post(602, '12'), reply(603, '12')], [post(604, '11')]];
-    await cf.readFollowing('mara');
+    await cf.readFollowing('mara', { now: NOW_7168 });
     assert.deepEqual(b.st.feedCalls, [null], 'a later page was read with enough posts on the first');
     // A later page that fails costs only its posts; the first page is still shown.
     b.st.feedCalls = [];
     b.st.pages = [tens(1, '12'), [post(700, '11')]];
     b.st.failPage = 1;
-    const down = await cf.readFollowing('mara');
+    const down = await cf.readFollowing('mara', { now: NOW_7168 });
     b.st.failPage = undefined;
     assert.equal(down.ok, true, down.because);
     assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
@@ -668,7 +673,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     try {
       b.st.feedCalls = [];
       b.st.pages = [tens(1, '12'), [post(710, '11')]];
-      await cf.readFollowing('mara');
+      await cf.readFollowing('mara', { now: NOW_7168 });
     } finally { cs.agentCall = real; }
     const feedCalls = calls.filter((c) => c.p.startsWith('/agents/me/following/feed'));
     assert.equal(feedCalls.length, 2, JSON.stringify(calls));
@@ -678,7 +683,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     cf._setReadPagesMs(0);
     try {
       b.st.feedCalls = [];
-      const late = await cf.readFollowing('mara');
+      const late = await cf.readFollowing('mara', { now: NOW_7168 });
       assert.equal(late.ok, true, late.because);
       assert.deepEqual(b.st.feedCalls, [null], 'an older page started after the read-time bound');
     } finally { cf._setReadPagesMs(null); }
@@ -689,33 +694,33 @@ test('#7150 read --following: posts already shown give way to the next unseen on
   fresh(); const b = await backend();
   const neo = { name: 'NEO' };
   const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
-  const post = (n, day) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: '2026-10-' + day + 'T10:00:00Z', channel: 'general', sub_channel: null,
+  const post = (n, day) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: '2026-10-12T' + day + ':00:00Z', channel: 'general', sub_channel: null,
     body: 'POST' + n, post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
   try {
     await cf.follow('mara', 'quill');
     // Six new posts: the newest page carries three, the next page three more.
     b.st.pages = [[post(1, '12'), post(2, '12'), post(3, '12')], [post(4, '11'), post(5, '11'), post(6, '11')]];
-    const first = await cf.readFollowing('mara');
+    const first = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.equal(first.ok, true, first.because);
     assert.deepEqual(b.st.feedCalls, [null], 'three unseen posts on the first page: no further page is read');
     assert.ok(!first.text.includes('POST4'), first.text);
     // The same feed again: the first page is all shown, so the next page is read and ITS posts are listed. Before
     // #7150 the first page's three posts satisfied POSTS_WANTED and posts 4 to 6 were never reached.
     b.st.feedCalls = [];
-    const second = await cf.readFollowing('mara');
+    const second = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the next page was not read for unseen posts');
     for (const n of [4, 5, 6]) assert.ok(second.text.includes('POST' + n), 'POST' + n + ' is not reachable: ' + second.text);
     assert.ok(second.text.includes('POST1'), 'CONTROL: the newest page is still shown as it was');
     // All six shown: an already-shown older post does not fill a page that already has POSTS_WANTED posts.
     b.st.feedCalls = [];
-    const third = await cf.readFollowing('mara');
+    const third = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.deepEqual(b.st.feedCalls, [null, 'c1']);
     assert.ok(!third.text.includes('POST4'), 'a shown older post filled a full page: ' + third.text);
     // A new post BEHIND an all-shown older page is still reached: the read does not stop at that page (an early stop
     // there would leave home counting a post no read shows).
     b.st.feedCalls = [];
     b.st.pages = [[post(1, '12'), post(2, '12'), post(3, '12')], [post(4, '11'), post(5, '11'), post(6, '11')], [post(7, '10')]];
-    const behind = await cf.readFollowing('mara');
+    const behind = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'the read stopped before the page holding the new post');
     assert.ok(behind.text.includes('POST7'), 'a new post behind an all-shown page was not reached: ' + behind.text);
     // A first page of replies only, with every older post already shown: those shown posts still fill it, so a
@@ -723,8 +728,95 @@ test('#7150 read --following: posts already shown give way to the next unseen on
     const reply = (n) => ({ kind: 'reply', id: uuid(n), agent: neo, created_at: '2026-10-12T12:00:00Z', channel: 'general', sub_channel: null,
       body: 'REPLY' + n, post: { id: uuid(900 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
     b.st.pages = [[reply(20), reply(21)], [post(4, '11'), post(5, '11')]];
-    const filled = await cf.readFollowing('mara');
+    const filled = await cf.readFollowing('mara', { now: NOW_7168 });
     assert.ok(filled.text.includes('POST4') && filled.text.includes('POST5'), 'shown posts did not fill a page of replies: ' + filled.text);
+  } finally { await b.close(); }
+});
+
+test('#7168 read --following: an old unseen post on the newest page does not stop the paging, and gives way to a counted one', async () => {
+  fresh(); const b = await backend();
+  const neo = { name: 'NEO' };
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const at = (iso) => ({ created_at: iso });
+  const post = (n, iso) => ({ kind: 'post', id: uuid(n), agent: neo, ...at(iso), channel: 'general', sub_channel: null,
+    body: 'POST' + n, post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
+  const reply = (n, iso) => ({ kind: 'reply', id: uuid(n), agent: neo, ...at(iso), channel: 'general', sub_channel: null,
+    body: 'REPLY' + n, post: { id: uuid(900 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
+  const old = '2026-10-10T10:00:00Z';   // two days before NOW_7168: unseen, but not in home's count
+  try {
+    await cf.follow('mara', 'quill');
+    /* The newest page: three OLD unseen posts. Behind it: a counted (last 24 hours) post, then more old ones. Before
+       #7168 the three old posts filled POSTS_WANTED, no page was read, and the counted post was never reached. */
+    b.st.pages = [[post(1, old), post(2, old), post(3, old)], [post(4, '2026-10-12T09:00:00Z'), post(5, old)]];
+    b.st.feedCalls = [];
+    const r = await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.equal(r.ok, true, r.because);
+    assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the old unseen posts stopped the paging');
+    assert.ok(r.text.includes('POST4'), 'the counted post behind them was not reached: ' + r.text);
+    assert.ok(r.text.includes('POST1'), 'CONTROL: the newest page is still shown whole');
+    /* Slots: a page of replies, then behind it an OLD unseen post BEFORE a counted one in feed order. The counted one
+       takes the slot first; the old one only fills what is left. */
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [[reply(20, '2026-10-12T19:00:00Z')], [post(30, old), post(31, '2026-10-12T08:00:00Z'), post(32, old), post(33, old)]];
+    const slots = await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.ok(slots.text.includes('POST31'), 'the counted post did not get a slot: ' + slots.text);
+    const shownOld = [30, 32, 33].filter((n) => slots.text.includes('POST' + n)).length;
+    assert.equal(shownOld, 2, 'the old unseen posts fill only what the counted one left (3 slots, 1 counted): ' + slots.text);
+    /* Fill order: an old post this agent has NOT been shown comes before posts it has. Three already-shown posts and
+       one old unseen one behind a page of replies: three slots, so the unseen one must take one of them. */
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [[post(40, old), post(41, old), post(42, old)]];
+    await cf.readFollowing('mara', { now: NOW_7168 });   // marks 40 to 42 shown
+    b.st.pages = [[reply(21, '2026-10-12T19:00:00Z')], [post(40, old), post(41, old), post(42, old), post(50, old)]];
+    const order = await cf.readFollowing('mara', { now: NOW_7168 });
+    assert.ok(order.text.includes('POST50'), 'an old unseen post gave way to posts already shown: ' + order.text);
+  } finally { await b.close(); }
+});
+
+test('#7168 read --following under a moving feed: reached while arrivals are slower than the read drains; past that, a post leaves home\'s count when it leaves the read\'s reach', async () => {
+  fresh(); const b = await backend();
+  const neo = { name: 'NEO' };
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const post = (n, ms) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: new Date(ms).toISOString(), channel: 'general', sub_channel: null,
+    body: 'POST' + n + ' ', post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
+  const PAGE = require('./communityread').MAX_ITEMS;
+  const DEPTH = cf.FEED_ITEMS_MAX;
+  const pagesOf = (feed) => { const out = []; for (let i = 0; i < feed.length; i += PAGE) out.push(feed.slice(i, i + PAGE)); return out; };
+  /* 18 counted posts to start (newest first, all in the last 24 hours); before each read, `arrive` newer posts land on
+     top and shift every older one down the pages, as a live feed does between reads. Returns what was shown and the
+     feed at the end. */
+  async function run(start, arrive, reads) {
+    fresh(); await cf.follow('mara', 'quill');
+    let n = start; let t = NOW_7168 - 20 * 3600 * 1000;
+    const feed = [];
+    for (let i = 0; i < 18; i += 1) { feed.unshift(post(n, t)); n += 1; t += 60 * 1000; }
+    const backlog = feed.map((it) => it.body.trim());
+    const shown = new Set();
+    for (let read = 0; read < reads; read += 1) {
+      for (let k = 0; k < arrive; k += 1) { feed.unshift(post(n, t)); n += 1; t += 60 * 1000; }
+      b.st.pages = pagesOf(feed);
+      const r = await cf.readFollowing('mara', { now: NOW_7168 });
+      assert.equal(r.ok, true, r.because);
+      for (const id of r.text.match(/POST\d+/g) || []) shown.add(id);
+    }
+    return { backlog, shown, feed };
+  }
+  try {
+    /* One new post between reads: each read drains two from behind the newest page while the feed moves one, so every
+       counted post is reached. (Each read shows the newest page whole, then POSTS_WANTED less the newest page's counted
+       posts from behind it, the arithmetic home's "read it again" line relies on.) */
+    const slow = await run(100, 1, 12);
+    const missed = slow.backlog.filter((id) => !slow.shown.has(id));
+    assert.deepEqual(missed, [], 'counted posts never reached under a slowly moving feed: ' + missed.join(', '));
+    /* Three or more between reads: the read drains none from behind (the newest page already holds three counted
+       posts), so older ones drift past the read's depth unread. The bound, stated and checked: every one lost is past
+       DEPTH at the end, where home's count (which reads no deeper) no longer names it, so the count never names a post
+       no read can reach. */
+    const fast = await run(300, 3, 8);
+    const lost = fast.backlog.filter((id) => !fast.shown.has(id));
+    assert.ok(lost.length > 0, 'CONTROL: a fast feed lost nothing, so the arm above cannot tell a lost post from a reached one');
+    const at = (id) => fast.feed.findIndex((it) => it.body.trim() === id);
+    for (const id of lost) assert.ok(at(id) >= DEPTH, id + ' was lost while still inside home\'s count window (index ' + at(id) + ' < ' + DEPTH + ')');
   } finally { await b.close(); }
 });
 

@@ -103,6 +103,13 @@ function doneFollowing(agentKey) {
   return done;
 }
 
+/* kosmos#7168: THE rule for a Following feed item home counts as a new post: a post from the last 24 hours this agent is
+   not done with (`done`, doneFollowing's set). read --following (communityfollow) pages and fills its slots by this
+   same function, so the count and the read cannot disagree about which posts are new. */
+function countedFollowing(it, done, now) {
+  return Boolean(it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS && !done.has(key(it.id)));
+}
+
 /* One post's thread: { score, comments, unanswered: [{ id, by }] } from public reads, or null when unreadable.
    unanswered is null (unknown, never a full list) when this agent's own name or its answers here cannot be known.
    `me`: this agent's { id, name } (communityself; kosmos#6705: by id when the comment carries one). */
@@ -174,11 +181,10 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
       const depth = require('./communityfollow').FEED_ITEMS_MAX;
       const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me.name) + '/following/feed?limit=' + depth);
       if (f && f.status === 200 && f.json && Array.isArray(f.json.items)) {
-        const recent = f.json.items.filter((it) => it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS);
         /* kosmos#5372: not a post this agent was already shown in read --following, nor one it commented on from this
            board: the nudge kept sending an agent back to a post it had read and answered. */
         const done = doneFollowing(agentKey);
-        const fresh = recent.filter((it) => !done.has(key(it.id)));
+        const fresh = f.json.items.filter((it) => countedFollowing(it, done, now));
         // Replies on the newest page only, the one page read --following takes replies from (older pages add posts
         // only). It lists a few per post and says how many more it did not show, so a reply counted here is shown or
         // counted there (one whose entry the read cannot build is neither). Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
@@ -276,4 +282,4 @@ function owedCount(h) {
   return h.posts.reduce((n, p) => n + p.unanswered.length, 0);
 }
 
-module.exports = { homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, REPLY_DAYS, POSTS_CHECKED };
+module.exports = { homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, REPLY_DAYS, POSTS_CHECKED };
