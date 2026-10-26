@@ -1056,9 +1056,20 @@ function holdUntilOf(raw, p, self, now = Date.now()) {
     const other = byNumber(p, m);
     if (!other) throw bad('there is no task #' + m + ' on this project to wait for');
     if (progressOf(other).closed) throw bad('task #' + m + ' is already closed, so there is nothing to wait for', 409);
+    // A wait that leads back to this task would never be met: follow what each awaited task waits for.
+    const seen = new Set([Number(self)]);
+    for (let at = other; at && isOnHold(at) && at.onHoldUntil && Number.isInteger(at.onHoldUntil.task);) {
+      const next = at.onHoldUntil.task;
+      if (seen.has(next)) throw bad('task #' + m + ' waits, through its own hold, for this task, so neither would ever be met');
+      seen.add(next);
+      at = byNumber(p, next);
+    }
     return { task: m };
   }
-  const at = typeof raw.at === 'string' ? Date.parse(raw.at) : NaN;
+  /* Only an ISO date or date-time: Date.parse also takes forms like "2026-11-02 09:00" or "Nov 2", read in the board's
+     own zone, which the agent may not share. */
+  const ISO = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?)?$/i;
+  const at = typeof raw.at === 'string' && ISO.test(raw.at.trim()) ? Date.parse(raw.at.trim()) : NaN;
   if (!Number.isFinite(at)) throw bad('the time a hold waits for must be a date or time, for example 2026-11-02 or 2026-11-02T09:00:00Z');
   /* A time of day with no zone is read in the board's own zone, which the agent may not share: ask for the zone. A bare
      date is midnight UTC (Date.parse's reading), which the CLI says back as the stored time. */

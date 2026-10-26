@@ -18,9 +18,9 @@
  * to MAX_TRIES for one hold, then recorded as not reached. Nothing in a paused project is told about.
  *
  * kosmos#7180: a hold with a checkable reopening condition (tasks.holdUntilState) is tested, not counted. While the
- * condition is not met the hold is parked on it and nobody is told. Once it is met, each owner is told once (the same
- * holdStaleTold mark) that the task can come off hold, whatever its age or the owner's posts. Those lines go apart from
- * the posts lines: an owner's held tasks in one project are told together only when told for the same reason.
+ * condition is not met the hold is parked on it and nobody is told. Once it is met, each owner is told once (its own
+ * holdMetTold mark) that the task can come off hold, whatever its age or the owner's posts; after that the hold is
+ * treated as any other, so the posts rule can still tell about it. The two reasons are never told in one line.
  */
 
 const MAX_TRIES = 3;
@@ -77,17 +77,19 @@ function owed(projects, log, now = Date.now(), o = {}) {
       if (!hold) continue;
       const until = tasks.holdUntilState(p, t, now);
       if (until && !until.met) continue;   // kosmos#7180: parked on its condition, which is not met yet
-      if (!until && now - hold.at < MIN_AGE_MS) continue;
       const told = t.holdStaleTold && typeof t.holdStaleTold === 'object' ? t.holdStaleTold : {};
+      const metTold = t.holdMetTold && typeof t.holdMetTold === 'object' ? t.holdMetTold : {};
       /* As missedtell's review 4: only holders of an open part. One whose part is done is not working this task. */
       const owners = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))];
       for (const owner of owners) {
         if (typeof owner !== 'string' || !owner) continue;
-        if (Date.parse(told[owner]) === hold.at) continue;
+        // kosmos#7180: a met condition is told once (holdMetTold); after that, the posts rule applies as to any hold.
+        const metNow = Boolean(until) && Date.parse(metTold[owner]) !== hold.at;
+        if (!metNow && (now - hold.at < MIN_AGE_MS || Date.parse(told[owner]) === hold.at)) continue;
         const posts = (posted.get(p.id + '\u0000' + owner) || []).filter((at) => at > hold.at).length;
-        if (!until && posts < MIN_POSTS) continue;
+        if (!metNow && posts < MIN_POSTS) continue;
         out.push({
-          ...(until ? { met: until.words } : {}),
+          ...(metNow ? { met: until.words } : {}),
           projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
           owner, holdAt: hold.at, byPerson: hold.byPerson || t.onHoldByPerson === true, posts,
           members: Array.isArray(p.agents) ? p.agents.slice() : [],
@@ -155,9 +157,12 @@ function markTold(item, outcome) {
   const at = new Date(item.holdAt).toISOString();
   projects.mutate(item.projectId, (p) => ({
     ...p,
-    tasks: (p.tasks || []).map((x) => (x && x.number === item.n
-      ? { ...x, holdStaleTold: { ...(x.holdStaleTold && typeof x.holdStaleTold === 'object' ? x.holdStaleTold : {}), [item.owner]: at } }
-      : x)),
+    // kosmos#7180: a met line has its own mark, so it never stops the posts rule from telling about the same hold later.
+    tasks: (p.tasks || []).map((x) => {
+      if (!x || x.number !== item.n) return x;
+      const field = item.met ? 'holdMetTold' : 'holdStaleTold';
+      return { ...x, [field]: { ...(x[field] && typeof x[field] === 'object' ? x[field] : {}), [item.owner]: at } };
+    }),
   }));
   taskchat.record(item.projectId, item.n, { kind: 'hold-stale', hold: at, told: item.owner, posts: item.posts, ...(item.met ? { met: item.met } : {}), reached: outcome === 'reached' });
 }
