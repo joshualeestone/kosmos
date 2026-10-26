@@ -77219,7 +77219,10 @@ function pjFitRoomPhone() {
   if (!comp.__pjFitWatched && window.ResizeObserver) { comp.__pjFitWatched = true; new ResizeObserver(() => pjFitRoomPhone()).observe(comp); }
   const compH = comp.getBoundingClientRect().height + (parseFloat(getComputedStyle(comp).marginTop) || 0);
   const visible = window.visualViewport ? Math.round(window.visualViewport.height * window.visualViewport.scale) : window.innerHeight;
-  const fit = Math.max(160, Math.floor(visible - (r.top + window.scrollY) - compH));
+  /* The floor is 96px, not more: with the keyboard up on a 393x852 phone only about 135px is left between the thread's
+     top and the composer, and a 160px floor (round 1) left the newest row 25px under the composer while typing (measured
+     by render-room-scroll's keyboard arm). 96px still shows a couple of rows. */
+  const fit = Math.max(96, Math.floor(visible - (r.top + window.scrollY) - compH));
   if (room.style.getPropertyValue('--pj-room-fit') === fit + 'px') return;
   const atFloor = room.scrollHeight - room.scrollTop - room.clientHeight <= 8;
   room.style.setProperty('--pj-room-fit', fit + 'px');
