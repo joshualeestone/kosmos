@@ -26032,6 +26032,33 @@ function start(port = PORT) {
       };
       const accountSweep = setInterval(accountTick, Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) : 60 * 1000); // the env is the test seam only
       if (accountSweep && typeof accountSweep.unref === 'function') accountSweep.unref();
+      /* kosmos#7152 slice 1: read every Claude account's weekly and five-hour usage from the usage endpoint
+         (engine/usagepoll.js), idle accounts included, into each account folder, where accountsweekly reads it. Same
+         gating as the sweeps above, OFF unless AGENT_WORKFORCE_USAGE_POLL=1 (review 19), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
+         asynchronous (one account at a time, never on the board's request path), best-effort. accounts.list() is the
+         cheap read: listLive() checks every account live and must not run on a timer. */
+      const usagePoll = require('./engine/usagepoll');
+      let usagePollBusy = 0;   // when the running sweep started, or 0
+      const usagePollTick = () => {
+        /* Review 12: a sweep that somehow never settles must not stop every later one, so a busy flag older than three
+           poll periods is taken as stale. Every await inside has its own deadline, so this is a backstop. */
+        if (usagePollBusy && Date.now() - usagePollBusy < 3 * usagePoll.POLL_MS) return;
+        if (!liveExecution.liveExecutionAllowed() || !usagePoll.liveAllowed()) return;   // never under a test (it reads real logins)
+        const started = Date.now();
+        usagePollBusy = started;
+        let list = [];
+        try { list = accounts.list(); } catch { list = []; }
+        usagePoll.pollAll(list)
+          .then((n) => { process.stdout.write(`usage-poll: measured ${n} of ${list.filter((a) => a && !a.apiKey).length} signed-in account(s)\n`); })
+          .catch(() => { /* best-effort, like the sweeps above */ })
+          .finally(() => { if (usagePollBusy === started) usagePollBusy = 0; });
+      };
+      const usagePollSweep = setInterval(usagePollTick, Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.POLL_MS); // the env is the test seam only
+      if (usagePollSweep && typeof usagePollSweep.unref === 'function') usagePollSweep.unref();
+      /* The first read 30 s after start, off the start path, so a restarted board does not go ten minutes with no reading
+         for an idle account. Same gating, inside the tick. */
+      const usagePollFirst = setTimeout(usagePollTick, 30 * 1000);
+      if (usagePollFirst && typeof usagePollFirst.unref === 'function') usagePollFirst.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
          stuck on a project past the grace period it convenes help ONCE: a room note, an ask
