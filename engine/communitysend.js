@@ -1464,6 +1464,81 @@ async function sweepInstallGroup(keys, on) {
   }
 }
 
+/**
+ * #7215: link each registered agent to the Kosmos+ account of this computer, so the person sees and can delete their
+ * agents' posts and comments on one community page. Once per agent per computer identity (the mac id: a Forget and a
+ * new sign-in mint a new one, and the agents are then linked to that account). Two steps, both needed by the site:
+ *   1. the coordinator's owner pass for this agent's community name (Mac-signed through the tunnel, POST
+ *      /v1/mac/community-owner-pass): it names the CALLING computer's account, never one the board states;
+ *   2. POST /agents/me/owner { pass } with the agent's own key (the site: 204, the agent now linked).
+ * Only while Community is on and Kosmos+ is live here (signed in AND switched on, as phone notifications, #6488).
+ * A removed agent is linked too: the link is never public, and its posts stay the person's to delete.
+ * What a failure does, as the install-group pass:
+ *   the tunnel or coordinator does not know the route (an older one), or the site has no such route (404/405): the
+ *   pass is left alone for an hour; a 429: it waits, capped like #4940's register wait; anything else (no answer, a
+ *   5xx, a refused pass): the pass pauses 15 minutes. Pauses are per endpoint, in memory.
+ */
+const OWNER_PASS_ROUTE = '/v1/mac/community-owner-pass';
+let OWNER_LINK_RETRY_MS = 15 * 60 * 1000;
+const OWNER_LINK_UNKNOWN_MS = 60 * 60 * 1000;
+const OWNER_LINK_PASS_MS = 30 * 1000;   // the owner pass's share of one sweep
+const ownerLinkPassAt = new Map();    // endpointDir -> ms: the whole pass is paused until then
+function ownerLinkLive() {
+  try { const remote = require('./remote'); return remote.enrolled() === true && remote.read().on === true; } catch { return false; }
+}
+function ownerLinkMac() {
+  try { const id = require('./remote').macIdHere(); return typeof id === 'string' && id ? id : null; } catch { return null; }
+}
+/* The tunnel refuses a route not on its list, and a coordinator from before #7215 answers 404: both mean "not yet". */
+function ownerPassUnknown(minted) {
+  if (minted.refusal && (minted.refusal.status === 404 || minted.refusal.status === 405)) return true;
+  // The tunnel's own words (crates/tunnel check_mac_request: "mac-request does not sign POST ..."), or a tunnel older
+  // than the verb itself.
+  return /mac-request does not sign|unrecognized subcommand/.test(String(minted.because || ''));
+}
+async function sweepOwnerLink(keys, on) {
+  if (!on || !switchOn() || !ownerLinkLive()) return;
+  const mac = ownerLinkMac();
+  if (!mac) return;
+  const ep = endpointDir();
+  if ((ownerLinkPassAt.get(ep) || 0) > Date.now()) return;
+  const until = Date.now() + OWNER_LINK_PASS_MS;
+  for (const agentKey of Object.keys(keys)) {
+    if (Date.now() > until) break;   // the rest wait for the next sweep
+    const k = keys[agentKey];
+    if (!k || !k.apiKey || !k.name || k.refused) continue;
+    if (k.ownerLinkedMac === mac) continue;
+    const minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name });
+    if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string') {
+      const unknown = minted.ok ? false : ownerPassUnknown(minted);
+      ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
+      log(`owner link: ${unknown ? 'Kosmos+ cannot vouch for agents yet' : 'Kosmos+ did not vouch for ' + agentKey}; trying again in ${unknown ? 'an hour' : Math.round(OWNER_LINK_RETRY_MS / 60000) + ' min'}`);
+      break;
+    }
+    const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
+    if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on
+    if (r.status === 204 || r.status === 200) {
+      k.ownerLinkedMac = mac;
+      saveJson(keysFile(), keys);
+      continue;
+    }
+    if (r.status === 404 || r.status === 405) {
+      ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_UNKNOWN_MS);
+      log(`owner link: the community has no owner route yet (${r.status}); trying again in an hour`);
+      break;
+    }
+    if (r.status === 429) {
+      const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600));
+      ownerLinkPassAt.set(ep, Date.now() + waitS * 1000);
+      log(`owner link: the service asked to slow down (429); the pass waits ${waitS} s`);
+      break;
+    }
+    ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
+    log(`owner link for ${agentKey}: got ${r.status || 'no answer'}; trying again in ${Math.round(OWNER_LINK_RETRY_MS / 60000)} min`);
+    break;
+  }
+}
+
 async function sweepIndustry(keys, on) {
   const cur = industry.read();
   if (!cur.ok) return;
@@ -1792,6 +1867,9 @@ async function sweepOnce(now) {
   // #4922: near last, the least urgent: a service slow on this route must not hold back the passes above.
   try { await sweepInstallGroup(keys, on); }
   catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #7215: as least urgent as the install group: nothing public waits on it.
+  try { await sweepOwnerLink(keys, on); }
+  catch (e) { log(`owner link: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   // #4885: new pictures last. A failing picture route costs a timeout per agent, so it must not hold back comments
   // or the install group.
   try { await sweepAvatars(keys, on, { removals: false }); }
@@ -3046,5 +3124,6 @@ module.exports = {
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
+  _ownerLinkRetry: (ms) => { ownerLinkPassAt.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };
