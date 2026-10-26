@@ -70,8 +70,12 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    endpoint Anthropic has not documented, and if Anthropic objects the cost may fall on the account itself, which no
    backoff undoes. So nobody's board reads this way until it is switched on deliberately; the status line is
    unchanged either way. */
+/* Review 20: whether the reader is switched on at all, which also decides whether its records are shown, so a board
+   switched off shows nothing it measured earlier. */
+function enabled(env = process.env) { return env.AGENT_WORKFORCE_USAGE_POLL === '1'; }
+
 function liveAllowed(env = process.env) {
-  return env.AGENT_WORKFORCE_USAGE_POLL === '1'
+  return enabled(env)
     && !env.NODE_TEST_CONTEXT && env.AGENT_WORKFORCE_DRY_RUN !== '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1';
 }
 
@@ -262,7 +266,9 @@ async function pollAll(list, deps = {}) {
     if (t && before && BACKOFF_STATES.has(before.state) && typeof before.refusedAt === 'number'
       && nowMs - before.refusedAt >= 0 && nowMs - before.refusedAt < BACKOFF_MS   // review 18: a refusal stamped in the future has expired
       && typeof before.refusedEmail === 'string' && typeof a.email === 'string' && before.refusedEmail.toLowerCase() === a.email.toLowerCase()
-      && t.state === 'ok' && t.expiresAt === before.refusedExpiresAt) {   // a token that is not usable sends nothing anyway
+      && t.state === 'ok' && (before.state.endsWith('429') || t.expiresAt === before.refusedExpiresAt)) {
+      /* review 20: a rate limit (429) is the account's, so it keeps its hour across a renewed token; a 401 or 403 is the
+         token's. A token that is not usable sends nothing anyway. */
       write(a.dir, { ...before, at: nowMs });
       continue;
     }
@@ -335,6 +341,6 @@ function readUsage(dir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  liveAllowed, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
+  enabled, liveAllowed, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
   FILE, POLL_MS, FRESH_MS, HOST, USAGE_PATH, BETA,
 };

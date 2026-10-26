@@ -9,6 +9,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 
+/* The reader is off unless switched on (review 19), and its records are shown only while it is (review 20). This file
+   tests it switched on; one test switches it off. Each test file runs in its own process. */
+process.env.AGENT_WORKFORCE_USAGE_POLL = '1';
 const usagepoll = require('./usagepoll');
 const accountsweekly = require('./accountsweekly');
 const loginexpiry = require('./loginexpiry');
@@ -618,4 +621,32 @@ test('#7152 review 18: the organization is parsed once per version of the accoun
   assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).usedPct, 70, 'CONTROL: the same organization is shown');
   fs.writeFileSync(file, JSON.stringify({ oauthAccount: { emailAddress: EMAIL, organizationUuid: 'org-bb' } }));
   assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), null, 'a changed organization was not seen');
+});
+
+test('#7152 review 20: switched off, the board shows nothing the reader measured earlier', (t) => {
+  const d = tmpDir(t);
+  const resets = Math.floor((NOW + 86400000) / 1000);
+  usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: EMAIL, weekly: { usedPct: 70, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null });
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).usedPct, 70, 'CONTROL: switched on, the record is shown');
+  process.env.AGENT_WORKFORCE_USAGE_POLL = '0';
+  t.after(() => { process.env.AGENT_WORKFORCE_USAGE_POLL = '1'; });
+  assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), null, 'switched off, an earlier reading was still shown');
+  assert.equal(accountsweekly.weeklyBlockedOf({ dir: d, email: EMAIL }, 'darwin', NOW), 'not-wired', 'switched off, an earlier reading hid the reason');
+});
+
+test('#7152 review 20: a rate limit keeps its hour across a renewed token; a 401 does not', async (t) => {
+  const seen = {};
+  let expiresAt = NOW + 10 * 3600000;
+  const at = (now, answer) => ({ now, platform: 'darwin', realHome: '/', readCred: async () => cred({ expiresAt }), request: fakeRequest(answer, seen) });
+  const d = tmpDir(t);
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW, { code: 429, body: '' }));
+  expiresAt = NOW + 20 * 3600000;
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 0, 'a rate-limited account was read again because its token was renewed');
+  const e = tmpDir(t);
+  expiresAt = NOW + 10 * 3600000;
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW, { code: 401, body: '' }));
+  expiresAt = NOW + 20 * 3600000;
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
+  assert.equal(seen.calls.length, 2, 'CONTROL: a refused token, once renewed, is read at once');
 });

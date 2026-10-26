@@ -65,6 +65,7 @@ function accountOrg(a) {
 
 function polledOf(a, nowMs, key) {
   const usagepoll = require('./usagepoll');
+  if (!usagepoll.enabled()) return null;   // review 20: switched off, the board shows the status line alone, as before
   const r = usagepoll.readUsage(a.dir, nowMs);
   /* Review 17: a record names the login it was measured for, and is shown only for that login, so a folder signed in
      again (or copied) does not show the old login's figure until the next read replaces it. */
