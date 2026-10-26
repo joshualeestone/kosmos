@@ -422,18 +422,27 @@ function noticeMode(project) {
 /* When each member was last told a digest, per project: its own file beside the held list, so a digest is at most
    one an hour across board restarts. */
 function digestFile(name) { return path.join(dir(), store.safeKey(String(name)) + '.digest.json'); }
+/* Review 3: the same times in memory too, so a write that keeps failing (a full disk, a refused securewrite) cannot make
+   every turn end a due digest, which is the very wake loop this card removes. The later of the two is used. */
+const digestMem = new Map();
+let digestWriteSaid = false;
 function digestAt(name, projectId) {
+  let at = null;
   try {
     const got = JSON.parse(fs.readFileSync(digestFile(name), 'utf8'));
-    const at = got && typeof got === 'object' && !Array.isArray(got) ? got[projectId] : null;
-    return Number.isFinite(at) ? at : null;
-  } catch { return null; }
+    const v = got && typeof got === 'object' && !Array.isArray(got) ? got[projectId] : null;
+    if (Number.isFinite(v)) at = v;
+  } catch { /* none on disk */ }
+  const mem = digestMem.get(String(name) + '\u0000' + projectId);
+  if (Number.isFinite(mem) && (at === null || mem > at)) at = mem;
+  return at;
 }
 function digestDue(name, projectId, now) {
   const at = digestAt(name, projectId);
   return at === null || !Number.isFinite(now) || now - at >= DIGEST_MS || now < at;
 }
 function noteDigest(name, projectId, now) {
+  digestMem.set(String(name) + '\u0000' + projectId, now);
   try {
     let all = Object.create(null);
     try {
@@ -443,7 +452,13 @@ function noteDigest(name, projectId, now) {
     all[projectId] = now;
     fs.mkdirSync(dir(), { recursive: true });
     require('./securewrite').writeSecret(digestFile(name), JSON.stringify(all), 0o600, { atomicOnly: true });
-  } catch { /* best effort: the next digest comes a minute later at worst */ }
+  } catch (err) {
+    // Held in memory above, so the hour still holds while the board runs; said once, so a failing disk is visible.
+    if (!digestWriteSaid) {
+      digestWriteSaid = true;
+      try { process.stdout.write('room-hold: could not record a digest time on disk (' + ((err && err.code) || 'error') + '); keeping it in memory until the board restarts\n'); } catch { /* never breaks a flush */ }
+    }
+  }
 }
 /* A held post that names the member and asks for its answer (the @ mark): told at once in any mode. A cap-marked post
    (^) asks nothing; it waits for the digest like any other (review 1: counting it made a Gemini member's every post in a

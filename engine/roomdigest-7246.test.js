@@ -158,3 +158,19 @@ test('#7246 review 2: over KEEP, the oldest posts that ask nothing go first; an 
   assert.equal(held.length, roomhold.KEEP);
   assert.equal(held[0], roomhold.addressedId('a1'), 'hold trimmed the ask');
 });
+
+test('#7246 review 3: a digest time that cannot be written to disk still holds the hour (in memory)', async () => {
+  const { typed, deliver } = harness();
+  roomhold.hold('lu', 'big', 'm1');
+  const file = path.join(roomhold.dir(), 'lu.digest.json');
+  fs.mkdirSync(file, { recursive: true });   // a directory where the file goes: every write fails
+  try {
+    await flush('lu', deliver, 'digest', T0);
+    assert.equal(typed.length, 1, 'CONTROL: the first digest is told');
+    roomhold.hold('lu', 'big', 'm2');
+    await flush('lu', deliver, 'digest', T0 + 5 * MIN);
+    assert.equal(typed.length, 1, 'with the write failing, a turn end inside the hour told the posts again (the wake loop)');
+    await flush('lu', deliver, 'digest', T0 + 61 * MIN);
+    assert.equal(typed.length, 2, 'the next digest did not come after the hour');
+  } finally { fs.rmSync(file, { recursive: true, force: true }); }
+});
