@@ -20,6 +20,7 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const worlds = require('./worlds');
+const store = require('./store');
 const rw = require('./restoreworld');
 const { createRestoreSink, RECORD_NAME, LOCK_NAME } = require('./restoresink');
 
@@ -87,6 +88,7 @@ test('a restore lands in a new "Restored" Kosmos, its workers and projects becom
   assert.equal(by.a1b2.from, 'elsewhere');
   assert.match(by.a1b2.because, /kept outside the workers folder/);
   assert.equal(l.more, false);
+  assert.deepEqual(l.shared, [], 'a project with nothing that loads at start is not listed');
   // Nothing was registered: the new world's store holds no profile.
   assert.deepEqual(worlds.worldProfileNames(base, p.world), []);
 });
@@ -270,11 +272,54 @@ test('a name written to spoof the screen gets a safe label, kept entries too; a 
   assert.equal(by[spoof].label, 'anndm.exe');
   assert.equal(by.linkbrief.brief, null);
   assert.match(by.linkbrief.because, /no instructions file/);
-  assert.deepEqual(by.linkbrief.runs, []);
+  assert.deepEqual(by.linkbrief.runs, ['CLAUDE.md is a link'], 'a linked brief is named, never opened');
   // A kept entry is shown by its label as well.
   fs.rmSync(path.join(p.restoreDir, 'agents'));
   fs.mkdirSync(path.join(p.restoreDir, `elsewhere${rlo}`));
   const f = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(f.ok, true, f.because);
   assert.deepEqual(f.kept, ['elsewhere']);
+});
+
+test('a git folder in an agent makes it not offered; one at the top of workers blocks every agent; files there and risky projects are shared', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const roots = worlds.envOverridesFor(base, p.world);
+  const put = (root, rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+  const w = roots.AGENT_WORKFORCE_WORKERS, pr = roots.AGENT_WORKFORCE_PROJECTS;
+  put(w, 'ann/CLAUDE.md', '# Ann\n');
+  put(w, 'gitty/CLAUDE.md', '# Gitty\n');
+  put(w, 'gitty/.git/config', '[core]\n\tfsmonitor = touch /tmp/x\n');
+  put(w, '.DS_Store', '');
+  put(w, 'CLAUDE.md', 'every agent reads this @~/.ssh/id\n');
+  put(pr, 'site/CLAUDE.md', '@../../secret\n');
+  put(pr, 'site/.git/config', '[core]\n');
+  put(pr, 'plain/README.md', 'nothing\n');
+  let l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  let by = Object.fromEntries(l.agents.map((a) => [a.folder, a]));
+  assert.equal(by.ann.because, null);
+  assert.match(by.gitty.because, /git folder/);
+  assert.ok(by.gitty.runs.includes('.git'));
+  assert.deepEqual(l.shared, [
+    { where: 'workers', label: 'CLAUDE.md', runs: [] },
+    { where: 'projects', label: 'site', runs: ['.git', 'CLAUDE.md imports'] },
+  ], '.DS_Store is not listed and a plain project is not shared');
+
+  put(w, '.git/config', '[core]\n');
+  l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  by = Object.fromEntries(l.agents.map((a) => [a.folder, a]));
+  assert.match(by.ann.because, /workers folder holds a git folder/, 'a git folder above every agent blocks them all');
+  assert.ok(l.shared.some((x) => x.where === 'workers' && x.label === '.git'));
+});
+
+test('a world folder left on disk under the chosen id is never reused: it is hidden and the next name is taken', (t) => {
+  const base = fresh(t);
+  const leftover = path.join(base, worlds.WORLDS_SUBDIR, store.safeKey(rw.worldName('Ann', NOW)), 'workers', 'old-agent');
+  fs.mkdirSync(leftover, { recursive: true });
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.world.name, `Restored: Ann, ${DAY} (2)`);
+  const first = worlds.readRegistry(base).worlds.find((x) => x.name === `Restored: Ann, ${DAY}`);
+  assert.ok(first && first.hiddenAt, 'the world over the leftover folder was hidden');
+  assert.deepEqual(rw.listRestoredAgents({ base, world: p.world, nameOk }).agents, []);
 });
