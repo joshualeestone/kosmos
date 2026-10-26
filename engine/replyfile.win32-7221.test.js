@@ -1014,3 +1014,33 @@ test('#7221 review 23-1: a nested project of another agent written with a chaine
   const r = replyfile.attach(WHO, path.join(nested, 'secret.txt'), { platform: 'win32' });
   assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'refused, as main refused it: ' + JSON.stringify(r));
 });
+
+/* ---------- review 26 ---------- */
+
+test('#7221 review 26-1: another agent\'s folder that leads somewhere unplaceable refuses project files with its own sentence; Files still attach', linkOnly, () => {
+  /* Fail closed, as review 22 decided: a destination that cannot be placed may hold any file. But the agent is told
+     why, not that its own file is outside its projects, so the row can be found and fixed. */
+  const mine = path.join(SANDBOX, 'mine-beside-unplaced');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'notes.txt'), 'mine\n');
+  const theirs = path.join(SANDBOX, 'their-unplaced-link');
+  fs.symlinkSync('\\\\?\\GLOBALROOT\\Device\\NoSuchDevice7221\\x', theirs, 'dir');
+  try {
+    PROJECTS = [
+      { id: 'p-mine-unplaced', name: 'Mine', folder: mine, agents: [WHO] },
+      { id: 'p-their-unplaced', name: 'Theirs', folder: theirs, agents: ['someone-else'] },
+    ];
+    const r = replyfile.attach(WHO, path.join(mine, 'notes.txt'), { platform: 'win32' });
+    assert.deepEqual([r.ok, r.because], [false, replyfile.OTHER_FOLDER_UNPLACED], JSON.stringify(r));
+    // CONTROL: a file directly in the agent's Files folder still attaches
+    fs.writeFileSync(path.join(FILES, 'unplaced-control.txt'), 'files\n');
+    const ok = replyfile.attach(WHO, path.join(FILES, 'unplaced-control.txt'), { platform: 'win32' });
+    assert.equal(ok.ok, true, JSON.stringify(ok));
+    replyfile.discard(ok.rec);
+    // CONTROL: with that row gone, the same project file attaches
+    PROJECTS = [{ id: 'p-mine-unplaced', name: 'Mine', folder: mine, agents: [WHO] }];
+    const back = replyfile.attach(WHO, path.join(mine, 'notes.txt'), { platform: 'win32' });
+    assert.equal(back.ok, true, JSON.stringify(back));
+    replyfile.discard(back.rec);
+  } finally { fs.rmSync(theirs, { force: true }); }
+});

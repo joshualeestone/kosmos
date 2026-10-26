@@ -341,6 +341,21 @@ is red. Pure spelling arms run on every platform; the link and attach arms run o
   roots shares, so readOwn's recheck does not walk them again (the review 4-1 arm counts lstats of the Files folder:
   2, one by the walk and one by filesRoot's own check, where the old code made 3); a local-volume path given to attach
   is asked for its drive letter (LONG_FORM) rather than called a network path.
+- Windows CI on the PR (after the proof at iteration 25) failed two arms: CI's temp folder is written with an 8.3
+  short name (`C:\Users\RUNNER~1\...`) and realpath gives the long one. Review 16-1's arm showed a real fail-open:
+  another agent's link written with a short name never matched by spelling the long real path of a file under it, so
+  the file attached. `winpath.mayHold` (it only ever refuses) now lets a short-name segment stand for any one segment;
+  a pure arm in `engine/winpath.test.js` pins it both ways. Review 21-2's arm was test-only: readOwn's `real` is now
+  the native realpath, as attach passes it. Reproduced here with TMP/TEMP set to a short-name folder; against the
+  previous winpath, exactly the 16-1 arm fails.
+- Review 26 (the unplaceable fail-closed, made diagnosable): an agent refused only because another agent's folder
+  leads somewhere that cannot be placed (`\Device\...`, an unnamed GLOBALROOT path) was told NOT_YOURS, which is
+  false for a file in its own project and names nothing to fix. `skippedMayHold` now answers `held` or `unplaced`,
+  and the second refuses with OTHER_FOLDER_UNPLACED; a folder that may hold the file still refuses NOT_YOURS. Still
+  fail-closed by design (review 22); the create-time refusal of such rows is #7229. Against the previous
+  `replyfile.js` the new arm fails. Review 26 NITs left: `ownShareProject` checks `roots.folders` (Files included, as
+  review 25 noted); `hiddenRefusal` rule 1's home prefix is case-sensitive (existing code; rules 2 and 3 judge by
+  identity); the long winpath import; a classification table for winpath's spellings.
 
 Negative controls: the first 12 arms against main's `replyfile.js`: 11 of 12 fail (only the control passes). The four
 review-2 arms against iteration 1's `replyfile.js` (f61f537): all 4 fail. The three review-3 arms against iteration 2's
@@ -349,7 +364,7 @@ iteration 4's (650ad2e): all 3 fail (the two 5-1 arms by attaching the nested pr
 
 ## Verified on the Windows box
 
-- `engine/replyfile.win32-7221.test.js`: 55/55 (none skipped); `engine/winpath.test.js`: 2/2. `engine/windows-tests-1777.test.js`: 23/23.
+- `engine/replyfile.win32-7221.test.js`: 56/56 (none skipped), also with TMP/TEMP written as an 8.3 short name; `engine/winpath.test.js`: 3/3. `engine/windows-tests-1777.test.js`: 23/23.
   `engine/windows-coupling-audit-1732.test.js`: 8/8. `engine.reachable.test.js`: 8/8.
 - `server.reply-file-6726.test.js`: 53/56, the same 3 failures as main on this box, same reasons (NFD names, FIFO,
   O_NONBLOCK: Mac filesystem behaviours). Once (iteration 8's first full run) a 4th, `r4-3`, refused an ordinary

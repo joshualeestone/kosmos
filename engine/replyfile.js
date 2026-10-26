@@ -92,6 +92,10 @@ const UNREADABLE_LINK = 'that path goes through a link that cannot be followed, 
    junction name only a local volume, so it leads nowhere this computer can read). allowedRoot leaves such a folder of
    another agent unresolved (review 15 finding 1), as it does a link to a share. */
 const DEAD_LINK = 'that path goes through a link that leads nowhere this computer can read, so it cannot be attached';
+/* Another agent's project folder leads somewhere this cannot place (\Device\..., \\?\GLOBALROOT\..., a stream), so it
+   may hold any file and every project file is refused until that row is fixed (review 26 finding 1). Said as what it
+   is, so the board's owner can find the row; the Files folder still works. */
+const OTHER_FOLDER_UNPLACED = 'another project\'s folder on this computer leads somewhere that cannot be checked, so no project file can be attached until that project\'s folder is fixed; copy the file into your Files folder and attach it from there';
 
 /* The ON-DISK spelling, as projects.js resolveReal reads a project's folder: realpathSync.native,
    never the JS realpathSync, which keeps the caller's case and Unicode form. On a case-insensitive,
@@ -292,7 +296,9 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
     else if (i === best.depth && mine) best.mine = true;
   }
   if (!best || !best.mine) return null;
-  if (skippedOthers.some((s) => skippedMayHold(s, given, real))) return null;
+  const holds = skippedOthers.map((s) => skippedMayHold(s, given, real));
+  if (holds.includes('held')) return null;
+  if (holds.includes('unplaced')) return { refused: OTHER_FOLDER_UNPLACED };
   const k = keptRoots(sessionName, roster);
   /* A project whose folder IS the home folder or CONTAINS it (/Users, /, the Data volume root), or holds the data
      root or the workers root, gives nothing (review r3 finding 3), wherever those roots live and however the folder
@@ -364,15 +370,22 @@ function otherFolderSkip(folder, fileShare) {
 /* Whether a project folder of another agent left unresolved may hold the file, erring toward yes. By its own spelling
    first (winpath.mayHold). Then by where it leads: one that leads nowhere holds nothing; one that leads to another
    computer cannot hold a file on this one, and holds a file on a share when the file is under the share it leads to,
-   whatever the server is called, or when where it leads cannot be named (review 16 finding 1). */
+   whatever the server is called, or when where it leads cannot be named (review 16 finding 1).
+   It answers 'held' when the folder may hold the file, 'unplaced' when it may only because where it leads cannot be
+   placed at all, and null when it cannot hold it. allowedRoot says the two refusals differently (review 26 finding 1):
+   an agent refused because one project row on the board cannot be placed is told that, not that the file is not in
+   a project of its own. */
 function skippedMayHold(skipped, given, real) {
-  if (mayHold(skipped.folder, given, real)) return true;
-  if (skipped.kind === 'nowhere') return false;
+  /* A folder written in a namespace that is not a drive, a share or a local volume: mayHold answers yes for it
+     whatever the file, so its yes says nothing about the file. */
+  const unplaceable = !driveOf(asDrivePath(skipped.folder)) && !shareOf(skipped.folder) && !isLocalVolumeSpelling(skipped.folder);
+  if (mayHold(skipped.folder, given, real)) return unplaceable ? 'unplaced' : 'held';
+  if (skipped.kind === 'nowhere') return null;
   /* A destination that cannot be named may be anywhere, this computer included, so it may hold any file (review 22
      finding 1: a link to \??\Global\C:\... had been read as "another computer" and a local file let through). */
-  if (!skipped.leadsTo) return true;
-  if (!isNetworkSpelling(real)) return false;
-  return mayHold(skipped.leadsTo, real, real);
+  if (!skipped.leadsTo) return 'unplaced';
+  if (!isNetworkSpelling(real)) return null;
+  return mayHold(skipped.leadsTo, real, real) ? 'held' : null;
 }
 
 /* The three hidden-name rules, in one place, for a PROJECT file only (review r6 finding 2): allowedRoot calls it after
@@ -816,5 +829,5 @@ function discard(rec) {
 
 /* winSpellingRefusal is exported for engine/replyfile.win32-7221.test.js only; nothing else should call it (review 4
    NIT). The pure path rules it builds on are engine/winpath.js. */
-module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, LONG_FORM, TOO_MANY_LINKS, DEAD_LINK,
+module.exports = { attach, discard, typeOf, readOwn, sentToday, seed, setRealpathForTests, OPEN_FLAGS, DAILY_BYTES, NOT_YOURS, HARD_LINK, KEPT_FOR_KOSMOS, WIDE_PROJECT, HIDDEN_IN_HOME, IN_LIBRARY, ON_NETWORK, DEVICE_NAME, UNREADABLE_LINK, STREAM, LONG_FORM, TOO_MANY_LINKS, DEAD_LINK, OTHER_FOLDER_UNPLACED,
   winSpellingRefusalForTests: winSpellingRefusal };
