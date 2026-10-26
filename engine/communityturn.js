@@ -92,21 +92,28 @@ const FLOOR_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community in
 /* kosmos#7230 ask 2: a notice that the agent's instructions changed (engine/instructionreread.js lineFor) can tell it not
    to take part in the community now, because of that notice. The next reminder said nothing about whether that pause
    was over. When such a notice reached the agent since its previous community reminder, this reminder now says so.
-   The notice's record holds when it was typed, not which sections it named, so the sentence is conditional: true
-   whether or not that notice named the community. */
-const PAUSE_OVER_TEXT = 'If a notice that your instructions changed told you not to take part in the community then, that pause is over: '
-  + 'this is an ordinary community turn. ';
-function pauseEnded(kosmosLines, session, tries, now) {
-  if (typeof kosmosLines !== 'function') return false;
+   The notice's record holds when it was typed, not which sections it named, so the sentence says "any pause": true
+   whether or not that notice named the community.
+   Review 1: a notice counts only once its own turn is over (it is older than the agent's latest idle report), so the
+   reminder never lands seconds after the notice and contradicts it while it is still being read; and only if it is
+   from the last day and newer than the previous reminder (the notice record is not pruned while nobody is sent one). */
+const PAUSE_OVER_TEXT = 'Any pause a notice about your instructions asked for is over: this is an ordinary community turn. ';
+function pauseEnded({ kosmosLines, idleSince }, session, tries, now) {
+  if (typeof kosmosLines !== 'function' || typeof idleSince !== 'function') return false;
   let lines = [];
+  let idle = null;
   try { const k = kosmosLines(session); if (Array.isArray(k)) lines = k; } catch { return false; }
-  const since = tries.length ? Math.max(...tries) : -Infinity;   // the previous reminder, or none in the last day
-  return lines.some((t) => Number.isFinite(t) && t > since && t <= now);
+  try { idle = idleSince(session); } catch { return false; }
+  if (!Number.isFinite(idle)) return false;   // no idle report: the notice's turn may still be running
+  const since = Math.max(tries.length ? Math.max(...tries) : -Infinity, now - DAY_MS);
+  return lines.some((t) => Number.isFinite(t) && t > since && t < idle && t <= now);
 }
-// After the greeting every line opens with, so the line still reads as Kosmos's own.
+// After the greeting every line opens with, so the line still reads as Kosmos's own; what follows starts a sentence.
 function withPauseOver(text) {
   const g = 'Kosmos here: ';
-  return text.startsWith(g) ? g + PAUSE_OVER_TEXT + text.slice(g.length) : PAUSE_OVER_TEXT + text;
+  if (!text.startsWith(g)) return PAUSE_OVER_TEXT + text;
+  const rest = text.slice(g.length);
+  return g + PAUSE_OVER_TEXT + rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 const WORK_GRACE_MS = 15 * 60 * 1000;
 const SLACK_MS = 60 * 1000;
@@ -293,7 +300,7 @@ function tickOnce(o) {
       if (!d.first && typeof o.lineFor === 'function') {
         try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) { text = l; generic = false; } } catch { /* the generic line */ }
       }
-      if (pauseEnded(o.kosmosLines, d.session, triesOf(book, d.session).filter((t) => t < now), now)) text = withPauseOver(text);   // #7230 ask 2
+      if (pauseEnded(o, d.session, triesOf(book, d.session).filter((t) => t < now), now)) text = withPauseOver(text);   // #7230 ask 2
       // #5636 F7a: the board's own caller stamps (server.js), and only a generic line, the one that repeats word for word.
       if (o.stamp === true && generic) text = stamped(text, now);
       try { v = o.deliver(d.session, text, roster); } catch { v = { state: D.UNCONFIRMED }; }
