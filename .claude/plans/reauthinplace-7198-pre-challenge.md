@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: reauthinplace-7198
-diff_hash: 0ce3396d27184e5b69775896cabfc38db740d0a7921a91b2c28ca96919c039ee
+diff_hash: 0e148ccc77c3f40cad6051c6ccb1d768c7f9ee8310e0f3c9654952cde0478ded
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-26T19:43:04Z
+timestamp: 2026-10-26T23:58:48Z
 iterations: 9
 converged: true
 ---
@@ -16,7 +16,7 @@ converged: true
 **Converged:** Yes (iteration 9, sonnet: no BLOCKER or WARNING; 2 NITs accepted below)
 **Total findings:** 1 BLOCKER (6.0), 13 WARNINGs, 24 NITs across iterations 2 to 9 (numbered 1 to 39 in the ledger)
 **Fixed:** every BLOCKER and WARNING except two deferred with reasons below | **Deferred:** 3 (#11 and #24 to card #7202; #12 cost) | **Asked (awaiting user):** 0
-**Validation:** full validation PASSED on this head 7b1ac82255 (hash 0ce3396d2718): node suite 24283 tests (0 fail), test:shell 4 shards all green, type-check, lint, build. Validation 7 before it found the surface gate wanting two checks run (render-acct-stop-focus-4271, render-login-expiry-3532); both were run and pass.
+**Validation:** **Rebased onto main 17:30 CDT (base a2b2fe1c52); two conflicts with #7194 in engine/status.js computeLoginAdvisories resolved keeping both; full validation re-run on fede48950e PASSED (hash 0e148ccc77c3, node suite 24408 tests 0 fail, test:shell 4 shards green, audit 0).** Before the rebase: full validation PASSED on this head 7b1ac82255 (hash 0ce3396d2718): node suite 24283 tests (0 fail), test:shell 4 shards all green, type-check, lint, build. Validation 7 before it found the surface gate wanting two checks run (render-acct-stop-focus-4271, render-login-expiry-3532); both were run and pass.
 **Browser-check gates:** render-refreshlogin-5407 (the branch's own check) 107/107 and render-login-expiry-3532 82/82 on this head 7b1ac82255; render-acct-stop-focus-4271 25/25 and render-disconnect-stop-2570 passed on the branch, recorded in trailers (45c0c0a1bf, 88102d3db7).
 
 ### Per-Iteration Breakdown
