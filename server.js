@@ -25872,8 +25872,8 @@ function start(port = PORT) {
          ten-minute constant it serves. unref'd so it never holds the
          process open, and every run is best-effort: the room's own
          unanswered line is the person-facing surface either way. */
-      /* #7212: agents whose current held stretch was already said (limitqueue.heldInputToSay keeps it). */
-      const heldInputSaid = new Set();
+      /* #7212: agents whose current held stretch was already said, and when (limitqueue.heldInputToSay keeps it). */
+      const heldInputSaid = new Map();
       /* #7212: messages held behind an agent's input box for half an hour are said once per held stretch, with what
          the box reads now (text, or nothing Kosmos can read), so a hold that lasts days is never silent. Run after the
          minute's flush has settled, and not while an older run is still typing (flush skips a minute that finds one),

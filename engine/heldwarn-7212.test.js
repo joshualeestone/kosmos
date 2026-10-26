@@ -98,7 +98,7 @@ test('#7212 review: a held stretch is said once while it drains, and a new stret
   for (const [id, m] of [['s1', 50], ['s2', 45], ['s3', 40]]) {
     assert.ok(limitqueue.add('drainer', { id, from: 'x', envelope: 'e', at: at(m), reset: at(m), input: true }));
   }
-  const said = new Set();
+  const said = new Map();
   const say = () => limitqueue.heldInputToSay(now, limitqueue.HELD_INPUT_SAY_MS, said).filter((h) => h.name === 'drainer');
   assert.equal(say().length, 1, 'CONTROL: a stretch held half an hour is said');
   assert.equal(say().length, 0, 'said again the next minute');
@@ -135,7 +135,7 @@ test('#7212 review 2: a queue file that cannot be read for a minute does not end
   const now = Date.parse('2026-10-26T12:00:00Z');
   const at = new Date(now - 40 * MIN).toISOString();
   assert.ok(limitqueue.add('glitchy', { id: 'g1', from: 'x', envelope: 'e', at, reset: at, input: true }));
-  const said = new Set();
+  const said = new Map();
   const say = () => limitqueue.heldInputToSay(now, limitqueue.HELD_INPUT_SAY_MS, said).filter((h) => h.name === 'glitchy');
   assert.equal(say().length, 1);
   const file = limitqueue.fileFor('glitchy');
@@ -182,4 +182,25 @@ test('#7212 review 2: a thrown error is logged by its kind, never its message te
   assert.equal(lines.length, 1);
   assert.match(lines[0], /still waiting \(failed\)/);
   assert.doesNotMatch(lines[0], /secret/);
+});
+
+test('#7212 review 3: a stretch that lasts days is said again once a day, not every minute', () => {
+  const t0 = Date.parse('2026-10-26T12:00:00Z');
+  const at = new Date(t0 - 40 * MIN).toISOString();
+  assert.ok(limitqueue.add('weeklong', { id: 'k1', from: 'x', envelope: 'e', at, reset: at, input: true }));
+  const said = new Map();
+  const say = (now) => limitqueue.heldInputToSay(now, limitqueue.HELD_INPUT_SAY_MS, said).filter((h) => h.name === 'weeklong');
+  assert.equal(say(t0).length, 1);
+  assert.equal(say(t0 + 60 * MIN).length, 0, 'said again within the day');
+  assert.equal(say(t0 + limitqueue.HELD_INPUT_RESAY_MS - MIN).length, 0, 'said again before a day had passed');
+  assert.equal(say(t0 + limitqueue.HELD_INPUT_RESAY_MS).length, 1, 'a hold into its second day was not said again');
+  assert.equal(say(t0 + limitqueue.HELD_INPUT_RESAY_MS + MIN).length, 0, 'the daily line repeated the next minute');
+});
+
+test('#7212 review 3: a message kept behind earlier held messages is logged as that, not as a usage reset', () => {
+  const line = limitqueue.deliveredLine({ name: 'a', id: 'm', state: 'placed', why: limitqueue.heldWhy({ behind: true }) });
+  assert.match(line, /kept ahead of it/);
+  assert.doesNotMatch(line, /usage/);
+  // The box reason wins when a message is both behind and held by the box (#6774 stores input for that case).
+  assert.equal(limitqueue.heldWhy({ behind: true, input: true }), 'input');
 });
