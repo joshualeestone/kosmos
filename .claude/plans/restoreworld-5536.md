@@ -11,15 +11,16 @@ no profile record, and STARTS the agent: enable then bootstrap).
     hidden again and the call says so.
   - `finishRestoreWorld({ base, world, restoreDir, result })`: only after runRestore answered ok and the sink is
     closed, into a world on the list (registry row, not hidden), from the exact `restored` folder, with none of the
-    sink's own entries left (record, lock, temp folder). At the top of each root only plain-named folders move; dot
-    entries, HEAD, files and links are held back in `restored/held-back-<random>/<root>/` (new each run) and named in `heldBack`, since the
+    sink's own entries left (record, lock, temp folder), one finish at a time (a lock in the world folder). At the top
+    of each root only plain-named folders move; dot entries, HEAD, node_modules, files and links are held back in `restored/held-back-<random>/<root>/` (new each run) and named in `heldBack`, since the
     top of workers or projects sits above every agent and project made in this world later. Each root then moves by
     one rename into the world's empty folder. Every check runs before anything moves; one answer shape on every path,
     with `failedFiles` and `fetchProblems` from the restore.
   - `listRestoredAgents({ base, world, restoreDir })`: each folder in the world's workers and in `restored/agents`,
     with a `because` when it cannot be enabled (a link; a folder name create.js cannot start; no instructions file; a
     git repository, a .git or a HEAD, in it or at the top of workers; a folder it could not read or read in full) and
-    `runs` (dot-entries, CLAUDE.local.md and opencode files, git, linked or non-text briefs, `@` imports, in every brief
+    `runs` (dot-entries and the start-time dot-names asked by exact name, CLAUDE.local.md, opencode files and
+    node_modules, git, linked or non-text briefs, `@` imports, in every brief
     including AGENTS.override.md). `shared` carries the tops of workers and projects and any project with `runs`.
     `more` says the list is incomplete. A world not on the list answers with a `because`. Registers, starts and
     writes nothing; reads are bounded per folder and in total.
@@ -150,6 +151,12 @@ no profile record, and STARTS the agent: enable then bootstrap).
    retry wait (round 11's reasoning: the restore wrote every entry first; the sink waits the same way); a create
    failure after its row (round 2). Convention: the object replacement character and variation selectors are
    stripped from labels.
+
+19. W: a rerun after a part-way failure no longer named what the first run held back (each run's held-back folder is
+   now recorded in the world folder, which a snapshot never writes, and heldBack reads every recorded one); two
+   finishes could run at once (now a lock in the world folder; a dead process's lock is taken over). Nits: a hidden or
+   unlisted world's refusal now says so; the workers folder's own row gives the git reason; the variation selector
+   supplement is stripped from labels; the doc comment and this plan name node_modules.
 
 ## Residuals, stated
 - A node_modules or .git nested deeper inside a moved project is not reported; npm and git find them when an agent

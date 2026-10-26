@@ -315,7 +315,8 @@ test('a git folder in an agent makes it not offered; one at the top of workers b
   l = rw.listRestoredAgents({ base, world: p.world, nameOk });
   by = Object.fromEntries(l.agents.map((a) => [a.folder, a]));
   assert.match(by.ann.because, /workers folder holds a git folder/, 'a git folder above every agent blocks them all');
-  assert.ok(l.shared.some((x) => x.label === '(the workers folder itself)' && x.runs.includes('.git')));
+  assert.ok(l.shared.some((x) => x.label === '(the workers folder itself)' && x.runs.includes('.git')
+    && x.runs.includes('git runs its settings here (hooks, fsmonitor) when an agent uses git in this folder')));
   assert.ok(!l.shared.some((x) => x.label === '.git'), 'a dot-entry gets no row of its own; the folder row names it');
 });
 
@@ -443,7 +444,7 @@ test('finish says how many files the restore listed as failed, and refuses a wor
   fs.mkdirSync(path.join(ghostDir, rw.RESTORE_DIR, 'workers', 'x'), { recursive: true });
   const g = rw.finishRestoreWorld({ base, world: ghost, restoreDir: path.join(ghostDir, rw.RESTORE_DIR), result: OK });
   assert.equal(g.ok, false);
-  assert.match(g.because, /did not name its Kosmos/);
+  assert.match(g.because, /not a Kosmos on your list/);
   assert.ok(fs.existsSync(path.join(ghostDir, rw.RESTORE_DIR, 'workers', 'x')), 'nothing moved');
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: { ok: true, result: { restored: ['a'], failed: [{ path: 'b' }, { path: 'c' }] } } });
   assert.equal(r.ok, true, r.because);
@@ -519,7 +520,7 @@ test('a hidden world is neither finished nor listed', (t) => {
   fs.rmSync(path.join(w, 'bob'), { recursive: true });
   const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(r.ok, false);
-  assert.match(r.because, /did not name its Kosmos/);
+  assert.match(r.because, /not a Kosmos on your list/);
   assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), 'nothing moved');
 });
 
@@ -746,4 +747,40 @@ test('a node_modules in an agent folder is named in runs, and heldBack is capped
   assert.equal(r.heldBack[1000], 'workers/(more not listed)');
   const a = rw.listRestoredAgents({ base, world: p.world, nameOk }).agents.find((x) => x.folder === 'ann');
   assert.deepEqual(a.runs, ['node_modules']);
+});
+
+test('a rerun after a part-way failure still names what the first run held back', { skip: process.platform === 'win32' ? 'POSIX modes' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', '.git'));
+  fs.mkdirSync(path.join(p.restoreDir, 'projects', 'site'), { recursive: true });
+  const ro = path.join(p.restoreDir, 'projects');
+  fs.chmodSync(ro, 0o555);
+  let first;
+  try { first = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK }); } finally { fs.chmodSync(ro, 0o755); }
+  assert.equal(first.ok, false);
+  assert.deepEqual(first.heldBack, ['workers/.git']);
+  const again = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(again.ok, true, again.because);
+  assert.deepEqual(again.heldBack, ['workers/.git'], 'the first run\'s held-back entries are still named');
+  assert.ok(!again.kept.some((n) => n.startsWith('held-back-')), 'and its folder is itemised, not listed as kept');
+});
+
+test('one finish at a time: a live lock refuses, a dead process\'s lock is taken over', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  fs.mkdirSync(path.join(p.restoreDir, 'workers', 'ann'), { recursive: true });
+  const lock = path.join(p.dir, 'restore-finishing');
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'pid'), String(process.pid));
+  const busy = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(busy.ok, false);
+  assert.match(busy.because, /already under way/);
+  assert.ok(fs.existsSync(path.join(p.restoreDir, 'workers', 'ann')), 'nothing moved');
+  const dead = require('node:child_process').spawnSync(process.execPath, ['-e', '0']).pid;
+  fs.writeFileSync(path.join(lock, 'pid'), String(dead));
+  const r = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(r.ok, true, r.because);
+  assert.ok(!fs.existsSync(lock), 'the lock is released after the finish');
 });
