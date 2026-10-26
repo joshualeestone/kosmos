@@ -2152,14 +2152,21 @@ function setProvider(name, provider, opts) {
   /* #3296/#3391: the four-way guard createAgentInner already uses. google launches
      the gemini runner, xai the grok runner; the switch path was the last post-birth
      setter still refusing both (setAccount/setModel already handle them). */
+  /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (anthropiccompat.enabled, off by
+     default and never on Windows); while off it is refused here exactly as an unknown provider is, with its own words. */
+  const compatVendor = require('./anthropiccompat').vendorOf(provider);
+  if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform)) {
+    return { outcome: OUTCOME.REFUSED, because: require('./anthropiccompat').notYet(provider) };
+  }
   if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
+    && !compatVendor
     && !(provider === 'antigravity' && antigravityEnabled())) { // #3568: behind its flag
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
   }
   /* #5977: Qwen runs on the account a person set up (an endpoint), so a switch onto it names one; there is no
-     default Qwen account to fall back to. */
-  if (provider === 'alibaba' && !(opts && typeof opts.accountDir === 'string' && opts.accountDir !== '')) {
-    return { outcome: OUTCOME.REFUSED, because: 'pick which Qwen account it should run on, so nothing was changed' };
+     default Qwen account to fall back to. #7206: a vendor the same (its key lives in the account). */
+  if ((provider === 'alibaba' || compatVendor) && !(opts && typeof opts.accountDir === 'string' && opts.accountDir !== '')) {
+    return { outcome: OUTCOME.REFUSED, because: `pick which ${providerLabel(provider)} account it should run on, so nothing was changed` };
   }
   /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
   {
@@ -2233,7 +2240,9 @@ function setProvider(name, provider, opts) {
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
     /* The existing OpenAI/Claude wording is kept verbatim (create.runner-dir-1616
        asserts `/could not find the OpenAI runner/`); gemini/grok get the same shape. */
-    const missing = provider === 'alibaba' ? 'Codex, the runner Qwen agents use' : runner === 'codex' ? 'the OpenAI runner'
+    const missing = provider === 'alibaba' ? 'Codex, the runner Qwen agents use'
+      : require('./anthropiccompat').vendorOf(provider) ? `Claude Code, the runner ${providerLabel(provider)} agents use`   // #7206
+      : runner === 'codex' ? 'the OpenAI runner'
       : runner === 'gemini' ? 'the Gemini runner'
         : runner === 'grok' ? 'the Grok runner'
           : runner === 'antigravity' ? 'Antigravity'
@@ -2501,6 +2510,15 @@ function setProvider(name, provider, opts) {
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen') };
     if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used (${acct.endpointProblem}), so nothing was changed` };
     switchAccount = { ...acct, chosen: opts.pickedByPerson === true };
+  }
+  /* #7206: a vendor account, by name only, fail-closed like Qwen's: unknown or unusable refuses and changes nothing. */
+  if (compatVendor && !DRY_RUN) {
+    const compat = require('./anthropiccompat');
+    const wantDir = path.resolve(opts.accountDir);
+    const acct = compat.list(provider).find((a) => a.dir === wantDir);
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal(compatVendor.name) };
+    if (acct.accountProblem) return { outcome: OUTCOME.REFUSED, because: `that ${compatVendor.name} account cannot be used (${acct.accountProblem}), so nothing was changed` };
+    switchAccount = { ...acct, isDefault: false, chosen: opts.pickedByPerson === true };
     /* Review 3, corrected in review 7: the supervisor runs codex on a private runtime home (#4592) and writes the
        folder-trust entry there on every launch, which is the one codex reads. This entry in the account folder only
        mirrors the OpenAI arm, so a failure here never refuses the switch. */
@@ -2546,11 +2564,14 @@ function setProvider(name, provider, opts) {
      { provider, qwenAccount } BEFORE the job moves, as setQwenAccount does: a failed record moves nothing, and a failed
      job rewrite puts the old record back. (Other switches keep the best-effort write below: their Repair needs only the
      provider, which a failed write leaves pointing at the old runner, the #1159 behaviour.) */
-  const qwenSide = provider === 'alibaba' || jobProvider(job) === 'alibaba';
+  /* #7206: a vendor agent the same: Repair rebuilds a lost job from the profile, so its account is recorded before the job
+     moves (vendorAccount), or a lost job would come back as a plain Claude agent on the default account. */
+  const fromVendor = !!require('./anthropiccompat').vendorOf(jobProvider(job));
+  const qwenSide = provider === 'alibaba' || jobProvider(job) === 'alibaba' || !!compatVendor || fromVendor;
   let qwenBefore = null;
   if (qwenSide && !DRY_RUN) {
-    try { const p0 = store.readProfile(clean) || {}; qwenBefore = { provider: p0.provider || null, qwenAccount: p0.qwenAccount || null }; } catch { qwenBefore = null; }
-    try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null }); }
+    try { const p0 = store.readProfile(clean) || {}; qwenBefore = { provider: p0.provider || null, qwenAccount: p0.qwenAccount || null, vendorAccount: p0.vendorAccount || null }; } catch { qwenBefore = null; }
+    try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null }); }
     catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which provider ${spoken} is on, so nothing was changed` }; }
   }
   /* ⚠️ `job.tmux` is kept (the recorded path is the working one); the model
@@ -2639,7 +2660,7 @@ function setProvider(name, provider, opts) {
     try { fs.renameSync(oldBrief, newBrief); }
     catch { /* plist is the launch truth; a same-dir rename of an existing source effectively cannot fail */ }
   }
-  try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null }); }   // #5977 review 5
+  try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null }); }   // #5977 review 5
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
@@ -2696,6 +2717,9 @@ function setModel(name, modelKey, opts) {
      gemini arm). */
   const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : job.runner === 'grok' ? 'xai' : job.runner === 'antigravity' ? 'antigravity' : job.runner === 'muse' ? 'meta' : 'anthropic';
   // #5977: a Qwen agent runs the model its account names (the supervisor ignores the job's model for it).
+  /* #7206: a vendor agent the same: the supervisor runs the model its vendor account names. */
+  { const v = require('./anthropiccompat').vendorOf(jobProvider(job));
+    if (v) return { outcome: OUTCOME.REFUSED, because: `${spoken} is on ${v.name}, which runs the model its ${v.name} account names; change the model on the account instead` }; }
   if (jobProvider(job) === 'alibaba') {
     return { outcome: OUTCOME.REFUSED, because: `${spoken} is on Qwen, which runs the model its Qwen account names; change the model on the account instead` };
   }
