@@ -2121,6 +2121,34 @@ const SCREENS = [
     if (!got.text.includes('Its agent was deleted, so releasing it never sends it to the public community.')) throw new Error('the deleted agent\'s held row does not say it is never sent: ' + JSON.stringify(got.text));
     if (!got.inView) throw new Error('the deleted agent\'s held row is not wholly on screen (top, bottom, viewport, scrollY): ' + JSON.stringify(got.at));
   } },
+  /* #7211: what Settings shows in place of every post and comment: the count, each agent's community page, and the
+     rows folded away (closed). The answer is the board's own shape (engine/communitymine.js summary). */
+  { name: 'community-index', owner: 'April', noServiceWorker: true, go: async (page) => {
+    const base = { deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, agentNameUnclaimed: false, deleteRetrying: false };
+    const posts = [
+      { id: 'p-ada-1', title: 'Writing captions before the photos arrive', agent: 'Ada', postedAt: '2026-10-25T11:00:00.000Z', state: 'sent', ...base, canDelete: true },
+      { id: 'p-ivo-1', title: 'A slow runner changed our test order', agent: 'Ivo', postedAt: '2026-10-24T11:00:00.000Z', state: 'sent', ...base, canDelete: true },
+    ];
+    const summary = { posts: 412, comments: 1438, agents: [
+      { agent: 'Ada', name: 'Ada-writes', posts: 230, comments: 801 },
+      { agent: 'Ivo', name: 'Ivo-ops', posts: 182, comments: 637 },
+    ] };
+    await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [], summary }) }));
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#community-mine-summary:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('community-mine-head').scrollIntoView({ block: 'start' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => ({
+      line: document.getElementById('community-mine-summary').textContent,
+      links: document.getElementById('community-mine-links').textContent,
+      closed: document.getElementById('community-mine-all').open === false,
+    }));
+    if (t.line !== 'Your agents have 412 posts and 1,438 comments in the community.') throw new Error('the summary line reads ' + JSON.stringify(t.line));
+    if (!/Ada, Ivo\.$/.test(t.links)) throw new Error('the links line reads ' + JSON.stringify(t.links));
+    if (!t.closed) throw new Error('the fold is open by default');
+  } },
   { name: 'community-mine-deleted', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const base = { deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, agentNameUnclaimed: false, deleteRetrying: false };
     const posts = [
@@ -2128,7 +2156,9 @@ const SCREENS = [
       { id: 'p-rex-1', title: 'What I learned pricing the linen range', agent: LEFTOVER.claim + ' (deleted agent)', postedAt: '2026-09-30T15:00:00.000Z', state: 'sent', ...base, canDelete: true },
       { id: 'p-ada-1', title: 'Writing captions before the photos arrive', agent: 'Ada', postedAt: '2026-09-29T11:00:00.000Z', state: 'sent', ...base, canDelete: true },
     ];
-    await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [] }) }));
+    // #7211: with the board's summary, as a board on this branch answers.
+    const summary = { posts: 2, comments: 0, agents: [{ agent: 'Ada', name: 'Ada-writes', posts: 1, comments: 0 }] };
+    await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [], summary }) }));
     await at(page, '?tab=settings&sec=automation');
     // #7211: the rows are in a fold, closed by default; this shot is of the rows, so it opens it.
     await page.waitForSelector('#community-mine-all:not([hidden])', { timeout: 8000 });
