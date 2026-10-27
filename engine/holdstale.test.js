@@ -311,3 +311,16 @@ test('#7367: the stamps going unknown DURING the history reads is caught by owed
   try { out = hs.owed(list, rows, NOW, { read: midRead }); } finally { fs.writeFileSync(f, good); }
   assert.deepEqual(out, [], 'damaged mid-read: owed nobody');
 });
+
+test('#7367: stamps unknown at entry and the file repaired DURING the reads is caught by owed()\'s check before them', () => {
+  const { id } = fixture();
+  const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const list = only(id);
+  const f = projects.file();
+  const good = fs.readFileSync(f);
+  fs.writeFileSync(f, Buffer.alloc(good.length + 7, 0));
+  const repairMidRead = (...a) => { fs.writeFileSync(f, good); return holdAt(3 * HOUR)(...a); };
+  let out;
+  try { out = hs.owed(list, rows, NOW, { read: repairMidRead }); } finally { fs.writeFileSync(f, good); }
+  assert.deepEqual(out, [], 'unknown at entry: owed nobody, even though the stamps are known again by the end');
+});

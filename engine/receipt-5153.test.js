@@ -606,3 +606,12 @@ test('#7367: the stamps going unknown DURING the transcript read is caught by th
   try { await receipt.forTask(project, task, { now: settled }); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
   assert.equal(fs.existsSync(kept), false, 'damaged mid-read: not kept');
 });
+
+test('#7367: stamps unknown at entry and the file repaired DURING the read is caught by the check before it', async () => {
+  const { project, task, kept, pf, settled } = await settledReceipt('ida');
+  fs.writeFileSync(pf, Buffer.alloc(16, 0));
+  const realRead = taskchat.read;
+  taskchat.read = (...a) => { fs.writeFileSync(pf, '[]'); return realRead(...a); };
+  try { await receipt.forTask(project, task, { now: settled }); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
+  assert.equal(fs.existsSync(kept), false, 'unknown at entry: not kept');
+});

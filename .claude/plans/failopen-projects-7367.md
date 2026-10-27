@@ -40,3 +40,16 @@ truly damaged (it throws).
 messages.test.js: for an all-NUL file and a truncated file, a room post is PLACED and the room reads whole, with a
 good-file control post; a reaction lands and a freed claim answers the same as with a good file. taskchat.remade-7185:
 the unreadable case now shows the rows and reports stampsUnknown.
+
+The sweepUnanswered gate is defensive: unanswered() (which every nudge goes through) carries the load-bearing gate and
+its own test; the sweep's gate saves the per-project reads and is kept for that.
+
+## Review rounds (blind challenge loop, fleet cap 8)
+- Round 1: no blocker. [WARNING] a passing read error was cached until the file changed --> FIXED: 5 s, test with a repaired control. [WARNING] no test of recovery after repair --> FIXED: damage/repair test. [NIT] freed-claim test frees no real claim --> ACCEPTED. [NIT] "can only show rows" understated: the unanswered sweep acts --> FIXED: sweep gated.
+- Round 2: no blocker. [WARNING] the sweep gate had no test --> FIXED: test with repaired control. [NIT] which-room/valve count a deleted project's last hour --> ACCEPTED (plan). [NIT] record() early returns lacked stampsUnknown --> FIXED. [NIT] plan out of date --> FIXED.
+- Round 3: no blocker. [WARNING] the sweep's second read (unanswered) ungated --> FIXED. [WARNING] undo could plan from a deleted task's edits --> FIXED: undo.plan gated, test. [NIT] externalKeptOn comment --> FIXED.
+- Round 4: no blocker. [WARNING] hold-stale sweep acts on unfiltered rows --> FIXED: owed() gated, test. [NIT] undo re-check after read --> FIXED. [NIT] #4580 fold --> ACCEPTED (plan).
+- Round 5: no blocker. [WARNING] hold-stale timer read rows without their stamps; owed had no after-read check --> FIXED both. [NIT] reaction/claim rows on a deleted project's post --> ACCEPTED (plan).
+- Round 6: no blocker. [WARNING] unanswered() gate and the after-read gates had no test reaching them --> FIXED: direct and mid-read tests, each failing without its gate.
+- Round 7: no blocker. [WARNING] receipt keep gate untested --> FIXED: damaged and mid-read tests. [NIT] unanswered markers hidden while damaged --> ACCEPTED (plan).
+- Round 8: no blocker. [WARNING] the before-read gates (holdstale, undo, receipt) had no test that fails without them --> FIXED after the round: "unknown at entry, repaired mid-read" tests, each verified to fail with only its before-gate removed. NOT re-reviewed (cap reached). [NIT] sweep gate redundant --> ACCEPTED, documented as defensive.

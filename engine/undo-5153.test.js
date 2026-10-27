@@ -341,3 +341,22 @@ test('#7367: the stamps going unknown DURING the read is caught by the check aft
   try { p = undo.plan(project, task()); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
   assert.deepEqual(p, { ready: false, because: 'stamps-unknown', files: [] }, 'the check after the read caught it');
 });
+
+test('#7367: stamps unknown at entry and the file repaired DURING the read is caught by the check before it', () => {
+  undo.setOn(true, ms('08:00'));
+  const project = 'p' + (++pn);
+  const hal = worker('hal');
+  const f = path.join(hal, 'pre.md');
+  original(f, 'ORIGINAL');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'hal' }, { at: '11:00', kind: 'closed' }]);
+  edit(f, 'EDITED', '10:10', hal);
+  const pf = require('./projects').file();
+  fs.mkdirSync(path.dirname(pf), { recursive: true });
+  fs.writeFileSync(pf, Buffer.alloc(16, 0));
+  const realRead = taskchat.read;
+  taskchat.read = (...a) => { fs.writeFileSync(pf, '[]'); return realRead(...a); };   // repaired mid-read
+  let p;
+  try { p = undo.plan(project, task()); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
+  assert.deepEqual(p, { ready: false, because: 'stamps-unknown', files: [] }, 'unknown at entry: nothing planned');
+  assert.equal(undo.plan(project, task()).ready, true, 'CONTROL: with the file good throughout it is planned');
+});
