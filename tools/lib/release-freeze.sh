@@ -343,7 +343,8 @@ release_site_restore() {
   # too: promote-channel.sh refuses a modified one).
   # setup itself too (it used to put back only the sidecar): with #5032's setup_sha256 a committed setup and its
   # sidecar that disagree make every deploy refuse.
-  for f in dist/latest.json dist/latest-staging.json setup setup.sha256 setup-staging setup-staging.sha256; do
+  # kosmos#7281: and the Linux family's two pointers.
+  for f in dist/latest.json dist/latest-staging.json dist/latest-linux.json dist/latest-linux-staging.json setup setup.sha256 setup-staging setup-staging.sha256; do
     if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
       if ! git -C "$site" diff --quiet -- "$f"; then
         git -C "$site" checkout -q -- "$f" && echo "   put back: $f (the cut had changed it; the site checkout no longer claims $v)"
@@ -356,7 +357,8 @@ release_site_restore() {
   # Other bytes (an older copy on origin/main) are removed, or the next pull would refuse to overwrite them. Removed so a later promote, which copies the
   # pair onto /setup, can never pick up an installer staging never served (promote-channel.sh also
   # refuses an untracked or modified one).
-  for f in setup-staging setup-staging.sha256; do
+  # kosmos#7281: an untracked Linux pointer is the same leftover (a first Linux cut that aborted), by the same rule.
+  for f in setup-staging setup-staging.sha256 dist/latest-linux.json dist/latest-linux-staging.json; do
     if ! git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1 && [ -f "$site/$f" ] \
        && [ "$(git -C "$site" hash-object "$site/$f")" != "$(git -C "$site" rev-parse -q --verify "origin/main:$f" 2>/dev/null)" ]; then
       rm -f "$site/$f" && echo "   removed: $f (committed nowhere, so never served)"
@@ -380,7 +382,8 @@ release_site_restore() {
     # defect, so matching on the shape that makes a file cache-immutable -- the
     # version in its own name -- is what stops a fourth artifact repeating it.
     # An unmatched glob stays literal in bash and the -f test drops it.
-    for f in "$site"/dist/kosmos-"$v"-arm64.*; do
+    # kosmos#7281: the Linux family's versioned files are created by the same cut, so the same gate covers them.
+    for f in "$site"/dist/kosmos-"$v"-arm64.* "$site"/dist/kosmos-"$v"-linux-x64.*; do
       [ -f "$f" ] || continue
       rel="dist/$(basename "$f")"
       # 🛑 TRACKED FILES ARE NOT OURS TO DELETE, AND THIS IS WHY THE THIRD NAME
