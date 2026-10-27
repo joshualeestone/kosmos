@@ -7577,6 +7577,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      the base 26rem floor would otherwise win over a smaller cap. The safe area at the bottom is cleared. */
   body:not(.consolidated) #pj-room.thread { min-height: min(26rem, calc(var(--pj-room-fit, 26rem) - env(safe-area-inset-bottom, 0px)));
     max-height: min(62vh, 44rem, calc(var(--pj-room-fit, 100vh) - env(safe-area-inset-bottom, 0px))); }
+  /* kosmos#7272: on a short phone with the keyboard up (an iPhone SE leaves about 331px), the connection notice, the
+     phone-pairing card, Back and the room's title and search row took all of it, so no post showed above the composer
+     and the composer half-covered the search field. While focus is in the composer's text box, on Post, the mic or the
+     emoji button (not add-a-file, which keeps focus after its picker closes with no keyboard up), AND the keyboard is up
+     (html.kosmos-keyboard-up), they step aside, and come back when either ends: the trade the agent talk view makes
+     (#d-talk-box above). Kosmos's own top bar stays, as it does there. Out of the accessibility tree while hidden, as
+     there. Searching the room keeps the header: the search field is in it. */
+  html.kosmos-keyboard-up body:not(.consolidated):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) > :is(#askcard, #conn),
+  html.kosmos-keyboard-up body:not(.consolidated):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) #pj-one-view > .pj-crumbrow,
+  html.kosmos-keyboard-up body:not(.consolidated):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) #pj-one-view .pjmidhead { display: none; }
   #pj-room .msg-av { width: var(--room-av); height: var(--room-av); flex-basis: var(--room-av); font-size: .8125rem; }
   #pj-room .msg:not(.you) .msg-b { margin-right: calc(var(--room-av) + var(--room-av-gap)); }
   #pj-room .msg.you .msg-b { margin-left: calc(var(--room-av) + var(--room-av-gap)); }

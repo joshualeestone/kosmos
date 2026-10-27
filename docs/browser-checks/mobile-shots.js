@@ -1112,6 +1112,24 @@ const SCREENS = [
     if (page.__vp7196) { await page.setViewportSize(page.__vp7196); page.__vp7196 = null; }
     await throwawayProjectGone(page, BUSY_7196);
   } },
+  /* kosmos#7272 (Renet): the room with the keyboard up WHILE TYPING, focus in the composer first, as on a phone. On a
+     short phone the room's header steps aside, so the newest post shows above the composer. */
+  { name: 'room-typing-7272', owner: 'Renet Tilley', phoneOnly: true, go: async (page, data) => {
+    const id = await busyProject7196(page, data.chatAgent);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
+    const vp = page.viewportSize();
+    page.__vp7272 = vp;
+    await page.focus('#pj-post');
+    await page.setViewportSize({ width: vp.width, height: vp.height - 336 });
+    await page.waitForTimeout(300);
+    await roomFloor7196(page);
+  }, verify: async (page) => {
+    await newestAbove7196(page, 24, false);
+  },
+  after: async (page) => {
+    if (page.__vp7272) { await page.setViewportSize(page.__vp7272); page.__vp7272 = null; }
+    await throwawayProjectGone(page, BUSY_7196);
+  } },
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
      and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
   { name: 'project-head', owner: 'Mona Lisa', go: async (page, data) => {
