@@ -38,5 +38,12 @@ That Josh's rows are dateless (a dated weekly line is retired by limitResetAt re
 - Round 2 (opus): BLOCKER, a new limit with the same words inherited the late sighting and was lifted while binding ->
   re-time on a new footer; the count guard re-capped a retired row on a redraw -> removed. Real-flow tests through
   fleet.install for both scenarios and the redraw; each fails on the commit before.
+- Round 3 (sonnet): a gap, a repeated footer, a footer changing in place (which re-timed a row as new and HELD
+  messages) -> a late entry stays late and its sighting only moves later (new footer or more rows); a gap alone moves
+  nothing, so a sleeping laptop never re-caps yesterday's row.
+- Round 4 (opus): no blocker. A new limit within the 2-minute gone window inherited the sighting -> also moved when the
+  previous capture lacked the row. Tests tightened (the footer-in-place arm runs before the reset).
+- Accepted residual: a late DAY-kind row (a weekly limit's last day) whose reset passed reads capped up to ~24 h on an
+  idle agent (before: forever). Follow-up: time it from the turn footer's "done <clock>" where it has one.
 - Not taken: a dateless day-span line printed within a minute of the board's sighting with its reset ~24 h on can read
   the earlier occurrence (pre-existing on main in limitResetTimeOnlyAt; rare). Noted for a follow-up.
