@@ -535,6 +535,60 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         else bad('#7196 CONTROL: with the keyboard up and no fit, the measurement sees the newest row hidden', 'it cannot fail: ' + JSON.stringify(kbLifted));
         await ph.setViewportSize({ width: 393, height: 852 });
         await ph.evaluate(() => pjFitRoomPhone());
+        /* Review 4: a real iPhone keyboard shrinks only the VISUAL viewport and fires only its resize (the window arm above
+           fires window's). Stub visualViewport.height and fire its resize alone; the fit must shrink. CONTROL: with the
+           visualViewport listener removed, the same step must leave the fit where it was. */
+        const vv = await ph.evaluate(async () => {
+          const room = document.getElementById('pj-room');
+          const fitNow = () => parseFloat(room.style.getPropertyValue('--pj-room-fit'));
+          const fire = async () => {
+            Object.defineProperty(window.visualViewport, 'height', { configurable: true, get: () => 852 - 336 });
+            window.visualViewport.dispatchEvent(new Event('resize'));
+            const v = fitNow();
+            delete window.visualViewport.height;
+            pjFitRoomPhone();
+            return v;
+          };
+          const before = fitNow();
+          const withFix = await fire();
+          window.visualViewport.removeEventListener('resize', pjFitRoomPhone);
+          const without = await fire();
+          window.visualViewport.addEventListener('resize', pjFitRoomPhone);
+          return { before, withFix, without, after: fitNow() };
+        });
+        if (vv.withFix < vv.before) ok('#7196 the keyboard as iOS reports it (visual viewport only) shrinks the thread (' + vv.before + ' -> ' + vv.withFix + ')');
+        else bad('#7196 the keyboard as iOS reports it (visual viewport only) shrinks the thread', JSON.stringify(vv));
+        if (vv.without === vv.before) ok('#7196 CONTROL: without the visualViewport listener the same step changes nothing');
+        else bad('#7196 CONTROL: without the visualViewport listener the same step changes nothing', 'it cannot fail: ' + JSON.stringify(vv));
+        /* Review 4: the "Replying to" bar sits between the thread and the composer, through the page's own painter. The
+           newest row and the bar must both stay above the composer. CONTROL: the fit the code wrote before review 4 (the
+           bar's height not taken off) must put one of them under it. */
+        const replyArm = (old) => ph.evaluate(async (old) => {
+          const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer'), bar = document.getElementById('pj-reply');
+          PJ_REPLY.scrollrepro = { id: 'r7196', from: 'scrollrepro-agent', who: 'Repro' };
+          pjReplyPaint('scrollrepro');
+          await new Promise((r) => setTimeout(r, 300));
+          pjFitRoomPhone();
+          if (old) { const cs = getComputedStyle(bar); room.style.setProperty('--pj-room-fit', (parseFloat(room.style.getPropertyValue('--pj-room-fit')) + bar.getBoundingClientRect().height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0)) + 'px'); }
+          room.scrollTop = room.scrollHeight;
+          await new Promise((r) => setTimeout(r, 100));
+          const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
+          const out = { shown: !bar.hidden, barH: Math.round(bar.getBoundingClientRect().height), barBottom: Math.round(bar.getBoundingClientRect().bottom),
+            lastBottom: Math.round(rows[rows.length - 1].getBoundingClientRect().bottom), composerTop: Math.round(comp.getBoundingClientRect().top) };
+          delete PJ_REPLY.scrollrepro;
+          pjReplyPaint('scrollrepro');
+          pjFitRoomPhone();
+          return out;
+        }, !!old);
+        const rep = await replyArm(false);
+        if (!rep.shown || rep.barH < 10) bad('#7196 the reply arm shows the Replying to bar', JSON.stringify(rep));
+        else if (rep.lastBottom <= rep.composerTop && rep.barBottom <= rep.composerTop) ok('#7196 with Replying to open, the newest row and the bar sit above the composer');
+        else bad('#7196 with Replying to open, the newest row and the bar sit above the composer', JSON.stringify(rep));
+        const repOld = await replyArm(true);
+        if (repOld.lastBottom > repOld.composerTop || repOld.barBottom > repOld.composerTop) ok('#7196 CONTROL: the fit before review 4 hides the bar or the newest row');
+        else bad('#7196 CONTROL: the fit before review 4 hides the bar or the newest row', 'it cannot fail: ' + JSON.stringify(repOld));
+        // Review 4: the space already left under the newest row, so the typing arm's growth is checked against it.
+        const preType = await floor();
         // Review 1: typing a long message grows the composer with no repaint or resize; the thread must give way.
         const typed = await ph.evaluate(async () => {
           const box = document.getElementById('pj-post'), comp = document.querySelector('.pjmid .composer');
@@ -545,7 +599,8 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           return { grew: comp.getBoundingClientRect().height - h0 };
         });
         const afterType = await floor();
-        if (typed.grew < 20) bad('#7196 CONTROL: typing really grew the composer', JSON.stringify(typed));
+        const slack = preType.composerTop - preType.lastBottom;
+        if (typed.grew <= slack + 4) bad('#7196 CONTROL: typing grew the composer by more than the space under the newest row', JSON.stringify({ typed, slack }));
         else if (afterType.lastBottom <= afterType.composerTop) ok('#7196 typing a long message (composer +' + Math.round(typed.grew) + 'px) leaves the newest row above it');
         else bad('#7196 typing a long message leaves the newest row above the composer', JSON.stringify({ typed, afterType }));
         await ph.evaluate(() => { const box = document.getElementById('pj-post'); box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); });

@@ -77215,14 +77215,28 @@ function pjFitRoomPhone() {
   const r = room.getBoundingClientRect();
   if (!comp || r.height === 0) return;   // not on screen
   /* Review 1: the composer grows as a message gets longer (pjGrowComposer) and when the held strip shows, with no repaint
-     or resize, so it would cover the newest rows again while the person types. Its own size change re-fits. */
-  if (!comp.__pjFitWatched && window.ResizeObserver) { comp.__pjFitWatched = true; new ResizeObserver(() => pjFitRoomPhone()).observe(comp); }
+     or resize, so it would cover the newest rows again while the person types. Its own size change re-fits.
+     Review 4: so do the strips between the thread and the composer (an agent working, Replying to) and the sealed line
+     above the thread, which show and hide with no resize either. */
+  if (!comp.__pjFitWatched && window.ResizeObserver) {
+    comp.__pjFitWatched = true;
+    const ro = new ResizeObserver(() => pjFitRoomPhone());
+    for (const el of [comp, document.getElementById('pj-busy'), document.getElementById('pj-reply'), document.getElementById('pj-fed-own-phone')]) if (el) ro.observe(el);
+  }
   const compH = comp.getBoundingClientRect().height + (parseFloat(getComputedStyle(comp).marginTop) || 0);
+  // Review 4: what is shown between the thread and the composer takes room under the thread too.
+  let between = 0;
+  for (let el = room.nextElementSibling; el && !el.contains(comp); el = el.nextElementSibling) {
+    if (el.hidden) continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.position === 'absolute' || cs.position === 'fixed') continue;
+    between += el.getBoundingClientRect().height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+  }
   const visible = window.visualViewport ? Math.round(window.visualViewport.height * window.visualViewport.scale) : window.innerHeight;
   /* The floor is 96px, not more: with the keyboard up on a 393x852 phone only about 135px is left between the thread's
      top and the composer, and a 160px floor (round 1) left the newest row 25px under the composer while typing (measured
      by render-room-scroll's keyboard arm). 96px still shows a couple of rows. */
-  const fit = Math.max(96, Math.floor(visible - (r.top + window.scrollY) - compH));
+  const fit = Math.max(96, Math.floor(visible - (r.top + window.scrollY) - between - compH));
   if (room.style.getPropertyValue('--pj-room-fit') === fit + 'px') return;
   const atFloor = room.scrollHeight - room.scrollTop - room.clientHeight <= 8;
   room.style.setProperty('--pj-room-fit', fit + 'px');
