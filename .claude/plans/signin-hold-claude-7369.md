@@ -54,3 +54,12 @@ behaviour unchanged); release when the probe reads HEALTHY (control: still held 
 - Declined: giving the underlying idle reading `liveToken`. #5949 withholds it from Windows Claude idle on purpose (that
   idle cannot prove no turn is running), and this reading follows the same rule as the plain Claude idle token.
 - Kept: status.claudeSignInCheckable (tests assert the guard set through it; claudeSignedOutConfirmed shares it).
+
+## Review 3 (decided)
+- A Windows refusal is remembered as cleared only by a HEALTHY check that BEGAN after it (authprobe now records each
+  check's start). A cached HEALTHY from before a new sign-out shows the plain state for at most one 30 s cache window
+  (the false calm authprobe already accepts, #1930), never for good. Test keeps a fresh HEALTHY across a new refusal.
+- Accepted: after a board restart a cleared record reads "Sign-in Issue" for a few seconds until the first check
+  answers (no hold: a check in flight is not EXPIRED).
+- Acceptable by design: signed out again with no new refusal reads idle until the next message is refused (that one
+  message is lost, as before #7369); then the check shows and holds it.

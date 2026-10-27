@@ -8106,7 +8106,12 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        still cannot recurse. */
     const under = scraped.underlying && typeof scraped.underlying === 'object' && typeof scraped.underlying.state === 'string'
       && scraped.underlying.state !== STATE.AUTH_FAILED ? scraped.underlying : null;
-    if (under && typeof scraped.authSince === 'string') noteWin32AuthCleared(scraped.authSince);   // review 2: stays cleared
+    /* Review 2: stays cleared. Review 3: only when the HEALTHY check began after this refusal: a cached HEALTHY from
+       before it (another agent on the account, or this one's earlier clear) shows the plain state for this tick only,
+       and the next check, asked after the refusal, decides. */
+    if (under && typeof scraped.authSince === 'string' && Number(scraped.authCheckStartedAt) > Date.parse(scraped.authSince)) {
+      noteWin32AuthCleared(scraped.authSince);
+    }
     const reentry = under
       ? { state: under.state, confidence: CONFIDENCE.SCRAPED, because: under.because }
       : { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE };
@@ -8883,7 +8888,9 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
    the two can never disagree: no job, a Qwen home or a vendor home is not checkable. chat.signinHeldVerdict holds a
    Claude agent only when this is true, because a hold nothing can release would keep its messages for a day. */
 /* #7369 review 2: the Windows sign-in refusals (by the `since` win32streamstate stamped) the account check has read as
-   stale. Bounded: refusals are rare, and the oldest are dropped past 200. */
+   stale. Bounded: refusals are rare, and the oldest are dropped past 200. In memory only, accepted: after a board
+   restart a cleared record reads "Sign-in Issue" once, until the first check answers HEALTHY again (a check in flight
+   holds nothing, so it is a label for a few seconds, never a hold). */
 const WIN32_AUTH_CLEARED = new Set();
 function noteWin32AuthCleared(since) {
   WIN32_AUTH_CLEARED.add(since);
@@ -9118,10 +9125,16 @@ function snapshot() {
        need the name to resolve the account config dir); no probe for a healthy agent. */
     let liveAuth;
     if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
+      let probedDir;
       liveAuth = liveAuthForAuthFailed(
         pane.name,
         (n) => require('./create').readJob(n),
-        (d) => require('./authprobe').verdict(d, now));
+        (d) => { probedDir = d; return require('./authprobe').verdict(d, now); });
+      /* #7369 review 3: a Windows refusal is remembered as cleared only by a HEALTHY check that BEGAN after it (a cached
+         HEALTHY from before a new sign-out must not hide it for good); reconcileReport reads this. */
+      if (typeof scrapedStatus.authSince === 'string' && probedDir !== undefined) {
+        scrapedStatus = { ...scrapedStatus, authCheckStartedAt: require('./authprobe').startedAt(probedDir) };
+      }
     }
     /* #2019: is this pane's agent one we are deliberately restarting right now?
        Only for a pane TIED to the name -- the same identity gate every

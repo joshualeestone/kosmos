@@ -246,3 +246,29 @@ test('#7369 review 2: once cleared, the same refusal does not flicker back while
     assert.equal(b.card().state, status.STATE.AUTH_FAILED, 'CONTROL: a new refusal still shows');
   } finally { b.done(); acct.restore(); }
 });
+
+test('#7369 review 3: a still-fresh HEALTHY from BEFORE a new refusal does not clear it for good; the next check shows and holds it', async () => {
+  const acct = account(subscription.STATE.NONE);
+  const b = box('winrace', 'sid-b2', 8102);
+  try {
+    b.pub.started(8102, 'sid-b2');
+    signedOutTurn(b.pub, NOT_LOGGED_IN);
+    b.roster();
+    await settle();
+    acct.set(subscription.STATE.CONNECTED);
+    b.roster();
+    await settle();
+    assert.equal(b.card().state, status.STATE.IDLE, 'CONTROL: signed in again, cleared');
+    // Signed out again while that HEALTHY is still cached (inside its 30 s): the account now answers signed out.
+    authprobe.setChecker(async () => ({ state: subscription.STATE.NONE }));
+    await new Promise((r) => setTimeout(r, 5));
+    signedOutTurn(b.pub, NOT_LOGGED_IN);
+    b.card();   // a tick under the old, fresh HEALTHY: the bounded false calm authprobe already accepts
+    authprobe.resetForTest();   // the cache entry ages out; the next look asks again
+    b.roster();
+    await settle();
+    assert.equal(b.card().state, status.STATE.AUTH_FAILED, 'the check asked after the refusal shows it: not hidden for good');
+    const v = chat.signinHeldVerdict('winrace', b.roster());
+    assert.ok(v && v.heldFor === 'signin', 'and messages are held: ' + JSON.stringify(v));
+  } finally { b.done(); acct.restore(); }
+});
