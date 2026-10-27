@@ -308,7 +308,8 @@ struct ChatView: View {
     // One row of the conversation, with what the thread needs to know about it.
     private func row(_ item: Board.ChatItem) -> some View {
         itemView(item).id(item.id)
-            // Which rows are on screen, so a page landing above keeps the one the reader is on.
+            // Which rows are on screen, so a page landing above keeps the one the reader is on. The eager rows all
+            // appear and go together (kosmos#7265), so they count as on screen while any of them shows.
             .onAppear { onScreen.insert(item.id) }
             .onDisappear { onScreen.remove(item.id) }
     }
@@ -343,7 +344,9 @@ struct ChatView: View {
                         // kosmos#7265: the newest rows are drawn as one eager stack, so their real heights are known and the
                         // jump to "end" on open lands on the newest message. With every row lazy their heights were estimated
                         // and a long chat of long messages opened mid-thread. Older rows stay lazy.
-                        let tailStart = max(0, items.count - Self.eagerTail)
+                        // The cut moves in steps of 20, so a row crosses from the eager stack to the lazy rows (and is
+                        // rebuilt, losing any state it held) once per 20 new messages, not on every one (review).
+                        let tailStart = Self.eagerTail == 0 ? items.count : max(0, items.count - Self.eagerTail) / 20 * 20
                         ForEach(items[..<tailStart]) { item in row(item) }
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(items[tailStart...]) { item in row(item) }
@@ -657,7 +660,11 @@ struct ChatView: View {
             let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
             let anchor = Board.anchorItem(shownNow, onScreen: onScreen)
             earlier = next
-            if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
+            // kosmos#7265 review: the newest rows are one eager stack and are all "on screen" while any of it shows, so
+            // a reader back at the newest message is kept there rather than at the stack's first row (a stated limit:
+            // a reader stopped part way inside the newest rows as a page lands may still move).
+            if atBottom { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+            else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
 
