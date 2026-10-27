@@ -5211,8 +5211,9 @@ function classify(pane, paneText) {
       /* Review 2: the record stands until the agent's next good turn, which may be long after the person signed in again.
          Once the account check has read this refusal (by its own `since`) as stale, it stays cleared, so the idle card
          does not flicker back to "Sign-in Issue" each time the 30 s check is re-asked. A NEW refusal has a new since. */
-      if (WIN32_AUTH_CLEARED.has(authTok[1])) return { ...underlying, confidence: CONFIDENCE.SCRAPED };
-      return { state: STATE.AUTH_FAILED, confidence: CONFIDENCE.SCRAPED, because: 'its Claude sign-in is not working', evidence: line, underlying, authSince: authTok[1] };
+      const authKey = String((pane && pane.name) || '') + '\u0000' + authTok[1];   // review 4: this agent's refusal, not a same-ms one of another's
+      if (WIN32_AUTH_CLEARED.has(authKey)) return { ...underlying, confidence: CONFIDENCE.SCRAPED };
+      return { state: STATE.AUTH_FAILED, confidence: CONFIDENCE.SCRAPED, because: 'its Claude sign-in is not working', evidence: line, underlying, authSince: authTok[1], authKey };
     }
     /* The two tokens are win32streamstate's, the one vocabulary win32capture holds by too (#5949). */
     const { BUSY: WIN32_BUSY, IDLE: WIN32_IDLE } = require('./win32streamstate');
@@ -8110,7 +8111,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        before it (another agent on the account, or this one's earlier clear) shows the plain state for this tick only,
        and the next check, asked after the refusal, decides. */
     if (under && typeof scraped.authSince === 'string' && Number(scraped.authCheckStartedAt) > Date.parse(scraped.authSince)) {
-      noteWin32AuthCleared(scraped.authSince);
+      noteWin32AuthCleared(typeof scraped.authKey === 'string' ? scraped.authKey : scraped.authSince);
     }
     const reentry = under
       ? { state: under.state, confidence: CONFIDENCE.SCRAPED, because: under.because }
@@ -8878,6 +8879,10 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   // #7206: nor a vendor account (~/.kosmos-deepseek-<label>): a claude agent there holds the vendor's key, not a Claude
   // sign-in, so `claude auth status` on it could only be wrong, and a HEALTHY answer would hide the vendor's refusal.
   if (job.configDir && require('./anthropiccompat').isCompatHome(job.configDir)) return undefined;
+  /* #7369 review 4: nor an API-key account (#2420: a key file and an apiKeyHelper in the folder). `claude auth status`
+     reads it logged in whenever a key is THERE, revoked or not (measured), so a HEALTHY answer could only hide the key's
+     real refusal. auth_failed stands: the card says Sign-in Issue, and nothing is held (nothing could release it). */
+  try { if (job.configDir && require('node:fs').existsSync(require('./claudeaccounts').keyFile(job.configDir))) return undefined; } catch { return undefined; }
   // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
   // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
   try { return verdictFn(job.configDir || null); } catch { return undefined; }

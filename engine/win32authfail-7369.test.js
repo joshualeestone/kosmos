@@ -272,3 +272,44 @@ test('#7369 review 3: a still-fresh HEALTHY from BEFORE a new refusal does not c
     assert.ok(v && v.heldFor === 'signin', 'and messages are held: ' + JSON.stringify(v));
   } finally { b.done(); acct.restore(); }
 });
+
+/* Review 4: the shape the installed Claude Code really sends when signed out (captured on the Windows box): the refused
+   assistant message carries error "authentication_failed", the result api_error_status (null for "Not logged in"). */
+function realShapeTurn(pub, sentence, { assistantError = 'authentication_failed', status = null } = {}) {
+  pub.wrote();
+  pub.event({ type: 'system', subtype: 'init' });
+  pub.event({ type: 'assistant', message: { content: [{ type: 'text', text: sentence }] }, is_api_error_message: true, ...(assistantError ? { error: assistantError } : {}) });
+  pub.event({ type: 'result', subtype: 'success', is_error: true, result: sentence, api_error_status: status });
+}
+
+test('#7369 review 4: the real signed-out shape reads signed out even in words the phrase list does not know; CONTROLS', () => {
+  const acct = account(subscription.STATE.NONE);
+  const b = box('winreal', 'sid-c1', 8201);
+  try {
+    b.pub.started(8201, 'sid-c1');
+    realShapeTurn(b.pub, 'Some future wording for a lapsed sign-in', { assistantError: null });
+    assert.notEqual(b.card().state, status.STATE.AUTH_FAILED, 'CONTROL: unknown words with no marker are not a sign-out');
+    realShapeTurn(b.pub, 'Some future wording for a lapsed sign-in');
+    assert.equal(b.card().state, status.STATE.AUTH_FAILED, 'the assistant\'s authentication_failed marks it');
+    goodTurn(b.pub);
+    assert.notEqual(b.card().state, status.STATE.AUTH_FAILED, 'a good turn clears it');
+    realShapeTurn(b.pub, 'Some future wording', { assistantError: null, status: 401 });
+    assert.equal(b.card().state, status.STATE.AUTH_FAILED, 'api_error_status 401 marks it');
+    goodTurn(b.pub);
+    realShapeTurn(b.pub, 'API Error: 429 rate limited later', { assistantError: null, status: 429 });
+    assert.notEqual(b.card().state, status.STATE.AUTH_FAILED, 'CONTROL: another status is not a sign-out');
+  } finally { b.done(); acct.restore(); }
+});
+
+test('#7369 review 4: an API-key account (key file in its folder) is shown signed out but never held: its check cannot tell', () => {
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-keyacct-'));
+  fs.writeFileSync(require('./claudeaccounts').keyFile(dir), 'sk-ant-test');
+  const realRead = create.readJob;
+  create.readJob = () => ({ configDir: dir });
+  try {
+    assert.equal(status.claudeSignInCheckable('anyone'), false, 'a key account is not checkable');
+    assert.equal(status.claudeSignedOutConfirmed('anyone', () => ({ configDir: dir }), () => authprobe.EXPIRED), false, 'nor ever confirmed');
+    fs.rmSync(require('./claudeaccounts').keyFile(dir));
+    assert.equal(status.claudeSignInCheckable('anyone'), true, 'CONTROL: the same folder without a key file is checkable');
+  } finally { create.readJob = realRead; fs.rmSync(dir, { recursive: true, force: true }); }
+});

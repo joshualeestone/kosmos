@@ -63,3 +63,12 @@ behaviour unchanged); release when the probe reads HEALTHY (control: still held 
   answers (no hold: a check in flight is not EXPIRED).
 - Acceptable by design: signed out again with no new refusal reads idle until the next message is refused (that one
   message is lost, as before #7369); then the check shows and holds it.
+
+## Review 4 (decided)
+- An API-key account (#2420: key file in its folder) is not checkable: `claude auth status` reads it logged in
+  whenever a key exists, revoked or not (measured), so a HEALTHY answer could only hide the key's refusal. Its card
+  shows Sign-in Issue and nothing is held (as for no job, Qwen and vendor homes).
+- Windows detection also reads the real stream's own markers (captured from the installed Claude Code): the refused
+  assistant message's `error: "authentication_failed"` (per turn, reset when the next message is written) and the
+  result's `api_error_status: 401`, so a new wording still reads signed out. The phrase list stays as a second net.
+- The cleared memory is keyed by agent name and refusal time (two agents refused in the same millisecond stay apart).

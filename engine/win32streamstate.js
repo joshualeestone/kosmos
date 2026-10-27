@@ -226,8 +226,14 @@ function isAuthToken(token) {
  * message flagged is_api_error_message carries the same words a moment earlier, and the result is the turn's verdict.
  * Clearing is the publisher's, on the limit's own rule: a turn that reached the model and ended without an error.
  */
-function signInAfterEvent(event) {
+function signInAfterEvent(event, turnAuthRefused = false) {
   if (!event || typeof event !== 'object' || Array.isArray(event) || event.type !== 'result' || event.is_error !== true) return undefined;
+  /* Review 4: the real stream's own markers (see the event loop): this turn's assistant refusal said
+     authentication_failed, or the result carries api_error_status 401. Either is the sign-in, whatever the words. */
+  if (turnAuthRefused === true || event.api_error_status === 401) {
+    const said = typeof event.result === 'string' ? event.result : '';
+    return { line: said.replace(/\s+/g, ' ').trim().slice(0, LIMIT_LINE_MAX) || null };
+  }
   const text = typeof event.result === 'string' ? event.result : '';
   let apiErr = '';
   try { apiErr = event.api_error && typeof event.api_error === 'object' ? JSON.stringify(event.api_error) : (typeof event.api_error === 'string' ? event.api_error : ''); } catch { apiErr = ''; }
@@ -490,6 +496,10 @@ function publisher(name, opts) {
       const apiError = e && (e.is_api_error_message === true || e.isApiErrorMessage === true
         || (e.message && typeof e.message === 'object' && (e.message.is_api_error_message === true || e.message.isApiErrorMessage === true)));
       if (e && e.type === 'assistant' && !apiError) current.reachedModel = true;
+      /* #7369 review 4: the shape the installed Claude Code sends when signed out (captured): the refused assistant
+         message carries `error: "authentication_failed"`, and the result `api_error_status` (401, or null for "Not
+         logged in"). The flag is this turn's, reset when the next message is written. */
+      if (e && e.type === 'assistant' && apiError && e.error === 'authentication_failed') current.authRefused = true;
       let lim = limitAfterEvent(e);
       /* A refused turn's error arrives as an assistant message flagged is_api_error_message (so it does not count as
          reaching the model, above), and its result carries is_error true and api_error (Claude Code 2.1.303's schema).
@@ -514,7 +524,7 @@ function publisher(name, opts) {
          command's result made no API request, so it says nothing about the sign-in). Review 2: each refusal is stamped
          with its own time: status keeps a refusal the account check has read as stale cleared by that stamp, so a NEW
          refusal (signed out again before any good turn) must not carry an old, cleared one. */
-      const signIn = signInAfterEvent(e);
+      const signIn = signInAfterEvent(e, current.authRefused === true);
       let authChanged = false;
       if (signIn) {
         current.auth = { since: new Date().toISOString(), ...(signIn.line ? { line: signIn.line } : {}) };
@@ -527,7 +537,7 @@ function publisher(name, opts) {
     },
     /** A message reached the agent's stdin. */
     wrote() {
-      if (current) { current.state = BUSY; current.reachedModel = false; flush(); }
+      if (current) { current.state = BUSY; current.reachedModel = false; current.authRefused = false; flush(); }
     },
     /** The agent process is gone. */
     stopped() {
