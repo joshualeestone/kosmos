@@ -50,3 +50,9 @@ Challenge loop to convergence. Merge on green (beta rule).
 ## Review 2
 - The footer gives the minute only, so the reset is timed from the end of the done minute: a reset in that same
   minute is skipped (the limit may have come after it), erring later.
+
+## Review 3
+- Both readings (sighting, done time) are never early, so the earlier is taken: a sighting just after the reset was
+  held a day by the done minute's skip.
+- Not built: reading an agent's own TZ. An agent started with TZ= prints its done time in that zone and could read
+  idle early (delivery is not held on a late row either way). Recorded at the call site as the weakest premise.
