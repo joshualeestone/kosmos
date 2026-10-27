@@ -49002,7 +49002,7 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
     // to write its own version, which is the drift the block below forbids --
     // and it said an agent with no startup job would be "stopped from starting
     // again", describing work that does not happen.
-    hint.textContent = ask.hint || '';
+    hint.textContent = cloudWords(ask.hint || '');
     document.getElementById('d-remove-start').hidden = false;
     setForceOffered(false);   // #2651: a tied agent removes normally; no override
   } else {
@@ -49331,7 +49331,7 @@ function openRemoveModal(name, ask) {
   const cols = document.getElementById('rm-cols');
   const fill = (id, items) => {
     const ul = document.getElementById(id); ul.innerHTML = '';
-    for (const t of (items || [])) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }
+    for (const t of (items || [])) { const li = document.createElement('li'); li.textContent = cloudWords(t); ul.appendChild(li); }
   };
   fill('rm-loses', ask.loses); fill('rm-keeps', ask.keeps);
   cols.hidden = !((ask.loses || []).length && (ask.keeps || []).length);
@@ -64529,7 +64529,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
      is "not made", so it re-enables and shows its reason like any other failure; this
      one-click add has no made-screen to advance a partial to. */
-  if (!res.ok || out.outcome !== 'created') { fail(out.because || out.error || 'We could not make it, and we cannot tell you why.', out.field === 'name'); return; }
+  if (!res.ok || out.outcome !== 'created') { fail(cloudWords(out.because || out.error || 'We could not make it, and we cannot tell you why.'), out.field === 'name'); return; }
 
   /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
      found/scan Add rows keep, on a screen where a person is about to press several
@@ -64689,10 +64689,10 @@ function paintMade(steps, watching, projectOutcomes, revealed) {
      its turn comes; nothing is smoothed over on the way past. */
   const show = typeof revealed === 'number' ? revealed : (steps || []).length;
   const lines = (steps || []).map((s, i) => {
-    if (i >= show) return tickLine('working', s.label);
+    if (i >= show) return tickLine('working', cloudWords(s.label));
     return s.undone
-      ? tickLine('undone', s.label + ' (undone)')
-      : tickLine(s.ok ? 'done' : 'fail', s.label);
+      ? tickLine('undone', cloudWords(s.label) + ' (undone)')
+      : tickLine(s.ok ? 'done' : 'fail', cloudWords(s.label));
   });
   /* 🛑 THE PROJECT ROWS AND THE BOARD-WATCH ROW ARE NOT DRAWN (Josh,
      2026-08-22): "I don't want to have the other steps that were put in there,
@@ -65437,7 +65437,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     if (result.field === 'name') {
       pjFieldBad('create-name', 'create-name-err', result.because || 'that name will not work');
     } else {
-      msg.textContent = result.because || 'that name will not work';
+      msg.textContent = cloudWords(result.because || 'that name will not work');
     }
     return;
   }
@@ -65458,8 +65458,8 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // beside the field, not on the progress screen we advanced to on click.
     dropMyLoader();
     cstep('name');
-    msg.textContent = (result && (result.error || result.because))
-      || 'we could not make it, and we cannot tell you why';
+    msg.textContent = cloudWords((result && (result.error || result.because))
+      || 'we could not make it, and we cannot tell you why');
     // The own gate's sentence is about the Role label at the top of a
     // scrolled form; put the person where the fix is (the live region has
     // already announced the words).
@@ -65513,7 +65513,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
        the CLASS at the render site rather than one string: capitalize the first
        letter only for this screen. Idempotent -- a `because` that already starts
        with a capital (a proper noun) is unchanged. */
-    const becauseSentence = (result.because || '').replace(/^([a-z])/, (c) => c.toUpperCase());
+    const becauseSentence = cloudWords(result.because || '').replace(/^([a-z])/, (c) => c.toUpperCase());
     // ⚠️ SAY IT OUT LOUD. `paintMade` only writes the live region when there is
     // a line being watched, and a partial has none -- so the single outcome
     // this screen exists to communicate was the only one that announced
