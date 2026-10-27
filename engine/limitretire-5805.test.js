@@ -518,3 +518,17 @@ test('kosmos#7358 review 2: a turn done in the reset\'s own minute is timed from
   assert.ok(!status.retireResetLimits(minuteBefore, sighting + 2 * 60e3, late).includes('weekly limit'),
     'CONTROL: a turn done the minute before the reset is released after it');
 });
+
+test('kosmos#7358 review 3: a sighting just after the reset is released as before, not held a day by the done minute', () => {
+  const reset = Date.parse('2026-10-26T23:00:00Z');   // 6pm CDT
+  const row = `You've hit your weekly limit · resets 6pm ${Z}`;
+  const sighting = reset + 30e3;                      // the board's first capture 30 s after the reset
+  const late = () => ({ at: sighting, late: true });
+  const screen = '❯ hello\n' + `  ⎿  ${row}\n` + `✻ Sautéed for 3s · done ${localClock(reset)}\n` + STATUS_LINE;
+  assert.ok(!status.retireResetLimits(screen, reset + 2 * 60e3, late).includes('weekly limit'),
+    'held about a day longer than the sighting rule (the done minute\'s skip won over an earlier, also never-early, reset)');
+  // CONTROL: the same footer seen later still takes the next reset (the skip stands when the sighting gives nothing sooner).
+  const laterSighting = Date.parse('2026-10-27T00:20:00Z');
+  assert.ok(status.retireResetLimits(screen, laterSighting + 2 * 60e3, () => ({ at: laterSighting, late: true })).includes('weekly limit'),
+    'CONTROL: seen at 19:20, a done-in-the-reset-minute limit is still held');
+});
