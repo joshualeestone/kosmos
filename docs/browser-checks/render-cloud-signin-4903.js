@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: fr-conn-url fr-conn-cloudsay-code fr-conn-cloudsay-open frCloudSigninDetail frConnPaintUrl fr-conn-code
+// Browser-check-surface: fr-conn-url fr-conn-cloudsay-code fr-conn-cloudsay-open frCloudSigninDetail frConnPaintUrl fr-conn-code data-cloud-hide data-cloud-copy boardEmpty d-rename-hint import-folder fr-pane-5
 /**
  * kosmos#4903 S5 design (Mona Lisa, card comment 6433522198), first run's Claude sign-in on a Kosmos cloud machine:
  *   1. the sign-in link is the PRIMARY button, gold and filled, no underline, full width on a phone. It used to lose to
@@ -71,6 +71,41 @@ async function arm(browser, { cloud, width }) {
   return got;
 }
 
+/* kosmos#4903 seams G and H: what data-cloud-hide hides is CSS keyed on a stamp applyPlatformCopy writes, which no
+   source check can see, so this measures the computed display of each row once the cloud meta is set and the copy
+   layer applied, and reads the words No agents yet paints. */
+async function hideArm(browser, cloud) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => { window.setInterval = () => 0; });
+  await page.goto('file://' + PAGE);
+  const got = await page.evaluate((cloud) => {
+    if (cloud) {
+      let m = document.querySelector('meta[name="kosmos-cloud-machine"]');
+      if (!m) { m = document.createElement('meta'); m.setAttribute('name', 'kosmos-cloud-machine'); document.head.appendChild(m); }
+      m.setAttribute('content', '1');
+    }
+    if (typeof applyPlatformCopy !== 'function' || typeof boardEmpty !== 'function') return { error: 'applyPlatformCopy / boardEmpty missing' };
+    applyPlatformCopy(document);
+    const pane = document.getElementById('fr-pane-5');
+    for (let n = pane; n; n = n.parentElement) { n.removeAttribute('hidden'); if (getComputedStyle(n).display === 'none') n.style.display = 'block'; }
+    const rows = [...pane.querySelectorAll('.llm .llm-m[data-pmark]')].map((s) => [s.getAttribute('data-pmark'), getComputedStyle(s.closest('.llm')).display !== 'none']);
+    const folder = document.getElementById('import-folder');
+    for (let n = folder; n; n = n.parentElement) n.removeAttribute('hidden');
+    const hint = document.getElementById('d-rename-hint');
+    return {
+      rows, folderShown: !!folder && getComputedStyle(folder).display !== 'none' && folder.getBoundingClientRect().height > 0,
+      folderHidden: !!folder && !!folder.closest('[data-cloud-hide]') && getComputedStyle(folder.closest('[data-cloud-hide]')).display === 'none',
+      empty: (() => { const d = document.createElement('div'); d.innerHTML = boardEmpty(); return d.textContent; })(),
+      hint: hint ? hint.textContent : 'NO HINT',
+    };
+  }, cloud);
+  got.errors = errors;
+  await page.close();
+  return got;
+}
+
 (async () => {
   let browser;
   try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
@@ -91,6 +126,22 @@ async function arm(browser, { cloud, width }) {
     if (m.error) { check(`mac ${width}: the sign-in screen paints`, false, JSON.stringify(m)); continue; }
     check(`CONTROL mac ${width}: the fallback link stays quiet (white)`, m.bg === WHITE, m.bg);
     check(`CONTROL mac ${width}: the code label stays, with no placeholder`, m.label && m.placeholder === null, `label ${m.label} / ${m.placeholder}`);
+  }
+  // Seams G and H.
+  const hc = await hideArm(browser, true);
+  const hm = await hideArm(browser, false);
+  if (hc.error || hm.error) check('seam G/H: the page paints', false, JSON.stringify(hc.error ? hc : hm));
+  else {
+    const shown = (r) => r.rows.filter((x) => x[1]).map((x) => x[0]);
+    check('cloud: the first-run Connect list shows Claude alone (computed display)', JSON.stringify(shown(hc)) === '["claude"]', JSON.stringify(shown(hc)));
+    check('CONTROL mac: the Connect list shows more than Claude', shown(hm).length > 1 && shown(hm).includes('claude'), JSON.stringify(shown(hm)));
+    check('cloud: the folder import is hidden by data-cloud-hide (computed display none)', hc.folderHidden, '');
+    check('CONTROL mac: the folder import is not hidden by data-cloud-hide', !hm.folderHidden, '');
+    check('cloud: No agents yet says the agent runs on your cloud machine', /runs on your cloud machine and keeps going while you are away/.test(hc.empty), hc.empty.slice(0, 160));
+    check('CONTROL mac: No agents yet keeps "this computer"', /runs on this computer/.test(hm.empty), hm.empty.slice(0, 160));
+    check('cloud: the rename hint says your cloud machine', /where they live on your cloud machine,/.test(hc.hint), hc.hint);
+    check('CONTROL mac: the rename hint says this computer', /where they live on this computer,/.test(hm.hint), hm.hint);
+    check('seam G/H: no page errors', hc.errors.length === 0 && hm.errors.length === 0, hc.errors.concat(hm.errors).join(' | '));
   }
   await browser.close();
   const failed = results.filter((r) => !r.pass);
