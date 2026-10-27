@@ -150,3 +150,25 @@ test('#7386 review 3: a key split by a combining mark or the Braille blank is ma
   // Control: an accented word in an ordinary command is shown as it is.
   assert.equal(stepVia('Bash', { command: 'echo café' }), 'running "echo café"');
 });
+
+test('#7386 review 4: a key split by a private-use character is masked; real combining marks in ordinary text are not', () => {
+  for (const ch of ['', '', '\u{f0000}']) {
+    const step = stepVia('Bash', { command: 'export K=' + split(LIVE, 11, ch) + ' && run' });
+    assert.ok(!leaks(step, LIVE, 11), 'U+' + ch.codePointAt(0).toString(16) + ' let the key show: ' + JSON.stringify(step));
+  }
+  // Controls that reach the guard (each holds a combining mark, Mn), shown exactly as main shows them.
+  assert.equal(stepVia('Bash', { command: 'echo café' }), 'running "echo café"');
+  assert.equal(stepVia('Bash', { command: 'git commit -m "फिक्स बिल्ड"' }),
+    'running "git commit -m "फिक्स बिल्ड""');
+});
+
+test('#7386 review 4: a megabyte command is folded and masked within the bound, and still says what it runs', () => {
+  const timed = (cmd) => { const t0 = process.hrtime.bigint(); const step = stepVia('Bash', { command: cmd }); return [step, Number(process.hrtime.bigint() - t0) / 1e6]; };
+  // A multi-line command holding a secret shows the mask whole (the accepted trade-off); nothing of the key shows.
+  const [masked, ms1] = timed('echo start' + '\n'.repeat(5 << 20) + 'echo ' + LIVE);
+  assert.ok(!leaks(masked, LIVE, 8), JSON.stringify(masked));
+  // The same size with no secret still says what it runs.
+  const [plain, ms2] = timed('echo start' + '\n'.repeat(5 << 20) + 'echo done');
+  assert.equal(plain, 'running "echo start echo done"');
+  for (const ms of [ms1, ms2]) assert.ok(ms < 500, 'a 5 MB command took ' + ms.toFixed(0) + ' ms on the supervisor loop');
+});
