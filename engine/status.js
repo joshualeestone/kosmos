@@ -3331,8 +3331,9 @@ function underPromptAt(rows, i) {
    local time with no date: "✻ Sautéed for 0s · done 10:35 PM"), read as the latest such instant at or before `atMs`; null
    when the footer has no done time or one this cannot read for sure. Why a reset timed from it is never early: the limit
    row printed as that turn stopped, so the true done time is at or after it, and every reading here errs later: the
-   latest day (a footer older than a day reads later), and the later of the two instants of a clock time the night the
-   clocks go back (as limitResetTimeOnlyAt). It rests on Claude Code printing the time in the zone this board runs in. */
+   latest day (a footer older than a day reads later), the later of the two instants of a clock time the night the
+   clocks go back (as limitResetTimeOnlyAt), and the caller times the reset from the END of the done minute. It rests
+   on Claude Code printing the time in the zone this board runs in. */
 const TURN_DONE = /· done (\d{1,2}):(\d{2})(?![:\d])(?:\s?([ap])\.?m\b\.?)?/i;   // a clock with seconds is not read: null
 function turnDoneAt(footerRow, atMs) {
   const m = TURN_DONE.exec(String(footerRow == null ? '' : footerRow));
@@ -3395,7 +3396,10 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
            span after the sighting (before: Rate Limit for up to a day). Without a done time, timed from the sighting. */
         if (late) {
           const done = turnDoneAt(rows[footer], at);
-          const fromDone = done === null ? null : limitResetTimeOnlyAt(row, done);
+          /* Review 2: the footer gives the minute only, so the turn may have ended anywhere in it; a reset in that same
+             minute (a "done 6:00 PM" under "resets 6pm") may already have been before the limit, so it is skipped and the
+             next is taken. limitResetTimeOnlyAt keeps a reset up to its grace before the time it is given, hence both. */
+          const fromDone = done === null ? null : limitResetTimeOnlyAt(row, done + 60 * 1000 + RESET_GRACE_MS);
           if (fromDone !== null) resetAt = fromDone;
         }
         /* kosmos#7264: a row seen late (on screen before the board's sighting) whose clock time does not come round
