@@ -413,7 +413,13 @@ function plan(projectId, task, { now = Date.now(), cred } = {}) {
   const closedIso = receipt.closedAtOf(task);
   const closedAt = Date.parse(closedIso);
   if (!Number.isFinite(closedAt)) return { ready: false, because: 'open', files: [] };
+  /* #7367: while the projects file cannot be read, task conversations keep every row (fails open), a deleted
+     same-numbered task's edits included, so no undo is planned from them (apply plans through here too). The page hides
+     the undo for a plan that is not ready, as for an open task; it comes back when the file reads. */
+  if (!require('./projectborn').snapshot().ok) return { ready: false, because: 'stamps-unknown', files: [] };
   const holds = receipt.holdsFrom(taskchat.read(projectId, task.number), closedAt);
+  // Checked again after the read, as receipt.js does: the stamps can go unknown between the two (a passing read error).
+  if (!require('./projectborn').snapshot().ok) return { ready: false, because: 'stamps-unknown', files: [] };
   const holders = Object.keys(holds);
   if (!holders.length) return { ready: true, closedAt: closedIso, files: [] };
   const index = readIndex();
