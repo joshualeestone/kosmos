@@ -376,11 +376,12 @@ struct AgentRow: View {
 
     // The board's own word, never truncated (it wraps at the largest sizes rather than run off the row); a live
     // change crossfades in 0.2s, the animation on the container so the outgoing word fades as the new one comes in.
-    // kosmos#7342: a pill only when there is something to see (Board.pill); Idle shows nothing. Not updating: grey.
+    // kosmos#7342: a pill only when there is something to see (Board.pill); Idle shows nothing. Not updating: every row
+    // keeps its last word in a grey pill, Idle included, so no row reads as current.
     @ViewBuilder private var status: some View {
         ZStack(alignment: large ? .leading : .trailing) {
-            if let pill = Board.pill(agent) {
-                StatusPill(word: word, pill: stale ? .cantTell : pill, wraps: large)
+            if stale || Board.pill(agent) != nil {
+                StatusPill(word: word, pill: stale ? .cantTell : Board.pill(agent) ?? .cantTell, wraps: large)
                     .id(word)
                     .transition(.opacity)
             }
