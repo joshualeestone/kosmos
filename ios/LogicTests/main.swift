@@ -3649,17 +3649,15 @@ do {
           "an admitted review sign-in waits for the review computer's Allow, as any sign-in does")
     // Review 1: a refusal stays on the password step (never the code step: no code was sent), a 404 is the door closed.
     // The server's real bodies (kosmos-relay review.rs REFUSED, ratelimit::code_sends_refused).
-    if case .refused(let s) = SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"]) {
-        check(s.lowercased().hasPrefix("that email and password do not match"), "a wrong password stays on the password step, in Kosmos+'s sentence")
-    } else { check(false, "a 401 is a refusal") }
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"]) == .refused("That email and password do not match."),
+          "a wrong password stays on the password step, in Kosmos+'s words as a sentence")
     check(SignIn.reviewAnswer(status: 429, json: ["error": "too many codes asked for from this network; wait a moment and try again", "retry_after_secs": 20] as [String: Any]) == .refused(SignIn.reviewTooMany),
           "review 3: the door's rate limit says wait, never the code limiter's words about codes")
-    if case .refused(let s) = SignIn.reviewAnswer(status: 401, json: ["error": "this account is being deleted"]) {
-        check(s.lowercased().contains("being deleted"), "CONTROL: a 401 that is not about the password keeps its own sentence")
-    } else { check(false, "a 401 is a refusal") }
-    if case .refused(let s) = SignIn.reviewAnswer(status: 403, json: ["error": "this account signs in through its company"]) {
-        check(s.lowercased().contains("through its company"), "and so does any other refusal")
-    } else { check(false, "a 403 is a refusal") }
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "this account is being deleted"]) == .refused("This account is being deleted."),
+          "CONTROL: a 401 that is not about the password keeps its own sentence")
+    check(SignIn.sentence("Done already.") == "Done already." && SignIn.sentence("") == "", "a sentence that already ends is left as it is")
+    check(SignIn.reviewAnswer(status: 403, json: ["error": "this account signs in through its company"]) == .refused("This account signs in through its company."),
+          "and so does any other refusal")
     check(SignIn.reviewAnswer(status: 503, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer) && SignIn.reviewAnswer(status: 400, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer),
           "and a server error or a bad request says try again")
     check(SignIn.reviewAnswer(status: 401, json: [:] as [String: Any]) == .refused(SignIn.reviewRefused), "with no sentence from Kosmos+, the phone's own")
