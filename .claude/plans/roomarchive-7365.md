@@ -143,3 +143,18 @@ page cost worse, which makes the window more urgent, not less.
      self-read comment says throttle, not bound. Left: NIT 1 (held rows are snapshots; the cap bounds it), NIT 4 (a
      search ended before the first read paints the whole body once), NIT 5 (keyless rows, which the server never sends).
    - Browser after: slide (reader unmoved), scroll-back (5 pages, unmoved), gap let-go (nothing held) all as before.
+7. (default, 14:2x CDT) 1 BLOCKER, 3 WARNINGs, 2 NITs; all applied.
+   - (B) round 6's cap counted pages the READER scrolled back to (pjWinEarlier sets boundary), so nobody could read
+     more than 1,000 rows back: a quiet poll reset them to the newest rows (reviewer, browser, 3,000 posts). The cap now
+     counts only rows that ARRIVED with new posts (PJ_WIN.arrived, cleared by a let-go or reset). Browser
+     (revwin7-deep.js): a reader 6 pages back stays on p1801 with 1,200 held across polls. Test: 7 pages kept.
+   - (W2) the cap reset threw a parked reader off their message: past the cap, a reader off the newest row is left as
+     they are (the poll folds nothing in and paints nothing); reaching the newest row lets go and reads the room at
+     once. Test, mutation-proven. Mona's design may want a "new messages" sign for that case.
+   - (W3) the gap was counted, so a row removed before the newest page left one unread row for the visit: the gap read
+     takes one row more, which must be the last row held (by key); otherwise the window starts again on the newest page.
+     Test (with a fake-room fix: ids no longer reused after a remove), mutation-proven.
+   - (W4) a reader deep in history repainted every held row each poll: a poll whose newest page, unanswered, held and
+     held set are all unchanged does not repaint while pages are held. Test, mutation-proven.
+   - N5: a keystroke paints only from a whole-room body (body.__whole). N6: the let-go measures the floor after the gap
+     read's await.

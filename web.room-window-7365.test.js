@@ -27,7 +27,8 @@ const SRC = [
 /* A room of `n` posts, one second apart (so every key is "<at>|0"), paged as the server pages it. */
 function fakeRoom(n) {
   const rows = [];
-  const add = (k) => { const at = new Date(Date.UTC(2024, 0, 1) + rows.length * 1000).toISOString(); rows.push({ kind: 'post', id: 'p' + (rows.length + 1), text: 'post ' + (rows.length + 1), at }); };
+  let made = 0;   // its own count: after a remove, rows.length would hand out an id and a time twice
+  const add = () => { made += 1; const at = new Date(Date.UTC(2024, 0, 1) + made * 1000).toISOString(); rows.push({ kind: 'post', id: 'p' + made, text: 'post ' + made, at }); };
   for (let i = 0; i < n; i++) add();
   const calls = [];
   const fetch = async (url) => {
@@ -47,7 +48,8 @@ function fakeRoom(n) {
     const olderCount = pool.length - page.length;
     return { ok: true, json: async () => ({ ok: true, rows: page, unanswered: {}, olderCount, olderCursor: olderCount > 0 ? page[0].key : null }) };
   };
-  return { rows, add, calls, fetch };
+  const remove = (id) => { const i = rows.findIndex((r) => r.id === id); if (i >= 0) rows.splice(i, 1); };
+  return { rows, add, remove, calls, fetch };
 }
 
 function harness(room, project = 'proj') {
@@ -107,7 +109,7 @@ test('#7365: a poll after scrolling back keeps the earlier pages, and reads a ga
   for (let i = 0; i < 50; i++) room.add();   // 50 new posts: the newest page now starts at 851, a gap of 801 to 850
   await h.api.loadRoom();
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1050), 'the earlier pages, the gap and the newest page, contiguous');
-  assert.ok(room.calls.some((u) => /\?n=50&cursor=/.test(u)), 'the gap is read by the newest page\'s cursor');
+  assert.ok(room.calls.some((u) => /\?n=51&cursor=/.test(u)), 'the gap is read by the newest page\'s cursor');
   assert.equal(h.anchors.restored, 2, 'the scrolled-up reader is anchored when the gap lands above them');
   // CONTROL: with no new rows, a poll reads one page and adds nothing.
   const n = room.calls.length;
@@ -303,7 +305,7 @@ test('#7365 review 5: letting go while a gap read is in flight leaves nothing he
   for (let i = 0; i < 30; i++) room.add();
   let release; const gate = new Promise((r) => { release = r; });
   const real = room.fetch;
-  room.fetch = async (u) => { if (/n=30&cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
+  room.fetch = async (u) => { if (/n=31&cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
   const poll = h.api.loadRoom();   // the gap read is held back
   await new Promise((r) => setImmediate(r));
   h.api.pjWinLetGoOfEarlier();   // the reader reached the newest row meanwhile
@@ -339,4 +341,54 @@ test('#7365 review 6: a reader parked off the newest row does not hold more than
   for (let k = 0; k < 70; k++) { for (let i = 0; i < 20; i++) room.add(); await h.api.loadRoom(); }
   assert.ok(h.api.PJ_WIN.older.length <= 1000, 'held rows stay capped: ' + h.api.PJ_WIN.older.length);
   assert.ok(h.painted.at(-1).rows.length <= 1200);
+});
+
+test('#7365 review 7: pages the reader scrolled back to are never capped, and a quiet poll does not repaint them', async () => {
+  const room = fakeRoom(3000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  h.box.scrollTop = 1000;
+  for (let k = 0; k < 7; k++) await h.api.pjWinEarlier(true);   // 1,400 rows back, past PJ_WIN_HOLD_MAX
+  await h.api.loadRoom();   // the first poll after scrolling back paints once (the held set changed since the last)
+  const painted = h.painted.length;
+  await h.api.loadRoom();   // a quiet poll
+  assert.equal(h.api.PJ_WIN.older.length, 1400, 'all 7 pages kept');
+  assert.equal(h.painted.length, painted, 'nothing changed: no repaint of 1,600 rows');
+  for (let i = 0; i < 5; i++) room.add();
+  await h.api.loadRoom();
+  assert.equal(h.painted.at(-1).rows.length, 1605, 'a real change paints, keeping every page');
+});
+
+test('#7365 review 7: a row removed before the newest page starts the window again instead of leaving a hole', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  h.box.scrollTop = 1000;
+  await h.api.pjWinEarlier(true);   // 601 to 1000 held
+  room.remove('p701');
+  for (let i = 0; i < 50; i++) room.add();
+  await h.api.loadRoom();
+  const got = ids(h.painted.at(-1));
+  const first = Number(got[0].slice(1));
+  const want = range(first, 1050).filter((x) => x !== 'p701');
+  assert.deepEqual(got.filter((x) => x !== 'p701'), want, 'contiguous apart from the removed row: nothing between is lost');
+});
+
+test('#7365 review 7: past PJ_WIN_HOLD_MAX arrived rows a reader off the newest row is not moved; reaching it reads the room', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  h.box.scrollTop = 1000;
+  for (let k = 0; k < 8; k++) { for (let i = 0; i < 150; i++) room.add(); await h.api.loadRoom(); }
+  const held = h.api.PJ_WIN.older.length;
+  const painted = h.painted.length;
+  for (let i = 0; i < 100; i++) room.add();
+  await h.api.loadRoom();
+  assert.ok(h.api.PJ_WIN.arrived >= 1000, 'the cap is reached: ' + h.api.PJ_WIN.arrived);
+  assert.equal(h.painted.length, painted, 'past the cap the poll paints nothing under the reader');
+  assert.equal(h.api.PJ_WIN.older.length, held, 'and folds nothing more in');
+  h.box.scrollTop = 9500;
+  h.api.pjWinLetGoOfEarlier();
+  for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(ids(h.painted.at(-1)), range(2101, 2300), 'back on the newest row: the newest page, read at once');   // 1,000 + 8 x 150 + 100
 });
