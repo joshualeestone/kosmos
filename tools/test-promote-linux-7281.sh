@@ -19,7 +19,13 @@ if (verb === 'needs-list') process.exit(Number(process.env.STUB_NEEDS_LIST || 3)
 const s = fs.readFileSync(sig, 'utf8');
 if (s.includes('BAD')) process.exit(1);
 if (verb === 'verify-under' && s.includes('UNDER')) process.exit(1);
-if (verb === 'verify-under-list' && s.includes('LIST')) process.exit(1);
+// verify-under-list <manifest> <sig> <list> <list.sig>: as the real tool, refuse a missing list; and the list's own
+// signature must be the COMMITTED one ("list-sig"), so a read of the working tree or a missing fetch cannot pass.
+if (verb === 'verify-under-list') {
+  const [, , , list, listSig] = process.argv.slice(2);
+  if (!fs.existsSync(list) || !fs.existsSync(listSig) || !fs.readFileSync(listSig, 'utf8').includes('list-sig')) process.exit(1);
+  if (s.includes('LIST')) process.exit(1);
+}
 process.exit(0);
 EOF
 . "$T/tools/lib/promote-linux.sh"
@@ -75,10 +81,17 @@ S="$(newsite list 1.4.0)"; O="$T/origin-list.git"; git init -q --bare "$O"
 git -C "$S" init -q -b main; git -C "$S" config user.email t@t; git -C "$S" config user.name t
 printf '{"keys":[]}\n' > "$S/dist/release-keys.json"; printf 'list-sig\n' > "$S/dist/release-keys.json.sig"
 git -C "$S" add dist/release-keys.json dist/release-keys.json.sig; git -C "$S" commit -q -m keys; git -C "$S" remote add origin "$O"; git -C "$S" push -q origin main
+# Review 3: the working tree's copy now disagrees with origin, so only a read of origin/main after the fetch can pass.
+printf 'working-tree-not-served\n' > "$S/dist/release-keys.json.sig"
 chk "CONTROL: key-list check ON, a good signature passes (the check ran and agreed)" [ "$(STUB_NEEDS_LIST=0 prep "$S" 1.4.0)" = "rc=0 linux=yes" ]
 printf 'sig LIST\n' > "$S/dist/kosmos-1.4.0-linux-x64.manifest.json.sig"
 chk "CONTROL: with the key-list check off, a LIST-only signature passes" [ "$(prep "$S" 1.4.0)" = "rc=0 linux=yes" ]
 chk "with it on, a signature the served list does not name refuses" [ "$(STUB_NEEDS_LIST=0 prep "$S" 1.4.0)" = "rc=1 linux=no" ]
+# Review 3: origin reachable but carrying no list: refused (the real tool refuses a missing list).
+S3="$(newsite listmissing 1.4.0)"; O3="$T/origin-listmissing.git"; git init -q --bare "$O3"
+git -C "$S3" init -q -b main; git -C "$S3" config user.email t@t; git -C "$S3" config user.name t
+printf 'x\n' > "$S3/dist/.keep"; git -C "$S3" add dist/.keep; git -C "$S3" commit -q -m e; git -C "$S3" remote add origin "$O3"; git -C "$S3" push -q origin main
+chk "with it on and no served list on origin, it refuses" [ "$(STUB_NEEDS_LIST=0 prep "$S3" 1.4.0)" = "rc=1 linux=no" ]
 S2="$(newsite listnoorigin 1.4.0)"; git -C "$S2" init -q
 chk "with it on and no way to fetch the served list, it refuses" [ "$(STUB_NEEDS_LIST=0 prep "$S2" 1.4.0)" = "rc=1 linux=no" ]
 
@@ -105,6 +118,16 @@ case "$out" in *"ALSO NOT DONE: latest-linux.json"*) PASS=$((PASS+1)) ;; *) FAIL
 chk "and the end of the promote refuses, naming what was not done" not promote_linux_refuse_if_failed 2>/dev/null
 out="$(promote_linux_cleanup 2>&1)"
 chk "once the end check has said it, the trap does not say it again" [ -z "$out" ]
+PROMOTE_LINUX_FAILED=0; PROMOTE_LINUX_REMEDY_SAID=0
+# Review 3 (nit): a read-back failure (the rename happened, the bytes are not the snapshot) is owed too, and the trap
+# must not delete the latest-linux.json that is now real.
+S="$(newsite readback 1.6.1)"; promote_linux_prepare "$S" 1.6.1 >/dev/null 2>&1; promote_linux_stage "$S"
+printf 'drift\n' >> "$PROMOTE_LINUX_SNAP"
+promote_linux_commit "$S" 2>/dev/null
+chk "a read-back failure is owed" [ "$PROMOTE_LINUX_FAILED" = 1 ]
+chk "and leaves no temp for the trap to remove" [ -z "$PROMOTE_LINUX_TMP" ]
+promote_linux_cleanup 2>/dev/null
+chk "the trap keeps the real latest-linux.json" [ -f "$S/dist/latest-linux.json" ]
 PROMOTE_LINUX_FAILED=0; PROMOTE_LINUX_REMEDY_SAID=0
 PROMOTE_LINUX=no; E2="$T/site-none"; mkdir -p "$E2/dist"
 chk "with no Linux family the commit is a no-op" promote_linux_commit "$E2"

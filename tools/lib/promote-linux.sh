@@ -104,7 +104,7 @@ promote_linux_commit() {
     echo "promote-linux: latest.json IS promoted but latest-linux.json is NOT (the rename failed). The promote carries on with /setup and the alias; before any deploy, copy dist/latest-linux-staging.json onto dist/latest-linux.json and commit it with latest.json." >&2
   elif ! cmp -s "$PROMOTE_LINUX_SNAP" "$site/dist/latest-linux.json"; then
     PROMOTE_LINUX_TMP=""; PROMOTE_LINUX_FAILED=1
-    echo "promote-linux: latest-linux.json WAS replaced but does not read back as the verified snapshot. Before any deploy, copy dist/latest-linux-staging.json onto it by hand and check it." >&2
+    echo "promote-linux: latest-linux.json WAS replaced but does not read back as the verified snapshot. Before any deploy, copy dist/latest-linux-staging.json onto it by hand, check it, and commit it with latest.json." >&2
   else
     PROMOTE_LINUX_TMP=""
     echo "   latest-linux.json -> $(cat "$site/dist/latest-linux.json")"
