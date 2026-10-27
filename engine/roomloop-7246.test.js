@@ -380,3 +380,33 @@ test('round 6: a person\'s post that reached nobody does not end the pause', () 
     assert.equal(roomloop.paused(PROJECT), true, 'a refused person\'s post ended the pause');
   });
 });
+
+test('round 7: the author woken by an answer gets it as a message from its colleague, with no invitation to reply', () => {
+  withFleet(room(), (board) => {
+    const ask = post(board, 'angel', 'Angel -> Mona Lisa: can you review #12?');
+    const answer = post(board, 'monalisa', 'reviewed, two nits on line 4', { replyTo: ask.sent.id });
+    const typed = typedTo(answer.tmux, 'angel').join('');
+    assert.match(typed, /^\[message from your colleague monalisa /, 'the answer reached its asker as background');
+    assert.doesNotMatch(typed, /not addressed to you/);
+    assert.match(typed, /FYI, no reply requested/, 'the answer invited another round');
+    const named = post(board, 'monalisa', 'Mona Lisa -> Angel: one question back, ok to merge?', { replyTo: ask.sent.id });
+    assert.match(typedTo(named.tmux, 'angel').join(''), /to answer, run: kosmos post --in-reply-to/, 'CONTROL: an answer that names its author asks for a reply');
+  });
+});
+
+test('round 7: Reopen and a post from the person\'s other computer lift the pause, as a post here does', () => {
+  for (const lift of [() => messages.reopenRoom(PROJECT), () => messages.reopenForOwnPost(PROJECT, { id: 'x1', at: new Date().toISOString() })]) {
+    roomloop.resetForTests();
+    for (let i = 0; i < roomloop.LOOP_CAP; i += 1) roomloop.noteWake(PROJECT);
+    assert.equal(roomloop.paused(PROJECT), true, 'control: paused before the person acts');
+    assert.equal(lift().ok, true);
+    assert.equal(roomloop.paused(PROJECT), false, 'the person acted and the agents stayed paused');
+  }
+});
+test('round 7: the header is the post\'s first line as written, not the post with its lines joined', () => {
+  withFleet(room(), (board) => {
+    assert.deepEqual(post(board, 'pigeonpete', 'Deploy done\nbuild -> Angel: ok').woke, [], 'a second line was read as the header');
+    assert.deepEqual(post(board, 'pigeonpete', 'PigeonPete -> Angel\nsee: the log').woke, [], 'a header with no colon took one from a later line');
+    assert.deepEqual(post(board, 'pigeonpete', 'PigeonPete -> Angel: the build\nis green').woke, ['angel'], 'CONTROL: a header on the first line');
+  });
+});

@@ -1382,6 +1382,14 @@ function staleHeld(projectId, ids, log, now, member) {
   return out;
 }
 
+/* kosmos#7246 slice 2 (round 7): who a row asked by name: its @-names (`mentioned`) and the header names an agent's post
+   addressed (`addressed`, which never holds @all). For the readers that decide who was asked (the claim guard, the
+   #6608 owner rule, who an answer's quote goes to); owed answers and the #185 nudge keep to @-names. */
+function namedIn(row) {
+  const out = new Set();
+  for (const k of ['mentioned', 'addressed']) if (row && Array.isArray(row[k])) for (const n of row[k]) if (typeof n === 'string' && n) out.add(n);
+  return [...out];
+}
 /* kosmos#7246 slice 2: the arrivals a post charged against the room's valve: its `to`, less the members it left quiet
    (in the room, never typed). A post that woke no one costs the valve nothing. */
 function reachedCount(m) {
@@ -2196,7 +2204,7 @@ function nameResolves(name, members, roster) {
      a member addresses no one;
    - @all or @everyone: every member but the sender.
    A Set. Never throws (on a fault it is the @-names alone). */
-function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = true } = {}) {
+function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = true, raw } = {}) {
   const out = new Set(atNamed || []);
   try {
     const text = String(cleaned || '');
@@ -2206,7 +2214,8 @@ function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = tr
       for (const m of list) if (m !== from) out.add(m);
     }
     const poster = from === undefined || from === null ? [] : [String(from)];
-    const head = postHeader(text).find((h) => !h.word || nameResolves(h.sender, poster, roster).length);
+    // Round 7: the header is read from the post as written (`raw`): cleanMessage joins every line into one.
+    const head = postHeader(typeof raw === 'string' ? raw : text).find((h) => !h.word || nameResolves(h.sender, poster, roster).length);
     if (head) {
       for (const part of head.targets) {
         // Round 4: "Ada -> all:" or "-> everyone:" is the header's @all (and, like @all, not with { all: false }).
@@ -2578,9 +2587,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* kosmos#7246 slice 2: who the post addresses: its @-names, plus the fleet's leading `Sender -> Name:` header and @all
      (addressedMembers). The page's @ highlight keeps to mentionedMembers. */
   /* A person's post keeps its @-names alone, as before (round 1): the header and @all are for agents' posts. */
-  const mentioned = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from);
+  const mentioned = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from, { raw: text });
   /* Round 1: @all is a broadcast, not a request to each member, so a swarm switched off here still needs its own name. */
-  const namedHere = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from, { all: false });
+  const namedHere = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from, { all: false, raw: text });
   const note4653 = ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
@@ -2724,7 +2733,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         if (!said && !chat.acknowledgementOnly(m.text)) said = m;
         if (said && (owed || spokeSince)) break;
       }
-      const named = said && Array.isArray(said.mentioned) ? said.mentioned : [];
+      const named = said ? namedIn(said) : [];   // kosmos#7246 round 7: a header name names an owner too
       // Review 4: an @-word that named two members (ambiguousMentions) may have meant someone else, so not one owner.
       const unclear = said && Array.isArray(said.ambiguousMentions) && said.ambiguousMentions.length > 0;
       // Review 4: an outside row's `from` is a display name, not a local session, so it never makes a local agent the author.
@@ -2890,7 +2899,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      one this reply @-names is being asked to act on it and needs them. The others still learn which
      post and whose. */
   const originalAudience = answered && answered.operator !== true
-    ? new Set([answered.from, ...(Array.isArray(answered.mentioned) ? answered.mentioned : [])]) : null;   // `to` is everyone it reached; `mentioned` is who it addressed
+    ? new Set([answered.from, ...namedIn(answered)]) : null;   // `to` is everyone it reached; who it named is who it addressed (round 7: header names too)
   const quoteFor = (name) => ((operator !== true && answered && answered.operator === true)
     || (originalAudience && !originalAudience.has(name) && !mentioned.has(name)) ? '' : replied.quote);
   const outcomes = {};
@@ -2914,9 +2923,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     }
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
        is held rather than typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
-    /* Round 5: an @all wakes a busy member when it is next idle (held), as an unaddressed post did; an @-name or a header
-       name is typed at once. So the hold reads the names without @all (namedHere), not the wake set. */
-    if (roomhold.shouldHold({ name, operator, mentioned: namedHere, answersAuthor: answeredAsked && answered.operator !== true ? answered.from : null,
+    /* Round 7 (reverting round 5): an @all is typed at once, like an @-name. Held instead, it waited for a turn end that
+       an idle agent with the turn-end hook never has, and a plain held id is dropped after two hours: an ask lost, which
+       is worse than interrupting a busy member with a broadcast its sender chose. */
+    if (roomhold.shouldHold({ name, operator, mentioned, answersAuthor: answeredAsked && answered.operator !== true ? answered.from : null,
       reachable: chat.addressable(name, roster).ok === true, readReport: (n) => require('./selfreport').read(n),
       now: Date.now(), decayMs: require('./status').REPORT_WORKING_DECAY_MS, env: process.env })
       && roomhold.hold(name, projectId, id)) {
@@ -2980,9 +2990,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const answerClause = replyExpected === false
       ? ' \u00b7 FYI, no reply requested'
       : ' \u00b7 to answer, run: kosmos post --in-reply-to ' + id + ' ' + projectId;
+    /* kosmos#7246 slice 2 (round 7): an author woken by rule B (an answer to the post it asked) gets the colleague form,
+       never "not addressed to you", which told it to disregard the one line it was woken for. It is not invited to
+       reply unless it was named too, so the answer does not start another round. */
+    const askedHere = operator !== true && asksMember(name);
     const answer = operator === true
       ? answerClause
-      : (mentioned.has(name) ? answerClause : '');
+      : (mentioned.has(name) ? answerClause : askedHere ? ' \u00b7 FYI, no reply requested' : '');
     /* #3311: in a shared project the agent is told, on the post it would answer,
        that its answer leaves this computer. */
     const shownProjectAs = shownProject + (federated ? ' \u00b7 shared outside this computer, what you post here leaves it' : '');
@@ -2990,7 +3004,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ? (mentioned.has(name)
         ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
         : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer + ']')
-      : (mentioned.has(name)
+      : (askedHere
         ? '[message from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
         /* No answer line on background: it is explicitly not addressed to you,
            and inviting a reply is the unaddressed-steering the room prevents. */
@@ -4053,7 +4067,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t));
   };
   const askedSet = new Set();
-  const named = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
+  const named = namedIn(post);   // kosmos#7246 round 7: a header name is asked, as an @-name is
   const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
   if (named.length) {
     if (!unclear && !asksRoom(post.text, true)) for (const n of named) askedSet.add(n);
@@ -4130,6 +4144,7 @@ function reopenRoom(project, at) {
   }
   const when = typeof at === 'string' && Number.isFinite(Date.parse(at)) ? at : new Date().toISOString();
   appendLog({ kind: 'reopen', from: 'you', to: projectId, project: projectId, operator: true, at: when });
+  require('./roomloop').clear(projectId);   // kosmos#7246 round 7: the person pressed Reopen, so the agents' count starts over
   return { ok: true, at: when };
 }
 
@@ -4155,6 +4170,7 @@ function reopenForOwnPost(projectId, row) {
   const t = typeof row.at === 'string' ? Date.parse(row.at) : NaN;
   const when = Number.isFinite(t) && t <= Date.now() ? row.at : new Date().toISOString();
   appendLog({ kind: 'reopen', from: 'you', to: id, project: id, operator: true, at: when, post: row.id, reason: 'own-computer' });
+  require('./roomloop').clear(id);   // kosmos#7246 round 7: the person posted from their other computer
   return { ok: true, at: when };
 }
 

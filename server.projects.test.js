@@ -3353,9 +3353,11 @@ test('kosmos#7246 slice 2 (round 5): the room text view names the members a post
       row('m7246a', 'one asked', { mara: 'placed', april: 'quiet' });
       row('m7246b', 'an fyi', { mara: 'quiet', april: 'quiet' });
       row('m7246c', 'from before', {});
+      row('m7246d', 'one failed', { mara: 'placed', april: 'could_not' });   // round 7
       const lines = (await req(`/api/project/${project.id}/room?as=text`)).body.split('\n');
       assert.match(lines.find((l) => l.includes('one asked')) || '', /splinter2 -> mara: one asked$/);
       assert.match(lines.find((l) => l.includes('an fyi')) || '', /splinter2 -> the room: an fyi$/, 'a post that woke no one named its quiet members');
+      assert.match(lines.find((l) => l.includes('one failed')) || '', /splinter2 -> mara: one failed$/, 'a member it could not reach was listed');
       assert.match(lines.find((l) => l.includes('from before')) || '', /splinter2 -> mara, april: from before$/, 'CONTROL: a row with no quiet outcome names everyone it went to');
     } finally {
       try { fsx.rmSync(messages.LOG, { force: true }); } catch { /* fine */ }

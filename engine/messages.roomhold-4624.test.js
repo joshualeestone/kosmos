@@ -378,17 +378,24 @@ test('#4624 round 1: removal forgets what was held; a "__proto__" project id is 
   assert.deepEqual(roomhold.heldProjects('mara'), []);
 });
 
-test('kosmos#7246 slice 2 (round 5): an @all waits for a working member to be idle; its @-name or header name does not', () => {
+test('kosmos#7246 slice 2 (round 7): an @all and a header name are typed at once to a hook-idle member and a working one', () => {
   withFleet(room3(), (board) => {
-    report('mara', 'working');
+    // The turn-end hook's idle (auto), as the Claude Stop hook writes it: an un-addressed post is held for this member,
+    // and a held plain id waits for a turn end that an idle agent never has.
+    assert.equal(selfreport.record('mara', { state: 'idle', because: 'turn ended', auto: true }).recorded, true);
+    report('april', 'working');
     armSender('leo-discord');
     let tmux = arm();
-    const all = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@all status: the lease draft is green' }, board.agents, MEMBERS);
-    assert.deepEqual(typedTo(tmux, sessionOf(board, 'mara')), [], 'an @all was typed into a member mid-turn');
-    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [all.id], 'the @all must be held for her, not dropped');
-    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'CONTROL: a never-reported member is typed the @all');
+    const all = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@all please stop deploying now, reply when stopped' }, board.agents, MEMBERS);
+    assert.equal(typedTo(tmux, sessionOf(board, 'mara')).length, 1, 'an @all was held for a hook-idle member (it would never be told)');
+    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'an @all was held for a working member');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+    assert.equal(all.outcomes.mara, 'placed');
     tmux = arm();
     messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'Leo -> Mara: can you check clause 4' }, board.agents, MEMBERS);
     assert.equal(typedTo(tmux, sessionOf(board, 'mara')).length, 1, 'a header name is a request, typed at once');
+    tmux = arm();
+    const fyi = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@april the lease draft is green' }, board.agents, MEMBERS);
+    assert.equal(fyi.outcomes.mara, roomhold.QUIET, 'CONTROL: a post not addressed to her is quiet, never typed');
   });
 });
