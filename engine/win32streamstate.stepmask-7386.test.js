@@ -172,3 +172,13 @@ test('#7386 review 4: a megabyte command is folded and masked within the bound, 
   assert.equal(plain, 'running "echo start echo done"');
   for (const ms of [ms1, ms2]) assert.ok(ms < 500, 'a 5 MB command took ' + ms.toFixed(0) + ' ms on the supervisor loop');
 });
+
+test('#7386 review 5: a key split by U+FEFF (a zero-width no-break space JS counts as whitespace) is masked', () => {
+  const GHP = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
+  const cmd = stepVia('Bash', { command: 'aws --key ' + split(GHP, 20, '﻿') });
+  assert.ok(!leaks(cmd, GHP, 4), JSON.stringify(cmd));
+  const tool = stepVia('mcp__s__' + split(ANT, 30, '﻿'), {});
+  assert.ok(!leaks(tool, ANT, 13), JSON.stringify(tool));
+  // Control: shown as a space, as main shows it, when nothing secret is around it.
+  assert.equal(stepVia('Bash', { command: 'echo a﻿b' }), 'running "echo a b"');
+});

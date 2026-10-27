@@ -126,8 +126,10 @@ const STEP_HIDDEN = '\\p{Cc}\\p{Cf}\\p{Mn}\\p{Co}\\p{Default_Ignorable_Code_Poin
    - any other hidden character: kept in what is shown, removed in the "removed" copy, a space in the "spaced" one.
    Line breaks and tabs are whitespace, so the "removed" copy keeps them as a space and does not join the lines of an
    ordinary command into one long token (review 3). */
-const RUN_SPACE = /\s+/y;
-const RUN_C0 = /[\u0000-\u0008\u000e-\u001f\u007f]+/y;
+/* Review 5: U+FEFF (the byte order mark, a zero-width no-break space) is whitespace to JS but invisible, so it goes
+   with the C0 controls: shown as a space, as on main, dropped from the "removed" copy, and the value marked hidden. */
+const RUN_SPACE = /[^\S\uFEFF]+/y;
+const RUN_C0 = /[\u0000-\u0008\u000e-\u001f\u007f\uFEFF]+/y;
 const RUN_HIDDEN = new RegExp('[' + STEP_HIDDEN + ']+', 'uy');
 const RUN_PLAIN = new RegExp('[^\\s\\u0000-\\u001f\\u007f' + STEP_HIDDEN + ']+', 'uy');
 function stepCopies(v, bound) {
