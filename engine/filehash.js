@@ -68,7 +68,7 @@ function want(path, st) {
   const key = keyOf(st);
   if (known(path, st) || queued.has(path + '\0' + key) || queue.length >= QUEUE_MAX) return;
   queued.add(path + '\0' + key);
-  queue.push({ path, key });
+  queue.push({ path, key, exact: st.inoExact !== undefined });
   if (!running) setImmediate(drain);
 }
 
@@ -78,11 +78,23 @@ function remember(path, key, sha256) {
   while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
 }
 
+/* #7229 review 3: a job keyed with the exact id (a listDir row on Windows) compares the open file's stat with that id
+   too, read from the same handle; otherwise the keys never matched and nothing was hashed. A job keyed without one
+   (listFiles) compares without, as before. Inline rather than projects.exactOpenedStat: filehash cannot require projects. */
+async function statAs(fh, exact) {
+  const st = await fh.stat();
+  if (exact) {
+    try { Object.defineProperty(st, 'inoExact', { value: BigInt.asUintN(64, (await fh.stat({ bigint: true })).ino), enumerable: false }); }
+    catch { Object.defineProperty(st, 'inoExact', { value: -1n, enumerable: false }); }
+  }
+  return st;
+}
+
 async function hashOne(job) {
   // A file swapped for a link after the list read it is not followed; a FIFO swapped in does not block.
   const fh = await fs.promises.open(job.path, OPEN_FLAGS);
   try {
-    const before = await fh.stat();
+    const before = await statAs(fh, job.exact);
     if (!before.isFile() || keyOf(before) !== job.key) return;   // changed since it was listed: the next poll asks again
     const h = crypto.createHash('sha256');
     const buf = READ_BUF;   // iteration 9: one buffer, reused (drain hashes one file at a time)
@@ -92,7 +104,7 @@ async function hashOne(job) {
       h.update(buf.subarray(0, bytesRead));
       pos += bytesRead;
     }
-    const after = await fh.stat();
+    const after = await statAs(fh, job.exact);
     if (keyOf(after) !== job.key) {   // written to while it was read: never cache a mix of two versions
       backoff.set(job.path, Date.now() + BACKOFF_MS);
       while (backoff.size > CACHE_MAX) backoff.delete(backoff.keys().next().value);

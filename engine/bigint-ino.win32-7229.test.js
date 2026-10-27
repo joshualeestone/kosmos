@@ -165,3 +165,28 @@ test('#7229 review 2: moving a project folder follows the same Windows rule as c
   const filehash = fs.readFileSync(path.join(__dirname, 'filehash.js'), 'utf8');
   assert.match(filehash, /st\.inoExact === undefined \? \[\] : \[String\(st\.inoExact\)\]/);
 });
+
+test('#7229 review 3: on Windows a listDir row (exact id) is fingerprinted, and a listFiles row still is', winOnly, async () => {
+  const filehash = require('./filehash.js');
+  filehash._settleForTest(0);
+  const root = path.join(SANDBOX, 'fp');
+  fs.mkdirSync(path.join(root, 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'sub', 'a.txt'), 'hello');
+  const want = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';   // sha256('hello')
+  const rowOf = (r) => (r.files || r.entries || []).find((e) => /a\.txt$/.test(e.name));
+  projects.listDir(root, 'sub', 'this folder', { maxDepth: 1, fingerprint: true });
+  let row;
+  for (let i = 0; i < 40 && !(row && row.sha256); i++) {
+    await new Promise((r) => setTimeout(r, 50));
+    row = rowOf(projects.listDir(root, 'sub', 'this folder', { maxDepth: 1, fingerprint: true }));
+  }
+  assert.equal(row && row.sha256, want, 'the listDir row gets its fingerprint: ' + JSON.stringify(row));
+  // CONTROL: listFiles (no exact id on its rows) still fingerprints
+  projects.listFiles(root, 50, { maxDepth: 2, fingerprint: true });
+  let lrow;
+  for (let i = 0; i < 40 && !(lrow && lrow.sha256); i++) {
+    await new Promise((r) => setTimeout(r, 50));
+    lrow = (projects.listFiles(root, 50, { maxDepth: 2, fingerprint: true }).files || []).find((e) => /a\.txt$/.test(e.name));
+  }
+  assert.equal(lrow && lrow.sha256, want);
+});

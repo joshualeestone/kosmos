@@ -69,3 +69,10 @@ zip size) it can only be a regular file at the same listed name inside the folde
   id when present; a test world with no lstat/stat reads the real disk exactly. NIT ACCEPTED (Weakest part): the two
   reads of a path agree on the number id only; tried creation time, which cannot tell colliding files apart (measured
   0 ns), so removed. 9/9.
+- Round 3: 1 BLOCKER, 1 NIT. BLOCKER FIXED (reproduced by the reviewer): round 1 gave listDir rows the exact id, so their
+  fingerprint job key carried it, but hashOne compared against a plain fstat, so on Windows a listDir row (the agent
+  Files browse) never got a sha256. A job now records whether its key carries the exact id, and hashOne reads that id
+  from the same handle when it does (inline: filehash cannot require projects); listFiles jobs compare as before. New
+  test: listDir and listFiles rows both get sha256 on Windows (fails on round 2). NIT noted: listFiles' walk stat has no
+  exact id; making it exact now also works, since hashOne follows the job. Not stored anywhere: the hash cache is in
+  memory, the preview stamp only names a PNG, so a changed key costs one recompute. 20/20 with filehash-6761.
