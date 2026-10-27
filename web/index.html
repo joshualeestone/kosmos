@@ -75663,8 +75663,9 @@ function pjWinNoteReactions(project, postId, list, claim) {
   if (Array.isArray(PJ_WIN.newest)) PJ_WIN.newest = PJ_WIN.newest.map(fix);
 }
 async function pjWinRead(pid, n, cursor) {
-  const q = '?n=' + n + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
-  const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room' + q);
+  const q = 'n=' + n + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+  // The '?' inside the literal, so web.api-routes-3957 can read the route this fetches.
+  const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room?' + q);
   const body = await res.json();
   if (!res.ok || !body || !Array.isArray(body.rows)) throw new Error((body && body.error) || 'we could not read the room');
   return body;
