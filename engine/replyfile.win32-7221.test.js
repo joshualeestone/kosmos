@@ -1067,3 +1067,26 @@ test('#7221 review 27-1: a Volume Shadow Copy is a local volume, so another agen
   assert.equal(winpath.isLocalVolumeSpelling('\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy\\x'), false, 'no number, no volume');
   assert.equal(winpath.isLocalVolumeSpelling('\\\\?\\GLOBALROOT\\Device\\SomethingElse1\\x'), false);
 });
+
+/* ---------- #7250 ---------- */
+
+test('#7250: a Files folder that is ITSELF a link to a share is refused without a realpath contact (reviews 25, 26, 28)', linkOnly, () => {
+  /* winLinkRefusal followed a drive-written link onto a share whenever the link was ANY of the agent's folders, the
+     Files folder included; realOf then contacted the share before filesRoot refused the linked Files folder. A
+     share-backed PROJECT is the person's own choice, but the Files folder is one Kosmos always makes as a real folder,
+     so a Files folder that is a link to a share is never legitimate. ownShareProject now gates on projectFolders, so
+     this is refused by spelling, unresolved. Before #7250 the walk went onto the unroutable share: this arm went red
+     by its realpath count or its timing. The positive counterpart is the review 11-2 arm above (a drive-written
+     PROJECT folder that is a link to a share still attaches, because projectFolders still includes it): together they
+     pin that the narrowing refuses only the Files link, not a legitimate project link. */
+  const filesLink = path.join(SANDBOX, 'files-as-share-link');
+  fs.symlinkSync('\\\\10.255.255.1\\share', filesLink, 'dir');
+  const filesDirOverride = dmfiles.filesDir;
+  dmfiles.filesDir = (name) => (name === WHO ? filesLink : null);
+  try {
+    refusedUnresolved(path.join(filesLink, 'f.txt'), replyfile.ON_NETWORK, 'the Files folder is a link to a share');
+  } finally {
+    dmfiles.filesDir = filesDirOverride;
+    fs.rmSync(filesLink, { force: true });
+  }
+});
