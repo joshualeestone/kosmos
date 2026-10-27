@@ -3132,8 +3132,8 @@ const LIMIT_ROW_GONE_MS = 2 * 60 * 1000;
 const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;   // backstop for an agent that went away
 /* Agents the screen pass has captured before (review 1): a row already on screen at the board's FIRST capture of an
    agent arrived at an unknown time (a board restart, an agent first appearing, or a capture after a long gap), so it is
-   marked late and given no time, no hold and no retirement, as before 3b. Only a row the board watched arrive is
-   timed. */
+   marked late and given no time and no hold, as before 3b. Only a row the board watched arrive is timed. A late row
+   can still be retired once its reset has passed (kosmos#7264, retireResetLimits). */
 const limitCapturedAgents = new Map();   // agent -> its last capture time
 /* Review 4: a capture after a gap longer than this (a Mac asleep, captures failing) is like a first capture: a row new
    in it may have arrived any time in the gap, so it is late. */
@@ -3245,7 +3245,8 @@ function limitTimeOnlyReadable(line) {
 }
 /* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
    this can read. A dated line is read as limitResetAt reads it; a dateless one from when the screen pass first saw it
-   (null when it has not: the board saw it late, or it is not on the screen). */
+   (null when it has not: the board saw it late, or it is not on the screen). Retiring a late row is separate
+   (kosmos#7264, limitRetireFromOf), so a null here does not keep a row capped. */
 function claudeLimitUntil(agent, evidence, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const line = String(evidence == null ? '' : evidence);
