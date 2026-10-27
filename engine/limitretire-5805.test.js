@@ -394,10 +394,20 @@ test('kosmos#7264 review 3: a gap, a footer that repeats, a footer that changes 
   read(day2, old + block('do the report', NEW_FOOTER) + STATUS_LINE, 'rate_limited');
   read(after - 60e3, old + block('do the report', NEW_FOOTER) + STATUS_LINE, 'rate_limited');
   read(after, old + block('do the report', NEW_FOOTER) + STATUS_LINE, 'idle');   // released at its own reset
-  // A footer that repeats the old one's text exactly: the extra row still moves the sighting, so it is capped.
+  // A footer that repeats the old one's text exactly cannot be told from a redraw (challenge loop), so it moves
+  // nothing and the row stays released: the stated residual, chosen over re-capping on every redraw.
   status.resetLimitFirstSeenForTests();
   read(ten, old + STATUS_LINE, 'idle');
-  read(day2, old + block('again', FOOTER) + STATUS_LINE, 'rate_limited');
+  read(day2, old + block('again', FOOTER) + STATUS_LINE, 'idle');
+  // The redraw itself, within one span of the next 6pm (14:00 CDT the next day): the old block reprinted twice, footer
+  // and all. Before the challenge loop this re-capped the released row until 18:01.
+  status.resetLimitFirstSeenForTests();
+  read(Date.parse('2026-10-27T00:20:00Z'), old + STATUS_LINE, 'idle');   // restart at 19:20 CDT the night before
+  read(Date.parse('2026-10-27T19:00:00Z'), old + old + STATUS_LINE, 'idle');
+  // CONTROL: the same moment with a turn footer the entry has not seen is a new limit, capped.
+  status.resetLimitFirstSeenForTests();
+  read(Date.parse('2026-10-27T00:20:00Z'), old + STATUS_LINE, 'idle');   // restart at 19:20 CDT the night before
+  read(Date.parse('2026-10-27T19:00:00Z'), old + block('do the report', NEW_FOOTER) + STATUS_LINE, 'rate_limited');
   // A footer that changes in place (the background-agents row, then the turn's own), seen late at 16:00 CDT: capped
   // until 18:01 at most, never a hold (no limitUntil), and released at the reset.
   status.resetLimitFirstSeenForTests();
@@ -410,13 +420,13 @@ test('kosmos#7264 review 3: a gap, a footer that repeats, a footer that changes 
   read(after - 60e3, old + STATUS_LINE, 'rate_limited');
   read(after, old + STATUS_LINE, 'idle');
   const r = Date.parse('2026-10-27T00:20:00Z');
-  // Review 4: the old row scrolls off, then a NEW limit with the same words AND the same footer text prints a minute
-  // later: the absent capture moves the sighting, so it is capped until its reset, not lifted at once.
+  // Review 4: the old row scrolls off, then the same words AND the same footer text print a minute later. That is the
+  // old block scrolled back as much as a new limit, so it moves nothing (challenge loop: the stated residual).
   // Captured every minute, so the entry is still alive (gone under LIMIT_ROW_GONE_MS) when the new row arrives.
   status.resetLimitFirstSeenForTests();
   for (let t = ten; t < day2 - 60e3; t += 60e3) read(t, old + STATUS_LINE, 'idle');
   read(day2 - 60e3, '❯ other work\n● Done.\n' + NEW_FOOTER + STATUS_LINE, 'idle');
-  read(day2, block('do the report', FOOTER) + STATUS_LINE, 'rate_limited');
+  read(day2, block('do the report', FOOTER) + STATUS_LINE, 'idle');
   // A laptop that sleeps: captures with long gaps and the same screen. Yesterday's row stays released on every wake.
   status.resetLimitFirstSeenForTests();
   for (const t of [r, Date.parse('2026-10-27T14:00:00Z'), Date.parse('2026-10-27T16:30:00Z'), Date.parse('2026-10-27T17:55:00Z')]) {

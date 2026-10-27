@@ -19,9 +19,12 @@ for as long as it stayed in the last 25 rows: for good, on an idle agent.
 - else the occurrence before the sighting (read as the reset timed from one span before it): that reset has passed,
   so the row is retired at once;
 - a row that cannot be read (an unknown zone) still gets null and is kept.
-- a late entry that sees a turn footer it has not seen, on a capture that is not itself a first one, is re-timed from
-  now (not late): a NEW limit printing the same words is timed from its arrival and never inherits the late sighting
-  (review 2's blocker). A redraw copies the old footer, so it never re-times.
+- a late entry that sees a turn footer it has not seen has its sighting moved to that capture (it stays late): a NEW
+  limit printing the same words is timed from its arrival and never inherits the old sighting (review 2's blocker).
+  Only a new footer moves it (challenge loop iteration 1): more rows, or the row returning after a capture without
+  it, move nothing on their own, because a redraw or a scroll back reprints the old block footer and all, and moving
+  on those re-capped a released row for up to a span. Residual: a new limit whose footer text repeats one already
+  seen reads released (typed, never held), chosen over re-capping on every redraw.
 `limitUntil` and the delivery hold keep `limitFirstSeenOf` (no time for a late row), so messages are still typed.
 
 ## Tests
