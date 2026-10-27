@@ -257,8 +257,14 @@ test('round 3 CONTROL: at the same point, a post that wakes both members is held
 });
 
 /* Round 3 (W2): the header as the fleet writes it, controls from real Fleet Builders posts. */
-const FLEET = [['angel', 'Angel'], ['monalisa', 'Mona Lisa'], ['renettilley', 'Renet Tilley'], ['barondraxum', 'Baron Draxum'],
-  ['icecreamkitty', 'Ice Cream Kitty'], ['pigeonpete', 'PigeonPete'], ['claudebot', 'Splinter']].map(([sessionName, name]) => ({ sessionName, name }));
+/* Real roster cards from test-support/fleet (fixture discipline), copied so they outlive the install. */
+function fleetRoster(pairs) {
+  const board = fleet.install(pairs.map(([name, displayName]) => fleet.agent(name, { state: 'idle', displayName })));
+  try { return board.agents.map((c) => ({ ...c })); } finally { board.restore(); }
+}
+const FLEET_PAIRS = [['angel', 'Angel'], ['monalisa', 'Mona Lisa'], ['renettilley', 'Renet Tilley'], ['barondraxum', 'Baron Draxum'],
+  ['icecreamkitty', 'Ice Cream Kitty'], ['pigeonpete', 'PigeonPete'], ['claudebot', 'Splinter']];
+const FLEET = fleetRoster(FLEET_PAIRS);
 const fleetNames = FLEET.map((c) => c.sessionName);
 const addressed = (from, text, roster = FLEET) => [...messages.addressedMembers(text, fleetNames.filter((n) => n !== from), roster, new Set(), from)].sort();
 test('round 3: the header reads "to", "for", "→", parentheses with colons, and one word of a display name', () => {
@@ -275,7 +281,7 @@ test('round 3 CONTROLS: what is not a header addresses no one', () => {
   assert.deepEqual(addressed('claudebot', 'Splinter -> owners of the Kosmos Cloud finish line: x'), []);
   assert.deepEqual(addressed('pigeonpete', 'PigeonPete, on m616 seam F: answered'), []);
   assert.deepEqual(addressed('angel', 'Angel -> Mona Lisa, on m590: fine by me'), ['monalisa'], 'a reference after the name is not a member');
-  const twoKitties = FLEET.concat([{ sessionName: 'kittyhawk', name: 'Kitty Hawk' }]);
+  const twoKitties = fleetRoster(FLEET_PAIRS.concat([['kittyhawk', 'Kitty Hawk']]));
   const names = fleetNames.concat(['kittyhawk']);
   assert.deepEqual([...messages.addressedMembers('Angel -> Kitty: x', names.filter((n) => n !== 'angel'), twoKitties, new Set(), 'angel')], [],
     'two members share the word, so it names neither');
@@ -347,7 +353,7 @@ test('round 4: two posts started together at the last free wake: only one wakes 
 
 /* Round 5 (M1): words after a name, and the word form read every way, so the fleet's own shapes keep their names. */
 test('round 5: a header name keeps its member whatever words follow it', () => {
-  const F = FLEET.concat([{ sessionName: 'basil', name: 'Basil' }, { sessionName: 'ada', name: 'Ada' }]);
+  const F = fleetRoster(FLEET_PAIRS.concat([['basil', 'Basil'], ['ada', 'Ada']]));
   const n = F.map((c) => c.sessionName);
   const a = (from, text) => [...messages.addressedMembers(text, n.filter((x) => x !== from), F, new Set(), from)].sort();
   assert.deepEqual(a('pigeonpete', 'PigeonPete -> Mona Lisa on m702: re-shot'), ['monalisa']);
