@@ -14,6 +14,24 @@ enum SignIn {
     static let verifyPath = "/v1/signin/verify"
     static let secondPath = "/v1/signin/second"
     static let mePath = "/v1/account/me"
+
+    // kosmos#7357: the App Store review door (kosmos-relay review.rs). ONE review account signs in with a password and
+    // no second step; its session still waits for the review computer's Allow, like any sign-in. The door is closed
+    // unless Kosmos+ is configured for a review window, and closed it answers like a path that does not exist (404);
+    // open, it takes POST only, so a GET answers 405. Its answer is verify's, plus the server's own device id, which
+    // the phone does not need (the session is the token).
+    static let reviewPath = "/v1/signin/review"
+    static func reviewBody(email: String, password: String, deviceName: String) -> [String: Any] {
+        ["email": email, "password": password, "device_name": deviceName]
+    }
+    /// Whether the review door is open, from a GET's status: nil when the answer says neither (asked again later).
+    static func reviewDoorOpen(status: Int) -> Bool? {
+        switch status {
+        case 405: return true
+        case 404: return false
+        default: return nil
+        }
+    }
     /// Where the sign-in page keeps its session (kosmos-relay signin.html restore(): localStorage only; the page never
     /// sends `x-kosmos-web`, so the server's HttpOnly cookie, websession.rs, is not what it reads).
     static let pageSessionKey = "kosmos_session"
@@ -345,6 +363,8 @@ enum SignIn {
     enum Step: Equatable {
         case email
         case code(email: String)
+        /// kosmos#7357: the review account's email and password, offered only while the review door is open.
+        case password
         case second(email: String, kind: String, challenge: String, sentTo: String?)
         /// Signed in; the Mac has not answered the Allow yet (or has no computer to answer it).
         case allow(matchCode: String?, hasComputer: Bool)

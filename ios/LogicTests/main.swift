@@ -3631,6 +3631,26 @@ do {
     check(SignIn.startBody(email: "a@b.co", deviceID: key.id, deviceName: "n").count == 3, "start sends the email, the id and the name only")
 }
 
+section("sign-in: the App Store review door (kosmos#7357)")
+do {
+    check(SignIn.reviewDoorOpen(status: 405) == true, "open: the door takes POST only, so a GET answers 405 (kosmos-relay review.rs)")
+    check(SignIn.reviewDoorOpen(status: 404) == false, "closed: it answers like a path that does not exist")
+    check(SignIn.reviewDoorOpen(status: 200) == nil && SignIn.reviewDoorOpen(status: 429) == nil && SignIn.reviewDoorOpen(status: 503) == nil,
+          "CONTROL: any other answer is not read as open (no password sign-in on a guess)")
+    let body = SignIn.reviewBody(email: "review@example.com", password: "p", deviceName: "iPhone")
+    check(body.count == 3 && body["email"] as? String == "review@example.com" && body["password"] as? String == "p"
+          && body["device_name"] as? String == "iPhone", "the review sign-in sends the email, the password and the name only")
+    check(body["device_id"] == nil, "and no device id: the server makes its own review device")
+    check(SignIn.reviewPath == "/v1/signin/review", "the door's path")
+    // Its answer is verify's: a session that waits for the computer's Allow, and the server's device id is ignored.
+    let admitted = SignIn.answer(status: 200, json: ["token": "t", "device_status": "pending", "match_code": "K7Q2",
+                                                     "addresses": ["a"], "device_id": "review-1"] as [String: Any])
+    check(admitted == .signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "K7Q2", hasComputer: true)),
+          "an admitted review sign-in waits for the review computer's Allow, as any sign-in does")
+    check(SignIn.answer(status: 401, json: ["error": "That email and password do not match."]) == .refused(message: "That email and password do not match.", proofRefused: false),
+          "a refusal shows Kosmos+'s own sentence")
+}
+
 section("sign-in: what was typed")
 for (e, ok) in [("ada@example.com", true), ("  ada@example.com ", true), ("ada@example", false), ("ada example.com", false), ("@example.com", false), ("ada@@example.com", false), ("ada@.com", false), ("ada@example.", false), ("", false)] {
     check(SignIn.looksLikeEmail(e) == ok, "\(e.isEmpty ? "(empty)" : e): \(ok ? "an email" : "not an email")")
