@@ -21,6 +21,9 @@ extension Board {
         let accountProvider: String?
         let accountLabel: String?
         let running: Bool
+        // The board's "is it running" for the model line (cardStOf(a).pres === 'off'): the state "stopped", which a live
+        // pane can carry while `running` is still true (review 1).
+        var stopped = false
     }
 
     static func parseAgentDetails(_ data: Data, session: String) -> AgentDetails? {
@@ -42,20 +45,23 @@ extension Board {
             settingModelName: text(row["settingModelName"]),
             neverRecorded: (row["neverRecorded"] as? Bool) == true,
             accountProvider: text(account?["provider"]),
-            accountLabel: text(account?["label"]) ?? text(account?["name"]),
-            running: (row["running"] as? Bool) != false)
+            // The board's acctParenthetical: name, else email, else "API key ending ..", else the folder's label.
+            accountLabel: text(account?["name"]) ?? text(account?["email"])
+                ?? text(account?["keyTail"]).map { "API key ending " + $0 } ?? text(account?["label"]),
+            running: (row["running"] as? Bool) != false,
+            stopped: (row["state"] as? String) == "stopped")
     }
 
     // The board's modelLine (web/index.html), with no tense: an attribute of the agent, as on its card (Mona Lisa's
     // 2026-08-19 ruling there). A stopped agent is named by what it will start on when the job says.
     static func modelLine(_ d: AgentDetails) -> String {
-        let name = (!d.running ? d.plannedModelName : nil) ?? d.modelName ?? d.plannedModelName
+        let name = (d.stopped ? d.plannedModelName : nil) ?? d.modelName ?? d.plannedModelName
         func starts(_ s: String, _ pattern: String) -> Bool { s.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil }
         if d.runner == "codex" && d.accountProvider == "alibaba" {
             return name.map { starts($0, "qwen") ? $0 : "Qwen " + $0 } ?? "Qwen"
         }
         if d.runner == "codex" { return name.map { starts($0, "^(gpt|openai|codex)\\b") ? $0 : "OpenAI " + $0 } ?? "OpenAI Codex" }
-        if d.runner == "gemini", let name, d.running, let set = d.settingModelName { return name + " (set to " + set + ")" }
+        if d.runner == "gemini", let name, !d.stopped, let set = d.settingModelName { return name + " (set to " + set + ")" }
         if d.runner == "gemini" || d.runner == "grok" { return name ?? (d.runner == "gemini" ? "Gemini" : "Grok") }
         if d.runner == "antigravity" { return name ?? "Gemini (Google subscription)" }
         if d.runner == "muse" { return name ?? "Meta Muse" }
@@ -86,9 +92,10 @@ extension Board {
 
     static let profileFieldMax = 80   // the route's cap on both
     static func profileSaveRequest(mac: URL, session: String, name: String, role: String, shownName: String) -> URLRequest? {
-        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let r0 = role.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isAgentSession(session), !n.isEmpty, n.count <= profileFieldMax, r0.count <= profileFieldMax else { return nil }
+        // Cut to the route's 80, as the board's Save does (review 1: refusing here read as "could not reach").
+        let n = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(profileFieldMax))
+        let r0 = String(role.trimmingCharacters(in: .whitespacesAndNewlines).prefix(profileFieldMax))
+        guard isAgentSession(session), !n.isEmpty else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/profile", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "PUT"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -99,13 +106,43 @@ extension Board {
         r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return r
     }
-    // Saved, or the route's own reason, or no answer (never "saved" on a body this build cannot read).
-    enum ProfileSave: Equatable { case saved, refused(String), noAnswer }
-    static func profileSaveResult(status: Int, body: Data?) -> ProfileSave {
+    // Saved (with the board's sentence), or the route's own reason, or no answer (never "saved" on a body this build
+    // cannot read).
+    enum ProfileSave: Equatable { case saved(String), refused(String), noAnswer }
+    // `running`: the agent's pane is up (the board's CURRENT.running !== false). `before`: the name the box was filled
+    // with; `typed`: the name sent.
+    static func profileSaveResult(status: Int, body: Data?, running: Bool = true, before: String = "", typed: String = "") -> ProfileSave {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        if status == 200, obj != nil { return .saved }
+        if status == 200, let obj { return .saved(profileSavedSentence(obj, running: running, before: before, typed: typed)) }
         if let e = obj?["error"] as? String, !e.isEmpty { return .refused(sentence(e)) }
         return status == 0 ? .noAnswer : .refused("We could not save that.")
+    }
+
+    // The board's sentence after Save (web/index.html, the d-role save: #406, #2829, #336), word for word, except where
+    // the board puts a Restart button beside it: the phone has no restart here, so it says where it is.
+    static func profileSavedSentence(_ saved: [String: Any], running: Bool, before: String, typed: String) -> String {
+        let ren = saved["renamed"] as? [String: Any]
+        let changed = (ren?["changed"] as? Bool) == true
+        let renameTo = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let was = ((ren?["was"] as? String) ?? before).trimmingCharacters(in: .whitespacesAndNewlines)
+        let edited = renameTo != before.trimmingCharacters(in: .whitespacesAndNewlines)
+        if changed && running && edited && !was.isEmpty && was != renameTo {
+            return "Saved. \(was) will not answer to \(renameTo) until you restart it. You can restart it from your computer."
+        }
+        if let ren {
+            if changed {
+                return running ? "Saved. Its instructions say the new name too, so restart it when you are ready and it will know."
+                               : "Saved. It will know its new name when it next starts."
+            }
+            if (ren["ok"] as? Bool) == false, let why = ren["because"] as? String, !why.isEmpty { return "Saved here, but \(why)." }
+        }
+        if let rep = saved["reports"] as? [String: Any] {
+            if rep["state"] as? String == "told" && running {
+                return "Saved. They are running on what they read when they started, so restart them to use it now."
+            }
+            if rep["state"] as? String == "could_not", let why = rep["because"] as? String, !why.isEmpty { return "Saved here, but \(why)." }
+        }
+        return "Saved."
     }
 
     // MARK: Instructions and skills, read only here
@@ -158,6 +195,8 @@ extension Board {
             return ("We could not reach Kosmos.", false)
         }
         let d = obj["delivery"] as? [String: Any]
+        // A refusal before any delivery (no such agent, its window unreachable): the route's own words (review 1).
+        if d == nil, let e = obj["error"] as? String, !e.isEmpty { return (sentence(e), false) }
         if (d?["state"] as? String) == "could_not" || d == nil {
             return ((d?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "It could not be done just now.", false)
         }

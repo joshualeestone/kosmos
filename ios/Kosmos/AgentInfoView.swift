@@ -18,12 +18,17 @@ struct AgentInfoView: View {
     // Name and role as typed, and what was last read, so Save shows only for a change.
     @State private var nameText = ""
     @State private var roleText = ""
+    // What the boxes were last filled with: Save compares against these, not the newest read, so a rename made on the
+    // computer meanwhile is never undone by a role-only save (the board's #4421, review 1).
+    @State private var filledName = ""
+    @State private var filledRole = ""
     @State private var saving = false
     @State private var saveLine: (text: String, ok: Bool)?
     @State private var asking: Board.FreshStart?
     @State private var freshLine: (text: String, ok: Bool)?
     @State private var freshBusy = false
 
+    @ScaledMetric(relativeTo: .body) private var markSize: CGFloat = 22
     private var live: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
     private var names: [String: String] { Dictionary(client.agents.map { ($0.session, $0.name) }, uniquingKeysWith: { a, _ in a }) }
 
@@ -87,6 +92,7 @@ struct AgentInfoView: View {
     @ViewBuilder private var profile: some View {
         Section {
             TextField("What you call them", text: $nameText)
+                .onChange(of: nameText) { v in if v.count > Board.profileFieldMax { nameText = String(v.prefix(Board.profileFieldMax)) } }
                 .textInputAutocapitalization(.words)
                 .foregroundColor(Palette.primary)
         } header: { label("Name") } footer: {
@@ -94,6 +100,7 @@ struct AgentInfoView: View {
         }
         Section {
             TextField("Executive Assistant, Bookkeeper, Researcher…", text: $roleText)
+                .onChange(of: roleText) { v in if v.count > Board.profileFieldMax { roleText = String(v.prefix(Board.profileFieldMax)) } }
                 .foregroundColor(Palette.primary)
         } header: { label("What they do") } footer: {
             Text("Shown under their name, and written into their own instructions.")
@@ -143,9 +150,13 @@ struct AgentInfoView: View {
     }
 
     private var changed: Bool {
-        guard let details else { return false }
-        return nameText.trimmingCharacters(in: .whitespacesAndNewlines) != details.name
-            || roleText.trimmingCharacters(in: .whitespacesAndNewlines) != (details.role ?? "")
+        guard details != nil else { return false }
+        return nameText.trimmingCharacters(in: .whitespacesAndNewlines) != filledName
+            || roleText.trimmingCharacters(in: .whitespacesAndNewlines) != filledRole
+    }
+    private func fill(_ d: Board.AgentDetails) {
+        nameText = d.name; roleText = d.role ?? ""
+        filledName = d.name; filledRole = d.role ?? ""
     }
 
     // MARK: AI Settings
@@ -155,7 +166,7 @@ struct AgentInfoView: View {
             if let details {
                 HStack(spacing: 10) {
                     if let mark = Board.runnerMark(details) {
-                        Image(mark).resizable().scaledToFit().frame(width: 22, height: 22).foregroundColor(Palette.primary)
+                        Image(mark).resizable().scaledToFit().frame(width: markSize, height: markSize).foregroundColor(Palette.primary)
                             .accessibilityHidden(true)
                     }
                     Text(Board.modelLine(details)).foregroundColor(Palette.primary)
@@ -240,7 +251,7 @@ struct AgentInfoView: View {
         let d = s.flatMap { $0.1.statusCode == 200 ? Board.parseAgentDetails($0.0, session: session) : nil }
         if let d {
             // Only into fields the person has not changed (a refresh must not undo their typing).
-            if details == nil || !changed { nameText = d.name; roleText = d.role ?? "" }
+            if details == nil || !changed { fill(d) }
             details = d
         }
         instructions = i.flatMap { $0.1.statusCode == 200 ? Board.parseInstructions($0.0) : nil } ?? instructions
@@ -252,17 +263,24 @@ struct AgentInfoView: View {
         guard let details else { return }
         saving = true
         defer { saving = false }
+        let typed = nameText
+        let before = filledName
         let res = await client.throughMac {
-            Board.profileSaveRequest(mac: $0, session: details.session, name: nameText, role: roleText, shownName: details.name)
+            Board.profileSaveRequest(mac: $0, session: details.session, name: typed, role: roleText, shownName: before)
         }
-        switch Board.profileSaveResult(status: res?.1.statusCode ?? 0, body: res?.0) {
-        case .saved:
-            saveLine = ("Saved.", true)
+        switch Board.profileSaveResult(status: res?.1.statusCode ?? 0, body: res?.0, running: live.running, before: before,
+                                       typed: String(typed.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Board.profileFieldMax))) {
+        case .saved(let said):
+            saveLine = (said, true)
+            // What was sent is now what the boxes hold, so the read after it refills them with the saved values.
+            filledName = nameText.trimmingCharacters(in: .whitespacesAndNewlines)
+            filledRole = roleText.trimmingCharacters(in: .whitespacesAndNewlines)
             await load()
             await client.refreshNow()
         case .refused(let why): saveLine = (why, false)
         case .noAnswer: saveLine = ("We could not reach your computer, so it was not saved.", false)
         }
+        if let saveLine { UIAccessibility.post(notification: .announcement, argument: saveLine.text) }   // the board's aria-live
     }
 
     private func fresh(_ which: Board.FreshStart) async {
@@ -271,6 +289,7 @@ struct AgentInfoView: View {
         let res = await client.throughMac { Board.freshRequest(mac: $0, session: agent.session, which) }
         let said = Board.freshResult(which, status: res?.1.statusCode ?? 0, body: res?.0)
         freshLine = (said.sentence, said.ok)
+        UIAccessibility.post(notification: .announcement, argument: said.sentence)
     }
 
     #if DEBUG
@@ -282,8 +301,7 @@ struct AgentInfoView: View {
                                    modelName: "Opus 5.5", plannedModelName: nil, settingModelName: nil, neverRecorded: false,
                                    accountProvider: nil, accountLabel: "Work account", running: true)
         details = d
-        nameText = d.name
-        roleText = d.role ?? ""
+        fill(d)
         instructions = "You look after the spring catalogue: the cover, the order of the pages, and getting proofs to the printer on time.\n\nAsk before you spend money or send anything outside the team."
         skills = ["Meeting minutes", "Proof checklist"]
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] == "ai" { part = .ai }

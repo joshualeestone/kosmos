@@ -14,9 +14,15 @@ check(boardPage.count > 100_000, "premise: the board's page was read")
 let mac = URL(string: "https://studio.kosmosplus.com")!
 
 section("one agent's row of /api/status")
-let status = #"{"agents":[{"sessionName":"cleo","name":"Cleo","role":"Designer","runner":"","modelName":"Opus 5.5","running":true,"profile":{"reportsTo":"dana"},"account":{"label":"Work account","provider":"anthropic"}},{"sessionName":"gus","name":"","runner":"codex","modelName":"o3","running":false,"plannedModelName":"GPT 5.6 Sol","account":{"provider":"alibaba"}},{"sessionName":"eli","runner":"gemini","running":true,"modelName":"Gemini 3.8 Flash","settingModelName":"Gemini 3.8 Pro"}]}"#
+let status = #"{"agents":[{"sessionName":"cleo","name":"Cleo","role":"Designer","runner":"","modelName":"Opus 5.5","running":true,"profile":{"reportsTo":"dana"},"account":{"label":"Work account","provider":"anthropic"}},{"sessionName":"gus","name":"","runner":"codex","modelName":"o3","running":false,"state":"stopped","plannedModelName":"GPT 5.6 Sol","account":{"provider":"alibaba"}},{"sessionName":"eli","runner":"gemini","running":true,"modelName":"Gemini 3.8 Flash","settingModelName":"Gemini 3.8 Pro"}]}"#
 let cleo = Board.parseAgentDetails(Data(status.utf8), session: "cleo")
 check(cleo?.name == "Cleo" && cleo?.role == "Designer" && cleo?.reportsTo == "dana" && cleo?.accountLabel == "Work account", "the fields the page reads")
+func acct(_ a: String) -> String? { Board.parseAgentDetails(Data(("{\"agents\":[{\"sessionName\":\"a\",\"account\":" + a + "}]}").utf8), session: "a")?.accountLabel }
+check(acct(#"{"name":"Work","email":"w@x","keyTail":"1234","label":"account-b"}"#) == "Work" && acct(#"{"email":"w@x","label":"account-b"}"#) == "w@x"
+      && acct(#"{"keyTail":"1234","label":"account-b"}"#) == "API key ending 1234" && acct(#"{"label":"account-b"}"#) == "account-b", "the board's acctParenthetical order")
+check(boardPage.contains("acct.name || acct.email || (acct.keyTail ? 'API key ending ' + acct.keyTail : '') || acct.label"), "the board's order still")
+let stoppedLive = Board.parseAgentDetails(Data(#"{"agents":[{"sessionName":"s","state":"stopped","running":true,"modelName":"Opus 5","plannedModelName":"Haiku 4.5"}]}"#.utf8), session: "s")!
+check(stoppedLive.stopped && Board.modelLine(stoppedLive) == "Claude Haiku 4.5", "a live pane in state stopped: what it will start on, as the board's card")
 check(Board.parseAgentDetails(Data(status.utf8), session: "nobody") == nil, "an agent not in the answer: nothing, never another agent's row")
 check(Board.parseAgentDetails(Data("<html>sign in</html>".utf8), session: "cleo") == nil, "the gate's sign-in page is not a read")
 let gus = Board.parseAgentDetails(Data(status.utf8), session: "gus")!
@@ -24,12 +30,12 @@ check(gus.name == "gus" && gus.running == false, "an empty name falls back to th
 
 section("the model line, as the board's modelLine")
 check(Board.modelLine(cleo!) == "Claude Opus 5.5", "Claude: provider first")
-func d(_ runner: String, model: String? = nil, planned: String? = nil, setting: String? = nil, running: Bool = true, provider: String? = nil, never: Bool = false) -> Board.AgentDetails {
+func d(_ runner: String, model: String? = nil, planned: String? = nil, setting: String? = nil, running: Bool = true, provider: String? = nil, never: Bool = false, stopped: Bool = false) -> Board.AgentDetails {
     Board.AgentDetails(session: "x", name: "X", role: nil, reportsTo: nil, runner: runner, modelName: model, plannedModelName: planned,
-                       settingModelName: setting, neverRecorded: never, accountProvider: provider, accountLabel: nil, running: running)
+                       settingModelName: setting, neverRecorded: never, accountProvider: provider, accountLabel: nil, running: running, stopped: stopped)
 }
 check(Board.modelLine(d("", model: "Claude Haiku 4.5")) == "Claude Haiku 4.5", "no Claude Claude")
-check(Board.modelLine(d("", model: "Opus 5", planned: "Haiku 4.5", running: false)) == "Claude Haiku 4.5", "stopped: what it will start on")
+check(Board.modelLine(d("", model: "Opus 5", planned: "Haiku 4.5", running: false, stopped: true)) == "Claude Haiku 4.5", "stopped: what it will start on")
 check(Board.modelLine(d("", model: "Opus 5", planned: "Haiku 4.5", running: true)) == "Claude Opus 5", "running: what it runs")
 check(Board.modelLine(gus) == "Qwen GPT 5.6 Sol" , "Qwen runs on codex and is never OpenAI")
 check(Board.modelLine(d("codex", model: "o3")) == "OpenAI o3" && Board.modelLine(d("codex", model: "GPT 5.6")) == "GPT 5.6" && Board.modelLine(d("codex")) == "OpenAI Codex", "codex")
@@ -54,9 +60,27 @@ check(saveBody?["role"] as? String == "Lead designer" && saveBody?["displayName"
 let renamed = Board.profileSaveRequest(mac: mac, session: "cleo", name: "Cleo B", role: "", shownName: "Cleo")
 check((renamed?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["displayName"] as? String == "Cleo B", "a changed name is")
 check(Board.profileSaveRequest(mac: mac, session: "cleo", name: "  ", role: "", shownName: "Cleo") == nil, "no name: nothing sent")
-check(Board.profileSaveRequest(mac: mac, session: "cleo", name: String(repeating: "n", count: 81), role: "", shownName: "Cleo") == nil, "over the route's 80: nothing sent")
+let long = Board.profileSaveRequest(mac: mac, session: "cleo", name: String(repeating: "n", count: 81), role: String(repeating: "r", count: 90), shownName: "Cleo")
+let longBody = long?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check((longBody?["displayName"] as? String)?.count == 80 && (longBody?["role"] as? String)?.count == 80, "over the route's 80: cut to 80, as the board's Save (never a false no-answer)")
 check(Board.profileSaveRequest(mac: mac, session: "../x", name: "A", role: "", shownName: "B") == nil, "a session that is not one: no request")
-check(Board.profileSaveResult(status: 200, body: Data(#"{"role":"x"}"#.utf8)) == .saved, "saved")
+check(Board.profileSaveResult(status: 200, body: Data(#"{"role":"x"}"#.utf8)) == .saved("Saved."), "saved")
+func said(_ json: String, running: Bool = true, before: String = "Bob", typed: String = "Scarlet") -> String {
+    if case .saved(let s) = Board.profileSaveResult(status: 200, body: Data(json.utf8), running: running, before: before, typed: typed) { return s }
+    return "not saved"
+}
+check(said(#"{"renamed":{"changed":true,"ok":true,"was":"Bob"}}"#) == "Saved. Bob will not answer to Scarlet until you restart it. You can restart it from your computer.", "renamed while running: both names, and where to restart")
+check(said(#"{"renamed":{"changed":true,"ok":true}}"#, before: "Scarlet") == "Saved. Its instructions say the new name too, so restart it when you are ready and it will know.", "running, name not edited here: the board's sentence")
+check(said(#"{"renamed":{"changed":true,"ok":true,"was":"Bob"}}"#, running: false) == "Saved. It will know its new name when it next starts.", "stopped: no restart claim")
+check(said(#"{"renamed":{"changed":false,"ok":false,"because":"we could not update its instructions"}}"#) == "Saved here, but we could not update its instructions.", "a partial save says so")
+check(said(#"{"reports":{"state":"told"}}"#, typed: "Bob") == "Saved. They are running on what they read when they started, so restart them to use it now." && said(#"{"reports":{"state":"told"}}"#, running: false, typed: "Bob") == "Saved.", "reports-to told: restart only while running")
+check(said(#"{"reports":{"state":"could_not","because":"its file is locked"}}"#, typed: "Bob") == "Saved here, but its file is locked.", "reports-to could not")
+let boardSave = boardPage.components(separatedBy: .newlines).joined(separator: " ")
+for phrase in ["'Saved. Its instructions say the new name too, so restart it when you are ready and it will know.'", "'Saved. It will know its new name when it next starts.'",
+               "'Saved here, but ' + ren.because + '.'", "' will not answer to '", "' until you restart it. '",
+               "They are running on what they read when they started, so restart them to use it now."] {
+    check(boardSave.contains(phrase), "the board's save still says: \(phrase.prefix(50))")
+}
 check(Board.profileSaveResult(status: 400, body: Data(#"{"error":"an agent cannot report to itself"}"#.utf8)) == .refused("An agent cannot report to itself."), "the route's reason, as a sentence")
 check(Board.profileSaveResult(status: 200, body: Data("<html>".utf8)) == .refused("We could not save that."), "a 200 this build cannot read is never saved")
 check(Board.profileSaveResult(status: 0, body: nil) == .noAnswer, "no answer")
@@ -85,6 +109,7 @@ check(Board.freshResult(.clear, status: 200, body: Data(#"{"delivery":{"state":"
 check(Board.freshResult(.clear, status: 409, body: Data(#"{"delivery":{"state":"could_not","because":"Its window is gone."}}"#.utf8)) == ("Its window is gone.", false), "could not: its reason")
 check(Board.freshResult(.clear, status: 0, body: nil) == ("We could not reach Kosmos.", false), "no answer")
 check(Board.freshResult(.clear, status: 200, body: Data("{}".utf8)).ok == false, "no delivery to read: never said to have gone")
+check(Board.freshResult(.clear, status: 404, body: Data(#"{"error":"no agent by that name"}"#.utf8)) == ("No agent by that name.", false), "a refusal before delivery: the route's own words")
 
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")

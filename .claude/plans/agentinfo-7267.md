@@ -23,3 +23,12 @@ and dark, and never the conversation again.
 - No tense on the model (the board's card rule), so a stopped agent never reads "Right now".
 - Weakest premise: that the board page the last row opens is acceptable for those few rarer settings (it is the page
   Josh called unstyled). Would change my mind: Josh wanting model switching on the phone; then a native picker next.
+
+## Review
+- Round 1 (agentinfo-7267-review1.md): 0 blockers, 5 warnings, 4 nits, all fixed. The model line decides "not
+  running" from the state, as the board's card; Save compares against what the boxes were filled with (a rename made on
+  the computer is never undone, the board's #4421); after Save the board's sentences (rename while running names both
+  names and says to restart from the computer, partial saves say so, reports-to told); names and roles are cut to 80
+  (never a false "could not reach"); the account in the board's order (name, email, API key ending, label); a
+  Fresh start refused before delivery says the route's words; result lines are announced to VoiceOver; the mark
+  scales with text; shots retaken.
