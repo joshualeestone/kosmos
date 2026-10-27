@@ -85661,7 +85661,12 @@ function frConnPaintUrl(url) {
   // The phase is in the id (one span per phase), so this needs nothing but getElementById.
   for (const [id, phase] of [['fr-conn-cloudsay-open', 'signin-browser-open'], ['fr-conn-cloudsay-code', 'signin-awaiting-code']]) {
     const say = cloudNow && document.getElementById(id);
-    if (say) say.textContent = frCloudSigninDetail(phase, !!key);
+    if (say) {
+      say.textContent = frCloudSigninDetail(phase, !!key);
+      // Review 3: and the hidden live region, which otherwise kept saying the link was coming after it came.
+      const spoken = document.getElementById('fr-conn-say');
+      if (spoken && spoken.textContent !== say.textContent) spoken.textContent = say.textContent;
+    }
   }
   box.innerHTML = !key ? ''
     : cloudNow

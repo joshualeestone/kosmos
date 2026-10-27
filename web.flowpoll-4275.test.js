@@ -166,9 +166,10 @@ test('kosmos#4903 S5 review 1: a link that arrives on the SAME phase still lands
   // S5 design review: the sentence above the link follows it, inside the phase.
   assert.match(h.document.getElementById('acct-flow-say').textContent, /sign-in page below/, 'the late link left the sentence saying it is coming');
   // Review 2 (W2): a reason on screen is never replaced by the generic sentence when the link changes.
-  h.document.getElementById('acct-flow-say').textContent = 'That code did not work. Try the newest one.';
+  const reason = 'That code did not work. If Claude gave you a code, paste it here to try again.';   // the shape of the page's own reasons
+  h.document.getElementById('acct-flow-say').textContent = reason;
   h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: null });
-  assert.equal(h.document.getElementById('acct-flow-say').textContent, 'That code did not work. Try the newest one.', 'the link going away replaced the reason a code failed');
+  assert.equal(h.document.getElementById('acct-flow-say').textContent, reason, 'the link going away replaced the reason a code failed');
   h.page.acctFlowPaint({ phase: 'signin-completing', url: 'https://claude.com/oauth?state=two' });
   assert.equal(row().hidden, true, 'review 2: the link stayed while Claude was finishing (a second press starts a second sign-in)');
   h.page.acctFlowPaint({ phase: 'connected', url: 'https://claude.com/oauth?state=two' });
