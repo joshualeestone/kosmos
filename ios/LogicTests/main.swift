@@ -3622,7 +3622,8 @@ if let w {
 }
 // kosmos#7345: a "ready" (work waiting for the person's check) has no words to ask for, and still shows its agent's picture.
 do {
-    let ready: [AnyHashable: Any] = ["id": "built:p1:4:1793000000000", "address": "m-abc123.kosmosplus.com", "session": "irma", "kind": "ready", "agent": "Irma"]
+    // Shaped as the relay sends it (kosmos-relay apns.rs payload: kind, id, address, session; no shown name).
+    let ready: [AnyHashable: Any] = ["id": "built:p1:4:1793000000000", "address": "m-abc123.kosmosplus.com", "session": "irma", "kind": "ready"]
     check(PhoneNotice.wordsRequest(userInfo: ready, stored: savedMac) == nil, "kosmos#7345: a ready push has no words to ask for (its id is not askable)")
     check(PhoneNotice.pictureOnlyRequest(userInfo: ready, stored: savedMac)?.url?.absoluteString == "https://m-abc123.kosmosplus.com/api/agent/irma/avatar",
           "its picture comes from the same computer's avatar route, for the session the push names")
