@@ -1777,6 +1777,16 @@ function unsentSweep(names) {
 /* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
    else null. The plain capture this pass already made decides whether to look; only a pane showing something there
    is captured again with colours, and only when what it shows changed since the last colour read. */
+/* #7212 slice 2: the card's deliveryStall (engine/deliverystreak.js), with its limitShownOn rule. Never throws. */
+function deliveryStallOf(pane, status) {
+  try {
+    const st = status || {};
+    const ds = require('./deliverystreak');
+    // The card's own four fields, built as the card builds them.
+    const limitShown = ds.limitShownOn({ limitUntil: claudeLimitUntilIso(pane, st), limitFrom: st.limitFrom, quotaUntil: st.quotaUntil, poolUntil: st.poolUntil });
+    return ds.stallOf(pane && pane.name, { limitShown });
+  } catch { return null; }
+}
 function unsentInputOf(pane, text, now = Date.now()) {
   const name = pane && pane.name;
   const claude = !!pane && (!pane.runner || pane.runner === 'claude')
@@ -9543,6 +9553,9 @@ function snapshot() {
       limitUntil: claudeLimitUntilIso(pane, status),
       /* #6249: text has sat unsent in its input box for a few minutes ({ since }), else null. */
       unsentInput: unsentInputOf(pane, text),
+      /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause ({ since, count,
+         lastWhy }), else null. A run of usage-limit holds alone is not said while the card shows the limit itself. */
+      deliveryStall: deliveryStallOf(pane, status),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
       because: status.because,
@@ -9947,7 +9960,7 @@ function sessionStartIn(text, want) {
 }
 
 module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
-  composerText, unsentInputOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
+  composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number

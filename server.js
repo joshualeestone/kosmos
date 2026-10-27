@@ -26145,7 +26145,24 @@ function start(port = PORT) {
           }
         } catch { /* said next minute */ }
       };
+      /* #7212 slice 2: agents whose current delivery stall was already said, and when (deliverystreak.stallsToSay). */
+      const stallSaid = new Map();
+      /* #7212 slice 2: an agent no message has been seen to reach for half an hour, whatever the cause, is said once per
+         stall and again each day it lasts. Agents gone from the board lose their streaks (not on an empty read). */
+      const sayStalls = () => {
+        try {
+          const ds = require('./engine/deliverystreak');
+          const r = safeRoster();
+          if (!Array.isArray(r) || !r.length) return;
+          const names = r.map((c) => c && c.sessionName).filter((n) => typeof n === 'string' && n);
+          ds.sweep(names);
+          const byName = new Map(r.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
+          const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
+          for (const st of ds.stallsToSay(names, stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
+        } catch { /* said next minute */ }
+      };
       const sweep = setInterval(() => {
+        sayStalls();
         /* ⚠️ safeRoster(), NEVER paneRoster(): the sweep delivers, and
            delivery needs full snapshot-shaped cards (target and all).
            paneRoster's thin rows fail addressable() before anything is
