@@ -335,7 +335,7 @@ test('production passes only to the production site: a loopback community with t
   try {
     const lines = await ownerLogs(() => cs.sweep());
     assert.equal(R.mints.length, 0, 'no pass asked for');
-    assert.ok(lines.some((l) => l.includes('not the same deployment')), JSON.stringify(lines));
+    assert.ok(lines.some((l) => l.includes('is production and the other is not')), JSON.stringify(lines));
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was; }
   await cs.sweep();
   assert.ok(agentNamed('ava').owner, 'control: with both overridden it links');
@@ -460,7 +460,7 @@ test('a name being retired is not linked; another agent is, in the same sweep', 
   try {
     writeRetireRequest('ava.json', JSON.stringify({ agent: 'ava', at: new Date().toISOString(), done: [], stuck: [] }));
     await cs.sweep();
-    assert.ok(keyName('ava'), 'control: the key is still live, so the retiring check is what held it back');
+    assert.ok(keyName('ava'), 'control: ava still has its key (a finished retire removes it, and keyName would throw), so the retiring check is what held it back');
     assert.ok(!R.mints.some((m) => m.body.agent === keyName('ava')), 'no pass asked for the name being retired');
     assert.ok(agentNamed('bo').owner, 'control: the other agent is linked');
   } finally { communitystore.markAgentNotSent = mark; }
