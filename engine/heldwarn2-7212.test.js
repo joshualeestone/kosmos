@@ -43,7 +43,7 @@ test('a run of failures is a stall only once it is half an hour old AND has thre
   ds.note('a', refused, T0 + 2 * MIN);
   assert.equal(ds.stallOf('a', { now: T0 + 29 * MIN }), null, 'three tries, but under half an hour');
   const st = ds.stallOf('a', { now: T0 + 30 * MIN });
-  assert.deepEqual(st, { since: new Date(T0).toISOString(), count: 3, lastWhy: 'refused' });
+  assert.deepEqual(st, { since: new Date(T0).toISOString(), count: 3, lastWhy: 'refused', words: ds.WHY_WORDS.refused });
 });
 
 test('PLACED ends the streak; a busy window is not counted; UNCONFIRMED counts (Enter swallowed looks like that)', () => {
@@ -116,8 +116,8 @@ test('wired: chat.deliver notes a refusal, so three of them are a stall half an 
 test('wired: the card field reads the recorder, and stays null with a card limit for a limit-only run', () => {
   const at = Date.now() - 40 * MIN;
   for (let i = 0; i < 3; i += 1) ds.note('cardy', held('limit'), at + i * MIN);
-  assert.equal(status.deliveryStallOf({ name: 'cardy' }, { limitFrom: 'codex' }), null);
-  assert.equal(status.deliveryStallOf({ name: 'cardy' }, {}).count, 3);
+  assert.equal(status.deliveryStallOf({ name: 'cardy' }, { state: 'idle', limitFrom: 'codex' }), null);
+  assert.equal(status.deliveryStallOf({ name: 'cardy' }, { state: 'idle' }).count, 3);
   assert.equal(status.deliveryStallOf(null, null), null, 'never throws');
 });
 
@@ -138,4 +138,43 @@ test('one rule for "the card shows a limit": each of its four fields, and nothin
   for (const f of ['limitUntil', 'limitFrom', 'quotaUntil', 'poolUntil']) assert.equal(ds.limitShownOn({ [f]: 'x' }), true, f);
   assert.equal(ds.limitShownOn({ state: 'idle', unsentInput: { since: 'x' } }), false);
   assert.equal(ds.limitShownOn(null), false);
+});
+
+test('the card carries a stall only while it reads idle or working, the states that look fine', () => {
+  const at = Date.now() - 40 * MIN;
+  for (let i = 0; i < 3; i += 1) ds.note('st', refused, at + i * MIN);
+  assert.ok(status.deliveryStallOf({ name: 'st' }, { state: 'idle' }));
+  assert.ok(status.deliveryStallOf({ name: 'st' }, { state: 'working' }));
+  for (const state of ['stopped', 'needs_you', 'auth_failed', 'restarting', 'rate_limited']) {
+    assert.equal(status.deliveryStallOf({ name: 'st' }, { state }), null, state + ' says itself, or refuses by design');
+  }
+});
+
+test('both "needs the person" rules count a stall, and agree with each other', () => {
+  const page = require('../test-support/page');
+  const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8'));
+  const agentNeedsAttention = new Function(page.lift(SCRIPT, 'agentNeedsAttention') + '\nreturn agentNeedsAttention;')();
+  const stall = { since: '2026-10-27T12:00:00.000Z', count: 3, lastWhy: 'refused', words: ds.WHY_WORDS.refused };
+  const rows = [{ state: 'idle', deliveryStall: stall }, { state: 'idle', deliveryStall: null }, { state: 'working' }];
+  const want = [true, false, false];
+  rows.forEach((r, i) => {
+    assert.equal(status.needsPerson(r), want[i], 'needsPerson row ' + i);
+    assert.equal(agentNeedsAttention(r), want[i], 'agentNeedsAttention row ' + i);
+  });
+});
+
+test('the card says it in words, with the engine\'s reason, after the unsent-text sentence', () => {
+  const page = require('../test-support/page');
+  const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8'));
+  const fn = page.lift(SCRIPT, 'stateReason');
+  const at = fn.indexOf('a.deliveryStall && typeof a.deliveryStall.since');
+  assert.ok(at > 0, 'stateReason does not say the stall');
+  assert.ok(at > fn.indexOf('a.unsentInput && typeof a.unsentInput.since'), 'the unsent-text sentence names the sharper cause first');
+  assert.ok(at < fn.indexOf("a.state === 'restarting'"), 'before the state rules');
+  const stateReason = new Function(fn + '\nreturn stateReason;')();
+  const card = (mins, words) => ({ state: 'idle', deliveryStall: { since: new Date(Date.now() - mins * MIN).toISOString(), count: 4, lastWhy: 'menu', words } });
+  assert.equal(stateReason(card(45, ds.WHY_WORDS.menu)), 'No message has reached this agent for about 45 minutes. The last one did '
+    + 'not go through because its screen was waiting on a question or a menu. Open it to see what it shows, or restart it.');
+  assert.match(stateReason(card(180, ds.WHY_WORDS.refused)), /^No message has reached this agent for about 3 hours\. /);
+  assert.doesNotMatch(String(stateReason({ state: 'idle', deliveryStall: null })), /No message has reached/);
 });

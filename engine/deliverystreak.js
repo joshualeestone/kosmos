@@ -55,14 +55,15 @@ function noted(name, v) {
   return v;
 }
 
-/* The card's deliveryStall: { since (ISO), count, lastWhy } once `name` has a streak STALL_MS old with at least
+/* The card's deliveryStall: { since (ISO), count, lastWhy, words (why the last one did not land, for the card's
+   sentence: one copy, here) } once `name` has a streak STALL_MS old with at least
    STALL_MIN_FAILS failures in it, else null. `limitShown` true when the card already shows a usage limit: a streak made
    only of usage-limit holds is then not a stall to warn about (the card already says it). */
 function stallOf(name, { now = Date.now(), limitShown = false } = {}) {
   const s = streaks.get(name);
   if (!s || s.count < STALL_MIN_FAILS || now - s.since < STALL_MS) return null;
   if (limitShown && s.kinds.size === 1 && s.kinds.has('limit')) return null;
-  return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy };
+  return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy, words: WHY_WORDS[s.lastWhy] || WHY_WORDS.unknown };
 }
 
 /* True when a card shows a usage limit itself (its limit reset, a limitFrom reading, or an Antigravity quota or pool
@@ -105,7 +106,7 @@ const WHY_WORDS = {
 /* The board log's line for one stall. */
 function stallLine(s) {
   return 'delivery-stall: no message has been seen to reach ' + s.name + ' since ' + s.since + ' (' + s.count
-    + ' tries); the last one did not land because ' + (WHY_WORDS[s.lastWhy] || WHY_WORDS.unknown) + '\n';
+    + ' tries); the last one did not land because ' + s.words + '\n';
 }
 
 /* Agents no longer on the board lose their streaks, so one coming back under the name starts over. */

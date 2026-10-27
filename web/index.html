@@ -22275,6 +22275,15 @@ function stateReason(a, opts) {
     const mins = Number.isFinite(since) ? Math.max(3, Math.round((Date.now() - since) / 60000)) : 3;
     return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.';
   }
+  /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause (engine/deliverystreak.js).
+     The card only carries it while it reads idle or working, the states that look fine. The reason is the engine's
+     words (one copy). After the unsent-text sentence above, which names the sharper cause when it is the box. */
+  if (a && a.deliveryStall && typeof a.deliveryStall.since === 'string' && typeof a.deliveryStall.words === 'string') {
+    const since = Date.parse(a.deliveryStall.since);
+    const mins = Number.isFinite(since) ? Math.max(30, Math.round((Date.now() - since) / 60000)) : 30;
+    const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + mins + ' minutes';
+    return 'No message has reached this agent for ' + when + '. The last one did not go through because ' + a.deliveryStall.words + '. Open it to see what it shows, or restart it.';
+  }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -22734,7 +22743,9 @@ function agentNeedsAttention(a) {
     || (a.stuckError && a.stuckError.stuck === true)
     // #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) gave up on this agent.
     // Keep byte-for-byte aligned with engine/status.js needsPerson.
-    || (a.ownBound && a.ownBound.raised === true)));
+    || (a.ownBound && a.ownBound.raised === true)
+    // #7212 slice 2: no message has been seen to reach it for half an hour. Keep aligned with engine/status.js needsPerson.
+    || !!a.deliveryStall));
 }
 
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the

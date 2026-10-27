@@ -1781,6 +1781,9 @@ function unsentSweep(names) {
 function deliveryStallOf(pane, status) {
   try {
     const st = status || {};
+    /* Only a card that reads idle or working: those look fine while nothing reaches them (Josh's read Idle for a
+       week). A stopped agent refuses lines by design, and needs_you, a sign-in or a limit already say themselves. */
+    if (st.state !== STATE.IDLE && st.state !== STATE.WORKING) return null;
     const ds = require('./deliverystreak');
     // The card's own four fields, built as the card builds them.
     const limitShown = ds.limitShownOn({ limitUntil: claudeLimitUntilIso(pane, st), limitFrom: st.limitFrom, quotaUntil: st.quotaUntil, poolUntil: st.poolUntil });
@@ -9740,7 +9743,10 @@ function needsPerson(a) {
     // said so only in a log -- now it counts as needing the person. Like stuckError, ownBound is NOT normalised
     // into snapshot()'s shape (server.js attaches it via ownbounds.peek only to the /api/status rows, where
     // `raised` can be true), so the read is GUARDED on presence for the same bare-snapshot-row reason.
-    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true));
+    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true)
+    // #7212 slice 2: no message has been seen to reach it for half an hour (only ever set on an idle or working card).
+    // Guarded on presence like the two above: bare rows built elsewhere may omit it.
+    || (Object.prototype.hasOwnProperty.call(a, 'deliveryStall') && Boolean(a.deliveryStall)));
 }
 /**
  * The numbers on the summary line, for a given set of cards.
