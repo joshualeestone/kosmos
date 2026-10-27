@@ -1,4 +1,4 @@
-// Browser-check-surface: cwnote-slot sknote-slot plus-cw-ack plus-cw-line plus-sk-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
+// Browser-check-surface: plus-forget-cloud cwnote-slot sknote-slot plus-cw-ack plus-cw-line plus-sk-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
 'use strict';
 /**
  * #3829 (Josh, 2026-09-25 16:54: the connected Kosmos+ panel and the device approval are "terribly
@@ -706,6 +706,44 @@ const STATES = {
       if (SHOTS && mode !== 'fails') { await page.screenshot({ path: path.join(SHOTS, `4079-after-${mode}.png`) }); }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
+    }
+    /* kosmos#7277 (option (a) on the card): on a Kosmos cloud machine Kosmos+ is the only way in, so Remove this computer
+       would leave the person no way back. The row offers no Remove and says why beside View account, and the real
+       route refuses. CONTROL: every pane above is not a cloud machine and offers Remove. */
+    {
+      const t = '[cloud machine]';
+      const cm = require('../../engine/cloudmachine');
+      const real = cm.isCloudMachine;
+      cm.isCloudMachine = () => true;
+      try {
+        const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+        const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+        const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+        const base = STATES.connected.remote;
+        await page.route('**/api/remote', (route) => route.fulfill(json({ ...base, on: true })));
+        await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+        await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
+        await page.goto(BASE, { waitUntil: 'networkidle' });
+        if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+        await page.evaluate(() => showTab('settings'));
+        await page.click('#s-nav button[data-go="plus"]');
+        await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+        await page.waitForTimeout(700);
+        const vis = (sel) => page.evaluate((s) => { const e = document.querySelector(s); return !!(e && !e.closest('[hidden]') && e.getBoundingClientRect().height > 0); }, sel);
+        chk(await page.evaluate(() => onCloudMachine()), `${t} premise: the page knows it is a cloud machine`);
+        chk(!(await vis('#plus-forget-go')), `${t} no Remove this computer`);
+        const why = await page.textContent('#plus-forget-cloud');
+        chk(await vis('#plus-forget-cloud') && /Kosmos cloud machine/.test(why) && /no way back/.test(why) && /cancel it from your account/.test(why),
+          `${t} the row says why, and where to stop using it`, why);
+        chk(await vis('#plus-account'), `${t} View account is beside it`);
+        await page.waitForTimeout(5600);   // a 5-second repaint keeps it so
+        chk(!(await vis('#plus-forget-go')) && await vis('#plus-forget-cloud'), `${t} still so after the 5-second repaint`);
+        if (SHOTS) await page.screenshot({ path: path.join(SHOTS, '7277-cloud.png') });
+        const got = await page.evaluate(async () => { const r = await fetch('/api/remote/forget', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); return { s: r.status, b: await r.json().catch(() => null) }; });
+        chk(got.s === 409 && got.b && got.b.cloud === true && /no way back/.test(got.b.error), `${t} the real route refuses too`, JSON.stringify(got));
+        chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+        await page.close();
+      } finally { cm.isCloudMachine = real; }
     }
   } finally {
     await browser.close();

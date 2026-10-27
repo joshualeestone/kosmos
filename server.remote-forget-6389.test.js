@@ -88,3 +88,22 @@ test('#6389: an unreadable or oversized body is refused with 400 and forgets not
   if (big) assert.equal(big.status, 400, 'an oversized body answered ' + big.status);
   assert.deepEqual(calls, [], 'a refused request still forgot this computer');
 });
+
+test('#7277: on a Kosmos cloud machine the route refuses and never reaches the engine; on any other computer it does', async (t) => {
+  const cm = require('./engine/cloudmachine');
+  const real = cm.isCloudMachine;
+  t.after(() => { cm.isCloudMachine = real; });
+  cm.isCloudMachine = () => true;
+  calls.length = 0;
+  answer = { ok: true, retired: true, address: 'hers.kosmos.invalid', because: null };
+  const refused = await post(json({ anyway: true }));
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.cloud, true);
+  assert.match(refused.body.error, /no way back/);
+  assert.deepEqual(calls, [], 'a cloud machine reached the engine\'s forget, even with anyway');
+  // CONTROL: the same request on a computer that is not a cloud machine reaches the engine, so the refusal is the cloud.
+  cm.isCloudMachine = () => false;
+  const done = await post({});
+  assert.equal(done.status, 200);
+  assert.deepEqual(calls, [{ anyway: false }]);
+});

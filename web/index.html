@@ -20231,6 +20231,9 @@ window.kosmosMeasureScrollbarWidth();
            it stays reachable, as a dialog rather than the essay). The Remove confirm opens in place below the row. -->
       <div class="plus-foot" id="plus-forget" hidden>
         <button type="button" class="plus-remove-link" id="plus-forget-go">Remove this computer</button>
+        <!-- kosmos#7277: on a Kosmos cloud machine Kosmos+ is the only way in, so removing it would leave no way back.
+             No Remove there; this says why, beside View account, where the machine is cancelled. -->
+        <span class="fhint" id="plus-forget-cloud" hidden>This is a Kosmos cloud machine, so it is not removed from here: you would have no way back to it. To stop using it, cancel it from your account.</span>
         <span class="plus-sp"></span>
         <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View account</a>
       </div>
@@ -54215,6 +54218,11 @@ async function paintPlus() {
      Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
   { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
+  /* kosmos#7277: a cloud machine offers no Remove (the server refuses it too), and says why instead. */
+  { const cloud = typeof onCloudMachine === 'function' && onCloudMachine();
+    const go = document.getElementById('plus-forget-go'); const why = document.getElementById('plus-forget-cloud');
+    if (why) why.hidden = !cloud;
+    if (cloud) { if (go) go.hidden = true; const ask = document.getElementById('plus-forget-ask'); if (ask) ask.hidden = true; } }
   /* kosmos#6389: the not-removed-yet note says remote access is paused, so it goes once that is no longer so. The
      engine keeps the reason, so a reload or another tab says it too. */
   if (typeof plusForgetKept === 'function') {
