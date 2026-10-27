@@ -60,7 +60,7 @@ struct FilesBubbleBackground: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if mine {
             content
-                .padding(.vertical, 10).padding(.horizontal, 12)
+                .padding(.vertical, 10).padding(.horizontal, 14)   // kosmos#7347
                 .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.personBubble))
                 .frame(maxWidth: UIScreen.main.bounds.width * max(widthShare, 0.85), alignment: .trailing)
                 .fixedSize(horizontal: false, vertical: true)

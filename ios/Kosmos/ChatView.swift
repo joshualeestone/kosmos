@@ -1793,8 +1793,9 @@ struct BubbleText: View {
             .font(.body)
             .foregroundColor(Palette.primary.opacity(faded ? 0.6 : 1))
             .tint(Palette.link)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
+            // kosmos#7347 (Josh 10-27, Mona Lisa): 10 pt by 14 pt around the words, the Mac board's proportion.
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
             .background(
                 // Two shapes, each filled on its own: one path holding both would cut a hole where they overlap.
                 ZStack {

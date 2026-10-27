@@ -205,7 +205,7 @@ struct AgentBubbleBackground: ViewModifier {
     let widthShare: CGFloat
     func body(content: Content) -> some View {
         content
-            .padding(.vertical, 10).padding(.horizontal, 12)
+            .padding(.vertical, 10).padding(.horizontal, 14)   // kosmos#7347
             .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.agentBubble))
             .frame(maxWidth: UIScreen.main.bounds.width * max(widthShare, 0.85), alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
