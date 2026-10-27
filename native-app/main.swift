@@ -6498,7 +6498,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                         d.alertsOnScreen = 0   // never requested: questionWaited stays false and the row fails
                     }
                 }
-                holdUntilRequested(80)
+                holdUntilRequested(400)   // 20 s, as `settled` allows a busy build box (review 5)
                 click("modalyes", expect: "modal-yes.txt") {
                     AppDelegate.askAboutHostForSelftest = nil
                     AppDelegate.allowAnswerForSelftest = nil
