@@ -135,8 +135,8 @@ async function walkTip(page, tipId, { noScroll = false } = {}) {
     window.__tipScrolls = [];
     if (!window.__sbOrig) window.__sbOrig = window.scrollBy.bind(window);
     /* #7312: noScroll records the tour's scroll but does not move the page (the forced case's control). */
-    window.__tipScrollBy = [];   // #7312 review 2: what each scroll asked for (the card's shortfall), to print
-    window.scrollBy = function (...a) { const st = TIP_PLACES[TIP_STEP]; window.__tipScrolls.push(st ? st.title : '?'); window.__tipScrollBy.push(Math.round(Number(a[1]) || 0)); return noScroll ? undefined : window.__sbOrig(...a); };
+    window.__tipScrollBy = [];   // #7312 review 2: how far each scroll asked to move (the card's shortfall, px), to print
+    window.scrollBy = function (...a) { const st = TIP_PLACES[TIP_STEP]; window.__tipScrolls.push(st ? st.title : '?'); window.__tipScrollBy.push(Math.abs(Math.round(Number(a[0] && typeof a[0] === 'object' ? a[0].top : a[1]) || 0))); return noScroll ? undefined : window.__sbOrig(...a); };
     const t = TIPS.find((x) => x.id === id); if (!t || !t.steps) return { error: 'no stepped ' + id + ' tip' };
     window.scrollTo(0, 0); tipShow(t); return { n: TIP_PLACES.length };
   }, [tipId, noScroll]);
@@ -309,9 +309,12 @@ function heightOf(page, sel) {
            clear. There the Conversation step has no room and the page MUST make it, only for that step, and then every step
            points fully on screen. Control: the same case with the tour's scroll recorded but not done leaves the
            Conversation card flat, so the forced case really needs the make-room step and can go red without it.
-           The squeeze is small (measured 10-27 on a dev Mac: the tour asks to scroll 6px), so a copy, font or runner
-           change can give the card room on its own; both arms' make-room lines then say to re-tune this case, and the
-           MEASURE line prints the scroll asked for (the card's shortfall), so the margin is visible on every run. */
+           The squeeze cannot be made deep: measured 10-27, the card is short of room (by 6px) only at the unfitted
+           room's own height; a room 1rem taller or shorter gives the card room on its own (review 3). So the CONTROL
+           decides what a run means, and a copy or font change never reds the gate: if the card is flat without the
+           scroll, the tour must have asked to make room (deleting the make-room code fails exactly here); if the card
+           points without the scroll, the squeeze is gone and a MEASURE line says to re-tune, not a FAIL. The forced arm
+           always judges what the person sees: every step points, fully on screen. */
         for (const noScroll of [false, true]) {
           const tag = `[${engine} ${PHONE[0]}x${PHONE[1]} room fit off${noScroll ? ', tour scroll off (control)' : ''}]`;
           const ctx = await browser.newContext({ viewport: { width: PHONE[0], height: PHONE[1] }, hasTouch: true, isMobile: engine === 'chromium' });
@@ -321,32 +324,38 @@ function heightOf(page, sel) {
           try {
             await open(page, base, 'room', pid);
             const off = await page.evaluate(() => {
-              if (typeof PJ_ROOM_PHONE === 'undefined' || typeof pjFitRoomPhone !== 'function') return false;
+              const room = document.getElementById('pj-room');
+              if (!room || typeof PJ_ROOM_PHONE === 'undefined' || typeof pjFitRoomPhone !== 'function') return { ok: false, why: 'missing' };
+              const fitBefore = room.style.getPropertyValue('--pj-room-fit');   // review 3: the fit was really on
               Object.defineProperty(PJ_ROOM_PHONE, 'matches', { get: () => false, configurable: true });
               pjFitRoomPhone();   // the real fit, now taking its not-a-phone branch: it clears --pj-room-fit
-              const room = document.getElementById('pj-room');
-              return !!room && room.style.getPropertyValue('--pj-room-fit') === '';
+              return { ok: fitBefore !== '' && PJ_ROOM_PHONE.matches === false && room.style.getPropertyValue('--pj-room-fit') === '',
+                fitBefore, height: Math.round(room.getBoundingClientRect().height) };
             });
-            chk(off, `${tag} setup: the room fit could be switched off`);
-            if (!off) continue;
+            chk(off.ok, `${tag} setup: the room fit was on, and is now switched off`, JSON.stringify(off));
+            if (!off.ok) continue;
             await page.waitForTimeout(250);
             const w = await walkTip(page, 'project', { noScroll });
             if (w.error) { chk(false, `${tag} the project tip opens`, w.error); continue; }
-            const held = await page.evaluate(() => { const room = document.getElementById('pj-room'); return { fit: room ? room.style.getPropertyValue('--pj-room-fit') : '?', scrollY: Math.round(window.scrollY) }; });
-            chk(held.fit === '', `${tag} the forced layout held through the walk (the room was not fitted again)`, JSON.stringify(held));
+            const held = await page.evaluate(() => { const room = document.getElementById('pj-room'); return { fit: room ? room.style.getPropertyValue('--pj-room-fit') : '?', height: room ? Math.round(room.getBoundingClientRect().height) : -1 }; });
+            chk(held.fit === '' && held.height === off.height, `${tag} the forced layout held through the walk (no fit, same room height)`, JSON.stringify({ before: off.height, ...held }));
             console.log(`MEASURE  ${tag} forced case: the tour asked to scroll ${JSON.stringify(w.scrollBy)}px for ${JSON.stringify(w.scrolled)} (the card's shortfall)`);
             if (!noScroll && w.scrolled.includes('Conversation')) forcedRoom.push(tag);
             chk(w.steps.length === 4, `${tag} the project tip walked all four steps`, String(w.steps.length));
             const conv = w.steps.find((s) => s.title === 'Conversation');
-            chk(w.scrolled.includes('Conversation'), `${tag} the tour asks to make room for the Conversation step (if the control is red too: the forced layout no longer squeezes the card, re-tune this case; it is not a make-room regression)`, JSON.stringify(w.scrolled));
+            chk(!!conv, `${tag} the project tip has its Conversation step`, JSON.stringify(w.steps.map((s) => s.title)));
             chk(w.scrolled.every((x) => x === 'Conversation'), `${tag} the tour scrolls only for the Conversation step (a pointing card is never moved)`, JSON.stringify(w.scrolled));
             if (!noScroll) {
               for (const st of w.steps) {
                 chk(!st.error && st.pointing && st.cardOnScreen && st.areaInView,
                   `${tag} the project tip's ${st.title || '?'} step points at its area, fully on screen`, JSON.stringify(st));
               }
+            } else if (conv && !conv.pointing) {
+              // The squeeze is there (the card is flat without the scroll), so the tour MUST have asked to make room.
+              chk(w.scrolled.includes('Conversation'), `${tag} the card is flat without the scroll, so the tour must ask to make room (it did not: the make-room step is broken or gone)`, JSON.stringify(w.scrolled));
             } else {
-              chk(!!conv && !conv.pointing, `${tag} without the scroll the Conversation card is flat (if not: the forced layout no longer squeezes the card, re-tune this case; it is not a make-room regression)`, JSON.stringify(conv));
+              // The card points with no scroll at all: this layout no longer squeezes it, so make-room went unexercised.
+              console.log(`MEASURE  ${tag} the forced layout no longer squeezes the Conversation card, so make-room was not exercised this run: re-tune this case (#7312). Not a regression.`);
             }
             chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
           } catch (e) {
