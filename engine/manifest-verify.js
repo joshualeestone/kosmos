@@ -131,15 +131,25 @@ function win32HeaderRefusal(m, { version, arch, sha }) {
  * manifests on Linux runners, and a Mac bundle on Linux cannot pass setup.sh's run probe of its own node anyway.
  * The installer check alone (skipTarball) is not held to it: both families of a cut carry the same setup.sh bytes.
  * Windows has its own header check (win32HeaderRefusal). Returns the sentence to refuse with, or null. */
-function platformRefusal(m, platform) {
+function platformRefusal(m, platform, ownLinux = false) {
   const said = m && m.platform;
+  // Review 1 (W4): a copy that already runs the Linux family (its own node) takes only a manifest that says linux, so a
+  // host cannot hand it the Mac build under the Linux name; unnamed stays acceptable on a portable copy (above).
+  if (platform === 'linux' && ownLinux && said !== 'linux') return `the signed manifest is for ${JSON.stringify(said === undefined ? 'macOS' : said)}, not Linux`;
   if (said === undefined) return null;
   if (platform === 'darwin' && said !== 'darwin') return `the signed manifest is for ${JSON.stringify(said)}, not macOS`;
   if (platform === 'linux' && said !== 'linux') return `the signed manifest is for ${JSON.stringify(said)}, not Linux`;
   return null;
 }
 
-function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS, skipTarball = false, platform = process.platform }) {
+/* kosmos#7281: the installed copy runs the Linux family: a Linux x86_64 home whose runtime/bin/node is its own regular
+ * file (the portable bundle links in a system node). One rule for verify and run-setup. */
+function ownsLinuxNode(home, { platform = process.platform, arch = process.arch } = {}) {
+  if (!home || platform !== 'linux' || arch !== 'x64') return false;
+  try { return fs.lstatSync(path.join(home, 'runtime', 'bin', 'node')).isFile(); } catch { return false; }
+}
+
+function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS, skipTarball = false, platform = process.platform, ownLinux = false }) {
   if (!keys.length) return { code: 3, why: 'no release signing key is pinned in this install' };
   const bytes = fs.readFileSync(manifest);
   let sigText;
@@ -148,7 +158,7 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
   if (r.code !== 0) return r;
   const m = r.manifest;
   if (skipTarball) return { code: 0, why: `the signed manifest for ${version} is genuine`, manifest: m };
-  const wrong = platformRefusal(m, platform);
+  const wrong = platformRefusal(m, platform, ownLinux);
   if (wrong) return { code: 1, why: wrong };
   if (typeof m.sha256 !== 'string' || sha256File(tarball) !== m.sha256) return { code: 1, why: 'the download does not match its signed manifest' };
   if (stage === '-') return { code: 0, why: `the download matches the signed manifest for ${version}` };
@@ -277,11 +287,7 @@ function asTheInstallerNamesIt(home) {
  * arm64 only, as setup.sh's ARCH is on a Mac (an Intel Mac is refused before any update is offered). A portable
  * Linux copy keeps the Mac one: release.sh cuts both families at one version, so it exists for any version offered. */
 function setupManifestName(version, home, { platform = process.platform, arch = process.arch } = {}) {
-  let own = false;
-  if (platform === 'linux' && arch === 'x64') {
-    try { own = fs.lstatSync(path.join(home, 'runtime', 'bin', 'node')).isFile(); } catch { own = false; }
-  }
-  return own ? `kosmos-${version}-linux-x64.manifest.json` : `kosmos-${version}-arm64.manifest.json`;
+  return ownsLinuxNode(home, { platform, arch }) ? `kosmos-${version}-linux-x64.manifest.json` : `kosmos-${version}-arm64.manifest.json`;
 }
 function runSetup({ setupUrl, base, version, home, spawnSync = require('child_process').spawnSync }) {
   const say = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_RUN; };
@@ -602,7 +608,7 @@ if (require.main === module && process.argv[2] === 'needs-key-list') {
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
     const k = cliKeys(home);
-    r = k.code === 0 ? verify({ manifest, sig, tarball, stage, version, installedVersion, skipTarball: tarball === '-', keys: k.keys }) : k;
+    r = k.code === 0 ? verify({ manifest, sig, tarball, stage, version, installedVersion, skipTarball: tarball === '-', keys: k.keys, ownLinux: ownsLinuxNode(home) }) : k;
   } catch (e) {
     r = { code: 1, why: 'the update could not be checked (' + (e && e.code || 'error') + ')' };
   }

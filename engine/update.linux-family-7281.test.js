@@ -122,6 +122,20 @@ test('#7281 TRANSITIONAL: with no Linux pointer, a portable install reads the Ma
   assert.deepEqual(asked.slice(0, 2), ['latest-linux-staging.json', 'latest-staging.json']);
 });
 
+test('#7281 review 1: a Linux pointer that names a version but fails the checks is no offer, never the Mac version', async () => {
+  // setup.sh takes the family on any a.b.c version, so the Mac pointer's version would not be what it installs.
+  const asked = host({ 'latest-linux.json': linuxPointer('99.0.0', { versioned: 'kosmos-99.0.0-arm64.tar.gz' }), 'latest.json': { version: '98.0.0' } });
+  await update.checkNow();
+  assert.deepEqual(asked, ['latest-linux.json'], 'a malformed Linux pointer sent the board to the Mac pair');
+  assert.equal(update.available(), null);
+  assert.equal(update.lastLook().readable, false);
+  // CONTROL: one that names no version at all is "not published", and the portable board falls back.
+  update.resetCache();
+  const asked2 = host({ 'latest-linux.json': { error: 'not here' }, 'latest.json': { version: '98.0.0' } });
+  await update.checkNow();
+  assert.deepEqual(asked2, ['latest-linux.json', 'latest.json']);
+});
+
 test('#7281 TRANSITIONAL: a Linux-family install never falls back to the Mac pointer (no offer, not a downgrade)', async () => {
   update.setInstalledRoot(() => rootWithNode(false));
   const asked = host({ 'latest.json': { version: '99.0.0' } });
