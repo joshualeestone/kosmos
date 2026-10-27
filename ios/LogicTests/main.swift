@@ -678,6 +678,8 @@ do {
     let macs = Board.parseMacs(Data(json.utf8)) ?? []
     check(macs.count == 4, "a row with no address is dropped")
     check(macs.map(\.usable) == [false, false, true, true], "retired and switched-off Macs are not usable; a null retired_at is")
+    check(Board.parseMacs(Data(#"{"macs":[{"address":"c.kosmosplus.com","hosted":true},{"address":"m.kosmosplus.com"}]}"#.utf8))?.map(\.hosted) == [true, false],
+          "kosmos#4903: hosted is read, and a row without it is not hosted")
     let heldRefused = Board.parseMacs(Data(#"{"macs":[{"address":"h.kosmosplus.com","held":true},{"address":"r.kosmosplus.com","refused":true}]}"#.utf8)) ?? []
     check(heldRefused.map(\.usable) == [false, false], "a held or refused Mac is not usable either")
     check(macs[3].name == "laptop.kosmosplus.com", "an empty name falls back to the address")
@@ -1745,6 +1747,8 @@ do {
 final class FakeBoardWorld {
     var clock = Date(timeIntervalSince1970: 1_000_000)
     var requests: [String] = []
+    var handoffAnswer: (Int, String) = (200, #"{"token":"hand"}"#)
+    var handoffBodies: [[String: Any]] = []
     var macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":100}]}"#
     var sessionAnswer: (Int, String) = (200, #"{"ok":true}"#)
     var sessionNoAnswer = false
@@ -1842,7 +1846,10 @@ final class FakeBoardWorld {
         }
         switch url.path {
         case "/v1/account/macs": return answer(macsStatus, macsStatus == 200 ? macsBody : "{}")
-        case "/v1/account/handoff": return answer(200, #"{"token":"hand"}"#)
+        case "/v1/account/handoff":
+            // kosmos#4903: each handoff's body, and an answer a test can set (a step-up refusal, say).
+            handoffBodies.append(r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
+            return answer(handoffAnswer.0, handoffAnswer.1)
         case "/_kosmos/session":
             if sessionNoAnswer { return nil }
             if sessionNoAnswerFirst > 0 { sessionNoAnswerFirst -= 1; return nil }
@@ -2177,6 +2184,33 @@ section("native board loop: connecting")
         check(c.agents.map(\.session) == ["wes", "dana"], "CONTROL: a pull that reads re-sorts, moving Wes first")
         check(c.sortEpoch == epoch + 1, "and Today is told of exactly that re-sort")
         c.stop()
+    }
+    do {
+        // kosmos#4903: a Kosmos cloud machine (hosted in the Mac list) is asked with a fresh handoff, and a step-up
+        // refusal says sign in again, naming it, rather than "Kosmos+ did not let this iPhone in".
+        let (c, w, _, _) = make("kst1")
+        w.macsBody = #"{"macs":[{"name":"Your cloud machine","address":"josh.kosmosplus.com","last_seen":100,"hosted":true}]}"#
+        c.start()
+        let live = await settle { isLive(c) }
+        check(live, "a hosted computer whose fresh handoff is granted opens as any other")
+        check(w.handoffBodies.first?["fresh"] as? Bool == true, "the hosted computer was not asked with a fresh handoff")
+        c.stop()
+        let (c2, w2, _, _) = make("kst1")
+        w2.macsBody = w.macsBody
+        w2.handoffAnswer = (403, #"{"error":"sign in again for this","code":"step_up_required"}"#)
+        c2.start()
+        let again = await settle { c2.phase == .signInAgain(mac: "Your cloud machine") }
+        check(again, "a step-up refusal on a hosted computer did not say sign in again (phase: \(c2.phase))")
+        check(w2.count("/_kosmos/session") == 0, "and nothing went to the gate with no handoff")
+        c2.stop()
+        // CONTROL: a Mac (no hosted field) is asked as before, with no fresh key, and the same 403 stays Kosmos+'s refusal.
+        let (c3, w3, _, _) = make("kst1")
+        w3.handoffAnswer = w2.handoffAnswer
+        c3.start()
+        let refused = await settle { c3.phase == .kosmosPlusRefused }
+        check(refused, "CONTROL: a Mac's 403 is still Kosmos+ refusing (phase: \(c3.phase))")
+        check(w3.handoffBodies.first?["fresh"] == nil, "CONTROL: a Mac was asked with a fresh handoff")
+        c3.stop()
     }
     do {
         let (c, w, _, macs) = make("kst1")

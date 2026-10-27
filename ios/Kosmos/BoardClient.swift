@@ -28,6 +28,8 @@ final class BoardClient: ObservableObject {
         case unreachable(mac: String)
         // The Mac's gate answered but would not take this iPhone's sign-in (neither waiting for Allow nor denied).
         case macRefused(mac: String)
+        // kosmos#4903: a Kosmos cloud machine, which takes only a recent sign-in, and this one is not.
+        case signInAgain(mac: String)
         case live(mac: Board.Mac)
     }
 
@@ -1314,9 +1316,14 @@ final class BoardClient: ObservableObject {
 
     // nil when it failed, with the phase already set to say why.
     private func handoff(session: String, mac: Board.Mac, _ gen: Int) async -> String? {
-        let result = await env.send(Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address))
+        let result = await env.send(Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address,
+                                                         fresh: mac.hosted))
         let status = result?.1.statusCode ?? 0
         guard (200...299).contains(status), let data = result?.0, let token = Board.parseHandoffToken(data) else {
+            if mac.hosted, status == 403, Board.isStepUpRequired(result?.0) {
+                if gen == generation { set(.signInAgain(mac: mac.name), gen) }
+                return nil
+            }
             kosmosPlusFailed(status: status, gen); return nil
         }
         return token
@@ -1489,7 +1496,8 @@ final class BoardClient: ObservableObject {
 extension BoardClient.Phase {
     var macName: String? {
         switch self {
-        case .waitingForAllow(let mac, _), .connecting(let mac), .denied(let mac), .unreachable(let mac), .macRefused(let mac):
+        case .waitingForAllow(let mac, _), .connecting(let mac), .denied(let mac), .unreachable(let mac), .macRefused(let mac),
+             .signInAgain(let mac):
             return mac
         case .live(let mac):
             return mac.name
