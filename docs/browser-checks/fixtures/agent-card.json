@@ -16,8 +16,8 @@
   "task": "an example task",
   "state": "working",
   "stateConfidence": "structured",
-  "stateProject": null,
-  "stateProjectInferred": false,
+  "stateProject": "example-project",
+  "stateProjectInferred": true,
   "stateEvidence": null,
   "quotaDialog": false,
   "quotaDaily": false,
@@ -27,6 +27,7 @@
   "screenState": null,
   "limitUntil": null,
   "unsentInput": null,
+  "deliveryStall": null,
   "lastWorked": {
     "at": "2026-09-03T00:00:00.000Z",
     "why": null
@@ -65,7 +66,8 @@
       "because": "example-because"
     },
     "updatedAt": "2026-09-03T00:00:00.000Z",
-    "id": "000000000000"
+    "id": "000000000000",
+    "displayName": "example-displayname"
   },
   "rulesBehind": null,
   "swarm": null,
