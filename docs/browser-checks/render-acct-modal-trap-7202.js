@@ -105,7 +105,7 @@ const REFRESH_LOGIN = OPENERS.indexOf('Refresh login (loginAdvGo)');
    is handed one listed row through its own accountsRead, as render-refreshlogin-5407 does; on the board it has not,
    and loginAdvGo takes its unloaded branch, as a person's does. The
    control that had focus is passed as the opener. The page's own account state is saved first and put
-   back after the arm (restoreAccounts7284), so no later arm or opener inherits the row. */
+   back after the arm (the inline restore after its focus-return assert), so no later arm or opener inherits the row. */
 const open = (p, i) => p.evaluate((n) => [() => openAcctAdd(),
   () => openAcctReauth('/nonexistent/acct-7202', 'someone@example.com'),
   () => openAcctReauthOpenai('/nonexistent/acct-7202', 'someone@example.com'),

@@ -43,3 +43,6 @@ render-refreshlogin-5407 uses, and loginAdvGo reads only dir and apiKey from it.
    write and also clears the opener reference. (N) A thrown evaluate skipping the restore ends the run; each page
    reloads by goto, so nothing leaks.
    The check: 259 of 259.
+3. (default model, 21:3x CDT) One NIT, applied: a comment named a restoreAccounts7284 function that does not exist; it
+   now points at the inline restore after the focus-return assert. Everything else checked (count, header and plan
+   against the code, focus return, the restore on every path).
