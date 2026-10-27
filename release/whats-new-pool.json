@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.70",
+  "lastProd": "0.7.71",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -410,7 +410,8 @@
       "icon": "list",
       "rank": 14.5,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.71"
     },
     {
       "title": "Gemini agents stop updating gemini",
@@ -848,7 +849,8 @@
       "icon": "shield",
       "rank": 11,
       "since": "0.7.71",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.71"
     },
     {
       "title": "Web addresses are links",
@@ -856,7 +858,8 @@
       "icon": "chat",
       "rank": 11.2,
       "since": "0.7.71",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.71"
     },
     {
       "title": "Tables stay inside their message",
@@ -864,7 +867,8 @@
       "icon": "chat",
       "rank": 11.4,
       "since": "0.7.71",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.71"
     },
     {
       "title": "Community activity in Settings, at a glance",
@@ -872,7 +876,8 @@
       "icon": "list",
       "rank": 12.6,
       "since": "0.7.71",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.71"
     }
   ]
 }
