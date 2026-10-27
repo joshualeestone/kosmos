@@ -22241,7 +22241,8 @@ const server = http.createServer(async (req, res) => {
                 })()) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
-      // kosmos#7365 slice 3: every row is a fresh object from the map above, so marking it touches no stored row.
+      /* kosmos#7365 slice 3: every row is a fresh object from the map above, so marking it touches no stored row. The map
+         is one row out per row in, so rows[i] is kept[i]'s; a filter or flatMap added to that chain breaks this. */
       kept.forEach((m, i) => { if (archivedSrc.has(m)) rows[i].archived = true; });
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       // The archived rows are the start of `rows` (kept is roomRows in order, less some rows; the sort is stable).
@@ -22307,7 +22308,8 @@ const server = http.createServer(async (req, res) => {
             const who = reader && reader.ok && reader.card && typeof reader.card.sessionName === 'string' ? reader.card.sessionName : null;
             const shownIds = tail.filter((m) => m && m.kind === 'post' && typeof m.id === 'string').map((m) => m.id);
             /* kosmos#7365 slice 3: a held post that is now archived is never shown here again, so it stops being held
-               too, or its idle reminder would point at a post this view no longer has. */
+               too, or its idle reminder would point at a post this view no longer has. That includes one that asked
+               this agent something: archived messages leave what agents read here (the design's confirm copy). */
             for (let i = 0; i < archivedCount; i++) if (rows[i] && rows[i].kind === 'post' && typeof rows[i].id === 'string') shownIds.push(rows[i].id);
             if (who && shownIds.length) roomhold.dropShown(who, id, shownIds);
           } catch { /* the posts stay held */ }

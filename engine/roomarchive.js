@@ -28,16 +28,24 @@ function fileFor() { return path.join(store.ROOT, 'roomarchive.json'); }
 
 /* Null-prototype, so a project id such as "__proto__" is an own key like any other. A file that cannot be read or
    parsed reads as no markers: the room then shows only what the automatic rule archives, the safe direction (more
-   live, never less). With { strict: true } (the writers) a file that is there but cannot be read or parsed throws
-   instead, so a write never replaces every other room's marker with an empty table. An entry that parses but carries
-   no readable `before` archives nothing, is left out here, and so is dropped by the next write. */
-function readAll({ strict = false } = {}) {
+   live, never less). With { strict: true } (the writers): a file that cannot be READ throws, so the write is refused
+   and nothing changes; a file that reads but does not PARSE is moved aside to roomarchive.json.broken-<time>, bytes
+   kept, and the write starts from an empty table, so Undo and Archive still work and no marker is overwritten. An
+   entry that parses but carries no readable `before` archives nothing, is left out here, and so is dropped by the next
+   write. */
+function readAll({ strict = false, now = Date.now() } = {}) {
   const out = Object.create(null);
   try {
     let raw;
     try { raw = fs.readFileSync(fileFor(), 'utf8'); } catch (err) { if (err && err.code === 'ENOENT') return out; throw err; }
-    const got = JSON.parse(raw);
-    if (!got || typeof got !== 'object' || Array.isArray(got)) throw new Error('roomarchive.json is not a table');
+    let got;
+    try {
+      got = JSON.parse(raw);
+      if (!got || typeof got !== 'object' || Array.isArray(got)) throw new Error('roomarchive.json is not a table');
+    } catch (err) {
+      if (strict) { fs.renameSync(fileFor(), fileFor() + '.broken-' + now); return out; }
+      throw err;
+    }
     for (const k of Object.keys(got)) {
       const m = got[k];
       if (m && typeof m === 'object' && typeof m.before === 'string' && Number.isFinite(Date.parse(m.before))) out[k] = m;
@@ -74,7 +82,8 @@ function setMarker(projectId, before, now = Date.now()) {
   if (parsed > now + SKEW_MS) return { ok: false, because: 'that time has not happened yet, so nothing is older than it' };
   const t = Math.min(parsed, now);
   const marker = { before: new Date(t).toISOString(), setAt: new Date(now).toISOString() };
-  const all = readAll({ strict: true });
+  // Read, change and write in one synchronous turn: only the board process writes this file, so no write can come between.
+  const all = readAll({ strict: true, now });
   all[String(projectId)] = marker;
   writeAll(all);
   return { ok: true, marker };

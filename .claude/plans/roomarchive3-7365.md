@@ -34,7 +34,7 @@ reads the room), even one that asked the agent something. That follows Mona's co
 what agents read here"); if an archived ask should still reach its agent, the read keeps addressed ids instead.
 
 ## Proof
-`server.room-archive-7365.test.js` (10 tests) and one in `server.roomread-seen-4926.test.js`, real rows through the real route. Mutation-proven: dropping the live-only
+`server.room-archive-7365.test.js` (11 tests) and one in `server.roomread-seen-4926.test.js`, real rows through the real route. Mutation-proven: dropping the live-only
 text walk, the live paging, the archive paging, the row marking, the count rule, the age rule and the future-time
 refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read rooms or route lists): 1,058/1,058.
 
@@ -68,3 +68,11 @@ refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read roo
    - (N) An agent-token-only POST to both archive routes is refused (403), mutation-proven by adding the route to the
      agent-token patterns; a comment that each view counts its own archived rows; the plan's test count; the comment
      on malformed entries being dropped by the next write.
+4. (sonnet, 15:5x CDT) 0 BLOCKERs, 2 WARNINGs, 4 NITs.
+   - (W) An unparseable marker file made Archive and Undo refuse forever (round 2's refusal). Now a file that reads but
+     will not parse is moved aside (roomarchive.json.broken-<time>, bytes kept) and the write starts fresh; a file
+     that cannot be read at all still refuses. Both arms tested and mutation-proven.
+   - (W, deferred to a code comment) Two concurrent writers could lose an update: only the board process writes this
+     file, and its read, change and write run in one synchronous turn.
+   - (N) Comments at the code: the one-row-per-row map the marking relies on, and that the held-post drop includes asks.
+     Not done: calendar-impossible dates ('2026-02-30'), which V8 rolls over to a real, harmless time.

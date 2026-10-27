@@ -172,24 +172,42 @@ test('#7365: the archive route sets the marker, refuses a bad or future time, an
   assert.equal((await post(pid, '/undo')).code, 200);
 });
 
-test('#7365: a marker file that cannot be read is never replaced by a write', async () => {
+test('#7365: a marker file that will not parse is moved aside, bytes kept, and Archive and Undo still work', async () => {
   const file = roomarchive.fileFor();
-  const kept = fs.existsSync(file) ? fs.readFileSync(file) : null;
-  fs.writeFileSync(file, '{"' + room.small + '": {"before": "2024');   // cut off mid-write by something else
+  const dir = path.dirname(file);
+  const broken = () => fs.readdirSync(dir).filter((f) => f.startsWith('roomarchive.json.broken-'));
+  const kept = fs.readFileSync(file);
+  const cut = '{"' + room.small + '": {"before": "2024';   // cut off mid-write by something else
+  fs.writeFileSync(file, cut);
+  try {
+    // The read side keeps more live: the small room's marker is unreadable, so nothing is archived there.
+    assert.equal((await get(room.small)).json.archivedCount, 0);
+    assert.deepEqual(broken(), [], 'a read moved the file aside');
+    const when = new Date(Date.now() - DAY).toISOString();
+    const r = await post(room.routes, '', { before: when });
+    assert.equal(r.code, 200, r.text);
+    assert.equal(broken().length, 1, 'the unparseable file was not kept aside');
+    assert.equal(fs.readFileSync(path.join(dir, broken()[0]), 'utf8'), cut, 'the bytes set aside are not the original');
+    assert.deepEqual(Object.keys(roomarchive.readAll()), [room.routes], 'the new table holds only the new marker');
+    assert.equal((await post(room.routes, '/undo')).code, 200);
+  } finally {
+    fs.writeFileSync(file, kept);
+    for (const f of broken()) fs.rmSync(path.join(dir, f));
+  }
+  assert.equal((await get(room.small)).json.archivedCount, 20, 'CONTROL: with the file whole again the marker reads');
+});
+
+test('#7365: a marker file that cannot be READ refuses the write and changes nothing', async () => {
+  const file = roomarchive.fileFor();
+  const before = fs.readFileSync(file, 'utf8');
+  fs.chmodSync(file, 0o000);
   try {
     const r = await post(room.routes, '', { before: new Date(Date.now() - DAY).toISOString() });
     assert.equal(r.code, 503, r.text);
     assert.equal((await post(room.routes, '/undo')).code, 503);
-    assert.equal(fs.readFileSync(file, 'utf8'), '{"' + room.small + '": {"before": "2024', 'a refused write changed the file');
-    // The read side still works and keeps more live: the small room's marker is unreadable, so nothing is archived there.
-    assert.equal((await get(room.small)).json.archivedCount, 0);
-  } finally {
-    if (kept === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, kept);
-  }
-  // CONTROL: with the file whole again, the same write lands.
-  assert.equal((await post(room.routes, '', { before: new Date(Date.now() - DAY).toISOString() })).code, 200);
-  assert.equal((await post(room.routes, '/undo')).code, 200);
-  assert.equal((await get(room.small)).json.archivedCount, 20);
+  } finally { fs.chmodSync(file, 0o600); }
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'a refused write changed the file');
+  assert.equal(fs.readdirSync(path.dirname(file)).some((f) => f.startsWith('roomarchive.json.broken-')), false, 'an unreadable file was moved aside');
 });
 
 test('#7365: Undo clears the person\'s marker only; what the automatic rule archives stays archived', async () => {
