@@ -230,3 +230,17 @@ test('#4903 seam H, engine half: a field refusal (the create name among them) sa
   assert.equal(said(true), 'that name is already used on your cloud machine');
   assert.equal(said(false), 'that name is already used on this computer', 'CONTROL: not a cloud machine');
 });
+
+test('#4903 seam H, engine half: the Remove, Delete and restore functions paint no engine sentence raw', () => {
+  // By function, not by line: a raw sink added to one of these later fails here rather than waiting for a reviewer.
+  const names = ['loadRemoval', 'loadLeftover', 'closeDeleteModal', 'reportDiscarded', 'setForceOffered', 'paintDiscoveryTrigger', 'refreshYou', 'closeHistModal'];
+  const raw = [];
+  for (const name of names) {
+    const src = page.liftAll(SCRIPT, [name]);
+    assert.ok(src.includes('function ' + name), 'could not lift ' + name);
+    for (const line of src.split('\n')) {
+      if (/textContent = /.test(line) && /\.(because|error|hint)\b/.test(line) && !/cloudWords/.test(line)) raw.push(name + ': ' + line.trim());
+    }
+  }
+  assert.deepEqual(raw, []);
+});
