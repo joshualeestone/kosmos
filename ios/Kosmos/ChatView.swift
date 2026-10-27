@@ -63,6 +63,8 @@ struct ChatView: View {
     @State private var keepAnchor: String?
     // kosmos#7265 review 2: a page landed while the reader was at the newest message: keep them there, without animation.
     @State private var keepAtEnd = false
+    // Review 3: whether the end marker has ever shown (atBottom starts true, so it alone cannot say the reader got there).
+    @State private var endSeen = false
     // The conversation's items on screen now.
     @State private var onScreen: Set<String> = []
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
@@ -240,6 +242,7 @@ struct ChatView: View {
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
             epoch = now
+            endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
             thread = nil
             replying = nil
             retryNote = nil
@@ -357,7 +360,7 @@ struct ChatView: View {
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
                         Color.clear.frame(height: 1).id("end")
                             .onAppear {
-                                atBottom = true; unseenNew = false
+                                atBottom = true; unseenNew = false; endSeen = true
                                 // The first scroll has settled when the newest message is really on screen (not after
                                 // a time): from then on, reaching the top is the person scrolling up. Checked a turn
                                 // later, so the top's own disappearance from the same jump has landed first; a chat too
@@ -672,7 +675,7 @@ struct ChatView: View {
             // a reader stopped part way inside the newest rows as a page lands may still move).
             // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
             // reader is up there) rules it out.
-            if atBottom && !topVisible { keepAtEnd = true }
+            if atBottom && endSeen && !topVisible { keepAtEnd = true }
             else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
