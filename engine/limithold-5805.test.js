@@ -133,8 +133,8 @@ test('#5805 not held: a dateless line the board saw too late to read, a reset al
   // (before #7264 it read capped for good). Either way nothing is held.
   await onScreen(late, async (board, tmux) => {
     const card = board.agents.find((c) => c.sessionName === 'casey');
-    assert.equal(card.state, status.STATE.IDLE, 'a late session line whose reset can only have passed still reads capped');
-    assert.equal(card.limitUntil, null, 'CONTROL: no reset read for it');
+    assert.equal(card.state, status.STATE.IDLE, 'a late session line whose reset can only have passed did not read idle');
+    assert.equal(card.limitUntil, null, 'a late line was given a reset time');
     const v = chat.deliverAutomatic('casey', 'A colleague line.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
     assert.ok(tmux.typed().length > 0, 'a dateless line with no reset read held a timer\'s line');
