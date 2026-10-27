@@ -2193,15 +2193,15 @@ section("native board loop: connecting")
         c.start()
         let live = await settle { isLive(c) }
         check(live, "a hosted computer whose fresh handoff is granted opens as any other")
-        check(w.handoffBodies.first?["fresh"] as? Bool == true, "the hosted computer was not asked with a fresh handoff")
+        check(w.handoffBodies.first?["fresh"] as? Bool == true, "the hosted computer is asked with a fresh handoff")
         c.stop()
         let (c2, w2, _, _) = make("kst1")
         w2.macsBody = w.macsBody
         w2.handoffAnswer = (403, #"{"error":"sign in again for this","code":"step_up_required"}"#)
         c2.start()
         let again = await settle { c2.phase == .signInAgain(mac: "Your cloud machine") }
-        check(again, "a step-up refusal on a hosted computer did not say sign in again (phase: \(c2.phase))")
-        check(w2.count("/_kosmos/session") == 0, "and nothing went to the gate with no handoff")
+        check(again, "a step-up refusal on a hosted computer says sign in again, naming it (phase: \(c2.phase))")
+        check(w2.count("/_kosmos/session") == 0, "and nothing goes to the gate with no handoff")
         c2.stop()
         // CONTROL: a Mac (no hosted field) is asked as before, with no fresh key, and the same 403 stays Kosmos+'s refusal.
         let (c3, w3, _, _) = make("kst1")
@@ -2209,7 +2209,7 @@ section("native board loop: connecting")
         c3.start()
         let refused = await settle { c3.phase == .kosmosPlusRefused }
         check(refused, "CONTROL: a Mac's 403 is still Kosmos+ refusing (phase: \(c3.phase))")
-        check(w3.handoffBodies.first?["fresh"] == nil, "CONTROL: a Mac was asked with a fresh handoff")
+        check(w3.handoffBodies.first?["fresh"] == nil, "CONTROL: a Mac is asked with no fresh key")
         c3.stop()
     }
     do {
