@@ -307,6 +307,37 @@ enum Board {
         "needs_trust": "Waiting on a trust prompt", "question": "Question", "approval": "Needs permission",
     ]
 
+    // kosmos#7342 (Josh 10-27, Mona Lisa's design): the Agents list's status is a small pill, only when there is
+    // something to see. Idle shows none. Green working, blue a question or a choice waiting for the person, amber held by
+    // something outside the agent, red only a real problem, grey when Kosmos cannot tell. The word is still the Mac's
+    // own (statusWord); the pill's colour comes from the same state the word does.
+    enum Pill: Equatable { case working, asks, held, problem, cantTell }
+    static func pill(_ a: Agent) -> Pill? {
+        if !a.running && a.state != "restarting" {
+            if a.needsTrust { return .asks }
+            return a.jobRunningUnseen ? .cantTell : .problem
+        }
+        if a.crashLooping || a.restartFailed { return .problem }
+        switch a.state {
+        case "idle": return nil
+        case "working": return .working
+        case "needs_you": return a.reportedByAgent || a.awaitingApproval ? .asks : .problem
+        case "question", "approval", "needs_trust": return .asks
+        case "rate_limited", "blocked", "connection_lost", "restarting": return .held
+        case "auth_failed", "stopped": return .problem
+        default: return .cantTell
+        }
+    }
+
+    // kosmos#7342: the Working pill's Sweep, the board's @keyframes sweep over 1.2 s: up to full at 20%, back to a
+    // quarter by 70%, resting there after.
+    static func sweepOpacity(_ t: Double) -> Double {
+        let f = (t.truncatingRemainder(dividingBy: 1.2) + 1.2).truncatingRemainder(dividingBy: 1.2) / 1.2
+        if f < 0.2 { return 0.25 + 0.75 * f / 0.2 }
+        if f < 0.7 { return 1 - 0.75 * (f - 0.2) / 0.5 }
+        return 0.25
+    }
+
     static func statusWord(_ agent: Agent) -> String {
         if let word = agent.macWord { return word }
         if !agent.running && agent.state != "restarting" {

@@ -358,17 +358,16 @@ struct AgentRow: View {
 
     // The board's own word, never truncated (it wraps at the largest sizes rather than run off the row); a live
     // change crossfades in 0.2s, the animation on the container so the outgoing word fades as the new one comes in.
-    private var status: some View {
+    // kosmos#7342: a pill only when there is something to see (Board.pill); Idle shows nothing. Not updating: grey.
+    @ViewBuilder private var status: some View {
         ZStack(alignment: large ? .leading : .trailing) {
-            Text(word)
-                .font(.footnote.weight(tone == .asked || tone == .needsYou ? .semibold : .regular))
-                .foregroundColor(Palette.word(tone))
-                .fixedSize(horizontal: !large, vertical: true)
-                .id(word)
-                .transition(.opacity)
+            if let pill = Board.pill(agent) {
+                StatusPill(word: word, pill: stale ? .cantTell : pill, wraps: large)
+                    .id(word)
+                    .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.2), value: word)
-        .animation(.easeInOut(duration: 0.2), value: tone)
     }
 }
 
@@ -482,6 +481,26 @@ enum Palette {
         }
     }
 
+    // kosmos#7342: the pills' ground and words (Mona Lisa's values; each word clears 4.5:1 on its own ground).
+    static func pillGround(_ p: Board.Pill) -> Color {
+        switch p {
+        case .working: return pair(0xe3f1e8, 0x173a26)
+        case .asks: return pair(0xe6eefb, 0x1b2c4a)
+        case .held: return pair(0xfbefd9, 0x3d2e0f)
+        case .problem: return pair(0xfbe3e1, 0x4a1c19)
+        case .cantTell: return pair(0xececee, 0x2c2c2e)
+        }
+    }
+    static func pillWord(_ p: Board.Pill) -> Color {
+        switch p {
+        case .working: return pair(0x2b7149, 0x6fd69a)
+        case .asks: return pair(0x2d5fb3, 0x8fb4ff)
+        case .held: return pair(0x8a5a00, 0xf2c260)
+        case .problem: return pair(0xb3261e, 0xff8a80)
+        case .cantTell: return pair(0x5f5f66, 0xa1a1a8)
+        }
+    }
+
     static func dot(_ tone: Board.Tone) -> Color {
         switch tone {
         case .working: return pair(0x1f7a4d, 0x4ade80)
@@ -540,4 +559,47 @@ struct MacSwitcher: View {
             }
         }
     }
+}
+
+// kosmos#7342: one status pill, 20 pt tall and fully round, 12 pt semibold with 8 pt sides. Working carries the board's
+// Sweep: three dots lit one after another (Josh's pick, 09-05); with Reduce Motion they stand still, the first lit.
+struct StatusPill: View {
+    let word: String
+    let pill: Board.Pill
+    var wraps = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if pill == .working { sweep }
+            Text(word)
+                .font(.caption.weight(.semibold))
+                .fixedSize(horizontal: !wraps, vertical: true)
+        }
+        .foregroundColor(Palette.pillWord(pill))
+        .padding(.horizontal, 8)
+        .frame(minHeight: 20)
+        .background(Capsule().fill(Palette.pillGround(pill)))
+    }
+
+    @ViewBuilder private var sweep: some View {
+        if reduceMotion {
+            dots { i in i == 0 ? 1 : 0.25 }
+        } else {
+            TimelineView(.animation) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                dots { i in Board.sweepOpacity(t - Double(i) * 0.2) }
+            }
+        }
+    }
+
+    private func dots(_ opacity: @escaping (Int) -> Double) -> some View {
+        HStack(spacing: 2.5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle().frame(width: 4, height: 4).opacity(opacity(i)).scaleEffect(0.7 + 0.4 * (opacity(i) - 0.25) / 0.75)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
 }
