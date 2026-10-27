@@ -734,7 +734,7 @@ test('no button whose whole label is "Connect" goes unnamed', () => {
 /* #5856 (Josh set the Play audience to 13+): Claude's terms are 18+, so the model step tells a teen who
    they can pick instead, and asks no age. The list names Meta Muse only where a person can pick it. */
 test('#5856: the model step says Claude is 18+ and names who an under-18 can choose', () => {
-  assert.match(STEP, /<p class="fr-age" id="fr-age">Claude and Gemini need you to be 18 or over, and so do API keys\. If you are under 18, choose <span id="fr-age-list">OpenAI or Grok<\/span> and sign in with your own account, with a parent's permission\. Age rules vary by country\.<\/p>/,
+  assert.match(STEP, /<p class="fr-age" id="fr-age"(?: data-cloud-hide)?>Claude and Gemini need you to be 18 or over, and so do API keys\. If you are under 18, choose <span id="fr-age-list">OpenAI or Grok<\/span> and sign in with your own account, with a parent's permission\. Age rules vary by country\.<\/p>/,
     'the under-18 sentence is not on the model step as written');
   assert.doesNotMatch(STEP, /\b(how old|your age|date of birth|birthday)\b/i, 'the model step asks an age, which #5856 ruled out');
 });

@@ -879,6 +879,9 @@ step "== 1d-linux. the Linux family: cut in lockstep, with a current Linux conne
 # and the Linux connector (kosmos-relay's, built by tools/build-tunnel-release-linux.sh) must be current with relay
 # main by the same rule as the Mac one.
 release_linux_decide "$SITE" "$CUT_CHANNEL" || exit 1
+# 0.7.71 cut, 2026-10-27: the decision is CUT_LINUX from here on. Exported, the variable reached step 3's suite, and
+# every test that runs a nested release.sh tried to cut the Linux family there and stopped at 1d-linux (9 reds).
+unset KOSMOS_CUT_LINUX
 LINUX_TUNNEL_BIN="${KOSMOS_TUNNEL_LINUX_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel-linux-x86_64}"
 LINUX_CONNECTOR_COMMIT=""
 if [ "$CUT_LINUX" = yes ]; then
