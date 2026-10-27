@@ -1056,17 +1056,10 @@ final class BoardClient: ObservableObject {
         }
     }
 
-    // kosmos#7266 slice B. A read that fails keeps what was shown (the next one is 5 minutes away, or the next start).
-    private func fetchYou(url: URL, _ gen: Int) async {
-        let named = await env.send(Board.youRequest(mac: url))
+    // kosmos#7266 slice B. A read that fails keeps what was shown (review 4: and is tried again after youRetry).
+    private func fetchYou(url: URL, _ gen: Int, name: Bool) async {
+        if name { await fetchYouName(url: url, gen) }
         guard gen == generation, !Task.isCancelled else { return }
-        if let (data, answer) = named, (200...299).contains(answer.statusCode) {
-            switch Board.youName(data) {
-            case .name(let n): youName = n
-            case .none: youName = nil
-            case .unknown: break
-            }
-        }
         // Review 1: the picture on the first read and then every 30 minutes (it is the big one).
         guard youPictureAt.map({ env.now().timeIntervalSince($0) >= Board.youPictureEvery }) ?? true else { return }
         youPictureAt = env.now()
@@ -1075,8 +1068,23 @@ final class BoardClient: ObservableObject {
         switch Board.youPicture(status: pic?.1.statusCode, contentType: pic?.1.value(forHTTPHeaderField: "Content-Type"), data: pic?.0) {
         case .picture(let data): youPicture = data
         case .none: youPicture = nil
-        case .unknown: break
+        case .unknown: youPictureAt = env.now().addingTimeInterval(Board.youRetry - Board.youPictureEvery)
         }
+    }
+
+    private func fetchYouName(url: URL, _ gen: Int) async {
+        let named = await env.send(Board.youRequest(mac: url))
+        guard gen == generation, !Task.isCancelled else { return }
+        var learned = false
+        if let (data, answer) = named, (200...299).contains(answer.statusCode) {
+            switch Board.youName(data) {
+            case .name(let n): youName = n; learned = true
+            case .none: youName = nil; learned = true
+            case .unknown: break
+            }
+        }
+        // Review 4: nothing learned, so the next read comes after youRetry rather than youEvery.
+        if !learned { youAt = env.now().addingTimeInterval(Board.youRetry - Board.youEvery) }
     }
 
     // Another computer, another account or a sign-out: the person's name and picture are that computer's own.
@@ -1334,11 +1342,14 @@ final class BoardClient: ObservableObject {
                 pictureTask = Task { await self.fetchPictures(url: url, gen); self.pictureTask = nil }
             }
             // kosmos#7266 slice B: the person's name and picture, on the first list and then every 5 minutes.
-            if youTask == nil, youAt.map({ env.now().timeIntervalSince($0) >= Board.youEvery }) ?? true {
-                youAt = env.now()
+            // Review 4: the picture has its own due time, so a picture read that learned nothing is retried on its own.
+            let nameDue = youAt.map({ env.now().timeIntervalSince($0) >= Board.youEvery }) ?? true
+            let pictureDue = youPictureAt.map({ env.now().timeIntervalSince($0) >= Board.youPictureEvery }) ?? true
+            if youTask == nil, nameDue || pictureDue {
+                if nameDue { youAt = env.now() }
                 youTicket += 1
                 let ticket = youTicket
-                youTask = Task { await self.fetchYou(url: url, gen); if self.youTicket == ticket { self.youTask = nil } }
+                youTask = Task { await self.fetchYou(url: url, gen, name: nameDue); if self.youTicket == ticket { self.youTask = nil } }
             }
             // kosmos#7030: the tasks Today shows, read only while Today is on screen, at most every 30 s (the board's Tasks
             // view read is not cheap); pull to refresh reads them at once.

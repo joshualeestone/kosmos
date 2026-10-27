@@ -427,6 +427,9 @@ enum Board {
     // Review 1: the picture is the big read (up to 5 MB, served no-store, with no version), so it is read on the first list
     // and then every 30 minutes, not with every name read.
     static let youPictureEvery: TimeInterval = 1800
+    // Review 4: a read that learns nothing (the Mac's startup sign-in window, the gate's page, a 5xx, no answer) is tried
+    // again after 30 seconds, not after the full wait, so a fresh launch does not show the gear and You for 5 minutes.
+    static let youRetry: TimeInterval = 30
     static func youRequest(mac: URL) -> URLRequest {
         var r = URLRequest(url: URL(string: "/api/you", relativeTo: mac)!.absoluteURL)
         r.setValue("application/json", forHTTPHeaderField: "Accept")
