@@ -299,7 +299,7 @@ test('kosmos#7264: a dateless row the board saw late (on its first capture after
   const restart = Date.parse('2026-10-27T00:20:00Z');
   read(restart, screen, 'idle', (card, roster) => {
     assert.equal(card.state, status.STATE.IDLE, 'a late row whose reset had passed kept the card capped (Rate Limit for good)');
-    assert.equal(chat.limitHeldVerdict('camille', roster, restart), null, 'a message to it is held');
+    assert.equal(chat.limitHeldVerdict('camille', roster, restart), null, 'a message to it was held');
   });
   // A late row whose reset is still ahead: seen at 17:40 CDT, before 6pm. Capped until 18:00 (plus the grace), idle after.
   status.resetLimitFirstSeenForTests();
@@ -368,4 +368,47 @@ test('kosmos#7264 review 2: a NEW limit printing the same words after a late sig
   status.resetLimitFirstSeenForTests();
   minutes(r, r + 30 * 60e3, oldBlock + STATUS_LINE, 'idle');
   minutes(r + 30 * 60e3, r + 40 * 60e3, oldBlock + oldBlock + STATUS_LINE, 'idle');
+  // (These reads assert by fleet.install, which throws when the engine classifies a screen as other than asked.)
+});
+
+test('kosmos#7264 review 3: a gap, a footer that repeats, a footer that changes in place, and a laptop that sleeps', () => {
+  const real = Date.now;
+  const read = (ms, screen, state, fn) => {
+    Date.now = () => ms;
+    try {
+      const board = fleet.install([fleet.agent('camille', { state, runner: 'claude', command: 'claude', screen })]);
+      try { if (fn) fn(board.agents.find((c) => c.sessionName === 'camille'), board.agents); } finally { board.restore(); }
+    } finally { Date.now = real; }
+  };
+  const row = `You've hit your session limit · resets 6pm ${Z}`;
+  const block = (prompt, footer) => '❯ ' + prompt + '\n' + `  ⎿  ${row}\n` + footer;
+  const old = block('hello', FOOTER);
+  const day2 = Date.parse('2026-10-27T20:00:00Z');   // 15:00 CDT
+  const after = Date.parse('2026-10-27T23:01:00Z');   // 18:01 CDT, the new limit's reset plus grace
+  // A gap: restart at 10:00 (yesterday's row late, retired at once), the Mac asleep 13:00 to 15:00, and a new 6pm
+  // limit on screen at the first capture after the gap. Capped until 18:01, not lifted at once.
+  status.resetLimitFirstSeenForTests();
+  const ten = Date.parse('2026-10-27T15:00:00Z');
+  read(ten, old + STATUS_LINE, 'idle');
+  read(Date.parse('2026-10-27T18:00:00Z'), old + STATUS_LINE, 'idle');
+  read(day2, old + block('do the report', NEW_FOOTER) + STATUS_LINE, 'rate_limited');
+  read(after - 60e3, old + block('do the report', NEW_FOOTER) + STATUS_LINE, 'rate_limited');
+  // A footer that repeats the old one's text exactly: the extra row still moves the sighting, so it is capped.
+  status.resetLimitFirstSeenForTests();
+  read(ten, old + STATUS_LINE, 'idle');
+  read(day2, old + block('again', FOOTER) + STATUS_LINE, 'rate_limited');
+  // A footer that changes in place (the background-agents row, then the turn's own): never a hold, and capped at most
+  // until the next reset, here released at once (yesterday's row, the next 6pm beyond the span from 19:20).
+  status.resetLimitFirstSeenForTests();
+  const r = Date.parse('2026-10-27T00:20:00Z');
+  read(r, block('hello', '✻ Waiting for 1 background agent to finish\n') + STATUS_LINE, 'working');   // its agent still running
+  read(r + 60e3, old + STATUS_LINE, 'idle', (card, roster) => {
+    assert.equal(card.limitUntil, null, 'a footer that changed in place gave the row a time');
+    assert.equal(chat.limitHeldVerdict('camille', roster, r + 60e3), null, 'and a message to it was held');
+  });
+  // A laptop that sleeps: captures with long gaps and the same screen. Yesterday's row stays released on every wake.
+  status.resetLimitFirstSeenForTests();
+  for (const t of [r, Date.parse('2026-10-27T14:00:00Z'), Date.parse('2026-10-27T16:30:00Z'), Date.parse('2026-10-27T17:55:00Z')]) {
+    read(t, old + STATUS_LINE, 'idle', (card) => assert.equal(card.state, status.STATE.IDLE, 'a wake re-capped a released row'));
+  }
 });

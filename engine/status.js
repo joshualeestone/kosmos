@@ -3184,13 +3184,17 @@ function noteLimitRows(agent, text, nowMs) {
     seen.last = Math.max(seen.last, now);
     const newFooter = [...here].some((f) => !seen.footers.has(f));
     for (const f of here) seen.footers.add(f);
-    /* kosmos#7264 (review 2): a late entry is retired by its own sighting (retireResetLimits), so a NEW limit printing
-       the same words must not inherit it, or it would read as already reset while it binds. A turn footer this entry
-       has not seen, on a capture that is not itself a first one, is a limit the board watched arrive: the entry is
-       timed from now, as any row seen arriving. A redraw copies the old footer, so it never re-times; and a footer
-       revealed by scrolling up re-times toward later, never earlier (the safe way). */
-    if (seen.late && newFooter && !firstCapture) {
-      limitFirstSeen.set(key, { at: now, last: now, count, late: false, footers: seen.footers });
+    /* kosmos#7264 (reviews 2 and 3): a late entry is retired from its own sighting (retireResetLimits), so a NEW limit
+       printing the same words must not inherit an old sighting and read as already reset while it binds. Whenever the
+       screen shows a row that may be new (a turn footer this entry has not seen, or more rows with this key, after a
+       capture gap too) the sighting moves to now. A gap alone moves nothing: an unchanged screen printed no new limit,
+       and a laptop that slept must not re-cap yesterday's row on every wake. It only ever moves LATER and the entry stays late, so this can delay a release
+       (at most one span, on a redraw or a footer that changes in place) but never lift a binding limit, and it never
+       gives a late row a time to hold messages on (limitFirstSeenOf still ignores it). Residual: a new limit whose
+       footer text repeats an older one, in the same capture the older row scrolls off, cannot be told apart. */
+    if (seen.late && (newFooter || count > seen.count)) {
+      seen.at = now;
+      seen.count = count;
       continue;
     }
     /* More rows than before is a NEW limit only when one could have appeared and the new row ended a NEW turn
