@@ -22,35 +22,25 @@ test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
 /* Two different files whose number ids are equal: up to 4000 files are made to find a pair; null if none did. */
 function collidingFiles(where) {
-  fs.mkdirSync(where, { recursive: true });
-  const byNumber = new Map();
-  const look = (file) => {
-    const big = fs.statSync(file, { bigint: true });
-    const key = Number(big.dev) + ':' + Number(big.ino);
-    const prior = byNumber.get(key);
-    if (prior && prior.ino !== big.ino && fs.existsSync(prior.file)) return [prior.file, file];
-    byNumber.set(key, { file, ino: big.ino });
-    return null;
-  };
-  for (let i = 0; i < 4000; i++) {
-    const file = path.join(where, 'f' + i + '.txt');
-    fs.writeFileSync(file, 'same size\n');
-    const hit = look(file);
-    if (hit) return hit;
-  }
-  /* None on this disk yet: an NTFS id is (sequence << 48) | record, and a record's sequence rises each time it is
-     reused, so ids pass 2^53 once a record has been reused 32 times; from there a number keeps only even values, and two
-     neighbouring records at the same sequence round alike. So a small pool of files is made and deleted until their
-     records are past that, then made once more and compared. */
+  /* An NTFS id is (sequence << 48) | record, and a record's sequence rises each time it is reused, so ids pass 2^53 once
+     a record has been reused 32 times; from there a number keeps only even values, and two neighbouring records at the
+     same sequence round alike. A pool of files is made and deleted until their records are past that, then compared
+     (review 6: a fresh disk needs about 32 rounds, so up to 128, within 60 s; keyed on the UNSIGNED id, as the number
+     stat reads it). */
   const pool = path.join(where, 'pool');
   fs.mkdirSync(pool, { recursive: true });
-  for (let round = 0; round < 48; round++) {
+  const until = Date.now() + 60000;
+  for (let round = 0; round < 128 && Date.now() < until; round++) {
     const made = [];
     for (let i = 0; i < 64; i++) { const file = path.join(pool, 'r' + round + '-' + i + '.txt'); fs.writeFileSync(file, 'same size\n'); made.push(file); }
-    const ids = made.map((m) => fs.statSync(m, { bigint: true }).ino);
-    if (ids.some((x) => BigInt.asUintN(64, x) > 9007199254740992n)) {
-      byNumber.clear();
-      for (const m of made) { const hit = look(m); if (hit) return hit; }
+    const byNumber = new Map();
+    for (const m of made) {
+      const big = fs.statSync(m, { bigint: true });
+      const id = BigInt.asUintN(64, big.ino);
+      const key = Number(big.dev) + ':' + Number(id);
+      const prior = byNumber.get(key);
+      if (prior && prior.id !== id) return [prior.file, m];
+      byNumber.set(key, { file: m, id });
     }
     for (const m of made) fs.unlinkSync(m);
   }
@@ -61,7 +51,7 @@ const pair = () => (PAIR === undefined ? (PAIR = collidingFiles(path.join(SANDBO
 
 test('#7229: the download guard tells apart two files whose number ids collide', winOnly, (t) => {
   const p = pair();
-  if (!p) { t.skip('no two files here had equal number ids'); return; }
+  if (!p) { assert.fail('no colliding pair could be made on this disk (review 6: never a silent skip)'); }
   const [a, b] = p;
   assert.equal(fs.statSync(a).ino, fs.statSync(b).ino, 'the collision this test needs');
   const gated = projects.exactPathStat(fs.statSync(a), a, false);
@@ -80,7 +70,7 @@ test('#7229: the download guard tells apart two files whose number ids collide',
 
 test('#7229: the board-log reader does not take a colliding file for board.log', winOnly, (t) => {
   const p = pair();
-  if (!p) { t.skip('no two files here had equal number ids'); return; }
+  if (!p) { assert.fail('no colliding pair could be made on this disk (review 6: never a silent skip)'); }
   const [log, other] = p;
   const out = fs.openSync(other, 'r');
   try {
@@ -125,7 +115,7 @@ const { Worker } = require('node:worker_threads');
 
 test('#7229 review 1: the zip\'s first check (the listed entry against the gate) refuses a colliding file swapped in', winOnly, (t) => {
   const p = pair();
-  if (!p) { t.skip('no two files here had equal number ids'); return; }
+  if (!p) { assert.fail('no colliding pair could be made on this disk (review 6: never a silent skip)'); }
   const dir = path.join(SANDBOX, 'zip');
   fs.mkdirSync(dir, { recursive: true });
   const [a, b] = p;

@@ -1956,7 +1956,7 @@ function listFiles(folder, limit, opts) {
      never read whole for a list of ten. The stamp includes them, so the page repaints when one arrives. */
   /* #7229 reviews 4 and 5: the rows SHOWN carry the exact id on Windows, as listDir's do, so both lists key one
      fingerprint alike; only these, not every file walked (the extra stat cost up to 1.85x on a 2000-file folder). */
-  for (const f of files.slice(0, cap)) f.st = exactPathStat(f.st, f.abs, false);
+  if (opts && opts.fingerprint) for (const f of files.slice(0, cap)) f.st = exactPathStat(f.st, f.abs, false);   // review 6: only when fingerprinted
   const shown = files.slice(0, cap).map((f) => rowOf(f, opts && opts.fingerprint));
   const stamp = crypto.createHash('sha1')
     .update(files.map((f) => JSON.stringify([f.name, f.size, f.modified])).join('\n') + (truncated ? '\ntruncated' : '') + fingerprintStampPart(shown)).digest('hex').slice(0, 16);

@@ -94,3 +94,9 @@ zip size) it can only be a regular file at the same listed name inside the folde
   has no ids past 2^53 yet, since a record's sequence rises on each reuse and ids pass 2^53 at sequence 32; neighbouring
   records then round alike. The collision tests now run every time: 11/11, 0 skipped, three runs, about 4 s each; with
   main's diagnostics.js and filehash.js the board-log collision test fails on the real pair.
+- Round 6: no BLOCKER (every shown listFiles row that reaches a fingerprint carries the exact id; rows past the cap
+  leave only as names; removing the shown-rows line makes the review-4 test fail; macOS/Linux unchanged). WARNING
+  FIXED: the collision tests could still skip green on a fresh disk; the helper now recycles a pool first (up to 128
+  rounds, 60 s budget) and a missing pair FAILS on Windows instead of skipping. NITs FIXED: the shown-rows exact stat
+  only when a fingerprint is asked (changedFileTimes pays nothing); the helper keys on the unsigned id. 21/21 with
+  filehash-6761, 0 skipped, three runs. Converged.
