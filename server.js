@@ -11474,6 +11474,12 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* kosmos#7277 (review 1): switching remote access off on a Kosmos cloud machine stops the person's only way in,
+           as removing it would (see /api/remote/forget). */
+        if (body.on === false && cloudMachine.isCloudMachine()) {
+          sendJson(res, 409, { error: 'this is a Kosmos cloud machine, so remote access stays on: it is your only way in. To stop using it, cancel it from your Kosmos+ account', cloud: true });
+          return;
+        }
         const saved = remote.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
@@ -11884,6 +11890,15 @@ const server = http.createServer(async (req, res) => {
      nothing; { anyway: true } is the person's choice to remove it from this
      computer only after that. An empty body is a plain Remove. */
   if (pathname === '/api/remote/forget' && req.method === 'POST') {
+    /* kosmos#7277: on a Kosmos cloud machine Kosmos+ is the person's only way in, so removing the machine from the
+       account would leave them no way back to their board. The page offers no Remove there; this refuses the route
+       too, so a stale page or a script cannot do it. The cloud answer is otherwise words-only (engine/cloudmachine.js),
+       and this is one of the two actions it stops (the other: switching remote access off, PUT /api/remote): a wrong "yes" only hides Remove on a Linux box carrying the installer's
+       latch (undone by removing the latch), while a wrong "no" would lock a person out for good. */
+    if (cloudMachine.isCloudMachine()) {
+      sendJson(res, 409, { error: 'this is a Kosmos cloud machine, so it is not removed from here: you would have no way back to it. To stop using it, cancel it from your Kosmos+ account', cloud: true });
+      return;
+    }
     readBody(req, 4096)
       .then((buf) => {
         let body;

@@ -20258,6 +20258,9 @@ window.kosmosMeasureScrollbarWidth();
            it stays reachable, as a dialog rather than the essay). The Remove confirm opens in place below the row. -->
       <div class="plus-foot" id="plus-forget" hidden>
         <button type="button" class="plus-remove-link" id="plus-forget-go">Remove this computer</button>
+        <!-- kosmos#7277: on a Kosmos cloud machine Kosmos+ is the only way in, so removing it would leave no way back.
+             No Remove there; this says why, beside View account, where the machine is cancelled. -->
+        <span class="fhint" id="plus-forget-cloud" hidden>This is a Kosmos cloud machine, so it is not removed from here: you would have no way back to it. To stop using it, cancel it from your account.</span>
         <span class="plus-sp"></span>
         <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View account</a>
       </div>
@@ -20831,7 +20834,8 @@ function onLinux(platform) {
 }
 /* kosmos#4903 S5: whether this board is a Kosmos cloud machine, reached only through a browser: no Terminal, no
    browser of its own, nobody at its keyboard. Read from the served meta only; an unstamped page (file://, a harness)
-   is not one. Words and flow only, never who may open the board. */
+   is not one. Words and flow only, never who may open the board (kosmos#7277: it also hides Remove this computer and
+   the Kosmos+ off switch, which would cut the only way in; the server refuses both too). */
 function onCloudMachine() {
   try {
     if (typeof document === 'undefined' || !document || typeof document.querySelector !== 'function') return false;
@@ -54245,6 +54249,9 @@ async function paintPlus() {
      pauses. paintSwitch shows it only once the engine has answered (never a guessed off). */
   if (typeof paintSwitch === 'function') paintSwitch('plus-switch', r.on === true);
   else if (sw) { sw.hidden = false; if (sw.setAttribute) sw.setAttribute('aria-checked', r.on === true ? 'true' : 'false'); }   // the page tests lift paintPlus alone
+  /* kosmos#7277 (review 1): on a Kosmos cloud machine, switching remote access off stops the only way in, as Remove
+     would. While it is on there, the switch is not offered (the server refuses off too); the pill still says how it is. */
+  if (sw && r.on === true && typeof onCloudMachine === 'function' && onCloudMachine()) sw.hidden = true;
   { const lg = document.getElementById('plus-logo');
     if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos+ */ } } }
   const st = document.getElementById('plus-status');
@@ -54354,6 +54361,15 @@ async function paintPlus() {
     if (r.enrolled !== true || r.on === true) plusForgetKept(false);
     else if (r.forgetKept && (document.getElementById('plus-forget-ask') || {}).hidden !== false) plusForgetKeptSay(r.forgetKept);   // not beside an open confirm
   }
+  /* kosmos#7277: a cloud machine offers no Remove (the server refuses it too), and says why instead. After the kept
+     note above (review 2), so nothing re-shows a box whose buttons the server refuses. */
+  { const cloud = typeof onCloudMachine === 'function' && onCloudMachine();
+    const go = document.getElementById('plus-forget-go'); const why = document.getElementById('plus-forget-cloud');
+    if (why) why.hidden = !cloud;
+    if (cloud) {
+      if (go) go.hidden = true;
+      for (const id of ['plus-forget-ask', 'plus-forget-kept']) { const e = document.getElementById(id); if (e) e.hidden = true; }   // review 1
+    } }
   { const og = document.getElementById('plus-org'); if (og) { og.hidden = r.enrolled !== true; if (!og.hidden) plusOrgMaybe(); } }   // #5531
   paintDevices();
 }
