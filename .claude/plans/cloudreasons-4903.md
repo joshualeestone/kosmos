@@ -9,7 +9,9 @@ made-agent step lines, refusals) say "this computer". To a person whose only win
 Rewrite at display, not in the engine. `cloudWords()` in web/index.html, beside Angel's thisMachine(), turns "this
 computer" into "your cloud machine" (and "This computer" into "Your cloud machine") only when onCloudMachine(). Applied
 in the two sentence funnels every engine reason goes through (asSentence, pjSentence: about 110 call sites), in
-restartFailureLine, and on the made-agent warning lines (tc-why), the finish-line sites that bypass the funnels.
+restartFailureLine, the made-agent warning lines (tc-why), and the finish-line sites that paint engine text raw:
+the single create's refusal, name refusal, partial-create sentence and step labels, an import row's refusal, and the
+Remove dialog's hint and keeps list ("on this computer" there would tell a person their files are on their laptop).
 
 Why: the engine runs on the cloud machine, so its "this computer" always means that machine; and its sentences are also
 matching keys (projects.js groupBecause, the page's regexes and their tests), which keep working on the raw text.

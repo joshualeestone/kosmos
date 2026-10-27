@@ -197,3 +197,18 @@ test('#4903 seam H, engine half: an engine sentence says "your cloud machine" at
 test('#4903 seam H, engine half: a made-agent warning line is said through cloudWords', () => {
   assert.match(PAGE, /p\.className = 'tc-why'; p\.textContent = cloudWords\(w\);/);
 });
+
+test('#4903 seam H, engine half: the create and remove flows say engine sentences through cloudWords', () => {
+  // Each sink paints an engine sentence on the finish-line path (a create refusal, a name refusal, a partial create, an
+  // import row, a create step, the Remove dialog). The words themselves are proven by the lifted arms above.
+  for (const sink of [
+    "fail(cloudWords(out.because || out.error ||",
+    "msg.textContent = cloudWords(result.because || 'that name will not work');",
+    'msg.textContent = cloudWords((result && (result.error || result.because))',
+    "const becauseSentence = cloudWords(result.because || '')",
+    "return tickLine('working', cloudWords(s.label));",
+    "tickLine(s.ok ? 'done' : 'fail', cloudWords(s.label));",
+    "hint.textContent = cloudWords(ask.hint || '');",
+    'li.textContent = cloudWords(t); ul.appendChild(li); }\n  };\n  fill(\'rm-loses\'',
+  ]) assert.ok(PAGE.includes(sink), 'not said through cloudWords: ' + sink.slice(0, 60));
+});
