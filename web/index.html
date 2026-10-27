@@ -7313,6 +7313,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-arch-head { display: flex; flex-wrap: wrap; gap: .5em; align-items: baseline; padding: 6px 12px; border-bottom: 1px solid var(--k-rule); font-size: .85rem; }
 .pj-arch-edge { display: flex; flex-wrap: wrap; gap: .5em; justify-content: center; align-items: baseline; margin: 8px 0 12px; font-size: .8rem; color: var(--k-ink-2); }
 #pj-room.pj-arch-on .msg-bd { filter: saturate(.6); }
+.pj-arch-ask { white-space: nowrap; font-size: .8rem; }
+#pjarch-when { font: inherit; }
 .msg-archived { display: inline-block; margin-right: .5em; padding: 0 .4em; border: 1px solid var(--k-rule); border-radius: 4px; font-size: .7rem; }
 /* #5406 part 2 slice C: a question's choices, inside its bubble (Josh #3419: no box, no banner). The old answer buttons'
    tokens (AA on both themes); labels wrap, never nowrap (an agent's words are unbounded, and a nowrap button stretches
@@ -14468,6 +14470,19 @@ window.kosmosMeasureScrollbarWidth();
     <div class="fmsg" id="chg-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
+<!-- kosmos#7365 slice 3b: "Archive older messages" (Mona's design, card comment 6449440652). The wording promises no
+     more than the server does: it keeps the last day live, so the receipt states the time it actually used. -->
+<div class="rm-back" id="pjarch-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="pjarch-title" aria-describedby="pjarch-small">
+    <h2 class="rm-title" id="pjarch-title">Archive messages older than <select id="pjarch-when" aria-label="Archive messages older than"><option value="week">this week</option><option value="month">this month</option><option value="today">everything before today</option></select>?</h2>
+    <p class="rm-small" id="pjarch-small">They leave this room and what agents read here. You can still search and open them, and undo this from the archive.</p>
+    <div class="rm-acts">
+      <button class="btn" id="pjarch-keep" type="button">Keep them here</button>
+      <button class="btn uprime" id="pjarch-go" type="button">Archive</button>
+    </div>
+    <div class="fmsg" id="pjarch-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
 <!-- #514: the delete confirmation. Every sentence in it is the engine's
      (`question`, `reassurance`, `loses`, `verb`): a screen that composes its
      own description of a destructive act can drift from the act. Keep is
@@ -17445,6 +17460,8 @@ window.kosmosMeasureScrollbarWidth();
     <section class="pjcol pjmid">
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
         <div class="pjconvsearch">
+        <!-- kosmos#7365 slice 3b: the room has no menu, so its one archive action is a quiet button here. -->
+        <button type="button" class="btn-quiet pj-arch-ask" id="pj-arch-ask">Archive older messages</button>
           <button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
         <div class="tsearch">
           <span class="tsearch-i" aria-hidden="true">
@@ -76058,6 +76075,58 @@ document.getElementById('pj-arch-undo').addEventListener('click', async (e) => {
 document.addEventListener('click', (e) => {
   if (e.target && e.target.closest && e.target.closest('#pj-arch-open')) pjArchOpen();
 });
+/* kosmos#7365 slice 3b: the confirm's time, worked out in the person's own zone and sent with Z. "this week" is seven
+   days ago, "this month" thirty, "everything before today" is local midnight. */
+function pjArchBefore(choice, now = new Date()) {
+  const t = new Date(now.getTime());
+  if (choice === 'week') t.setDate(t.getDate() - 7);
+  else if (choice === 'month') t.setDate(t.getDate() - 30);
+  else if (choice === 'today') t.setHours(0, 0, 0, 0);
+  else return null;
+  return t.toISOString();
+}
+/* The receipt names the time the server used, which can be earlier than the one asked for (it keeps the last day). */
+function pjArchReceipt(before) {
+  const d = new Date(before);
+  if (!Number.isFinite(d.getTime())) return 'Older messages are archived.';
+  const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return 'Messages before ' + day + ', ' + time + ' are archived. Undo is in the archive.';
+}
+function pjArchAsk() {
+  const pid = PJ_CURRENT;
+  if (!pid) return;
+  const back = document.getElementById('pjarch-modal');
+  const keep = document.getElementById('pjarch-keep');
+  const go = document.getElementById('pjarch-go');
+  const msg = document.getElementById('pjarch-msg');
+  const when = document.getElementById('pjarch-when');
+  msg.textContent = ''; go.disabled = false; keep.disabled = false;
+  const close = () => { back.hidden = true; keep.onclick = null; go.onclick = null; document.removeEventListener('keydown', onEsc); document.getElementById('pj-arch-ask').focus(); };
+  // Escape only while the choice is still theirs: once Archive is pressed the request is in flight.
+  const onEsc = (e) => { if (e.key === 'Escape' && !back.hidden && !go.disabled) close(); };
+  document.addEventListener('keydown', onEsc);
+  keep.onclick = close;
+  go.onclick = async () => {
+    const before = pjArchBefore(when.value);
+    if (!before) return;
+    go.disabled = true; keep.disabled = true; msg.textContent = 'Working…';
+    let out = null, ok = false;
+    try {
+      const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room/archive', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ before }) });
+      out = await res.json().catch(() => null);
+      ok = res.ok && !!(out && out.ok);
+    } catch { ok = false; }
+    if (!ok) { go.disabled = false; keep.disabled = false; msg.textContent = 'We could not archive just now; nothing changed.' + (out && out.because ? ' (' + out.because + ')' : ''); return; }
+    close();
+    msgToast(pjArchReceipt(out.marker && out.marker.before));
+    // Pages already read may hold rows that are now archived, so the window starts again from the newest page.
+    if (PJ_CURRENT === pid) { pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
+  };
+  back.hidden = false;
+  when.focus();
+}
+document.getElementById('pj-arch-ask').addEventListener('click', () => pjArchAsk());
 let PJ_POSTING = false;
 let PJ_REPLY_SENDING = null;   // #3745: { project, id } of the reply on its way, so x knows whether THIS reply already left
 
