@@ -1547,7 +1547,8 @@ function ownerLinkPassLog(ep, why, reason = why) {   // reason: what makes it th
 /* Whether an address is a production one, judged by its host name (case, a trailing slash or a port do not make
    production read as an override). An address that cannot be read counts as production: the safe side for both. */
 function ownerLinkProdHost(address, defaults) {
-  // A trailing dot names the same host (DNS's root); an IP address cannot reach it, since its certificate names the host.
+  // Unlike remote.js's exact COORDINATOR() === DEFAULT_COORDINATOR (which only picks defaults), this guard must not
+  // let a respelling of production read as an override, so it compares hosts. A trailing dot names the same host (DNS's root); an IP address cannot reach it, since its certificate names the host.
   const host = (u) => { try { return new URL(String(u)).hostname.toLowerCase().replace(/\.+$/, ''); } catch { return null; } };
   const h = host(address);
   return h === null || defaults.some((d) => host(d) === h);
@@ -1640,7 +1641,9 @@ async function sweepOwnerLink(keys, on) {
       }
       const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });
       if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on
-      if (r.status >= 200 && r.status < 300) {
+      // Linked is the site's 204 only (its route answers nothing else on success); any other 2xx is not what the site
+      // says, so it is handled as the service failing below, and said in the log, rather than marked linked for good.
+      if (r.status === 204) {
         k.ownerLinked = marker;
         ownerLinkLogged.delete(ep + '\n' + agentKey);
         ownerLinkPassLogged.delete(ep);
@@ -1660,6 +1663,8 @@ async function sweepOwnerLink(keys, on) {
         break;
       }
       // #4953: the request limiter (rate_limit_exceeded) is about this agent's own bucket: only it waits, as its posts do.
+      // The bucket is the site's and shared, so this pause also holds the agent's posts and comments: they would be
+      // refused in it all the same. The link adds at most one request per 15 minutes to that bucket.
       if (r.status === 429 && r.json && r.json.error === 'rate_limit_exceeded') { limiterPauseUntil.set(agentKey, shortPause(r, Date.now())); continue; }
       if (r.status === 429) {   // any other 429: the whole pass waits
         const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600));
