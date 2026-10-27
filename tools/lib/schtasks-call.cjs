@@ -7,22 +7,28 @@
  * launcher in front of it does: cmd (/c, /k, /r), powershell or pwsh (-Command, a bare command, -EncodedCommand, which
  * is decoded), call and start, nested or quoted (cmd /c "schtasks /End"). The prefixes a command can carry are read
  * past too (#7270): NAME=value, cmd's @, cmd's if (exist, errorlevel, defined, a==b), nohup, exec, command, time,
- * nice, timeout with its duration, and a redirect with or without a space (schtasks>out.txt); backticks start a
- * command (outside a line known to be cmd's or PowerShell's). A here-document's body is read as commands, as it was:
- * a line in it that starts with schtasks is refused even where only cat reads it. Telling a body apart from commands
- * needs a real shell parser, and a reader that tried leaked (review 2 of #7270: a << in a quote or a comment switched
- * the guard off for the rest of the script); refusing is the side that cannot reach the real scheduler. A backtick in
- * an exec line of unknown shell cuts it, so echo `schtasks` under cmd is refused too. A call through a shell (exec, execSync,
- * shell: true) is read as a command line, every command in it. A word "schtasks" anywhere else (a git grep pattern, a
- * commit message, a script's source, echo schtasks) is not a call: refusing those would change results the guard has
- * no business changing (review 1 of #7247).
+ * nice, timeout with its duration, and a redirect with or without a space (schtasks>out.txt, 2>&1 schtasks). A call
+ * through a shell (exec, execSync, shell: true) is read as a command line, every command in it. A word "schtasks"
+ * anywhere else (a git grep pattern, a commit message, echo schtasks, command -v schtasks) is not a call: refusing
+ * those would change results the guard has no business changing (review 1 of #7247).
+ *
+ * Without a shell, each launcher is read as it reads its arguments (callRuns): cmd the line node builds, PowerShell
+ * the arguments joined, a POSIX shell or env one word per argument.
+ *
+ * Where a call can be read two ways it is read both ways, and either one running schtasks is enough, because refusing
+ * is the side that cannot reach the real scheduler: a quoted word with a space (a command line, or one program path),
+ * a cmd /c line that starts with a quote (as written, and with the first and last quote dropped, as cmd does), an
+ * argument holding a double quote passed to cmd, and an exec line whose shell is not known (with backtick cuts, and
+ * without). So these are refused though they run nothing: a here-document line that starts with schtasks (telling a
+ * body from commands needs a real shell parser, and a reader that tried leaked, review 2 of #7270), echo `schtasks`
+ * under cmd, and "echo (schtasks)".
  *
  * It reads command lines with a small tokenizer, not a full shell parser. What it does not see: a command built at run
  * time inside the shell (a variable, a script file run by powershell -File or cmd /c script.cmd), a PowerShell script
- * block or Start-Process (powershell -Command "& {schtasks}"), cmd /c with no space before the command, a
- * launcher it does not know (wsl, npx), and a lone apostrophe in a cmd line (cmd has no single quotes, but this
- * reads one as a quote, so "echo don't & schtasks" stays one command). It errs the other way on a parenthesis outside
- * quotes: "echo (schtasks)" is read as running it, which only turns that echo into ENOENT. test-support/tool-guard.js
+ * block or Start-Process (powershell -Command "& {schtasks}"), cmd /c with no space before the command, a launcher it
+ * does not know (wsl, npx, xargs, sudo), a quoted path to a prefix word ("C:\tools x\nohup.exe" schtasks), a backtick
+ * inside double quotes in a POSIX line (echo "`schtasks`"), and a lone apostrophe in a cmd line (cmd has no single
+ * quotes, but this reads one as a quote, so "echo don't & schtasks" stays one command). test-support/tool-guard.js
  * reads command position for its own CLIs with its own rules (a real install, judged by PATH); one shared reader for
  * both is #7262. PowerShell accepts any unique prefix of a parameter (-Com, -enco); only the spellings PS_VALUE and
  * the -Command and -EncodedCommand checks list are read, so "powershell -enco <base64>" is not decoded.
@@ -71,29 +77,32 @@ function commands(text, shell) {
 
 /* One command cut into words at spaces outside quotes. Each word keeps its raw spelling, its text without quotes, and
    whether it was one quoted string. A redirect (>, >>, <, 2>) ends a word with or without a space (schtasks>out.txt),
-   and its target is not a word: it names a file, not the command (#7270). */
+   and the redirect with its file is one word marked redirect: it names a file, not the command (#7270), and it keeps
+   its raw spelling so a line rebuilt from the words is the line cmd reads (review 5: cmd /c "echo a b" > "x & y"). */
 function words(command) {
   const out = [];
   let raw = '';
   let quote = null;
-  let target = false;   // the next word is a redirect's file
+  let op = '';   // a redirect read so far (>, >>, 2>, <), waiting for its file
   const push = () => {
     if (!raw) return;
     const q = raw.match(/^"([\s\S]*)"$/) || raw.match(/^'([\s\S]*)'$/);
-    if (target) target = false;
+    if (op) out.push({ raw: op + raw, text: raw.replace(/["']/g, ''), quoted: false, inner: null, redirect: true });
     else out.push({ raw, text: raw.replace(/["']/g, ''), quoted: !!q, inner: q ? q[1] : null });
+    op = '';
     raw = '';
   };
   for (const ch of String(command)) {
     if (quote) { if (ch === quote) quote = null; raw += ch; continue; }
     if (ch === '"' || ch === "'") { quote = ch; raw += ch; continue; }
     if (ch === '<' || ch === '>') {
-      if (/^\d$/.test(raw) && !target) raw = '';   // the 2 of 2> names a stream, not a word
+      if (op && !raw) { op += ch; continue; }   // >>
+      if (/^\d$/.test(raw) && !op) { op = raw + ch; raw = ''; continue; }   // the 2 of 2> names a stream
       push();
-      target = true;
+      op = ch;
       continue;
     }
-    if (/\s/.test(ch)) { push(); continue; }
+    if (/\s/.test(ch)) { if (!(op && !raw)) push(); continue; }   // > out.txt: the file follows the space
     raw += ch;
   }
   push();
@@ -111,6 +120,7 @@ function wordsRun(ws, i, depth, shell) {
   const rest = (k) => ws.slice(k).map((w) => w.raw).join(' ');
   while (i < ws.length) {
     const w = ws[i];
+    if (w.redirect) { i += 1; continue; }   // >out.txt before the command
     /* A quoted word with a space is either a command line (cmd /c "schtasks /End") or one program path
        ("C:\Program Files\Git\bin\bash.exe" -c ...). Both are read, and either one running schtasks is enough
        (review 3: "D:\wt - copy\schtasks.exe" is a path that also looks like switches). A launcher's path goes on to
@@ -171,11 +181,11 @@ function wordsRun(ws, i, depth, shell) {
     }
     /* Words that start the command after them: nohup, exec, command, time, nice, and the shell keywords a command
        follows (then, else, do, !) (#7270). */
-    if (/^(command|builtin)$/.test(b)) {   // command -v, command -p -v: a lookup, which runs nothing
+    if (/^(command|builtin)$/i.test(b)) {   // command -v, command -p -v: a lookup, which runs nothing
       let k = i + 1;
       for (; k < ws.length && /^-/.test(ws[k].text); k += 1) if (/^-[a-zA-Z]*[vV]/.test(ws[k].text)) return false;
     }
-    if (/^(nohup|exec|command|builtin|time|nice|then|else|do|!)$/i.test(b)) {
+    if (/^(nohup|exec|command|builtin|time|nice|then|else|do|!)(\.exe)?$/i.test(b)) {
       for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^-(n|a)$/.test(ws[i].text)) i += 1;
       continue;
     }
@@ -198,10 +208,12 @@ function wordsRun(ws, i, depth, shell) {
       continue;
     }
     if (/^call$/i.test(b)) { i += 1; continue; }
-    if (/^start$/i.test(b)) {
-      i += 1;
-      if (i < ws.length && ws[i].quoted) i += 1;   // the window title
-      for (; i < ws.length && /^\//.test(ws[i].text); i += 1) if (/^\/d$/i.test(ws[i].text)) i += 1;
+    if (/^start$/i.test(b)) {   // start [switches] ["title"] [switches] program: the first quoted word is the title
+      let title = false;
+      for (i += 1; i < ws.length && (/^\//.test(ws[i].text) || (!title && ws[i].quoted)); i += 1) {
+        if (ws[i].quoted) title = true;
+        else if (/^\/d$/i.test(ws[i].text)) i += 1;
+      }
       continue;
     }
     return false;
@@ -211,6 +223,9 @@ function wordsRun(ws, i, depth, shell) {
 
 /* Whether a shell command line starts schtasks in any of its commands. */
 function lineRuns(text, depth, shell) {
+  /* An exec line's shell is not known (cmd on Windows): read it with backtick cuts and without, and either one running
+     schtasks is enough (review 5: a lone backtick, env A=`x schtasks, must not cut the command in two). */
+  if (shell === undefined) return lineRuns(text, depth, 'posix') || lineRuns(text, depth, 'other');
   return commands(text, shell).some((part) => wordsRun(words(part.trim()), 0, depth, shell));
 }
 function commandRuns(text) {
@@ -231,10 +246,11 @@ function callRuns(file, args, options) {
   const base = baseName(file);
   if (PROGRAM.test(base)) return true;
   if (!isLauncher(base)) return false;
-  const asWritten = () => commandRuns([base].concat(list).join(' '));
-  if (options && options.windowsVerbatimArguments) return asWritten();
   /* A line known to be PowerShell's or cmd's: a backtick in it is an escape or text, not a command (review 1). */
   const asLine = (parts) => lineRuns([base].concat(parts).join(' '), 0, 'other');
+  if (options && options.windowsVerbatimArguments) {
+    return CMD.test(base) || POWERSHELL.test(base) ? asLine(list) : commandRuns([base].concat(list).join(' '));
+  }
   if (POWERSHELL.test(base)) return asLine(list);
   if (CMD.test(base)) return asLine(list.map(nodeQuote)) || (list.some((x) => x.includes('"')) && asLine(list));
   return wordsRun([base].concat(list).map(argWord), 0, 0);

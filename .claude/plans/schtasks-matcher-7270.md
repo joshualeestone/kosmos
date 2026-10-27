@@ -73,3 +73,10 @@ holds each one.
   (x"&schtasks to cmd, PowerShell syntax errors). Reviewer harnesses rerun on the fix: live cmd proof matches truth on
   every row; fuzz differentials 0 leak regressions. 300k-call fuzz: nothing throws. Negative control: the new test fails
   against round 3. 81/81 with windows-tests-1777 and win32job.
+- Round 5: 2 BLOCKERs, 2 WARNINGs, 3 NITs. BLOCKERs FIXED: a redirect and its file stay in a word (marked redirect, skipped
+  as a command) so a cmd /c line rebuilt from words still has them for the quote-stripped reading (cmd /c "echo a b" >
+  "x & schtasks", live); an exec line of unknown shell is read with backtick cuts and without (env A=`x schtasks, live).
+  WARNINGs FIXED: a start title after its switches (start /wait "" schtasks, live); a verbatim cmd or PowerShell line is
+  read as one (no backtick cuts). NITs FIXED: Command -v in any case; nohup.exe and the other prefix words with .exe; the
+  header rewritten to say what is read both ways and what is not seen; an invalid-shell test case replaced by if [ ]; then.
+  All four earlier harnesses rerun: 0 leak regressions. Negative control: the new test fails against round 4. 82/82.

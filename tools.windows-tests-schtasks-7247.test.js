@@ -294,7 +294,7 @@ test('#7270: a prefix in front of schtasks does not end the scan', () => {
     'time schtasks /Query', 'time -p schtasks /Query', 'nice -n 10 schtasks /Query', 'timeout 5 schtasks /Query',
     'timeout -s KILL 5 schtasks /Query', 'schtasks>out.txt', 'schtasks>>out.txt /Query', '>out.txt schtasks /Query',
     '2>err.txt schtasks /Query', 'echo `schtasks /Query`', 'if schtasks /Query; then echo y; fi',
-    'test -f x && then schtasks /Query', 'while true; do schtasks /Query; done', '! schtasks /Query',
+    'while true; do schtasks /Query; done', '! schtasks /Query',
   ]) assert.equal(commandRuns(cmd), true, cmd);
   assert.equal(callRuns('bash', ['-c', 'X=1 schtasks /End /TN Kosmos-board']), true);
   assert.equal(callRuns('cmd', ['/c', '@schtasks /Query']), true);
@@ -397,4 +397,19 @@ test('#7270 review 4: cmd drops the first and last quote after /c, which can mov
   // CONTROL: one quoted argument after a plain word still only echoes, and a tool path with a space runs that tool
   assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
   assert.equal(callRuns('cmd', ['/c', 'C:\\Program Files\\x\\tool.exe', 'arg']), false);
+});
+
+test('#7270 review 5: a redirect stays in the cmd line, a lone backtick does not cut the command, a start title after switches', () => {
+  // each one runs schtasks (the first and the start form checked live with echo in its place)
+  assert.equal(callRuns('cmd', ['/c', 'echo a b', '>', 'x & schtasks']), true);
+  for (const cmd of ['env A=`x schtasks /Query', 'start /wait "" schtasks /Query', 'start /b /wait "" cmd /c schtasks',
+    'if [ -f x ]; then schtasks /Query; fi', 'nohup.exe schtasks /Query'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  assert.equal(callRuns('cmd', ['/c', 'echo a`b & schtasks'], { windowsVerbatimArguments: true }), true);
+  // CONTROL: a redirect to a file named for schtasks, a start title naming it, and a lookup in any case run nothing
+  for (const cmd of ['echo hi > schtasks.log', 'node x.js 2> "schtasks & co.txt"', 'start "schtasks" node x.js',
+    'Command -v schtasks', 'echo a`b'])
+    assert.equal(commandRuns(cmd), false, cmd);
+  // a backtick in a verbatim PowerShell line is its escape, not a command
+  assert.equal(callRuns('powershell', ['-Command', 'Write-Output', '`schtasks'], { windowsVerbatimArguments: true }), false);
 });
