@@ -41,6 +41,16 @@ if [ "${region_lines:-0}" -lt 20 ]; then
   echo "FAILS: $fails"; exit 1
 fi
 ok "extracted the gated-steps region from release.sh ($region_lines lines, by marker)"
+# kosmos#7363: the region runs its suite through cut_suite_env and its isolation rerun after cut_suite_unset, both defined
+# earlier in release.sh (outside the markers). Lifted verbatim too, not stubbed, so the wrap runs here as it does in a cut.
+HELPERS="$WORK/helpers.sh"
+awk '/^cut_suite_env\(\) \{$/,/^\}$/' "$REPO_ROOT/tools/release.sh" > "$HELPERS"
+awk '/^cut_suite_unset\(\) \{$/,/^\}$/' "$REPO_ROOT/tools/release.sh" >> "$HELPERS"
+if grep -q '^cut_suite_env() {$' "$HELPERS" && grep -q '^cut_suite_unset() {$' "$HELPERS"; then
+  ok "lifted cut_suite_env and cut_suite_unset from release.sh (kosmos#7363)"
+else
+  bad "could not lift cut_suite_env and cut_suite_unset from release.sh: the region calls them"; echo "FAILS: $fails"; exit 1
+fi
 
 # #4534 (sibling of #4458): a parallel cut runs this suite INSIDE its own environment, with
 # KOSMOS_CUT_PARALLEL=1 exported, and run() below keeps the caller's environment, so the SERIAL arms
@@ -102,6 +112,7 @@ run() {
   out="$(cd "$repo" && env PATH="$bin:$PATH" HOME="$fhome" TMPDIR="$WORK" REPO="$repo" V="9.9.9" $extraenv bash -c '
     set -euo pipefail
     . "'"$GUARD"'"
+    . "'"$HELPERS"'"
     step(){ echo "STEP: $1" >&2; }
     kosmos_isolation_rerun_verdict(){ return "${RERUN_RC:-0}"; }
     source "'"$REGION"'"
