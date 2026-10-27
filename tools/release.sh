@@ -437,6 +437,7 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # builds on). Sourced here, before the freeze, like the libs above.
 . "$REPO/tools/lib/connector-provenance.sh"
 . "$REPO/tools/lib/connector-currency.sh"
+. "$REPO/tools/lib/release-linux.sh"   # kosmos#7281: the Linux x86_64 family, in lockstep with the Mac pointer
 . "$REPO/tools/lib/coordinator-floor.sh"
 # kosmos#6620: a cut moves a release pointer, so none starts while the site is frozen (tools/pointer-freeze.sh, the
 # incident pin). Before the cut marks itself, so a frozen site refuses without registering a cut.
@@ -873,6 +874,19 @@ step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 
+step "== 1d-linux. the Linux family: cut in lockstep, with a current Linux connector (kosmos#7281) =="
+# Before the bump, like 1d: a channel that already publishes a Linux pointer refuses a cut without the Linux family,
+# and the Linux connector (kosmos-relay's, built by tools/build-tunnel-release-linux.sh) must be current with relay
+# main by the same rule as the Mac one.
+release_linux_decide "$SITE" "$CUT_CHANNEL" || exit 1
+LINUX_TUNNEL_BIN="${KOSMOS_TUNNEL_LINUX_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel-linux-x86_64}"
+LINUX_CONNECTOR_COMMIT=""
+if [ "$CUT_LINUX" = yes ]; then
+  [ "${KOSMOS_ALLOW_STALE_TUNNEL:-}" != 1 ] || echo "   NOTE: KOSMOS_ALLOW_STALE_TUNNEL=1 covers the Linux connector too"
+  connector_currency_check "$LINUX_TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" tools/build-tunnel-release-linux.sh || exit 1
+  LINUX_CONNECTOR_COMMIT="$CONNECTOR_COMMIT"
+fi
+
 step "== 1d2. the coordinator serving traffic carries what that connector needs (#5037) =="
 # Some relay changes need the coordinator deployed BEFORE a connector carrying them ships, and never
 # rolled back below them (#4869, 534f36980, is the first). 1d makes the connector match relay main, so
@@ -1015,6 +1029,9 @@ BUILD="$(release_freeze "$MAIN_REPO" "$SHA" "$BUILD_ROOT")" || { rm -rf "$BUILD_
 # The versioned pair's presence BEFORE this cut, so a failure removes only what
 # this cut created (a pair from an earlier, served cut is not ours to touch).
 _pair_had=0; [ -f "$SITE/dist/kosmos-$V-arm64.tar.gz" ] && _pair_had=1
+# kosmos#7281 review 1 (W3): the Linux pair's own record, so an aborted re-cut never removes a served Linux tarball on
+# the strength of a missing Mac one.
+_linux_pair_had=0; [ -f "$SITE/dist/kosmos-$V-linux-x64.tar.gz" ] && _linux_pair_had=1
 # #1548: whether the UNVERSIONED pointer (kosmos-arm64.tar.gz) existed before this
 # cut. Unlike the versioned pair, the pointer is overwritten just before the deploy and
 # must keep pointing at the SERVED version, so a failure restores the pre-cut copy
@@ -1032,7 +1049,7 @@ DEPLOYED=0
 # On any exit before step 8 finished, the site checkout stops claiming $V
 # (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
 # uncommitted at the new version, and the pair that made cut 5 refuse).
-trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { _rc=1; echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2 || true; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
+trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { _rc=1; echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2 || true; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had" "$_linux_pair_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
 # kosmos#6149: the installer this cut publishes is the FROZEN tree's. Step 1a-floor checked the checkout's copy, and the
@@ -1338,6 +1355,13 @@ _tm_want="$(awk 'NR==1{print $1}' "$REPO/dist/tmux-arm64.tar.gz.sha256")"
 _tm_got="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).tmux_sha256 || ""' "$REPO/dist/kosmos-arm64.manifest.json")"
 [ -n "$_tm_want" ] && [ "$_tm_want" = "$_tm_got" ] && [ "$(shasum -a 256 < "$REPO/dist/tmux-arm64.tar.gz" | awk '{print $1}')" = "$_tm_want" ] \
   || { echo "the build's manifest does not record the tmux bundle this cut serves (#6473): manifest '${_tm_got}', pair '${_tm_want}'"; exit 1; }
+if [ "$CUT_LINUX" = yes ]; then
+  # kosmos#7281: the Linux bundle, from the same frozen tree, beside the Mac one. Its builder checks the connector
+  # (ELF x86-64, glibc's loader, the 2.35 floor, no cargo home) and node (nodejs.org's SHASUMS256); the release then
+  # refuses anything only a test build may carry, and a connector other than the one 1d-linux found current.
+  ( cd "$REPO" && KOSMOS_TUNNEL_LINUX_BIN="$LINUX_TUNNEL_BIN" bash tools/build-kosmos-linux.sh dist ) || { echo "the Linux build failed (kosmos#7281); nothing is published"; exit 1; }
+  release_linux_check_manifest "$REPO/dist/kosmos-linux-x64.manifest.json" "$LINUX_CONNECTOR_COMMIT" "$V" || exit 1
+fi
 
 step "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
 # 🛑 EVERY EARLIER CHECK MEASURED THE BYTES. Step 3 ran the suite, 9b proves
@@ -1511,6 +1535,10 @@ KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" KM_LJ_SETUP_SHA="$KM_SETUP_SHA" 
 KM_LJ_ARTIFACT="kosmos-$V-arm64.tar.gz" KM_LJ_MANIFEST="kosmos-$V-arm64.manifest.json" \
   node "$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js" "$SITE/dist/$POINTER_FILE"
 echo "   $POINTER_FILE ($CUT_CHANNEL) -> $(cat "$SITE/dist/$POINTER_FILE")"
+# kosmos#7281: the Linux family's versioned files and its channel pointer, at the same version (lockstep).
+if [ "$CUT_LINUX" = yes ]; then
+  release_linux_publish "$REPO/dist" "$SITE" "$V" "$KM_SETUP_SHA" "$KOSMOS_MANIFEST_KEY" || exit 1
+fi
 
 # 🛑 THE INSTALLER, SERVED FROM THE SITE ROOT AND NOT FROM dist/. Copying the
 # bundle does not carry it, and BOTH paths run it: a new install (`curl … /setup
@@ -1539,6 +1567,11 @@ let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
   console.log('   bundled version:', v);
   if(v!=='$V'){ console.error('   THE BUNDLE IS NOT $V'); process.exit(1); }
 });"
+if [ "$CUT_LINUX" = yes ]; then   # kosmos#7281: the Linux tarball too, read from the versioned name its pointer names
+  _lv="$(tar -xzOf "$SITE/dist/kosmos-$V-linux-x64.tar.gz" app/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s).version)))')" || _lv=""
+  echo "   Linux bundled version: $_lv"
+  [ "$_lv" = "$V" ] || { echo "   THE LINUX BUNDLE IS NOT $V"; exit 1; }
+fi
 
 step "== 7. the versions page needs its entry BEFORE you deploy =="
 # 🛑 DELIBERATELY NOT RE-SOURCED HERE, AND AN EARLIER VERSION OF THIS BRANCH DID.
@@ -1670,6 +1703,7 @@ step "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # is dist/latest-staging.json; dist/latest.json (prod) is deliberately NOT in the set,
 # so prod stays at its prior version until promote-channel.sh flips it.
 _site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json dist/kosmos-$V-arm64.manifest.json.sig $SETUP_FILE $SETUP_FILE.sha256 versions.html"
+[ "$CUT_LINUX" != yes ] || _site_paths="$_site_paths $(release_linux_site_paths "$V")"   # kosmos#7281
 _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and versions entry"
 # 🛑 #2276/#2278/#2286: BUILD THE RELEASE COMMIT ON THE FRESHLY-FETCHED origin/main,
 # never on the shared local main. Agents merge chaoskosmos-site PRs through GitHub
@@ -1738,6 +1772,13 @@ for _p in $_site_paths; do
   git -C "$SITE" checkout -- "$_p" 2>/dev/null || true
 done
 rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json" "$SITE/dist/kosmos-$V-arm64.manifest.json.sig"
+# kosmos#7281 review 1 (W1): and the Linux family's committed paths, untracked locally until the checkout catches up,
+# or the next pull refuses to overwrite them.
+if [ "$CUT_LINUX" = yes ]; then
+  for _p in $(release_linux_site_paths "$V"); do
+    git -C "$SITE" ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"
+  done
+fi
 # #5032: likewise a first staging cut's /setup-staging pair, untracked locally until the checkout catches up.
 for _p in "$SETUP_FILE" "$SETUP_FILE.sha256"; do
   git -C "$SITE" ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"
@@ -1785,6 +1826,11 @@ _site_export="$BUILD_ROOT/site-export"
 # it LANDING. The card that prompted both was filed by a careful reader who had
 # only this line to go on.
 site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+# kosmos#7281 review 1 (W2): the Linux pointer is committed, its tarball is carried from the working tree; a deploy
+# without the tarball would serve a pointer that 404s. The pair must be in the export and verify there.
+if [ "$CUT_LINUX" = yes ]; then
+  release_linux_export_ok "$_site_export" "$V" || { echo "nothing was deployed"; exit 1; }
+fi
 # kosmos#6149: this deploy publishes BOTH pointers and BOTH installers at the site commit, including the prod ones a
 # staging cut does not touch: none of them may be older than the setup floor.
 # (setup-floor.sh was loaded at step 1a-floor and is not sourced again: its functions are already defined, and REPO

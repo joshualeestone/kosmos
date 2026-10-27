@@ -177,6 +177,52 @@ test('tickOnce: prompts the due agents with the line and books them; a second pa
   assert.deepEqual(ct.tickOnce(o), [], 'prompted twice within the gap');
 });
 
+/* kosmos#7230 ask 2. Notice times are ms, as instructionreread.recordSent stores them; idleSince defaults to an hour ago. */
+const afterGreeting = (t) => 'Kosmos here: ' + ct.PAUSE_OVER_TEXT + t.charAt('Kosmos here: '.length).toUpperCase() + t.slice('Kosmos here: '.length + 1);
+
+test('#7230 ask 2: a reminder after an instructions-change notice whose turn has ended says the pause is over', () => {
+  // Posted more than a day ago, so each gets the floor line, which is not gated on work.
+  const { sent, o } = tickArgs({ postTimes: () => [ago(30 * H)], kosmosLines: (s) => (s === 'ann' ? [NOW - 2 * H] : []) });
+  ct.tickOnce(o);
+  const by = Object.fromEntries(sent);
+  assert.equal(by.ann, afterGreeting(ct.FLOOR_TEXT));
+  assert.match(by.ann, /turn\. You have not posted/, 'the line after the inserted sentence starts a sentence');
+  assert.equal(by.bea, ct.FLOOR_TEXT, 'control: with no notice the line is unchanged');
+});
+
+test('#7230 ask 2, review 1: a notice whose turn is not over, one over a day old, or an unreadable record adds nothing', () => {
+  for (const [why, lines, extra] of [
+    ['newer than the agent\'s latest idle report (its turn may still be running)', [NOW - 0.5 * H], {}],
+    ['older than a day', [NOW - 30 * H], {}],
+    ['no idle report to place it', [NOW - 2 * H], { idleSince: () => null }],
+    ['an unreadable record', null, { kosmosLines: () => { throw new Error('boom'); } }],
+  ]) {
+    const { sent, o } = tickArgs({ postTimes: () => [ago(30 * H)], kosmosLines: () => lines, ...extra });
+    ct.tickOnce(o);
+    const ann = Object.fromEntries(sent).ann;
+    if (why === 'no idle report to place it') { assert.ok(!ann || ann === ct.FLOOR_TEXT, why); continue; }
+    assert.equal(ann, ct.FLOOR_TEXT, why);
+  }
+});
+
+test('#7230 review 2: with no idle report the pause is never said to be over; CONTROL: the same notice with one is', () => {
+  const lines = () => [NOW - 2 * H];
+  assert.equal(ct._pauseEnded({ kosmosLines: lines, idleSince: () => null }, 'ann', [], NOW), false, 'no idle report, yet "over"');
+  assert.equal(ct._pauseEnded({ kosmosLines: lines, idleSince: () => NOW - 1 * H }, 'ann', [], NOW), true, 'control: idle after the notice');
+});
+
+test('#7230 ask 2: only a notice after the previous reminder is named (that reminder already followed an older one)', () => {
+  // The met-floor path: posted 5 hours ago, worked since (WORKED), previous reminder 6 hours ago, before the post.
+  const at = (notice) => {
+    const { sent, o } = tickArgs({ postTimes: () => [ago(5 * H)], book: new Map([['ann', [NOW - 6 * H]]]), kosmosLines: (s) => (s === 'ann' ? [notice] : []) });
+    ct.tickOnce(o);
+    return Object.fromEntries(sent).ann;
+  };
+  const late = at(NOW - 3 * H);
+  assert.equal(late, afterGreeting(ct.TURN_TEXT), 'a notice after the previous reminder is named');
+  assert.equal(at(NOW - 7 * H), ct.TURN_TEXT, 'a notice before the previous reminder is not');
+});
+
 test('tickOnce gates: live execution off, the brake, the community switch off, the Prompter off: nothing is sent', () => {
   for (const over of [{ allowed: () => false }, { env: { AGENT_WORKFORCE_COMMUNITY_TURN_OFF: '1' } }, { switchOn: () => false }, { prompterOn: () => false }]) {
     const { sent, o } = tickArgs(over);

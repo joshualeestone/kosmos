@@ -149,31 +149,88 @@ test('#6734: a streamed download of a multi-MB file is byte-identical, with its 
   assert.equal(fdsOn(rec.file), 0, 'a whole download or a HEAD left the file open');
 });
 
-test('#6734: a download does not read the file into memory: a 64 MB file held by a paused client costs the board far less than 64 MB', async () => {
-  const rec = storedOf(64 * MB);
-  /* CONTROL: the instrument sees 64 MB held in a Buffer. */
-  const before = process.memoryUsage().arrayBuffers;
-  let held = Buffer.alloc(64 * MB, 1);
-  assert.ok(process.memoryUsage().arrayBuffers - before >= 60 * MB, 'CONTROL: arrayBuffers did not see a 64 MB Buffer');
-  held = null;
-  const readWhole = [];
-  const realRead = fs.readFileSync;
-  fs.readFileSync = function (p, ...rest) { if (String(p) === rec.file) readWhole.push(p); return realRead.call(this, p, ...rest); };
+/* kosmos#7302: readings over a SETTLED baseline. One forced collection is not enough: measured (review 1), a dropped
+   64 MB Buffer was still counted in arrayBuffers after gc() in up to 7 of 10 tries, and a closed server's buffer
+   stayed reachable for tens of milliseconds. So `settled` collects, waits, collects again, and returns only once three
+   readings agree to within 1 MB (and, given a floor, are back down to it). Either effect left alone makes a baseline that already holds 64 MB: a 64 MB
+   allocation then reads as near zero once the old buffer goes (the CONTROL red seen in CI), and a board that buffers
+   can hide behind it (how the old check passed a board reading the file whole with fs.readSync). */
+const v8 = require('node:v8');
+v8.setFlagsFromString('--expose-gc');
+// Review 3: wrapped, so a Node that refuses the flag at run time fails the memory tests by name (in settled), not every
+// test in the file at load with a bare ReferenceError.
+let collect = null;
+try { collect = require('node:vm').runInNewContext('gc'); } catch { /* reported by settled() */ }
+/* Review 2: readings that agree can still both hold a buffer that frees later, so a baseline must also come back down to
+   `floor` (a reading taken before the buffers this test made) when one is given, and three readings over 20 ms must
+   agree. A baseline that never settles fails the test by name, never passes it on a doubtful reading. */
+async function settled(floor = Infinity) {
+  assert.equal(typeof collect, 'function', 'gc() is not available to the memory check (Node refused --expose-gc at run time)');
+  const last = [];
+  for (let i = 0; i < 100; i++) {
+    collect();
+    await new Promise((r) => setTimeout(r, 10));
+    last.push(process.memoryUsage().arrayBuffers);
+    if (last.length > 3) last.shift();
+    if (last.length === 3 && Math.max(...last) - Math.min(...last) < MB && last[2] <= floor + 2 * MB) return last[2];
+  }
+  assert.fail('arrayBuffers never settled for the memory check (last ' + last.map((x) => (x / MB).toFixed(1)).join(', ') + ' MB, floor ' + (floor === Infinity ? 'none' : (floor / MB).toFixed(1)) + ' MB)');
+}
+/** The most arrayBuffers memory grows over a settled baseline while a client that paused at once holds the response from
+ *  `url` for 400 ms: whatever the server read of the file is then held by the server. Sampled every 2 ms from before
+ *  the request goes out, so a server that reads the file whole is caught even if it hands the buffer on fast. */
+async function pausedPeak(url, floor) {
+  const base = await settled(floor);
+  let peak = 0;
+  const read = () => { peak = Math.max(peak, process.memoryUsage().arrayBuffers - base); };
+  const sample = setInterval(read, 2);
   try {
-    const base = process.memoryUsage().arrayBuffers;
-    let peak = 0;
     await new Promise((resolve, reject) => {
-      const req = http.get({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id }, (res) => {
-        res.pause();   // the client stops reading: whatever the board has read is now held by it
-        const sample = setInterval(() => { peak = Math.max(peak, process.memoryUsage().arrayBuffers - base); }, 10);
-        setTimeout(() => { clearInterval(sample); req.destroy(); resolve(); }, 400);
+      const req = http.get(url, (res) => {
+        res.pause();   // the client stops reading: whatever the server has read is now held by it
+        read();
+        setTimeout(() => { req.destroy(); resolve(); }, 400);
       });
       req.on('error', (e) => { if (!/socket hang up|aborted|ECONNRESET/.test(String(e && e.message))) reject(e); });
     });
-    assert.equal(readWhole.length, 0, 'the download read the whole file with readFileSync');
-    assert.ok(peak < 24 * MB, 'the board held ' + Math.round(peak / MB) + ' MB for a paused 64 MB download');
-  } finally { fs.readFileSync = realRead; void held; }
+  } finally { clearInterval(sample); }
+  read();
+  return peak;
+}
+
+test('#6734: a download does not read the file into memory: a 64 MB file held by a paused client costs the board far less than 64 MB', async () => {
+  const rec = storedOf(64 * MB);
+  /* CONTROL 1: the instrument sees 64 MB held in a Buffer. */
+  const before = await settled();
+  let held = Buffer.alloc(64 * MB, 1);
+  assert.ok(process.memoryUsage().arrayBuffers - before >= 60 * MB, 'CONTROL: arrayBuffers did not see a 64 MB Buffer');
+  held = null;
+  // Both baselines below must come back down to `before`: CONTROL 1's 64 MB is gone, not just steady (review 2).
+  /* The board FIRST, the buffering control second (kosmos#7302 review 1): a leftover in a baseline can then only make
+     the control read low, which fails red, never let a buffering board read low and pass. */
+  const readWhole = [];
+  const realRead = fs.readFileSync;
+  fs.readFileSync = function (p, ...rest) { if (String(p) === rec.file) readWhole.push(p); return realRead.call(this, p, ...rest); };
+  let peak = 0;
+  try {
+    peak = await pausedPeak({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id }, before);
+  } finally { fs.readFileSync = realRead; }
+  assert.equal(readWhole.length, 0, 'the download read the whole file with readFileSync');
   assert.ok(await until(() => fdsOn(rec.file) === 0), 'the paused-then-dropped download left the file open');
+  /* CONTROL 2: a server in this same process that DOES buffer the same file, measured the same way just after, holds
+     most of it. So the instrument can see a buffered download on this run, and the board's figure is compared with it. */
+  const buffering = http.createServer((req, res) => { res.end(fs.readFileSync(rec.file)); });
+  await new Promise((r) => buffering.listen(0, '127.0.0.1', r));
+  let bufferedPeak = 0;
+  try {
+    bufferedPeak = await pausedPeak({ host: '127.0.0.1', port: buffering.address().port, path: '/' }, before);
+  } finally { buffering.closeAllConnections(); await new Promise((r) => buffering.close(r)); }
+  assert.ok(bufferedPeak >= 48 * MB, 'CONTROL: a buffering server measured only ' + Math.round(bufferedPeak / MB) + ' MB held for a paused 64 MB download');
+  /* The board streams in 64 KB reads and measures 0 to about 1 MB held; 8 MB (and an eighth of the buffering figure)
+     leaves room for socket buffers and catches a board that holds more than an eighth of the file (review 1: a 20 MB
+     partial buffer passed the old 24 MB bound). */
+  assert.ok(peak < 8 * MB && peak * 8 < bufferedPeak,
+    'the board held ' + (peak / MB).toFixed(1) + ' MB for a paused 64 MB download (a buffering server held ' + Math.round(bufferedPeak / MB) + ' MB)');
 });
 
 test('#6734: a download the client abandons part way releases its descriptor, and the board keeps serving', async () => {
@@ -243,7 +300,8 @@ test('#6734: an image preview is streamed from the file too, byte-identical and 
 test('#6734: an upload exactly at the cap is kept byte-identical, without the board holding it, and leaves no part file', async () => {
   const src = sourceOf(attachments.MAX_BYTES, 'at-cap.bin');
   const before = stored().length;
-  const base = process.memoryUsage().arrayBuffers;
+  // kosmos#7302 review 2: a settled baseline here too, so a leftover from the test before cannot hide the upload's hold.
+  const base = await settled();
   let peak = 0;
   const sample = setInterval(() => { peak = Math.max(peak, process.memoryUsage().arrayBuffers - base); }, 10);
   let got;

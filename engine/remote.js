@@ -417,7 +417,11 @@ const { allowWaitSentence } = require('./allowwait');
    first; removing the floor here would let a forgotten set be taken again, and removing the lock while the tunnel
    holds it would let two writers in. Best effort: whatever cannot be removed, the register writes again. */
 function clearStateDir(keep) {
-  const skip = new Set([...keep, ...trustkeys.KEEP]);
+  /* kosmos#4903 S5 (review 2): and the cloud installer's latch (engine/cloudmachine.js LATCH). It is written ONCE, at
+     install, and nothing writes it again, so a Remove or a fresh sign-in on a Kosmos cloud machine must not take it:
+     the box would stop being one for good. Keeping it admits nobody; the tunnel's gate also needs the coordinator's
+     signed claim, which a removal ends. */
+  const skip = new Set([...keep, ...trustkeys.KEEP, require('./cloudmachine').LATCH]);
   let entries = [];
   try { entries = fs.readdirSync(STATE_DIR()); } catch (e) {
     // A file where the folder should be holds no trust file: it goes, as the whole-folder wipe removed it.
@@ -1061,6 +1065,37 @@ function setRelay(relay) {
   return { ok: true };
 }
 
+/* kosmos#7285 item 2: on a Kosmos cloud machine the tunnel is the person's only way in, and the switch that would
+   repair a damaged remote.json is reachable only through it. So there, a settings file that cannot be read (or is
+   gone) keeps the tunnel wanted instead of reading as off, which on a Mac is the safe answer and here is a lockout.
+   Switching it off on purpose is refused there anyway (server.js PUT /api/remote, kosmos#7277). Review 1: a MISSING file
+   is written again with on there and then, because it reads as a readable off and the next ordinary save (a standing
+   refresh, within a poll) would write off into it. Review 2: a file that is there but cannot be read is NOT rewritten
+   (every ordinary save already refuses it, and a rewrite from blank would drop this computer's ids and settings, or
+   replace a good file after a passing read error): it is kept on in memory each tick. Said in the log once per loss. */
+let cloudKeptOnSaid = '';   // the kind of loss last said ('missing' or 'unreadable'), '' once the file reads well
+function cloudKeepsOn() {
+  let s;
+  try { s = read(); } catch { s = { ok: false }; }
+  // Missing means not there (ENOENT); any other failure to look is unreadable, and is never written over (review 3).
+  let missing = false;
+  try { fs.statSync(FILE); } catch (err) { missing = !!(err && err.code === 'ENOENT'); }
+  if (s.ok !== false && !missing) { cloudKeptOnSaid = ''; return false; }
+  let cloud = false;
+  try { cloud = require('./cloudmachine').isCloudMachine(); } catch { cloud = false; }
+  if (!cloud) return false;
+  let repaired = false;
+  if (missing) { try { repaired = write({ on: true }).ok === true; } catch { repaired = false; } }
+  const kind = missing ? 'missing' : 'unreadable';
+  if (cloudKeptOnSaid !== kind) {
+    process.stderr.write('remote: remote.json is ' + (missing ? 'missing' : 'unreadable') + ' on this Kosmos cloud machine; remote access is kept wanted, the only way in'
+      + (missing ? (repaired ? ', and the file is written again with it on\n' : ', but the file could not be written\n') : '\n'));
+  }
+  // A written file reads on from now, so this is not called again and a later loss in the same run is said again.
+  cloudKeptOnSaid = repaired ? '' : kind;
+  return true;
+}
+
 /** Reconcile reality with the switch. Idempotent; the server calls it at
     boot with the board's port and after every toggle. Never throws. */
 function ensure(port) {
@@ -1068,7 +1103,7 @@ function ensure(port) {
     if (typeof port === 'number') localPort = port;
     // Never during a Forget (#3827): the board's tick calls this every 15s, and a
     // tunnel started in the retire wait would run on the key being deleted.
-    const wanted = !forgetting && read().on && enrolled() && !!RELAY() && typeof localPort === 'number';
+    const wanted = !forgetting && (read().on || cloudKeepsOn()) && enrolled() && !!RELAY() && typeof localPort === 'number';
     if (!wanted) { stopChild(); return; }
     // Samples the tunnel's last failure (kosmos#4277). It also means a healthy board's
     // backoff is reset every tick (status() does that on `up`), not only when a page asks.
@@ -2656,6 +2691,11 @@ async function devicesList() {
          the allow it was noted for (removed elsewhere and allowed again by hand, its allowed_at moves on). Ten
          minutes of slack: allowed_at is the coordinator's clock, the note's this computer's. */
       on_this_computer: vouchedFor(vouched, d),
+      /* kosmos#7285 (PigeonPete's sessdevice-7285): EVERY device key holding this id ([] when none; the tunnel leaves
+         `keys` out then). One id can be held by several keys, and removing the id deletes every key that holds it
+         (devices.rs). A key records at most 16 ids, so a browser's own id can drop off its key's list while its session
+         lives on by the key; the cloud machine's own-device guard compares these with x-kosmos-session-key. */
+      keys: Array.isArray(d.keys) ? d.keys.filter((k) => typeof k === 'string' && k) : [],
     })) } };
 }
 function vouchedFor(vouched, d) {
@@ -4253,7 +4293,8 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LABEL /* kosmos#6596 step 8 */, connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = {
+  cloudKeepsOn, clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LABEL /* kosmos#6596 step 8 */, connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
@@ -4290,6 +4331,7 @@ module.exports = { clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LA
   signinRegister,
   signinCancel,
   pendingDevices,
+  busy,   // kosmos#7285 review 2: the cloud own-device guard answers a Forget or sign-in in flight with these words
   devicesList,
   deviceAllow,
   joinStatus,

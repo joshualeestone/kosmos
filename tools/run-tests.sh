@@ -174,6 +174,28 @@ esac
 # run-tests.sh itself runs its shell part one at a time rather than 4 shards inside a shard. A test that scrubs the
 # environment (env -i, or dropping KOSMOS_ variables) gets the unset default instead, as any run with no value does.
 _RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; export KOSMOS_SHELL_PARALLEL=1
+# #7247: on a Windows computer (Git Bash, MSYS, Cygwin), every node this run starts loads tools/no-schtasks-preload.cjs
+# unless CI is set or KOSMOS_TESTS_REAL_SCHTASKS=1, so the suite cannot reach the computer's real Task Scheduler,
+# where one test that reaches it could end the board's own task. The rule and the NODE_OPTIONS it builds are
+# tools/windows-tests.js's own (childEnv, schedulerLine), read here rather than written twice. cygpath gives node a
+# path it can read; without it the guard cannot be set up, and the run stops rather than reach the real scheduler.
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if ! _rt_wt="$(cygpath -m "$REPO/tools/windows-tests.js" 2>/dev/null)" || [ -z "$_rt_wt" ]; then
+      case "${CI:-}" in ""|false|FALSE|False|0) _rt_ci="" ;; *) _rt_ci=1 ;; esac   # as windows-tests.js onCi reads it
+      if [ "${KOSMOS_TESTS_REAL_SCHTASKS:-}" != 1 ] && [ -z "$_rt_ci" ]; then
+        echo "run-tests: cygpath is missing, so the #7247 schtasks guard cannot be set up; KOSMOS_TESTS_REAL_SCHTASKS=1 runs against the real Task Scheduler" >&2
+        exit 2
+      fi
+      echo "run-tests: schtasks calls reach this computer's REAL Task Scheduler (#7247; CI or KOSMOS_TESTS_REAL_SCHTASKS=1 asked for it)" >&2
+    else
+      _rt_sched="$(node -e 'const w = require(process.argv[1]); const e = w.childEnv(process.env, "win32"); process.stdout.write((e.NODE_OPTIONS || "") + "\n" + (w.schedulerLine(process.env, "win32") || ""))' "$_rt_wt")" \
+        || { echo "run-tests: could not read the #7247 schtasks rule from tools/windows-tests.js" >&2; exit 2; }
+      _rt_opts="$(printf '%s\n' "$_rt_sched" | head -n 1)"
+      if [ -n "$_rt_opts" ]; then export NODE_OPTIONS="$_rt_opts"; fi
+      echo "run-tests: $(printf '%s\n' "$_rt_sched" | tail -n 1)" >&2
+    fi ;;
+esac
 # #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
 if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
   if [ -z "${KOSMOS_SHELL_SHARD:-}" ] || { [ "$KOSMOS_SHELL_PLATFORM" != linux ] && [ "$KOSMOS_SHELL_PLATFORM" != mac ]; }; then

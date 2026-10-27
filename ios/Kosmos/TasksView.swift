@@ -184,13 +184,23 @@ struct TasksView: View {
     }
 
     private func list(_ read: Board.TasksRead) -> some View {
-        let projectShown = !Tasks.leaveOutProjectLine(read, project: project)
+        let projectShown = !Tasks.leaveOutProjectLine(drawn: shown, project: project)
         return ScrollViewReader { scroller in List {
+            // kosmos#7269: the count tiles, as a header with no inset, so their edges line up with the cards under them (in
+            // the title's header they sat in its text inset, 20pt further in; as a row, the list clipped the outer tiles'
+            // corners to the section's rounding).
+            Section {
+                EmptyView()
+            } header: {
+                TaskTiles(tiles: Tasks.tiles(shown, rosterUnknown: read.rosterUnknown))
+                    .listRowInsets(EdgeInsets())
+                    .padding(.top, 4)
+            }
             Section {
                 EmptyView()
             } header: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(Tasks.title(read, project: project))
+                    Text(Tasks.title(read, drawn: shown, project: project))
                         .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
                     // kosmos#7078: the board's tsk-msg line after a New task, where the board puts it.
                     if let notice {
@@ -394,6 +404,40 @@ private struct AnswerAction: ViewModifier {
     let run: () -> Void
     @ViewBuilder func body(content: Content) -> some View {
         if on { content.accessibilityAction(named: Text("Answer"), run) } else { content }
+    }
+}
+
+// kosmos#7269 (Josh, 2026-10-26: "a row of tiles with counts at the top", "nice and clean"): four counts in one row, each
+// a quiet card with its number over its word, the board's tile (.tsk-tile: surface, rule border, 12pt corners) at phone
+// size. Needs you turns red only with something in it, as the board's decision tile does; "?" when the agents could not
+// be read. Not buttons: they do not filter (yet), so they do not look pressable. Two rows of two at the largest text.
+struct TaskTiles: View {
+    let tiles: [Tasks.Tile]
+    @Environment(\.dynamicTypeSize) private var typeSize
+    var body: some View {
+        let cols = typeSize.isAccessibilitySize ? 2 : 4
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: cols), spacing: 8) {
+            ForEach(tiles, id: \.key) { t in tile(t) }
+        }
+        .textCase(nil)
+    }
+    private func tile(_ t: Tasks.Tile) -> some View {
+        let alarm = t.key == "decision" && (t.count ?? 0) > 0
+        let ink = alarm ? TasksPalette.dot("--tsk-decision") : Palette.primary
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(t.count.map(String.init) ?? "?")
+                .font(.title2.weight(.semibold)).monospacedDigit().foregroundColor(ink)
+                .lineLimit(1).minimumScaleFactor(0.6)
+            Text(t.label)
+                .font(.caption.weight(.semibold)).foregroundColor(alarm ? ink : Palette.secondary)
+                .lineLimit(2).minimumScaleFactor(0.85)
+        }
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .topLeading)
+        .padding(.horizontal, 10).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(alarm ? ink.opacity(0.45) : Palette.separator, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(t.label + ", " + (t.count.map(String.init) ?? "cannot tell"))
     }
 }
 

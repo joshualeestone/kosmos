@@ -12,6 +12,11 @@ struct ChatView: View {
     @ObservedObject var client: BoardClient
     let agent: Board.Agent
     let openOnBoard: () -> Void
+    // kosmos#7267: the info button opens the agent's own page (Profile | AI Settings), not the board's copy of this chat.
+    @State private var infoOpen = false
+    #if DEBUG
+    static var sampleInfoOpened = false
+    #endif
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var thread: Board.Thread?
@@ -56,6 +61,10 @@ struct ChatView: View {
     @State private var settledAtEnd = false
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
+    // kosmos#7265 review 2: a page landed while the reader was at the newest message: keep them there, without animation.
+    @State private var keepAtEnd = false
+    // Review 3: whether the end marker has ever shown (atBottom starts true, so it alone cannot say the reader got there).
+    @State private var endSeen = false
     // The conversation's items on screen now.
     @State private var onScreen: Set<String> = []
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
@@ -73,6 +82,11 @@ struct ChatView: View {
     // Reply; the last reaction refusal shown (only it is cleared by the next reaction that goes); reactions in the air.
     @State private var replying: Board.ChatRow?
     @FocusState private var composerFocused: Bool
+    // kosmos#7268: the emoji panel (in the keyboard's place while open), the glyph waiting to go in at the cursor, and
+    // dictation into the box, as the project room's (RoomView).
+    @State private var emojiOpen = false
+    @State private var emojiInsert: ComposerExtras.Pick?
+    @StateObject private var dictation = Dictation()
     @State private var reactNote: String?
     @State private var reacting: Set<String> = []
     // kosmos#7089: the search field's words. The thread shows only the loaded rows they match (Board.chatFilter).
@@ -154,12 +168,28 @@ struct ChatView: View {
                 .accessibilityLabel("Search this conversation")
             }
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: openOnBoard) {
+                Button { infoOpen = true } label: {
                     Image(systemName: "info.circle").font(.system(size: 22)).foregroundColor(Palette.secondary)
                 }
-                .accessibilityLabel("Open on your computer's board")
+                .accessibilityLabel("\(shown.name)\u{2019}s profile and AI settings")
             }
         }
+        // kosmos#7267: on the chat itself, not inside the toolbar item (a link there is outside the navigation and
+        // never pushes).
+        .background(NavigationLink(isActive: $infoOpen, destination: {
+            AgentInfoView(client: client, agent: agent, openOnBoard: openOnBoard)
+        }, label: { EmptyView() }).hidden())
+        #if DEBUG
+        // KOSMOS_SAMPLE_INFO=profile|ai with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
+        .onAppear {
+            let env = ProcessInfo.processInfo.environment
+            // Once a launch, so Back leaves the page (review 2: it pushed again each time the chat reappeared).
+            if env["KOSMOS_SAMPLE_AGENTS"] == "1", env["KOSMOS_SAMPLE_INFO"] != nil, !ChatView.sampleInfoOpened {
+                ChatView.sampleInfoOpened = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { infoOpen = true }
+            }
+        }
+        #endif
         .onAppear {
             visible = true
             epoch = client.chatEpoch
@@ -181,6 +211,7 @@ struct ChatView: View {
             searchOpen = false
             openedAtNewest = false
             sentWhileSearching = false
+            dictation.stop()   // kosmos#7268 review 2: before the draft is saved, so no late result is lost from it
             // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
             if epoch == client.chatEpoch { client.drafts[agent.session] = draftText }
             loop?.cancel()
@@ -216,7 +247,9 @@ struct ChatView: View {
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
+            dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
+            endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
             thread = nil
             replying = nil
             retryNote = nil
@@ -279,6 +312,20 @@ struct ChatView: View {
 
     // MARK: - The conversation
 
+    // kosmos#7265: how many of the newest rows are drawn eagerly, more than a screen of short messages. Measured on the
+    // simulator (a 260-message chat of varied lengths, the newest message read at 4 s and 10 s): 10 of 10 on the newest
+    // message (rounds 14, 16, 17); with every row lazy about 1 in 10. 0 in the Debug no-fix arm.
+    static var eagerTail: Int { sampleNoFix ? 0 : 40 }
+
+    // One row of the conversation, with what the thread needs to know about it.
+    private func row(_ item: Board.ChatItem) -> some View {
+        itemView(item).id(item.id)
+            // Which rows are on screen, so a page landing above keeps the one the reader is on. The eager rows all
+            // appear and go together (kosmos#7265), so they count as on screen while any of them shows.
+            .onAppear { onScreen.insert(item.id) }
+            .onDisappear { onScreen.remove(item.id) }
+    }
+
     @ViewBuilder private var conversation: some View {
         if let thread {
             // Day lines run across loaded pages, so a page that ends mid-day does not repeat that day's line.
@@ -306,17 +353,22 @@ struct ChatView: View {
                             }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         else if searching && rows.isEmpty && !loaded.isEmpty { noMatch }
-                        ForEach(items) { item in
-                            itemView(item).id(item.id)
-                                // Which rows are on screen, so a page landing above keeps the one the reader is on.
-                                .onAppear { onScreen.insert(item.id) }
-                                .onDisappear { onScreen.remove(item.id) }
+                        // kosmos#7265: the newest rows are drawn as one eager stack, so their real heights are known and the
+                        // jump to "end" on open lands on the newest message. With every row lazy their heights were estimated
+                        // and a long chat of long messages opened mid-thread. Older rows stay lazy.
+                        // An exact cut: a cut in steps of 20 (fewer rebuilds) measured short again, 0 of 10 against 10 of 10
+                        // (rounds 16 and 17). So each new message moves one row from the eager stack to the lazy rows, which
+                        // rebuilds it and drops any state it held (a stated limit).
+                        let tailStart = max(0, items.count - Self.eagerTail)
+                        ForEach(items[..<tailStart]) { item in row(item) }
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(items[tailStart...]) { item in row(item) }
                         }
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
                         Color.clear.frame(height: 1).id("end")
                             .onAppear {
-                                atBottom = true; unseenNew = false
+                                atBottom = true; unseenNew = false; endSeen = true
                                 // The first scroll has settled when the newest message is really on screen (not after
                                 // a time): from then on, reaching the top is the person scrolling up. Checked a turn
                                 // later, so the top's own disappearance from the same jump has landed first; a chat too
@@ -350,6 +402,11 @@ struct ChatView: View {
                     guard let id else { return }
                     proxy.scrollTo(id, anchor: .top)
                     keepAnchor = nil
+                }
+                .onChange(of: keepAtEnd) { now in
+                    guard now else { return }
+                    proxy.scrollTo("end", anchor: .bottom)
+                    keepAtEnd = false
                 }
                 .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
                 .onChange(of: working) { now in if now { follow(proxy) } }
@@ -621,7 +678,13 @@ struct ChatView: View {
             let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
             let anchor = Board.anchorItem(shownNow, onScreen: onScreen)
             earlier = next
-            if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
+            // kosmos#7265 review: the newest rows are one eager stack and are all "on screen" while any of it shows, so
+            // a reader back at the newest message is kept there rather than at the stack's first row (a stated limit:
+            // a reader stopped part way inside the newest rows as a page lands may still move).
+            // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
+            // reader is up there) rules it out.
+            if atBottom && endSeen && !topVisible { keepAtEnd = true }
+            else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
 
@@ -880,10 +943,28 @@ struct ChatView: View {
                 field
                 sendButton
             }
+            if let line = ComposerExtras.micLine(dictation.state) {
+                Text(line).font(.footnote).foregroundColor(Palette.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+            }
+            // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it. The tab bar is
+            // already hidden in a conversation, so nothing sits under the panel.
+            if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) }.padding(.horizontal, -12) }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Palette.ground)
+        .onChange(of: composerFocused) { focused in if focused { emojiOpen = false } }
+        // Review 8: the search field's keyboard closes the panel too, or it sits on top of it and hides the results.
+        .onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }
+        #if DEBUG
+        // KOSMOS_SAMPLE_EMOJI=open (with the agent samples): the panel open, for the design shots.
+        .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
+        #endif
+        // Leaving the conversation lets go of the microphone and closes the panel (the board's: the panel belongs to the
+        // composer being left).
+        .onDisappear { dictation.reset(); emojiOpen = false }
+        .onChange(of: draftText) { dictation.boxChanged(to: $0) }
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
         // Each picker on a host of its own: two presentations on one view can leave one that never opens (iOS 16).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
@@ -983,17 +1064,28 @@ struct ChatView: View {
         for url in urls { await client.attach(.file(url), epoch: epoch, to: agent) }
     }
 
+    // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end, as the project room's; the
+    // box's text runs up to them.
     private var field: some View {
-        TextField("", text: $draftText, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
-            .focused($composerFocused)
-            // As the board's aria-describedby: the reply is heard whenever the box is reached, not only when chosen.
-            .accessibilityHint(replying.map { replyingLine($0) } ?? "")
-            .accessibilityLabel("Message \(shown.name)")
-            .font(.body)
-            .foregroundColor(Palette.primary)
-            .lineLimit(1...5)
-            .padding(.vertical, 9)
-            .padding(.horizontal, 14)
+        HStack(alignment: .bottom, spacing: 0) {
+            CursorField(placeholder: "Message \(shown.name)", text: $draftText, focus: $composerFocused, insert: $emojiInsert,
+                        prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary))
+                // As the board's aria-describedby: the reply is heard whenever the box is reached, not only when chosen.
+                .accessibilityHint(replying.map { replyingLine($0) } ?? "")
+                .accessibilityLabel("Message \(shown.name)")
+                .font(.body)
+                .foregroundColor(Palette.primary)
+                .lineLimit(1...5)
+                .padding(.vertical, 9)
+                .padding(.leading, 14)
+            ComposerEmojiButton(open: emojiOpen) {
+                if emojiOpen { emojiOpen = false; composerFocused = true } else { emojiOpen = true; composerFocused = false }
+            }
+            ComposerMicButton(dictation: dictation) {
+                dictation.toggle(base: draftText, current: { draftText }) { draftText = $0 }
+            }
+            .padding(.trailing, 2)
+        }
             .background(Palette.card)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
@@ -1014,13 +1106,15 @@ struct ChatView: View {
         }
         .disabled(!canSend)
         .accessibilityLabel("Send")
+        .accessibilityHint(dictation.finishing ? "Waiting for the last words" : dictation.busy ? "Stop dictating first" : "")   // kosmos#7268 review 5: why it waits
         .padding(.bottom, 2)
     }
 
     // Words, or files with no words (their names go as the words). Not with files while another is still on its way
     // (the message would go without it); words alone go, as on the board.
     private var canSend: Bool {
-        Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && (attachedHere.isEmpty || uploadingHere == 0)
+        // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then send.
+        !dictation.busy && Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && (attachedHere.isEmpty || uploadingHere == 0)
     }
 
     // The bubble appears at once (60% while it sends) and the field clears (spec, "while it sends").
@@ -1029,6 +1123,7 @@ struct ChatView: View {
         // A press in the air: the words wait in the box, and the line says why (dmChoiceBlocksSend).
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         composerNote = nil
+        dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
         pressLine = nil
         client.attachLine[agent.session] = nil
@@ -1622,4 +1717,14 @@ extension Palette {
     static let sendGlyph = pair(0x14161a, 0x14161a)
     static let link = pair(0x2457c5, 0x9db8ff)
     static let pillStroke = pair(0xe3e1dc, 0x000000, lightAlpha: 1, darkAlpha: 0)
+}
+
+extension ChatView {
+    // kosmos#7265, a Debug build only: KOSMOS_SAMPLE_NOFIX=1 draws every row lazily, as before the fix, so one build shows
+    // both arms.
+    #if DEBUG
+    static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
+    #else
+    static let sampleNoFix = false
+    #endif
 }

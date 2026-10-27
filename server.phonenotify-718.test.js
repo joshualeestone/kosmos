@@ -985,3 +985,26 @@ test('#6488: under the test runner a connect poke with no schedule mints nothing
   assert.strictEqual(await phonenotify.pokeDefaultOn(), null);
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });
+
+test('#6487 a send that throws writes no "sent" line; the same send that goes writes one', async () => {
+  enrol();
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  const lines = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (s, ...rest) {
+    if (String(s).startsWith('phonenotify: sent')) { lines.push(String(s)); return true; }
+    return realWrite.call(this, s, ...rest);
+  };
+  const ev = { kind: 'replied', id: 'reply:2026-10-26T18:00:00.000Z:roo', agent: 'Roo', session: 'roo', project: null };
+  try {
+    phonenotify.setSender(() => { throw new Error('bad header'); });
+    phonenotify.happened(ev);
+    assert.deepEqual(lines, [], 'a send that threw was logged as sent');
+    phonenotify.setSender((url, headers, body) => sent.push({ url, headers, body: JSON.parse(body) }));
+    phonenotify.happened(ev);   // CONTROL: the same event, sent, is logged
+    assert.deepEqual(lines, ['phonenotify: sent replied (reply) ref ' + require('./engine/phonenotice').idRef(ev.id) + ' for roo; the phone can ask for its words\n']);
+  } finally {
+    process.stderr.write = realWrite;
+    phonenotify.setSender((url, headers, body) => sent.push({ url, headers, body: JSON.parse(body) }));
+  }
+});

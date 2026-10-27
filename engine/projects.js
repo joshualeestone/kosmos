@@ -1329,6 +1329,8 @@ function describe(project, roster, all) {
     paused: project.paused === true,
     // #4771: whose pause it is, so the page can say when an agent paused it (the person's is lifted only on the screen).
     pausedByPerson: project.paused === true && project.pausedByPerson === true,
+    // #7210: what reaches the person from this project; a record written before the field reads as 'all'.
+    notify: notifyOfRecord(project),
     // Gated on the healed flag AND the value: a hand-edited record carrying
     // a date beside archived:false must not publish an "archived at", and a
     // non-string or unparseable value beside archived:true must not become
@@ -3123,6 +3125,22 @@ function dismissNeeds(projectId, sessionName, reason) {
   return { ...stored[at].needsDismissed };
 }
 
+/* #7210 (Josh, 2026-10-26: "mute projects so that I can select the notifications on a project-by-project basis"): what
+   reaches the person from one project. 'all' is today's behaviour and is never stored (an absent field reads as all, as
+   every older record does); 'mentions' keeps only what is addressed to them; 'muted' sends nothing but keeps the unread
+   count. On the board's record, not in a browser, so the Mac app, the web board and the phone all read one setting. */
+const NOTIFY_LEVELS = ['all', 'mentions', 'muted'];
+function cleanNotify(v) {
+  if (typeof v !== 'string' || !NOTIFY_LEVELS.includes(v)) throw new Error('notify must be one of: ' + NOTIFY_LEVELS.join(', '));
+  return v;
+}
+const notifyOfRecord = (p) => (p && (p.notify === 'mentions' || p.notify === 'muted') ? p.notify : 'all');
+/** This project's notification level, 'all' for a project not found or a store that cannot be read (never quieter
+ * than the person chose). */
+function notifyLevel(id) {
+  try { return notifyOfRecord(readAll().find((p) => p.id === id)); } catch { return 'all'; }
+}
+
 /**
  * Every writable field, applied in ONE mutate.
  *
@@ -3155,7 +3173,9 @@ function edit(id, fields = {}) {
   // returns null (un-group) or a valid parent id.
   let parentWant;
   if (fields.parent !== undefined) parentWant = cleanParent(fields.parent, id);
-  if (!Object.keys(want).length && fields.archived === undefined && fields.paused === undefined && fields.parent === undefined) {
+  const notifyWant = fields.notify === undefined ? undefined : cleanNotify(fields.notify);   // #7210
+  if (!Object.keys(want).length && fields.archived === undefined && fields.paused === undefined && fields.parent === undefined
+    && notifyWant === undefined) {
     // A save that would move nothing is refused, not answered "saved": a
     // typo'd key reporting success is a save the person believes happened.
     throw new Error('nothing here we can change');
@@ -3191,6 +3211,8 @@ function edit(id, fields = {}) {
     // #1994: the validated parent (or null to un-group). Only when carried, so
     // a save that does not mention parent leaves the grouping untouched.
     if (fields.parent !== undefined) next.parent = parentWant;
+    // #7210: 'all' is the default and is never stored, so a record reads the same as before the field existed.
+    if (notifyWant !== undefined) { if (notifyWant === 'all') delete next.notify; else next.notify = notifyWant; }
     return next;
   });
 }
@@ -4149,6 +4171,7 @@ function toldOverride(verdict, sessionName, known) {
 }
 
 module.exports = {
+  NOTIFY_LEVELS, notifyLevel,
   changedFileTimes,
   offWriteIsQuiet, WROTE_WHY,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,

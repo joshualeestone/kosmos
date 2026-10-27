@@ -46,6 +46,30 @@ function vendorOf(id) {
   return typeof id === 'string' && Object.prototype.hasOwnProperty.call(VENDORS, id) ? VENDORS[id] : null;
 }
 
+/**
+ * #7206 slice 1b (Splinter, 2026-10-26 14:28): whether vendor providers show ANYWHERE a person can reach (Settings,
+ * setup, creating or switching an agent, the add route). OFF by default: Claude Code at a vendor's address with only a
+ * key, in an empty config folder (no login, no onboarding stop, no anthropic.com traffic) has not been measured on a
+ * real run, and nothing unproven ships to a person. It is turned on, after that measurement, by a support switch rather
+ * than a setting, the mirror of Meta Muse's off switch (engine/musestatus.js): the ON MARKER, a file named
+ * compat-providers-on in the Kosmos data folder, read by the board and by every agent's launch alike. (No environment
+ * variable: an agent's launchd job never carries one, review 3.) A Mac only: the Windows
+ * launch does not point an agent at a vendor yet. Read on every check, so creating or deleting the marker needs no
+ * restart.
+ */
+const ON_MARKER = 'compat-providers-on';
+function onMarker() { return path.join(require('./store').ROOT, ON_MARKER); }
+function enabled(platform = process.platform) {
+  if (platform !== 'darwin') return false;
+  /* 1b review 3: the marker is the ONLY on-state. An environment variable reached the board but never an agent's launchd
+     job (its plist carries a fixed environment), so an agent made with it on could not start. The marker is read by
+     both, from the data folder. An unreadable data folder leaves it off: off is the default. */
+  try { return fs.existsSync(onMarker()); } catch { return false; }
+}
+/* The sentence every refusal uses while the switch is off. */
+const NOT_YET = 'is not available in Kosmos yet';
+function notYet(vendor) { const v = vendorOf(vendor); return `${v ? v.name : 'That provider'} ${NOT_YET}`; }
+
 /* A function, not a const (the #1337 rule): a caller may set AGENT_WORKFORCE_HOME after requiring this module. */
 function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
 
@@ -370,6 +394,13 @@ if (require.main === module) {
   try {
     const [verb, dir] = process.argv.slice(2);
     if (verb !== 'launch-env') process.exit(64);
+    /* 1b review 2: the switch is a kill switch too. An agent made while it was on does not start with its key once it is
+       off (a restart, a crash loop, a hand-edited job): the supervisor refuses the launch with this sentence. */
+    if (!enabled()) {
+      const v = vendorOf(vendorOfName(dir));
+      process.stdout.write(`${notYet(v ? v.id : '')}, so this agent was not started on it`);
+      process.exit(2);
+    }
     const r = launchEnv(dir);
     if (!r.ok) { process.stdout.write(r.because); process.exit(2); }
     process.stdout.write(Object.entries(r.env).map(([k, val]) => k + '=' + val).join('\0') + '\0');
@@ -381,6 +412,7 @@ if (require.main === module) {
 
 module.exports = {
   STATE, VENDORS, ENDPOINT_BASENAME, LAUNCH_VARS, vendorOf,
+  enabled, notYet, ON_MARKER,
   homeDir, dirPrefix, forgottenPrefix, endpointFile, vendorOfName, isCompatHome, accountProblem, readAccount,
   list, cleanLabel, dirForLabel, storeAccount,
   setFetcher, askModels, validateLive, checkLive, listLive, resetLiveCacheForTest,

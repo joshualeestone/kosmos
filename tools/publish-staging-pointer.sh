@@ -23,6 +23,12 @@ ARCH="${KOSMOS_ARCH:-arm64}"
 # kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
 . "$(dirname "$0")/lib/pointer-freeze.sh" || { echo "publish-staging: cannot load tools/lib/pointer-freeze.sh" >&2; exit 1; }
 pointer_freeze_refuse "$SITE" publish-staging-pointer.sh || exit 1
+# kosmos#7281 review 2 (W2): once staging publishes the Linux family, its pointer moves only with this one, at the same
+# version (lockstep), and only a cut writes both. Moving latest-staging.json alone would split them.
+if [ -f "$SITE/dist/latest-linux-staging.json" ] || git -C "$SITE" cat-file -e "origin/main:dist/latest-linux-staging.json" 2>/dev/null; then
+  echo "publish-staging: the staging channel also publishes the Linux family (dist/latest-linux-staging.json), whose pointer must move with this one (kosmos#7281 lockstep); cut instead of re-pointing" >&2
+  exit 1
+fi
 command -v node >/dev/null 2>&1 || { echo "publish-staging: node is required to write latest-staging.json" >&2; exit 1; }
 
 # The version: explicit arg, or derived from the one versioned artifact in dist. Deriving

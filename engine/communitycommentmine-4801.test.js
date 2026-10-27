@@ -129,7 +129,7 @@ test('the comment-deletes file lands under the sandboxed data root, beside delet
 });
 
 test('nothing sent yet: no comment rows, not an error', () => {
-  assert.deepEqual(mine.mineComments(), []);
+  assert.deepEqual(mine.mineAll().comments, []);
 });
 
 test('a sent comment lists with its first line, its agent, when, and Delete; no remote id of any kind', async () => {
@@ -138,7 +138,7 @@ test('a sent comment lists with its first line, its agent, when, and Delete; no 
   const c = comment('ava', '\n# Tuesdays work for us too.\nAnd a second line that is not shown.');
   await cs.sweep();
   assert.equal(posts().length, 1, 'CONTROL: the comment really went out');
-  const rows = mine.mineComments();
+  const rows = mine.mineAll().comments;
   assert.equal(rows.length, 1);
   const row = rows[0];
   assert.deepEqual(Object.keys(row).sort(),
@@ -159,7 +159,7 @@ test('a sent comment lists with its first line, its agent, when, and Delete; no 
 test('the text is cut to the length a post title is', () => {
   const c = comment('ava', 'x'.repeat(500));
   writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'sent', agent: 'ava', post: POST, remoteId: 'rc-1', sentAt: '2026-09-28T08:00:00Z' } });
-  assert.equal(mine.mineComments()[0].text, 'x'.repeat(120));
+  assert.equal(mine.mineAll().comments[0].text, 'x'.repeat(120));
 });
 
 test('newest first', async () => {
@@ -168,7 +168,7 @@ test('newest first', async () => {
   const b = comment('ava', 'newer');
   const rec = { state: 'sent', agent: 'ava', post: POST, sentAt: '2026-09-28T08:00:00Z' };
   writeJson(cs._paths.commentsSentFile(), { [a.id]: { ...rec, remoteId: 'r-a' }, [b.id]: { ...rec, remoteId: 'r-b' } });
-  assert.deepEqual(mine.mineComments().map((r) => r.text), ['newer', 'older']);
+  assert.deepEqual(mine.mineAll().comments.map((r) => r.text), ['newer', 'older']);
 });
 
 test('Delete only on a comment the service can be asked about (sent with an id) or one not tried yet (pending)', () => {
@@ -188,7 +188,7 @@ test('Delete only on a comment the service can be asked about (sent with an id) 
     [id.notSent]: { state: 'not_sent', agent: 'ava', post: POST, reasons: ['not_sending'] },
     [id.refusedAgent]: { state: 'sent', agent: 'bo', post: POST, remoteId: 'rc-3', sentAt: '2026-09-28T08:00:00Z', agentId: 'rb' },
   });
-  const by = Object.fromEntries(mine.mineComments().map((r) => [r.text, [r.state, r.canDelete, r.untraceable]]));
+  const by = Object.fromEntries(mine.mineAll().comments.map((r) => [r.text, [r.state, r.canDelete, r.untraceable]]));
   assert.deepEqual(by, {
     sent: ['sent', true, false], pending: ['pending', true, false],
     unconfirmed: ['unconfirmed', false, true], unconfirmed5xx: ['unconfirmed', false, true], sentNoId: ['sent', false, true],
@@ -212,7 +212,7 @@ test('a removal goes to comment-deletes.json and NEVER to deletes.json, and turn
   assert.deepEqual(cs.requestDelete(c.id), { ok: true, state: 'sent' });
   assert.ok(readJson(cs._paths.commentDeletesFile())[c.id], 'not recorded in comment-deletes.json');
   assert.ok(!Object.prototype.hasOwnProperty.call(readJson(cs._paths.deletesFile()), c.id), 'a comment id reached deletes.json, which the sweep walks as POSTS');
-  const row = mine.mineComments()[0];
+  const row = mine.mineAll().comments[0];
   assert.deepEqual([row.deleteRequested, row.canDelete, row.deleteRetrying], [true, false, false]);
   assert.deepEqual(cs.requestDelete(c.id), { ok: true, state: 'sent' }, 'asking twice is harmless');
 });
@@ -239,7 +239,7 @@ test('the sweep removes a sent comment as its own agent at /posts/{post}/comment
   assert.equal(dels()[0].auth, 'Bearer ' + agent.token, 'not asked with the agent\'s own key');
   assert.equal(be.st.comments.length, 0, 'still on the service');
   assert.equal(cs.commentStatuses()[c.id].state, 'deleted');
-  const row = mine.mineComments()[0];
+  const row = mine.mineAll().comments[0];
   assert.deepEqual([row.state, row.canDelete, row.deleteRetrying], ['deleted', false, false]);
   await cs.sweep();
   assert.equal(dels().length, 1, 'a removed comment was asked about again');
@@ -268,14 +268,14 @@ test('a 5xx keeps the removal and tries again next sweep; the row says it is ret
   assert.equal(dels().length, 1);
   assert.equal(cs.commentStatuses()[c.id].state, 'sent');
   assert.equal(readJson(cs._paths.commentsSentFile())[c.id].deleteStatus, 500);
-  const row = mine.mineComments()[0];
+  const row = mine.mineAll().comments[0];
   assert.deepEqual([row.state, row.deleteRetrying, row.canDelete], ['sent', true, false]);
   be.st.mode = {};
   await cs.sweep();
   assert.equal(dels().length, 2, 'not tried again');
   assert.equal(cs.commentStatuses()[c.id].state, 'deleted');
   assert.equal(readJson(cs._paths.commentsSentFile())[c.id].deleteStatus, undefined, 'a settled removal kept its failure');
-  assert.equal(mine.mineComments()[0].deleteRetrying, false);
+  assert.equal(mine.mineAll().comments[0].deleteRetrying, false);
 });
 
 test('a comment removed BEFORE it is sent is never sent: withheld', async () => {
@@ -283,7 +283,7 @@ test('a comment removed BEFORE it is sent is never sent: withheld', async () => 
   const c = comment('ava', 'thought better of it');
   const keep = comment('ava', 'this one goes');
   assert.deepEqual(cs.requestDelete(c.id), { ok: true, state: 'withheld' });
-  assert.equal(mine.mineComments().find((r) => r.id === c.id).state, 'withheld', 'listed as withheld before the sweep');
+  assert.equal(mine.mineAll().comments.find((r) => r.id === c.id).state, 'withheld', 'listed as withheld before the sweep');
   await cs.sweep();
   await cs.sweep();
   assert.deepEqual(posts().map((p) => p.body.body), ['this one goes'], 'a removed comment went out (CONTROL: the other did)');
@@ -302,7 +302,7 @@ test('an unconfirmed comment is never asked about, even with a removal on record
   be.st.mode = {};
   await cs.sweep();
   assert.equal(dels().length, 0);
-  assert.equal(mine.mineComments()[0].canDelete, false);
+  assert.equal(mine.mineAll().comments[0].canDelete, false);
 });
 
 test('a comment sent with no id back cannot be removed: nothing to ask the service about', async () => {
@@ -311,7 +311,7 @@ test('a comment sent with no id back cannot be removed: nothing to ask the servi
   const c = comment('ava', 'stored, no id');
   await cs.sweep();
   assert.equal(cs.commentStatuses()[c.id].state, 'sent');
-  const row = mine.mineComments()[0];
+  const row = mine.mineAll().comments[0];
   assert.deepEqual([row.canDelete, row.untraceable], [false, true]);
   assert.equal(cs.requestDelete(c.id).ok, false);
 });
@@ -349,14 +349,14 @@ test('after the agent registers afresh (keys.json lost), its old comments are no
   await cs.sweep();
   const first = [...be.st.agents.values()][0];
   assert.equal(readJson(cs._paths.commentsSentFile())[c.id].agentId, first.id, 'the sent record names the service agent that stored it');
-  assert.equal(mine.mineComments()[0].canDelete, true, 'CONTROL: with the same registration it can be removed');
+  assert.equal(mine.mineAll().comments[0].canDelete, true, 'CONTROL: with the same registration it can be removed');
   // keys.json lost (a person may still remove it, though since #5431 its corrupt-file message says not to); the next sweep
   // registers the agent again, as a new service agent.
   fs.rmSync(cs._paths.keysFile());
   comment('ava', 'a later comment, which registers the agent again');
   await cs.sweep();
   assert.equal(be.st.agents.size, 2, 'CONTROL: the agent really registered afresh');
-  const row = mine.mineComments().find((r) => r.id === c.id);
+  const row = mine.mineAll().comments.find((r) => r.id === c.id);
   assert.deepEqual([row.canDelete, row.untraceable], [false, true]);
   assert.equal(cs.requestDelete(c.id).ok, false);
   writeJson(cs._paths.commentDeletesFile(), { [c.id]: new Date().toISOString() });   // even with a removal on record
@@ -375,7 +375,7 @@ test('review 1 W1: a removal accepted while the agent first registers is not sen
   assert.deepEqual(asked, { ok: true, state: 'withheld' }, 'CONTROL: the removal was accepted mid-registration');
   assert.equal(posts().length, 0, 'a comment the owner removed went out');
   assert.equal(cs.commentStatuses()[c.id].state, 'withheld');
-  assert.equal(mine.mineComments()[0].state, 'withheld');
+  assert.equal(mine.mineAll().comments[0].state, 'withheld');
   await cs.sweep();
   assert.equal(posts().length, 0, 'sent on a later sweep');
 });
@@ -387,7 +387,7 @@ test('review 1 W2: while its POST is out a comment reads sending, and a removal 
   const sweeping = cs.sweep();
   await until(() => typeof be.st.release === 'function');
   try {
-    const row = mine.mineComments()[0];
+    const row = mine.mineAll().comments[0];
     assert.deepEqual([row.state, row.canDelete, row.untraceable], ['sending', false, false]);
     assert.deepEqual(cs.requestDelete(c.id), { ok: false, busy: true, because: 'It is being sent right now; try again in a minute' });
     assert.deepEqual(readJson(cs._paths.commentDeletesFile()), {}, 'a refused removal was recorded');
@@ -395,7 +395,7 @@ test('review 1 W2: while its POST is out a comment reads sending, and a removal 
     be.st.release();          // a failure here must not leave the sweep hanging into the next test
     await sweeping;
   }
-  const after = mine.mineComments()[0];
+  const after = mine.mineAll().comments[0];
   assert.deepEqual([after.state, after.canDelete], ['sent', true], 'CONTROL: with its answer in, it can be removed');
   assert.equal(cs.requestDelete(c.id).ok, true);
 });
@@ -404,10 +404,10 @@ test('review 1 W4: keys.json unreadable is unknown, not another registration: no
   await on();
   const c = comment('ava', 'sent before keys.json broke');
   await cs.sweep();
-  assert.equal(mine.mineComments()[0].canDelete, true, 'CONTROL: readable, it can be removed');
+  assert.equal(mine.mineAll().comments[0].canDelete, true, 'CONTROL: readable, it can be removed');
   const keys = fs.readFileSync(cs._paths.keysFile());
   fs.writeFileSync(cs._paths.keysFile(), '{not json');
-  const row = mine.mineComments()[0];
+  const row = mine.mineAll().comments[0];
   assert.deepEqual([row.state, row.canDelete, row.untraceable, row.traceUnknown], ['sent', false, false, true]);
   assert.equal(cs.commentRecords()[c.id].traceable, null, 'unknown must not read as false');
   const r = cs.requestDelete(c.id);
@@ -431,7 +431,7 @@ test('review 1 NIT e: a record with no agentId is this registration\'s only when
     [earlier.id]: { ...rec, agent: 'ava', remoteId: 'r-earlier', sentAt: '2026-09-28T07:00:00.000Z' },
     [noDate.id]: { ...rec, agent: 'bo', remoteId: 'r-nodate', sentAt: '2026-09-28T09:00:00.000Z' },
   });
-  const by = Object.fromEntries(mine.mineComments().map((r) => [r.text, [r.canDelete, r.untraceable]]));
+  const by = Object.fromEntries(mine.mineAll().comments.map((r) => [r.text, [r.canDelete, r.untraceable]]));
   assert.deepEqual(by, {
     'sent after the registration': [true, false],
     'sent before the registration': [false, true],
@@ -444,7 +444,7 @@ test('review 1 NIT e: a record with no agentId is this registration\'s only when
   assert.deepEqual(dels().map((d) => d.url.split('/').pop()), ['r-later']);
 });
 
-test('review 2 W2: either comment record unreadable is unknown: commentRecords and mineComments are null, never a false list', async () => {
+test('review 2 W2: either comment record unreadable is unknown: commentRecords and mineAll().comments are null, never a false list', async () => {
   await on();
   const c = comment('ava', 'sent, then a record broke');
   await cs.sweep();
@@ -453,12 +453,12 @@ test('review 2 W2: either comment record unreadable is unknown: commentRecords a
     // A removal on record, so a file read as empty would show a wrong state (Delete offered again, or nothing at all).
     writeJson(cs._paths.commentDeletesFile(), { [c.id]: new Date().toISOString() });
     const saved = fs.readFileSync(file);
-    assert.equal(mine.mineComments().length, 1, 'CONTROL: readable, the comment is listed (' + path.basename(file) + ')');
-    assert.equal(mine.mineComments()[0].canDelete, false, 'CONTROL: readable, the removed comment has no Delete');
+    assert.equal(mine.mineAll().comments.length, 1, 'CONTROL: readable, the comment is listed (' + path.basename(file) + ')');
+    assert.equal(mine.mineAll().comments[0].canDelete, false, 'CONTROL: readable, the removed comment has no Delete');
     fs.writeFileSync(file, '{not json');
     try {
       assert.equal(cs.commentRecords(), null, path.basename(file) + ' unreadable, commentRecords read as a list');
-      assert.equal(mine.mineComments(), null, path.basename(file) + ' unreadable, mineComments read as a list');
+      assert.equal(mine.mineAll().comments, null, path.basename(file) + ' unreadable, mineComments read as a list');
     } finally { fs.writeFileSync(file, saved); }
   }
   // comments-sent.json unreadable: a removal is a retryable refusal and nothing is recorded.
@@ -487,7 +487,7 @@ test('review 3 NIT 3: an untraceable sent comment carries why, with no id: no id
     [id.pending]: { state: 'pending', agent: 'ava', post: POST },
     [id.noKey]: { state: 'sent', agent: 'cy', post: POST, remoteId: 'rc-4', sentAt: '2026-09-28T08:00:00Z' },
   });
-  const by = Object.fromEntries(mine.mineComments().map((r) => [r.text, [r.untraceable, r.untraceableReason]]));
+  const by = Object.fromEntries(mine.mineAll().comments.map((r) => [r.text, [r.untraceable, r.untraceableReason]]));
   // Review 4: with no agentId, a registration newer than the send is not KNOWN to be another one ('registration-unknown');
   // 'other-registration' is kept for a real agentId mismatch and for no registration held at all.
   assert.deepEqual(by, {
@@ -495,7 +495,7 @@ test('review 3 NIT 3: an untraceable sent comment carries why, with no id: no id
     olderNoAgentId: [true, 'registration-unknown'], unconfirmed: [true, null], pending: [false, null],
     noKey: [true, 'other-registration'],
   });
-  assert.ok(!JSON.stringify(mine.mineComments()).includes('r-old'), 'the old registration\'s id reached the row');
+  assert.ok(!JSON.stringify(mine.mineAll().comments).includes('r-old'), 'the old registration\'s id reached the row');
   const why = (t) => cs.requestDelete(id[t]);
   assert.deepEqual(why('otherReg'), { ok: false, notEligible: true, because: 'Kosmos no longer holds the registration that sent this comment, so it cannot remove it' });
   assert.deepEqual(why('olderNoAgentId'), { ok: false, notEligible: true, because: 'Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it' });
@@ -515,7 +515,7 @@ test('review 4 W: a record with no agentId sent in the sweep that registered its
   assert.equal(typeof k.registeredAt, 'string', 'CONTROL: the sweep registered ava');
   const csent = readJson(cs._paths.commentsSentFile());
   assert.equal(csent[c.id].agentId, k.remoteId, 'CONTROL: this branch records the agentId');
-  const rowOf = (text) => mine.mineComments().find((r) => r.text === text);
+  const rowOf = (text) => mine.mineAll().comments.find((r) => r.text === text);
   assert.equal(rowOf('sent by the sweep that registered ava').canDelete, true, 'CONTROL: with its agentId, the comment can be removed');
   // What a board on main writes: no agentId, and sentAt the sweep's start, a few ms before the registration it made.
   const justBefore = new Date(Date.parse(k.registeredAt) - 4).toISOString();
@@ -561,7 +561,7 @@ test('review 3 NIT 5: a removal the list never offers is refused up front in pla
   });
   const cdel = { [id.deleted]: '2026-09-28T09:00:00Z', [id.withheld]: '2026-09-28T09:00:00Z' };
   writeJson(cs._paths.commentDeletesFile(), cdel);
-  const rows = Object.fromEntries(mine.mineComments().map((r) => [r.text, r.canDelete]));
+  const rows = Object.fromEntries(mine.mineAll().comments.map((r) => [r.text, r.canDelete]));
   const words = {
     refused: 'The community did not accept this comment, so there is nothing to remove',
     deleted: 'This comment has already been removed from the community',

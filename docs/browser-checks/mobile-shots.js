@@ -203,6 +203,64 @@ async function throwawayProjectGone(page, projectName) {
   if (st !== 200) throw new Error('could not delete the throwaway project "' + projectName + '" after the shot (' + st + ')');
 }
 async function offProject6895Gone(page) { await throwawayProjectGone(page, OFFPROJECT_6895); }
+/* kosmos#7196: enough posts that the room scrolls (idempotent across sizes and themes, which share one board); the room
+   at its newest row with the page at its top, as a room opens (the bug's own state); and the check that the newest row
+   is above the composer, at a phone width only (the desktop layout never had the bug and is not capped). */
+const BUSY_7196 = 'Busy room 7196';
+/* Review 2: a throwaway project, not the shared sample one, so its 24 posts never reach another screen; `after`
+   deletes it. Made once per shot (sizes and themes share one board), with its agent on it so the room takes posts. */
+async function project7196(page, name, agent) {
+  return page.evaluate(async ({ name, agent }) => {
+    const list = await (await fetch('/api/projects')).json().catch(() => ({}));
+    let p = (list.projects || []).find((x) => x && x.name === name);
+    if (!p) {
+      p = (await (await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })).json()).project;
+      await fetch('/api/project/' + p.id + '/agent/' + encodeURIComponent(agent), { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    }
+    return { id: p.id, createdAt: p.createdAt };
+  }, { name, agent });
+}
+/* The posts go straight into the store's log, as the seed writes the sample room (the room's POST refuses on this
+   board: the design-shots run's first pass showed both rooms empty, "Nothing here yet"). Once per project id. */
+const SEEDED_7196 = new Set();
+/* Review 3: the seeded rows stay in the log after `after` deletes their project, and an agent's own pages list every row
+   it sent, so they come from a name no other screen opens, never from data.chatAgent. */
+const SENDER_7196 = 'shots7196';
+function seedPosts7196({ id: pid, createdAt }, from, texts) {
+  /* By id AND createdAt: a project's id comes from its name, so the throwaway made again for the next size has the same
+     id, and keyed by id alone it was never seeded again (the third run's empty rooms). */
+  if (SEEDED_7196.has(pid + '@' + createdAt)) return;
+  SEEDED_7196.add(pid + '@' + createdAt);
+  /* After the project's own createdAt (since #7185 no reader is given a room row stamped before it; #7233 is the shared
+     seed's half of this), and never after now. One millisecond apart, starting just after createdAt. */
+  const t0 = (Date.parse(createdAt) || Date.now() - 1000) + 1;
+  const lines = texts.map((text, i) => ({ kind: 'post', id: 'r7196-' + pid + '-' + (i + 1), project: pid, from, to: [], text,
+    at: new Date(Math.min(t0 + i, Date.now())).toISOString(), outcomes: {} }));
+  const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
+  fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+}
+async function busyProject7196(page, agent) {
+  const made = await project7196(page, BUSY_7196, agent);
+  seedPosts7196(made, SENDER_7196, Array.from({ length: 24 }, (_, i) => 'Room busy 7196 post ' + (i + 1) + ': a line or two of ordinary project talk, so the room scrolls.'));
+  return made.id;
+}
+async function roomFloor7196(page) {
+  await page.evaluate(() => { window.scrollTo(0, 0); const r = document.querySelector('#pj-room'); if (r) r.scrollTop = r.scrollHeight; });
+  await page.waitForTimeout(250);
+}
+async function newestAbove7196(page, minPosts, postsOnly) {
+  const m = await page.evaluate(({ minPosts, postsOnly }) => {
+    const room = document.querySelector('#pj-room'), comp = document.querySelector('.pjmid .composer');
+    /* Real posts, at every size (round 2: an empty room's "Nothing here yet" line passed as the newest row). */
+    const posts = room ? room.querySelectorAll('.msg').length : 0;
+    if (posts < minPosts) return { posts, minPosts, noPosts: true };
+    if (postsOnly || !matchMedia('(max-width: 30rem)').matches) return null;
+    const rows = room ? [...room.children].filter((e) => e.getBoundingClientRect().height > 0) : [];
+    if (!rows.length || !comp) return { missing: true };
+    return { last: Math.round(rows[rows.length - 1].getBoundingClientRect().bottom), comp: Math.round(comp.getBoundingClientRect().top) };
+  }, { minPosts, postsOnly: !!postsOnly });
+  if (m && (m.noPosts || m.missing || m.last > m.comp)) throw new Error('#7196: the room is not the one meant, or its newest row is under the composer: ' + JSON.stringify(m));
+}
 /* kosmos#7184: a throwaway project with three tasks; task 1 held from the screen until task 2 closes ('task') or until a
    time ('at'), then its page opened and scrolled to the hold row. */
 async function holdUntil7184(page, data, kind) {
@@ -871,6 +929,21 @@ const SCREENS = [
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
     await page.waitForSelector('#d-dmthread .delivery.held', { state: 'visible', timeout: 5000 });
   } },
+  /* kosmos#7248 (Mona Lisa): the note for files of Kosmos's own that a crash left damaged, one with a good copy to put
+     back and one without. The board's answer is stood in on the way to the page; nothing is written to the board. */
+  { name: 'damaged-files-7248', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/board/damaged-files', async (r) => {
+      try {
+        await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ files: [
+          { file: 'projects.json', holds: 'your projects, their tasks and who is on them', problem: 'nul', backup: { file: 'projects.json.recovered-x', at: new Date(Date.now() - 3600e3).toISOString() } },
+          { file: 'removed.json', holds: 'the agents you removed', problem: 'empty', backup: null },
+        ] }) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await at(page, '');
+    await page.waitForSelector('#damaged-slot .dmg', { state: 'visible', timeout: 8000 });
+    await page.mouse.move(1, 1);
+  } },
   { name: 'agent-perm-card', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, null) },
   { name: 'agent-perm-card-allowed', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Allow') },
   { name: 'agent-perm-card-denied', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Deny') },
@@ -1004,6 +1077,64 @@ const SCREENS = [
     await page.evaluate(() => { const c = document.querySelector('.pjmid'); if (c) c.scrollIntoView({ block: 'end' }); });
     await page.waitForTimeout(150);
   } },
+  /* kosmos#7196 (Mona Lisa's conditions): a busy room at its newest row with the page at its top as the room opens, a
+     short room, and the keyboard up (phone only: the visible height shrinks by a keyboard's 336px). Each verifies, at a
+     phone width, that the newest row sits above the composer, so a shot of the bug never reaches the review. */
+  { name: 'room-busy-7196', owner: 'Angel', go: async (page, data) => {
+    const id = await busyProject7196(page, data.chatAgent);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
+    await roomFloor7196(page);
+  }, verify: async (page) => { await newestAbove7196(page, 24); },
+  after: async (page) => { await throwawayProjectGone(page, BUSY_7196); } },
+  { name: 'room-short-7196', owner: 'Angel', go: async (page, data) => {
+    const made = await project7196(page, 'Short room', data.chatAgent);
+    seedPosts7196(made, SENDER_7196, ['Just one message so far.']);
+    const id = made.id;
+    await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
+    await roomFloor7196(page);
+  }, verify: async (page) => { await newestAbove7196(page, 1); },
+  after: async (page) => { await throwawayProjectGone(page, 'Short room'); } },
+  { name: 'room-keyboard-7196', owner: 'Angel', phoneOnly: true, go: async (page, data) => {
+    const id = await busyProject7196(page, data.chatAgent);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
+    const vp = page.viewportSize();
+    page.__vp7196 = vp;
+    await page.setViewportSize({ width: vp.width, height: vp.height - 336 });
+    await page.waitForTimeout(300);
+    await roomFloor7196(page);
+  }, verify: async (page) => {
+    /* Review 2: on a short phone (the SE, 667px) the page header above the room takes almost all of what the keyboard
+       leaves, so with the page at its top no thread height can clear the composer. A stated limit of this fix (#7196),
+       not checked there; the phone sizes from 700px up are. */
+    await newestAbove7196(page, 24, !(page.__vp7196 && page.__vp7196.height >= 700));
+  },
+  after: async (page) => {
+    if (page.__vp7196) { await page.setViewportSize(page.__vp7196); page.__vp7196 = null; }
+    await throwawayProjectGone(page, BUSY_7196);
+  } },
+  /* kosmos#7272 (Renet): the room with the keyboard up WHILE TYPING, focus in the composer first, as on a phone. On a
+     phone the room's header steps aside, so the newest post shows above the composer. */
+  { name: 'room-typing-7272', owner: 'Renet Tilley', phoneOnly: true, go: async (page, data) => {
+    const id = await busyProject7196(page, data.chatAgent);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
+    const vp = page.viewportSize();
+    page.__vp7272 = vp;
+    await page.focus('#pj-post');
+    await page.setViewportSize({ width: vp.width, height: vp.height - 336 });
+    await page.waitForTimeout(300);
+    await roomFloor7196(page);
+  }, verify: async (page) => {
+    await newestAbove7196(page, 24, false);
+    // Where the rule applies (the phone room, 30rem and narrower), the header must actually be out of the way: a shot
+    // named for it must not pass on the old layout. Wider sizes (the small tablet) show the room unchanged.
+    const headH = await page.evaluate(() => { if (!matchMedia('(max-width: 30rem)').matches) return 0;
+      const h = document.querySelector('#pj-one-view .pjmidhead'); return h ? h.getBoundingClientRect().height : 0; });
+    if (headH > 0) throw new Error('the room header still shows while typing with the keyboard up (' + Math.round(headH) + 'px)');
+  },
+  after: async (page) => {
+    if (page.__vp7272) { await page.setViewportSize(page.__vp7272); page.__vp7272 = null; }
+    await throwawayProjectGone(page, BUSY_7196);
+  } },
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
      and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
   { name: 'project-head', owner: 'Mona Lisa', go: async (page, data) => {
@@ -1103,6 +1234,35 @@ const SCREENS = [
   }, after: async (page, data) => {   // review 1: put the project back, so no later screen shoots it paused
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }).then((r) => r.status), data.projectId);
     if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
+  } },
+  /* kosmos#7210: a project set to Muted: the label beside its title, then its settings with the notification choice.
+     Set from the page (as the person) and put back to All after, so no later screen shoots it muted. */
+  { name: 'project-muted-7210', owner: 'Ice Cream Kitty', go: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: 'muted' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('project-muted-7210: could not mute the project (status ' + st + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-head-notify', { state: 'visible', timeout: 8000 });
+    /* Design review round 2 (Mona Lisa): one shot caught the room before its first read painted, so wait for the room to
+       hold something. Any content, not one sentence: the sample room is empty only while #7185's filter hides rows that
+       predate their project (kosmos#7225), and its messages come back once that is fixed. */
+    await page.waitForFunction(() => ((document.getElementById('pj-room') || {}).textContent || '').trim().length > 0, null, { timeout: 8000 });
+  }, after: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: 'all' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not unmute the project after the shot (' + st + ')');
+  } },
+  { name: 'project-settings-notify-7210', owner: 'Ice Cream Kitty', go: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: 'mentions' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('project-settings-notify-7210: could not set Mentions only (status ' + st + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.click('#pj-settings-link');
+    await page.waitForSelector('#pjs-notify [aria-checked="true"][data-notify="mentions"]', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.getElementById('pjs-notify').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+  }, after: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: 'all' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not put the project back to All after the shot (' + st + ')');
   } },
   { name: 'projects-paused', owner: 'Mona Lisa', go: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
@@ -1438,10 +1598,6 @@ const SCREENS = [
       status: 200, contentType: 'application/json', body: JSON.stringify({ accounts }) }));
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#set-accounts .acct-box.acct-expiring', { state: 'visible', timeout: 12000 });
-    if (page.__landOnSoon) {   // settings-accounts-landed: arrive the way Refresh login does, ringing that row
-      await page.evaluate(() => loginAdvGo('/home/.claude-soon'));
-      await page.waitForSelector('#set-accounts .acct-box.acct-land', { state: 'visible', timeout: 5000 });
-    }
   } },
   /* #6176: AI Models with each Claude account's weekly AND five-hour readings: one with both (the second line under the
      first), one close to its five-hour limit, and one with only a weekly reading (the control). Only the account list
@@ -1480,6 +1636,36 @@ const SCREENS = [
     });
     await page.waitForSelector('#acct-qwen-local', { state: 'visible', timeout: 8000 });
   } },
+  /* #7206: DeepSeek while its switch is OFF (the default): the Add a provider menu, opened, lists it as coming soon. */
+  { name: 'settings-add-deepseek-soon', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => { openAcctAdd(); });
+    await page.waitForFunction(() => { const o = document.querySelector('#acct-provider-pick option[value="deepseek"]'); return o && o.disabled; }, null, { timeout: 5000 });
+    await page.evaluate(() => {
+      const t = document.getElementById('acct-provider-pick').nextElementSibling.querySelector('.pcombo-trigger');
+      t.click();
+    });
+    await page.waitForSelector('.pcombo-list:not([hidden]) [data-value="deepseek"]', { state: 'visible', timeout: 5000 });
+  } },
+  /* #7206: DeepSeek while its switch is ON: the key form. The board's answer to "is DeepSeek offered" is stubbed on, as
+     the Qwen screens stub theirs, so this shoots the page and needs no switch on the throwaway board. */
+  { name: 'settings-add-deepseek', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
+    await page.route((u) => new URL(u).pathname === '/api/accounts/compat', (route) => (route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: true,
+        vendors: [{ id: 'deepseek', name: 'DeepSeek', models: ['deepseek-chat', 'deepseek-reasoner'], keyPage: 'https://platform.deepseek.com/api_keys' }] }) })
+      : route.continue()));
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => { openAcctAdd(); });
+    await page.waitForFunction(() => { const o = document.querySelector('#acct-provider-pick option[value="deepseek"]'); return o && !o.disabled; }, null, { timeout: 5000 });
+    await page.evaluate(() => {
+      const sel = document.getElementById('acct-provider-pick');
+      sel.value = 'deepseek';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.waitForSelector('#acct-compat-flow', { state: 'visible', timeout: 5000 });
+  } },
   /* #5977: the same step while qwen2.5:7b downloads (the bar, and the sentence written once). */
   { name: 'settings-add-qwen-downloading', owner: 'PigeonPete', noServiceWorker: true, go: async (page, data) => {
     page.__qwenLocal = { state: 'needs_download', because: 'Ollama does not have qwen2.5:7b yet', model: 'kosmos-qwen2.5-7b-16k:latest',
@@ -1487,10 +1673,27 @@ const SCREENS = [
     await SCREENS.find((s) => s.name === 'settings-add-qwen').go(page, data);
     await page.waitForSelector('#acct-qwen-local-bar', { state: 'visible', timeout: 8000 });
   } },
-  /* #5407 (Mona Lisa asked for one shot of it): the same list, arrived at from the notice's Refresh login. */
-  { name: 'settings-accounts-landed', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
-    page.__landOnSoon = true;
-    await SCREENS.find((s) => s.name === 'settings-accounts-expiring').go(page, data);
+  /* kosmos#7198 (Josh, 08:32): the login notice's Refresh login opens the Sign in again dialog right on the Agents page.
+     The notice comes from the board's own status poll with its login advisories replaced; the account list is stubbed
+     so the notice's folder is a listed account. example.com accounts only. */
+  { name: 'login-notice-signin-dialog', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
+    const adv = { agents: ['mona'], names: ['Mona'], daysLeft: 2, severity: 'warn', expired: false, service: 's-soon',
+      provider: 'Claude', email: 'soon@example.com', dir: '/home/.claude-soon' };
+    await page.route((u) => new URL(u).pathname === '/api/accounts', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ accounts: [{ provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'soon@example.com', label: 'soon@example.com',
+        dir: '/home/.claude-soon', organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
+        connection: { state: 'connected', badge: 'working', checkedLive: true, plan: null } }] }) }));
+    await page.route((u) => new URL(u).pathname === '/api/status', async (route) => {
+      try {
+        const res = await fetchBoard(route); const data = await res.json();
+        data.loginAdvisories = [adv];
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
+    });
+    await at(page, '?tab=agents');
+    await page.waitForSelector('#login-adv-slot button.login-adv-go', { state: 'visible', timeout: 12000 });
+    await page.click('#login-adv-slot button.login-adv-go');
+    await page.waitForSelector('#acct-add-modal:not([hidden])', { state: 'visible', timeout: 5000 });
   } },
   /* #4545: Settings > Automation with the Recommender ON, so its guards list shows, scrolled to
      that box. Turning it on is stored on this run's throwaway board (so asking twice is fine).
@@ -2121,6 +2324,36 @@ const SCREENS = [
     if (!got.text.includes('Its agent was deleted, so releasing it never sends it to the public community.')) throw new Error('the deleted agent\'s held row does not say it is never sent: ' + JSON.stringify(got.text));
     if (!got.inView) throw new Error('the deleted agent\'s held row is not wholly on screen (top, bottom, viewport, scrollY): ' + JSON.stringify(got.at));
   } },
+  /* #7211: what Settings shows in place of every post and comment: the count, each agent's community page, and the
+     rows folded away (closed). The answer is the board's own shape (engine/communitymine.js summary). */
+  { name: 'community-index', owner: 'April', noServiceWorker: true, go: async (page) => {
+    const base = { deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, agentNameUnclaimed: false, deleteRetrying: false };
+    const posts = [
+      { id: 'p-ada-1', title: 'Writing captions before the photos arrive', agent: 'Ada', postedAt: '2026-10-25T11:00:00.000Z', state: 'sent', ...base, canDelete: true },
+      { id: 'p-ivo-1', title: 'A slow runner changed our test order', agent: 'Ivo', postedAt: '2026-10-24T11:00:00.000Z', state: 'sent', ...base, canDelete: true },
+    ];
+    const summary = { posts: 412, comments: 1438, agents: [
+      { agent: 'Ada', name: 'Ada-writes', posts: 230, comments: 801 },
+      { agent: 'Ivo', name: 'Ivo-ops', posts: 182, comments: 637 },
+    ] };
+    await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [], summary }) }));
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#community-mine-summary:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('community-mine-head').scrollIntoView({ block: 'start' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => ({
+      line: document.getElementById('community-mine-summary').textContent,
+      links: document.getElementById('community-mine-links').textContent,
+      closed: document.getElementById('community-mine-all').open === false,
+    }));
+    // The count is written in the page's own number format (toLocaleString), so the expected line is built the same way.
+    const want = await page.evaluate(() => 'Your agents have ' + (412).toLocaleString() + ' posts and ' + (1438).toLocaleString() + ' comments in the community.');
+    if (t.line !== want) throw new Error('the summary line reads ' + JSON.stringify(t.line));
+    if (!/Ada, Ivo\.$/.test(t.links)) throw new Error('the links line reads ' + JSON.stringify(t.links));
+    if (!t.closed) throw new Error('the fold is open by default');
+  } },
   { name: 'community-mine-deleted', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const base = { deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, agentNameUnclaimed: false, deleteRetrying: false };
     const posts = [
@@ -2128,8 +2361,13 @@ const SCREENS = [
       { id: 'p-rex-1', title: 'What I learned pricing the linen range', agent: LEFTOVER.claim + ' (deleted agent)', postedAt: '2026-09-30T15:00:00.000Z', state: 'sent', ...base, canDelete: true },
       { id: 'p-ada-1', title: 'Writing captions before the photos arrive', agent: 'Ada', postedAt: '2026-09-29T11:00:00.000Z', state: 'sent', ...base, canDelete: true },
     ];
-    await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [] }) }));
+    // #7211: with the board's summary, as a board on this branch answers.
+    const summary = { posts: 2, comments: 0, agents: [{ agent: 'Ada', name: 'Ada-writes', posts: 1, comments: 0 }] };
+    await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [], summary }) }));
     await at(page, '?tab=settings&sec=automation');
+    // #7211: the rows are in a fold, closed by default; this shot is of the rows, so it opens it.
+    await page.waitForSelector('#community-mine-all:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => { document.getElementById('community-mine-all').open = true; });
     await page.waitForSelector('#community-mine-list li[data-id="p-rex-2"]', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => document.getElementById('community-mine-head').scrollIntoView({ block: 'start' }));
     await page.mouse.move(1, 1);
@@ -2875,6 +3113,15 @@ async function seed(base, roots) {
   await post('/api/projects', DATA.secondProject);
   const t0 = Date.now() - 1800e3;
   const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
+  /* kosmos#7233: since #7185 no reader is given a room row stamped before its project's createdAt (an earlier project of
+     that name wrote it). The rows below are stamped from t0, half an hour back, so the project is dated one minute
+     before t0, through the projects module's own write. 31 minutes old is still inside the first 24 hours, so a
+     project's "new" state (roomLive and the 24-hour window) reads as it did before; the room simply has its posts. */
+  const projects = require(path.join(REPO, 'engine', 'projects'));
+  projects.mutate(pid, (p) => ({ ...p, createdAt: new Date(t0 - 60e3).toISOString() }));
+  if (projects.readAll().find((p) => p.id === pid).createdAt !== new Date(t0 - 60e3).toISOString()) {
+    throw new Error('seed: the project could not be dated before its room rows (kosmos#7233), so every room shot would be empty');
+  }
   const lines = [
     // A data set's `room` is exactly three posts: the times and the two reactions below name them.
     ...DATA.room.map(([from, to, text], i) => ({ kind: 'post', id: 'm' + (i + 1), project: pid, from, to, text, at: stamp([1, 4, 9][i]), outcomes: {} })),

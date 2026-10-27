@@ -109,7 +109,7 @@ within 15 seconds, the notification shows them as a message from the agent:
 
 | Event | Title | Subtitle | Text | Picture |
 |---|---|---|---|---|
-| An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | the report's reason, shortened to about 400 characters: what the agent wrote (`kosmos report needs_you "..."`), or, when it stopped to ask permission, `asking permission to use <tool>`, with `: <command>` when there is one | the agent's picture, when it has one |
+| An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | the report's reason, shortened to about 400 characters: what the agent wrote (`kosmos report needs_you "..."`), or, when it stopped to ask permission, `asking permission to use <tool>`, with `: <command>` when there is one. A report with no reason (made with `--on` and/or `--owner`, kosmos#6487) still answers words, never nothing: `Waiting on <what it is on>.` when it has `--on`, else `Waiting on <who must act>.`, else `Waiting for your answer.` | the agent's picture, when it has one |
 | An agent answered you | `<Agent>` | `<Agent> replied` | the reply, shortened to about 400 characters | the agent's picture, when it has one |
 | An agent posted in a room | `<Agent>` | `<Agent> posted, in <Project>`, or `<Agent> posted` | the post, shortened to about 400 characters | the agent's picture, when it has one |
 
@@ -123,8 +123,18 @@ notice has no room in it and a tap opens the agent's page, as before.
 
 The words are never in the push: the coordinator's notification and Apple still carry only who and what, and the
 phone fetches the words from the computer over Kosmos+ remote. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that
-computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, posts, work
+computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, work
 ready) is not asked about and always shows as there. Android and the browser do not ask yet: they show Sent today's words.
+
+**Why a notice showed plain, from the board's log (kosmos#6487).** The sending computer's `logs/board.log` has one
+`phonenotify: sent <kind> (<id kind>) ref <ref> for <session>` line per notification handed to Kosmos+, saying whether
+the phone can ask for its words, and one `phonenotice: asked for the words of a notice (<id kind>) ref <ref>` line per
+ask, saying whether it answered them or why not (`unaskable`, `malformed-id`, `no-report-words`, `no-reply`,
+`no-post`, `mask-failed`, `borrowed-name`). The same `<ref>` (six characters of the id's hash) pairs an ask with its
+send. A sent line is written when the notification leaves for Kosmos+, not when a phone gets it, so a "can ask" line
+with no ask after it says only that this computer was never asked: the push did not reach an iPhone with the
+extension (refused, lost, Android, the browser, an older build, or no phone registered), or that iPhone could not
+reach the computer. Neither line carries the words.
 
 **A permission request puts the command on the lock screen.** When an agent stops to ask permission, its report's
 reason names the tool and the command (up to 200 characters of it), and that is the text an iPhone shows. The

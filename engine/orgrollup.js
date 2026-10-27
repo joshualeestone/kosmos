@@ -156,7 +156,7 @@ function statusWord(state) {
    a person could have named after a client or a project (review 7). */
 const MODEL_PART = '(\\d+(\\.\\d+)*[a-z]?|opus|sonnet|haiku|fable|mini|nano|flash|pro|lite|codex|turbo|preview|latest|exp|\\d{8})';
 const MODEL_ID = new RegExp('^(claude|gpt|o[134]|codex|gemini|grok|llama)(-' + MODEL_PART + '){0,6}$');
-const PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'meta', 'antigravity', 'alibaba']);
+const PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'meta', 'antigravity', 'alibaba', 'deepseek']);   // #7206: the coordinator stores any name
 /* The whole tag block too (rollup review 24): the coordinator refuses U+E0000 to U+E007F, and externalName leaves the
    unassigned ones; one such name would lose the whole rollup. */
 const clean = (v) => externalName(typeof v === 'string' ? v.replace(/[\u{E0000}-\u{E007F}]/gu, '') : v, NAME_MAX) || null;
@@ -423,6 +423,18 @@ function defaultSources() {
           let fromProfile = null;
           try { fromProfile = require('./store').readProfile(sessionName).provider; } catch { fromProfile = null; }
           if (fromProfile === 'alibaba') return 'alibaba';
+        }
+      }
+      /* #7206 (follow-up review 1): a claude agent on a vendor account (DeepSeek) is read off its job; with no job (a
+         stopped agent whose job was lost, the case Repair is for), its profile names the vendor, as Qwen's does above.
+         Without this the runner's default answered, and a DeepSeek agent went as anthropic: a guess (review 22). */
+      if (runner === 'claude' && sessionName) {
+        let fromJob = null;
+        try { fromJob = create.claudeJobProvider(sessionName); } catch { fromJob = null; }
+        if (!fromJob) {
+          let fromProfile = null;
+          try { fromProfile = require('./store').readProfile(sessionName).provider; } catch { fromProfile = null; }
+          if (require('./anthropiccompat').vendorOf(fromProfile)) return KNOWN_PROVIDERS.has(fromProfile) ? fromProfile : null;
         }
       }
       const p = create.agentProvider(sessionName, runner);

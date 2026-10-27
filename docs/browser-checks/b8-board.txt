@@ -10,6 +10,7 @@ render-adopt-1531
 render-boot-no-flash
 render-catalogue-fetch-4632
 render-community-delete-4313
+render-community-index-7211
 render-community-industry-4375
 render-community-ready-5958
 render-community-switch-4288

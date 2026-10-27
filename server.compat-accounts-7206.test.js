@@ -27,6 +27,9 @@ process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-compat-launch-');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(SANDBOX, '.gemini');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
+// Slice 1b: vendor providers are off by default; these tests exercise the routes with the switch ON, and the switch's
+// own test below turns it off.
+require('./test-support/compat-switch').setAt(SANDBOX, true);   // the switch ON (the marker in this test's data folder)
 
 const compat = require('./engine/anthropiccompat');
 const runners = require('./engine/runners');
@@ -62,6 +65,26 @@ function vendorAnswers(reply) {
 }
 const hasModels = { status: 200, body: { data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }] } };
 
+test('slice 1b: with the switch OFF (the default) the add route refuses and GET offers nothing; ON is the control', async () => {
+  const urls = vendorAnswers(hasModels);
+  require('./test-support/compat-switch').setAt(SANDBOX, false);
+  try {
+    const status = await (await fetch(base + '/api/accounts/compat')).json();
+    assert.deepEqual(status, { enabled: false, vendors: [] }, 'the page is offered a vendor while the switch is off');
+    const r = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'offswitch' });
+    assert.equal(r.status, 400);
+    const b = await r.json();
+    assert.equal(b.notYet, true);
+    assert.equal(b.error, 'DeepSeek is not available in Kosmos yet');
+    assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-deepseek-offswitch')), false);
+    assert.deepEqual(urls, [], 'the key was sent to the vendor while the switch is off');
+  } finally { require('./test-support/compat-switch').setAt(SANDBOX, true); }
+  // CONTROL: on, the page is told which vendors exist.
+  const on = await (await fetch(base + '/api/accounts/compat')).json();
+  assert.equal(on.enabled, true);
+  assert.deepEqual(on.vendors.map((v) => v.id), ['deepseek']);
+});
+
 test('add: with no Claude Code on the computer, nothing is stored and the person is told why', async () => {
   vendorAnswers(hasModels);
   claudeHere = false;
@@ -85,7 +108,7 @@ test('add: a key DeepSeek refuses stores nothing, and the key went to DeepSeek o
   assert.deepEqual(urls, ['https://api.deepseek.com/models']);
 });
 
-test('add: a good key is stored, and is not yet in /api/accounts (slice 1b), never as a Claude account', async () => {
+test('add: a good key is stored and listed under DeepSeek while the switch is on, never as a Claude account', async () => {
   const urls = vendorAnswers(hasModels);
   const r = await post('/api/accounts/compat', { vendor: 'deepseek', key: KEY, label: 'work', baseUrl: 'https://elsewhere.example' });
   assert.equal(r.status, 200);
@@ -96,14 +119,23 @@ test('add: a good key is stored, and is not yet in /api/accounts (slice 1b), nev
   // The request's address is ignored: the stored account names the vendor, whose address is the table's.
   assert.equal(JSON.stringify(compat.readAccount(nodePath.join(SANDBOX, '.kosmos-deepseek-work'))).includes('elsewhere'), false);
   assert.equal(urls.every((u) => u === 'https://api.deepseek.com/models'), true);
-  const asked = vendorAnswers(hasModels);
-  // Review 3: NOT listed in slice 1a. The page names a provider it does not know as Claude, so a listed DeepSeek row
-  // would be shown, and acted on, as a Claude account. Slice 1b lists it with a page that knows it.
+  // Slice 1b: with the switch ON (this file's default) the row is listed, under DeepSeek, never as a Claude account.
+  vendorAnswers(hasModels);
   const list = await (await fetch(base + '/api/accounts')).json();
-  assert.equal(list.accounts.some((a) => a.dir === nodePath.join(SANDBOX, '.kosmos-deepseek-work') || a.provider === 'deepseek'), false,
-    'a DeepSeek row is listed before the page knows the provider');
+  const rows = list.accounts.filter((a) => a.dir === nodePath.join(SANDBOX, '.kosmos-deepseek-work'));
+  assert.equal(rows.length, 1, 'the account is not listed exactly once');
+  assert.equal(rows[0].provider, 'deepseek');
+  assert.equal(rows[0].providerName, 'DeepSeek');
   assert.equal(JSON.stringify(list).includes(KEY), false, 'the list carries the key');
-  assert.deepEqual(asked, [], 'review 4: the account list sent a key to the vendor for a row nobody sees');
+  // With the switch OFF: not listed, and the vendor is not asked (no key leaves this computer for a row nobody sees).
+  require('./test-support/compat-switch').setAt(SANDBOX, false);
+  try {
+    compat.resetLiveCacheForTest();
+    const asked = vendorAnswers(hasModels);
+    const off = await (await fetch(base + '/api/accounts')).json();
+    assert.equal(off.accounts.some((a) => a.provider === 'deepseek'), false, 'a DeepSeek row is listed while the switch is off');
+    assert.deepEqual(asked, [], 'the account list sent a key to the vendor while the switch is off');
+  } finally { require('./test-support/compat-switch').setAt(SANDBOX, true); }
   // Its own route still finds it.
   assert.equal(compat.list('deepseek').some((a) => a.label === 'work'), true);
 });
@@ -185,4 +217,46 @@ test('delete: forget sets the folder aside, remove deletes it; a Claude folder i
   r = await del('/api/accounts/compat', { dir: claudeDir, remove: true });
   assert.notEqual(r.status, 200);
   assert.equal(fs.existsSync(claudeDir), true, 'a Claude folder was deleted through the vendor route');
+});
+
+test('1b review 2: a DeepSeek agent reads as DeepSeek on the board (accountForAgent) and on the page (providerOf)', () => {
+  const jobfix = require('./test-support/jobfixture');
+  const create = require('./engine/create');
+  const { accountForAgent } = require('./server');
+  const bin = nodePath.join(SANDBOX, 'claude-7206'); fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const tmux = nodePath.join(SANDBOX, 'tmux-7206'); fs.writeFileSync(tmux, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const seed = (name, home) => {
+    fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    fs.mkdirSync(create.workerDir(name), { recursive: true });
+    fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, bin, tmux, null, home, 'claude'), 'utf8');
+  };
+  const dsHome = nodePath.join(SANDBOX, '.kosmos-deepseek-board');
+  compat.storeAccount(dsHome, { vendor: 'deepseek', model: 'deepseek-chat', key: KEY });
+  const claudeHome = nodePath.join(SANDBOX, '.claude-board'); fs.mkdirSync(claudeHome, { recursive: true });
+  seed('b7206-ds', dsHome);
+  seed('b7206-claude', claudeHome);
+  assert.equal((accountForAgent('b7206-ds', []) || {}).provider, 'deepseek');
+  assert.equal((accountForAgent('b7206-claude', []) || {}).provider, undefined, 'CONTROL: a Claude agent carries no provider');
+
+  const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const script = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const at = script.indexOf('const providerOf = (a) =>');
+  assert.ok(at > -1, 'providerOf moved in the page');
+  // eslint-disable-next-line no-new-func
+  const providerOf = new Function(script.slice(at, script.indexOf(';\n', at) + 1) + '\nreturn providerOf;')();
+  assert.equal(providerOf({ runner: 'claude', account: { provider: 'deepseek' } }), 'deepseek');
+  assert.equal(providerOf({ runner: 'claude', account: { dir: '/x/.claude-a' } }), 'anthropic', 'CONTROL');
+  assert.equal(providerOf({ runner: 'codex', account: { provider: 'alibaba' } }), 'alibaba', 'CONTROL: Qwen unchanged');
+});
+
+test('1b review 3: a DeepSeek agent\'s model line names DeepSeek, never Claude', () => {
+  const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const script = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const at = script.indexOf('function modelLine(');
+  assert.ok(at > -1, 'modelLine moved');
+  // eslint-disable-next-line no-new-func
+  const modelLine = new Function('cardStOf', script.slice(at, script.indexOf('\n}\n', at) + 2) + '\nreturn modelLine;')(() => ({ pres: 'on' }));
+  assert.equal(modelLine({ runner: 'claude', account: { provider: 'deepseek' } }), 'DeepSeek');
+  assert.equal(modelLine({ runner: 'claude', account: { provider: 'deepseek' }, modelName: 'deepseek-chat' }), 'deepseek-chat');
+  assert.doesNotMatch(String(modelLine({ runner: 'claude', account: { dir: '/x/.claude-a' }, modelName: 'claude-sonnet-5' })), /DeepSeek/, 'CONTROL');
 });

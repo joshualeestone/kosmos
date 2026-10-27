@@ -79,6 +79,21 @@ final class BoardClient: ObservableObject {
     private var shownMac: Board.Mac?
     // kosmos#7197: the name of the Mac whose list is shown, for a screen that names it while the phase does not.
     var shownMacName: String? { shownMac?.name }
+    // kosmos#7266: the account's computers as Kosmos+ last listed them, for the switcher, and the one the person chose
+    // there (it wins over the remembered and the most recently seen one while it is usable, Board.pickMac).
+    @Published private(set) var macs: [Board.Mac] = []
+    // kosmos#7266 slice B: the person on the shown computer (its "you" record and picture), for the Settings tab's
+    // picture and the profile page. nil until read, and when the board has none.
+    @Published private(set) var youName: String?
+    @Published private(set) var youPicture: Data?
+    private var youAt: Date?
+    private var youPictureAt: Date?
+    private var youTask: Task<Void, Never>?
+    // Review 1: only the read that started last clears the handle, as the tasks read's token does.
+    private var youTicket = 0
+    private var chosenMac: String?
+    // The computer the switcher marks: the shown list's, else the one being opened.
+    var switcherShown: String? { shownMac?.address ?? admitted?.mac.address ?? chosenMac }
     // The Mac to name when the shown list or chat stops updating: the shown one first (the list and its chat are
     // its), the phase's only when no list was shown (Board.failingMacName).
     var failingMacName: String? { Board.failingMacName(shown: shownMacName, phase: phase.macName) }
@@ -160,6 +175,10 @@ final class BoardClient: ObservableObject {
             updatedAt = Date()
             fresh = true
             phase = .live(mac: Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true))
+            // kosmos#7266: two computers for the switcher's shots, the second offline.
+            shownMac = Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true)
+            macs = [shownMac!, Board.Mac(name: "Laptop", address: "laptop.kosmosplus.com", usable: true, connected: false)]
+            youName = "Sam Carter"   // kosmos#7266 slice B; the picture is drawn by the view (ContentView, KOSMOS_SAMPLE_YOUPIC)
             loadSampleThreads()
             return
         }
@@ -185,6 +204,9 @@ final class BoardClient: ObservableObject {
             updatedAt = nil
             shownMac = nil
             shownOwner = nil
+            macs = []
+            chosenMac = nil
+            forgetYou()
             pictures = [:]
             pictureVersions = [:]
             forgetToday()   // kosmos#7030: no count or tasks while signed out
@@ -194,7 +216,10 @@ final class BoardClient: ObservableObject {
         // A kept Mac session from another sign-in is never used, so it is not kept either. Not while no session can
         // be read: the sign-out deletes it itself.
         if session != nil, stored != nil, Board.usableSaved(stored, session: session, coordinator: coordinator) == nil { macStore.delete() }
+        // kosmos#7266 review 1: never the kept session of another computer than the one chosen in the switcher, or any later
+        // start (Try again, a return to the app, as when the person goes to press Allow) would undo the choice.
         if admitted == nil, !skipSaved, let session, let saved = Board.usableSaved(stored, session: session, coordinator: coordinator),
+           chosenMac == nil || saved.address == chosenMac,
            let url = Board.macURL(address: saved.address, coordinator: coordinator) {
             // The Mac's session from an earlier launch: tried first, and dropped by refresh() if the Mac has ended it.
             restoreCookie(saved.cookie, for: url)
@@ -244,6 +269,31 @@ final class BoardClient: ObservableObject {
         if sortedTicket <= before { resortNext = false }
     }
 
+    // kosmos#7266: the switcher. Another computer: the session held for this one (and the kept one) is dropped and the
+    // chosen one opened, remembered for the next launch once it lets this iPhone in. The same one again does nothing.
+    func showMac(address: String) {
+        guard address != switcherShown else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return }
+        #endif
+        chosenMac = address
+        admitted = nil
+        skipSaved = true
+        // The list before is the other computer's: it goes now, so "not answering" never names it over the chosen one
+        // (failingMacName prefers the shown Mac), and its chats, pictures and Today go with it.
+        agents = []
+        updatedAt = nil
+        shownMac = nil
+        stars = nil
+        pictureTask?.cancel()
+        pictures = [:]
+        pictureVersions = [:]
+        forgetYou()
+        forgetChats()
+        forgetToday()
+        start()
+    }
+
     func stop() {
         loop?.cancel()
         loop = nil
@@ -251,6 +301,9 @@ final class BoardClient: ObservableObject {
         // kosmos#7030 review 3: a tasks read in the air would otherwise hold off the next one after start().
         tasksTask?.cancel()
         tasksTask = nil
+        // kosmos#7266 slice B review 1: a name and picture read in the air is dropped with the run, so it is not counted
+        // as done: the next start reads at once instead of waiting 5 minutes with nothing shown.
+        if youTask != nil { youTask?.cancel(); youTask = nil; youAt = nil; youPictureAt = nil }
     }
 
     // MARK: - Today (kosmos#7030)
@@ -365,8 +418,12 @@ final class BoardClient: ObservableObject {
     // kosmos#7031: by session, for a task row whose agent the roster does not list yet.
     func chatURL(session: String) -> URL? {
         guard let mac = shownMac else { return nil }
-        return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": session], coordinator: coordinator)
+        let url = PushBridge.boardURL(fromNotification: ["address": mac.address, "session": session], coordinator: coordinator)
+        return boardSectionOnce.flatMap { sec in url.flatMap { Board.withBoardSection($0, sec) } } ?? url
     }
+    // kosmos#7267/#7280: the agent page's "Open on your computer's board" sets this for the one open it starts, so the
+    // board lands on that section (?sec=model) instead of the conversation. Set and cleared around a single call.
+    var boardSectionOnce: String?
 
     // MARK: - One agent's conversation (kosmos#7008)
 
@@ -386,6 +443,9 @@ final class BoardClient: ObservableObject {
     // cannot be made, or when no answer came. The caller reads the answer itself.
     // The Mac this client is connected to, for a link to its board (a room's info button); nil when not connected.
     var macURL: URL? { admitted?.url }
+    // kosmos#7266 review 4: the board of the computer the switcher names, connected or not, so a + made before that
+    // computer lets the phone in (or while it is offline) still targets it rather than the shared page's computer.
+    var switcherURL: URL? { switcherShown.flatMap { Board.macURL(address: $0, coordinator: coordinator) } }
 
     func throughMac(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let held = admitted, let request = build(held.url) else { return nil }
@@ -936,12 +996,20 @@ final class BoardClient: ObservableObject {
         }
         // KOSMOS_SAMPLE_LONG=1: Dana's chat is 220 messages with 40 before them, to check that opening a long chat lands on
         // the newest message and loads nothing until the person scrolls up.
-        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"] == "1" {
+        // kosmos#7265: KOSMOS_SAMPLE_LONG=varied makes the messages' lengths vary as a real chat's do (one line to a long
+        // reply), which is what throws a one-time jump to the newest message short.
+        if let long = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"], long == "1" || long == "varied" {
             var rows: [[String: Any]] = []
+            let para = "Here is where things stand on the catalogue, with the parts that are done and the parts still waiting on photos and prices."
             for i in 0..<220 {
                 let at: String = String(format: "2026-10-23T%02d:%02d:00Z", 8 + i / 60, i % 60)
                 let from: Any = i % 2 == 0 ? "dana" : NSNull()
-                rows.append(["at": at, "text": "Message \(i + 41) of 260.", "from": from])
+                var text = "Message \(i + 41) of 260."
+                if long == "varied" && i % 2 == 0 {
+                    let paragraphs = [0, 1, 3, 8, 2, 14][i / 2 % 6]
+                    if paragraphs > 0 { text += "\n\n" + Array(repeating: para, count: paragraphs).joined(separator: "\n\n") }
+                }
+                rows.append(["at": at, "text": text, "from": from])
             }
             if let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 40]),
                let t = Board.parseThread(data) { sampleThreads["dana"] = t }
@@ -996,12 +1064,57 @@ final class BoardClient: ObservableObject {
         }
     }
 
+    // kosmos#7266 slice B. A read that fails keeps what was shown (review 4: and is tried again after youRetry).
+    private func fetchYou(url: URL, _ gen: Int, name: Bool) async {
+        if name { await fetchYouName(url: url, gen) }
+        guard gen == generation, !Task.isCancelled else { return }
+        // Review 1: the picture on the first read and then every 30 minutes (it is the big one).
+        guard youPictureAt.map({ env.now().timeIntervalSince($0) >= Board.youPictureEvery }) ?? true else { return }
+        youPictureAt = env.now()
+        let pic = await env.send(Board.youPictureRequest(mac: url))
+        guard gen == generation, !Task.isCancelled else { return }
+        switch Board.youPicture(status: pic?.1.statusCode, contentType: pic?.1.value(forHTTPHeaderField: "Content-Type"), data: pic?.0) {
+        case .picture(let data): youPicture = data
+        case .none: youPicture = nil
+        case .unknown: youPictureAt = env.now().addingTimeInterval(Board.youRetry - Board.youPictureEvery)
+        }
+    }
+
+    private func fetchYouName(url: URL, _ gen: Int) async {
+        let named = await env.send(Board.youRequest(mac: url))
+        guard gen == generation, !Task.isCancelled else { return }
+        var learned = false
+        if let (data, answer) = named, (200...299).contains(answer.statusCode) {
+            switch Board.youName(data) {
+            case .name(let n): youName = n; learned = true
+            case .none: youName = nil; learned = true
+            case .unknown: break
+            }
+        } else if named?.1.statusCode == 404 {
+            // Review 5: an older board without the route has no name to give (the picture read reads its 404 as none).
+            // Review 6: counted as learned (no 30 s retry), but unlike the picture the name shown is kept, in case something
+            // else answered 404 (a computer or account switch clears it anyway).
+            learned = true
+        }
+        // Review 4: nothing learned, so the next read comes after youRetry rather than youEvery.
+        if !learned { youAt = env.now().addingTimeInterval(Board.youRetry - Board.youEvery) }
+    }
+
+    // Another computer, another account or a sign-out: the person's name and picture are that computer's own.
+    private func forgetYou() {
+        youTask?.cancel(); youTask = nil
+        youAt = nil; youPictureAt = nil; youName = nil; youPicture = nil
+    }
+
     // Everything learned under the previous Kosmos+ session goes, cookies and the kept Mac session included.
     private func forget() {
         forgetChats()
         chatsOwner = nil
         admitted = nil
         shownMac = nil
+        macs = []          // kosmos#7266: another account's computers are never offered
+        chosenMac = nil
+        forgetYou()
         shownOwner = nil
         pictureTask?.cancel()
         pictures = [:]
@@ -1060,10 +1173,18 @@ final class BoardClient: ObservableObject {
             keepMacSession(mac, url: url, session: session)
             env.defaults.set(mac.address, forKey: Board.rememberedMacKey)
         }
-        guard let (mac, url, _) = admitted else { return }
+        guard let (mac, url, held) = admitted else { return }
+        // kosmos#7266 review 2: a run that restored the kept session never asked Kosmos+ for the Macs, so the switcher
+        // had nothing to list on the common launch. Asked here in the background while the list is empty, without
+        // touching the session. Known: online and offline in the list are as of the last read (a switch, a Try again
+        // that asks afresh, or a new launch reads it again).
+        if macs.isEmpty && macsReadGen != gen {
+            macsReadGen = gen
+            Task { await self.readMacs(session: held, gen) }
+        }
         // Another Mac: its agents' pictures are its own, even for an agent of the same name.
         // Another Mac: its pictures and the chats (opened on the one before) go now, before any chat call reaches it.
-        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; forgetChats(); forgetToday() }
+        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; forgetYou(); forgetChats(); forgetToday() }
         failedRefreshes = 0
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
@@ -1086,14 +1207,28 @@ final class BoardClient: ObservableObject {
         else { set(.kosmosPlusDown, gen) }
     }
 
+    // The run that last asked for the Macs (chooseMac asks too, when it runs).
+    private var macsReadGen = -1
+    // The switcher's list only: a failure here changes nothing on screen (the shown computer is already open).
+    private func readMacs(session: String, _ gen: Int) async {
+        let result = await env.send(Board.macsRequest(coordinator: coordinator, session: session))
+        guard gen == generation, let (data, answer) = result, (200...299).contains(answer.statusCode),
+              let macs = Board.parseMacs(data) else { return }
+        self.macs = Board.reachableMacs(macs, coordinator: coordinator)
+    }
+
     private func chooseMac(session: String, _ gen: Int) async -> Board.Mac? {
         let result = await env.send(Board.macsRequest(coordinator: coordinator, session: session))
         let status = result?.1.statusCode ?? 0
         guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
             kosmosPlusFailed(status: status, gen); return nil
         }
-        guard let mac = Board.pickMac(Board.reachableMacs(macs, coordinator: coordinator),
-                                      remembered: env.defaults.string(forKey: Board.rememberedMacKey)) else {
+        // Review 1: a list that lands after a sign-out or another start is not this run's to show.
+        guard gen == generation else { return nil }
+        self.macs = Board.reachableMacs(macs, coordinator: coordinator)
+        macsReadGen = gen
+        guard let mac = Board.pickMac(self.macs, remembered: env.defaults.string(forKey: Board.rememberedMacKey),
+                                      chosen: chosenMac) else {
             set(.noMac, gen); return nil
         }
         return mac
@@ -1218,6 +1353,16 @@ final class BoardClient: ObservableObject {
             // by the next read (a cancelled fetch must not count as a failed one).
             if pictureTask == nil {
                 pictureTask = Task { await self.fetchPictures(url: url, gen); self.pictureTask = nil }
+            }
+            // kosmos#7266 slice B: the person's name and picture, on the first list and then every 5 minutes.
+            // Review 4: the picture has its own due time, so a picture read that learned nothing is retried on its own.
+            let nameDue = youAt.map({ env.now().timeIntervalSince($0) >= Board.youEvery }) ?? true
+            let pictureDue = youPictureAt.map({ env.now().timeIntervalSince($0) >= Board.youPictureEvery }) ?? true
+            if youTask == nil, nameDue || pictureDue {
+                if nameDue { youAt = env.now() }
+                youTicket += 1
+                let ticket = youTicket
+                youTask = Task { await self.fetchYou(url: url, gen, name: nameDue); if self.youTicket == ticket { self.youTask = nil } }
             }
             // kosmos#7030: the tasks Today shows, read only while Today is on screen, at most every 30 s (the board's Tasks
             // view read is not cheap); pull to refresh reads them at once.

@@ -37,7 +37,7 @@ function el(id) {
  * interval and fetch faked. `connect` is what GET /api/connect answers; `start` is
  * what POST /api/connect/start answers.
  */
-function harness({ start, connect }) {
+function harness({ start, connect, cloud = false }) {
   const els = new Map();
   const document = {
     activeElement: null,
@@ -58,6 +58,9 @@ function harness({ start, connect }) {
     // #3939 slice 3c-2: acctFlowPaint's flow-ended point also clears the Meta Muse "under way" line.
     "const MUSE_BUSY = 'busy'; const acctAddPickSay = () => {};",
     lift(SCRIPT, 'frConnActive'), lift(SCRIPT, 'acctFlowStop'), lift(SCRIPT, 'acctFocusAfterFlow'),
+    // kosmos#4903 S5: the page's cloud-machine reader, stubbed; absent unless asked (the page then keeps the Mac words).
+    cloud ? 'function onCloudMachine() { return true; }\n' + SCRIPT.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + lift(SCRIPT, 'signinSay') + '\n' + lift(SCRIPT, 'frCloudSigninDetail') : '',
+    lift(SCRIPT, 'acctClaudePaintUrl'),
     lift(SCRIPT, 'acctFlowPaint'), lift(SCRIPT, 'acctFlowWatch'), lift(SCRIPT, 'acctAddStart'),
     'return { acctAddStart, acctFlowWatch, acctFlowPaint };',
   ].join('\n');
@@ -69,7 +72,7 @@ function harness({ start, connect }) {
   async function tick() {
     for (const fn of [...timers.values()]) await fn();
   }
-  return { page, timers, polls, tick };
+  return { page, timers, polls, tick, document };
 }
 
 for (const phase of ['stuck', 'interrupted', 'idle']) {
@@ -121,4 +124,54 @@ test('#4275: the code and cancel handlers reset the dedup key AND make sure a po
     const handler = SCRIPT.slice(at, end).split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
     assert.match(handler, /ACCT_FLOW_LAST = null;[\s\S]*^\s*acctFlowWatch\(\);/m, `the ${id} handler resets the key without making sure a poll runs`);
   }
+});
+
+test('kosmos#4903 S5: Settings\' Claude sign-in on a cloud machine shows the sign-in page\'s link, and says to open it', () => {
+  const URL = 'https://claude.com/cai/oauth/authorize?code=true';
+  const h = harness({ start: {}, connect: {}, cloud: true });
+  h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: URL });
+  const row = h.document.getElementById('acct-claude-open-row');
+  assert.equal(row.hidden, false, 'a cloud machine got no link: nothing opens a browser there');
+  assert.equal(h.document.getElementById('acct-claude-open').href, URL);
+  assert.match(h.document.getElementById('acct-flow-say').textContent, /Open the Claude sign-in page below/);
+  // Not before Claude has printed a link, and never a link that is not https.
+  const early = harness({ start: {}, connect: {}, cloud: true });
+  early.page.acctFlowPaint({ phase: 'signin-browser-open', url: null });
+  assert.equal(early.document.getElementById('acct-claude-open-row').hidden, true, 'a link row with no link');
+  // S5 design review: with no link yet it says one is coming, never "below".
+  assert.match(early.document.getElementById('acct-flow-say').textContent, /Its link appears here in a moment/);
+  assert.doesNotMatch(early.document.getElementById('acct-flow-say').textContent, /below/);
+  const odd = harness({ start: {}, connect: {}, cloud: true });
+  odd.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: 'javascript:alert(1)' });
+  assert.equal(odd.document.getElementById('acct-claude-open-row').hidden, true, 'a non-https link was offered');
+  // CONTROL: on a Mac the row stays hidden (the sign-in opens a browser there) and the words are the Mac's.
+  const mac = harness({ start: {}, connect: {} });
+  mac.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: URL });
+  assert.equal(mac.document.getElementById('acct-claude-open-row').hidden, true, 'the Mac Settings flow changed');
+});
+
+test('kosmos#4903 S5 review 1: a link that arrives on the SAME phase still lands in Settings, and a changed one replaces it', () => {
+  const h = harness({ start: {}, connect: {}, cloud: true });
+  const row = () => h.document.getElementById('acct-claude-open-row');
+  const href = () => h.document.getElementById('acct-claude-open').href;
+  h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: null });
+  assert.equal(row().hidden, true, 'PRE-CONTROL: no link yet');
+  h.document.getElementById('acct-code').value = 'typed-so-far';
+  h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?state=one' });
+  assert.equal(row().hidden, false, 'the late link never appeared (the repeat check dropped it)');
+  assert.equal(href(), 'https://claude.com/oauth?state=one');
+  h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?state=two' });
+  assert.equal(href(), 'https://claude.com/oauth?state=two', 'a changed link kept the stale one');
+  assert.equal(h.document.getElementById('acct-code').value, 'typed-so-far', 'the code field was rebuilt under the person');
+  // S5 design review: the sentence above the link follows it, inside the phase.
+  assert.match(h.document.getElementById('acct-flow-say').textContent, /sign-in page below/, 'the late link left the sentence saying it is coming');
+  // Review 2 (W2): a reason on screen is never replaced by the generic sentence when the link changes.
+  const reason = 'That code did not work. If Claude gave you a code, paste it here to try again.';   // the shape of the page's own reasons
+  h.document.getElementById('acct-flow-say').textContent = reason;
+  h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: null });
+  assert.equal(h.document.getElementById('acct-flow-say').textContent, reason, 'the link going away replaced the reason a code failed');
+  h.page.acctFlowPaint({ phase: 'signin-completing', url: 'https://claude.com/oauth?state=two' });
+  assert.equal(row().hidden, true, 'review 2: the link stayed while Claude was finishing (a second press starts a second sign-in)');
+  h.page.acctFlowPaint({ phase: 'connected', url: 'https://claude.com/oauth?state=two' });
+  assert.equal(row().hidden, true, 'the link stayed after the sign-in ended');
 });

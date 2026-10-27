@@ -333,7 +333,9 @@ release_site_restore() {
   # holding precut/<file> reaches the restore arm.
   # staging_ptr_had defaults to 1 so a 5-arg caller (before #2036) is a no-op on the
   # staging pointer: had=1 skips its untracked-remove arm below, matching had_ptr's contract.
-  local site="$1" v="$2" had="$3" had_ptr="${4:-1}" bak_root="${5:-}" staging_ptr_had="${6:-1}" f rel _u
+  # kosmos#7281: linux_had (7th) is the Linux pair's own record; it defaults to 1, so a caller that does not pass it
+  # never removes a Linux file.
+  local site="$1" v="$2" had="$3" had_ptr="${4:-1}" bak_root="${5:-}" staging_ptr_had="${6:-1}" linux_had="${7:-1}" f rel _u
   [ -n "$site" ] && [ -n "$v" ] && [ -d "$site" ] || { echo "release_site_restore: site and version are required" >&2; return 0; }
   # #2036: dist/latest-staging.json is restored here too. When it is TRACKED (a prior staging
   # cut committed it), a changed one is checked out back to its committed value like latest.json.
@@ -343,7 +345,8 @@ release_site_restore() {
   # too: promote-channel.sh refuses a modified one).
   # setup itself too (it used to put back only the sidecar): with #5032's setup_sha256 a committed setup and its
   # sidecar that disagree make every deploy refuse.
-  for f in dist/latest.json dist/latest-staging.json setup setup.sha256 setup-staging setup-staging.sha256; do
+  # kosmos#7281: and the Linux family's two pointers.
+  for f in dist/latest.json dist/latest-staging.json dist/latest-linux.json dist/latest-linux-staging.json setup setup.sha256 setup-staging setup-staging.sha256; do
     if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
       if ! git -C "$site" diff --quiet -- "$f"; then
         git -C "$site" checkout -q -- "$f" && echo "   put back: $f (the cut had changed it; the site checkout no longer claims $v)"
@@ -356,7 +359,8 @@ release_site_restore() {
   # Other bytes (an older copy on origin/main) are removed, or the next pull would refuse to overwrite them. Removed so a later promote, which copies the
   # pair onto /setup, can never pick up an installer staging never served (promote-channel.sh also
   # refuses an untracked or modified one).
-  for f in setup-staging setup-staging.sha256; do
+  # kosmos#7281: an untracked Linux pointer is the same leftover (a first Linux cut that aborted), by the same rule.
+  for f in setup-staging setup-staging.sha256 dist/latest-linux.json dist/latest-linux-staging.json; do
     if ! git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1 && [ -f "$site/$f" ] \
        && [ "$(git -C "$site" hash-object "$site/$f")" != "$(git -C "$site" rev-parse -q --verify "origin/main:$f" 2>/dev/null)" ]; then
       rm -f "$site/$f" && echo "   removed: $f (committed nowhere, so never served)"
@@ -394,6 +398,16 @@ release_site_restore() {
       # restored rather than removed for the same reason.
       git -C "$site" ls-files --error-unmatch "$rel" >/dev/null 2>&1 && continue
       rm -f "$f" && echo "   removed: $rel (this cut created it and never served it; the name is cache-immutable, so it must not linger)"
+    done
+  fi
+  # kosmos#7281 review 1 (W3): the Linux family's versioned files, gated on the Linux pair's OWN record: a served Linux
+  # tarball on a checkout with no local Mac tarball of the same version is never taken for this cut's leftover.
+  if [ "$linux_had" != 1 ]; then
+    for f in "$site"/dist/kosmos-"$v"-linux-x64.*; do
+      [ -f "$f" ] || continue
+      rel="dist/$(basename "$f")"
+      git -C "$site" ls-files --error-unmatch "$rel" >/dev/null 2>&1 && continue
+      rm -f "$f" && echo "   removed: $rel (this cut created it and never served it)"
     done
   fi
   # #1548: the UNVERSIONED pointer (kosmos-arm64.tar.gz + .sha256) is not a versioned

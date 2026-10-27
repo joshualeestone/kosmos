@@ -11,6 +11,9 @@ struct SettingsView: View {
     let openPage: (URL) -> Void
     // The board's own Settings, shown under Today (AppTabs.barTab).
     let openBoardSettings: () -> Void
+    // kosmos#7266 slice B: the person on the shown computer, for the page's top (BoardClient.youName / youPicture).
+    var youName: String? = nil
+    var youPicture: Data? = nil
 
     private enum Load: Equatable {
         case reading
@@ -41,6 +44,7 @@ struct SettingsView: View {
         NavigationView {
             ScrollViewReader { scroller in
                 List {
+                    profile
                     notifications
                     computer
                     // Only while the app really asks for it: the lock is off by default (KosmosConfig.requireBiometricUnlock,
@@ -48,6 +52,7 @@ struct SettingsView: View {
                     if KosmosConfig.requireBiometricUnlock { security }
                     account
                     board
+                    about
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
@@ -71,6 +76,43 @@ struct SettingsView: View {
         .task { await read() }
     }
 
+    // MARK: Profile (kosmos#7266 slice B)
+
+    // The person's picture and name on top, as a profile page; every setting under it. The picture and the name are
+    // the computer's own ("You" on the board): they are changed there, which the footer says.
+    private var profile: some View {
+        Section {
+            VStack(spacing: 10) {
+                Group {
+                    if let picture = YouFace.profileImage(youPicture) {
+                        Image(uiImage: picture).resizable().scaledToFill()
+                    } else if let letter = Board.youLetter(youName) {
+                        // Mona Lisa's review: the person's letter on the avatar cream, as an agent with no picture.
+                        ZStack {
+                            Palette.avatarFill
+                            Text(letter).font(.system(size: 36, weight: .semibold)).foregroundColor(Palette.avatarLetter)
+                        }
+                    } else {
+                        Image(systemName: "person.crop.circle.fill").resizable().scaledToFit().foregroundColor(Palette.secondary)
+                    }
+                }
+                .frame(width: 88, height: 88)
+                .clipShape(Circle())
+                .accessibilityHidden(true)
+                Text(youName ?? "You").font(.title2.weight(.semibold)).foregroundColor(Palette.primary)
+                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .listRowBackground(Color.clear)
+        } footer: {
+            Text("Your name and picture come from your computer. Change them in your Profile in the board's Settings.")
+                .font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+        }
+    }
+
     // MARK: Notifications
 
     @ViewBuilder private var notifications: some View {
@@ -82,7 +124,7 @@ struct SettingsView: View {
                     Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
                 }
             case .signedOut:
-                Text("Sign in on the Today tab, then your computer's phone settings show here.")
+                Text("Sign in to Kosmos+ first, then your computer's phone settings show here.")
                     .font(.subheadline).foregroundColor(Palette.secondary)
             case .noComputer:
                 Text("Open the Agents tab to connect to your computer, then its phone settings show here.")
@@ -207,6 +249,17 @@ struct SettingsView: View {
         } footer: {
             Text("Agents, AI models, connections and the rest of your computer's settings are there.")
                 .font(.footnote).foregroundColor(Palette.secondary)
+        }
+    }
+
+    // kosmos#7266: the credit the Agents tab's icon needs (Font Awesome Free's icons are CC BY 4.0).
+    private var about: some View {
+        Section {
+            // Review 1 nit: the licence linked and its holder named, as CC BY 4.0 asks.
+            Text("The Agents icon is from Font Awesome Free, \u{00A9} Fonticons, Inc., used under the [CC BY 4.0 licence](https://creativecommons.org/licenses/by/4.0/).")
+                .font(.footnote).foregroundColor(Palette.secondary)
+        } header: {
+            Text("About")
         }
     }
 

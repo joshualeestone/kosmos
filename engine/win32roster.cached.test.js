@@ -11,7 +11,7 @@
  * refreshed in the BACKGROUND rather than on the request, and a failed read kept
  * as a failure.
  *
- *   node -r <no-schtasks-preload> --test engine/win32roster.cached.test.js
+ *   node -r ./tools/no-schtasks-preload.cjs --test engine/win32roster.cached.test.js
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

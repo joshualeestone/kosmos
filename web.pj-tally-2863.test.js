@@ -23,7 +23,8 @@ const SCRIPT = page.scriptOf(PAGE);
 const m = SCRIPT.match(/const pjDmTotal = (active\.reduce\([\s\S]*?\}, 0\));/);
 const sumOf = (projects, current = null) => {
   assert.ok(m, 'the pjDmTotal reduce is gone from paintProjects()');
-  return new Function('active', 'PJ_CURRENT', 'return ' + m[1] + ';')(projects, current);
+  // kosmos#7210: the reduce asks each project's notification level, so the page's own reader is in scope too.
+  return new Function('active', 'PJ_CURRENT', page.lift(SCRIPT, 'pjNotifyLevel') + '\nreturn ' + m[1] + ';')(projects, current);
 };
 
 test('the tally sums project unread across the active board, and null/negative contribute 0', () => {
@@ -71,4 +72,10 @@ test('the tile markup and its muted (non-alert) glyph are present', () => {
      somewhere, they are not a fault (the same choice the agents tile makes). */
   assert.doesNotMatch(PAGE.match(/<div class="stat" id="st-pjdm-tile"[\s\S]*?<\/div>/)[0], /class="haz"/,
     'the projects Messages tile wears the red alert mark; it should carry its own muted glyph');
+});
+
+test('kosmos#7210: a project on Mentions only or Muted adds nothing to the tally, as the server badge leaves it out', () => {
+  assert.equal(sumOf([{ id: 'a', unread: 3 }, { id: 'b', unread: 5, notify: 'muted' }, { id: 'c', unread: 2, notify: 'mentions' }]), 3,
+    'a quiet project was counted in the Messages tally');
+  assert.equal(sumOf([{ id: 'a', unread: 3 }, { id: 'b', unread: 5, notify: 'all' }]), 8, 'CONTROL: a project on All still counts');
 });

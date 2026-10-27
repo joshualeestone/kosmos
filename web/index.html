@@ -17,6 +17,8 @@
 <meta name="kosmos-version" content="__KOSMOS_VERSION__">
 <!-- win32-board-copy: the platform the board runs on, stamped per request by server.js (stampServedPlatform) and read by servedPlatform(). -->
 <meta name="kosmos-platform" content="__KOSMOS_PLATFORM__">
+<!-- kosmos#4903 S5: "1" when this board is a Kosmos cloud machine (stamped beside the platform; read by onCloudMachine()). -->
+<meta name="kosmos-cloud-machine" content="__KOSMOS_CLOUD_MACHINE__">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kosmos</title>
 <!-- The tab icons (#45): the SITE's exact shape, four explicit PNGs and
@@ -893,10 +895,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 #set-accounts .acct-expiring-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }   /* #set-accounts: outranks the panel's p margin (Mona Lisa's gap) */
 .acct-actions > button.acct-reauth-main { text-decoration: none; font-weight: 600; padding: .45em .95em; border-radius: 8px;
   border: 1px solid var(--gold-bright); min-height: 32px; }
-.acct-box.acct-land { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold-bright) 75%, transparent); }
-@media (prefers-reduced-motion: no-preference) { .acct-box.acct-land { transition: box-shadow .3s ease; } }
 /* #5407: on Settings > AI Models a login notice steps aside when ITS row there says the same thing (marked
-   adv-covered by loginAdvSyncCovered); floating over the list, notices covered the very row Refresh login lands on.
+   adv-covered by loginAdvSyncCovered); floating over the list, notices covered the very row that says it.
    Review 2: only then. A notice whose row is missing or not warned (a symlinked folder, a date read still on its
    way) stays, so an expiring login is never left with no warning on screen. Every other screen shows them all. */
 body:has(#panel-settings:not([hidden]) #s-sec-accounts:not([hidden])) #login-adv-slot .login-adv.adv-covered { display: none; }
@@ -1358,6 +1358,12 @@ body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display:
    neutral tone of .login-adv.notice, restated in each theme block below as that one is (Mona Lisa). */
 .utoast.reboot { --utone: var(--label-2); }
 .utoast.reboot .utxt b { color: var(--label); }
+/* kosmos#7248: one row per damaged file, its put-back button inline at the button size the notices use. */
+.utoast.dmg .utxt small.dmgrow { display: block; margin-top: 4px; }
+.utoast.dmg .dmgput { font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; margin-left: 4px;
+  border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }   /* as .uacts buttons */
+.utoast.dmg .dmgput[aria-disabled="true"] { opacity: .5; cursor: default; }
+@media (pointer: coarse) { .utoast.dmg .dmgput { min-height: 44px; } }
 /* #6160: the streak's daily note. A celebration, so its edge and dot are gold; restated in each theme block below. */
 .utoast.streak { --utone: var(--gold-edge); }
 .utoast.streak .utxt b { color: var(--label); }
@@ -2237,7 +2243,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#cwnote-slot:empty, #sknote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #sknote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #reboot-slot:empty, #damaged-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -2811,6 +2817,24 @@ body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
 /* The play mark, drawn with a clip-path, never a border: the #3692 guard reads any border-left as a left bar. */
 .pj-head-pause.on::before { content: ""; width: 6px; height: 8px; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
 .pj-paused-line { margin: 4px 0 0; color: var(--k-ink-2); }
+/* kosmos#7210: a project not on All says so beside its title, in the pause button's shape, so a quiet room does not
+   look broken. Pressing it opens the project's settings, where the choice is made. */
+.linkish.pj-head-notify { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; flex: none; position: relative;
+                 /* Design review (Mona Lisa): a state, not an action, so no outline and the muted ink, unlike Pause beside it. */
+                 height: 22px; padding: 0 4px; border-radius: 7px; font: 600 .75rem/1 var(--font-ui); color: var(--k-ink-2);
+                 border: 0; background: none; }
+.linkish.pj-head-notify:hover { color: var(--k-ink); background: var(--k-sunk); }
+/* On a phone the title keeps its room: the bell alone, its words in the aria-label (design review). At least 36px wide
+   there (review 4: the bell alone measured about 20px), so with the ring below it is a 40x36 tap. */
+@media (max-width: 40rem) { #pj-head-notify-t { display: none; }
+                            .linkish.pj-head-notify { min-width: 36px; justify-content: center; } }
+/* The sound switch while the project is quiet: its saved value kept, dimmed and not pressable (design review). */
+#pjs-sound-toggle:disabled { opacity: .45; cursor: default; }
+.pjs-notify-seg { margin: 6px 0 0; }
+#pjs-notify-msg:empty { display: none; }
+/* On touch, the label takes a 36px-tall tap like Pause's (an invisible ring) and the choice a full 44px row. */
+@media (hover: none) { .pj-head-notify::after { content: ""; position: absolute; inset: -7px -2px; }
+                       .pjs-notify-seg button { min-height: 44px; } }   /* an empty .fmsg still takes a line (#5391 review 1) */
 #pj-head-pause-msg:empty { display: none; }   /* review 1: an empty .fmsg still takes ~23px under every title */
 /* On touch it still LOOKS 22px, as Josh asked, but takes a 36px-tall tap, as the cog beside it does (an invisible ring). */
 @media (hover: none) { .pj-head-pause::after { content: ""; position: absolute; inset: -7px -2px; } }
@@ -7549,6 +7573,26 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   .pjcol.pjmid { padding: 12px 8px 8px; }
   /* The avatar's size and its gap, said once: the far-side margin mirrors the avatar's side. */
   #pj-room.thread { padding: 12px 6px; gap: 12px; --room-av: 28px; --room-av-gap: 14px; }
+  /* kosmos#7196: the thread fits the screen above the composer (pjFitRoomPhone writes --pj-room-fit). Both bounds move:
+     the base 26rem floor would otherwise win over a smaller cap. The safe area at the bottom is cleared. */
+  body:not(.consolidated) #pj-room.thread { min-height: min(26rem, calc(var(--pj-room-fit, 26rem) - env(safe-area-inset-bottom, 0px)));
+    max-height: min(62vh, 44rem, calc(var(--pj-room-fit, 100vh) - env(safe-area-inset-bottom, 0px))); }
+  /* kosmos#7272: on a phone with the keyboard up (an iPhone SE leaves about 331px), the phone-pairing card, Back and the
+     room's title and search row took all of it, so no post showed above the composer and the composer half-covered the
+     search field. While focus is in the composer's text box, on Post, the mic or the emoji button (not add-a-file, which
+     keeps focus after its picker closes with no keyboard up), AND the keyboard is up (html.kosmos-keyboard-up), they
+     step aside, and come back when either ends: the trade the agent talk view makes (#d-talk-box, below). With them go
+     the title row's Read aloud button and its paused, goal and pause-result lines, seen before typing; a status painted
+     while hidden is not announced, as in the talk view. Kept, as there: Kosmos's own top bar, and the connection notice
+     (#conn), the one line that says the subscription is unreachable. Kept too while the room search has a non-empty
+     value (spaces included, which filter nothing), so a filtered room never looks unfiltered, and while focus is in the search box (it is in the header). */
+  html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) > #askcard,
+  html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) #pj-one-view > .pj-crumbrow,
+  html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) #pj-one-view .pjmidhead { display: none; }
+  /* The phone-pairing card stepping aside takes its own top gap with it, and #conn gets the floating notices' clearance
+     only after a [hidden] card (the #askcard[hidden] + #conn rule), so it would ride up under a notice. Same clearance
+     while the card is out of the way. */
+  html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) > #askcard:not([hidden]) + #conn { margin-top: var(--topnotes-clear, 0px); }
   #pj-room .msg-av { width: var(--room-av); height: var(--room-av); flex-basis: var(--room-av); font-size: .8125rem; }
   #pj-room .msg:not(.you) .msg-b { margin-right: calc(var(--room-av) + var(--room-av-gap)); }
   #pj-room .msg.you .msg-b { margin-left: calc(var(--room-av) + var(--room-av-gap)); }
@@ -9512,6 +9556,18 @@ svg { display: block; }
 .danger-btn:hover { background: var(--warn-bg); }
 /* #4313: the Community box's list of your agents' posts, one row each, Delete on the right. */
 .community-mine { list-style: none; margin: 4px 0 0; padding: 0; }
+/* #7211: links in these hint lines take the hint's own colour (set for light and dark), not the browser's default blue,
+   which read almost black on the dark theme in the design shots. The comment row's post link had the same gap. */
+.community-mine-agent, .community-mine-post { color: inherit; text-decoration: underline; font-weight: 600; }
+/* #7211: the fold that holds the rows, drawn as the agent rows below it are (same chevron, turned while open). */
+.community-mine-fold { margin-top: 6px; }
+.community-mine-fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: .875rem; font-weight: 600; color: var(--label-2); }
+.community-mine-fold > summary::-webkit-details-marker { display: none; }
+.community-mine-fold > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.community-mine-fold .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
+.community-mine-fold[open] .community-ready-chev { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .community-mine-fold .community-ready-chev { transition: none; } }
+.community-mine-fold > .community-mine { margin-top: 10px; }   /* the gap the section's headings keep (design review) */
 .community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
@@ -10947,6 +11003,15 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    nobody asked about. */
 /* Same revert as the app-wide primary above (Josh, 22:05): no edge. */
 #firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); }
+/* kosmos#4903 S5 design (Mona Lisa): on a cloud machine the sign-in link IS the next step, so it is the primary button,
+   and it lost to `#firstrun .btn` exactly as the confirm above did. No underline (it is a button), full width on a
+   phone. The Mac's fallback link is a plain .btn and keeps its quiet look. */
+#firstrun #fr-conn-url .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); text-decoration: none; }
+#firstrun #fr-conn-url .btn.uprime:hover { background: var(--gold); border-color: var(--gold); }
+@media (max-width: 720px) { #firstrun #fr-conn-url .btn.uprime { flex: 1 1 100%; text-align: center; } }   /* the app's phone layout */
+/* S5 review: Settings' cloud sign-in link is gold already (no #firstrun rule outranks .btn.uprime there) but an <a>
+   keeps the browser's underline; it is a button. */
+#acct-claude-open { text-decoration: none; }
 /* #3731 (Josh, 0.6.94: "is there really a blue stroke around the buttons?"). When a download
    finishes, focus moves to "Sign in with Subscription" so a keyboard user lands on the choice,
    and the browser drew that focus in its own blue. The ring is Kosmos's now, the same ink ring as
@@ -10958,6 +11023,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* And the same in Settings' Add a provider dialog (review pass 2), where the choice, the install and
    the key step are the same buttons and drew the same blue. */
 #acct-add-dialog .btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* kosmos#7198: the login notice opens this dialog on any page, a phone included, so its Start the sign-in is
+   finger-sized there (render-refreshlogin-5407 P1). The other steps' buttons keep their own sizes. */
+@media (pointer: coarse) { #acct-add-dialog #acct-add { min-height: 44px; } }
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 /* When a permission step's action FAILS, its message must read as an error, not
@@ -12808,6 +12876,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
     <div id="reboot-slot"></div>
+    <!-- kosmos#7248: a file of Kosmos's own that a crash left empty or unreadable, found at start. A fact Kosmos did not
+         act on, with the one action it offers (put a good copy back); its own slot. -->
+    <div id="damaged-slot"></div>
     <!-- #6160: the once-a-day streak note. A celebration, so it sits below the facts; its own slot so it co-occurs. -->
     <div id="streak-slot"></div>
     <!-- ⚠️ ITS OWN SLOT, and the reason is a state that really happens: a person
@@ -13514,6 +13585,7 @@ window.kosmosMeasureScrollbarWidth();
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
           <option value="meta" disabled>Meta Muse &middot; coming soon</option>
           <option value="alibaba" disabled data-off="Checking your accounts">Alibaba Qwen</option>
+          <option value="deepseek" disabled>DeepSeek &middot; coming soon</option>
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
         </select>
@@ -14598,6 +14670,8 @@ window.kosmosMeasureScrollbarWidth();
         <option value="xai">xAI Grok</option>
         <option value="meta" disabled>Meta Muse &middot; coming soon</option>
         <option value="alibaba">Alibaba Qwen</option>
+        <!-- #7206: offered only while this Kosmos's switch for it is on (compatAsk); otherwise coming soon. -->
+        <option value="deepseek" disabled>DeepSeek &middot; coming soon</option>
         <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
       </select>
@@ -14781,6 +14855,25 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" style="margin:8px 0 0;">Qwen answers questions and runs commands well; check the files it edits.</p>
     </div>
 
+    <!-- #7206: DeepSeek, a key only. Kosmos checks the key with DeepSeek before it saves it; its agents run on Claude Code,
+         pointed at DeepSeek. -->
+    <div id="acct-compat-flow" hidden style="margin-top: var(--space-5);">
+      <p class="dwarn" style="margin:0 0 8px;"><b>DeepSeek agents run on Claude Code, pointed at DeepSeek with your key.</b> Kosmos checks the key with DeepSeek before it saves it, and DeepSeek bills you for what your agents use.</p>
+      <label class="flabel" for="acct-compat-key">DeepSeek API key</label>
+      <div class="frow">
+        <input type="password" id="acct-compat-key" autocomplete="new-password" spellcheck="false" aria-label="DeepSeek API key" placeholder="sk-…">
+      </div>
+      <p class="dhint" style="margin:6px 0 0;">Make one at <a class="xlink" id="acct-compat-keypage" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a>.</p>
+      <label class="flabel" for="acct-compat-name" style="margin-top:8px;">Name (optional)</label>
+      <div class="frow">
+        <input type="text" id="acct-compat-name" autocomplete="off" maxlength="40" aria-label="A name for this account (optional)" placeholder="A name, if you want one">
+      </div>
+      <div class="frow" style="margin-top:12px;">
+        <button class="btn uprime" id="acct-compat-go" type="button">Add</button>
+      </div>
+      <p class="dhint" id="acct-compat-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    </div>
+
     <div id="acct-claude-flow" hidden style="margin-top: var(--space-5);">
       <!-- #2433 (#2420 UI slice; Josh's #2338 "follow suit on Claude too"): two ways
            to connect Claude, and they are DISTINCT connection types, not two
@@ -14829,6 +14922,10 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <div id="acct-flow" hidden style="margin:10px 0 0;">
         <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" tabindex="-1" style="margin:0;"></p>
+        <!-- kosmos#4903 S5: on a cloud machine no browser opens on the board, so the sign-in page's link IS the way in. -->
+        <div class="frow" id="acct-claude-open-row" hidden style="margin:8px 0 0;">
+          <a class="btn uprime" id="acct-claude-open" href="#" target="_blank" rel="noopener">Open the Claude sign-in page</a>
+        </div>
         <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
           <input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code"
                aria-label="Sign-in code" placeholder="Sign-in code">
@@ -16731,6 +16828,7 @@ window.kosmosMeasureScrollbarWidth();
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
             <option value="meta" disabled>Meta Muse &middot; coming soon</option>
             <option value="alibaba" disabled data-off="Checking your accounts">Alibaba Qwen</option>
+            <option value="deepseek" disabled>DeepSeek &middot; coming soon</option>
             <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
             <option value="mistral" disabled>Mistral &middot; coming soon</option>
           </select>
@@ -17140,6 +17238,8 @@ window.kosmosMeasureScrollbarWidth();
           <!-- kosmos#5391 (Josh, 2026-10-06 08:11: "a pause project button on the actual project"): one click beside the
                title, the same pause as Settings' #pj-one-pause (#4771, PUT /api/project/<id> {paused}). -->
           <button class="linkish pj-head-pause" id="pj-head-pause" type="button" hidden><span class="pause" aria-hidden="true"><i></i><i></i></span><span class="pj-head-pause-t">Pause</span></button>
+          <!-- kosmos#7210: shown only when this project is not on All; opens the project's settings. -->
+          <button class="linkish pj-head-notify" id="pj-head-notify" type="button" hidden><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l1.5 2h-15"/><path d="M10 20.5a2 2 0 0 0 4 0"/><path d="M3 3l18 18"/></svg><span id="pj-head-notify-t"></span></button>
         </div>
         <!-- Who asked for this project (#327): shown only when it was NOT the
              person, because "made by you" under everything you made is
@@ -17914,10 +18014,25 @@ window.kosmosMeasureScrollbarWidth();
          writes localStorage directly rather than a server setting. Not `hidden` like the
          server-backed switches above: the value is always readable, so there is no
          unknown state to paint around. Copy is Mona's to finalize. -->
+    <!-- kosmos#7210 (Josh, 2026-10-26: "mute projects so that I can select the notifications on a project-by-project
+         basis"): what reaches the person from this project. Kept by the board, so the Mac app, the web board and the
+         phone all follow it; saved as it is chosen, like the switch below. -->
+    <div class="field">
+      <span class="flabel" id="pjs-notify-l">Notifications from this project</span>
+      <div class="cons-agents-lay pjs-notify-seg" id="pjs-notify" role="radiogroup" aria-labelledby="pjs-notify-l" aria-describedby="pjs-notify-hint">
+        <button type="button" role="radio" data-notify="all" aria-checked="true" tabindex="0">All</button>
+        <button type="button" role="radio" data-notify="mentions" aria-checked="false" tabindex="-1">Mentions only</button>
+        <button type="button" role="radio" data-notify="muted" aria-checked="false" tabindex="-1">Muted</button>
+      </div>
+      <p class="dhint" id="pjs-notify-hint" style="margin:6px 0 0;"></p>
+      <p class="fmsg" id="pjs-notify-msg" aria-live="polite"></p>
+    </div>
+
     <div class="field">
       <div class="setrow" id="pjs-sound-row">
         <div><b>Play a sound when a new message lands</b>
-          <p class="dhint" id="pjs-sound-hint" style="margin:2px 0 0;">A soft pop on this device when a new message arrives on this project, so you notice without watching. On by default; turn it off for a noisy project. Several at once make one sound, not a flurry.</p></div>
+          <p class="dhint" id="pjs-sound-hint" style="margin:2px 0 0;">A soft pop on this device when a new message arrives on this project, so you notice without watching. On by default; turn it off for a noisy project. Several at once make one sound, not a flurry.</p>
+          <p class="dhint" id="pjs-sound-off-note" style="margin:4px 0 0;" hidden>Off while this project is on Mentions only or Muted. Your choice comes back on All.</p></div>
         <button class="toggle on" id="pjs-sound-toggle" role="switch" aria-checked="true" aria-label="Play a sound when a new message lands on this project"><i></i></button>
       </div>
     </div>
@@ -19304,7 +19419,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4885: a picture saved before Kosmos fitted pictures can be too big, or not a still picture, to go. -->
       <p class="dhint" id="community-picture-unsendable" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them under “View all of them here, to delete one” below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -19319,8 +19434,17 @@ window.kosmosMeasureScrollbarWidth();
            it is out (or about to go). Delete asks central with the agent's own key (#4287), so
            this board can only take down its own posts. #4801: their comments too, in the same list. -->
       <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts and comments in the community</h4>
+      <!-- #7211 (Josh, 10-26): a count and each agent's own community page, not every row (about 1,850 lines on his
+           board). The rows, with Delete, stay one click away in the closed fold below until the community site has a
+           page of its own for them. -->
+      <p class="dhint" id="community-mine-summary" style="margin:0;" hidden></p>
+      <p class="dhint" id="community-mine-links" style="margin:4px 0 0;" hidden></p>
+      <details class="community-mine-fold" id="community-mine-all" hidden>
+        <!-- Design review (Mona Lisa, 10-26): the rows' own fold, chevron and all, and words that say it is open. -->
+        <summary id="community-mine-all-sum"><svg class="community-ready-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="community-mine-all-words">View all of them here, to delete one</span></summary>
+        <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
+      </details>
       <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts or comments have gone to the community yet.</p>
-      <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
       <!-- #4801 review 2: the board could not read its comment records, so it does not know which comments went out;
            this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
       <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
@@ -20159,6 +20283,9 @@ window.kosmosMeasureScrollbarWidth();
            it stays reachable, as a dialog rather than the essay). The Remove confirm opens in place below the row. -->
       <div class="plus-foot" id="plus-forget" hidden>
         <button type="button" class="plus-remove-link" id="plus-forget-go">Remove this computer</button>
+        <!-- kosmos#7277: on a Kosmos cloud machine Kosmos+ is the only way in, so removing it would leave no way back.
+             No Remove there; this says why, beside View account, where the machine is cancelled. -->
+        <span class="fhint" id="plus-forget-cloud" hidden>This is a Kosmos cloud machine, so it is not removed from here: you would have no way back to it. To stop using it, cancel it from your account.</span>
         <span class="plus-sp"></span>
         <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View account</a>
       </div>
@@ -20729,6 +20856,19 @@ function onWindows(platform) {
 function onLinux(platform) {
   const known = typeof platform === 'string' && platform ? platform : servedPlatform();
   return known === 'linux';
+}
+/* kosmos#4903 S5: whether this board is a Kosmos cloud machine, reached only through a browser: no Terminal, no
+   browser of its own, nobody at its keyboard. Read from the served meta only; an unstamped page (file://, a harness)
+   is not one. Words and flow only, never who may open the board (kosmos#7277: it also hides Remove this computer and
+   the Kosmos+ off switch, which would cut the only way in; the server refuses both too). */
+function onCloudMachine() {
+  try {
+    if (typeof document === 'undefined' || !document || typeof document.querySelector !== 'function') return false;
+    const el = document.querySelector('meta[name="kosmos-cloud-machine"]');
+    return !!(el && typeof el.getAttribute === 'function' && el.getAttribute('content') === '1');
+  } catch {
+    return false;
+  }
 }
 /* #5865: what the person calls the machine Kosmos runs on, in words shown from elsewhere (a phone through Kosmos+).
    A Linux board is often a headless server, and a Windows board is a PC, so neither is "your Mac". */
@@ -22343,6 +22483,8 @@ function modelLine(a) {
   // #5977 (UI review): a Qwen agent runs on codex too, and is never "OpenAI": its model, or Qwen while none is known.
   if (a.runner === 'codex' && a.account && a.account.provider === 'alibaba') return name ? (/qwen/i.test(name) ? name : 'Qwen ' + name) : 'Qwen';
   if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
+  // #7206 (1b review 3): a claude agent on a DeepSeek account is never "Claude": its model, or DeepSeek while none is known.
+  if (a.account && a.account.provider === 'deepseek') return name ? (/deepseek/i.test(name) ? name : 'DeepSeek ' + name) : 'DeepSeek';
   /* #5804: a running Gemini agent whose reply came from a model other than the one it is set to (the CLI's own
      fallback) says so. The board decides (engine/geminimodelswitch.js) and sends settingModelName only then; kept
      inside modelLine so every caller and test that lifts it from the page gets the same words. */
@@ -23789,8 +23931,10 @@ function paintLoginAdvisories(advs) {
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
   /* #5164 (review): the stop time's words are in the signature too, so a notice painted before midnight as "tomorrow at
      about 1:10 AM" repaints as "at about 1:10 AM" after it, rather than telling the person they have a day. */
+  /* kosmos#7198 review 8: the folder Refresh login opens Sign in again for is in it too, so a folder the board stops
+     naming (its row removed from another device) leaves the button at the next poll, not at the notice's end. */
   const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')
-    + ':' + (a.expired && loginAdvWorksUntil(a) ? loginAdvWhen(loginAdvWorksUntil(a)) : '')).join('|');   // repaint on a new name or email too
+    + ':' + (a.expired && loginAdvWorksUntil(a) ? loginAdvWhen(loginAdvWorksUntil(a)) : '') + ':' + (a.dir || '')).join('|');   // repaint on a new name, email or folder too
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
@@ -23821,14 +23965,14 @@ function paintLoginAdvisories(advs) {
     return '<div class="utoast login-adv ' + sev + '" data-adv-dir="' + esc(a.dir || '') + '">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '.' + (tail ? ' ' + esc(tail) : '') + '</small></div>'
-      /* #5407 (Josh): one press to where the person signs in again: Settings > AI Models, at this account's row. */
-      + '<div class="uacts"><button type="button" class="uprime login-adv-go" data-adv-dir="' + esc(a.dir || '') + '" aria-label="'
+      /* #5407 (Josh): one press to where the person signs in again; kosmos#7198: loginAdvGo opens it in place. */
+      + '<div class="uacts"><button type="button" class="uprime login-adv-go" data-adv-dir="' + esc(a.dir || '') + '" data-adv-email="' + esc(a.email || '') + '" aria-label="'
       + esc('Refresh login: ' + (a.provider || 'Claude') + (a.email ? ', ' + a.email : '')) + '">Refresh login</button></div>'
       + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');
   loginAdvSyncCovered();
-  slot.querySelectorAll('.login-adv-go').forEach((btn) => btn.addEventListener('click', () => loginAdvGo(btn.getAttribute('data-adv-dir'))));
+  slot.querySelectorAll('.login-adv-go').forEach((btn) => btn.addEventListener('click', () => loginAdvGo(btn.getAttribute('data-adv-dir'), btn.getAttribute('data-adv-email'), btn)));
   slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
     loginAdvDismiss(btn.getAttribute('data-adv-key'));
     delete slot.dataset.v;   // always repaint, so an X that did not stick shows as a notice still there, never a dead button
@@ -23903,6 +24047,80 @@ function paintRebootNote(note) {
     rebootFocusAway();
   });
 }
+/* kosmos#7248: the files of Kosmos's own that this start found damaged (engine/storecheck.js). Each says what it holds
+   and that Kosmos has not changed it; a good copy goes back only on its button; the X hides the note until the next
+   start. Every action says when it did not work, as the restart note's X does. */
+const DAMAGED_PROBLEM = { empty: 'is empty', nul: 'is blank, as a crash can leave a file', unreadable: 'cannot be read',
+  unopenable: 'cannot be opened', toobig: 'is too large for Kosmos to check' };
+function damagedRowWords(f) {
+  // One shape that reads with every store (review 1): "The file with <what it holds> (<name>) <what is wrong>."
+  return asSentence('the file with ' + String(f.holds || 'a record Kosmos keeps') + ' (' + f.file + ') '
+    + (DAMAGED_PROBLEM[f.problem] || 'cannot be read'))
+    + (f.savedOver ? ' Kosmos has saved over it since it started.' : ' Kosmos has not changed it.');
+}
+function paintDamagedFiles(files) {
+  const slot = document.getElementById('damaged-slot');
+  if (!slot) return;
+  const list = Array.isArray(files) ? files : [];
+  const held = slot.contains(document.activeElement);
+  if (!list.length) { slot.innerHTML = ''; if (held) rebootFocusAway(); return; }
+  const head = list.length === 1 ? 'Kosmos found a damaged file' : 'Kosmos found ' + list.length + ' damaged files';
+  const rows = list.map((f, i) => {
+    const when = f.backup ? rebootWhen(f.backup.at) : '';
+    return '<small class="dmgrow" tabindex="-1">' + esc(damagedRowWords(f))
+      // Saved over since start: no button (putting an older copy back would undo that), only where the copy is kept.
+      + (f.backup && f.savedOver ? ' The copy saved ' + esc(when || 'before') + ' is kept at ' + esc(f.backup.file) + '.'
+        : f.backup ? ' <button type="button" class="dmgput" data-i="' + i + '">Put back the copy saved ' + esc(when || 'before') + '</button>'
+        : f.secret ? ' It holds a key or something you can take back, so Kosmos keeps no copy of it.' : ' There is no good copy to put back.')
+      + '</small>';
+  }).join('');
+  slot.innerHTML = '<div class="utoast reboot dmg">'
+    + '<span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b>' + esc(head) + '</b>' + rows + '</div>'
+    + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
+    + '</div>';
+  const say = (row, words) => {
+    const old = row.querySelector('.rerr');
+    if (old) old.remove();
+    row.insertAdjacentHTML('beforeend', ' <span class="rerr">' + esc(words) + '</span>');
+  };
+  slot.querySelectorAll('.dmgput').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      // Busy, not disabled: a disabled button drops keyboard focus to the page (review 1).
+      if (btn.getAttribute('aria-disabled') === 'true') return;
+      btn.setAttribute('aria-disabled', 'true');
+      const f = list[Number(btn.dataset.i)];
+      const row = btn.closest('.dmgrow');
+      let ok = false;
+      let why = '';
+      try {
+        const r = await fetch('/api/board/damaged-files/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file: f.file }) });
+        const got = await r.json().catch(() => null);
+        ok = r.ok;
+        why = (got && got.error) || '';
+      } catch { ok = false; }
+      if (!ok) { btn.removeAttribute('aria-disabled'); say(row, why || 'Kosmos could not put it back just now. Try again in a moment.'); return; }
+      row.textContent = f.file + ': put back. The damaged one is kept beside it. If anything still looks missing, restart Kosmos.';
+      row.focus();   // the button it replaced held focus; the row that says what happened takes it
+    });
+  });
+  const x = slot.querySelector('.ux');
+  if (held) x.focus();
+  x.addEventListener('click', async () => {
+    let ok = false;
+    try { const r = await fetch('/api/board/damaged-files/dismiss', { method: 'POST' }); await r.text(); ok = r.ok; } catch { ok = false; }
+    if (!ok) { say(slot.querySelector('.utxt'), 'Kosmos could not record that just now. Try again in a moment.'); return; }
+    slot.innerHTML = '';
+    rebootFocusAway();
+  });
+}
+async function damagedFilesCheck() {
+  try {
+    const res = await fetch('/api/board/damaged-files', { cache: 'no-store' });
+    const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
+    if (res.ok && got) paintDamagedFiles(got.files);
+  } catch { /* a courtesy: the board log has it too */ }
+}
 let REBOOT_SEEN_START = null;
 async function rebootNoteCheck() {
   try {
@@ -23911,18 +24129,21 @@ async function rebootNoteCheck() {
     if (res.ok && got) paintRebootNote(got.note);   // a refused or failed re-check leaves a showing note alone
   } catch { /* the note is a courtesy */ }
 }
-/* #5407 (Josh): the notice's Refresh login opens Settings > AI Models at that account's row, highlighted, with its
-   Sign in again focused. The account list paints after a live read, so the row is found when it paints (acctLand,
-   called from paintAccounts) as well as at once when it is already there. The highlight stays a short while across
-   the list's own follow-up repaints, then a timer takes it off. With no row for that folder (removed meanwhile), the section opens
-   with nothing highlighted, never a wrong row. */
-let ACCT_LAND_DIR = '';
-let ACCT_LAND_UNTIL = 0;
-const ACCT_LAND_MS = 20000;
 let ACCT_SOON_SEQ = 0;   // unique ids for each row's warning line (aria-describedby)
-function loginAdvGo(dir) {
-  ACCT_LAND_DIR = typeof dir === 'string' ? dir : '';
-  ACCT_LAND_UNTIL = Date.now() + ACCT_LAND_MS;
+function loginAdvGo(dir, email, opener) {
+  /* kosmos#7198 (Josh, 08:32: "lets update per Kitty's plan on the ai model modal"): a notice tied to one account
+     opens that account's Sign in again dialog right where the person is, on any page; the dialog is a window over the
+     page, so the page underneath stays as it was and closing it leaves them there. The board names a folder only when
+     AI Models lists it and its row reads the same login (status.js dirOf); if this page has read its own account list
+     and no longer has that row (removed since), and for a notice with no folder (a signed-out folder has no row, so
+     the board names none), AI Models instead, below, where Add a provider signs in. */
+  const listed = !(typeof ACCOUNTS_LOADED !== 'undefined' && ACCOUNTS_LOADED && Array.isArray(ACCOUNTS)) || ACCOUNTS.some((a) => a && a.dir === dir && !a.apiKey);
+  if (typeof dir === 'string' && dir && listed && typeof openAcctReauth === 'function') {
+    ACCT_ADD_RETURN_FOCUS = opener && typeof opener.focus === 'function' ? opener : null;
+    openAcctReauth(dir, typeof email === 'string' ? email : '');
+    return;
+  }
+  // #5407: no account row for this notice: AI Models, where the person picks the account (focus goes into the section).
   if (document.body.classList.contains('consolidated')) {
     SETTINGS_SEC = 'accounts';
     openConsolidatedSettings();
@@ -23930,10 +24151,6 @@ function loginAdvGo(dir) {
     showTab('settings');
     settingsOpen('accounts');
   }
-  /* Review 1: the pressed button sat in a notice that has just stepped aside. Opening the section already puts focus
-     in it (settingsOpen), and acctLand moves it on to the row's Sign in again once the row paints; with no row for that
-     folder it stays in the section (render-refreshlogin-5407 C2). */
-  acctLand();
 }
 /* Review 2: mark each login notice whose account's row in AI Models carries the warning; only those step aside there.
    Called after either side paints. */
@@ -23943,26 +24160,6 @@ function loginAdvSyncCovered() {
     const d = n.getAttribute('data-adv-dir');
     n.classList.toggle('adv-covered', !!d && warned.has(d));
   });
-}
-/* Whether this row is the one the person arrived at (drawn highlighted while the window lasts). */
-function acctLanded(dir) { return !!dir && dir === ACCT_LAND_DIR && Date.now() < ACCT_LAND_UNTIL; }
-/* Bring the landed row into view and focus its Sign in again, once: the first paint that has the row. */
-let ACCT_LAND_DONE = '';
-function acctLand() {
-  if (!acctLanded(ACCT_LAND_DIR) || ACCT_LAND_DONE === ACCT_LAND_DIR + ':' + ACCT_LAND_UNTIL) return;
-  const box = document.getElementById('set-accounts');
-  const row = box && [...box.querySelectorAll('.acct-box[data-acct-dir]')].find((r) => r.getAttribute('data-acct-dir') === ACCT_LAND_DIR);
-  if (!row) return;
-  ACCT_LAND_DONE = ACCT_LAND_DIR + ':' + ACCT_LAND_UNTIL;
-  row.classList.add('acct-land');
-  // Review 1: the ring goes when its time is up, not at the next repaint (which may never come).
-  setTimeout(() => {
-    if (Date.now() < ACCT_LAND_UNTIL) return;   // a newer landing extended it
-    document.querySelectorAll('#set-accounts .acct-box.acct-land').forEach((r) => r.classList.remove('acct-land'));
-  }, Math.max(0, ACCT_LAND_UNTIL - Date.now()) + 50);
-  row.scrollIntoView({ block: 'center' });
-  const go = row.querySelector('.acct-reauth');
-  if (go) go.focus({ preventScroll: true });
 }
 /* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing
    notice (a focused element scrolled into view must not land under it). 0 when nothing shows. */
@@ -26261,7 +26458,8 @@ async function tick() {
        active project's unread (correct: you are not viewing any room). Clamped >= 0; setNavBadge
        hides <=0/NaN. */
     const openProj = PJ_CURRENT ? pjById(PJ_CURRENT) : null;
-    const openUnread = (openProj && !openProj.archived) ? Math.max(0, Number(openProj.unread) || 0) : 0;
+    // kosmos#7210: the server total leaves out a project not on All, so its unread is not subtracted either.
+    const openUnread = (openProj && !openProj.archived && pjNotifyLevel(openProj) === 'all') ? Math.max(0, Number(openProj.unread) || 0) : 0;
     setNavBadge('nav-badge-projects', Math.max(0, (Number(c.projectsUnread) || 0) - openUnread));
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose
@@ -26329,7 +26527,7 @@ async function tick() {
     /* #5359: a board that started again under an open page may have a restart note: ask again when its start time
        moves (a page that watched the outage is the one most likely to want the note). */
     if (data.engine && data.engine.startedAt) {
-      if (REBOOT_SEEN_START && REBOOT_SEEN_START !== data.engine.startedAt) rebootNoteCheck();
+      if (REBOOT_SEEN_START && REBOOT_SEEN_START !== data.engine.startedAt) { rebootNoteCheck(); damagedFilesCheck(); }   // kosmos#7248 too
       REBOOT_SEEN_START = data.engine.startedAt;
     }
     paintBuildLine(data.version);
@@ -27882,7 +28080,8 @@ function acctChosenName(a) {
    ChatGPT sign-in), mapped to the engine's route word (/api/accounts/<route>).
    Everything not listed is a Claude account. */
 // #5977: Qwen, an endpoint account on the codex runner.
-const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen' };
+/* #7206: DeepSeek's routes are /api/accounts/compat (engine/anthropiccompat.js, one module for every such vendor). */
+const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen', deepseek: 'compat' };
 /* #3566: a keyed provider other than OpenAI (Gemini, Grok), whose sign-in and model picker
    are its own. (#3391: a Grok account may also be a subscription sign-in; that is started from
    Settings, AI Models or first run, not from the screens that use this.) Read from the route table. */
@@ -27901,7 +28100,8 @@ function vendorPicksModel(p) { return keyOnlyProvider(p) || p === 'antigravity' 
    coming-soon providers follow the four that work. `claude` is the Add-a-provider
    picker's value for Anthropic. Pinned by docs/browser-checks/render-provider-order-3651.js. */
 // #3568: Gemini by subscription ('antigravity') sits beside Gemini.
-const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'moonshot', 'mistral']);
+/* #7206: DeepSeek after Qwen. (No comment after the semicolon: tests lift this one-line const up to its first ';\n'.) */
+const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'deepseek', 'moonshot', 'mistral']);
 const PROVIDER_ORDER_ALIAS = Object.freeze({ claude: 'anthropic' });
 function providerRank(value) {
   const v = String(value == null ? '' : value).toLowerCase();
@@ -27937,6 +28137,7 @@ function switchKeyedWord(p) {
   if (p === 'antigravity') return 'Gemini (Google subscription)';   // #3568
   if (p === 'meta') return 'Meta Muse';   // #3939 slice 3c-2: never the OpenAI fallback below
   if (p === 'alibaba') return 'Qwen';   // #5977
+  if (p === 'deepseek') return 'DeepSeek';   // #7206
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
 /* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
@@ -28070,6 +28271,8 @@ function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
     if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // Gemini and Grok
     // #5977 UI review 2: Kosmos cannot start a Qwen agent on Windows yet (the engine refuses), so it is not offered.
     if (opt.value === 'alibaba' && typeof onWindows === 'function' && onWindows()) { opt.disabled = true; opt.dataset.off = 'Not on Windows yet'; continue; }
+    // #7206: DeepSeek likewise, and only while this Kosmos offers it at all (its switch, read by compatAsk).
+    if (opt.value === 'deepseek' && (!COMPAT_ON || (typeof onWindows === 'function' && onWindows()))) { opt.disabled = true; opt.dataset.off = 'Coming soon'; continue; }
     /* "Usable" is BOTH rules: the create list's (acctOfferableTarget) and the switch list's
        (a live check that is not 'none', not marked unofferable). Offering the provider when
        either list would come up empty would post with no account. */
@@ -28096,7 +28299,7 @@ function acctPrimaryName(a) {
   }
   /* #3566: any keyed provider (OpenAI, Gemini, Grok) is named by its key tail. Spelled
      inline rather than through acctProvider so this helper stays self-contained. */
-  const isKeyed = !!(a && /^(openai|google|xai|alibaba)$/i.test(String(a.provider || '')));
+  const isKeyed = !!(a && /^(openai|google|xai|alibaba|deepseek)$/i.test(String(a.provider || '')));
   return String((a && (a.email
     || (isKeyed && a.keyTail ? 'API key ending ' + a.keyTail : '')
     || a.label || a.dir)) || '');
@@ -28105,7 +28308,7 @@ function acctPrimaryName(a) {
    SECONDARY detail rather than the primary label). Only keyed accounts (OpenAI, Gemini,
    Grok) have a name AND a keyTail; empty for everyone else. */
 function acctHasChosenName(a) {
-  return !!(a && /^(openai|google|xai|alibaba)$/i.test(String(a.provider || '')) && acctChosenName(a));
+  return !!(a && /^(openai|google|xai|alibaba|deepseek)$/i.test(String(a.provider || '')) && acctChosenName(a));
 }
 
 function accountQualifiers(list) {
@@ -28313,7 +28516,7 @@ function accountQualifiers(list) {
         const prov = !providerDistinguishes ? ''
           : (provId === 'openai' ? 'OpenAI'
             : (provId === 'anthropic' ? 'Claude'
-              : (provId === 'google' ? 'Gemini' : (provId === 'xai' ? 'Grok' : (provId === 'alibaba' ? 'Qwen' : '')))));  // #3566, #5977
+              : (provId === 'google' ? 'Gemini' : (provId === 'xai' ? 'Grok' : (provId === 'alibaba' ? 'Qwen' : (provId === 'deepseek' ? 'DeepSeek' : ''))))));  // #3566, #5977, #7206
         qual = (prov && !takenAlready(prov)) ? prov : distinctly(dir);
       }
     }
@@ -29248,7 +29451,8 @@ async function paintAccounts(opts) {
     /* #3997: a ChatGPT sign-in and a Grok subscription each have a FREE live check, so they get Check now too. */
     /* A Grok sign-in that has lapsed, or that could not be read, has nothing a check could confirm: no button there. */
     const signInCheck = isOpenai && a.authMode === 'chatgpt' ? 'openai'
-      : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected') ? 'grok' : '';
+      : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected') ? 'grok'
+        : acctProvider(a) === 'deepseek' ? 'compat' : '';   // #7206: asks DeepSeek's own model list with the key, free
     const canCheckSignIn = !!signInCheck;
     /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
     const who = esc(acctPrimaryName(a));
@@ -29496,7 +29700,7 @@ async function paintAccounts(opts) {
         : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     }
     /* #5407 (Josh): a Claude sign-in that needs signing in again soon (inside the notice's window, or ended with its
-       agents on borrowed time), or the row the person arrived at from the notice, leads with Sign in again and says
+       agents on borrowed time) leads with Sign in again and says
        why in one line. Not an API-key row: it has no sign-in to redo (#2433). */
     const claudeSignIn = !isKeyed && !a.apiKey;
     const signInFirst = claudeSignIn && (!!stopsAt || loginEnded || expiresIn !== null);
@@ -29510,7 +29714,7 @@ async function paintAccounts(opts) {
       + (main && soonId ? 'aria-describedby="' + soonId + '" ' : '')
       + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
       + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>';
-    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (loginEnded && claudeSignIn ? ' acct-ended' : '') + (acctLanded(a.dir) ? ' acct-land' : '') + '" tabindex="-1" data-acct-dir="' + esc(a.dir || '') + '">'   // #6175 review 9: a repaint can hand focus back to the row
+    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (loginEnded && claudeSignIn ? ' acct-ended' : '') + '" tabindex="-1" data-acct-dir="' + esc(a.dir || '') + '">'   // #6175 review 9: a repaint can hand focus back to the row
       + '<div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + qualTag + keyDetail + org + '</div>'
@@ -29719,7 +29923,6 @@ async function paintAccounts(opts) {
   const fAttr = fEl ? [...fEl.attributes].find((x) => x.name.startsWith('data-')) : null;
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
   loginAdvSyncCovered();   // #5407: a notice whose row now says the same thing steps aside here
-  acctLand();   // #5407: arriving from the login notice
   if (fAttr) {
     const back = [...box.querySelectorAll('[' + fAttr.name + ']')].find((x) => x.getAttribute(fAttr.name) === fAttr.value);
     if (back && typeof back.focus === 'function') back.focus();
@@ -30141,7 +30344,7 @@ async function paintAccounts(opts) {
          press is what the plan documented, and a decision recorded in the plan that
          the code does not implement is a stale comment with extra steps. */
       const marked = btn.dataset.forgetProvider;
-      if (marked !== 'claude' && marked !== 'openai' && marked !== 'gemini' && marked !== 'grok' && marked !== 'qwen') {   // #5977
+      if (marked !== 'claude' && marked !== 'openai' && marked !== 'gemini' && marked !== 'grok' && marked !== 'qwen' && marked !== 'compat') {   // #5977, #7206
         /* `acctCancelSay()` because this is a WRITER to #set-accounts-msg, and the
            module comment above claims EVERY writer cancels the timer. It was the
            one that did not, so a deferred announcement could land on top of this
@@ -30440,6 +30643,30 @@ function acctFocusAfterFlow(startBtn) {
   const trig = sel && sel.parentElement && sel.parentElement.querySelector('.pcombo-trigger');
   if (trig && trig.getClientRects().length) trig.focus();
 }
+/* kosmos#4903 S5: Settings' Claude sign-in on a cloud machine shows the sign-in page's link (nothing opens a browser
+   there), once Claude has printed it, https only, and only while a sign-in is under way. Its own updater, run on every
+   poll (acctFlowPaint, before its repeat check), so a link that arrives or changes on the same phase still lands. */
+function acctClaudePaintUrl(st) {
+  const openRow = document.getElementById('acct-claude-open-row');
+  const openA = document.getElementById('acct-claude-open');
+  if (!openRow || !openA) return;
+  const phase = st && st.phase;
+  /* Review 2: closed by default, and not while Claude is finishing: the screen says it is finishing, so the link (the
+     primary button on a cloud machine) is no longer the next step. */
+  const live = typeof frConnActive === 'function' && frConnActive(phase) && phase !== 'signin-completing';
+  const url = live && typeof onCloudMachine === 'function' && onCloudMachine()
+    && st && typeof st.url === 'string' && /^https:\/\//.test(st.url) ? st.url : '';
+  if (url && openA.href !== url) openA.href = url;
+  const changed = openRow.hidden !== !url;
+  openRow.hidden = !url;
+  // S5 review: the link can arrive or go inside an unchanged phase (no repaint), so the sentence above it follows it.
+  const say = document.getElementById('acct-flow-say');
+  // Review 2: only the generic sentence is re-said; a reason on screen (a rejected code, st.because) is never replaced.
+  if (changed && say && live && typeof signinSay === 'function' && (phase === 'signin-browser-open' || phase === 'signin-awaiting-code')
+      && say.textContent === signinSay(ACCT_FLOW_SAY, phase, !url)) {
+    say.textContent = signinSay(ACCT_FLOW_SAY, phase, !!url);
+  }
+}
 function acctFlowPaint(st) {
   const flow = document.getElementById('acct-flow');
   const say = document.getElementById('acct-flow-say');
@@ -30448,6 +30675,10 @@ function acctFlowPaint(st) {
   const note = document.getElementById('acct-add-note');
   const phase = st && st.phase;
   const key = phase + '|' + ((st && st.because) || '');
+  /* kosmos#4903 S5 (review 1): the link is updated BEFORE the repeat check below, because the engine adds the URL to
+     an unchanged phase a capture-tick after the paste prompt (engine/connect.js); the check would drop it. Updated in
+     place, as first run's frConnPaintUrl does, so the code field is never rebuilt under the person. */
+  if (typeof acctClaudePaintUrl === 'function') acctClaudePaintUrl(st);
   /* #4275: a repeat of an ENDED phase still stops the poll. Without this, a watch started
      after that phase was painted (the code or cancel handler starting one) would poll once
      a second until some later flow ended differently. */
@@ -30461,7 +30692,7 @@ function acctFlowPaint(st) {
     acctClaudeShowSub();
     flow.hidden = false;
     btn.disabled = true;
-    say.textContent = ACCT_FLOW_SAY[phase] || 'Working…';
+    say.textContent = (typeof signinSay === 'function' ? signinSay(ACCT_FLOW_SAY, phase, !document.getElementById('acct-claude-open-row').hidden) : ACCT_FLOW_SAY[phase]) || 'Working…';
     const wantCode = phase === 'signin-awaiting-code';
     // Angel's contract: a rejected code does NOT move the polled state (the
     // POST answers alone, handled at the submit button). A because on this
@@ -30921,6 +31152,8 @@ function acctPick(which, opts) {
   ACCT_KEYED_FOCUS = !(opts && opts.focus === false);
   acctApikeyShow(ACCT_APIKEY_PROVIDERS[which] ? which : null);
   acctQwenShow(which === 'alibaba');   // #5977
+  acctCompatShow(which === 'deepseek');   // #7206
+  if (which === 'deepseek') { acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; if (!(opts && opts.focus === false)) document.getElementById('acct-compat-key').focus(); return; }
   if (which === 'alibaba') { acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; if (!(opts && opts.focus === false)) document.getElementById('acct-qwen-url').focus(); return; }
   if (which !== 'openai') {
     acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
@@ -30998,12 +31231,14 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
   acctMuseShow(false);
   if (which === 'claude' || which === 'openai' || which === 'alibaba' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }   // #5977: alibaba
+  if (which === 'deepseek' && COMPAT_ON) { acctPick(which); return; }   // #7206: only while offered
   // Cleared, or (defensively) a disabled "coming" option somehow reached
   // change: no flow is a live provider, so none shows.
   document.getElementById('acct-claude-flow').hidden = true;
   document.getElementById('acct-openai-flow').hidden = true;
   acctApikeyShow(null);
   acctQwenShow(false);   // #5977
+  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek key form too, and its in-flight add stops
   acctAddPickSay('');   // #3939 slice 3c-2 (round 5): going back to "Choose a provider" is a choice too
 });
 /* #770: the door opens the dialog; the dialog remembers nothing between
@@ -31071,12 +31306,23 @@ function acctReauthChrome(on, email) {
      acctShowSuccess and closeAcctAdd toggle. */
   document.getElementById('acct-provider-field').hidden = !!on;
 }
+/* kosmos#7198 review 1: the login notices sit outside the account dialog, so each way it opens calls this with true,
+   and while it is open their Refresh login is out of reach of Tab and the pointer; closeAcctAdd calls it with false,
+   which gives back only what it made inert, as frChoiceInert does. */
+let ACCT_ADD_INERTED_ADV = false;
+function loginAdvInert(on) {
+  const advSlot = document.getElementById('login-adv-slot');
+  if (!advSlot) return;
+  if (on && !advSlot.inert) { advSlot.inert = true; ACCT_ADD_INERTED_ADV = true; }
+  else if (!on && ACCT_ADD_INERTED_ADV) { advSlot.inert = false; ACCT_ADD_INERTED_ADV = false; }
+}
 function openAcctReauth(dir, email) {
   ACCT_REAUTH_DIR = dir;
   acctReauthChrome(true, email);
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
   document.getElementById('acct-add-modal').hidden = false;
+  loginAdvInert(true);
   acctPick('claude', { focus: false });
   document.getElementById('acct-add').focus();
 }
@@ -31092,6 +31338,7 @@ function openAcctReauthOpenai(dir, email) {
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
   document.getElementById('acct-add-modal').hidden = false;
+  loginAdvInert(true);
   acctPick('openai', { focus: false });
 }
 /* #1704 slice-3: the multiple-Kosmos switcher (list + create). Creates a new Kosmos
@@ -32735,7 +32982,7 @@ function worldAddClose() {
    is said rather than left blank; an unreadable task list is said, never shown as 0; and there is no quota figure,
    because no provider gives Kosmos one. */
 const WV_PROVIDER = { claude: 'Claude', codex: 'OpenAI Codex', gemini: 'Gemini', grok: 'Grok',
-  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse', qwen: 'Qwen' };   // #5977: qwen is the overview's own word (worldview)
+  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse', qwen: 'Qwen', deepseek: 'DeepSeek' };   // #5977, #7206: the overview's own words (worldview)
 function wvCount(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 function wvTime(iso, now = new Date()) {
   const d = new Date(iso);
@@ -33364,7 +33611,7 @@ function acctShowSuccess(accountLabel, goldBox) {
      stale "Success!" with no provider form on the next open. closeAcctAdd has already
      put the modal back to its form state by then, so a no-op here is the clean outcome. */
   if (document.getElementById('acct-add-modal').hidden) return;
-  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-add-acts']   // #5977: Qwen too
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-compat-flow', 'acct-add-acts']   // #5977: Qwen too; #7206: DeepSeek
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   /* Unhide the role="status" region BEFORE writing its text: a polite live region
      mutated while hidden is not reliably announced, so the order is what makes a
@@ -33424,9 +33671,11 @@ function openAcctAdd(ev) {
   ACCT_GROK_REAUTH_DIR = null;   // #3391 part 2: a fresh add is never a sign-in again
   acctApikeyShow(null);  /* #3566: the key step never outlives a visit (it holds a pasted key) */
   acctQwenShow(false);   // #5977: nor does the Qwen step (its key, and its download poll)
+  acctCompatShow(false);   // #7206: nor the DeepSeek step (it holds a pasted key)
   ACCT_ADD_VISIT += 1;
   acctAddPickSay('');
   acctMuseShow(false); ACCT_MUSE_ASKING = museAsk();   // #3939: Meta Muse is offered only when this Kosmos says so
+  compatAsk();   // #7206: DeepSeek is offered only while this Kosmos's switch for it is on
   ACCT_REAUTH_DIR = null;
   ACCT_OPENAI_REAUTH_DIR = null;
   acctReauthChrome(false);
@@ -33441,6 +33690,7 @@ function openAcctAdd(ev) {
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
   modal.hidden = false;
+  loginAdvInert(true);
   // Reopening onto a sign-in already in flight lands focus on whatever
   // step it is actually on, not back at the top of the dialog -- a
   // person awaiting the code field would otherwise have their focus
@@ -33470,6 +33720,7 @@ function closeAcctAdd() {
   acctOpenaiSubReset();   // hides the sub affordances and re-enables the Sign-in button
   acctApikeyShow(null);   // #3566: a pasted Gemini/Grok key does not stay in a hidden field after close
   acctQwenShow(false);   // #5977: the Qwen key and name too, and its download poll stops
+  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek key form too, and its in-flight add stops
   acctMuseShow(false);   // #3939: a Muse sign-in left running is stopped, not left polling a closed dialog
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
@@ -33485,13 +33736,19 @@ function closeAcctAdd() {
   });
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-add-t');
   document.getElementById('acct-add-modal').hidden = true;
+  loginAdvInert(false);
   // #2802: return focus to whatever opened the modal, falling back to the Accounts
   // door. A recorded opener that is no longer rendered (offsetParent === null =
   // display:none or detached) cannot take focus, so fall back rather than strand
   // focus on <body>.
-  const backEl = (ACCT_ADD_RETURN_FOCUS && document.contains(ACCT_ADD_RETURN_FOCUS) && ACCT_ADD_RETURN_FOCUS.offsetParent !== null)
+  const fromNotice = !!(ACCT_ADD_RETURN_FOCUS && ACCT_ADD_RETURN_FOCUS.classList && ACCT_ADD_RETURN_FOCUS.classList.contains('login-adv-go'));
+  let backEl = (ACCT_ADD_RETURN_FOCUS && document.contains(ACCT_ADD_RETURN_FOCUS) && ACCT_ADD_RETURN_FOCUS.offsetParent !== null)
     ? ACCT_ADD_RETURN_FOCUS
     : document.getElementById('acct-add-open');
+  /* kosmos#7198 review 1: opened from a login notice, off Settings the Accounts door is hidden, so a notice repainted
+     away (the sign-in worked) falls back to a Refresh login still showing, and with none, to nothing rather than a
+     hidden element. Other openers keep the door (review 3). */
+  if (fromNotice && backEl && backEl.offsetParent === null) backEl = [...document.querySelectorAll('#login-adv-slot .login-adv-go')].find((b) => b.offsetParent !== null) || null;
   ACCT_ADD_RETURN_FOCUS = null;
   if (backEl) backEl.focus();
 }
@@ -33506,6 +33763,72 @@ document.getElementById('acct-add-modal').addEventListener('click', (e) => { if 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!document.getElementById('acct-add-modal').hidden) closeAcctAdd();
+});
+/* #7202: Tab and Shift+Tab stay inside the account dialog while it is open, from every opener (Add a provider, and
+   each Sign in again). A trap rather than an inert page, on purpose: first run, its first screen and the restart
+   screen each keep their own inert set, and an inert set added here would have to be kept from undoing theirs or
+   being undone by them. A trap sets nothing, so there is nothing to give back. Keydown only, never a focusin pull:
+   first run already pulls stray focus to its heading, and two pulls would fight. As in the first-run trap (#6616),
+   the Sign in again ask is the last stop when it shows, so it stays reachable.
+   Every Tab is moved here, not only at the ends: WebKit's default Tab skips buttons (the Mac app is a WKWebView), so
+   between the ends it would leave the dialog for a field behind it. Option+Tab too, since that is how WebKit moves
+   between buttons. It stands down while another dialog shows (Tab is left to that one, whose own trap may act only at
+   its ends) and while an input method is composing (Tab picks a candidate there). */
+function acctAddInert(el) {
+  // The property, not only the attribute: where `inert` is not implemented, first run's `el.inert = true` sets only it.
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) if (n.inert === true || n.hasAttribute('inert')) return true;
+  return false;
+}
+function acctAddTabStops() {
+  const dlg = document.getElementById('acct-add-dialog');
+  const ask = document.getElementById('stepup-ask');   // CSS hides it under the restart and update screens: no box, no stop
+  const sel = 'button, [href], input, select, textarea, summary, [contenteditable]:not([contenteditable="false"]), [tabindex]';
+  const stops = Array.from(dlg.querySelectorAll(sel))
+    .concat(ask && !ask.hidden ? Array.from(ask.querySelectorAll('button')) : [])
+    .filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[hidden]') && el.getClientRects().length
+      && getComputedStyle(el).visibility !== 'hidden' && !acctAddInert(el));   // :disabled sees a disabled fieldset too
+  // A radio group is one stop, as the browser tabs it: the checked radio, or the first when none is checked (the
+  // browser enters an unchecked group backwards at its last; there is no radio in the dialog today).
+  return stops.filter((el) => {
+    if (el.type !== 'radio' || el.checked || !el.name) return true;
+    const group = stops.filter((r) => r.type === 'radio' && r.name === el.name && r.form === el.form);
+    return !group.some((r) => r.checked) && group[0] === el;
+  });
+}
+// A text field reached by Tab has its text selected, as a native Tab does, so typing replaces a mistyped key rather than
+// adding to it; script focus alone leaves the caret where it was. Single-line fields only: a native Tab into a textarea
+// keeps its caret, and number and date fields have no select().
+function acctAddFocus(el) {
+  el.focus();
+  const text = el.tagName === 'INPUT' && /^(text|password|search|email|url|tel)$/.test(el.type);
+  if (text && typeof el.select === 'function') { try { el.select(); } catch { /* not selectable */ } }
+}
+document.addEventListener('keydown', (e) => {
+  // A handler that ran first already took this press.
+  if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+  const modal = document.getElementById('acct-add-modal');
+  // Not open, or under another screen that made it inert (first run, the restart screen): that screen owns the keyboard.
+  if (modal.hidden || acctAddInert(modal)) return;
+  // Another dialog showing (a removal confirm, the Kosmos+ sheets) opened over this one: Tab is left to it.
+  if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => !modal.contains(m) && m.getClientRects().length
+    && getComputedStyle(m).visibility !== 'hidden' && !acctAddInert(m))) return;
+  const stops = acctAddTabStops();
+  e.preventDefault();
+  if (!stops.length) return;
+  const at = document.activeElement;
+  const n = stops.length;
+  const i = stops.indexOf(at);
+  if (i !== -1) { acctAddFocus(stops[(i + (e.shiftKey ? -1 : 1) + n) % n]); return; }
+  // Focus behind the dialog (Sign in again for OpenAI opens without moving it): the next Tab goes in at an end.
+  // Focus on something in it that is not a stop (the note a failed start focuses): on to the next stop in that
+  // direction, in page order, wrapping. From a focused container (Grok's and Google's sub-steps, the terms line), Tab
+  // goes to its first stop and Shift+Tab to the stop before it, as a native Tab does.
+  const ask = document.getElementById('stepup-ask');
+  if (!modal.contains(at) && !(ask && ask.contains(at))) { acctAddFocus(stops[e.shiftKey ? n - 1 : 0]); return; }
+  const ahead = e.shiftKey
+    ? stops.filter((el) => el.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_FOLLOWING).pop()
+    : stops.find((el) => el.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_PRECEDING);
+  acctAddFocus(ahead || stops[e.shiftKey ? n - 1 : 0]);
 });
 document.getElementById('acct-openai-show').addEventListener('click', () => {
   const key = document.getElementById('acct-openai-key');
@@ -33726,6 +34049,54 @@ document.getElementById('acct-apikey-show').addEventListener('click', () => {
 /* #5977: the Qwen step of Add a provider. Its own flow, not ACCT_APIKEY_PROVIDERS: that path downloads a provider's
    own runner, and Qwen runs on codex. Bumped on every show, so an answer that returns after the step was left is
    ignored (the same rule as ACCT_APIKEY_GEN). */
+/* #7206: DeepSeek (a vendor whose endpoint speaks Claude Code's API). OFF unless the board says its switch is on
+   (GET /api/accounts/compat, read on every visit, as Meta Muse's /api/muse is): while off the option stays
+   "coming soon" and nothing here can be reached. */
+let COMPAT_ON = false;
+let ACCT_COMPAT_GEN = 0;
+/* 1b review 1: every picker paint asks, so concurrent asks share one request and an answer is reused for COMPAT_ASK_MS;
+   a failed ask keeps the last known answer (it never turns DeepSeek off mid-paste), and the form is put away (clearing a
+   pasted key) only on a definite "off" from the board. */
+const COMPAT_ASK_MS = 5000;
+let COMPAT_ASK = null;   // { at, promise }
+function compatAsk() {
+  const now = Date.now();
+  if (COMPAT_ASK && now - COMPAT_ASK.at >= 0 && now - COMPAT_ASK.at < COMPAT_ASK_MS) return COMPAT_ASK.promise;
+  const promise = (async () => {
+    let answer = null;   // true, false, or null when the board could not be asked
+    try {
+      const r = await fetch('/api/accounts/compat', { cache: 'no-store' });
+      const out = r.ok ? await r.json().catch(() => null) : null;
+      if (out && typeof out.enabled === 'boolean') {
+        answer = out.enabled === true && Array.isArray(out.vendors) && out.vendors.some((v) => v && v.id === 'deepseek');
+      }
+    } catch { answer = null; }
+    if (answer !== null) COMPAT_ON = answer && !(typeof onWindows === 'function' && onWindows());
+    /* Every menu's DeepSeek row says the same thing (web.provider-menus): "coming soon" while off. Add a provider's row is
+       enabled here; the create and switch menus enable theirs by account (paintKeyedProviderOptions reads COMPAT_ON). */
+    for (const o of document.querySelectorAll('option[value="deepseek"]')) {
+      o.textContent = COMPAT_ON ? 'DeepSeek' : 'DeepSeek \u00b7 coming soon';
+      if (!COMPAT_ON) o.disabled = true;
+    }
+    const opt = document.querySelector('#acct-provider-pick option[value="deepseek"]');
+    if (opt) opt.disabled = !COMPAT_ON;
+    if (answer === false) acctCompatShow(false);
+    return COMPAT_ON;
+  })();
+  COMPAT_ASK = { at: now, promise };
+  return promise;
+}
+function acctCompatShow(on) {
+  ACCT_COMPAT_GEN += 1;
+  const flow = document.getElementById('acct-compat-flow');
+  if (!flow) return;
+  flow.hidden = !(on && COMPAT_ON);
+  const m = document.getElementById('acct-compat-msg'); if (m) m.textContent = '';
+  if (flow.hidden) {   // put away means put away: a pasted key does not stay in a hidden field
+    const k = document.getElementById('acct-compat-key'); if (k) k.value = '';
+    const n = document.getElementById('acct-compat-name'); if (n) n.value = '';
+  }
+}
 let ACCT_QWEN_GEN = 0;
 function acctQwenShow(on) {
   ACCT_QWEN_GEN += 1;
@@ -33937,6 +34308,49 @@ document.getElementById('acct-qwen-go').addEventListener('click', async () => {
     if (stillHere()) msg.textContent = String((err && err.message) || 'We could not add that account.');
   } finally {
     if (ACCT_QWEN_GEN === mine) go.disabled = ACCT_QWEN_ADD_BLOCKED;   // #5977: never opens an Add the setup still holds
+  }
+});
+
+/* #7206: add a DeepSeek account. The key is checked with DeepSeek by the board before anything is saved (never with
+   Anthropic); a refused key saves nothing and says so. */
+document.getElementById('acct-compat-go').addEventListener('click', async () => {
+  const keyField = document.getElementById('acct-compat-key');
+  const nameField = document.getElementById('acct-compat-name');
+  const go = document.getElementById('acct-compat-go');
+  const msg = document.getElementById('acct-compat-msg');
+  if (!COMPAT_ON) return;
+  const key = keyField.value.trim();
+  if (!key) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  const entered = nameField.value.trim();
+  const mine = ACCT_COMPAT_GEN;
+  const stillHere = () => ACCT_COMPAT_GEN === mine && !document.getElementById('acct-compat-flow').hidden;
+  go.disabled = true;
+  msg.textContent = 'Checking the key with DeepSeek\u2026';
+  try {
+    const res = await fetch('/api/accounts/compat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ vendor: 'deepseek', key, label: entered || undefined }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!stillHere()) { if (res.ok) paintAccounts(); return; }
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not add that account.');
+    keyField.value = '';
+    nameField.value = '';
+    const unknown = !!(out && out.connection && out.connection.state === 'unknown');
+    const goldBox = frCheckRow({ state: unknown ? 'unknown' : 'ok', title: unknown ? 'DeepSeek account saved' : 'DeepSeek is connected',
+      detail: unknown
+        ? 'It is saved, but DeepSeek did not answer just now. It is checked again when an agent uses it.'
+        : 'DeepSeek accepted the key.' });
+    msg.textContent = 'Checking the connection\u2026';
+    await paintAccounts();
+    if (!stillHere()) return;
+    msg.textContent = '';
+    acctShowSuccess(entered || 'your DeepSeek account', goldBox);
+  } catch (err) {
+    if (stillHere()) msg.textContent = String((err && err.message) || 'We could not add that account.');
+  } finally {
+    if (ACCT_COMPAT_GEN === mine) go.disabled = false;
   }
 });
 
@@ -34735,6 +35149,7 @@ function openAcctReauthGrok(dir, email) {
   acctReauthChrome(true, email);
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-add-modal').hidden = false;
+  loginAdvInert(true);
   acctPick('xai', { focus: false });
   document.getElementById('acct-grok-sub-go').focus();
 }
@@ -36797,6 +37212,54 @@ async function refreshCommunityReady() {
     if (mine === COMMUNITY_READY_EPOCH) { COMMUNITY_READY_PAINTED = null; communityReadyPaint(null); }
   }
 }
+/* #7211: the count and each agent's own community page, in place of every row. `summary` is the board's
+   (engine/communitymine.js summary): counts of what is in the community now, and per agent its name ON the community
+   (null: no registration, so no link). The fold holding the rows shows only when there are rows. */
+function communityMineFoldWords() {
+  const fold = document.getElementById('community-mine-all');
+  const words = document.getElementById('community-mine-all-words');
+  if (fold && words) words.textContent = fold.open ? 'Hide them' : 'View all of them here, to delete one';
+}
+document.getElementById('community-mine-all')?.addEventListener('toggle', communityMineFoldWords);
+function communityMineSummaryPaint(summary, rowCount) {
+  const line = document.getElementById('community-mine-summary');
+  const links = document.getElementById('community-mine-links');
+  const fold = document.getElementById('community-mine-all');
+  fold.hidden = !(rowCount > 0);
+  communityMineFoldWords();
+  const n = (k, one, many) => k.toLocaleString() + ' ' + (k === 1 ? one : many);
+  if (!summary || !Number.isFinite(summary.posts)) { line.hidden = true; links.hidden = true; return; }
+  /* Rows can all be ones that are not out there (held back, taken down, being deleted): then the count says none,
+     rather than "0 posts and 0 comments". */
+  const none = summary.posts === 0 && summary.comments === 0;   // unread comments (null) are never "none"
+  /* Design review: "no comments", not "0 comments"; and when the fold lists rows that are not out there (held, not sent,
+     coming down), the line says so, so the count and what the fold shows never seem to disagree. */
+  const some = (k, one, many) => (k === 0 ? 'no ' + many : n(k, one, many));
+  const outside = Number.isFinite(summary.comments) ? rowCount - summary.posts - summary.comments : 0;
+  line.textContent = (none ? 'None of your agents’ posts or comments are in the community now.'
+    : 'Your agents have ' + some(summary.posts, 'post', 'posts')
+      + (Number.isFinite(summary.comments) ? ' and ' + some(summary.comments, 'comment', 'comments') : '')
+      + ' in the community.')
+    + (outside > 0 && !none ? ' The list below also has ' + outside.toLocaleString() + ' that ' + (outside === 1 ? 'is' : 'are') + ' not in the community.' : '');
+  line.hidden = !(rowCount > 0);
+  const agents = Array.isArray(summary.agents) ? summary.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
+  links.replaceChildren();
+  if (!agents.length || !(rowCount > 0)) { links.hidden = true; return; }
+  links.append('See them on each agent’s community page: ');
+  agents.forEach((a, i) => {
+    if (i) links.append(', ');
+    const link = document.createElement('a');
+    link.href = COMMUNITY_SITE + '/agent/' + encodeURIComponent(a.name);
+    link.className = 'community-mine-agent';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = a.agent || a.name;
+    link.setAttribute('aria-label', (a.agent || a.name) + '’s page on the Kosmos+ community (opens in a new tab)');
+    links.append(link);
+  });
+  links.append('.');
+  links.hidden = false;
+}
 async function refreshCommunityMine() {
   const mine = ++COMMUNITY_MINE_EPOCH;
   try {
@@ -36809,9 +37272,12 @@ async function refreshCommunityMine() {
       ? body.posts.concat(commentsUnread ? [] : body.comments)
         .sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')))
       : null;
-    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(rows, commentsUnread);
+    if (mine === COMMUNITY_MINE_EPOCH) {
+      communityMinePaint(rows, commentsUnread);
+      communityMineSummaryPaint(body && body.summary, rows ? rows.length : 0);
+    }
   } catch {
-    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(null);
+    if (mine === COMMUNITY_MINE_EPOCH) { communityMinePaint(null); communityMineSummaryPaint(null, 0); }
   }
 }
 /* Delete asks first, inside the row rather than a dialog: the history dialog's rules (both
@@ -37473,6 +37939,18 @@ if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
   const tabs = document.getElementById('tabs');
   if (!tabs || tabs.closest('[inert]')) return false;
   if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return false;
+  /* kosmos#7266: the phone's + buttons. The section's own tab first, then its own create button, as a person's two
+     presses would: the agent form (#new-agent) or the add-project form (#pj-new). */
+  if (name === 'new-agent' || name === 'new-project') {
+    const tab = tabs.querySelector('.tab[data-tab="' + (name === 'new-agent' ? 'agents' : 'projects') + '"]');
+    const make = document.getElementById(name === 'new-agent' ? 'new-agent' : 'pj-new');
+    if (!tab || !make) return false;
+    const open = document.getElementById('pnav');
+    if (open && !open.hidden) pnavClose(true);
+    tab.click();
+    make.click();
+    return true;
+  }
   const press = name === 'settings' ? document.getElementById('userpop-go-you')
     : ['agents', 'projects', 'tasks'].includes(name) && tabs.querySelector('.tab[data-tab="' + name + '"]');
   if (!press) return false;
@@ -44597,10 +45075,12 @@ function settleWantAgent() {
   // Only opening an agent spends it: a person who moves to another tab during the grace
   // can still be taken to the linked agent if it shows up then (a short window, as before).
   if (CURRENT) { WANT_AGENT_DONE = true; return; }
-  openDetail(WANT_AGENT);
+  openDetail(WANT_AGENT, WANT_AGENT_SEC || undefined);
   if (CURRENT && CURRENT.sessionName === WANT_AGENT) {
     WANT_AGENT_DONE = true;
-    detailRevealTalkOnPhone();
+    /* #7280: a link that named a section (the iPhone's "Open on your computer's board" asks for AI Settings) lands
+       there, at the top on a phone; otherwise the conversation, as before. */
+    detailRevealTalkOnPhone(WANT_AGENT_SEC || 'talk');
     return;
   }
   // The grace is judged only on a read, and a read that finds the agent has already opened it
@@ -44617,9 +45097,11 @@ let REVEAL_HOLD = null;
    makes the browser scroll it above the on-screen keyboard (the Answer path focuses it); the
    hold must never pull it back under. */
 const REVEAL_HOLD_STOPS = ['touchstart', 'wheel', 'keydown', 'mousedown', 'focusin'];
-function detailRevealTalkOnPhone() {
+/* #7280 review 1: the section to land on is a parameter (an agent link may name AI Settings), with the same hold, since
+   the Files list paints late above every section, not only above the conversation. */
+function detailRevealTalkOnPhone(key) {
   if (!(window.matchMedia && window.matchMedia(DETAIL_STACK_MQ).matches)) return;
-  const talk = detailSection('talk');
+  const talk = detailSection(key || 'talk');
   if (!talk || talk.hidden) return;
   try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { /* old engines: stay put */ }
   /* Content above the conversation (the Files list, painted from its own fetch) can still
@@ -44629,7 +45111,7 @@ function detailRevealTalkOnPhone() {
      keyboard. Known gap: a scroll that fires none of those (dragging a narrow window's
      scrollbar, iOS's tap on the status bar) can be pulled back once within the window. */
   if (REVEAL_HOLD) REVEAL_HOLD();
-  const top0 = talk.getBoundingClientRect().top;
+  let top0 = talk.getBoundingClientRect().top;
   const until = performance.now() + REVEAL_HOLD_MS;
   const stop = () => {
     clearInterval(timer);
@@ -44641,6 +45123,10 @@ function detailRevealTalkOnPhone() {
     if (performance.now() > until || talk.hidden || !talk.offsetParent) return stop();
     if (Math.abs(talk.getBoundingClientRect().top - top0) > REVEAL_HOLD_DRIFT_PX) {
       try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { stop(); }
+      /* #7280 review 2: where it sits now is the new place to hold. A section on a page too short to reach its landing
+         stops short the first time; once content above makes room it lands for real, and holding the old spot would
+         scroll it again on every tick. */
+      top0 = talk.getBoundingClientRect().top;
     }
   }, REVEAL_HOLD_TICK_MS);
   for (const ev of REVEAL_HOLD_STOPS) window.addEventListener(ev, stop, { capture: true, passive: true });
@@ -46294,6 +46780,7 @@ async function whatsNewCheck() {
 }
 whatsNewCheck();
 rebootNoteCheck();   // #5359
+damagedFilesCheck();   // kosmos#7248
 /* Asked again every ten minutes, so its time words stay true across midnight ("at 11:30 PM" becomes "yesterday at"),
    and a note gone stale or dismissed elsewhere goes. */
 setInterval(rebootNoteCheck, 10 * 60 * 1000);
@@ -53815,6 +54302,9 @@ async function paintPlus() {
      pauses. paintSwitch shows it only once the engine has answered (never a guessed off). */
   if (typeof paintSwitch === 'function') paintSwitch('plus-switch', r.on === true);
   else if (sw) { sw.hidden = false; if (sw.setAttribute) sw.setAttribute('aria-checked', r.on === true ? 'true' : 'false'); }   // the page tests lift paintPlus alone
+  /* kosmos#7277 (review 1): on a Kosmos cloud machine, switching remote access off stops the only way in, as Remove
+     would. While it is on there, the switch is not offered (the server refuses off too); the pill still says how it is. */
+  if (sw && r.on === true && typeof onCloudMachine === 'function' && onCloudMachine()) sw.hidden = true;
   { const lg = document.getElementById('plus-logo');
     if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos+ */ } } }
   const st = document.getElementById('plus-status');
@@ -53924,6 +54414,15 @@ async function paintPlus() {
     if (r.enrolled !== true || r.on === true) plusForgetKept(false);
     else if (r.forgetKept && (document.getElementById('plus-forget-ask') || {}).hidden !== false) plusForgetKeptSay(r.forgetKept);   // not beside an open confirm
   }
+  /* kosmos#7277: a cloud machine offers no Remove (the server refuses it too), and says why instead. After the kept
+     note above (review 2), so nothing re-shows a box whose buttons the server refuses. */
+  { const cloud = typeof onCloudMachine === 'function' && onCloudMachine();
+    const go = document.getElementById('plus-forget-go'); const why = document.getElementById('plus-forget-cloud');
+    if (why) why.hidden = !cloud;
+    if (cloud) {
+      if (go) go.hidden = true;
+      for (const id of ['plus-forget-ask', 'plus-forget-kept']) { const e = document.getElementById(id); if (e) e.hidden = true; }   // review 1
+    } }
   { const og = document.getElementById('plus-org'); if (og) { og.hidden = r.enrolled !== true; if (!og.hidden) plusOrgMaybe(); } }   // #5531
   paintDevices();
 }
@@ -57011,11 +57510,13 @@ async function paintModelPicker(a) {
      form (#2167), here on the detail surface. Delegate and return. */
   /* #5977: a Qwen agent runs on codex but its account names its one model, so it gets no OpenAI list. */
   const isQwen = !!(a && a.runner === 'codex' && a.account && a.account.provider === 'alibaba');
+  // #7206 (1b review 3): a claude agent on a DeepSeek account runs the model its account names, as a Qwen agent does.
+  const isVendor = !!(a && a.runner !== 'codex' && a.account && a.account.provider === 'deepseek');
   if (a && !isQwen && (a.provider === 'openai' || a.runner === 'codex')) { await paintOpenaiDetailModel(a, forWhom); return; }
   /* #3566: Kosmos has no list of Gemini's or Grok's models to offer, so the menu states
      what the agent runs as its one option and Switch stays down. The Claude flow below would otherwise offer Claude models under a
      Gemini agent, the #2167 "Claude models under an OpenAI agent" shape again. */
-  if (a && (isQwen || a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity' || a.runner === 'muse')) {   // #3568: antigravity too; #3939 3c-3b: muse; #5977: Qwen
+  if (a && (isQwen || isVendor || a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity' || a.runner === 'muse')) {   // #3568: antigravity too; #3939 3c-3b: muse; #5977: Qwen
     /* An OpenAI models fetch started for this panel (e.g. just before a switch to Gemini)
        must not land on it, and an OpenAI note must not stay under a Gemini agent. */
     OPENAI_DETAIL_GEN += 1;
@@ -57025,7 +57526,8 @@ async function paintModelPicker(a) {
        menu says the same model the card does. Antigravity and Muse really do pick their own. */
     const runsOn = menuRunsOn(a);
     // #5977: a Qwen agent says the model its account names, or that the account names it.
-    const qwenSays = isQwen ? ((a.modelName || a.plannedModelName) ? 'Runs on ' + modelLine(a) : 'The Qwen account names the model') : '';
+    const qwenSays = isQwen ? ((a.modelName || a.plannedModelName) ? 'Runs on ' + modelLine(a) : 'The Qwen account names the model')
+      : isVendor ? ((a.modelName || a.plannedModelName) ? 'Runs on ' + modelLine(a) : 'The DeepSeek account names the model') : '';
     const one = '<option value="" selected>' + (qwenSays ? esc(qwenSays) : esc(runsOn ? 'Runs on ' + runsOn : word + ' picks its own model')) + '</option>';
     if (sel.innerHTML !== one) sel.innerHTML = one;
     sel.dataset.current = '';
@@ -57292,6 +57794,7 @@ function acctMoveWorld(a, accounts) {
      apart from the keyed map, which #3566's pin holds to the key-based providers. */
   const keyedProvider = (a && (a.runner === 'antigravity' || a.runner === 'muse')) ? a.runner   // #3939 3c-3b: muse has no rows either
     : (a && a.runner === 'codex' && a.account && a.account.provider === 'alibaba') ? 'alibaba'   // #5977: a Qwen agent moves among Qwen accounts
+    : (a && a.runner !== 'codex' && a.account && a.account.provider === 'deepseek') ? 'deepseek'   // #7206: a DeepSeek agent among DeepSeek accounts
     : ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
   const isCodex = keyedProvider === 'openai';
   const isKeyed = !!keyedProvider;
@@ -57890,7 +58393,9 @@ const agentShown = () => (CURRENT && (CURRENT.name || CURRENT.sessionName)) || '
 /* #5977: a Qwen agent runs on codex too; the board marks its account provider 'alibaba' (server accountForAgent). */
 const providerOf = (a) => ((a && a.runner === 'codex') ? ((a.account && a.account.provider === 'alibaba') ? 'alibaba' : 'openai') : (a && a.runner === 'gemini') ? 'google' : (a && a.runner === 'grok') ? 'xai'
   : (a && a.runner === 'antigravity') ? 'antigravity'   // #3568: Gemini on a Google subscription
-  : (a && a.runner === 'muse') ? 'meta' : 'anthropic');   // #3939 3c-3b: an agent on Meta Muse is not a Claude agent
+  : (a && a.runner === 'muse') ? 'meta'   // #3939 3c-3b: an agent on Meta Muse is not a Claude agent
+  /* #7206: a claude agent on a DeepSeek account is DeepSeek's (the board marks its account, accountForAgent). */
+  : (a && a.account && a.account.provider === 'deepseek') ? 'deepseek' : 'anthropic');
 
 function paintProviderPicker(a) {
   const sel = document.getElementById('d-provider');
@@ -57932,6 +58437,8 @@ function paintProviderPicker(a) {
     if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = false;
   }
   paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE);
+  // #7206: DeepSeek is offered only while this Kosmos's switch is on; the menu is painted again once that is known.
+  (typeof compatAsk === 'function' ? compatAsk() : Promise.resolve(false)).then(() => paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE));
   paintAgyOption(sel, current); agyAsk();   // #3568: Gemini by subscription is gated on agy, not an account
   paintMuseOption(sel, current);   // #3939 3c-3b: Meta shows as the current provider of an agent on Muse
   /* An unrecognised provider leaves the select alone rather than silently
@@ -58461,7 +58968,7 @@ function fillSwitchAccounts() {
 const PROVIDER_MARK_KEY = {
   anthropic: 'claude', openai: 'openai', google: 'gemini', meta: 'meta',
   antigravity: 'gemini',   // #3568: Gemini on a Google subscription wears Gemini's mark
-  xai: 'xai', alibaba: 'qwen', moonshot: 'kimi', mistral: 'mistral',
+  xai: 'xai', alibaba: 'qwen', deepseek: 'deepseek', moonshot: 'kimi', mistral: 'mistral',   // #7206: the setup guide's own DeepSeek mark
   /* #1040 2b: #acct-provider-pick (the Add-a-provider screen) uses the value 'claude'
      where #d-provider uses 'anthropic'; both name the same provider and get the same
      'claude' mark. Additive: #d-provider never looks up 'claude', so this does not touch it. */
@@ -59055,7 +59562,7 @@ async function changeProviderNow(say) {
     if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, provName, 'Switched to ' + provName);
     /* #4008 (round 3): Runs on names the provider it moved to now, in modelLine's own words for a runner
        with no transcript yet (the same line the next open would draw once the runner is recorded). */
-    const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude', alibaba: 'Qwen' }[want];   // #5977
+    const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude', alibaba: 'Qwen', deepseek: 'DeepSeek' }[want];   // #5977, #7206
     /* #5091 round 2: a partial (switched to Claude, but not onto the picked account) DID change the provider and is
        starting again, so "Runs on" says so too; only the wake hello is skipped for it. */
     const moved = restarted || (out.outcome === 'partial' && out.provider === want && out.restarted === true);
@@ -59064,7 +59571,7 @@ async function changeProviderNow(say) {
        repaints an open panel, so the open agent takes the runner (and the Claude account) the switch just confirmed, and
        the account and model rows are repainted from it, as Move does after its own success. */
     if (moved && CURRENT && CURRENT.sessionName === forAgent) {
-      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '', alibaba: 'codex' };   // #5977: Qwen runs on codex
+      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '', alibaba: 'codex', deepseek: '' };   // #5977: Qwen runs on codex; #7206: DeepSeek on claude ('' as anthropic)
       if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
       /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
       CURRENT.modelName = null;
@@ -59080,7 +59587,8 @@ async function changeProviderNow(say) {
       /* #5977 UI review 2: a Qwen agent is told apart from an OpenAI one only by its account's provider, so the switch
          says so even when the landed folder is not in the page's list yet. */
       CURRENT.account = want === 'alibaba' ? { ...(chosenDir ? { dir: chosenDir } : {}), provider: 'alibaba' }
-        : chosenDir ? { dir: chosenDir } : null;
+        : want === 'deepseek' ? { ...(chosenDir ? { dir: chosenDir } : {}), provider: 'deepseek' }   // #7206, as Qwen
+          : chosenDir ? { dir: chosenDir } : null;
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');
@@ -59535,6 +60043,7 @@ function fillCreateAccounts(given) {
   const provSel = document.getElementById(ids.prov);
   /* #3566: Gemini and Grok are offered only once an account for them is connected. */
   paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED);
+  (typeof compatAsk === 'function' ? compatAsk() : Promise.resolve(false)).then(() => paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED));   // #7206
   paintAgyOption(provSel, ''); agyAsk();   // #3568
   paintMuseOption(provSel, ''); museCreateAsk();   // #3939 3c-3b
   /* #3568: Gemini on a Google subscription signs in inside the agent's own window and has no
@@ -59790,7 +60299,7 @@ function applyCreateProviderUI() {
     const modelRow = document.getElementById('create-model-row');
     if (modelRow) modelRow.hidden = true;
     if (why) {
-      why.textContent = (pv === 'alibaba' ? 'The Qwen account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
+      why.textContent = (pv === 'alibaba' ? 'The Qwen account names the model.' : pv === 'deepseek' ? 'The DeepSeek account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
         + (pv === 'antigravity' && !FR_AGY_READY
           ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : '');
       why.hidden = false;
@@ -60251,7 +60760,7 @@ function tcPaintModel(pv, ac) {
   };
   if (vendorPicksModel(pv)) {
     row.hidden = true;
-    show('<option value="" selected></option>', true, (pv === 'alibaba' ? 'The Qwen account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
+    show('<option value="" selected></option>', true, (pv === 'alibaba' ? 'The Qwen account names the model.' : pv === 'deepseek' ? 'The DeepSeek account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
       + (pv === 'antigravity' && !FR_AGY_READY   // the single create's own hint, word for word
         ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : ''), false);
     return;
@@ -65532,6 +66041,9 @@ function playBubblePop() {
    is yours, not the project's, so it lives in localStorage beside the other per-viewer
    display preferences rather than on the shared project record. A noisy project is
    muted here on its own; storage blocked (private window) falls back to ON. */
+/* #7210: this project's notification level as the board sent it (All / Mentions only / Muted); anything else, or an
+   older board with no field, reads as all, today's behaviour. */
+function pjNotifyLevel(p) { return p && (p.notify === 'mentions' || p.notify === 'muted') ? p.notify : 'all'; }
 function projectSoundOn(id) {
   try { return localStorage.getItem('kosmos.sound.pj.' + id) !== 'off'; }
   catch { return true; }
@@ -65603,7 +66115,8 @@ function ringNewMessages(projects) {
        `/seen` lands, so /api/projects can still report unread=1 for the room you are
        reading -- exclude it here too, the same guard the badge keeps. */
     const prev = prevSeen ? prevSeen[p.id] : undefined;
-    if (prev !== undefined && cur > Number(prev) && p.id !== PJ_CURRENT && projectSoundOn(p.id)) burst = true;
+    /* #7210: a project set to Mentions only or Muted makes no new-message sound (its unread count still rises above). */
+    if (prev !== undefined && cur > Number(prev) && p.id !== PJ_CURRENT && projectSoundOn(p.id) && pjNotifyLevel(p) === 'all') burst = true;
   }
   PJ_UNREAD_SEEN = next;
   /* #2436: the global master gates the play, not the baseline: PJ_UNREAD_SEEN is
@@ -66024,6 +66537,7 @@ function pjTeamMap(p, board, redHere) {
     const runner = m.runner || c.runner;
     const account = m.account || c.account;
     if (runner === 'codex' && account && account.provider === 'alibaba') return 'Qwen';
+    if (account && account.provider === 'deepseek') return 'DeepSeek';   // #7206: Claude Code on a DeepSeek account is never "Claude"
     return WV_PROVIDER[runner] || '';
   };
   // A member the board cannot see says so rather than a state it does not know (as its row does).
@@ -66609,6 +67123,7 @@ function paintProjects() {
        badges agree on the room you are reading -- the projects poll can still
        report unread=1 for that room before this tick's /seen lands. */
     if (PJ_CURRENT && p && p.id === PJ_CURRENT) return n;
+    if (pjNotifyLevel(p) !== 'all') return n;   // kosmos#7210: as engine projectsUnreadTotal, a quiet project adds nothing
     const v = Number(p && p.unread);
     return n + (Number.isFinite(v) && v > 0 ? v : 0);
   }, 0);
@@ -67125,6 +67640,7 @@ function pjSortByChain(list) {
 const PJ_TALLY = [
   ['Claude', 'claude', 'Claude'], ['OpenAI', 'openai', 'GPT'], ['Gemini', 'google', 'Gemini'],
   ['Gemini (Google subscription)', 'antigravity', 'Gemini'], ['Grok', 'xai', 'Grok'], ['Meta Muse', 'meta', 'Meta'], ['Qwen', 'alibaba', 'Qwen'],
+  ['DeepSeek', 'deepseek', 'DeepSeek'],   // #7206
 ];
 const PJ_TALLY_MARKS = new Map();   // pick -> the mark's HTML (cloned from the first-run screen's marks, which stay in the page)
 function pjProviderTally(agents) {
@@ -70955,6 +71471,8 @@ function paintProjectSettings(p) {
   document.getElementById('pjs-desc').value = p.description || '';
   // #2407: reflect this project's per-device sound preference (default ON).
   paintSwitch('pjs-sound-toggle', projectSoundOn(p.id));
+  pjNotifyPaint(pjNotifyLevel(p));   // kosmos#7210
+  document.getElementById('pjs-notify-msg').textContent = '';
   pjPaintParentSelect(p);
   document.getElementById('pjs-msg').textContent = '';
   document.getElementById('pjs-reveal-msg').textContent = '';
@@ -71498,10 +72016,107 @@ document.getElementById('pj-settings-back').addEventListener('click', () => {
 document.getElementById('pjs-sound-toggle').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
+  // kosmos#7210 review 4: quiet while the project is not on All; a scripted click must not flip the saved choice either.
+  if (document.getElementById('pjs-sound-toggle').disabled) return;
   const on = !projectSoundOn(p.id);
   setProjectSoundOn(p.id, on);
   paintSwitch('pjs-sound-toggle', on);
 });
+
+/* kosmos#7210: the project's notification level. The words under the choice say what it does, so nobody has to guess
+   what "Mentions only" keeps. */
+const PJ_NOTIFY_HINT = {
+  all: 'Everything from this project: phone notifications as you set them in Settings, and the new-message sound if it is on.',
+  mentions: 'Only what is addressed to you: an agent that needs you, a post that names you, and work waiting for your check. No new-message sound.',
+  muted: 'Nothing from this project: no sound and no phone notifications. Its unread count still shows, so nothing is lost.',
+};
+const PJ_NOTIFY_HEAD = { mentions: 'Mentions only', muted: 'Muted' };
+function pjNotifyPaint(level) {
+  const seg = document.getElementById('pjs-notify');
+  if (!seg) return;
+  for (const b of seg.querySelectorAll('[data-notify]')) {
+    const on = b.dataset.notify === level;
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+  }
+  document.getElementById('pjs-notify-hint').textContent = PJ_NOTIFY_HINT[level] || PJ_NOTIFY_HINT.all;
+  /* Review 2 and design review: the sound switch keeps the person's saved choice on this device, but while the project
+     is not on All it is dimmed and cannot be pressed, and the line under it says why, so nobody turns it on and wonders
+     why nothing plays. */
+  const off = document.getElementById('pjs-sound-off-note');
+  if (off) off.hidden = level === 'all';
+  const sound = document.getElementById('pjs-sound-toggle');
+  if (sound) {
+    sound.disabled = level !== 'all';
+    if (level === 'all') sound.removeAttribute('aria-describedby'); else sound.setAttribute('aria-describedby', 'pjs-sound-off-note');
+  }
+}
+function pjHeadNotifyPaint(p) {
+  const b = document.getElementById('pj-head-notify');
+  if (!b) return;
+  const level = pjNotifyLevel(p);
+  b.hidden = level === 'all';
+  document.getElementById('pj-head-notify-t').textContent = PJ_NOTIFY_HEAD[level] || '';
+  b.setAttribute('aria-label', level === 'all' ? '' : PJ_NOTIFY_HEAD[level] + ': change this project\'s notifications');
+}
+/* Saved as it is chosen. Each choice counts itself, so an earlier answer arriving late never repaints over a later
+   choice; a refusal puts back what the board holds and says why, under the choice. */
+let PJ_NOTIFY_SEQ = 0;
+let PJ_NOTIFY_INFLIGHT = 0;   // saves sent and not yet answered
+async function pjNotifyChoose(level) {
+  const p = pjById(PJ_CURRENT);
+  /* Review 2: nothing to send only when no save is on its way; going back to the held level while one is in flight is
+     a choice too, or the earlier save would land and leave the board on a level the choice no longer shows. */
+  if (!p || !PJ_NOTIFY_HINT[level] || (level === pjNotifyLevel(p) && PJ_NOTIFY_INFLIGHT === 0)) { pjNotifyPaint(level); return; }
+  const seq = ++PJ_NOTIFY_SEQ;
+  PJ_NOTIFY_INFLIGHT += 1;
+  const msg = document.getElementById('pjs-notify-msg');
+  pjNotifyPaint(level);
+  msg.textContent = '';
+  let ok = false, got = {};
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notify: level }),
+    });
+    got = await res.json().catch(() => ({}));
+    ok = res.ok;
+  } catch { ok = false; }
+  PJ_NOTIFY_INFLIGHT -= 1;
+  const now = pjById(p.id);
+  /* Review 1: a saved answer is what the board holds even when a later choice has been made since, so it is kept;
+     only painting waits for the latest choice (a later refusal then puts back this one, not an older value). */
+  if (ok && now) now.notify = got && got.project && got.project.notify ? got.project.notify : level;
+  if (seq !== PJ_NOTIFY_SEQ) return;
+  if (ok) {
+    msg.textContent = 'Saved.';
+  } else {
+    pjNotifyPaint(pjNotifyLevel(now || p));
+    msg.textContent = 'Not saved: ' + ((got && got.error && pjSentence(got.error)) || 'Kosmos did not answer. Try again.');
+  }
+  if (now && PJ_CURRENT === now.id) pjHeadNotifyPaint(now);
+}
+(() => {
+  const seg = document.getElementById('pjs-notify');
+  if (!seg) return;
+  seg.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-notify]');
+    if (b) pjNotifyChoose(b.dataset.notify);
+  });
+  /* A radio group's keys, as the Documents switch above (#4937): arrows move and choose, wrapping; Home and End. */
+  seg.addEventListener('keydown', (e) => {
+    const b = e.target.closest('[data-notify]');
+    if (!b || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    const all = [...seg.querySelectorAll('[data-notify]')];
+    const i = all.indexOf(b);
+    const to = e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1]
+      : all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];
+    e.preventDefault();
+    to.focus();
+    pjNotifyChoose(to.dataset.notify);
+  });
+  const head = document.getElementById('pj-head-notify');
+  if (head) head.addEventListener('click', () => document.getElementById('pj-settings-link').click());
+})();
 
 /* #2436: flip the GLOBAL master new-message sound preference (Settings > Automation >
    Sounds). Same shape as the per-project toggle above: writes localStorage and repaints
@@ -71793,6 +72408,7 @@ function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
   document.getElementById('pj-one-name').textContent = p.name;
+  pjHeadNotifyPaint(p);   // kosmos#7210
   /* #2928 breadcrumb: the location trail (where this project sits) above the name,
      derived from pjAncestry -- the same tree the list cards use -- so the detail
      page and the list can never disagree. (#3103 removed the sub-projects section
@@ -77110,7 +77726,59 @@ function paintRoom(body) {
   if (!filtering && body.ok !== false) unreadEdgeApply(box, 'pj:' + PJ_CURRENT);
   if (!filtering && body.ok !== false) convFollow(box, 'pj:' + PJ_CURRENT);   // #5624
   else if (filtering) convPause();   // #5624 review 1, as in the direct thread
+  pjFitRoomPhone();   // kosmos#7196
 }
+/* kosmos#7196 (Mona Lisa's read, option 1): on a phone the room column ran about 85px past the screen, so the sticky
+   composer covered the thread's newest rows until the page was nudged down. The thread is capped (--pj-room-fit, read by
+   the phone CSS) to what fits between its top, with the page at its top as the room opens, and the composer above the
+   visible bottom. The visible height shrinks with the on-screen keyboard, so the keyboard shrinks the thread, never the
+   composer. A cap only: a short room keeps its natural height. A reader at the newest row stays at it. Phone tab layout
+   only (the consolidated layout already sizes its column to the screen). */
+const PJ_ROOM_PHONE = window.matchMedia('(max-width: 30rem)');   // the phone room block's query; change both together
+function pjFitRoomPhone() {
+  const room = document.getElementById('pj-room');
+  if (!room) return;
+  if (!PJ_ROOM_PHONE.matches || document.body.classList.contains('consolidated')) { room.style.removeProperty('--pj-room-fit'); return; }
+  const comp = document.querySelector('.pjmid .composer');
+  const r = room.getBoundingClientRect();
+  if (!comp || r.height === 0) return;   // not on screen
+  /* Review 1: the composer grows as a message gets longer (pjGrowComposer) and when the held strip shows, with no repaint
+     or resize, so it would cover the newest rows again while the person types. Its own size change re-fits.
+     Review 4: so do the strips between the thread and the composer (an agent working, Replying to) and the sealed line
+     above the thread, which show and hide with no resize either. */
+  if (!comp.__pjFitWatched && window.ResizeObserver) {
+    comp.__pjFitWatched = true;
+    const ro = new ResizeObserver(() => pjFitRoomPhone());
+    for (const el of [comp, document.getElementById('pj-busy'), document.getElementById('pj-reply'), document.getElementById('pj-fed-own-phone')]) if (el) ro.observe(el);
+  }
+  const compH = comp.getBoundingClientRect().height + (parseFloat(getComputedStyle(comp).marginTop) || 0);
+  // Review 4: what is shown between the thread and the composer takes room under the thread too.
+  let between = 0;
+  for (let el = room.nextElementSibling; el && !el.contains(comp); el = el.nextElementSibling) {
+    if (el.hidden) continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.position === 'absolute' || cs.position === 'fixed') continue;
+    between += el.getBoundingClientRect().height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+  }
+  const visible = window.visualViewport ? Math.round(window.visualViewport.height * window.visualViewport.scale) : window.innerHeight;
+  /* The floor is 96px, not more: with the keyboard up on a 393x852 phone only about 135px is left between the thread's
+     top and the composer, and a 160px floor (round 1) left the newest row 25px under the composer while typing (measured
+     by render-room-scroll's keyboard arm). 96px still shows a couple of rows. */
+  const fit = Math.max(96, Math.floor(visible - (r.top + window.scrollY) - between - compH));
+  if (room.style.getPropertyValue('--pj-room-fit') === fit + 'px') return;
+  const atFloor = room.scrollHeight - room.scrollTop - room.clientHeight <= 8;
+  room.style.setProperty('--pj-room-fit', fit + 'px');
+  if (atFloor) room.scrollTop = room.scrollHeight;
+}
+if (window.visualViewport) window.visualViewport.addEventListener('resize', pjFitRoomPhone);
+/* kosmos#7272: the room's header steps aside while the composer has focus with the keyboard up (the phone room CSS),
+   and moving focus from the search box to the composer fires no resize, so the thread kept the cap it had under the
+   header. Its height changing (to 0 when hidden, back when shown; #conn appearing or wrapping too) re-fits. */
+if (window.ResizeObserver) {
+  const pjRoomHeadWatch = new ResizeObserver(() => pjFitRoomPhone());
+  for (const el of document.querySelectorAll('#pj-one-view .pjmidhead, #pj-one-view .pj-crumbrow, #askcard, #conn')) pjRoomHeadWatch.observe(el);
+}
+window.addEventListener('resize', pjFitRoomPhone);
 /* The search input repaints from the cached body (loadRoom keeps it on
    the box) so typing filters instantly between polls; the query resets
    on project switch (a reading posture, not project state -- carried
@@ -84601,6 +85269,31 @@ async function frConnSettle() {
 
 function frMB(n) { return Math.max(0, Math.round(n / 1e6)) + 'MB'; }
 
+/* kosmos#4903 S5: a Kosmos cloud machine has no browser of its own, so nothing opens there: the sign-in page's link
+   is the way in, opened wherever the person is. Only the phases that assume a local browser change. */
+/* S5 design note 2: on screen, the sentence above the link says "below" once the link is painted, and "in a moment"
+   only while it is not. frConnPaintUrl re-says it, because the link can arrive inside a phase without a rebuild. */
+function frCloudSigninDetail(phase, hasUrl) {
+  if (phase === 'signin-awaiting-code') {
+    return hasUrl ? 'Open the Claude sign-in page below and sign in. Claude then shows a code: paste it here.'
+      : 'Its link appears here in a moment. Sign in there, and Claude then shows a code: paste it here.';
+  }
+  return hasUrl ? 'Open the Claude sign-in page below and sign in there. This screen will update when it is done.'
+    : 'Its link appears here in a moment. This screen will update when you have signed in.';
+}
+const CLOUD_SIGNIN_SAY = {
+  'signin-launching': 'Getting the Claude sign-in ready.',
+  'signin-browser-open': 'Open the Claude sign-in page and sign in there. Its link appears here in a moment.',
+  'signin-awaiting-code': 'Open the Claude sign-in page (its link appears here) and sign in. Claude then shows a code: paste it here.',
+};
+function signinSay(table, phase, hasUrl) {
+  const cloud = typeof onCloudMachine === 'function' && onCloudMachine();
+  // S5 review: the spoken line (first run) and Settings' visible line say what the screen says, link or no link.
+  if (cloud && (phase === 'signin-browser-open' || phase === 'signin-awaiting-code') && typeof frCloudSigninDetail === 'function') {
+    return frCloudSigninDetail(phase, !!hasUrl);
+  }
+  return (cloud && CLOUD_SIGNIN_SAY[phase]) || table[phase];
+}
 /** One sentence per phase, spoken once on each phase CHANGE — the per-second
     progress numbers stay out of the live region on purpose. */
 const FR_CONN_SAY = {
@@ -84619,6 +85312,11 @@ function frPaintConnect(st) {
   const box = document.getElementById('fr-sub');
   const msg = document.getElementById('fr-sub-msg');
   const phase = st && st.phase;
+  /* kosmos#4903 S5 (review 3): the link this paint shows, decided ONCE for every path (the repeat-paint path below
+     too, which runs every second): on a cloud machine none while Claude is finishing, since the link is the primary
+     button there and the screen says it is finishing. The Mac keeps its fallback link, as before. */
+  const cloud = typeof onCloudMachine === 'function' && onCloudMachine();   // review 4: the cloud fact, read once too
+  const shownUrl = phase === 'signin-completing' && cloud ? null : (st && st.url);
   // #2236 (Josh 0.6.42 re-test): Mona Lisa's "Sweep" loading spinner (the dots-trail she
   // designed and Josh chose 2026-09-05; installkosmos.com/design/loading-indicators, variant D).
   // #11 wrongly used the .kspin Kosmos MARK here (a tiny Kosmos icon), which Josh flagged as the
@@ -84651,7 +85349,7 @@ function frPaintConnect(st) {
     // engine writes it late for exactly that case), and a full rebuild here
     // would empty the code input mid-typing -- so the link gets its own
     // targeted updater, like the progress numbers.
-    frConnPaintUrl(st && st.url);
+    frConnPaintUrl(shownUrl);
     return;
   }
   FR_CONN_LAST = paintKey;
@@ -84660,7 +85358,7 @@ function frPaintConnect(st) {
   msg.textContent = '';
   const say = document.getElementById('fr-conn-say');
   if (say && Object.prototype.hasOwnProperty.call(FR_CONN_SAY, phase)) {
-    say.textContent = FR_CONN_SAY[phase];
+    say.textContent = typeof signinSay === 'function' ? signinSay(FR_CONN_SAY, phase, !!shownUrl) : FR_CONN_SAY[phase];
   }
 
   // Always a container, filled by frConnPaintUrl -- the one element that can
@@ -84700,28 +85398,34 @@ function frPaintConnect(st) {
     // on 'signin-browser-open', which is waiting on the PERSON to sign in in the browser --
     // a "working" spinner there would misrepresent who the screen is waiting on.
     box.innerHTML = '<div class="fr-ctitle">'
-      + (phase === 'signin-completing' ? spin + ' Finishing the sign-in&#8230;' : 'Your browser has opened')
+      + (phase === 'signin-completing' ? spin + ' Finishing the sign-in&#8230;' : cloud ? 'Sign in to Claude' : 'Your browser has opened')
       + '</div>'
       + '<div class="fr-cdetail">'
       + (phase === 'signin-completing'
         ? 'Checking the connection. This screen will change on its own.'
-        : 'Sign in to Claude there. This screen will update when it is done.')
+        : cloud ? '<span id="fr-conn-cloudsay-open">' + esc(frCloudSigninDetail('signin-browser-open', !!shownUrl)) + '</span>'
+          : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
-    frConnPaintUrl(st && st.url);
+    frConnPaintUrl(shownUrl);
     frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
 
   if (phase === 'signin-awaiting-code') {
-    box.innerHTML = '<div class="fr-ctitle">Your browser has opened</div>'
-      + '<div class="fr-cdetail">Sign in to Claude there. This screen will notice when it is done.</div>'
+    box.innerHTML = '<div class="fr-ctitle">' + (cloud ? 'Sign in to Claude' : 'Your browser has opened') + '</div>'
+      + '<div class="fr-cdetail">' + (cloud
+        ? '<span id="fr-conn-cloudsay-code">' + esc(frCloudSigninDetail('signin-awaiting-code', !!shownUrl)) + '</span>'
+        : 'Sign in to Claude there. This screen will notice when it is done.') + '</div>'
       + urlLine
       // The engine sets `because` when a typed code did not take; without
       // showing it, a rejected code looks like this screen simply asking twice.
       + ((st && st.because) ? '<div class="fr-note">' + esc(st.because) + '</div>' : '')
-      + '<label class="fr-cdetail" for="fr-conn-code">If Claude gives you a code to paste, put it here:</label>'
+      // S5 design note 3: on a cloud machine a code always comes and the sentence above already asks for it, so the field
+      // carries a placeholder instead of a second "paste the code" label. The Mac keeps the label (a code is the exception).
+      + (cloud ? '' : '<label class="fr-cdetail" for="fr-conn-code">If Claude gives you a code to paste, put it here:</label>')
       + '<div class="fr-code-row">'
-      + '<input id="fr-conn-code" type="text" autocomplete="off" spellcheck="false" aria-label="Sign-in code">'
+      + '<input id="fr-conn-code" type="text" autocomplete="off" spellcheck="false" aria-label="Sign-in code"'
+      + (cloud ? ' placeholder="Paste the code from Claude" aria-describedby="fr-conn-cloudsay-code"' : '') + '>'
       + '<button class="btn" id="fr-conn-code-go" type="button">Use code</button>'
       + '</div>';
     document.getElementById('fr-conn-code-go').onclick = frConnSubmitCode;
@@ -84737,7 +85441,7 @@ function frPaintConnect(st) {
       // code AND click Continue.
       if (e.key === 'Enter') { e.stopPropagation(); if (!(go && go.disabled)) frConnSubmitCode(); }
     };
-    frConnPaintUrl(st && st.url);
+    frConnPaintUrl(shownUrl);
     frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
@@ -84845,6 +85549,9 @@ function frPaintConnect(st) {
          app to open; the way in is a shell on the server itself (over SSH), then `claude`.
          Linux is matched before the Mac `!onWindows` arm below, which it would otherwise
          fall into. Mac and Windows copy are unchanged. */
+      /* kosmos#4903 S5 (review 1): a Kosmos cloud machine is reached only through a browser, so neither hatch
+         (a shell on the server, or Terminal) is a way out there: none is offered, and Try again is the way on. */
+      : cloud ? ''
       : ((st && st.canRunClaude && onLinux(st && st.platform))
         ? '<details class="fr-hatch"><summary>Have a shell on the server?</summary>'
           + 'You can sign in to Claude on the computer running Kosmos. Open a terminal there '
@@ -84949,10 +85656,23 @@ function frConnPaintUrl(url) {
   const key = url || null;
   if (box.__frUrl === key) return;
   box.__frUrl = key;
-  box.innerHTML = key
-    ? '<div class="fr-cdetail">Browser did not open?</div>'
-      + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>'
-    : '';
+  /* kosmos#4903 S5: on a cloud machine nothing opens a browser, so the link is the way in, not a fallback. */
+  const cloudNow = typeof onCloudMachine === 'function' && onCloudMachine();
+  // The phase is in the id (one span per phase), so this needs nothing but getElementById.
+  for (const [id, phase] of [['fr-conn-cloudsay-open', 'signin-browser-open'], ['fr-conn-cloudsay-code', 'signin-awaiting-code']]) {
+    const say = cloudNow && document.getElementById(id);
+    if (say) {
+      say.textContent = frCloudSigninDetail(phase, !!key);
+      // Review 3: and the hidden live region, which otherwise kept saying the link was coming after it came.
+      const spoken = document.getElementById('fr-conn-say');
+      if (spoken && spoken.textContent !== say.textContent) spoken.textContent = say.textContent;
+    }
+  }
+  box.innerHTML = !key ? ''
+    : cloudNow
+      ? '<a class="btn uprime" href="' + esc(key) + '" target="_blank" rel="noopener">Open the Claude sign-in page</a>'
+      : '<div class="fr-cdetail">Browser did not open?</div>'
+        + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>';
 }
 
 function frConnPaintProgress(progress) {
@@ -88450,6 +89170,8 @@ function asbFallbackWords(f) {
       : ' Qwen is not answering at its address (for Qwen on this computer, open Ollama). It picks up again by itself once it answers.')
     : f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' The Google quota refills by itself.'
     : f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
+    /* #7206: a DeepSeek account is a key, with no sign-in to renew (accountproblem says the same, engine side). */
+    : f.problem === 'auth_failed' && p === 'DeepSeek' ? ` Its DeepSeek key is no longer accepted: check the DeepSeek account in Settings, AI Models.`
     : f.problem === 'auth_failed' ? ` Its ${p} sign-in has stopped working: open the guide's page and choose Sign in again.`
     : ` ${p} cannot be reached just now; it picks up again by itself once it can.`;
   return `Your ${p} account isn't answering right now, so I'm helping on Kosmos's backup.` + fix;
@@ -89589,6 +90311,16 @@ const RAW_TAB = PARAMS.get('tab') || 'agents';
 const KNOWN_TABS = ['agents', 'projects', 'tasks', 'settings', 'detail', 'create'];
 const BOOT_TAB = RAW_TAB === 'joint' ? 'projects'
   : (KNOWN_TABS.includes(RAW_TAB) ? RAW_TAB : 'agents');
+/* #7280: an agent link (?tab=detail&agent=<name>) may name the section to open: `&sec=model` (AI Settings, what the
+   iPhone's agent page asks for), memory, profile, instr, skills or files. Anything else (talk, an unknown name, swarm,
+   which exists only on a swarm's page, and term and remove, which a link should not open straight onto) lands on the
+   conversation as before. On ?tab=settings, `sec` is Settings' own (settingsOpen, below). Known: on a wide window a
+   folded name (memory, skills) opens its group at the top, as a click on its pill does. */
+const WANT_AGENT_LINK_SECTIONS = ['model', 'memory', 'profile', 'instr', 'skills', 'files'];
+const WANT_AGENT_SEC = (() => {
+  const s = PARAMS.get('sec');
+  return BOOT_TAB === 'detail' && WANT_AGENT_LINK_SECTIONS.includes(s) ? s : null;
+})();
 showTab(BOOT_TAB);
 /* #725: a refresh on a Settings sub-tab comes back to that sub-tab. The
    section is read from the address once, here; an unknown one falls to

@@ -123,3 +123,111 @@ test removes its socket from where its server actually puts it. SLICE 1b ALSO OW
 set (engine/knownsecrets.js ACCOUNT_DIR) learning .kosmos-<vendor>- folders (Qwen's are missing from it too).
 Accepted: a vendor model list that answers 200 without the table's model reads NONE (the add is refused with a clear
 reason); the launch would fail on that model anyway, and a live run with a real key is still to be measured.
+
+## Slice 1b map (branch anthrocompat-7206b, from 1a's head f0932ade30)
+Mirror every Qwen ('alibaba') site with the vendor ('deepseek'), on the claude runner instead of codex:
+- engine/create.js (about 25 sites): runnerFor(provider) ('deepseek' -> 'claude'), jobProvider (a claude job on a
+  vendor home -> its vendor), agentProvider / the memo for claude agents too (0.023 ms per job read, measured),
+  providerLabel, the create path (provider accepted; a named account required; Windows refused; models from the
+  table; the profile records the account), the switch path (setProvider: onto and off a vendor account; "already runs
+  on"), the move between vendor accounts, accountConnectable (live check through anthropiccompat, never the Claude
+  sign-in), policyAllows, the model gate (the vendor's models only).
+- server.js (about 6): accountForAgent marks a claude agent on a vendor home with provider 'deepseek'; isKeyedRow;
+  the switch route; the roster's providerWord; GET /api/accounts lists and checks vendor rows (moved here from 1a).
+- web/index.html (about 31): ACCT_KEYED_ROUTE (deepseek -> 'compat' routes), acctProvider, switchKeyedWord, the
+  Add a provider menu (DeepSeek no longer "coming soon"; Mac only), the key-only connect form, the account row (no
+  Sign in again; Check now through /compat/check; delete through /compat), the create form and switch picker (the
+  vendor's models), PROVIDER_ORDER, providerOf, the agent-page provider word.
+- engine/knownsecrets.js: mask .kosmos-<vendor>- endpoint files by value for the setup guide.
+- engine/accountproblem.js: name the vendor and the key, never "Claude sign-in".
+- Tests per site; design shots for the connect row (light/dark, desktop/phone); a browser check for the row.
+GATE: 1b does not merge until the Claude Code premise is measured (asked of Splinter 14:2x).
+
+## Slice 1b progress (2026-10-26 14:4x)
+Done, each red-checked unless said: the default-off switch (enabled(): AGENT_WORKFORCE_COMPAT_PROVIDERS=1 or the
+compat-providers-on marker; Mac only) gating the add route and GET /api/accounts/compat; provider identity
+(providerRunner, providerLabel, jobProvider, agentProvider/claudeJobProvider); setProvider onto a vendor (gated, named
+account, job on its folder, vendorAccount recorded); model change refused; Repair rebuilds on vendorAccount or refuses.
+Not separately tested: the vendorAccount write BEFORE the job moves (the write after it records the same, so a mutant
+removing the first survives); it guards a switch that fails mid-move, as Qwen's does. The account file was renamed to
+kosmos-vendor.json in 1a (it collided with Qwen's marker).
+Next: the create path (a new agent on DeepSeek), the page (Settings and setup rows, behind GET /api/accounts/compat),
+the every-route-hidden test, knownsecrets, accountproblem wording, design shots and a browser check.
+
+## Slice 1b review 1 (2026-10-26 15:1x)
+No blockers. FIXED, each red-checked by a mutant: the check route obeys the switch (it sent a stored key to the vendor
+with the switch off); Repair obeys the switch (it would rebuild and launch a vendor agent); setAccount keeps the
+provider (a DeepSeek agent moves between DeepSeek accounts only, through setVendorAccount, mirroring setQwenAccount; a
+Claude agent never lands on a vendor folder; both leave job and profile agreeing); compatAsk shares one request, reuses
+an answer for 5 s, keeps the last answer on a failed ask, and puts the form away (clearing a pasted key) only on a
+definite off.
+Accepted, not changed:
+- The failover (assigner providerOf) counts a DeepSeek agent as its own provider, so stalled work may go to an idle
+  DeepSeek agent. That is how Qwen behaves, and it can only happen while the switch is on, which is after the
+  measurement: the switch, not the failover, is the gate on unproven paths.
+- "Name (optional)" in the form becomes the account's label (its folder name, cleaned), not a separate display name:
+  the vendor module has no display name, and the label is what the row shows.
+
+## Slice 1b review 2 (2026-10-26 15:3x)
+BLOCKER FIXED: my vendor block in setProvider was inserted inside Qwen's account block, so a switch onto Qwen lost its
+codex trust write and a switch onto DeepSeek wrote a codex config.toml into its (Claude Code) folder. Restored; pinned
+by a test that is red with the misplacement put back. (The test also needs its own runner stub: setRunner(null) in an
+earlier test turns dry-run back on, which skips the Qwen block silently.)
+FIXED: the switch is a kill switch (launch-env refuses while off, so an agent made while it was on does not start with
+its key; pinned in the supervisor and CLI tests); the dialog puts the DeepSeek form away on "Choose a provider" and on
+close; "The DeepSeek account names the model"; vendorAccount written only when a vendor is involved.
+DONE 15:4x (was open): the agent page treated a DeepSeek agent as
+Claude (server accountForAgent provider, page providerOf, RUNNER.deepseek and CURRENT.account), so switching it back to
+Claude from the page is disabled and the account picker lists Claude accounts (setAccount refuses them, safely).
+Accepted: the hidden test's ON controls prove the gate opens, not that the full vendor path works (the engine tests do).
+
+## Slice 1b review 3 (2026-10-26 15:4x): no blockers; two warnings, DECIDED, being fixed
+1. The env-var half of the switch is broken by design: AGENT_WORKFORCE_COMPAT_PROVIDERS=1 reaches the board but never an
+   agent's launchd job (the plist carries a fixed env), so create succeeds and launch-env then refuses every restart. My
+   supervisor and CLI tests hid it by setting the variable in the child's env. DECISION: the MARKER is the only on-state
+   (enabled() reads only `compat-providers-on` in the data folder; the variable is dropped). Tests write and remove the
+   marker in THEIR data root (in-process: store.ROOT; supervisor/CLI children: pass AGENT_WORKFORCE_DATA=<sandbox> and
+   write the marker there, never the real folder). Weakest premise: that an agent's launch resolves the same data folder
+   as the board (the plist does not pass AGENT_WORKFORCE_DATA, so a board on a non-default data root would disagree;
+   acceptable: the default data root is the only shipped one).
+2. The agent detail panel treats a DeepSeek agent as Claude for its model picker and account-move list (dead-end
+   controls; the engine refuses). Fix: treat account.provider === 'deepseek' like isQwen in paintDetailModel, add
+   'deepseek' to acctMoveWorld's keyedProvider, the runsOnWord map and the model-name display.
+Nits to take: import (worldstarts firstStartOfImport) refuses a vendor entry while off; the test message "the marker does
+not turn it on" is inverted; one sentence that the variable is gone and the marker only turns it on.
+Review 3 item 2 DONE: the detail panel treats a DeepSeek agent like Qwen (one disabled model option: its model, or "The
+DeepSeek account names the model"), the move list offers only DeepSeek accounts (keyedProvider 'deepseek'), runsOnWord
+and modelLine name DeepSeek (modelLine pinned by a test, red-checked). NOT separately tested: the panel's model picker
+and move list (page wiring), and the import refusal in worldstarts (a vendor entry is not started while the switch is
+off, its provider and account recorded for Repair); both mirror Qwen's arms. Existing import and move tests pass.
+The reviewer's "inverted message" nit was a misread: assert messages state the failure, which is what that one says.
+
+## Slice 1b review 4 (2026-10-26 16:0x)
+No blockers; with the switch off the reviewer found no route to DeepSeek and no key sent. FIXED: the test helper refuses
+any data folder outside the temp folder (a missing argument would have resolved to the REAL data folder; pinned); the
+"o3" comment back on its line; providerRunner's dead branch.
+OPEN, REQUIRED BEFORE THE SWITCH IS TURNED ON (display and reporting only, unreachable while off): a DeepSeek agent is
+mis-named in the world view's member word (web/index.html ~66151, only Qwen is special-cased), possibly in the project
+tally (PJ_TALLY ~67252, depends on the card's provider field), and drops out of the org rollup's provider breakdown
+(engine/orgrollup.js KNOWN_PROVIDERS lacks 'deepseek'; adding it reaches the coordinator's rollup, so check what the
+relay accepts first). Also: the account-row qualifier map has no deepseek entry (cosmetic); worldstarts' enabled() reads
+the real platform, not its argument.
+
+## Slice 1b review 5 (2026-10-26 16:1x)
+No blockers; no route to DeepSeek with the switch off; other providers unchanged. FIXED: the vendor leg of GET
+/api/accounts cannot fail the whole list (.catch to []). ADDED TO "before the switch is turned on": measure how long a
+slow vendor holds the accounts list (LIST_TIMEOUT_MS); an imported vendor entry whose folder is not on this computer
+should not be started (worldstarts records entry.configDir as given); the marker is a rollout switch, not a security
+boundary (any process running as the person can create it).
+
+## Slice 1b review 6 (2026-10-26 16:5x): CONVERGED, no blockers, no warnings
+
+Three nits:
+1. FIXED: engine/anthropiccompat-7206.test.js wrote and removed the marker at store.ROOT directly, bypassing the
+   helper's temp-folder guard. It now goes through test-support/compat-switch.js set().
+2. DOCUMENTED, not changed: accountConnectable reads the switch for this computer's platform while createAgentInner
+   reads opts.platform. No production caller passes a platform, so they agree outside tests; the key can still only
+   go to DeepSeek.
+3. ACCEPTED, cosmetic: the late repaint of the detail panel's provider menu (after compatAsk answers) uses the
+   `current` captured when the panel opened; opening a second agent within that fetch's latency can briefly show the
+   first agent's provider. The 5s cache makes it rare and the next paint corrects it. Unreachable while the switch is off.

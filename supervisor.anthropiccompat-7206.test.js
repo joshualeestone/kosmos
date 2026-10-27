@@ -39,6 +39,9 @@ fs.writeFileSync(FAKE_TMUX, [
 ].join('\n') + '\n', { mode: 0o755 });
 
 const KEY = 'sk-deepseek-secret-0123456789';
+// The switch is a marker in the data folder: children get a data folder with it (ON) or without it (OFF).
+const DATA_ON = nodePath.join(SANDBOX, 'data-on'); require('./test-support/compat-switch').setAt(DATA_ON, true);
+const DATA_OFF = nodePath.join(SANDBOX, 'data-off'); fs.mkdirSync(DATA_OFF, { recursive: true });
 let n = 0;
 function home(files, prefix) {
   const dir = nodePath.join(SANDBOX, `${prefix || '.kosmos-deepseek-h'}${++n}`);
@@ -48,7 +51,8 @@ function home(files, prefix) {
 }
 function run(configDir, model, extraEnv) {
   const rec = nodePath.join(SANDBOX, `rec-${++n}.txt`);
-  const env = { PATH: process.env.PATH, HOME: SANDBOX, REC: rec, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: configDir, ...(extraEnv || {}) };
+  // Slice 1b: the launch obeys the switch (a kill switch); these runs have it ON unless a test says otherwise.
+  const env = { PATH: process.env.PATH, HOME: SANDBOX, REC: rec, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: configDir, AGENT_WORKFORCE_DATA: DATA_ON, ...(extraEnv || {}) };
   const r = spawnSync('/bin/bash', [SUP, `agent-d${n}`, SANDBOX, '/usr/bin/true', FAKE_TMUX, '', model || '', 'claude'],
     { env, encoding: 'utf8', timeout: 30000 });
   const argv = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
@@ -110,6 +114,7 @@ test('review 2: when the key cannot be handed over privately, the launch is refu
   const data = nodePath.join(SANDBOX, `data-blocked-${++n}`);
   fs.mkdirSync(data, { recursive: true });
   fs.writeFileSync(nodePath.join(data, 'launch-secrets'), 'a file where the secrets folder would go');
+  require('./test-support/compat-switch').setAt(data, true);   // the switch ON here, so the handoff is what refuses
   const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), '', { AGENT_WORKFORCE_DATA: data });
   assert.notEqual(r.code, 0);
   assert.equal(/new-session/.test(r.argv), false, 'the agent was launched without its key: ' + r.argv);
@@ -135,7 +140,7 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
       tm('set-environment', '-g', k, v);
     }
     const dir = home({ 'kosmos-vendor.json': JSON.stringify(ACCT) });
-    const env = { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: dir };
+    const env = { PATH: process.env.PATH, HOME: SANDBOX, AGENT_WORKFORCE_HOME: SANDBOX, CLAUDE_CONFIG_DIR: dir, AGENT_WORKFORCE_DATA: DATA_ON };
     const r = spawnSync('/bin/bash', [SUP, session, SANDBOX, fake, wrap, '', 'claude-sonnet-5', 'claude'], { env, encoding: 'utf8', timeout: 30000 });
     for (let i = 0; i < 100 && !fs.existsSync(out); i += 1) await new Promise((res) => setTimeout(res, 100));
     assert.ok(fs.existsSync(out), 'the pane never ran: ' + (r.stdout || '') + (r.stderr || ''));
@@ -157,6 +162,14 @@ test('real tmux: a value in tmux\'s global environment never reaches a DeepSeek 
     // tm() passes no TMUX_TMPDIR, so the server's socket is always under /tmp (review 5).
     try { fs.rmSync(nodePath.join('/tmp', `tmux-${process.getuid()}`, sock), { force: true }); } catch { /* best effort */ }
   }
+});
+
+test('1b review 2: with the switch OFF a DeepSeek agent is not started (a kill switch), and its key goes nowhere', () => {
+  const r = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), '', { AGENT_WORKFORCE_DATA: DATA_OFF });
+  assert.notEqual(r.code, 0);
+  assert.equal(/new-session/.test(r.argv), false, 'a DeepSeek agent was started with the switch off');
+  assert.match(r.out, /DeepSeek is not available in Kosmos yet, so this agent was not started on it/);
+  assert.equal((r.argv + r.secrets + r.out).includes(KEY), false);
 });
 
 test('CONTROL: a Claude home launches exactly as before: its own model, no vendor address, no env prefix', () => {

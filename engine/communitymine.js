@@ -11,7 +11,7 @@
  * No keys, no remote ids, no response bodies: the rows carry only what the owner's own
  * board already shows them.
  *
- * #4801: mineComments() does the same for the COMMENTS the agents published on community posts, read from
+ * #4801: the comments half of mineAll() does the same for the COMMENTS the agents published on community posts, read from
  * communitysend.commentRecords and the board's own comment rows; removal goes through the same route.
  */
 const communitystore = require('./communitystore');
@@ -48,8 +48,18 @@ function agentName(post, rec) {
   return who;
 }
 
+/* The agent a post or comment belongs to, as the send layer keys it (the author name is the fallback, as agentName). */
+function keyOf(x) {
+  if (!x) return '';
+  if (typeof x.agent === 'string' && x.agent) return x.agent;
+  return x.author && typeof x.author.name === 'string' ? x.author.name : '';
+}
+
 /** Newest first. A record whose board post is gone still shows, titled from nothing. */
-function mine() {
+function mine() { return postEntries().map((e) => e.row); }
+
+/* #7211: each post row with the agent it belongs to and whether it is in the community now (summary counts these). */
+function postEntries() {
   const statuses = communitysend.statuses();
   const ids = Object.keys(statuses);
   if (!ids.length) return [];
@@ -60,7 +70,7 @@ function mine() {
   const rows = ids.map((id) => {
     const rec = statuses[id];
     const post = posts.get(id) || null;
-    return {
+    const row = {
       id,
       title: post ? communitysend.titleFor(post) : '',
       agent: post ? agentName(post, rec) : '',
@@ -81,8 +91,9 @@ function mine() {
       // requestDelete refuses an id with no board post (404), so no Delete without one.
       canDelete: post !== null && canDelete(rec),
     };
+    return { row, key: keyOf(post), live: rec.state === 'sent' && rec.deleteRequested !== true && rec.takenDown !== true && rec.agentDeleted !== true };
   });
-  rows.sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')));
+  rows.sort((a, b) => String(b.row.postedAt || '').localeCompare(String(a.row.postedAt || '')));
   return rows;
 }
 
@@ -102,7 +113,7 @@ function canDeleteComment(st) {
  * still holds the registration that sent it is not known (review 1).
  * Review 2: null when the comment records cannot be read (commentRecords is null): unknown, never "none".
  */
-function mineComments() {
+function commentEntries() {
   const recs = communitysend.commentRecords();
   if (!recs) return null;
   const ids = Object.keys(recs);
@@ -112,7 +123,7 @@ function mineComments() {
   const out = ids.map((id) => {
     const rec = recs[id];
     const c = rows.get(id) || null;
-    return {
+    const row = {
       id,
       kind: 'comment',
       // The first line, cut and scrubbed as a post's title is (titleFor reads a body with no topic that way).
@@ -134,9 +145,52 @@ function mineComments() {
       // requestDelete answers 404 for an id with no board comment, so no Delete without one.
       canDelete: c !== null && canDeleteComment(rec),
     };
+    return { row, key: keyOf(c), live: rec.state === 'sent' && rec.deleteRequested !== true && rec.agentDeleted !== true };
   });
-  out.sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')));
+  out.sort((a, b) => String(b.row.postedAt || '').localeCompare(String(a.row.postedAt || '')));
   return out;
 }
 
-module.exports = { mine, mineComments };
+// Called bare, it reads every row itself; the route goes through mineAll, which reads them once for rows and summary.
+/**
+ * #7211: what Settings shows instead of every row: how many posts and comments the agents have in the community now,
+ * and, per agent, its counts and its name ON the community (for a link to its own page there). `comments` is null when
+ * the comment records cannot be read, and an agent's `name` is null when the board holds no registration for it (or
+ * keys.json cannot be read): the page then shows that agent without a link, never a guessed one. A record whose board
+ * post or comment is gone counts in the totals but under no agent (the send layer's status does not name the agent),
+ * so the agents' counts can add up to less than the totals. A comment the community's moderators removed still counts:
+ * the service has no way for the board to ask about a comment once it is sent, so nothing on the board says so.
+ */
+function summary(posts = postEntries(), comments = commentEntries()) {
+  const names = communitysend.communityNames();
+  const byKey = new Map();
+  const add = (e, field) => {
+    if (!e.live || !e.key) return;
+    const a = byKey.get(e.key) || { posts: 0, comments: 0 };
+    a[field] += 1;
+    byKey.set(e.key, a);
+  };
+  posts.forEach((e) => add(e, 'posts'));
+  if (comments) comments.forEach((e) => add(e, 'comments'));
+  const agents = [...byKey.entries()].map(([key, c]) => ({
+    agent: agentName({ agent: key }, null),
+    name: names && typeof names[key] === 'string' ? names[key] : null,
+    posts: c.posts,
+    comments: comments ? c.comments : null,
+  })).sort((a, b) => a.agent.localeCompare(b.agent));
+  return {
+    posts: posts.filter((e) => e.live).length,
+    comments: comments ? comments.filter((e) => e.live).length : null,
+    agents,
+  };
+}
+
+/* #7211: the whole answer of GET /api/community/mine, every row read once (on a big board that is ~1,850 rows, with a
+   profile read for each one's agent): the posts, the comments and the summary built from the same entries. */
+function mineAll() {
+  const posts = postEntries();
+  const comments = commentEntries();
+  return { posts: posts.map((e) => e.row), comments: comments === null ? null : comments.map((e) => e.row), summary: summary(posts, comments) };
+}
+
+module.exports = { mine, summary, mineAll };

@@ -82,6 +82,12 @@ test('#6966: a provider outside the list still counts, after the known ones; unt
   assert.equal(tally(undefined), '');
 });
 
+test('#7206: a DeepSeek member counts as DeepSeek, after Qwen and before a provider outside the list, with its own mark', () => {
+  const html = tally([{ provider: 'Acme' }, { provider: 'DeepSeek' }, { provider: 'Qwen' }, { provider: 'DeepSeek' }]);
+  assert.equal(said(html), ', 1 Qwen, 2 DeepSeek, 1 Acme');
+  assert.deepEqual([...html.matchAll(/data-k="([^"]+)"/g)].map((m) => m[1]).slice(0, 2), ['alibaba', 'deepseek']);
+});
+
 test('#6966: every pick the tally uses is a key the provider picker has a mark for', () => {
   // The object up to its own closing line: liftConst stops at the first ';', and this one has one inside a comment.
   const at = SCRIPT.indexOf('const PROVIDER_MARK_KEY = {');

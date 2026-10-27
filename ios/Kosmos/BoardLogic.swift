@@ -108,14 +108,35 @@ enum Board {
     // The Mac remembered from last time while it is usable and connected; else a connected usable one, most
     // recently seen first; else the remembered or most recently seen usable one. A Mac that refused this iPhone is
     // picked only when there is no other.
-    static func pickMac(_ macs: [Mac], remembered: String?) -> Mac? {
+    // kosmos#7266: a Mac the person chose in the switcher wins while it is usable, connected or not (choosing one that
+    // is offline shows its own "not answering" screen, which names it).
+    static func pickMac(_ macs: [Mac], remembered: String?, chosen: String? = nil) -> Mac? {
         let all = macs.filter(\.usable).sorted { ($0.lastSeen, $1.address) > ($1.lastSeen, $0.address) }
+        if let c = chosen, let m = all.first(where: { $0.address == c }) { return m }
         let open = all.filter { !$0.refusedThisDevice }
         let usable = open.isEmpty ? all : open
         if let r = remembered, let m = usable.first(where: { $0.address == r && $0.connected }) { return m }
         if let m = usable.first(where: { $0.connected }) { return m }
         if let r = remembered, let m = usable.first(where: { $0.address == r }) { return m }
         return usable.first
+    }
+
+    // MARK: - The switcher (kosmos#7266)
+
+    struct SwitcherRow: Equatable {
+        let name: String
+        let address: String
+        let online: Bool
+        let shown: Bool
+        var status: String { online ? "Online" : "Offline" }
+    }
+
+    // The computers the switcher lists: the usable ones, by name (then address, so two of one name keep their order),
+    // the shown one marked. A retired, held, refused or switched-off Mac is not listed: it cannot be opened.
+    static func switcherRows(_ macs: [Mac], shown: String?) -> [SwitcherRow] {
+        macs.filter(\.usable)
+            .sorted { ($0.name.lowercased(), $0.address) < ($1.name.lowercased(), $1.address) }
+            .map { SwitcherRow(name: $0.name, address: $0.address, online: $0.connected, shown: $0.address == shown) }
     }
 
     static func parseHandoffToken(_ data: Data) -> String? {
@@ -397,6 +418,63 @@ enum Board {
         r.setValue("image/*", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
+    }
+
+    // kosmos#7266 slice B: the person on this Mac, for the Settings tab's picture and the profile page. GET /api/you
+    // answers { state, you: { name, ... } } (engine/you.js read); GET /api/you/avatar answers 200 with the picture, or
+    // 204 when there is none.
+    static let youEvery: TimeInterval = 300
+    // Review 1: the picture is the big read (up to 5 MB, served no-store, with no version), so it is read on the first list
+    // and then every 30 minutes, not with every name read.
+    static let youPictureEvery: TimeInterval = 1800
+    // Review 4: a read that learns nothing (the Mac's startup sign-in window, the gate's page, a 5xx, no answer) is tried
+    // again after 30 seconds, not after the full wait, so a fresh launch does not show the gear and You for 5 minutes.
+    static let youRetry: TimeInterval = 30
+    static func youRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/you", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    static func youPictureRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/you/avatar", relativeTo: mac)!.absoluteURL)
+        r.setValue("image/*", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    // Mona Lisa's review: a person with no picture shows their letter on the avatar cream, as an agent with none does
+    // (its name's first letter, upper-cased). nil while the name is not known, so a wrong letter is never shown.
+    static func youLetter(_ name: String?) -> String? {
+        guard let first = name?.trimmingCharacters(in: .whitespacesAndNewlines).first else { return nil }
+        return String(first).uppercased()
+    }
+
+    // The saved name, trimmed; nil when the board has none (absent, unreadable, or blank).
+    static func parseYouName(_ data: Data) -> String? {
+        if case .name(let n) = youName(data) { return n }
+        return nil
+    }
+    // Review 1: what the name read means. Only the board saying there is no record (absent) or a saved blank name
+    // clears it; an answer that is not the record (the gate's sign-in page at 200, the board's own "unknown" while the
+    // file is mid-write) learns nothing and keeps what was shown, as the picture read does.
+    enum YouName: Equatable { case name(String), none, unknown }
+    static func youName(_ data: Data) -> YouName {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let state = obj["state"] as? String
+        else { return .unknown }
+        if state == "absent" { return .none }
+        guard state == "saved", let you = obj["you"] as? [String: Any] else { return .unknown }
+        let name = (you["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? .none : .name(name)
+    }
+
+    // What the picture read means: a picture, none (204, or a 404 from an older board without the route), or nothing
+    // learned (no answer, the gate's sign-in page, a 5xx), which keeps what was shown.
+    enum YouPicture: Equatable { case picture(Data), none, unknown }
+    static func youPicture(status: Int?, contentType: String?, data: Data?) -> YouPicture {
+        guard let status else { return .unknown }
+        if status == 204 || status == 404 { return .none }
+        if (200...299).contains(status), (contentType ?? "").lowercased().hasPrefix("image/"), let data, !data.isEmpty { return .picture(data) }
+        return .unknown
     }
 
     // The same agent-name characters a notification tap accepts.
@@ -1839,5 +1917,19 @@ extension Board {
     static func failingMacName(shown: String?, phase: String?) -> String? {
         if let s = shown, !s.isEmpty { return s }
         return phase
+    }
+}
+
+// kosmos#7280: here, not in AgentInfoLogic.swift, because BoardClient.chatURL calls it and every LogicTests runner
+// that compiles BoardClient.swift compiles this file.
+extension Board {
+    // kosmos#7280: the board's agent deep link with a section (?tab=detail&agent=<n>&sec=model opens AI Settings). A
+    // board without #7280 ignores sec and lands on the conversation, as before. Only the board's own section names.
+    static let boardSections: Set<String> = ["profile", "model"]
+    static func withBoardSection(_ url: URL, _ sec: String) -> URL? {
+        guard boardSections.contains(sec), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.queryItems?.contains(where: { $0.name == "tab" && $0.value == "detail" }) == true else { return nil }
+        parts.queryItems = (parts.queryItems ?? []).filter { $0.name != "sec" } + [URLQueryItem(name: "sec", value: sec)]
+        return parts.url
     }
 }

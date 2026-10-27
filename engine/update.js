@@ -46,6 +46,8 @@ function releaseBase() {
 }
 let platformOverride = null;   // tests inject; null means this process's platform
 function updatePlatform() { return platformOverride || process.platform; }
+let archOverride = null;       // tests inject (setPlatform's second argument); null means this process's arch
+function updateArch() { return archOverride || process.arch; }
 let fetcher = null;            // tests inject; null means global fetch
 // #2036: which channel this machine follows. DEFAULT prod -- a box installed from prod stays
 // byte-for-byte on today's path; a staging channel changes it. A staging-channel
@@ -109,12 +111,29 @@ function updateChannel(platform = updatePlatform(), env = process.env) {
 const UPDATE_POINTERS = Object.freeze({
   win32: Object.freeze({ prod: 'latest-win.json', staging: 'latest-win-staging.json' }),
   darwin: Object.freeze({ prod: 'latest.json', staging: 'latest-staging.json' }),
+  // kosmos#7281: the Linux x86_64 family release.sh publishes beside the Mac one (kosmos-<V>-linux-x64.*).
+  linux: Object.freeze({ prod: 'latest-linux.json', staging: 'latest-linux-staging.json' }),
 });
-/** THE one rule for which pointer a platform on a channel reads. Anything that is not win32
-    reads the Mac pair, which is exactly what every platform read before. */
-function pointerFor(platform, channel) {
-  const family = platform === 'win32' ? UPDATE_POINTERS.win32 : UPDATE_POINTERS.darwin;
+/** kosmos#7281: the release family a platform and arch read. Only Linux x86_64 has a Linux family; every other
+    platform that is not win32 reads the Mac pair, which is exactly what it read before. */
+function pointerFamily(platform, arch = updateArch()) {
+  if (platform === 'win32') return 'win32';
+  if (platform === 'linux' && arch === 'x64') return 'linux';
+  return 'darwin';
+}
+/** THE one rule for which pointer a platform on a channel reads. */
+function pointerFor(platform, channel, arch = updateArch()) {
+  const family = UPDATE_POINTERS[pointerFamily(platform, arch)];
   return channel === 'staging' ? family.staging : family.prod;
+}
+/** kosmos#7281: the build name release.sh gives the Linux family's tarball (setup.sh's ARCH=linux-x64). */
+function linuxBuildName(version) { return `kosmos-${version}-linux-x64.tar.gz`; }
+/* kosmos#7281 TRANSITIONAL, the engine's half of setup.sh slice B's rule: this board runs the Linux family when its
+   installed runtime node is its OWN file (a regular file, not the system node the portable bundle links in). Such a
+   board never falls back to the Mac pointer, so a Linux pointer that cannot be read is no offer, never a downgrade. */
+function linuxFamilyInstalled() {
+  // Review 2: the one rule, shared with the verifier (manifest-verify.js ownsLinuxNode).
+  return manifestVerify.ownsLinuxNode(installedRoot(), { platform: updatePlatform(), arch: updateArch() });
 }
 /** The full pointer URL this board's looks fetch, for the look itself and for the boot log. */
 function pointerUrl() {
@@ -139,18 +158,21 @@ function windowsGenericName(arch) { return `kosmos-win-${arch}.zip`; }
  * Windows: the version rule, PLUS a 64-hex `sha256`, PLUS `versioned` naming exactly the build
  * for that version on THIS machine's arch. A build for another arch fails that name check, so it
  * is never offered here. `artifact` (the alias) is never read.
+ * Linux x86_64 (kosmos#7281): the Windows checks, with `versioned` naming kosmos-<v>-linux-x64.tar.gz. A Linux
+ * board reading the Mac pointer (the transitional fallback) passes 'darwin', so the Mac rule reads it.
  * A null is `readable: false` on the look: no offer, and never "Up to date".
  */
-function readManifest(platform, body, arch = process.arch) {
+function readManifest(platform, body, arch = updateArch()) {
   if (!body || typeof body !== 'object') return null;
   const version = typeof body.version === 'string' && parts(body.version) ? body.version : null;
   if (!version) return null;
-  if (platform !== 'win32') return { version };
+  const family = pointerFamily(platform, arch);
+  if (family === 'darwin') return { version };
   /* parts() trims, so " 1.2.3" passes the version rule; the Windows version also names a file
      (the versioned zip), so it must be exactly the digits. */
   if (version !== version.trim()) return null;
   if (typeof body.sha256 !== 'string' || !SHA256_HEX.test(body.sha256)) return null;
-  if (body.versioned !== windowsBuildName(version, arch)) return null;
+  if (body.versioned !== (family === 'linux' ? linuxBuildName(version) : windowsBuildName(version, arch))) return null;
   return { version, sha256: body.sha256.toLowerCase(), versioned: body.versioned };
 }
 // reached: did the LAST look actually get an answer from the host?
@@ -410,8 +432,25 @@ async function refresh() {
       const body = res.ok ? await res.json().catch(() => null) : null;
       let latest = readManifest(platform, body);
       let pointer = channel;
+      /* kosmos#7281 TRANSITIONAL: a Linux x86_64 board whose Linux pointer gives no readable version (not published
+         yet) reads the Mac pair it has always read, unless it already runs the Linux family (then that is no offer,
+         as setup.sh refuses rather than downgrade). The installer decides its
+         own family the same way, so an offer read from the Mac pair installs the portable bundle it describes. */
+      let readAs = platform;
+      /* Review 1 (W2): only when the Linux pointer names NO a.b.c version, the same test setup.sh uses to pick the
+         family; one that names a version but fails the strict checks is no offer, never the Mac pair's version (which
+         setup.sh would not install). */
+      // Review 2: the raw string, untrimmed, as setup.sh's sed reads it (" 1.2.3" names no version for either).
+      const linuxNamesVersion = !!(body && typeof body.version === 'string' && /^\d+\.\d+\.\d+$/.test(body.version));
+      if (!latest && !linuxNamesVersion && pointerFamily(platform) === 'linux' && !linuxFamilyInstalled()) {
+        readAs = 'darwin';
+        try {   // the Linux pointer's answer already says the host was reached; a failed second read is no offer
+          const mac = await doFetch(`${lookBase}/${pointerFor('darwin', channel)}`, { signal: ctl.signal, cache: 'no-store' });
+          latest = mac && mac.ok ? readManifest('darwin', await mac.json().catch(() => null)) : null;
+        } catch { latest = null; }
+      }
       if (latest && channel === 'staging' && platform !== 'win32') {
-        const prod = await readProdAlongside(doFetch, lookBase, platform, ctl.signal);
+        const prod = await readProdAlongside(doFetch, lookBase, readAs, ctl.signal);
         if (prod && newer(prod.version, latest.version)) { latest = prod; pointer = 'prod'; }
       }
       const wasPaused = cache.paused === true;
@@ -1325,7 +1364,7 @@ function beginInstallOnce(opts) {
 /* Test hooks. Production code never calls these, except engine/update-ifnewer.js (#4382), which
    calls setFetcher (a file:// release base) and setAutoPref (so its look never starts an install). */
 function setBase(b) { baseOverride = b || null; }
-function setPlatform(p) { platformOverride = p || null; }
+function setPlatform(p, arch) { platformOverride = p || null; archOverride = (p && arch) || null; }
 function setWindowsBundleRoot(f) { windowsBundleRootFn = f; }
 function setWindowsInstaller(f) { windowsInstallerFn = typeof f === 'function' ? f : null; }
 function setWindowsRollback(f) { windowsRollbackFn = typeof f === 'function' ? f : null; }
@@ -1418,6 +1457,7 @@ module.exports = {
 
   installedHomeAsInstalled /* #6659: the home as the installer knows it; exported so a test RUNS its fallbacks */, setInstalledHomeAsInstalled,
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
+  pointerFamily, linuxBuildName, // kosmos#7281: the release family a platform+arch reads, and its tarball name
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, windowsBuildName, windowsGenericName, // the per-platform check (win32-update-check)
   installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation
   rollbackOffer, beginRollback, inFlightKind, // S5 (#3017): the kept-previous-build offer, the user-initiated rollback, and which op holds single-flight

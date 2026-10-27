@@ -1,27 +1,34 @@
-// Browser-check-surface: login-adv-go acct-expiring acct-expiring-line acct-reauth-main acct-land acct-ended adv-covered
+// Browser-check-surface: login-adv-go acct-expiring acct-expiring-line acct-reauth-main acct-ended adv-covered acct-add-modal
 'use strict';
 
 /**
- * kosmos#5407 (Josh, 2026-10-06): the login-expiry notice's "Refresh login" button opens Settings > AI Models at that
- * account's row, highlighted, with its Sign in again focused; and the AI Models list marks every Claude sign-in whose
+ * kosmos#5407 (Josh, 2026-10-06), kosmos#7198 (Josh, 2026-10-26): the login-expiry notice's "Refresh login" button
+ * opens that account's Sign in again dialog where the person is; and the AI Models list marks every Claude sign-in whose
  * login is inside the notice's window (or has ended with its agents on borrowed time) with a warning edge, one line,
  * and Sign in again as the row's main action. A login outside the window keeps its green "good until" (the control).
  *
  * Drives the page's own paintLoginAdvisories and paintAccounts against stubbed data (no board needed):
  *   N1  the expiring, the "stops working" and the "has expired" notice each carry Refresh login, naming their row
- *   L1  pressing it opens AI Models; the matching row is ringed (acct-land), in view, and its Sign in again has focus
+ *   D1  kosmos#7198: pressing it opens that account's Sign in again dialog over the board; Settings stays shut, and
+ *       closing it leaves the board as it was
+ *   D3  while the dialog is open, Refresh login can be reached neither by the pointer nor by the keyboard (inert)
+ *   D4  closing gives focus back to the notice's button; one removed from the page (repainted) while the dialog was open gives it to a
+ *       Refresh login still showing; with no notice left, focus is never on a hidden element; the notices are no
+ *       longer inert
  *   R1  the expiring row: warning edge, "Expires in 2 days." (#6520), badge
  *       "login expires in 2 days", Sign in again first in its actions and gold
  *   R2  the ended row: its line says when its agents stop, Sign in again is its main action
  *   C1  CONTROL: a login good for 20 days stays green with no line, and Sign in again is the plain link, not first
- *   C2  CONTROL: a notice for a folder with no row opens AI Models and rings nothing
+ *   C2  CONTROL: a notice for a folder with no row opens AI Models, and no dialog
+ *   C3  a folder the page's loaded account list no longer has opens AI Models, and no dialog
+ *   C4  a page that has not read its account list trusts the board's naming: the dialog opens
+ *   C5  a folder whose row on the page is an API key opens AI Models: it has no sign-in to redo
  *   R3  an ended login whose agents have stopped: "Login expired", its line, Sign in again first
- *   K1  the one-screen layout (Settings last on another section): opens AI Models, rings the row, focuses Sign in
- *       again, the notices step aside; CONTROL: leaving brings them back
- *   T1  the ring goes when its time is up, with no repaint
+ *   K1  the one-screen layout, on a project: the dialog opens there, Settings stays shut
+ *   D2  on an agent's own page: the dialog opens there
  *   N2  on AI Models a notice steps aside when its row carries the warning; CONTROL: back on the board they show again
  *   N3  a notice with no warned row on AI Models (a folder with no row) stays
- *   P1  on a phone (touch), Refresh login and the main Sign in again are at least 44px tall
+ *   P1  on a phone (touch), Refresh login and the dialog's Start the sign-in are at least 44px tall
  * Light and dark.
  *
  * Run:
@@ -46,6 +53,8 @@ function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
   if (!ok) fail.push(label);
 }
+/* Review 3: every page this check opens says if the page threw, not only the first one. */
+function errsOf(pg) { const e = []; pg.on('pageerror', (x) => e.push(x.message)); return (label) => chk(!e.length, label + ': no page errors', e.join(' | ')); }
 
 const DAY = 86400000;
 function row(email, dir, conn) {
@@ -71,7 +80,10 @@ const ADV_ENDED = { agents: ['echo'], names: ['Echo'], daysLeft: -1, severity: '
   worksUntil: Date.now() + 5 * 3600000, provider: 'Claude', email: 'ended@example.com', dir: '/home/.claude-ended' };
 const ADV_GONE = { agents: ['leo'], names: ['Leo'], daysLeft: -2, severity: 'urgent', expired: true, service: 's-gone2',
   worksUntil: null, provider: 'Claude', email: 'gone@example.com', dir: '/home/.claude-gone2' };
-const ADV_NOROW = { ...ADV_SOON, service: 's-norow', email: 'gone@example.com', dir: '/home/.claude-gone' };
+// kosmos#7198: the board names no folder for a notice whose folder AI Models does not list (status.js dirOf).
+const ADV_NOROW = { ...ADV_SOON, service: 's-norow', email: 'gone@example.com', dir: '' };
+// The page's own guard: a folder the board named, but the account list this page holds no longer has.
+const ADV_GONEROW = { ...ADV_SOON, service: 's-gonerow', email: 'gone@example.com', dir: '/home/.claude-removed' };
 
 async function setUp(page, theme) {
   await page.goto('file://' + PAGE);
@@ -131,40 +143,97 @@ function readRows(page) {
     chk(notices.some((n) => /stops working/.test(n.head) && n.dir === '/home/.claude-ended'), theme + ' N1: the "stops working" notice, naming its row');
     chk(notices.some((n) => /has expired/.test(n.head) && n.dir === '/home/.claude-gone2'), theme + ' N1: the "has expired" notice, naming its row');
 
-    // L1: press the warn notice's button.
+    /* D1 (kosmos#7198, Josh 08:32): pressing it opens that account's Sign in again dialog right here, over the board:
+       Settings does not open, and closing the dialog leaves the board as it was. */
+    await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; showTab('agents'); });
+    const ready = await page.evaluate(() => ({ slot: !document.getElementById('login-adv-slot').closest('[inert]'), modal: !document.getElementById('acct-add-modal').closest('[inert]') }));
+    chk(ready.slot && ready.modal, theme + ' D1 CONTROL (review 6): before the press, neither the notices nor the dialog is inert', JSON.stringify(ready));
     await page.click('#login-adv-slot button.login-adv-go[data-adv-dir="/home/.claude-soon"]');
+    await page.waitForTimeout(200);
+    const dlg = await page.evaluate(() => {
+      const m = document.getElementById('acct-add-modal');
+      const box = document.getElementById('acct-add-dialog');
+      const q = box ? box.getBoundingClientRect() : null;
+      const hit = q ? document.elementFromPoint(q.left + q.width / 2, q.top + 20) : null;
+      return {
+        open: !!(m && !m.hidden && m.getClientRects().length),
+        onTop: !!(hit && box && box.contains(hit)),
+        title: ((document.getElementById('acct-add-t') || {}).textContent || '').trim(),
+        intro: ((document.getElementById('acct-add-in') || {}).textContent || '').trim(),
+        settings: !document.getElementById('panel-settings').hidden,
+        tab: typeof URL_TAB === 'string' ? URL_TAB : '',
+        reauthDir: typeof ACCT_REAUTH_DIR === 'string' ? ACCT_REAUTH_DIR : null,
+      };
+    });
+    chk(dlg.open && dlg.onTop, theme + ' D1: Refresh login opens the Sign in again dialog over the page', JSON.stringify(dlg));
+    chk(dlg.title === 'Sign in again' && /soon@example\.com/.test(dlg.intro), theme + ' D1: it is the Sign in again dialog for that account', JSON.stringify(dlg));
+    chk(dlg.reauthDir === '/home/.claude-soon', theme + ' D1: it signs in again as that account\'s folder', JSON.stringify(dlg));
+    chk(!dlg.settings && dlg.tab === 'agents', theme + ' D1: Settings does not open; the board stays where it was', JSON.stringify(dlg));
+    // D3 (Mona Lisa's review; review 1 of the loop: the keyboard too): while the dialog is open, the notice's Refresh
+    // login is under its backdrop AND inert, so neither a second press nor Tab reaches it.
+    const again = await page.evaluate(() => {
+      const b = document.querySelector('#login-adv-slot button.login-adv-go');
+      if (!b) return { button: false };
+      const q = b.getBoundingClientRect();
+      const hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+      const before = document.activeElement;
+      b.focus();
+      return { button: true, reachable: !!hit && (hit === b || b.contains(hit)), focusable: document.activeElement === b,
+        focusKept: document.activeElement === before };
+    });
+    chk(again.button && !again.reachable, theme + ' D3: with the dialog open, Refresh login cannot be pressed again', JSON.stringify(again));
+    chk(again.button && !again.focusable && again.focusKept, theme + ' D3: with the dialog open, the keyboard cannot reach Refresh login', JSON.stringify(again));
+    if (OUT) await page.screenshot({ path: nodePath.join(OUT, 'refreshlogin-7198-dialog-' + theme + '.png'), fullPage: false });
+    await page.evaluate(() => closeAcctAdd());
+    const closed = await page.evaluate(() => ({ open: !document.getElementById('acct-add-modal').hidden, tab: URL_TAB,
+      notices: [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length }));
+    chk(!closed.open && closed.tab === 'agents' && closed.notices === 3, theme + ' D1: closing it leaves the board, notices and all', JSON.stringify(closed));
+
+    /* D4 (review 1 of the loop): where focus goes on close. */
+    const focusOf = () => page.evaluate(() => {
+      const a = document.activeElement;
+      return { dir: a && a.getAttribute ? a.getAttribute('data-adv-dir') : null, go: !!(a && a.classList && a.classList.contains('login-adv-go')),
+        body: a === document.body, shown: !!(a && a.offsetParent !== null), inert: !!document.getElementById('login-adv-slot').inert };
+    });
+    const pressSoon = async () => { await page.click('#login-adv-slot button.login-adv-go[data-adv-dir="/home/.claude-soon"]'); await page.waitForTimeout(150); };
+    await pressSoon();
+    await page.evaluate(() => closeAcctAdd());
+    const returned = await focusOf();
+    chk(returned.dir === '/home/.claude-soon' && !returned.inert, theme + ' D4: closing gives focus back to the notice\'s Refresh login, no longer inert', JSON.stringify(returned));
+    await pressSoon();
+    await page.evaluate(({ b, c }) => paintLoginAdvisories([b, c]), { b: ADV_ENDED, c: ADV_GONE });   // the sign-in worked
+    await page.evaluate(() => closeAcctAdd());
+    const moved = await focusOf();
+    chk(moved.go && moved.shown && moved.dir !== '/home/.claude-soon', theme + ' D4: its notice gone, focus goes to a Refresh login still showing', JSON.stringify(moved));
+    await page.evaluate(({ a, b, c }) => paintLoginAdvisories([a, b, c]), { a: ADV_SOON, b: ADV_ENDED, c: ADV_GONE });
+    await pressSoon();
+    await page.evaluate(() => paintLoginAdvisories([]));
+    await page.evaluate(() => closeAcctAdd());
+    const none = await focusOf();
+    chk((none.body || none.shown) && !none.inert, theme + ' D4: with no notice left, focus is never on a hidden element', JSON.stringify(none));
+    await page.evaluate(({ a, b, c }) => paintLoginAdvisories([a, b, c]), { a: ADV_SOON, b: ADV_ENDED, c: ADV_GONE });
+    const restored = await page.evaluate(() => [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length);
+    chk(restored === 3, theme + ' D4 CONTROL: the three notices are back for the checks below', String(restored));
+
+    // The AI Models rows (opened directly now): the warning edge, the line, and Sign in again as the main action.
+    await page.evaluate(() => { showTab('settings'); settingsOpen('accounts'); });
     await page.waitForSelector('#set-accounts .acct-box[data-acct-dir]', { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(300);
     const land = await page.evaluate(() => {
-      const sec = document.getElementById('s-sec-accounts');
-      const ringed = [...document.querySelectorAll('#set-accounts .acct-box.acct-land')].map((r) => r.getAttribute('data-acct-dir'));
       const row = document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-soon"]');
-      const r = row ? row.getBoundingClientRect() : null;
-      const f = document.activeElement;
       return {
-        open: !!(sec && !sec.hidden && sec.getClientRects().length),
-        ringed,
-        inView: !!(r && r.top >= 0 && r.bottom <= innerHeight),
-        /* Not merely inside the viewport: nothing floats over its Sign in again (the notices did, before they stepped
-           aside on this screen). */
-        uncovered: (() => { const b = row && row.querySelector('.acct-reauth'); if (!b) return false; const q = b.getBoundingClientRect();
+        /* Nothing floats over its Sign in again (the notices did, before they stepped aside on this screen). */
+        uncovered: (() => { const b = row && row.querySelector('.acct-reauth'); if (!b) return false; b.scrollIntoView({ block: 'center' }); const q = b.getBoundingClientRect();
           const hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2); return !!hit && (hit === b || b.contains(hit)); })(),
         noticesShown: [...document.querySelectorAll('#login-adv-slot .login-adv')].some((n) => n.getClientRects().length),
-        focus: f && f.matches('.acct-reauth') && row && row.contains(f),
-        ring: row ? getComputedStyle(row).boxShadow : '',
       };
     });
-    chk(land.open, theme + ' L1: AI Models is open', JSON.stringify(land));
-    chk(land.ringed.length === 1 && land.ringed[0] === '/home/.claude-soon', theme + ' L1: exactly that row is ringed', JSON.stringify(land.ringed));
-    chk(land.ring && land.ring !== 'none', theme + ' L1: the ring is drawn', land.ring);
-    chk(land.inView, theme + ' L1: the row is in view');
-    chk(land.uncovered, theme + ' L1: nothing covers its Sign in again', JSON.stringify(land));
+    chk(land.uncovered, theme + ' N2: nothing covers the row\'s Sign in again', JSON.stringify(land));
     chk(!land.noticesShown, theme + ' N2: on AI Models the login notices step aside');
     /* Review 3: the other order. Already on AI Models, the notice repaints (its count dropped): it steps aside too. */
     await page.evaluate(({ a, b, c }) => paintLoginAdvisories([{ ...a, daysLeft: 1, severity: 'urgent' }, b, c]), { a: ADV_SOON, b: ADV_ENDED, c: ADV_GONE });
     const later = await page.evaluate(() => [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length);
     chk(later === 0, theme + ' N2: a notice repainted while AI Models shows steps aside too', String(later));
-    chk(land.focus, theme + ' L1: its Sign in again has focus');
 
     const rows = await readRows(page);
     const soon = rows['soon@example.com'] || {};
@@ -200,7 +269,7 @@ function readRows(page) {
     chk(!/acct-ended/.test(both.cls || '') && /stops working/.test(both.badge || '') && /stop working/.test(both.line || ''), theme + ' R2 (review 4): ended AND still working reads as stops-working, not the red ended row', JSON.stringify(both));
 
     const fine = rows['fine@example.com'] || {};
-    chk(!/acct-expiring|acct-land/.test(fine.cls || '') && !fine.line, theme + ' C1 CONTROL: a login good for 20 days has no warning and no line', JSON.stringify(fine));
+    chk(!/acct-expiring/.test(fine.cls || '') && !fine.line, theme + ' C1 CONTROL: a login good for 20 days has no warning and no line', JSON.stringify(fine));
     chk(/login good until/.test(fine.badge || '') && !fine.firstIsReauth && fine.reauthCount === 1, theme + ' C1 CONTROL: green, and Sign in again is the plain link', JSON.stringify(fine));
     if (OUT) await page.screenshot({ path: nodePath.join(OUT, 'refreshlogin-5407-' + theme + '.png'), fullPage: false });
     // N2 CONTROL: leaving Settings brings them back.
@@ -212,6 +281,7 @@ function readRows(page) {
 
     // C2: a notice for a folder with no row opens AI Models and rings nothing.
     const p2 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const p2Errs = errsOf(p2);
     await setUp(p2, theme);
     await p2.evaluate((a) => paintLoginAdvisories([a]), ADV_NOROW);
     await p2.click('#login-adv-slot button.login-adv-go');
@@ -219,20 +289,62 @@ function readRows(page) {
     await p2.waitForTimeout(300);
     const c2 = await p2.evaluate(() => ({
       open: !document.getElementById('s-sec-accounts').hidden,
-      ringed: document.querySelectorAll('#set-accounts .acct-box.acct-land').length,
       rows: document.querySelectorAll('#set-accounts .acct-box[data-acct-dir]').length - 1,   // the review-4 row is extra
       focusInSection: document.getElementById('s-sec-accounts').contains(document.activeElement),
       noticeStays: [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length,
     }));
-    chk(c2.open && c2.rows === 4 && c2.ringed === 0, theme + ' C2 CONTROL: no row for that folder: AI Models opens, nothing ringed', JSON.stringify(c2));
+    chk(c2.open && c2.rows === 4, theme + ' C2 CONTROL: no row for that folder: AI Models opens (no dialog for an account it cannot name)', JSON.stringify(c2));
+    chk(await p2.evaluate(() => document.getElementById('acct-add-modal').hidden), theme + ' C2 CONTROL: and the Sign in again dialog does not open');
     chk(c2.focusInSection, theme + ' C2: focus stays in AI Models, not lost to the page', JSON.stringify(c2));
     chk(c2.noticeStays === 1, theme + ' N3 (review 2): a notice with no warned row on screen stays, so the login is never left unwarned', JSON.stringify(c2));
+    p2Errs(theme + ' C2');
     await p2.close();
+    // C3 (kosmos#7198): the board named a folder, but this page's account list no longer has it: AI Models, no dialog.
+    const p3 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const p3Errs = errsOf(p3);
+    await setUp(p3, theme);
+    await p3.evaluate((accounts) => accountsRead(accounts), ACCOUNTS);
+    await p3.evaluate((a) => paintLoginAdvisories([a]), ADV_GONEROW);
+    await p3.click('#login-adv-slot button.login-adv-go');
+    await p3.waitForTimeout(300);
+    const c3 = await p3.evaluate(() => ({ dialog: !document.getElementById('acct-add-modal').hidden, accounts: !document.getElementById('s-sec-accounts').hidden }));
+    chk(!c3.dialog && c3.accounts, theme + ' C3: a folder this page no longer lists opens AI Models, not the dialog', JSON.stringify(c3));
+    p3Errs(theme + ' C3');
+    await p3.close();
+    // C4 (review 3, decided): a page that has not read its account list trusts the board's naming (status.js dirOf, which
+    // requires the folder in accounts.list), so the same notice opens the dialog: the page fails open to the engine.
+    const p4 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const p4Errs = errsOf(p4);
+    await setUp(p4, theme);
+    const unread = await p4.evaluate(() => typeof ACCOUNTS_LOADED !== 'undefined' && ACCOUNTS_LOADED === false);
+    await p4.evaluate((a) => paintLoginAdvisories([a]), ADV_GONEROW);
+    await p4.click('#login-adv-slot button.login-adv-go');
+    await p4.waitForTimeout(300);
+    const c4 = await p4.evaluate(() => ({ dialog: !document.getElementById('acct-add-modal').hidden, dir: typeof ACCT_REAUTH_DIR === 'string' ? ACCT_REAUTH_DIR : null }));
+    chk(unread, theme + ' C4 CONTROL: this page has not read its account list');
+    chk(c4.dialog && !!c4.dir, theme + ' C4: with no list on the page, the board\'s naming stands and the dialog opens', JSON.stringify(c4));
+    p4Errs(theme + ' C4');
+    await p4.close();
+    // C5 (review 6): the page's list has the folder, but as an API-key row, which has no sign-in to redo (#2433).
+    const p5 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const p5Errs = errsOf(p5);
+    await setUp(p5, theme);
+    await p5.evaluate((accounts) => accountsRead(accounts.concat([{ ...accounts[0], email: 'key@example.com', label: 'key@example.com', dir: '/home/.claude-key', apiKey: true }])), ACCOUNTS);
+    await p5.evaluate((a) => paintLoginAdvisories([a]), { ...ADV_GONEROW, email: 'key@example.com', dir: '/home/.claude-key' });
+    const keyRow = await p5.evaluate(() => Array.isArray(ACCOUNTS) && ACCOUNTS.some((a) => a.dir === '/home/.claude-key' && a.apiKey === true));
+    await p5.click('#login-adv-slot button.login-adv-go');
+    await p5.waitForTimeout(300);
+    const c5 = await p5.evaluate(() => ({ dialog: !document.getElementById('acct-add-modal').hidden, accounts: !document.getElementById('s-sec-accounts').hidden }));
+    chk(keyRow, theme + ' C5 CONTROL: the page lists that folder, as an API-key row');
+    chk(!c5.dialog && c5.accounts, theme + ' C5: a folder whose row is an API key opens AI Models, not Sign in again', JSON.stringify(c5));
+    p5Errs(theme + ' C5');
+    await p5.close();
   }
 
-  // K1 (review 1): the one-screen layout, with Settings last left on another section.
+  // K1 (kosmos#7198): in the one-screen layout, on a project, the dialog opens over the project and Settings stays shut.
   {
     const pk = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const pkErrs = errsOf(pk);
     await setUp(pk, 'light');
     await pk.evaluate(() => {
       const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
@@ -244,89 +356,50 @@ function readRows(page) {
     chk(isCons, 'K1: fixture: the one-screen layout is on');
     await pk.evaluate((a) => paintLoginAdvisories([a]), ADV_SOON);
     await pk.click('#login-adv-slot button.login-adv-go');
-    await pk.waitForSelector('#set-accounts .acct-box.acct-land', { timeout: 5000 }).catch(() => {});
-    const k = await pk.evaluate(() => {
-      const row = document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-soon"]');
-      const f = document.activeElement;
-      return {
-        settings: !document.getElementById('panel-settings').hidden,
-        accounts: !document.getElementById('s-sec-accounts').hidden,
-        ringed: !!(row && row.classList.contains('acct-land')),
-        focus: !!(f && f.matches('.acct-reauth') && row && row.contains(f)),
-        notices: [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length,
-      };
-    });
-    chk(k.settings && k.accounts, 'K1: Refresh login opens AI Models in the one-screen layout', JSON.stringify(k));
-    chk(k.ringed && k.focus, 'K1: the row is ringed and its Sign in again has focus', JSON.stringify(k));
-    chk(k.notices === 0, 'K1: the login notices step aside there too', JSON.stringify(k));
-    await pk.evaluate(() => { if (typeof pjView === 'function') pjView('one'); });
-    const kb = await pk.evaluate(() => [...document.querySelectorAll('#login-adv-slot .login-adv')].filter((n) => n.getClientRects().length).length);
-    chk(kb === 1, 'K1 CONTROL: leaving Settings there brings the notice back', String(kb));
+    await pk.waitForTimeout(200);
+    const k = await pk.evaluate(() => ({
+      dialog: !document.getElementById('acct-add-modal').hidden,
+      settings: !document.getElementById('panel-settings').hidden,
+      tab: URL_TAB,
+    }));
+    chk(k.dialog && !k.settings && k.tab === 'projects', 'K1: on a project, the dialog opens there and Settings stays shut', JSON.stringify(k));
+    pkErrs('K1');
     await pk.close();
   }
 
-  // T1 (review 1): the ring is taken off when its time is up, with no repaint.
+  // D2 (kosmos#7198): on an agent's own page (its conversation), the dialog opens over it too.
   {
-    const pt = await browser.newPage({ viewport: { width: 1200, height: 900 } });
-    await pt.clock.install();
-    await setUp(pt, 'light');
-    await pt.evaluate((a) => paintLoginAdvisories([a]), ADV_SOON);
-    await pt.click('#login-adv-slot button.login-adv-go');
-    await pt.clock.runFor(500);
-    await pt.waitForSelector('#set-accounts .acct-box.acct-land', { timeout: 5000 }).catch(() => {});
-    const before = await pt.evaluate(() => document.querySelectorAll('#set-accounts .acct-box.acct-land').length);
-    // Review 3: the list's own follow-up repaint (a pending sign-in check) rebuilds the rows: the ring is drawn again.
-    const across = await pt.evaluate(async () => { await paintAccounts({ followUp: 1 }); return document.querySelectorAll('#set-accounts .acct-box.acct-land').length; });
-    chk(across === 1, 'T1: the ring survives the list\'s own follow-up repaint', String(across));
-    // Review 4: focus is moved once, on arrival: a follow-up repaint does not take it back from where the person went.
-    const kept = await pt.evaluate(async () => {
-      const other = document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-fine"] .acct-reauth');
-      other.focus();
-      await paintAccounts({ followUp: 1 });
-      const f = document.activeElement;
-      return !!f && !f.closest('.acct-box[data-acct-dir="/home/.claude-soon"]');
-    });
-    chk(kept, 'T1: a follow-up repaint does not pull focus back to the landed row');
-    // Review 4: nor the page: scroll away from the row, repaint, and the page stays where the person put it.
-    const stay = await pt.evaluate(async () => {
-      document.body.style.minHeight = '3000px';   // room to scroll
-      if (document.activeElement) document.activeElement.blur();   // the list's own focus restore would scroll to it
-      const se = document.scrollingElement;
-      se.scrollTop = se.scrollHeight;
-      const before = se.scrollTop;
-      await paintAccounts({ followUp: 1 });
-      return { before, after: se.scrollTop };
-    });
-    chk(stay.before > 0 && stay.after === stay.before, 'T1: a follow-up repaint does not scroll back to the landed row', JSON.stringify(stay));
-    await pt.clock.runFor(21000);
-    const after = await pt.evaluate(() => document.querySelectorAll('#set-accounts .acct-box.acct-land').length);
-    chk(before === 1 && after === 0, 'T1: ringed on arrival, and the ring goes after its time with no repaint', before + ' -> ' + after);
-    await pt.close();
+    const pd = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const pdErrs = errsOf(pd);
+    await setUp(pd, 'light');
+    await pd.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; showTab('detail'); });
+    await pd.evaluate((a) => paintLoginAdvisories([a]), ADV_SOON);
+    await pd.click('#login-adv-slot button.login-adv-go');
+    await pd.waitForTimeout(200);
+    const d = await pd.evaluate(() => ({ dialog: !document.getElementById('acct-add-modal').hidden, tab: URL_TAB,
+      settings: !document.getElementById('panel-settings').hidden }));
+    chk(d.dialog && d.tab === 'detail' && !d.settings, 'D2: on an agent\'s page, the dialog opens there', JSON.stringify(d));
+    pdErrs('D2');
+    await pd.close();
   }
 
-  // P1: a phone (touch): both controls at finger size.
+  // P1: a phone (touch): Refresh login and the dialog's own button at finger size, and no sideways scroll.
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const ph = await ctx.newPage();
+  const phErrs = errsOf(ph);
   await setUp(ph, 'light');
-  // Review 4: a long list with the landed row last, so it starts below the fold and must be scrolled to.
-  await ph.evaluate((accounts) => {
-    const many = [];
-    for (let i = 0; i < 9; i++) many.push({ ...accounts[2], email: 'fine' + i + '@example.com', label: 'f' + i, dir: '/home/.claude-fine' + i });
-    const list = many.concat([accounts[0]]);
-    window.fetch = (u) => Promise.resolve({ ok: true, json: async () => ({ accounts: list }) });
-  }, ACCOUNTS);
+  await ph.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; });
   await ph.evaluate((a) => paintLoginAdvisories([a]), ADV_SOON);
   const goH = await ph.evaluate(() => { const b = document.querySelector('#login-adv-slot button.login-adv-go'); return b ? b.getBoundingClientRect().height : 0; });
   chk(goH >= 44, 'P1: Refresh login is at least 44px on a phone', String(goH));
   await ph.tap('#login-adv-slot button.login-adv-go');
-  await ph.waitForSelector('#set-accounts .acct-reauth-main', { timeout: 5000 }).catch(() => {});
-  const mainH = await ph.evaluate(() => { const b = document.querySelector('#set-accounts .acct-box.acct-land .acct-reauth-main'); return b ? b.getBoundingClientRect().height : 0; });
-  chk(mainH >= 44, 'P1: the landed row\'s Sign in again is at least 44px on a phone', String(mainH));
-  const seen = await ph.evaluate(() => { const r = document.querySelector('#set-accounts .acct-box.acct-land'); if (!r) return 'no row'; const q = r.getBoundingClientRect(); return q.top >= 0 && q.bottom <= innerHeight ? 'in view' : 'top=' + Math.round(q.top) + ' h=' + innerHeight; });
-  chk(seen === 'in view', 'P1 (review 4): on a phone with a long list, the landed row is scrolled into view', seen);
+  await ph.waitForTimeout(200);
+  const startH = await ph.evaluate(() => { const b = document.getElementById('acct-add'); return b && !document.getElementById('acct-add-modal').hidden ? b.getBoundingClientRect().height : 0; });
+  chk(startH >= 44, 'P1: the dialog opens, and its Start the sign-in is at least 44px on a phone', String(startH));
   const sideways = await ph.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   chk(sideways <= 0, 'P1: no sideways scroll', String(sideways));
-  if (OUT) await ph.screenshot({ path: nodePath.join(OUT, 'refreshlogin-5407-phone.png') });
+  if (OUT) await ph.screenshot({ path: nodePath.join(OUT, 'refreshlogin-7198-phone.png') });
+  phErrs('P1');
   await ctx.close();
 
   await browser.close();

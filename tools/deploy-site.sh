@@ -384,7 +384,7 @@ fi
 # retries a 75 on its next tick instead of parking the sha).
 case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _lps_sleep=3 ;; *) _lps_sleep=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
 live_pointer_snapshot() {
-  for _lps in latest.json latest-staging.json latest-win.json latest-win-staging.json; do
+  for _lps in latest.json latest-staging.json latest-win.json latest-win-staging.json latest-linux.json latest-linux-staging.json; do   # kosmos#7281: and Linux's
     _lps_tmp=$(mktemp "${TMPDIR:-/tmp}/deploy-site-ptr.XXXXXX") || { printf '%s 000 -;' "$_lps"; continue; }
     for _lps_try in 1 2 3; do
       _lps_code=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_lps_tmp" -w '%{http_code}' "$HOST/dist/$_lps" 2>/dev/null) || _lps_code=000
@@ -429,6 +429,12 @@ if git -C "$SITE" cat-file -e "$H:dist/latest.json" 2>/dev/null && [ -z "$CJ" ];
 fi
 [ -z "$CJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest.json" "$CJ" || exit 1
 [ -z "$CSJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest-staging.json" "$CSJ" || exit 1
+# kosmos#7281: the Linux family's pointers (lockstep with the Mac ones, so the same floor).
+# shellcheck source=/dev/null
+. "$REPO/tools/lib/deploy-linux.sh" || { echo "deploy-site: cannot load tools/lib/deploy-linux.sh -- refusing"; exit 1; }
+for _lp in $(deploy_linux_pointers "$SITE" "$H"); do
+  kosmos_setup_floor_pointer_ok "the committed dist/$_lp" "$(git -C "$SITE" show "$H:dist/$_lp")" || exit 1
+done
 # kosmos#6620: while the pointer freeze (tools/pointer-freeze.sh) is on, this deploy publishes only the frozen version:
 # both Mac pointers must name it. origin/main is asked whenever there is an origin, even when $H carries a marker of its
 # own (an old freeze in a stale checkout must not answer for a newer one on origin): its marker decides when it has one.
@@ -825,6 +831,8 @@ else
   verify_sha "$SITE/dist/kosmos-arm64.tar.gz"   "$HOST/dist/kosmos-arm64.tar.gz.sha256"
 fi
 carry_staged_mac
+# kosmos#7281: the Linux build each committed Linux pointer names (gitignored, glob-carried like the Mac's).
+deploy_linux_carry "$SITE" "$H" "$HOST" || { [ $? = 75 ] && exit 75; exit 1; }   # 75 when live could not be read (#5589); literal codes for #6826's guard
 # Historical version tarballs (kosmos-0.6.08-arm64.tar.gz ..) are gitignored rollback URLs and are
 # DELIBERATELY OUT OF SCOPE here: rollback-only, not new-install-critical. A clean checkout drops
 # them (breaking a rollback link, not a new install). There is no manifest of the full set, so they
@@ -867,6 +875,7 @@ kosmos_setup_floor_tree_ok "deploy-site's export" "$EXPORT" || { echo "deploy-si
 for s in "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
   [ -f "$EXPORT/dist/$s" ] || { echo "deploy-site: the export did not carry the checksum $s -- refusing (the installer verifies against it)"; rm -rf "$EXPORT"; exit 1; }
 done
+deploy_linux_export_ok "$EXPORT" || { rm -rf "$EXPORT"; exit 1; }   # kosmos#7281
 # The Windows zip is TRACKED (git archive carries the committed copy). A refusal here almost always
 # means the committed win-zip name no longer matches the hardcoded $WINZIP after a version bump
 # (#2008), NOT a genuine carry failure.

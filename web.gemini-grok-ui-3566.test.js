@@ -72,8 +72,8 @@ test('#3566: acctProvider maps every provider id, and unknown ids are Claude', (
   assert.equal(api.acctProvider({ provider: 'anthropic' }), 'anthropic');
   assert.equal(api.acctProvider({}), 'anthropic');
   assert.equal(api.acctProvider(null), 'anthropic');
-  assert.deepEqual(api.ACCT_KEYED_ROUTE, { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen' },   // #5977
-    'the route words must match the engine routes /api/accounts/{openai,gemini,grok,qwen}');
+  assert.deepEqual(api.ACCT_KEYED_ROUTE, { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen', deepseek: 'compat' },   // #5977, #7206
+    'the route words must match the engine routes /api/accounts/{openai,gemini,grok,qwen,compat}');
 });
 
 test('#3566: with the list read and no Gemini/Grok account, both are OFF and say where to connect', () => {
@@ -193,16 +193,16 @@ test('#3566: a DEFAULT Gemini/Grok agent joins its own provider\'s default row, 
   assert.ok(a > -1, 'accountForAgent\'s dir-less match moved; re-anchor');
   const b = SERVER.indexOf('  if (found) {', a);
   // eslint-disable-next-line no-new-func
-  const match = new Function('job', 'dir', 'list', SERVER.slice(a, b) + '\nreturn found;');
+  const match = new Function('job', 'dir', 'list', 'compatAccounts', SERVER.slice(a, b) + '\nreturn found;');   // #7206: vendor rows are keyed rows
   const list = [
     { dir: '/h/.claude', isDefault: true },
     { dir: '/h/.codex', provider: 'openai', isDefault: true },
     { dir: '/h/.gemini', provider: 'google', isDefault: true },
   ];
-  assert.equal(match({ runner: 'gemini' }, null, list).dir, '/h/.gemini', 'a default Gemini agent joined the wrong row');
-  assert.equal(match({ runner: 'grok' }, null, list), undefined, 'a default Grok agent with no Grok row must join nothing, not OpenAI');
-  assert.equal(match({ runner: 'codex' }, null, list).dir, '/h/.codex', 'CONTROL: codex still joins the OpenAI default');
-  assert.equal(match({ runner: 'claude' }, null, list).dir, '/h/.claude', 'CONTROL: Claude still joins the Claude default');
+  assert.equal(match({ runner: 'gemini' }, null, list, require('./engine/anthropiccompat')).dir, '/h/.gemini', 'a default Gemini agent joined the wrong row');
+  assert.equal(match({ runner: 'grok' }, null, list, require('./engine/anthropiccompat')), undefined, 'a default Grok agent with no Grok row must join nothing, not OpenAI');
+  assert.equal(match({ runner: 'codex' }, null, list, require('./engine/anthropiccompat')).dir, '/h/.codex', 'CONTROL: codex still joins the OpenAI default');
+  assert.equal(match({ runner: 'claude' }, null, list, require('./engine/anthropiccompat')).dir, '/h/.claude', 'CONTROL: Claude still joins the Claude default');
 });
 
 test('#3566: a Gemini row and a Grok row that read alike are told apart by PROVIDER, not by path', () => {
@@ -251,7 +251,7 @@ test('#3566: every inline copy of the keyed-provider set agrees with ACCT_KEYED_
   const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
   const keyed = Object.keys(api.ACCT_KEYED_ROUTE).sort();
   // The self-contained helpers that restate the set, and the server's copies of it.
-  const regexCopies = PAGE.match(/\/\^\((openai\|google\|xai\|alibaba)\)\$\/i/g) || [];
+  const regexCopies = PAGE.match(/\/\^\((openai\|google\|xai\|alibaba(?:\|[a-z]+)*)\)\$\/i/g) || [];
   assert.ok(regexCopies.length >= 2, 'CONTROL: the inline regex copies were not found; re-anchor');
   for (const r of regexCopies) assert.deepEqual(r.slice(3, -4).split('|').sort(), keyed, 'a regex copy drifted: ' + r);
   const maps = [

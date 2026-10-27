@@ -948,7 +948,7 @@ function pageFunction(name, prelude = '') {
   return new Function(`${prelude}\n${script.slice(start, end)}\nreturn ${name};`)();
 }
 
-function connectHarness(st) {
+function connectHarness(st, { cloud = false } = {}) {
   const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
   const tables = ['FR_SAY', 'FR_GLYPH', 'FR_CONN_SAY'].map((n) => {
@@ -963,8 +963,15 @@ function connectHarness(st) {
   const realProgress = pageFunction('frConnPaintProgress',
     'const frMB = ' + realMB.toString() + ';\n'
     + 'const document = { getElementById: () => null };');
+  /* kosmos#4903 S5: a cloud machine (the page's onCloudMachine, read from the served meta) is given here as a stub;
+     without `cloud` the function is absent, which the page reads as "not a cloud machine" (the Mac wording). */
+  const cloudFns = cloud
+    ? 'function onCloudMachine() { return true; }\n'
+      + script.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + pageFunction('signinSay').toString() + '\n'
+      + pageFunction('frCloudSigninDetail').toString() + '\n'
+    : '';
   const realPaintUrl = pageFunction('frConnPaintUrl',
-    'const esc = ' + realEsc.toString() + ';\n'
+    'const esc = ' + realEsc.toString() + ';\n' + cloudFns
     + 'const document = { getElementById: () => null };');
 
   /* win32-board-copy: the painter's Windows arms ask the platform copy layer; lifted as
@@ -973,6 +980,7 @@ function connectHarness(st) {
   const prelude = `
     const esc = ${realEsc.toString()};
     ${tables}
+    ${cloudFns}
     ${platformCopyLayer}
     const frCheckRow = ${realRow.toString()};
     const frMB = ${realMB.toString()};
@@ -1055,6 +1063,71 @@ test('the sign-in URL lands in the href escaped', () => {
   assert.ok(out.includes('href="https://claude.com/oauth?a=1&amp;state=&quot;&gt;'),
     'the URL was not escaped into the href');
   assert.ok(!out.includes('"><script>'), 'the URL broke out of its attribute');
+});
+
+test('kosmos#4903 S5: on a cloud machine the sign-in screen leads with the link, and never says a browser opened', () => {
+  const URL = 'https://claude.com/cai/oauth/authorize?code=true&x=1';
+  for (const phase of ['signin-browser-open', 'signin-awaiting-code']) {
+    const cloudH = connectHarness({ phase, url: URL }, { cloud: true });
+    const all = cloudH.els['fr-sub'].innerHTML + cloudH.els['fr-conn-url'].innerHTML;
+    assert.doesNotMatch(all, /browser has opened|Browser did not open/i, phase + ': a cloud machine was told a browser opened');
+    assert.match(cloudH.els['fr-sub'].innerHTML, /Sign in to Claude/, phase);
+    assert.match(cloudH.els['fr-conn-url'].innerHTML, /class="btn uprime" href="https:\/\/claude\.com\/cai\/oauth\/authorize\?code=true&amp;x=1"[^>]*>Open the Claude sign-in page</, phase + ': the link is not the primary way in');
+    // CONTROL: the same state on a Mac keeps its words.
+    const mac = connectHarness({ phase, url: URL });
+    assert.match(mac.els['fr-sub'].innerHTML, /Your browser has opened/, phase + ': the Mac wording changed');
+    assert.match(mac.els['fr-conn-url'].innerHTML, /Browser did not open\?/, phase);
+  }
+  // Review 2: while Claude is finishing, a cloud machine offers no link (it is the primary button there); the Mac keeps its fallback.
+  const finishing = connectHarness({ phase: 'signin-completing', url: URL }, { cloud: true });
+  assert.equal(finishing.els['fr-conn-url'].innerHTML, '', 'the link stayed while Claude was finishing');
+  // Review 3: the page repaints every second, and a repeat of the same phase takes its own path; it must agree.
+  finishing.paint({ phase: 'signin-completing', url: URL });
+  assert.equal(finishing.els['fr-conn-url'].innerHTML, '', 'the link came back on the next poll while Claude was finishing');
+  assert.match(connectHarness({ phase: 'signin-completing', url: URL }).els['fr-conn-url'].innerHTML, /Browser did not open\?/, 'CONTROL: the Mac fallback changed');
+  // The code step on a cloud machine says where the code comes from.
+  const code = connectHarness({ phase: 'signin-awaiting-code', url: URL }, { cloud: true });
+  assert.match(code.els['fr-sub'].innerHTML, /Claude then shows a code: paste it here/);
+});
+
+test('kosmos#4903 S5 design: a cloud machine says "below" once the link is there, and asks for the code once', () => {
+  const URL = 'https://claude.com/cai/oauth/authorize?code=true&x=1';
+  for (const phase of ['signin-browser-open', 'signin-awaiting-code']) {
+    const withUrl = connectHarness({ phase, url: URL }, { cloud: true });
+    assert.match(withUrl.els['fr-sub'].innerHTML, /Open the Claude sign-in page below/, phase + ': the sentence does not point at the link');
+    assert.doesNotMatch(withUrl.els['fr-sub'].innerHTML, /its link appears|in a moment/i, phase + ': it still says the link is coming while it is there');
+    const early = connectHarness({ phase, url: null }, { cloud: true });
+    assert.match(early.els['fr-sub'].innerHTML, /Its link appears here in a moment/, phase + ': with no link yet it must say one is coming');
+    assert.doesNotMatch(early.els['fr-sub'].innerHTML, /below/, phase + ': it pointed at a link that is not there');
+  }
+  // The link arriving inside the phase (no rebuild) re-says the sentence.
+  const late = connectHarness({ phase: 'signin-awaiting-code', url: null }, { cloud: true });
+  late.paint({ phase: 'signin-awaiting-code', url: URL });
+  assert.match(late.els['fr-conn-cloudsay-code'].textContent, /sign-in page below/, 'a late link left the sentence saying it is coming');
+  assert.match(late.els['fr-conn-say'].textContent, /sign-in page below/, 'review 3: a late link left the SPOKEN line saying it is coming');
+  // Review 2 (W1): the hidden live region says the same as the screen, link or no link.
+  for (const phase of ['signin-browser-open', 'signin-awaiting-code']) {
+    assert.match(connectHarness({ phase, url: URL }, { cloud: true }).els['fr-conn-say'].textContent, /sign-in page below/, phase + ': the spoken line says the link is coming while it is there');
+    assert.match(connectHarness({ phase, url: null }, { cloud: true }).els['fr-conn-say'].textContent, /in a moment/, phase + ': the spoken line points at a link that is not there');
+  }
+  // Note 3: on a cloud machine the code field has a placeholder and no second "paste the code" label.
+  const code = connectHarness({ phase: 'signin-awaiting-code', url: URL }, { cloud: true }).els['fr-sub'].innerHTML;
+  assert.doesNotMatch(code, /If Claude gives you a code to paste/, 'the code step still asks twice');
+  assert.match(code, /<input id="fr-conn-code"[^>]*placeholder="Paste the code from Claude"/);
+  assert.match(code, /<input id="fr-conn-code"[^>]*aria-describedby="fr-conn-cloudsay-code"/, 'the code field lost its description');
+  assert.match(code, /<span id="fr-conn-cloudsay-code">/, 'the field is described by an element that is not there');
+  // CONTROL: the Mac keeps its label (a code is the exception there) and has no placeholder, and its words are unchanged.
+  const mac = connectHarness({ phase: 'signin-awaiting-code', url: URL }).els['fr-sub'].innerHTML;
+  assert.match(mac, /If Claude gives you a code to paste, put it here:/);
+  assert.doesNotMatch(mac, /placeholder=/);
+  assert.match(mac, /Sign in to Claude there\. This screen will notice when it is done\./);
+});
+
+test('kosmos#4903 S5 design: on a cloud machine the sign-in link is the gold primary, which #firstrun .btn would otherwise paint white', () => {
+  // `#firstrun .btn` (1,1,0) outranks `.btn.uprime` (0,2,0), so the link needs its own scoped rule (as the confirm has).
+  assert.match(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'), /#acct-claude-open \{ text-decoration: none; \}/, 'Settings\' cloud link is underlined again');
+  assert.match(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'),
+    /#firstrun #fr-conn-url \.btn\.uprime \{ background: var\(--gold-bright\);[^}]*text-decoration: none; \}/);
 });
 
 test('a URL that arrives after the phase painted still surfaces, without a rebuild', () => {
@@ -1581,6 +1654,15 @@ test('#996: and it is not offered at all when there is nothing to run', () => {
    SSH), then `claude`. The platform is INJECTED (publicView serves it), so this
    runs from any box. Mac and Windows copy are unchanged (controls below).
    -------------------------------------------------------------------------- */
+
+test('kosmos#4903 S5 review 1: on a cloud machine the stuck card offers no shell or Terminal hatch (it is reached only through a browser)', () => {
+  const st = { phase: 'stuck', because: 'x', platform: 'linux', canRunClaude: true, progress: { got: 0, total: null } };
+  const cloudNote = connectHarness(st, { cloud: true }).els['fr-sub'].innerHTML;
+  assert.doesNotMatch(cloudNote, /fr-hatch|SSH|Terminal|Have a shell/, 'a cloud machine was offered a way out it cannot take');
+  assert.match(cloudNote, /Nothing is broken by this\. You can try again/, 'the way on is gone too');
+  // CONTROL: the same state on a Linux server that is NOT a cloud machine keeps its #5449 hatch.
+  assert.match(connectHarness(st).els['fr-sub'].innerHTML, /Have a shell on the server\?/);
+});
 
 test('#5449: on Linux the stuck card names a way out a headless-server person can take', () => {
   const { els } = connectHarness({ phase: 'stuck', because: 'x', platform: 'linux',

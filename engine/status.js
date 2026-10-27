@@ -7031,7 +7031,7 @@ const MODEL_NAMES = {
    "Haiku 4 5"); so an id with two number-only parts side by side, or a date part, stays raw, and only then. Ids that
    write their version with a dot (gemini-3.8-flash, grok-4.6, gpt-5.6-sol) read cleanly: "Gemini 3.8 Flash",
    "Grok 4.6", "GPT 5.6 Sol". PURE; exported for its test. */
-const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano',
+const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', deepseek: 'DeepSeek', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano',
   oss: 'OSS', vl: 'VL', hd: 'HD', tts: 'TTS', ai: 'AI' };   // acronyms, so they are not read as words ("Oss")
 function readableModelId(id) {
   const parts = String(id || '').split('-');
@@ -8935,19 +8935,25 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
           return typeof email === 'string' && email ? email : null;
         } catch { return null; }
       });
+      // The folders AI Models lists (accounts.list, read from disk; no live check), less API-key rows, which have no
+      // sign-in to redo (#2433). Unreadable: no notice names a row.
+      let rowDirs = null;
+      try { rowDirs = opts.rowDirs instanceof Set ? opts.rowDirs : new Set(accounts.list().filter((a) => a && !a.apiKey).map((a) => a.dir).filter(Boolean)); } catch { rowDirs = null; }
       /* #5407: the account's folder as Settings > AI Models names its row (accounts.list: the default is
-         ~/.claude, any other the folder itself), so the notice's Refresh login can open that row.
+         ~/.claude, any other the folder itself), so the notice's Refresh login can sign in again as that account.
          Review 5: ONLY when that row reads the same login. The row's login is the keychain entry for its folder
          (claudeloginlive: the default reads the bare entry, any other its folder's own); the notice's is a.service,
          from the agents' exact CLAUDE_CONFIG_DIR. An explicit ~/.claude, or a folder with a trailing slash, reads a
-         different entry from the row of that folder, so it names no row (null): Refresh login then opens AI Models
-         with nothing ringed, and the notice stays up there. */
+         different entry from the row of that folder, so it names no row (null): Refresh login then opens AI Models,
+         and the notice stays up there. */
       const dirOf = (adv) => {
         const set = adv.ccd == null ? '' : String(adv.ccd).replace(/[\r\n]+$/, '');
         const def = path.join(accounts.homeDir(), '.claude');
         const dir = set ? path.resolve(set) : def;
         const rowReads = le.serviceNameFor(dir === def ? undefined : dir);
-        return rowReads === adv.service ? dir : null;
+        /* kosmos#7198: and only a folder AI Models lists as an account: the notice's Refresh login opens Sign in again
+           for this folder in place, which must never be a folder with no account row (removed, or never listed). */
+        return rowReads === adv.service && rowDirs && rowDirs.has(dir) ? dir : null;
       };
       const out = le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
         .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf), dir: dirOf(a) }));
@@ -9796,6 +9802,9 @@ function projectsUnreadTotal(projects, unreadMap) {
   let total = 0;
   for (const p of projects) {
     if (!p || p.archived === true) continue;
+    /* kosmos#7210: a project on Mentions only or Muted keeps its own row's count but adds nothing to the Dock badge or
+       the Projects badge, as a muted conversation does in a messaging app. The page's pjDmTotal leaves it out too. */
+    if (p.notify === 'mentions' || p.notify === 'muted') continue;
     const v = Number(unreadMap[p.id]);
     if (Number.isFinite(v) && v > 0) total += v;
   }

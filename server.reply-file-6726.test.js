@@ -770,6 +770,38 @@ test('#6726 r5-5: ~/.aws as a link into a non-hidden folder is refused by the na
   }));
 }));
 
+/* #7226: rule 1 found home by spelling, so the same home spelled another way skipped it and ~/.aws (a link into a
+   project folder) attached. Two other spellings: a different case (a case-insensitive volume, as a Mac's is by default),
+   and home reached through a link. Each with its controls: the correct spelling refused, the real path attached. */
+test('#7226: ~/.aws reached with home spelled in another case is refused (case-insensitive volume)', (t) => withLeo(async () => {
+  const home = path.join(SANDBOX, 'home11');
+  const creds = write(path.join(home, 'dotfiles', 'aws', 'credentials'), '[default]');
+  fs.symlinkSync(path.join(home, 'dotfiles', 'aws'), path.join(home, '.aws'));
+  const other = path.join(SANDBOX, 'HOME11');
+  if (!fs.existsSync(other)) { t.skip('this volume tells HOME11 from home11, so there is no other case to spell'); return; }
+  await withHome(home, () => withProject(path.join(home, 'dotfiles'), async () => {
+    await refused({ text: 'hi', file: path.join(other, '.aws', 'credentials') }, /hidden folder of the home folder/);
+    await refused({ text: 'hi', file: path.join(home, '.aws', 'credentials') }, /hidden folder of the home folder/);   // CONTROL
+    const r = await reply({ text: 'hi', file: creds });
+    assert.equal(r.json.kept, true, 'CONTROL: the real non-hidden path still attaches: ' + r.text);
+  }));
+}));
+
+test('#7226: ~/.aws reached through a link to home is refused', () => withLeo(async () => {
+  const home = path.join(SANDBOX, 'home12');
+  const creds = write(path.join(home, 'dotfiles', 'aws', 'credentials'), '[default]');
+  fs.symlinkSync(path.join(home, 'dotfiles', 'aws'), path.join(home, '.aws'));
+  const via = path.join(SANDBOX, 'via12');
+  fs.symlinkSync(home, via);
+  await withHome(home, () => withProject(path.join(home, 'dotfiles'), async () => {
+    await refused({ text: 'hi', file: path.join(via, '.aws', 'credentials') }, /hidden folder of the home folder/);
+    // CONTROL: a non-hidden file through the same link attaches, so the link itself is not what is refused.
+    const r = await reply({ text: 'hi', file: path.join(via, 'dotfiles', 'aws', 'credentials') });
+    assert.equal(r.json.kept, true, 'CONTROL: the same link to a non-hidden name attaches: ' + r.text);
+    assert.equal(fs.realpathSync(path.join(via, '.aws', 'credentials')), fs.realpathSync(creds), 'the refused path is the same file');
+  }));
+}));
+
 /* Review r6 finding 1: a "volume root" (as /System/Volumes/Data) holds home without being an ancestor of home's
    spelling, and holds files OUTSIDE home too (Users/Shared, private/etc), which the file's own chain never shows.
    Stand-in: home is spelled through sys9/Users, a link to vol9/Users; vol9 is the volume root. */

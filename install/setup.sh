@@ -1537,14 +1537,15 @@ install_kosmos() {
     pinned_sha_ok "$stage/kosmos.tar.gz" "${_PIN_TARBALL_SHA256:-}" "Kosmos" || { rm -rf "$stage"; return 1; }   # #6576
     _kp_emit installing
     # #6468 ask 2: held to the installed copy's signed-manifest check, the archive itself before tar reads it and every
-    # unpacked file before anything runs. Not on Linux (its updates are not built or signed here yet).
-    if [ "$(uname -s)" = "Darwin" ] && ! update_manifest_ok pre "$stage" "$dest"; then
+    # unpacked file before anything runs. On Linux only for its own release family (kosmos#7281); the portable bundle
+    # on Linux is not signed for Linux.
+    if { [ "$(uname -s)" = "Darwin" ] || [ "${LINUX_FAMILY:-}" = yes ]; } && ! update_manifest_ok pre "$stage" "$dest"; then
       rm -rf "$stage"
       return 1
     fi
     # #6562: never apply the archive's recorded owner, whoever runs this (a root install on Linux would).
     tar -xzf "$stage/kosmos.tar.gz" --no-same-owner -C "$stage" || { [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""; rm -rf "$stage"; return 1; }
-    if [ "$(uname -s)" = "Darwin" ] && ! update_manifest_ok post "$stage" "$dest"; then
+    if { [ "$(uname -s)" = "Darwin" ] || [ "${LINUX_FAMILY:-}" = yes ]; } && ! update_manifest_ok post "$stage" "$dest"; then
       rm -rf "$stage"
       return 1
     fi
@@ -1564,7 +1565,8 @@ install_kosmos() {
   # have a read-only app, below) would otherwise refuse the mv into place AFTER the old app was removed, leaving no app at all.
   chmod -R u+w "$stage" 2>/dev/null || true
   [ -f "$stage/bin/kosmos" ] && [ -x "$stage/bin/kosmos" ] || { rm -rf "$stage"; return 1; }
-  if [ "$(uname -s)" = "Linux" ]; then
+  # kosmos#7281: the Linux family's own node must run; a system node is linked only into the portable bundle.
+  if [ "$(uname -s)" = "Linux" ] && [ "${LINUX_FAMILY:-}" != yes ]; then
     if [ ! -f "$stage/runtime/bin/node" ] || ! "$stage/runtime/bin/node" --version >/dev/null 2>&1; then
       _sys_node="$(command -v node 2>/dev/null || true)"
       [ -n "$_sys_node" ] || _sys_node="$(command -v nodejs 2>/dev/null || true)"
@@ -1580,7 +1582,7 @@ install_kosmos() {
   [ -f "$stage/app/web/index.html" ] || { rm -rf "$stage"; return 1; }
   # The Plus connector (#583) rides in the bundle; a Kosmos without it installs
   # fine and then cannot turn Plus on, so a missing one is a broken download.
-  if [ "$(uname -s)" != "Linux" ]; then
+  if [ "$(uname -s)" != "Linux" ] || [ "${LINUX_FAMILY:-}" = yes ]; then
     [ -f "$stage/app/bin/kosmos-tunnel" ] && [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
   fi
   # #6468: a downloaded update must be signed like the installed build BEFORE anything in it runs (the probe below
@@ -3492,11 +3494,53 @@ TARGET_VERSION=""
 # so the pointer it decided on and the pointer this installer reads are the SAME channel.
 _PTR_FILE="latest.json"
 [ "${KOSMOS_UPDATE_CHANNEL:-}" = staging ] && _PTR_FILE="latest-staging.json"
+# kosmos#7281: Linux is its own release family (kosmos-<V>-linux-x64.*, latest-linux(-staging).json), as Windows is.
+# TRANSITIONAL: a Linux x86_64 machine takes it only when its pointer answers with a version; until the first release
+# that publishes it, the run below keeps the portable bundle it always had (and says so), so this installer can ship
+# before the first Linux release does without breaking a Linux install. LINUX_FAMILY is decided here, once.
+LINUX_FAMILY=""
+_LPTR_BODY=""
+# Review 1: a local copy (KOSMOS_SRC) or a test arch override (KOSMOS_BUNDLE_ARCH) decides the bytes itself, so the
+# network pointer never turns the family on for it (the Linux CI job installs the checkout this way, with no runtime).
+if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] && [ -z "${KOSMOS_SRC:-}" ] && [ -z "${KOSMOS_BUNDLE_ARCH:-}" ]; then
+  _lptr_file="latest-linux.json"
+  [ "${KOSMOS_UPDATE_CHANNEL:-}" = staging ] && _lptr_file="latest-linux-staging.json"
+  # Review 2: the family's node and kosmos-tunnel are built against glibc 2.35 (Ubuntu 22.04), so a computer on an
+  # older glibc, or on musl (Alpine: getconf has no GNU_LIBC_VERSION), keeps the portable bundle and its system node.
+  _glibc_ok=""
+  _glibc="$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')" || _glibc=""
+  if [ -n "$_glibc" ]; then
+    _gmaj="${_glibc%% *}"; _gmin="${_glibc#* }"   # not `set --`: that would replace this script's own arguments
+    if [ "$_gmaj" -gt 2 ] || { [ "$_gmaj" -eq 2 ] && [ "$_gmin" -ge 35 ]; }; then _glibc_ok=yes; fi
+  fi
+  case "$KOSMOS_RELEASE_BASE" in
+    http://*|https://*) _lptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_lptr_file?nocache=$$" 2>/dev/null)" || _lptr="" ;;
+    *) _lptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_lptr_file" 2>/dev/null)" || _lptr="" ;;
+  esac
+  # Review 1 (W3): an a.b.c version, read the way the main pointer read below reads it, and the body reused there.
+  _lver="$(printf '%s' "$_lptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' | head -1)" || _lver=""
+  if [ -n "$_lver" ] && [ -z "$_glibc_ok" ]; then
+    # Review 3: no refusal here, even for an installed Linux-family copy. Below the floor that copy's own node cannot
+    # start, so it is already broken and the portable bundle (with the system node) repairs it; a refusal here would
+    # also disagree with the unreadable-pointer arm below, which cannot refuse a node that does not run.
+    info "could not confirm glibc 2.35 or newer on this computer, so the portable bundle is installed instead of the Linux build"
+  elif [ -n "$_lver" ]; then
+    LINUX_FAMILY=yes; _PTR_FILE="$_lptr_file"; _LPTR_BODY="$_lptr"
+  elif [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ ! -L "$KOSMOS_HOME/runtime/bin/node" ] \
+       && "$KOSMOS_HOME/runtime/bin/node" --version >/dev/null 2>&1; then
+    # Review 1 (W2): this computer already runs the Linux family (its own node, not a linked system one). A Linux
+    # pointer that cannot be read is then a failed read, never "not published": refuse rather than downgrade it to
+    # the unchecked portable bundle.
+    die "Could not read a version from the Linux release pointer ($_lptr_file): it may not be published on this channel yet, or the download failed. Nothing was changed."
+  fi
+fi
 # file:// bases (thumb drives, the test harness) have no cache to bust,
 # and a query string there is a different, missing filename.
 BUST=""
 case "$KOSMOS_RELEASE_BASE" in http://*|https://*) BUST=yes ;; esac
-if [ -n "$BUST" ]; then
+if [ -n "$_LPTR_BODY" ]; then
+  _ptr="$_LPTR_BODY"   # #7281 review 1: the Linux pointer already read above, not fetched a second time
+elif [ -n "$BUST" ]; then
   _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_PTR_FILE?nocache=$$" 2>/dev/null)" || _ptr=""
 else
   _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_PTR_FILE" 2>/dev/null)" || _ptr=""
@@ -3570,8 +3614,17 @@ case "$(uname -s)" in
       *) die "Kosmos on Linux needs an x86_64 or aarch64 machine. This computer is $ARCH." ;;
     esac
     info "Linux $(uname -r) on $ARCH"
-    # Until Linux-specific tarballs are published on dist, use the portable bundle:
-    [ -n "${KOSMOS_BUNDLE_ARCH:-}" ] && ARCH="$KOSMOS_BUNDLE_ARCH" || ARCH="arm64"
+    # kosmos#7281: the Linux x86_64 bundle (a Linux node and kosmos-tunnel) when its release family is published.
+    # Otherwise, for now, the portable bundle as before (its node and tunnel are macOS binaries, so a system node is
+    # linked in below and Kosmos+ cannot run); aarch64 has no Linux bundle yet either.
+    if [ -n "${KOSMOS_BUNDLE_ARCH:-}" ]; then
+      ARCH="$KOSMOS_BUNDLE_ARCH"
+    elif [ "$LINUX_FAMILY" = yes ]; then
+      ARCH="linux-x64"
+    else
+      info "no Linux bundle is published for this computer yet, so the portable bundle is installed (Kosmos+ is not available on it)"
+      ARCH="arm64"
+    fi
     ;;
   *) die "Kosmos runs on macOS and Linux. This looks like $(uname -s)." ;;
 esac
@@ -5468,7 +5521,8 @@ if [ -d "$_wf_base/AgentWorkforce" ] && [ ! -d "$_wf_base/Kosmos" ]; then
 else
   _wf_data_root="$_wf_base/Kosmos"
 fi
-if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
+# kosmos#7281 review 2: the Linux family's staging pointer is latest-linux-staging.json, so match the suffix.
+case "$_PTR_FILE" in *staging.json) _source_channel=staging ;; *) _source_channel=prod ;; esac
 # #2969: the updater names the SUBSCRIPTION separately from the pointer it installs from. A
 # staging subscriber offered a newer PROD build (a prod-only hotfix cut) installs from latest.json
 # but must stay subscribed to staging, or the next staging build would never reach it. Only the two

@@ -11,6 +11,8 @@ struct AgentsView: View {
     @ObservedObject var push: PushNotificationManager
     let openChat: (URL) -> Void
     let openBoard: () -> Void
+    // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
+    var create: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
@@ -25,6 +27,13 @@ struct AgentsView: View {
         NavigationView {
             content
                 .navigationTitle("Agents")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) { MacSwitcher(client: client) }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
+                            .accessibilityLabel("Add agent")
+                    }
+                }
                 .background(Palette.ground.ignoresSafeArea())
                 // The link sits on the page, not on a row: a row (or the whole list) that stops being drawn, as when the
                 // Mac asks for Allow again, would otherwise close the chat under the person.
@@ -203,8 +212,10 @@ struct AgentsView: View {
         return "Checking for updates."
     }
 
+    // kosmos#7266 (Mona Lisa's design review): the + above adds an agent from the phone (the board's own form, over the
+    // tabs), so the footer no longer says new agents are set up on the computer.
     private var footer: some View {
-        Text("New agents, models and connections are set up on your computer.")
+        Text("Models and connections are set up on your computer.")
             .font(.footnote)
             .foregroundColor(Palette.tertiary)
     }
@@ -465,6 +476,48 @@ enum Palette {
         case .asked: return askedWord
         case .needsYou: return dangerWord
         case .working, .quiet: return secondary
+        }
+    }
+}
+
+// kosmos#7266 slice C: the Kosmos switcher, top left of Agents and Projects. It names the computer whose agents and
+// projects are shown; with two or more on the account it opens a list of them, online or offline, the shown one
+// checked, and choosing one shows that computer (BoardClient.showMac). With one it is the name alone.
+struct MacSwitcher: View {
+    @ObservedObject var client: BoardClient
+
+    var body: some View {
+        let rows = Board.switcherRows(client.macs, shown: client.switcherShown)
+        let name = rows.first(where: \.shown)?.name ?? client.shownMacName ?? client.phase.macName
+        if let name {
+            if rows.count > 1 {
+                Menu {
+                    Section("Your computers") {
+                        ForEach(rows, id: \.address) { row in
+                            Button { client.showMac(address: row.address) } label: {
+                                if row.shown {
+                                    Label { Text(row.name); Text(row.status) } icon: { Image(systemName: "checkmark") }
+                                } else {
+                                    Text(row.name); Text(row.status)
+                                }
+                            }
+                            .accessibilityLabel("\(row.name), \(row.status)\(row.shown ? ", showing" : "")")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                    }
+                    .foregroundColor(Palette.primary)
+                }
+                .accessibilityLabel("Showing \(name)")
+                .accessibilityHint("Choose another computer")
+            } else {
+                Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    .foregroundColor(Palette.secondary)
+                    .accessibilityLabel("Showing \(name)")
+            }
         }
     }
 }

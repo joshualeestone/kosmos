@@ -255,18 +255,24 @@ function trustDialogHold(card, seen, capture) {
 const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
 const platformGate = require('./engine/platform');
+const cloudMachine = require('./engine/cloudmachine');   // kosmos#4903 S5
 /* win32-board-copy: the page's platform fact. The page needs it before any signed-in
    API answers (the not-signed-in panel is painted exactly when /api/* refuses), so the
    open static shell carries it in `<meta name="kosmos-platform">`, stamped per request
    from the same describe() firstrun.state() and connect's publicView report. An
    unstamped page (file://, a harness) reads as "not Windows", so the Mac page is the
    default everywhere nothing says otherwise. */
-const PAGE_PLATFORM_MARKER = '__KOSMOS_PLATFORM__';
+const PAGE_PLATFORM_MARKER = '__KOSMOS_PLATFORM__';   // its kosmos#4903 sibling, PAGE_CLOUD_MARKER, lives inside stampServedPlatform
+/* kosmos#4903 S5: beside it, whether this board is a Kosmos cloud machine (engine/cloudmachine.js: the installer's
+   latch, Linux only), stamped the same way so the page's first paint already speaks to a person with only a browser.
+   Words and flow only; who may open the board is the tunnel's decision. */
 function stampServedPlatform(pageBuffer) {
+  const PAGE_CLOUD_MARKER = '__KOSMOS_CLOUD_MACHINE__';   // inside, so a test lifting this function has it
   const text = pageBuffer.toString('utf8');
-  return text.includes(PAGE_PLATFORM_MARKER)
-    ? text.replace(PAGE_PLATFORM_MARKER, platformGate.describe().platform)
-    : pageBuffer;
+  if (!text.includes(PAGE_PLATFORM_MARKER) && !text.includes(PAGE_CLOUD_MARKER)) return pageBuffer;
+  return text
+    .replace(PAGE_PLATFORM_MARKER, platformGate.describe().platform)
+    .replace(PAGE_CLOUD_MARKER, cloudMachine.isCloudMachine() ? '1' : '0');
 }
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
@@ -1582,6 +1588,8 @@ const instructions = require('./engine/instructions');
 const instructionadds = require('./engine/instructionadds'); // #5293: an agent proposes an addition, the person applies it
 const personalinstr = require('./engine/personalinstr'); // #4446: a personal instructions file the agent's CLI also loads
 const projects = require('./engine/projects');
+// #7210: a phone notification from a project asks that project's level (All / Mentions only / Muted) before it is sent.
+phonenotify.setProjectLevel((pid) => projects.notifyLevel(pid));
 const autoretell = require('./engine/autoretell');
 /* #3923: when each agent-made Try again (`?retell=1`) happened, for its own hourly bound. */
 const RETELL_RECENT = [];
@@ -2540,6 +2548,8 @@ function accountForAgent(name, known) {
   /* #5977 UI review 2: Qwen is decided from the job (a codex job on a Qwen home), the one fact every other surface
      reads, so an agent whose Qwen account was disconnected (no row any more) still reads as Qwen, not OpenAI. */
   const qwenJob = job.runner === 'codex' && create.jobProvider(job) === 'alibaba';
+  /* #7206: a vendor agent (claude on a DeepSeek folder) likewise, decided from the job, so the page reads DeepSeek. */
+  const vendorJob = job.runner === 'claude' && compatAccounts.vendorOf(create.jobProvider(job)) ? create.jobProvider(job) : null;
   const dir = job.configDir;
   const list = Array.isArray(known) ? known : [];
   /* 🛑 THE PROVIDER GATES THE DIR-LESS MATCH, AND WITHOUT IT THIS IS THE CARD'S
@@ -2571,7 +2581,7 @@ function accountForAgent(name, known) {
      OpenAI's: "a codex dir cannot equal a claude row's dir" held while codex was the only
      foreign runner. Claude rows carry no provider, keyed rows carry theirs. */
   const wantProvider = ({ codex: 'openai', gemini: 'google', grok: 'xai' })[job.runner] || null;
-  const isKeyedRow = (x) => !!(x && (x.provider === 'openai' || x.provider === 'google' || x.provider === 'xai' || x.provider === 'alibaba'));   // #5977
+  const isKeyedRow = (x) => !!(x && (x.provider === 'openai' || x.provider === 'google' || x.provider === 'xai' || x.provider === 'alibaba' || !!compatAccounts.vendorOf(x.provider)));   // #5977, #7206
   const found = dir
     ? list.find((x) => x.dir === dir)
     : list.find((x) => x.isDefault && (foreign ? (!!wantProvider && x.provider === wantProvider) : !isKeyedRow(x)));
@@ -2581,6 +2591,7 @@ function accountForAgent(name, known) {
       /* #5977: a Qwen agent runs on codex, so its runner says OpenAI; its account is the only thing that says Qwen.
          Only a Qwen row carries it: every other runner already names its provider, and their shape stays as it was. */
       ...(qwenJob || found.provider === 'alibaba' ? { provider: 'alibaba' } : {}),
+      ...(vendorJob ? { provider: vendorJob } : {}),   // #7206
       keyTail: found.keyTail || null,   // #4603: an xAI/Google key account names itself by its last four
       /* #2225: the human-chosen account name (`.kosmos-name` sidecar), the same
          value the pickers/Settings row have shown since #2095. Read here off the
@@ -2619,7 +2630,7 @@ function accountForAgent(name, known) {
      both providers. */
   return dir
     ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir), keyTail: null,
-      ...(qwenJob ? { provider: 'alibaba' } : {}) }
+      ...(qwenJob ? { provider: 'alibaba' } : {}), ...(vendorJob ? { provider: vendorJob } : {}) }
     : null;
 }
 
@@ -3388,6 +3399,8 @@ function handleCompatAccountStore(req, res) {
       /* Review 3: only the Mac launch points an agent at a vendor (bin/agent-supervisor.sh); a Windows agent on this
          account would start against Anthropic with no sign-in. Refused until the Windows launch does the same. */
       if (process.platform === 'win32') { sendJson(res, 400, { error: `${v.name} agents run on a Mac for now; this computer cannot run them yet` }); return; }
+      /* Slice 1b: off by default (engine/anthropiccompat.js enabled): nothing unproven reaches a person. */
+      if (!compatAccounts.enabled()) { sendJson(res, 400, { error: compatAccounts.notYet(v.id), notYet: true }); return; }
       if (!runners.resolveBin('claude').present || runners.installing('claude')) {   // filed under 'claude' (engine/runners.js)
         sendJson(res, 400, { error: `we could not find Claude Code, the runner ${v.name} agents use, on this computer`, needsRunner: true, provider: 'claude' });
         return;
@@ -4813,6 +4826,8 @@ function remoteSessionFresh(headers, nowSecs) {
   return age >= -60 && age <= REMOTE_STEP_UP_SECS;
 }
 const REMOTE_STEP_UP_EXACT = new Set([
+  // kosmos#7248: putting a kept copy back over one of Kosmos's own stores, from a remote session, asks for sign-in again.
+  'POST /api/board/damaged-files/restore',
   // Updating, and anything that downloads and runs software here. PUT /api/autoupdate is gated whole, off as well as
   // on: telling them apart needs the body, which the gate does not read, and asking once more to switch it off costs
   // little.
@@ -6759,7 +6774,8 @@ const server = http.createServer(async (req, res) => {
      sensitive-route check above; carries no keys or remote ids. */
   if (pathname === '/api/community/mine' && (req.method === 'GET' || req.method === 'HEAD')) {
     // #4801: and the comments they published on community posts, each with its own Delete.
-    try { sendJson(res, 200, { posts: communitymine.mine(), comments: communitymine.mineComments() }); }
+    // #7211: and the summary Settings shows in their place (counts, and each agent's community page), the list itself folded.
+    try { sendJson(res, 200, communitymine.mineAll()); }
     catch (e) { console.error('FAIL /api/community/mine: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load your community posts and comments' }); }
     return;
   }
@@ -7816,8 +7832,14 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/phone/notice' && req.method === 'GET') {
     let noticeId = null;
     try { noticeId = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { noticeId = null; }
-    const got = require('./engine/phonenotice').wordsFor(noticeId, { mask: guideMasked });   // #3769: rows kept before the write-side mask
-    if (!got || borrowedName(got.session)) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
+    const { got, why } = require('./engine/phonenotice').explain(noticeId, { mask: guideMasked });   // #3769: rows kept before the write-side mask
+    const borrowed = !!got && borrowedName(got.session);
+    /* kosmos#6487: say in the board's log what was answered, so a plain notice explains itself. The id's kind and the
+       session only, never the words. Any caller of this gated route is logged, not only a phone. */
+    const pnotice = require('./engine/phonenotice');
+    process.stderr.write('phonenotice: asked for the words of a notice (' + pnotice.idKind(noticeId) + ') ref ' + pnotice.idRef(noticeId) +
+      (got ? ' for ' + pnotice.logName(got.session) : '') + '; ' + (got && !borrowed ? 'answered them' : 'answered nothing (' + (borrowed ? 'borrowed-name' : why) + '), so it shows plain') + '\n');
+    if (!got || borrowed) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
     const roster = safeRoster();
     const card = ourCardByName(roster, got.session);   // as the thread readers find it: any spelling, tied only
     let picture = null;
@@ -8042,9 +8064,17 @@ const server = http.createServer(async (req, res) => {
     let base;
     try { base = worldBase(); } catch (_e) { sendJson(res, 500, { because: 'the world registry is not readable on this machine' }); return; }
     const roster = safeRoster();   // null when the cards could not be read
-    /* #5977: a codex card on a Qwen home is Qwen (its job says so; codex cards only, one read each). */
+    /* #5977: a codex card on a Qwen home is Qwen (its job says so; codex cards only, one read each). #7206: a claude
+       card on a vendor account (DeepSeek) is that vendor, so its pause or failed sign-in is never counted under Claude. */
     const cards = Array.isArray(roster)
-      ? roster.map((c) => (c && c.runner === 'codex' && create.agentProvider(c.sessionName, 'codex') === 'alibaba' ? { ...c, providerWord: 'qwen' } : c))
+      ? roster.map((c) => {
+        if (c && c.runner === 'codex' && create.agentProvider(c.sessionName, 'codex') === 'alibaba') return { ...c, providerWord: 'qwen' };
+        if (c && c.runner === 'claude') {
+          const p = create.agentProvider(c.sessionName, 'claude');
+          if (require('./engine/anthropiccompat').vendorOf(p)) return { ...c, providerWord: p };
+        }
+        return c;
+      })
       : roster;
     try {
       const runningId = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
@@ -11465,6 +11495,12 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* kosmos#7277 (review 1): switching remote access off on a Kosmos cloud machine stops the person's only way in,
+           as removing it would (see /api/remote/forget). */
+        if (body.on === false && cloudMachine.isCloudMachine()) {
+          sendJson(res, 409, { error: 'this is a Kosmos cloud machine, so remote access stays on: it is your only way in. To stop using it, cancel it from your Kosmos+ account', cloud: true });
+          return;
+        }
         const saved = remote.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
@@ -11875,6 +11911,15 @@ const server = http.createServer(async (req, res) => {
      nothing; { anyway: true } is the person's choice to remove it from this
      computer only after that. An empty body is a plain Remove. */
   if (pathname === '/api/remote/forget' && req.method === 'POST') {
+    /* kosmos#7277: on a Kosmos cloud machine Kosmos+ is the person's only way in, so removing the machine from the
+       account would leave them no way back to their board. The page offers no Remove there; this refuses the route
+       too, so a stale page or a script cannot do it. The cloud answer is otherwise words-only (engine/cloudmachine.js),
+       and this is one of the two actions it stops (the other: switching remote access off, PUT /api/remote): a wrong "yes" only hides Remove on a Linux box carrying the installer's
+       latch (undone by removing the latch), while a wrong "no" would lock a person out for good. */
+    if (cloudMachine.isCloudMachine()) {
+      sendJson(res, 409, { error: 'this is a Kosmos cloud machine, so it is not removed from here: you would have no way back to it. To stop using it, cancel it from your Kosmos+ account', cloud: true });
+      return;
+    }
     readBody(req, 4096)
       .then((buf) => {
         let body;
@@ -12189,7 +12234,10 @@ const server = http.createServer(async (req, res) => {
            the automatic grant would quietly undo. Matched by every id this board has signed in with (kosmos#5422: the
            key's id and the ones before it, which stay at the coordinator). */
         const selves = remote.ownDeviceIds();
-        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !d || !selves.includes(d.device_id));
+        /* kosmos#7285 review 1: `keys` is for the cloud own-device guard only; the page does not use it, and a remote viewer
+           need not learn which devices share one browser key. */
+        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !d || !selves.includes(d.device_id))
+          .map((d) => { if (!d) return d; const { keys, ...shown } = d; return shown; });
         sendJson(res, 200, { pending: pending.devices, allowed, email: pending.email, on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
@@ -12255,6 +12303,48 @@ const server = http.createServer(async (req, res) => {
            away, so a local agent may still use them. ADVISORY (#3595), as above. */
         if (verb === 'allow' && !isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can allow a device.' }); return; }
         const id = typeof body.device_id === 'string' ? body.device_id : '';
+        /* kosmos#7285 item 1: on a Kosmos cloud machine, Remove or Not me on the very browser making the request would
+           take away the person's way in (Not me turns its key away for a day; Remove, until kosmos-relay S4, for good).
+           The tunnel names the requesting session's device and key in two headers it writes over any visitor's copy
+           (x-kosmos-session-device, x-kosmos-session-key; PigeonPete's tunnel branch for #7285). Trusting them costs
+           nothing here: a header can only make this refuse, never let a removal through, so a forged or missing one is
+           safe; without them (an older tunnel) nothing changes. Another device can still remove this one. A Devices row's
+           id is always a device id, byte for byte the session's device (PigeonPete, measured on kosmos-relay
+           devices.rs list, and pinned by a tunnel test), so x-kosmos-session-device is the one that matches a row id; the
+           key header never equals a row id directly, and is compared with each row's keys, below.
+           Follow-up (PigeonPete, sessdevice-7285): a key records at most 16 device ids, so this browser's own id can drop
+           off its key's list while its session lives on by the key, and removing a SIBLING row held by the same key
+           locks it out just the same. One id can be held by several keys, and removing it deletes every key that holds it, so a
+           row is refused when ANY of its keys (the tunnel's list) equals the key header. A row with no keys, or no key
+           header, falls back to the device id alone. Not atomic with the removal: a sign-in by this same browser that adds
+           the id to its key between the read and the remove is not seen (a tunnel spawn long; accepted). A list that cannot be read when a key
+           header is there refuses: here we cannot tell, and refusing only stops a removal. */
+        if ((verb === 'remove' || verb === 'deny') && id && isRemoteRequest(req) && cloudMachine.isCloudMachine()) {
+          // Every piece of a comma-joined copy counts (review 1): a header can only make this refuse, so more is safer.
+          // The whole value counts too (review 3): a comma inside one value must not split it into pieces that match nothing.
+          const own = (h) => { const v = req.headers[h]; return typeof v === 'string' ? [v.trim()].concat(v.split(',').map((x) => x.trim())).filter(Boolean) : []; };
+          const ownKeys = own('x-kosmos-session-key');
+          let sameKey = false;
+          if (ownKeys.length && !ownKeys.includes(id) && !own('x-kosmos-session-device').includes(id)) {
+            // A Forget or a sign-in in flight: the person reads why, not "could not check" (review 2). Still a refusal.
+            const b = remote.busy(); if (b) { sendJson(res, 400, { error: b.because }); return; }
+            const listed = await remote.devicesList().catch(() => ({ ok: false }));
+            if (!listed || !listed.ok) {
+              sendJson(res, 409, { code: 'own_device_cloud_unknown', cloud: true, error: 'We could not check that this is not the browser you are using to reach this Kosmos cloud machine, so it is not removed or turned away from here. Try again in a moment, or use another phone or browser.' });
+              return;
+            }
+            // Every row with that id (review 1): one row per id today, but a second row must never fail open.
+            /* Waiting requests are not checked (review 2, PigeonPete from kosmos-relay devices.rs): Not me on a pending
+               row turns away no key, and the v2 knock's drop-waiting never turns away a key that is already allowed,
+               which a session admitted by its key always is. */
+            sameKey = (listed.data && Array.isArray(listed.data.devices) ? listed.data.devices : [])
+              .some((d) => d && d.device_id === id && Array.isArray(d.keys) && d.keys.some((k) => ownKeys.includes(k)));
+          }
+          if (sameKey || ownKeys.includes(id) || own('x-kosmos-session-device').includes(id)) {
+            sendJson(res, 409, { code: 'own_device_cloud', cloud: true, error: 'This is the browser you are using to reach this Kosmos cloud machine, so it is not removed or turned away from here: you would have no way back. Use another phone or browser to remove it.' });
+            return;
+          }
+        }
         /* kosmos#6590 (S-7d branch c): under the board-v2 marker, Allow and Not me by id are for a computer the current
            snapshot lists (it pairs by its own code). A phone or a browser is let in only by the code its page shows, and
            is turned away by key, never by telling Kosmos+ to end its sign-in. Remove is unchanged. */
@@ -12646,8 +12736,10 @@ const server = http.createServer(async (req, res) => {
     const grokSubStarted = new Map(grokAccounts.list()
       .filter((a) => a && a.dir && a.authMode === 'subscription')
       .map((a) => [a.dir, grokAccounts.subscriptionLive(a.dir).catch(() => ({ verdict: 'unknown', because: 'we could not check this sign-in just now' }))]));
-    Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive()])
-      .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows]) => {
+    Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive(),
+      /* #7206 slice 1b: vendor rows, listed and checked ONLY while their switch is on (off: no row, and no key sent). */
+      compatAccounts.enabled() ? compatAccounts.listLive().catch(() => []) : Promise.resolve([])])   // review 5: never fails the whole list
+      .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows, compatRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
            accountForAgent the status route uses -- NOT a second copy of the
@@ -13147,10 +13239,9 @@ const server = http.createServer(async (req, res) => {
         /* #5977: Qwen accounts, badged from their live check alone (the endpoint lists the model, or says no): an
            endpoint reached with its model is signed_in_unverified until an agent is seen using it. */
         const qwen = (qwenRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
-        /* #7206 slice 1a review 3: vendor accounts (DeepSeek) are NOT listed yet, and not checked here either (review 4:
-           a check whose answer is thrown away still sends every key to the vendor and holds this list up). The page names
-           any provider it does not know as Claude (acctProvider), so a listed DeepSeek row would be shown, and acted on,
-           as a Claude account. Slice 1b lists and checks them together with the page that knows them. */
+        /* #7206: vendor accounts (DeepSeek), badged from the vendor's own key check, as Qwen's are from their endpoint.
+           Listed only while the switch is on (above), and the page knows the provider (acctProvider, ACCT_KEYED_ROUTE). */
+        const compat = (compatRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
         /* kosmos#7152 slice 2: whether a whole set of agents may be moved onto each Claude row, from the ONE rule the
            decision below uses (engine/autobalance.js bulkTargetable), so the page's bulk move and the decision agree. */
         const ab = require('./engine/autobalance');
@@ -13196,7 +13287,7 @@ const server = http.createServer(async (req, res) => {
             try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
           }
         }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete,
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...compat, ...museSub], unlistedAccounts, unlistedComplete,
           ...(autobalance ? { autobalance } : {}) });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
@@ -13579,6 +13670,13 @@ const server = http.createServer(async (req, res) => {
   }
   /* #7206: vendor accounts (DeepSeek) on the claude runner: add, disconnect or delete (the same fail-closed agents
      guard, on the claude runner), and check one live with the vendor. */
+  /* #7206 slice 1b: whether the page offers vendor providers at all (off by default), and which; read on every ask, as
+     /api/muse is, so turning the switch on needs no restart. */
+  if (pathname === '/api/accounts/compat' && req.method === 'GET') {
+    const on = compatAccounts.enabled();
+    sendJson(res, 200, { enabled: on, vendors: on ? Object.values(compatAccounts.VENDORS).map((v) => ({ id: v.id, name: v.name, models: v.models.slice(), keyPage: v.keyPage })) : [] });
+    return;
+  }
   if (pathname === '/api/accounts/compat' && req.method === 'POST') {
     handleCompatAccountStore(req, res);
     return;
@@ -13588,6 +13686,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (pathname === '/api/accounts/compat/check' && req.method === 'POST') {
+    /* 1b review 1: off means off here too, or a stored key (left from a time the switch was on) is still sent. */
+    if (!compatAccounts.enabled()) { sendJson(res, 400, { error: compatAccounts.notYet('deepseek'), notYet: true }); return; }
     readBody(req)
       .then(async (raw) => {
         let body = null;
@@ -17875,13 +17975,16 @@ const server = http.createServer(async (req, res) => {
           // The project this report stands under, stated or carried forward (a
           // permission hook's needs_you names none), shown by its name.
           let projectName = null;
+          /* #7210: levelProjectId is board-only (never in the payload): a muted project's agent does not buzz the phone. */
+          let levelProjectId = null;
           try {
             const now = selfreport.read(who);
             const pid = now && typeof now.project === 'string' ? now.project.trim() : '';
+            levelProjectId = pid || null;
             const pj = pid ? projects.get(pid, roster) : null;
             projectName = pj ? pj.name : null;
           } catch { projectName = null; }
-          phonenotify.happened({ kind: 'needs_you', id: 'report:' + kept.at + ':' + who, agent: sender.card.name || who, session: who, project: projectName });
+          phonenotify.happened({ kind: 'needs_you', id: 'report:' + kept.at + ':' + who, agent: sender.card.name || who, session: who, project: projectName, levelProjectId });
         }
         /* #5318: a blocked report whose owner is a person is recorded as sent, with a note pointing at needs_you
            (the only state Kosmos follows up). Both CLIs print the note under "Recorded." */
@@ -19981,6 +20084,31 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { dismissed: true });
     return;
   }
+  /* kosmos#7248: the stores this start found damaged (engine/storecheck.js). Read once by the page; a good copy goes back
+     only when the person asks; dismissed for this start by the person. */
+  if (pathname === '/api/board/damaged-files' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let files = [];
+    try { files = require('./engine/storecheck').current(); } catch { files = []; }
+    sendJson(res, 200, { files });
+    return;
+  }
+  if (pathname === '/api/board/damaged-files/restore' && req.method === 'POST') {
+    readBody(req, 4096).then((buf) => {
+      let body;
+      try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      let out;
+      try { out = require('./engine/storecheck').restore(String(body.file || '')); } catch (e) { out = { ok: false, why: (e && e.message) || 'it failed' }; }
+      if (!out.ok) { sendJson(res, 409, { error: 'Kosmos did not put it back: ' + out.why + '.' }); return; }
+      sendJson(res, 200, { restored: true });
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/board/damaged-files/dismiss' && req.method === 'POST') {
+    let ok = false;
+    try { ok = require('./engine/storecheck').dismiss(); } catch { ok = false; }
+    sendJson(res, ok ? 200 : 500, ok ? { dismissed: true } : { error: 'we could not record that just now' });
+    return;
+  }
   /* #6160: the person's streak in the Kosmos. The page posts its own local date ({ today: 'YYYY-MM-DD' }) once per
      load and per new day; the reply is { count, congrats }, and congrats is true for exactly one load on each new day
      (engine/streak.js records it as shown in the same write). A POST because it records the visit. */
@@ -21686,6 +21814,16 @@ const server = http.createServer(async (req, res) => {
            before its single write, so a body mixing parent with name or
            description applies whole or not at all. null or '' un-groups. */
         if (body.parent !== undefined) fields.parent = body.parent;
+        /* #7210: what reaches the person's phone and speakers from this project is theirs alone, as the folder is: an
+           agent's token cannot quiet the person's project (it could hide its own needs_you). */
+        if (body.notify !== undefined) {
+          if (!isViaScreen(req, body)) {
+            const notYours = new Error('a project\'s notifications are the person\'s to set, on the project\'s page in Kosmos');
+            notYours.status = 403;
+            throw notYours;
+          }
+          fields.notify = body.notify;
+        }
         projects.edit(id, fields);
         if (fields.paused !== undefined && fields.viaScreen !== true && fields.paused !== wasPaused) {
           let who = null;
@@ -24251,7 +24389,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const pj = projects.get(id, roster);
           phonenotify.happened({ kind: 'ready', id: 'built:' + id + ':' + taskBuilt[2] + ':' + Date.now(),
-            agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null });
+            agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null, levelProjectId: id });   // #7210, board-only
         } catch { /* a notification is never a reason to fail the mark */ }
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
@@ -26001,6 +26139,26 @@ function start(port = PORT) {
          ten-minute constant it serves. unref'd so it never holds the
          process open, and every run is best-effort: the room's own
          unanswered line is the person-facing surface either way. */
+      /* #7212: agents whose current held stretch was already said, and when (limitqueue.heldInputToSay keeps it). */
+      const heldInputSaid = new Map();
+      /* #7212: messages held behind an agent's input box for half an hour are said once per held stretch, with what
+         the box reads now (text, or nothing Kosmos can read), so a hold that lasts days is never silent. Run after the
+         minute's flush has settled, and not while an older run is still typing (flush skips a minute that finds one),
+         so the box is never read while a delivery is typing into it. */
+      const sayHeldInput = () => {
+        try {
+          if (limitqueue.isFlushing()) return;   // said next minute
+          for (const h of limitqueue.heldInputToSay(Date.now(), limitqueue.HELD_INPUT_SAY_MS, heldInputSaid)) {
+            let reads = 'could not be read';
+            try {
+              const r = chat.inputBoxReads(chat.resolveCard(safeRoster(), h.name));
+              if (r === 'text') reads = 'holds text that was not sent';
+              else if (r === 'empty') reads = 'reads empty';
+            } catch { /* could not be read */ }
+            process.stdout.write('limit-queue: ' + h.name + ' has ' + h.count + ' message(s) held behind its input box, the oldest kept since ' + h.since + '; the box ' + reads + '\n');
+          }
+        } catch { /* said next minute */ }
+      };
       const sweep = setInterval(() => {
         /* ⚠️ safeRoster(), NEVER paneRoster(): the sweep delivers, and
            delivery needs full snapshot-shaped cards (target and all).
@@ -26049,9 +26207,9 @@ function start(port = PORT) {
           const roster = limitqueue.names().length ? safeRoster() : null;
           if (roster) {
             limitqueue.flush(roster, limitqueue.sweepHooks({ chat, messages })).then((done) => {
-              for (const d of done) process.stdout.write('limit-queue: ' + d.name + ' was given held message ' + d.id + ' after its usage reset, delivery=' + d.state + '\n');
-            }).catch(() => { /* kept for the next minute */ });
-          }
+              for (const d of done) process.stdout.write(limitqueue.deliveredLine(d));
+            }).catch(() => { /* kept for the next minute */ }).finally(sayHeldInput);
+          } else sayHeldInput();
         } catch { /* kept for the next minute */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
@@ -27008,6 +27166,17 @@ function start(port = PORT) {
  * guard below already exists to prevent.
  */
 if (require.main === module) {
+  /* kosmos#7248: FIRST, before anything reads or writes a store: name any of Kosmos's own JSON stores a crash left
+     empty, NUL-filled or unreadable, in board.log and (through /api/board/damaged-files) on the screen. Reads only;
+     never fatal. Several readers treat a damaged store as empty and a later write replaces it, so this is the one
+     moment the damage is still there to name. */
+  {
+    let base = null;
+    try { base = worldBase(); } catch { base = null; }   // a broken worlds env still gets the data root checked
+    try { require('./engine/storecheck').atStart({ base }); } catch (err) {
+      process.stderr.write('Kosmos could not check its own files at start (' + ((err && err.code) || 'an error') + ').\n');
+    }
+  }
   /* #1598: authorize live launchctl/tmux for the real board process ONLY. The
      guarded modules (engine/remove.js, engine/delete-leftover.js, engine/create.js)
      fail closed until this runs, so a stray removal dry-runs loudly rather than

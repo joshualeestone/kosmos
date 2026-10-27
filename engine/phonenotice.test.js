@@ -27,7 +27,7 @@ test('#6487 words are shortened for a lock screen at a word, and short ones are 
   assert.equal(e, 'x'.repeat(pn.TEXT_MAX - 2) + '…');
 });
 
-test('#6487 a report\'s reason (because) is found by its exact time; another time, or no reason, is nothing', () => {
+test('#6487 a report\'s words are found by its exact time; another time is nothing, and a report with no reason says what it waits for', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-phonenotice-'));
   const file = path.join(dir, 'irma.jsonl');
   fs.writeFileSync(file, [
@@ -35,12 +35,20 @@ test('#6487 a report\'s reason (because) is found by its exact time; another tim
     JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:28:40.123Z', because: 'Can I send the lease to Hana?' }),
     'not json',
     JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:30:00.000Z' }),
+    JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:31:00.000Z', on: 'the lease from Hana.' }),
+    JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:32:00.000Z', owner: 'Angel', by: 'agent' }),
+    JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:33:00.000Z', on: 'which plan do you want?', by: 'agent' }),
   ].join('\n') + '\n');
   const selfreport = { fileFor: () => file };
   try {
     assert.equal(pn.reportNote('irma', '2026-10-22T18:28:40.123Z', { selfreport }), 'Can I send the lease to Hana?');
     assert.equal(pn.reportNote('irma', '2026-10-22T18:28:41.000Z', { selfreport }), null, 'a time that is not there');
-    assert.equal(pn.reportNote('irma', '2026-10-22T18:30:00.000Z', { selfreport }), null, 'a report with no reason');
+    // kosmos#6487: a report with no reason still answers true words, so the phone shows the agent and something said.
+    assert.equal(pn.reportNote('irma', '2026-10-22T18:30:00.000Z', { selfreport }), 'Waiting for your answer.', 'a report with no reason');
+    assert.equal(pn.reportNote('irma', '2026-10-22T18:31:00.000Z', { selfreport }), 'Waiting on the lease from Hana.', 'a report waiting on something');
+    // Review 1: an --owner-only report names who must act, never "waiting for your answer" when it is someone else.
+    assert.equal(pn.reportNote('irma', '2026-10-22T18:32:00.000Z', { selfreport }), 'Waiting on Angel.', 'an --owner-only report');
+    assert.equal(pn.reportNote('irma', '2026-10-22T18:33:00.000Z', { selfreport }), 'Waiting on which plan do you want?', 'no full stop after a question (review 2)');
     assert.equal(pn.reportNote('irma', 'x', { selfreport: { fileFor: () => path.join(dir, 'none.jsonl') } }), null, 'no file');
     assert.equal(pn.reportNote('irma', '2026-10-22T18:00:00.000Z', { selfreport }), null, 'a working row at that time is not a needs_you report');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -110,4 +118,34 @@ test('#6487 the mask runs on the WHOLE words before they are shortened, and a ma
   assert.equal(pn.wordsFor('reply:' + at + ':guide', { chat, mask: () => { throw new Error('mask broke'); } }), null);
   // CONTROL: with no mask the cut words do carry part of the secret, so the test above can fail.
   assert.ok(pn.wordsFor('reply:' + at + ':guide', { chat }).text.includes('SECRET'));
+});
+
+test('#6487 explain says why there are no words, and idKind names only the id\'s kind', () => {
+  const at = '2026-10-22T18:28:40.123Z';
+  const selfreport = { fileFor: () => '/nonexistent/aw-6487-explain.jsonl' };
+  const chat = { DIRECT: '@you', readThread: () => ({ messages: [{ at, from: 'leo', text: 'Sent it.' }] }) };
+  const messages = { record: () => ({ rows: [] }) };
+  assert.deepEqual(pn.explain('crashloop:leo:' + at, {}), { got: null, why: 'unaskable' });
+  assert.deepEqual(pn.explain('nonsense', {}), { got: null, why: 'unaskable' });
+  for (const bad of ['report:not-a-time:leo', 'reply:' + at + ':', 'post:x42']) assert.deepEqual(pn.explain(bad, {}), { got: null, why: 'malformed-id' }, bad);
+  assert.deepEqual(pn.explain('report:' + at + ':leo', { selfreport }), { got: null, why: 'no-report-words' });
+  assert.deepEqual(pn.explain('reply:2020-01-01T00:00:00.000Z:leo', { chat }), { got: null, why: 'no-reply' });
+  assert.deepEqual(pn.explain('post:m42', { messages }), { got: null, why: 'no-post' });
+  assert.deepEqual(pn.explain('reply:' + at + ':leo', { chat, mask: () => { throw new Error('x'); } }), { got: null, why: 'mask-failed' });
+  assert.deepEqual(pn.explain('reply:' + at + ':leo', { chat, mask: () => 42 }), { got: null, why: 'mask-failed' });
+  // CONTROL: the same reply with words answers them, why null, and wordsFor is exactly its `got`.
+  assert.deepEqual(pn.explain('reply:' + at + ':leo', { chat }), { got: { kind: 'reply', session: 'leo', text: 'Sent it.' }, why: null });
+  assert.deepEqual(pn.wordsFor('reply:' + at + ':leo', { chat }), { kind: 'reply', session: 'leo', text: 'Sent it.' });
+  assert.equal(pn.idKind('stuckterminal:leo:' + at), 'stuckterminal');
+  assert.equal(pn.idKind('report:' + at + ':leo'), 'report');
+  for (const bad of ['', 'nonsense', 'Report:x', 'a b:c', null, 42, 'x'.repeat(21) + ':y']) assert.equal(pn.idKind(bad), 'unknown', String(bad));
+});
+
+test('#6487 logName blanks controls, separators, zero-width and direction marks, and keeps 80 characters', () => {
+  assert.equal(pn.logName('a\n\u009bb c‮d​e⁦f﻿g'), 'a  b c d e f g');
+  assert.equal(pn.logName('Roo Pixel'), 'Roo Pixel', 'CONTROL: a plain name is untouched');
+  assert.equal(pn.logName('z'.repeat(100)).length, 80);
+  assert.equal(pn.logName(null), '');
+  assert.equal(pn.logName('a\u061cb\u2060c'), 'a b c');
+  assert.equal(pn.logName('z'.repeat(79) + '\u{1F600}x'), 'z'.repeat(79) + '\u{1F600}', 'the 80th character is a whole emoji');
 });

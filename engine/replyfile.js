@@ -388,6 +388,27 @@ function skippedMayHold(skipped, given, real) {
   return mayHold(skipped.leadsTo, real, real) ? 'held' : null;
 }
 
+/* #7226: rule 1 below, found by IDENTITY. The spelling test (given starts with home) misses the same folder spelled
+   another way: a different case on a case-insensitive Mac volume (/users/<name>/.aws), or home reached through a link.
+   So walk the path as given, one component at a time, and find the component that IS home (device and inode, links in
+   the prefix followed, as the open will follow them); a dot name in what comes after it is hidden in home. The dot test
+   is on the names as given, which is the point of rule 1: the name the file was reached through. No home id, or a
+   prefix that cannot be read: nothing found here, and the spelling test above still applies. */
+function givenHiddenUnderHome(given, homeId) {
+  if (!homeId) return false;
+  /* Review 1: only what follows the root (on Windows the drive or the \\server\\share is the root, and splitting the whole
+     path walked it twice and matched nothing); a backslash separates only where it is a separator (on a Mac it is part
+     of a name); and a "." segment is no name (as path.relative read it before). */
+  const root = path.parse(given).root;
+  const parts = given.slice(root.length).split(path.sep === '\\' ? /[\\/]/ : /\//).filter((seg) => seg && seg !== '.');
+  let cur = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    cur = path.join(cur, parts[i]);
+    if (idOf(cur) === homeId) return parts.slice(i + 1).some((seg) => seg.startsWith('.'));
+  }
+  return false;
+}
+
 /* The three hidden-name rules, in one place, for a PROJECT file only (review r6 finding 2): allowedRoot calls it after
    the Files early return, so an agent's own Files folder that sits under a dot folder (some runners keep their agents
    there) is not refused for it.
@@ -400,6 +421,7 @@ function skippedMayHold(skipped, given, real) {
 function hiddenRefusal(given, chain, rootDepth, k) {
   const home = k.home;
   if (given.startsWith(home + path.sep) && path.relative(home, given).split(path.sep).some((seg) => seg.startsWith('.'))) return HIDDEN_IN_HOME;
+  if (givenHiddenUnderHome(given, k.homeId)) return HIDDEN_IN_HOME;
   const h = k.homeId ? chain.findIndex((c) => c.id === k.homeId) : -1;
   if (h > 0 && chain.slice(0, h).some((c) => c.name.startsWith('.'))) return HIDDEN_IN_HOME;
   if (chain.slice(0, rootDepth).some((c) => c.name.startsWith('.'))) return 'a hidden file, or a file in a hidden folder, cannot be attached';

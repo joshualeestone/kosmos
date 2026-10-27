@@ -231,7 +231,9 @@ test('launchEnv refuses an account file that is a link', () => {
 
 test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal with exit 2', () => {
   const script = nodePath.join(__dirname, 'anthropiccompat.js');
-  const out = execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: { ...process.env } });
+  const dataOn = nodePath.join(SANDBOX, 'cli-data-on'); require('../test-support/compat-switch').setAt(dataOn, true);   // slice 1b: launch-env obeys the switch
+  const on = { ...process.env, AGENT_WORKFORCE_DATA: dataOn };
+  const out = execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: on });
   const pairs = out.split('\0').filter(Boolean);
   assert.ok(pairs.includes('ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic'));
   assert.ok(pairs.includes('ANTHROPIC_AUTH_TOKEN=' + KEY));
@@ -239,7 +241,7 @@ test('the supervisor entry prints NUL-separated NAME=VALUE pairs, or the refusal
   const empty = nodePath.join(SANDBOX, '.kosmos-deepseek-cli-none');
   fs.mkdirSync(empty);
   let rc = 0; let said = '';
-  try { execFileSync(process.execPath, [script, 'launch-env', empty], { encoding: 'utf8' }); } catch (e) { rc = e.status; said = String(e.stdout); }
+  try { execFileSync(process.execPath, [script, 'launch-env', empty], { encoding: 'utf8', env: on }); } catch (e) { rc = e.status; said = String(e.stdout); }
   assert.equal(rc, 2);
   assert.equal(said, 'this DeepSeek account cannot be used: it has no key set up');
 });
@@ -250,4 +252,49 @@ test('a vendor account folder is never a Qwen home (the two keep different accou
   const dir = account();
   assert.equal(qwen.isEndpointHome(dir), false, 'Qwen reads a DeepSeek folder as its own endpoint home');
   assert.equal(qwen.isQwenHome(dir), false);
+});
+
+test('slice 1b: the switch is OFF by default, ON only by the marker (no variable), and never on off a Mac', () => {
+  // Round 6: every marker write goes through the helper, whose guard refuses a folder outside the temp folder.
+  const sw = require('../test-support/compat-switch');
+  const prev = process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+  try {
+    sw.set(false);
+    assert.equal(compat.enabled('darwin'), false, 'on by default');
+    // Review 3: the old variable is gone; it reached the board but never an agent's launch, so it must do nothing.
+    process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = '1';
+    assert.equal(compat.enabled('darwin'), false, 'the environment variable still turns it on');
+    delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS;
+    sw.set(true);
+    assert.equal(compat.enabled('darwin'), true, 'the marker does not turn it on');
+    assert.equal(compat.enabled('win32'), false, 'on on Windows, whose launch does not point an agent at a vendor');
+    assert.equal(compat.enabled('linux'), false);
+  } finally {
+    sw.set(false);
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS; else process.env.AGENT_WORKFORCE_COMPAT_PROVIDERS = prev;
+  }
+  assert.equal(compat.notYet('deepseek'), 'DeepSeek is not available in Kosmos yet');
+});
+
+test('1b review 2: launch-env refuses while the switch is off (a kill switch for an agent made while it was on)', () => {
+  const script = nodePath.join(__dirname, 'anthropiccompat.js');
+  const dataOff = nodePath.join(SANDBOX, 'cli-data-off'); fs.mkdirSync(dataOff, { recursive: true });
+  const off = { ...process.env, AGENT_WORKFORCE_DATA: dataOff };
+  let rc = 0; let said = '';
+  try { execFileSync(process.execPath, [script, 'launch-env', account()], { encoding: 'utf8', env: off }); } catch (e) { rc = e.status; said = String(e.stdout); }
+  assert.equal(rc, 2);
+  assert.equal(said, 'DeepSeek is not available in Kosmos yet, so this agent was not started on it');
+  assert.equal(said.includes(KEY), false);
+});
+
+test('review 4: the test switch helper never touches a data folder outside the temp folder', () => {
+  const sw = require('../test-support/compat-switch');
+  assert.throws(() => sw.setAt(undefined, true), /absolute path/);
+  assert.throws(() => sw.setAt('', true), /absolute path/);
+  assert.throws(() => sw.setAt('relative/dir', true), /absolute path/);
+  assert.throws(() => sw.setRoot(nodePath.join(os.homedir(), 'Library', 'Application Support', 'Kosmos'), false), /outside the temp folder/);
+  // CONTROL: a sandbox folder is fine.
+  const ok = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-compat-7206-guard-'));
+  assert.doesNotThrow(() => sw.setAt(ok, true));
+  assert.equal(fs.existsSync(sw.markerAt(sw.rootFor(ok))), true);
 });

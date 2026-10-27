@@ -256,16 +256,20 @@ enum AppTabs {
             }
         }
 
-        // Mona Lisa's slice 1 spec.
+        // Mona Lisa's slice 1 spec. kosmos#7266 (Josh, 10-26): a briefcase for Projects; Agents draws `asset` instead.
         var symbol: String {
             switch self {
             case .today: return "sun.max"
             case .agents: return "person.2"
-            case .projects: return "folder"
+            case .projects: return "briefcase"
             case .tasks: return "checklist"
             case .settings: return "gearshape"
             }
         }
+
+        // kosmos#7266: the bar's own drawing where it is not an SF Symbol. Agents: Font Awesome Free's user-tie
+        // (CC BY 4.0, credited on the Settings page), Assets.xcassets/TabAgent.
+        var asset: String? { self == .agents ? "TabAgent" : nil }
 
         // The name the board's door takes; nil for the native tab. Today is the board's home, its agents tab.
         var boardName: String? {
@@ -279,10 +283,26 @@ enum AppTabs {
         }
     }
 
+    // kosmos#7252 (Josh, 2026-10-26 16:18: "i think we kill the 'today' tab for now.. it seems to be overkill and
+    // redundant"): off, the bar has no Today and a signed-in launch opens on Agents. A switch, not a deletion (#7030's
+    // native Today stays, "for now"). The board pages the app used to show under Today open over the tabs instead
+    // (ContentView's board page), so `.today` still names that page in barTab and keep.
+    #if KOSMOS_STORE_SHOTS
+    static let todayTab = true   // the App Store screenshot build photographs board screens under Today, as before
+    #else
+    static let todayTab = false
+    #endif
+
     // In Mona Lisa's order. Tasks is earned, as on the computer (#3559): the bar shows it only once the board says so.
-    static func visible(tasksTab: Bool) -> [Tab] {
-        Tab.allCases.filter { $0 != .tasks || tasksTab }
+    // kosmos#7266 (Josh, 10-26: "four tabs only, like the desktop app"): with Today gone the bar is always Agents,
+    // Projects, Tasks, Settings; the earned Tasks applies only to the old five-tab bar (the screenshot build).
+    static func visible(tasksTab: Bool, todayTab: Bool = AppTabs.todayTab) -> [Tab] {
+        Tab.allCases.filter { ($0 != .tasks || tasksTab || !todayTab) && ($0 != .today || todayTab) }
     }
+
+    // kosmos#7266: the + on Agents and on Projects open the board's own create form (the phone cannot make either
+    // natively yet): the board's door takes these names as well as its sections.
+    enum Create: String { case agent = "new-agent", project = "new-project" }
 
     // What to show when the bar changes under a selection it no longer has (Tasks on a Mac that has not earned it).
     // The tab that lights for a section the PAGE is on. A Tasks section the bar does not offer (a project's View all,
@@ -305,11 +325,13 @@ enum AppTabs {
     // Tasks section (a project's View all, a board link) shows under Today too, whether or not the bar offers Tasks.
     static func barTab(forPage section: Tab, tasksTab: Bool) -> Tab {
         if section == .settings || section == .projects || section == .tasks { return .today }
-        return visible(tasksTab: tasksTab).contains(section) ? section : .today
+        // `.today` here is the board page, whether it shows under the Today tab or over the tabs (kosmos#7252).
+        return section == .today || visible(tasksTab: tasksTab).contains(section) ? section : .today
     }
 
-    static func keep(_ selected: Tab, tasksTab: Bool) -> Tab {
-        visible(tasksTab: tasksTab).contains(selected) ? selected : .today
+    // kosmos#7252: with Today off, a tab leaving the bar goes to Agents, the tab a launch opens on.
+    static func keep(_ selected: Tab, tasksTab: Bool, todayTab: Bool = AppTabs.todayTab) -> Tab {
+        visible(tasksTab: tasksTab, todayTab: todayTab).contains(selected) ? selected : (todayTab ? .today : .agents)
     }
 
     // The call the app makes for a press. It tells apart a page without the door (the sign-in page, an error page,
@@ -318,7 +340,19 @@ enum AppTabs {
     // broken press ends instead of waiting to fire on some later load.
     static func pressScript(_ tab: Tab) -> String? {
         guard let name = tab.boardName else { return nil }
-        return "(function () { if (typeof window.kosmosAppTab !== 'function') return 'absent'; try { return window.kosmosAppTab('\(name)') === true ? 'opened' : 'refused'; } catch (e) { return 'refused'; } })()"
+        return pressScript(door: name)
+    }
+
+    // The door call for any name it takes: a section, or a create (kosmos#7266). An older board that does not know a
+    // create name refuses it, and the press ends with the page on its own section.
+    static func pressScript(door name: String) -> String {
+        // kosmos#7266 review 2: a create (the + buttons) refused while a box is up or the bar is inert is not an older
+        // board's "unknown name": it answers 'covered', which answer() reads as no answer (.absent), so the press waits
+        // for the next load like any covered press and never reaches a fallback (which would reload the page under the
+        // box). Review 3: not 'absent', which answer() reads as a page without the door (.noDoor) and DOES fall back.
+        // The board door's own guards, read here.
+        let covered = Create(rawValue: name) == nil ? "" : "var t = document.getElementById('tabs'); if (!t || t.closest('[inert]') || document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return 'covered'; "
+        return "(function () { if (typeof window.kosmosAppTab !== 'function') return 'absent'; try { if (window.kosmosAppTab('\(name)') === true) return 'opened'; \(covered)return 'refused'; } catch (e) { return 'refused'; } })()"
     }
 
     enum DoorAnswer: Equatable {
@@ -342,6 +376,30 @@ enum AppTabs {
     // with replaceState). Not the bar's previous tab: the bar may have moved since without the page following. And
     // never Agents (an address never names it): from Agents every web tab would be refused in turn while the box
     // refusing them sat out of sight.
+    // kosmos#7266 review 1: a + the board turned down (an older board whose door does not know the create names, or a
+    // box up) must not leave the person on an unexplained page. A refused project create opens the board's Projects
+    // section; a refused agent create loads the board's own create page (?tab=create, a deep link the board has long
+    // served). nil when the press opened, still waits, or was not a create.
+    // kosmos#7266 review 3 (with the switcher): a + creates on the computer the switcher shows, not on whichever one the
+    // shared board page happens to be on. The board to load first, or nil when the page is already on that computer
+    // (or no computer is shown yet, as before the switcher).
+    static func createTarget(pageURL: URL?, shown: URL?) -> URL? {
+        guard let shown, let want = shown.host?.lowercased() else { return nil }
+        return pageURL?.host?.lowercased() == want ? nil : shown
+    }
+
+    enum CreateFallback: Equatable { case projects, load(URL) }
+    static func createFallback(door: String?, _ answer: DoorAnswer, pageURL: URL?) -> CreateFallback? {
+        guard let door, answer != .opened, afterAnswer(answer, pageURL: pageURL).over else { return nil }
+        if door == Create.project.rawValue { return .projects }
+        guard door == Create.agent.rawValue, let url = pageURL, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else { return nil }
+        parts.path = "/"
+        parts.query = "tab=create"
+        parts.fragment = nil
+        return parts.url.map { .load($0) }
+    }
+
     static func afterAnswer(_ answer: DoorAnswer, pageURL: URL?) -> (over: Bool, barTo: Tab?) {
         switch answer {
         case .opened: return (true, nil)
@@ -440,12 +498,27 @@ struct PressTracker {
     // sign-in page before the hand-off to the Mac). Tried again at every load until the door opens the section or
     // refuses; a new press, the native tab, or a page the app loads itself (an agent tap) replaces it.
     private(set) var pending: AppTabs.Tab?
+    // kosmos#7266: the door name a waiting press uses instead of its tab's section (a create), replayed with it.
+    private(set) var pendingDoor: String?
+    // kosmos#7266 review 5: the computer a waiting create was meant for (its board was loaded for it), or nil for any page.
+    // A load on another host does not replay it, so a create can never land on a computer the switcher did not name.
+    private(set) var pendingHost: String?
+    // kosmos#7266 review 1: what a finished load replays, the tab and its create name together (ContentView.loaded), so
+    // the replay rule is one the tests can reach.
+    var replay: (tab: AppTabs.Tab, door: String?, host: String?)? { pending.map { ($0, pendingDoor, pendingHost) } }
+    // Review 5: what a load on `host` replays: nothing while the waiting press is for another computer (it keeps waiting).
+    func replay(host: String?) -> (tab: AppTabs.Tab, door: String?, host: String?)? {
+        guard pendingHost == nil || pendingHost?.lowercased() == host?.lowercased() else { return nil }
+        return replay
+    }
     // Whether the latest press's script is running (sent, no answer yet). Only then does the bar not follow the page:
     // a press waiting for a load does not hold the bar, since the page can move many times before that load.
     private(set) var running = false
     // Every press, every page the app loads itself and every drop take a new number; an answer counts only for the
     // latest, so a late answer to an earlier press can neither end nor move anything newer.
     private(set) var serial = 0
+    // kosmos#7266 review 3: whether an answer is to the newest press (a late one may not act, a fallback included).
+    func isCurrent(_ serial: Int) -> Bool { serial == self.serial }
     // Moves on only when a lock drops the page, so reads of the dropped page are ignored.
     private(set) var generation = 0
     // Moves on with each round of Tasks reads, so only the latest round runs (they do not stack).
@@ -470,10 +543,13 @@ struct PressTracker {
     // (the native tab, which also ends a waiting press; or a page not ready, when the press waits for its load).
     // `section`: press the board's own section for a native tab on purpose (#7010, the Settings tab's row to the
     // board's Settings); the bar is on Today by then.
-    mutating func press(_ tab: AppTabs.Tab, page: Page, section: Bool = false) -> (script: String, serial: Int)? {
+    mutating func press(_ tab: AppTabs.Tab, page: Page, section: Bool = false, door: String? = nil, host: String? = nil) -> (script: String, serial: Int)? {
         serial += 1
-        guard section || !AppTabs.isNative(tab), let script = AppTabs.pressScript(tab) else { pending = nil; running = false; return nil }
+        guard section || !AppTabs.isNative(tab), let script = door.map({ AppTabs.pressScript(door: $0) }) ?? AppTabs.pressScript(tab)
+        else { pending = nil; pendingDoor = nil; pendingHost = nil; running = false; return nil }
         pending = tab
+        pendingDoor = door
+        pendingHost = host
         running = page == .ready
         return running ? (script, serial) : nil
     }
@@ -486,8 +562,19 @@ struct PressTracker {
         running = false
         let pressed = pending
         let next = AppTabs.afterAnswer(answer, pageURL: pageURL)
-        if next.over { pending = nil }
+        if next.over { pending = nil; pendingDoor = nil; pendingHost = nil }
         return answer == .opened ? pressed : next.barTo
+    }
+
+    // kosmos#7266 review 6: a load of the computer a waiting create was for failed (an offline computer): the create
+    // ends there, so it neither holds the bar through later loads nor opens much later on a retry of that board.
+    mutating func loadFailed(host: String?) {
+        guard let want = pendingHost, want.lowercased() == host?.lowercased() else { return }
+        serial += 1
+        running = false
+        pending = nil
+        pendingDoor = nil
+        pendingHost = nil
     }
 
     // The app is loading a page of its own choosing (an agent tap, a notification): no earlier press may cover it,
@@ -496,6 +583,8 @@ struct PressTracker {
         serial += 1
         running = false
         pending = nil
+        pendingDoor = nil
+        pendingHost = nil
     }
 
     // A launch's reads: every 2 s for 20 s from the load, ending at the first answer (on a fresh install the board
@@ -545,6 +634,8 @@ struct PressTracker {
         running = false
         generation += 1
         pending = AppTabs.isNative(selected) || AppTabs.pressScript(selected) == nil ? nil : selected
+        pendingDoor = nil   // review 1 nit: a dropped page drops a waiting create too
+        pendingHost = nil
         readThisLaunch = false
         launchAnswered = false
         launchHost = nil

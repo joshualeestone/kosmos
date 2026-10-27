@@ -698,6 +698,38 @@ do {
     let refused = #"{"macs":[{"address":"new.kosmosplus.com","last_seen":900,"this_device":"denied"},{"address":"old.kosmosplus.com","last_seen":100}]}"#
     check(Board.pickMac(Board.parseMacs(Data(refused.utf8)) ?? [], remembered: nil)?.address == "old.kosmosplus.com", "a Mac that refused this iPhone is passed over while another can be tried")
     let onlyRefused = #"{"macs":[{"address":"new.kosmosplus.com","last_seen":900,"this_device":"denied"}]}"#
+    // kosmos#7266: the switcher's choice wins while usable, connected or not, and never a Mac that cannot be opened.
+    check(Board.pickMac(r, remembered: "mini.kosmosplus.com", chosen: "old.kosmosplus.com")?.address == "old.kosmosplus.com", "a chosen Mac wins even when it is not connected (its own screen says so)")
+    check(Board.pickMac(Board.parseMacs(Data(refused.utf8)) ?? [], remembered: nil, chosen: "new.kosmosplus.com")?.address == "new.kosmosplus.com", "a chosen Mac wins even when it refused this iPhone (the person asked for it)")
+    check(Board.pickMac(macs, remembered: nil, chosen: "old.kosmosplus.com")?.address == "laptop.kosmosplus.com", "a chosen Mac that was retired is not opened")
+    check(Board.pickMac(r, remembered: nil, chosen: "gone.kosmosplus.com")?.address == "studio.kosmosplus.com", "a chosen Mac no longer listed falls back to the usual pick")
+    let rows = Board.switcherRows(macs + r, shown: "mini.kosmosplus.com")
+    check(rows.map(\.name) == ["laptop.kosmosplus.com", "Mini", "Old laptop", "Studio", "Studio"], "the switcher lists the usable Macs by name, retired and switched-off ones left out")
+    let twins = [Board.Mac(name: "Mac", address: "b.kosmosplus.com", usable: true), Board.Mac(name: "Mac", address: "a.kosmosplus.com", usable: true)]
+    check(Board.switcherRows(twins, shown: nil).map(\.address) == ["a.kosmosplus.com", "b.kosmosplus.com"], "two of one name keep the order of their addresses")
+    check(rows.filter(\.shown).map(\.address) == ["mini.kosmosplus.com"], "only the shown Mac is checked")
+    check(rows.first(where: { $0.name == "Old laptop" })?.status == "Offline" && rows.first(where: { $0.name == "Mini" })?.status == "Online", "each row says online or offline from not_connected")
+    check(Board.switcherRows(heldRefused, shown: nil).isEmpty, "a held or refused Mac is not offered")
+    // kosmos#7266 slice B: the person's name and picture.
+    let mac0 = URL(string: "https://studio.kosmosplus.com/")!
+    check(Board.youRequest(mac: mac0).url?.path == "/api/you" && Board.youPictureRequest(mac: mac0).url?.path == "/api/you/avatar", "the person's record and picture are the board's own routes")
+    check(Board.parseYouName(Data(#"{"state":"saved","you":{"name":"  Sam Carter ","does":"x"}}"#.utf8)) == "Sam Carter", "a saved name, trimmed")
+    check(Board.parseYouName(Data(#"{"state":"absent","you":null}"#.utf8)) == nil && Board.parseYouName(Data(#"{"state":"saved","you":{"name":"   "}}"#.utf8)) == nil, "no name when none is saved, or it is blank")
+    check(Board.parseYouName(Data(#"{"state":"unknown","you":{"name":"Old"}}"#.utf8)) == nil && Board.parseYouName(Data("<html>".utf8)) == nil, "nor from an unreadable record or a page")
+    // Mona Lisa's review: no picture shows the person's letter, as an agent with none; never a letter for no name.
+    check(Board.youLetter("Sam Carter") == "S" && Board.youLetter("  sam ") == "S", "the name's first letter, upper-cased, spaces ignored")
+    check(Board.youLetter(nil) == nil && Board.youLetter("   ") == nil, "no letter while the name is not known (the gear shows then)")
+    check(Board.youLetter("élodie") == "É" && Board.youLetter("李明") == "李", "a first letter outside A to Z is kept whole")
+    // Review 1: only "no record" or a saved blank name clears the name; anything that is not the record keeps it.
+    check(Board.youName(Data(#"{"state":"saved","you":{"name":"Sam"}}"#.utf8)) == .name("Sam"), "a saved name")
+    check(Board.youName(Data(#"{"state":"absent","you":null}"#.utf8)) == .none && Board.youName(Data(#"{"state":"saved","you":{"name":" "}}"#.utf8)) == .none, "absent or blank: no name")
+    check(Board.youName(Data("<html>sign in</html>".utf8)) == .unknown && Board.youName(Data(#"{"state":"unknown","you":null}"#.utf8)) == .unknown, "the gate's page or an unreadable record learns nothing")
+    let png = Data([0x89, 0x50, 0x4e, 0x47])
+    check(Board.youPicture(status: 200, contentType: "image/png", data: png) == .picture(png), "a picture")
+    check(Board.youPicture(status: 204, contentType: nil, data: Data()) == .none && Board.youPicture(status: 404, contentType: "text/plain", data: Data("x".utf8)) == .none, "204 (none yet) and an older board's 404 are no picture")
+    check(Board.youPicture(status: 200, contentType: "text/html", data: Data("<html>".utf8)) == .unknown, "the gate's sign-in page at 200 is not a picture, and does not clear one")
+    check(Board.youPicture(status: 500, contentType: nil, data: nil) == .unknown && Board.youPicture(status: nil, contentType: nil, data: nil) == .unknown, "a 5xx or no answer learns nothing")
+    check(Board.switcherRows([Board.Mac(name: "b", address: "b.kosmosplus.com", usable: true), Board.Mac(name: "A", address: "a.kosmosplus.com", usable: true)], shown: nil).map(\.name) == ["A", "b"], "by name, whatever its case")
     check(Board.pickMac(Board.parseMacs(Data(onlyRefused.utf8)) ?? [], remembered: nil)?.address == "new.kosmosplus.com", "and still picked when it is the only one, so the screen can say it refused")
     check(Board.parseMacs(Data("[]".utf8)) == nil, "a body that is not the list reads as nothing")
     check(Board.parseHandoffToken(Data(#"{"token":"t"}"#.utf8)) == "t" && Board.parseHandoffToken(Data(#"{"token":""}"#.utf8)) == nil, "the handoff token, never an empty one")
@@ -1672,6 +1704,9 @@ final class FakeBoardWorld {
     // The Mac cookie each status request carried, as the real session would send it from the jar.
     var presented: [String] = []
     var macsStatus = 200
+    // kosmos#7266 slice B: the person's record and picture (nil: no answer at all).
+    var youAnswer: (Int, String)? = nil
+    var youPictureAnswer: (Int, String, Data)? = nil
     // The gate's own cookie keyed apart from the one the app restored (a leading-dot domain), as a real host-only
     // Set-Cookie might be: both then sit in the jar side by side.
     var admitKeyedApart = false
@@ -1754,6 +1789,10 @@ final class FakeBoardWorld {
             return tasksAnswer.map { answer($0.0, $0.1) }
         case "/api/agent-stars":
             return starsAnswer.map { answer($0.0, $0.1) }
+        case "/api/you":
+            return youAnswer.map { answer($0.0, $0.1) }
+        case "/api/you/avatar":
+            return youPictureAnswer.map { (code, type, body) in (body, HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": type])!) }
         case "/api/status":
             presented.append((cookies.cookies(for: url) ?? []).filter { $0.name == Board.macCookieName }.map(\.value).joined(separator: ","))
             if let hook = onStatusRead { onStatusRead = nil; hook() }
@@ -2010,6 +2049,178 @@ section("native board loop: connecting")
         check(ok3, "a kept session the Mac has ended is replaced and the list comes back")
         check(w.count("/v1/account/handoff") == 1, "by one fresh sign-in, not by restoring the ended record again")
         check(Board.usableSaved(macs.value, session: "kst1", coordinator: coordinator)?.cookie == "fresh-1", "and the new session is the one kept")
+        c.stop()
+    }
+
+    section("the Kosmos switcher (kosmos#7266 slice C)")
+    do {
+        // Review 2 (a blocker): the common launch restores the kept session and never ran chooseMac, so the list was empty.
+        let (c, w, _, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100}]}"#
+        c.start()
+        let listed = await settle { isLive(c) && c.macs.count == 2 }
+        check(listed, "a launch from the kept session still lists the account's computers for the switcher")
+        check(w.count("/v1/account/handoff") == 0 && w.count("/_kosmos/session") == 0, "without a new sign-in to the Mac")
+        c.stop()
+    }
+    do {
+        let (c, w, sessions, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100,"not_connected":true}]}"#
+        w.starsAnswer = (200, #"{"stars":["dana"]}"#)
+        c.start()
+        let live = await settle { isLive(c) }
+        check(live && c.switcherShown == "studio.kosmosplus.com", "on Studio, from its kept session")
+        // The kept session skips the Mac list, so a first Try again asks Kosmos+ for it.
+        c.retry(); c.retry()
+        let listed = await settle { c.macs.count == 2 && isLive(c) }
+        check(listed, "the switcher has the account's two computers once Kosmos+ is asked")
+        let before = Board.switcherRows(c.macs, shown: c.switcherShown)
+        check(before.map(\.name) == ["Laptop", "Studio"] && before.filter(\.shown).map(\.name) == ["Studio"], "Studio checked, Laptop listed")
+        let epoch = c.chatEpoch
+        let studioReads = w.requests.filter { $0 == "GET studio.kosmosplus.com/api/status" }.count
+        c.showMac(address: "studio.kosmosplus.com")
+        check(c.chatEpoch == epoch && isLive(c), "choosing the computer already shown does nothing")
+        w.sessionNoAnswer = true   // Laptop does not answer
+        c.showMac(address: "laptop.kosmosplus.com")
+        check(c.agents.isEmpty && c.shownMacName == nil && c.chatEpoch > epoch, "a switch clears Studio's list and chats at once")
+        check(c.switcherShown == "laptop.kosmosplus.com", "and the switcher checks Laptop while it opens")
+        let down = await settle { if case .unreachable = c.phase { return true }; return false }
+        check(down && c.phase.macName == "Laptop" && c.failingMacName == "Laptop", "an offline choice says Laptop is not answering, never Studio")
+        // The bug review 1 found: any later start restored Studio's kept session and undid the choice.
+        c.retry()
+        _ = await settle { if case .unreachable = c.phase { return true }; return false }
+        c.start()
+        _ = await settle { if case .unreachable = c.phase { return true }; return false }
+        check(c.phase.macName == "Laptop" && c.agents.isEmpty && c.switcherShown == "laptop.kosmosplus.com", "a Try again or a return to the app stays on Laptop")
+        check(w.requests.filter { $0 == "GET studio.kosmosplus.com/api/status" }.count == studioReads, "and never reads Studio again")
+        w.sessionNoAnswer = false
+        c.retry()
+        let onLaptop = await settle { isLive(c) && c.shownMacName == "Laptop" }
+        check(onLaptop, "once Laptop answers, its list shows")
+        check(UserDefaults(suiteName: "kosmos-board-loop-tests")!.string(forKey: Board.rememberedMacKey) == "laptop.kosmosplus.com", "and Laptop is remembered for the next launch")
+        sessions.value = nil
+        c.start()
+        check(c.macs.isEmpty && c.switcherShown == nil, "a sign-out clears the switcher")
+        c.stop()
+    }
+    section("the person's name and picture (kosmos#7266 slice B)")
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100}]}"#
+        let face = Data([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
+        w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter","does":"runs the shop"}}"#)
+        w.youPictureAnswer = (200, "image/png", face)
+        c.start()
+        let got = await settle { c.youName == "Sam Carter" && c.youPicture == face }
+        check(got, "the shown computer's name and picture are read with its first list")
+        let reads = w.count("/api/you/avatar"), names = w.count("/api/you")
+        w.youPictureAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        w.youAnswer = (200, "<html>sign in</html>")
+        for _ in 0..<3 { await c.refreshNow() }
+        check(w.count("/api/you/avatar") == reads && w.count("/api/you") == names, "and not on every 5-second read")
+        w.clock += Board.youEvery + 1
+        await c.refreshNow()
+        // No idle settle here: each pass of the poll advances the fake clock 5 s, so idling would pass 30 minutes.
+        _ = await settle { w.count("/api/you") > names }
+        check(w.count("/api/you") > names, "after 5 minutes the name is read again (\(w.count("/api/you")) after \(names))")
+        check(w.count("/api/you/avatar") == reads, "and the picture is not (review 1: every 30 minutes; \(w.count("/api/you/avatar")) after \(reads))")
+        check(c.youName == "Sam Carter", "a name read that is the gate's page keeps the name (review 1)")
+        w.clock += Board.youPictureEvery + 1
+        await c.refreshNow()
+        _ = await settle { w.count("/api/you/avatar") > reads }
+        _ = await settle { false }
+        check(w.count("/api/you/avatar") > reads && c.youPicture == face, "after 30 minutes the picture is read; the gate's page keeps the picture shown")
+        w.youPictureAnswer = (204, "text/plain", Data())
+        w.youAnswer = (200, #"{"state":"absent","you":null}"#)
+        c.showMac(address: "laptop.kosmosplus.com")
+        check(c.youName == nil && c.youPicture == nil, "a switch forgets the other computer's person at once")
+        let laptop = await settle { isLive(c) && c.shownMacName == "Laptop" }
+        _ = await settle { w.requests.contains("GET laptop.kosmosplus.com/api/you/avatar") }
+        check(laptop && c.youName == nil && c.youPicture == nil, "a computer with no name or picture shows none (the gear and You)")
+        c.stop()
+    }
+    do {
+        // Review 4: a first read that learns nothing (the Mac's startup sign-in window) is tried again after youRetry, not
+        // after 5 minutes; the elapsed fake time is checked so a 5-minute re-read cannot pass this.
+        let (c, w, _, _) = make("kst1")
+        let face = Data([0x89, 0x50, 0x4e, 0x47, 4, 5])
+        w.youAnswer = (200, "<html>sign in</html>")
+        w.youPictureAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        c.start()
+        _ = await settle { w.count("/api/you/avatar") > 0 }
+        check(c.youName == nil && c.youPicture == nil, "a first read that is the sign-in page shows nothing yet")
+        let from = w.clock
+        w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
+        w.youPictureAnswer = (200, "image/png", face)
+        let got = await settle { c.youName == "Sam Carter" && c.youPicture == face }
+        check(got && w.clock.timeIntervalSince(from) <= Board.youRetry + 10, "both are read again after youRetry plus up to two polls, not 5 minutes later (\(w.clock.timeIntervalSince(from)) s)")
+        // The picture alone: a name read that worked, then a picture read that learned nothing, retries the picture by itself.
+        let names = w.count("/api/you"), pics = w.count("/api/you/avatar")
+        w.youPictureAnswer = (500, "text/plain", Data())
+        w.clock += Board.youPictureEvery + 1
+        await c.refreshNow()
+        _ = await settle { w.count("/api/you/avatar") > pics }
+        let mid = w.clock, namesMid = w.count("/api/you")
+        w.youPictureAnswer = (200, "image/png", Data([0x89, 0x50, 0x4e, 0x47, 6]))
+        let again = await settle { c.youPicture == Data([0x89, 0x50, 0x4e, 0x47, 6]) }
+        check(again && w.clock.timeIntervalSince(mid) <= Board.youRetry + 10, "a picture read that failed is retried on its own after youRetry plus up to two polls (\(w.clock.timeIntervalSince(mid)) s)")
+        check(w.count("/api/you") == namesMid && namesMid > names, "and the name is not read again with it")
+        // Review 5: an older board answers the name read with 404; that is no name, learned, so it is not asked every 30 s.
+        // CONTROL first: the same loop with the sign-in page (nothing learned) does ask again, so the loop can see a retry.
+        // Each arm on its own client: a read still in flight from one arm would otherwise land in the next.
+        func namesAfterRetries(_ answer: (Int, String)) async -> Int {
+            let (c, w, _, _) = make("kst1")
+            w.youAnswer = answer
+            w.youPictureAnswer = (204, "text/plain", Data())
+            c.start()
+            _ = await settle { isLive(c) && w.count("/api/you") > 0 }
+            defer { c.stop() }
+            w.clock += Board.youEvery + 1
+            let before = w.count("/api/you")
+            await c.refreshNow()
+            _ = await settle { w.count("/api/you") > before }
+            let first = w.count("/api/you"), start = w.clock
+            for _ in 0..<2 {
+                w.clock += Board.youRetry + 1
+                await c.refreshNow()
+                // A bounded wait: settle idles through enough 5 s polls to reach the 5-minute re-read itself.
+                for _ in 0..<40 where w.count("/api/you") == first { await Task.yield() }
+            }
+            check(w.clock.timeIntervalSince(start) < Board.youEvery, "#7266 review 5: the retry loop stays inside 5 minutes (\(w.clock.timeIntervalSince(start)) s)")
+            return w.count("/api/you") - first
+        }
+        let signInAgain = await namesAfterRetries((200, "<html>sign in</html>"))
+        check(signInAgain > 0, "#7266 review 5: CONTROL: a sign-in page answer is asked again after youRetry (\(signInAgain) more)")
+        let olderAgain = await namesAfterRetries((404, "not found"))
+        check(olderAgain == 0, "#7266 review 5: a 404 (an older board) is not asked again every 30 s (\(olderAgain) more)")
+        do {
+            // Review 6: a 404 keeps a name already shown (something other than the board may answer 404).
+            let (c, w, _, _) = make("kst1")
+            w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
+            w.youPictureAnswer = (204, "text/plain", Data())
+            c.start()
+            let named = await settle { c.youName == "Sam Carter" }
+            w.youAnswer = (404, "not found")
+            let before = w.count("/api/you")
+            w.clock += Board.youEvery + 1
+            await c.refreshNow()
+            _ = await settle { w.count("/api/you") > before }
+            for _ in 0..<40 { await Task.yield() }
+            check(named && w.count("/api/you") > before && c.youName == "Sam Carter", "#7266 review 6: a 404 read keeps the name shown")
+            c.stop()
+        }
+        c.stop()
+    }
+    do {
+        // Review 1: a sign-out forgets the person too, not only a switch.
+        let (c, w, sessions, _) = make("kst1")
+        w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
+        w.youPictureAnswer = (200, "image/png", Data([0x89, 0x50, 0x4e, 0x47, 9]))
+        c.start()
+        let got = await settle { c.youName == "Sam Carter" && c.youPicture != nil }
+        sessions.value = nil
+        c.start()
+        check(got && c.youName == nil && c.youPicture == nil, "a sign-out forgets the person's name and picture")
         c.stop()
     }
 
@@ -3045,9 +3256,9 @@ section("native board loop: connecting")
 // MARK: - The app's tab bar (#6846 part b)
 
 section("app tabs: the bar")
-check(AppTabs.visible(tasksTab: true) == [.today, .agents, .projects, .tasks, .settings], "five tabs in Mona Lisa's order once Tasks is earned")
-check(AppTabs.visible(tasksTab: false) == [.today, .agents, .projects, .settings], "four before it, Tasks left out (#3559)")
-check(AppTabs.keep(.tasks, tasksTab: false) == .today, "Tasks leaving the bar while showing goes to Today")
+check(AppTabs.visible(tasksTab: true, todayTab: true) == [.today, .agents, .projects, .tasks, .settings], "five tabs in Mona Lisa's order once Tasks is earned")
+check(AppTabs.visible(tasksTab: false, todayTab: true) == [.today, .agents, .projects, .settings], "four before it, Tasks left out (#3559)")
+check(AppTabs.keep(.tasks, tasksTab: false, todayTab: true) == .today, "Tasks leaving the bar while showing goes to Today")
 check(AppTabs.keep(.projects, tasksTab: false) == .projects, "any other tab stays where it is")
 check(AppTabs.keep(.tasks, tasksTab: true) == .tasks, "Tasks stays while it is in the bar")
 check(AppTabs.Tab.today.boardName == "agents", "Today opens the board's home, its agents tab")
@@ -3097,8 +3308,9 @@ let anyURL = ["?tab=agents", "?tab=detail&agent=a", "?tab=projects", "?tab=tasks
 check(anyURL.allSatisfy { AppTabs.afterAnswer(.refused, pageURL: $0).barTo != .agents }, "no refusal ever puts the bar on Agents, where the box would be out of sight")
 
 section("app tabs: the bar's labels")
-check(AppTabs.visible(tasksTab: true).map(\.title) == ["Today", "Agents", "Projects", "Tasks", "Settings"], "the bar's words, in order")
-check(AppTabs.visible(tasksTab: true).map(\.symbol) == ["sun.max", "person.2", "folder", "checklist", "gearshape"], "the spec's symbols")
+check(AppTabs.visible(tasksTab: true, todayTab: true).map(\.title) == ["Today", "Agents", "Projects", "Tasks", "Settings"], "the bar's words, in order")
+check(AppTabs.visible(tasksTab: true, todayTab: true).map(\.symbol) == ["sun.max", "person.2", "briefcase", "checklist", "gearshape"], "the spec's symbols (#7266: a briefcase for Projects)")
+check(AppTabs.Tab.agents.asset == "TabAgent" && AppTabs.Tab.allCases.filter { $0 != .agents }.allSatisfy { $0.asset == nil }, "#7266: Agents draws its own icon, the rest SF Symbols")
 
 section("app tabs: press bookkeeping")
 do {
@@ -3656,6 +3868,103 @@ do {
         check(!PushBridge.offersAsk(permission: p, agentsCurrent: true, dismissed: false),
               "#7222 permission \(p) (already answered, or not read yet): not offered")
     }
+}
+
+// MARK: - kosmos#7252: the Today tab switched off (Josh, 2026-10-26: "kill the today tab for now")
+
+check(AppTabs.todayTab == false, "#7252: the shipped app has the Today tab switched off")
+check(AppTabs.visible(tasksTab: true) == [.agents, .projects, .tasks, .settings], "#7252: no Today in the bar, Tasks earned")
+check(AppTabs.visible(tasksTab: false) == [.agents, .projects, .tasks, .settings], "#7266: four tabs, Tasks shown whether or not the board has earned it")
+check(AppTabs.keep(.tasks, tasksTab: false) == .tasks, "#7266: Tasks never leaves the four-tab bar")
+check(AppTabs.visible(tasksTab: false, todayTab: true) == [.today, .agents, .projects, .settings], "#7266: the five-tab bar (screenshot build) still earns Tasks")
+check(AppTabs.keep(.today, tasksTab: true) == .agents, "#7252: a selection on the hidden Today goes to Agents")
+check(AppTabs.barTab(forPage: .today, tasksTab: true) == .today, "#7252: the board's home page is still the board page (shown over the tabs)")
+check(AppTabs.barTab(forPage: .settings, tasksTab: true) == .today, "#7252: the board's Settings is the board page, not the native Settings")
+// Review 2: with Today off every tab the bar offers is native, so the board page moving by itself never moves the bar.
+for sel in AppTabs.visible(tasksTab: true) {
+    let a = URL(string: "https://mac.example/#agents"), b = URL(string: "https://mac.example/#settings")
+    check(AppTabs.follow(from: a, to: b, selected: sel, barHeld: false, tasksTab: true) == nil, "#7252: a page move leaves \(sel) where it is")
+}
+
+// MARK: - kosmos#7266: the + buttons ask the board's door for a create
+
+check(AppTabs.pressScript(door: "new-agent").contains("window.kosmosAppTab('new-agent')"), "#7266: the create name goes to the door")
+check(AppTabs.pressScript(.agents) == nil && AppTabs.pressScript(.projects) == AppTabs.pressScript(door: "projects"), "#7266: a section press is unchanged")
+check(AppTabs.pressScript(door: "new-agent").contains("return 'covered'; return 'refused'") && !AppTabs.pressScript(door: "projects").contains(".rm-back"), "#7266 review 2: only a create reads a covered board as covered; a section press is unchanged")
+// Review 3 (switcher): a + goes to the computer the switcher shows.
+let studioURL = URL(string: "https://studio.kosmosplus.com/")!, laptopURL = URL(string: "https://laptop.kosmosplus.com/")!
+check(AppTabs.createTarget(pageURL: URL(string: "https://studio.kosmosplus.com/?tab=agents"), shown: laptopURL) == laptopURL, "#7266 review 3: the page on Studio while Laptop is shown loads Laptop's board first")
+check(AppTabs.createTarget(pageURL: URL(string: "https://LAPTOP.kosmosplus.com/?tab=agents"), shown: laptopURL) == nil && AppTabs.createTarget(pageURL: studioURL, shown: nil) == nil, "#7266 review 3: already there, or no computer shown: press where the page is")
+// Review 3: through the real answer parsing, the covered answer waits and never falls back (review 2 returned 'absent',
+// which answer() reads as .noDoor and the fallback fired).
+let coveredMac = URL(string: "https://studio.kosmosplus.com/?tab=agents")!
+check(AppTabs.answer("covered", error: nil) == .absent && AppTabs.createFallback(door: "new-agent", AppTabs.answer("covered", error: nil), pageURL: coveredMac) == nil, "#7266 review 3: a covered create's own answer string waits and has no fallback")
+check(AppTabs.createFallback(door: "new-agent", AppTabs.answer("refused", error: nil), pageURL: coveredMac) != nil, "#7266 review 3: CONTROL: a plain refusal through the same parsing does fall back")
+var lateT = PressTracker()
+let firstRun = lateT.press(.projects, page: .ready, section: true, door: "new-project")
+_ = lateT.press(.tasks, page: .ready, section: true)
+check(firstRun.map { !lateT.isCurrent($0.serial) } == true, "#7266 review 3: an answer to an earlier press is not current (its fallback is skipped)")
+do {
+    var t = PressTracker()
+    let waited = t.press(.agents, page: .loading, section: true, door: AppTabs.Create.agent.rawValue)
+    check(waited == nil && t.pending == .agents && t.pendingDoor == "new-agent", "#7266: a create on a loading page waits, with its door kept for the replay")
+    // Review 1: through the tracker's own replay rule (ContentView.loaded uses it), not a hand-built door.
+    check(t.replay?.tab == .agents && t.replay?.door == "new-agent", "#7266: a waiting create has a replay with its door")
+    let replay = t.replay ?? (tab: .agents, door: nil, host: nil)
+    let run = t.press(replay.tab, page: .ready, section: true, door: replay.door)
+    check(run?.script.contains("'new-agent'") == true, "#7266: the replay presses the create, not the bare section")
+    _ = t.press(.agents, page: .ready)   // the native Agents tab
+    check(t.pending == nil && t.pendingDoor == nil, "#7266: the native tab ends a waiting create")
+    _ = t.press(.projects, page: .loading, section: true, door: AppTabs.Create.project.rawValue)
+    t.loadingOwnPage()
+    check(t.pendingDoor == nil, "#7266: a page the app loads itself clears a waiting create")
+    // Review 1: a create the board turned down falls back; a waiting or opened press, or no create, does not.
+    let mac = URL(string: "https://studio.kosmosplus.com/?tab=agents#x")!
+    check(AppTabs.createFallback(door: "new-project", .refused, pageURL: mac) == .projects, "#7266: a refused project create opens the board's Projects")
+    check(AppTabs.createFallback(door: "new-agent", .refused, pageURL: mac) == .load(URL(string: "https://studio.kosmosplus.com/?tab=create")!), "#7266: a refused agent create loads the board's create page on the same Mac")
+    check(AppTabs.createFallback(door: "new-agent", .noDoor, pageURL: mac) != nil, "#7266: an older board without the door falls back too")
+    check(AppTabs.createFallback(door: "new-agent", .opened, pageURL: mac) == nil && AppTabs.createFallback(door: "new-agent", .absent, pageURL: mac) == nil, "#7266: an opened or still-waiting create has no fallback")
+    check(AppTabs.createFallback(door: "new-agent", .noDoor, pageURL: URL(string: "https://login.kosmosplus.com/")!) == nil, "#7266: on the sign-in page the create still waits")
+    check(AppTabs.createFallback(door: nil, .refused, pageURL: mac) == nil, "#7266: a plain section press has no create fallback")
+}
+do {
+    // Review 5: a create meant for one computer (its board loaded for it) replays only on that computer's board.
+    var t = PressTracker()
+    _ = t.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    check(t.replay(host: "studio.kosmosplus.com") == nil, "#7266 review 5: a load on another computer does not replay the create")
+    check(t.pending == .agents && t.pendingDoor == "new-agent", "#7266 review 5: and the create keeps waiting (a sign-in hop on the way is not a drop)")
+    let back = t.replay(host: "laptop.kosmosplus.com")
+    check(back?.door == "new-agent" && back?.host == "laptop.kosmosplus.com", "#7266 review 5: the named computer's load replays it, its host carried")
+    _ = t.press(.agents, page: .ready, section: true, door: back?.door, host: back?.host)
+    check(t.pendingHost == "laptop.kosmosplus.com", "#7266 review 5: a replayed create that waits again keeps its computer")
+    t.loadingOwnPage()
+    check(t.pendingHost == nil, "#7266 review 5: a page the app loads itself clears it")
+    var any = PressTracker()
+    _ = any.press(.agents, page: .loading, section: true, door: "new-agent")
+    check(any.replay(host: "studio.kosmosplus.com")?.door == "new-agent", "#7266 review 5: CONTROL: a create with no computer named replays on any page")
+}
+do {
+    // Review 6: a failed load of the named computer ends its create; a failed load elsewhere does not (the control).
+    var t = PressTracker()
+    _ = t.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    t.loadFailed(host: "studio.kosmosplus.com")
+    check(t.pending == .agents && t.pendingHost == "laptop.kosmosplus.com", "#7266 review 6: CONTROL: a failed load of another computer leaves the create waiting")
+    t.loadFailed(host: "Laptop.KosmosPlus.com")
+    check(t.pending == nil && t.pendingDoor == nil && t.pendingHost == nil, "#7266 review 6: a failed load of the named computer (any case) ends the create")
+    var u = PressTracker()
+    _ = u.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    check(u.replay(host: "LAPTOP.kosmosplus.com")?.door == "new-agent", "#7266 review 6: the replay's host match ignores case, as createTarget's does")
+    let run = u.press(.agents, page: .ready, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    _ = u.answered(serial: run?.serial ?? -1, .opened, pageURL: URL(string: "https://laptop.kosmosplus.com/"))
+    check(u.pendingHost == nil, "#7266 review 6: an opened create clears its computer")
+    var d = PressTracker()
+    _ = d.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    d.drop(selected: .agents)
+    check(d.pendingHost == nil, "#7266 review 6: a dropped page clears it")
+    var n = PressTracker()
+    _ = n.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    _ = n.press(.agents, page: .ready)
+    check(n.pendingHost == nil, "#7266 review 6: the native tab clears it")
 }
 
 print("")

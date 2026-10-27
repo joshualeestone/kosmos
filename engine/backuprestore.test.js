@@ -257,23 +257,50 @@ test('#5536 an empty chunk is refused, and a deep folder clash is found', async 
     'the deep folder clash is found');
 });
 
-test('#5536 the collision check scales linearly with path depth (a ratio, so machine load does not decide it)', async () => {
+test('#5536 the collision check scales linearly with path depth (a median of paired ratios, so a load burst on one sample does not decide it)', async () => {
   // Every entry is listed twice, so all are refused before any fetch and the time is the path and collision checks.
-  // Measured 10-08: depth x4 costs x3.8 to x4.5 with the trie, x13 with the quadratic check it replaced.
-  const timeAt = async (depth) => {
+  // Measured: depth x4 costs x3.8 to x4.5 with the trie (wall time, 10-08), x13 with the quadratic check; in CPU time, as
+  // now timed, a median of x3.22 to x4.12, single pairs up to x6.0 (#7235, 12 runs at load 13 to 22 on 12 cores, 10-26).
+  // kosmos#7235: each depth's fixture is built ONCE, so no sample pays for a build (and the deep build's garbage) inside
+  // its timed region; only run() is timed.
+  const fixtureAt = (depth) => {
     const deep = Array(depth).fill('a').join('/');
-    const { run } = handMade((entry) => Array.from({ length: 400 }, (_, i) => entry(`${deep}${i >> 1}`)));
-    let best = Infinity;
-    for (let k = 0; k < 3; k++) {
-      const t0 = process.hrtime.bigint();
-      const { r } = await run();
-      best = Math.min(best, Number(process.hrtime.bigint() - t0));
-      assert.equal(r.failed.length, 400);
-    }
-    return best;
+    return handMade((entry) => Array.from({ length: 400 }, (_, i) => entry(`${deep}${i >> 1}`))).run;
   };
-  const ratio = (await timeAt(2000)) / (await timeAt(500));
-  assert.ok(ratio < 7.5, `depth x4 cost x${ratio.toFixed(1)}; the trie measured about 4, the quadratic check about 13`);
+  const shallowRun = fixtureAt(500);
+  const deepRun = fixtureAt(2000);
+  // kosmos#7235: CPU time (user + system), not wall time. The check is CPU work with nothing to wait on, so a
+  // stretch where another process held the core no longer counts against whichever sample it fell in. That is all it
+  // removes: the same work still costs more CPU time on an efficiency core or with the caches contended, so a pair can
+  // still read high under load. The median below is what absorbs that.
+  const timeOnce = async (run) => {
+    const t0 = process.cpuUsage();
+    const { r } = await run();
+    const { user, system } = process.cpuUsage(t0);
+    assert.equal(r.failed.length, 400);
+    return user + system;
+  };
+  /* kosmos#7235: the old test (best of three per depth, wall time) read about 3.8 alone, but inside a full suite it read
+     x8 to x9 about one run in four. Reasoned, not reproduced inside a suite: the old test took all of one depth's samples, then
+     all of the other's, so load that came and went could land on one side only; and under steady load the longer deep
+     samples are hit more often, which skews a ratio of two minimums. So: one warm-up run of each (JIT), then five
+     adjacent pairs, and the MEDIAN of the five pair ratios. Each ratio compares two samples taken moments apart, and the
+     median ignores up to two disturbed pairs in either direction, so a slow shallow sample cannot hide a real
+     regression either (as a minimum of ratios could). The warm-up runs deep first and the order inside a pair
+     alternates, because a deep run's garbage is often collected during the sample after it, and GC threads count as
+     this process's CPU: always shallow-after-deep would charge it to the shallow side every time, pulling every ratio
+     down, the direction that hides a regression. With this order two shallow and two deep samples follow a deep run. */
+  await timeOnce(deepRun);
+  await timeOnce(shallowRun);
+  const ratios = [];
+  for (let k = 0; k < 5; k++) {
+    if (k % 2 === 0) { const shallow = await timeOnce(shallowRun); ratios.push((await timeOnce(deepRun)) / shallow); }
+    else { const deep = await timeOnce(deepRun); ratios.push(deep / (await timeOnce(shallowRun))); }
+  }
+  const inOrder = ratios.map((x) => x.toFixed(1)).join(', ');   // as taken, so a load burst shows where it fell
+  ratios.sort((a, b) => a - b);
+  const ratio = ratios[2];
+  assert.ok(ratio < 7.5, `depth x4 cost x${ratio.toFixed(1)} (pairs in order: ${inOrder}); the trie measured about 4, the quadratic check about 13`);
 });
 
 test('#5536 maxTotalBytes caps what a restore commits, before fetching (control: exactly the budget restores)', async () => {

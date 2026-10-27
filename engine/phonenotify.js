@@ -507,6 +507,23 @@ function defaultSend(url, headers, body) {
   req.end(body);
 }
 
+/* #7210: a project's notification level, asked of the board's project store (server.js sets it; engine/projects.js
+   notifyLevel). Never set (a test, a board that has not wired it): every project reads as 'all'. */
+let projectLevel = null;
+function setProjectLevel(fn) { projectLevel = typeof fn === 'function' ? fn : null; }
+/** Whether a project's level lets this route through. 'muted' sends nothing from the project; 'mentions' keeps what is
+    addressed to the person (an agent that needs them, a post naming them, work waiting for their check) and drops any
+    other room post. An event with no project (a crash loop, an answer) belongs to an agent, never to a project. */
+function levelAllows(event, route) {
+  const pid = event.levelProjectId || event.projectId;
+  if (!pid || !projectLevel) return true;
+  let level = 'all';
+  try { level = projectLevel(String(pid)); } catch { level = 'all'; }
+  if (level === 'muted') return false;
+  if (level === 'mentions') return route.sw !== 'postedRoom';
+  return true;
+}
+
 /** Tell the coordinator something happened. Never throws, never awaited. Sends
     only when on, connected, holding a token, and the kind is one we send. */
 function happened(event) {
@@ -515,6 +532,7 @@ function happened(event) {
     if (!event || !KINDS.has(event.kind)) return;
     const route = routeFor(event);
     if (!route) return;
+    if (!levelAllows(event, route)) return;   // #7210, before the cooldown so a muted event spends no window
     if (!sender && process.env.NODE_TEST_CONTEXT) return;
     const s = readState();
     if (!s.on || !s.token || !s.notifyId) return;
@@ -533,7 +551,17 @@ function happened(event) {
     const url = coordinatorUrl(NOTIFY_ROUTE);
     const body = JSON.stringify(payload(s.notifyId, event));
     (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body);
+    // kosmos#6487: a plain lock-screen notice is explained by this line and the phonenotice line after it. The id's
+    // kind and the session only, never the words. Written after the send, so a send that throws logs nothing. The
+    // phone asks with the id AS SENT (cut to CAPS.id), so judge that one.
+    const notice = require('./phonenotice');
+    const sentId = cap(event.id, CAPS.id);
+    const can = notice.parseId(sentId) === null ? '; the phone cannot ask for its words, so it shows plain'
+      : sentId !== event.id ? '; its id was cut to fit, so the phone\'s ask finds no words and it shows plain'
+        : '; the phone can ask for its words';
+    const who = notice.logName(event.session);
+    process.stderr.write('phonenotify: sent ' + event.kind + ' (' + notice.idKind(event.id) + ') ref ' + notice.idRef(sentId) + (who ? ' for ' + who : '') + can + '\n');
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
