@@ -18,3 +18,12 @@ is 55 pass / 9 fail, the same nine.
 ## Proof
 - `KOSMOS_CUT_LINUX=1 node --test tools.release-gate.test.js`: 55/9 before, 64/0 after.
 - test-release-linux-7281: 68/0; with the unset removed, the new check reds (67/1).
+
+## Review 1 (07:4x): 0 blockers, 1 warning, 2 nits
+- W1 FIXED: the order check's upper bound was step 3's marker, but a KOSMOS_CUT_PARALLEL=1 cut starts yarn test earlier
+  (the 3+3b branch); it now takes the first of either.
+- NIT FIXED: the unset must sit within three lines of the decision, so one moved into a branch further down fails.
+- NIT (scope, stated): the test-side stripping covers tools.release-gate.test.js only. Other files run a nested
+  release.sh too; during a cut the release.sh unset protects them all, and by hand they are not guaranteed. The whole
+  class (every KOSMOS_CUT_* override reaching step 3) is a follow-up card: step 3 should run its suite with all of them
+  removed.
