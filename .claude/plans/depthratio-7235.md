@@ -77,3 +77,4 @@ touch it.
   does not decide it", the one claim still overstating the test. It now reads "a median of paired ratios, so a load
   burst on one sample does not decide it". No other file names the title. The pattern used in these measurements
   ("scales linearly with path depth") still matches.
+- Round 7 (blind, default model, 20:0x CDT): no new findings. Converged.
