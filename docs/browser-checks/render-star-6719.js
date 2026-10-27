@@ -19,6 +19,10 @@
  *     the title line under the name; on a touch screen its tap area is 44 x 44, inside its own row, and clear of the
  *     title's visible end and the unread badge;
  *   - a filled star is at least 3:1 on every tile and row ground in both themes (CONTROL: the brand gold is not).
+ *   - #7339: a starred star is filled with --gold-bright; its edge is drawn (the path's own stroke) and is --gold-bright
+ *     in both dark paths; every grid and rail star, at rest and hovered, at 1x/1.5x/2x, has a drawn 3:1 edge on 80%
+ *     of its outline (CONTROLS: no edge, and a 1-unit icon-space edge at 1x, both fail); 2x draws the thin .75px
+ *     edge; forced colors fill it with the system colour.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-star-6719.js [shots-dir]
  */
@@ -267,11 +271,11 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     // brand gold measured the same way fails in light, so the instrument can return the dangerous answer.
     // #7339: the star is FILLED with --gold-bright (Josh: "the brightest gold that we have") and its EDGE is the button's
     // colour. The 3:1 is the edge's job, so `edge` below is what is measured; the fill is checked to be --gold-bright.
-    // #7339 review 1: 'forced-dark' is the in-app Dark setting (data-theme="dark" on a light system), which has its own rule.
-    for (const theme of ['light', 'dark', 'forced-dark']) {
+    // #7339 review 1: 'in-app-dark' is the in-app Dark setting (data-theme="dark" on a light system), which has its own rule.
+    for (const theme of ['light', 'dark', 'in-app-dark']) {
       const t = `[${eng} ${theme} filled-star contrast]`;
-      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme === 'forced-dark' ? 'light' : theme);
-      if (theme === 'forced-dark') await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme === 'in-app-dark' ? 'light' : theme);
+      if (theme === 'in-app-dark') await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
       const c = await page.evaluate(() => {
         const st = document.querySelector('#grid .astar');
         if (!st) return { star: false };
@@ -305,14 +309,15 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       await ctx.close();
     }
     // #7339 reviews 1 and 2: the edge as DRAWN, not as declared. EVERY star is photographed starred, on its own tile
-    // or row (plain, working, needs-you), at rest and hovered, in the grid (18px) and the consolidated rail (15px),
-    // on 1x, 1.5x and 2x screens. The ground is read inside the star's own button (1px around the icon), so a hover
-    // tint is what the edge is measured against. Each star's outline (star pixels touching the ground) must have a
+    // or row (each ground the sample data has: plain, needs-you and stopped; it has no working agent), at rest and
+    // hovered, in the grid (18px) and the consolidated rail (15px), on 1x, 1.5x and 2x screens. The ground is read at
+    // the icon's own corner pixel, which sits inside the star's button, so a hover tint is what the edge is measured
+    // against. A star that cannot be photographed, or a hover that does not land, is a failure, never a skip. Each star's outline (star pixels touching the ground) must have a
     // pixel of 3:1 or more within one device pixel on at least 80% of it: the outermost pixel is always part-blended,
     // so it alone is never the measure. CONTROLS: the same star with no edge fails, and a 1-unit icon-space edge
     // (review 1's blocker) fails at 1x, so the instrument can return the dangerous answer.
     const scoreStar = async (page, loc) => {
-      const png = await loc.screenshot({ padding: 1 }).catch(() => null);
+      const png = await loc.screenshot().catch(() => null);
       if (!png) return null;
       return page.evaluate(async (b64) => {
         const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
@@ -350,14 +355,16 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
           const loc = page.locator(`[data-px="${k}"] svg`);
           for (const hover of [false, true]) {
             if (hover) await page.locator(`[data-px="${k}"]`).hover().catch(() => {}); else await page.mouse.move(1, 1);
+            const landed = await page.evaluate(([k, hover]) => document.querySelector(`[data-px="${k}"]`).matches(':hover') === hover, [k, hover]);
+            if (!landed) { fails.push(`${k}${hover ? ' hovered' : ''}: the hover state did not land`); continue; }
             const r = await scoreStar(page, loc);
-            if (!r || !r.outline) continue;
+            if (!r || !r.outline) { fails.push(`${k}${hover ? ' hovered' : ''}: not measured`); continue; }
             measured++;
             if (r.share < 0.8) fails.push(`${k}${hover ? ' hovered' : ''} (${ground.replace(/\s+/g, '.')}): ${r.share}`);
           }
         }
         await page.mouse.move(1, 1);
-        chk(measured >= 6 && fails.length === 0, `${t} every starred star, at rest and hovered, has a 3:1 edge on 80% of its outline`, `measured ${measured}; ${fails.join(' | ') || 'none under'}`);
+        chk(measured === sel.length * 2 && fails.length === 0, `${t} every starred star, at rest and hovered, has a 3:1 edge on 80% of its outline`, `measured ${measured}; ${fails.join(' | ') || 'none under'}`);
         if (where === 'grid') {
           const first = page.locator('[data-px="0"] svg');
           await page.evaluate(() => { const p = document.querySelector('[data-px="0"] svg path'); if (p) p.style.stroke = 'none'; });
@@ -378,11 +385,11 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       }
     }
     // Dark edges, both dark paths: the edge is --gold-bright (the old --gold-deep is what Josh called dingy).
-    for (const theme of ['dark', 'forced-dark']) {
+    for (const theme of ['dark', 'in-app-dark']) {
       const t = `[${eng} ${theme} edge colour]`;
-      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme === 'forced-dark' ? 'light' : theme);
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme === 'in-app-dark' ? 'light' : theme);
       const r = await page.evaluate((theme) => {
-        if (theme === 'forced-dark') document.documentElement.setAttribute('data-theme', 'dark');
+        if (theme === 'in-app-dark') document.documentElement.setAttribute('data-theme', 'dark');
         const st = document.querySelector('#grid .astar'); if (!st) return null; st.classList.add('on');
         const probe = document.createElement('i'); document.body.appendChild(probe);
         probe.style.color = 'var(--gold-bright)'; const bright = getComputedStyle(probe).color; probe.remove();
