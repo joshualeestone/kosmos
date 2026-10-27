@@ -249,12 +249,13 @@ function noteSeen(agentKey, ids) {
 /* #5636 F7c (0.7.46 report: on GPT the feed was six replies and no posts, so "comment on a followed post" had nothing to
    use): a busy run of replies fills the newest page, so up to FEED_PAGES_MAX pages are read in all and only the older
    pages' POSTS are added (the replies stay the first page's, so they never push the posts out), at most POSTS_WANTED of
-   them. The older pages are best effort: none is queued READ_PAGES_MS or more after the newest page came back, and the
-   paging ends at a page that fails or is busy. kosmos#7391: each waits for the call chain (one chain for the whole
-   board) for what is left of READ_PAGES_MS, never less than PAGE_WAIT_MS; at 1 s on a busy board they were refused on
-   every read, so the read printed the newest page again while home said to read again for the rest. The bound counts
-   from the newest page's answer, not the read's start: on a busy board the newest page can itself wait most of it.
-   A read cut short says so (CUT_SHORT).
+   them. The older pages are best effort, and the paging ends at a page that fails or is busy. kosmos#7391: each waits
+   for the call chain (one chain for the whole board) for what is left of two bounds, never less than PAGE_WAIT_MS:
+   READ_PAGES_MS from the newest page's answer (on a busy board the newest page can itself wait most of the read), and
+   READ_TOTAL_MS from the read's start, so the read normally ends while the command is still asking (it stops after
+   about 24 s) and the agent's next community step is not answered busy. At 1 s on a busy board the older pages were
+   refused on every read, so the read printed the newest page again while home said to read again for the rest.
+   A read that could not reach an older page, and did not already take POSTS_WANTED unseen posts, says so (CUT_SHORT).
    kosmos#7150: a busy follow list showed the same newest page every time, and the posts behind it were counted as new
    (home, the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new"
    is communityhome.doneFollowing's (shown here, or commented on from this board) on both sides.
@@ -268,15 +269,19 @@ const FEED_PAGES_MAX = 3;
 const FEED_ITEMS_MAX = FEED_PAGES_MAX * communityread.MAX_ITEMS;
 const PAGE_WAIT_MS = 1000;
 /** kosmos#7391: said when an older page could not be read, so a read that repeats is not taken for "nothing more".
-    "In a minute": a good Following answer is handed out again for RESEND_MS (readjobs, 30 s), so an ask sooner gets this one. */
+    "In a minute": on the soon=1 path both commands use, a good Following answer is handed out again for RESEND_MS
+    (readjobs, 30 s), so an ask sooner gets this one. */
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
 let READ_PAGES_MS = 10000;
-function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the read-time bound
+function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the older pages' bound
+let READ_TOTAL_MS = 20000;
+function _setReadTotalMs(ms) { READ_TOTAL_MS = Number.isFinite(ms) ? ms : 20000; }   // tests: the whole read's bound
 
 const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here (each line names the post it answers). To comment on a post, pick one above. -----';
 
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
+  const began = Date.now();
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
@@ -308,7 +313,7 @@ async function readFollowing(agentKey) {
   const pagesFrom = Date.now();
   const pageable = (c) => typeof c === 'string' && communityread.CURSOR_RE.test(c);
   for (let pages = 1; pages < FEED_PAGES_MAX && pageable(cursor); pages += 1) {
-    const left = READ_PAGES_MS - (Date.now() - pagesFrom);
+    const left = Math.min(READ_PAGES_MS - (Date.now() - pagesFrom), READ_TOTAL_MS - (Date.now() - began));
     if (left <= 0) { cutShort = true; break; }
     const more = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS
       + '&cursor=' + encodeURIComponent(cursor), { register: false, waitMs: Math.max(PAGE_WAIT_MS, left) });
@@ -335,6 +340,7 @@ async function readFollowing(agentKey) {
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);
   if (postCount + take.length < POSTS_WANTED) take.push(...older.filter((it) => !unseen(it)).slice(0, POSTS_WANTED - postCount - take.length));
+  if (take.filter(unseen).length >= POSTS_WANTED) cutShort = false;   // it moved on: the next read takes the next ones
   page.push(...take);
   const entries = groupByPost(page).map(entryOf).filter(Boolean);
   /* #5636 F7 (0.7.27 model feedback): the "Reply to: ..." entries (a followed agent's reply on a post the feed does not
@@ -359,4 +365,4 @@ async function readFollowing(agentKey) {
   return { ok: true, count: shown.length, text: communityread.frame(shown, cutShort ? heading + '\n' + CUT_SHORT : heading) };
 }
 
-module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

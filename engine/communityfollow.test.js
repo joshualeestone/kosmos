@@ -693,17 +693,46 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.equal(feedCalls[0].waitMs, undefined, 'the first page lost its default wait');
     assert.ok(feedCalls[1].waitMs > cf.PAGE_WAIT_MS && feedCalls[1].waitMs <= 10000,
       'an older page did not wait for the rest of the read-time bound: ' + feedCalls[1].waitMs);
-    // kosmos#7391, the reported case: a board busy enough that an older page needs more than PAGE_WAIT_MS to be let
-    // into the chain. Stood in for by refusing (as agentCall's busy answer) any older page that offers to wait 2 s or less.
-    cs.agentCall = (k, m, p, o) => (p.includes('&cursor=') && !((o && o.waitMs) > 2000)
-      ? Promise.resolve({ ok: false, local: true, because: 'busy' }) : real(k, m, p, o));
+    // kosmos#7391 review 3, the reported case through the REAL chain: another agent's call holds the board's one
+    // community chain for about 1.5 s (its request is never answered and is cut at the timeout), queued between this
+    // read's newest page and its older page, so the older page has to wait longer than PAGE_WAIT_MS to get in.
+    cs.setTimeoutMs(1500);
+    b.st.hang = (req) => req.method === 'POST' && req.url === '/agents/by-name/quill/follow';
+    let holder = null;
+    cs.agentCall = (k, m, p, o) => {
+      const out = real(k, m, p, o);
+      if (k === 'mara' && p.startsWith('/agents/me/following/feed') && !p.includes('&cursor=')) holder = real('juno', 'POST', '/agents/by-name/quill/follow', {});
+      return out;
+    };
     try {
       b.st.feedCalls = [];
       b.st.pages = [tens(1, '12'), [post(720, '11')]];
+      const t0 = Date.now();
       const busy = await cf.readFollowing('mara');
-      assert.ok(busy.text.includes('POST720'), 'kosmos#7391: on a busy board the post behind the newest page was not reached: ' + busy.text);
-      assert.ok(!busy.text.includes(cf.CUT_SHORT), busy.text);
-    } finally { cs.agentCall = real; }
+      const held = await holder;
+      assert.ok(Date.now() - t0 > cf.PAGE_WAIT_MS, 'CONTROL: the chain was never busy for longer than PAGE_WAIT_MS, so this tests nothing (' + (Date.now() - t0) + ' ms)');
+      assert.equal(held.ok, false, 'CONTROL: the other agent\'s call was answered, so it did not hold the chain');
+      assert.ok(busy.text.includes('POST720') && !busy.text.includes(cf.CUT_SHORT), 'kosmos#7391: on a busy chain the post behind the newest page was not reached: ' + busy.text);
+    } finally { cs.agentCall = real; cs.setTimeoutMs(5000); b.st.hang = null; }
+    // kosmos#7391 review 3: the whole read is bounded too, so it normally ends while the command is still asking.
+    cf._setReadTotalMs(200);
+    cs.agentCall = async (k, m, p, o) => { if (!p.includes('&cursor=')) await new Promise((res) => setTimeout(res, 300)); return real(k, m, p, o); };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(725, '11')]];
+      const total = await cf.readFollowing('mara');
+      assert.deepEqual(b.st.feedCalls, [null], 'an older page was asked for after the whole read\'s bound');
+      assert.ok(total.text.includes(cf.CUT_SHORT), total.text);
+    } finally { cs.agentCall = real; cf._setReadTotalMs(null); }
+    // kosmos#7391 review 3: a read that took POSTS_WANTED unseen posts from behind moved on, so it says nothing about
+    // the page it could not reach.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(726, '11'), post(727, '11'), post(728, '11')], [post(729, '10')]];
+    b.st.failPage = 2;
+    const movedOn = await cf.readFollowing('mara');
+    b.st.failPage = undefined;
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'CONTROL: the third page was not asked for, so this tests nothing');
+    assert.ok(['POST726', 'POST727', 'POST728'].every((t) => movedOn.text.includes(t)) && !movedOn.text.includes(cf.CUT_SHORT), movedOn.text);
     // kosmos#7391 review 1: on a busy board the newest page can itself wait most of READ_PAGES_MS; the older pages'
     // bound counts from its answer, so they are still read.
     cf._setReadPagesMs(200);
