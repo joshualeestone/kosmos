@@ -11469,6 +11469,12 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* kosmos#7277 (review 1): switching remote access off on a Kosmos cloud machine stops the person's only way in,
+           as removing it would (see /api/remote/forget). */
+        if (body.on === false && cloudMachine.isCloudMachine()) {
+          sendJson(res, 409, { error: 'this is a Kosmos cloud machine, so remote access stays on: it is your only way in. To stop using it, cancel it from your Kosmos+ account', cloud: true });
+          return;
+        }
         const saved = remote.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }

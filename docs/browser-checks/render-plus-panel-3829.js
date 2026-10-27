@@ -645,6 +645,7 @@ const STATES = {
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
       const vis = (sel) => page.evaluate((s) => { const e = document.querySelector(s); return !!(e && !e.closest('[hidden]') && e.getBoundingClientRect().height > 0); }, sel);
       chk(await vis('#plus-forget-go'), `${t} a connected computer shows Remove this computer`);
+      chk(!(await vis('#plus-forget-cloud')), `${t} CONTROL (kosmos#7277): not a cloud machine, so no cloud sentence`);
       chk(!(await vis('#plus-forget-ask')), `${t} the confirm is closed to begin with`);
       await page.click('#plus-forget-go');
       await page.waitForTimeout(5600);   // one 5-second repaint of the pane
@@ -720,7 +721,8 @@ const STATES = {
         const errs = []; page.on('pageerror', (e) => errs.push(e.message));
         const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
         const base = STATES.connected.remote;
-        await page.route('**/api/remote', (route) => route.fulfill(json({ ...base, on: true })));
+        // GET only: the PUT below must reach the real route (it is the refusal under test).
+        await page.route('**/api/remote', (route, req) => (req.method() === 'GET' ? route.fulfill(json({ ...base, on: true })) : route.continue()));
         await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
         await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
         await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -736,11 +738,14 @@ const STATES = {
         chk(await vis('#plus-forget-cloud') && /Kosmos cloud machine/.test(why) && /no way back/.test(why) && /cancel it from your account/.test(why),
           `${t} the row says why, and where to stop using it`, why);
         chk(await vis('#plus-account'), `${t} View account is beside it`);
+        chk(!(await vis('#plus-switch')) && await vis('#plus-pill'), `${t} the on switch is not offered (switching off would lock them out); the pill still shows`);
         await page.waitForTimeout(5600);   // a 5-second repaint keeps it so
         chk(!(await vis('#plus-forget-go')) && await vis('#plus-forget-cloud'), `${t} still so after the 5-second repaint`);
         if (SHOTS) await page.screenshot({ path: path.join(SHOTS, '7277-cloud.png') });
         const got = await page.evaluate(async () => { const r = await fetch('/api/remote/forget', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); return { s: r.status, b: await r.json().catch(() => null) }; });
         chk(got.s === 409 && got.b && got.b.cloud === true && /no way back/.test(got.b.error), `${t} the real route refuses too`, JSON.stringify(got));
+        const off = await page.evaluate(async () => { const r = await fetch('/api/remote', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) }); return { s: r.status, b: await r.json().catch(() => null) }; });
+        chk(off.s === 409 && off.b && off.b.cloud === true, `${t} and switching remote access off is refused`, JSON.stringify(off));
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
       } finally { cm.isCloudMachine = real; }

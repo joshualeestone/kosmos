@@ -107,3 +107,23 @@ test('#7277: on a Kosmos cloud machine the route refuses and never reaches the e
   assert.equal(done.status, 200);
   assert.deepEqual(calls, [{ anyway: false }]);
 });
+
+test('#7277 review 1: on a cloud machine switching remote access off is refused before anything is saved; on is not', async (t) => {
+  const cm = require('./engine/cloudmachine');
+  const real = cm.isCloudMachine; const realSetOn = remote.setOn;
+  const sets = [];
+  remote.setOn = (on) => { sets.push(on); return { ok: false, because: 'stub: not saved' }; };
+  t.after(() => { cm.isCloudMachine = real; remote.setOn = realSetOn; });
+  const put = async (o) => { const r = await fetch(base + '/api/remote', { method: 'PUT', ...json(o) }); return { status: r.status, body: await r.json() }; };
+  cm.isCloudMachine = () => true;
+  const off = await put({ on: false });
+  assert.equal(off.status, 409);
+  assert.equal(off.body.cloud, true);
+  assert.deepEqual(sets, [], 'off reached the setting on a cloud machine');
+  await put({ on: true });
+  assert.deepEqual(sets, [true], 'on is not refused on a cloud machine');
+  // CONTROL: off on a computer that is not a cloud machine reaches the setting.
+  cm.isCloudMachine = () => false;
+  await put({ on: false });
+  assert.deepEqual(sets, [true, false]);
+});

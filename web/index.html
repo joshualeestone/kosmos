@@ -54115,6 +54115,9 @@ async function paintPlus() {
      pauses. paintSwitch shows it only once the engine has answered (never a guessed off). */
   if (typeof paintSwitch === 'function') paintSwitch('plus-switch', r.on === true);
   else if (sw) { sw.hidden = false; if (sw.setAttribute) sw.setAttribute('aria-checked', r.on === true ? 'true' : 'false'); }   // the page tests lift paintPlus alone
+  /* kosmos#7277 (review 1): on a Kosmos cloud machine, switching remote access off stops the only way in, as Remove
+     would. While it is on there, the switch is not offered (the server refuses off too); the pill still says how it is. */
+  if (sw && r.on === true && typeof onCloudMachine === 'function' && onCloudMachine()) sw.hidden = true;
   { const lg = document.getElementById('plus-logo');
     if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos+ */ } } }
   const st = document.getElementById('plus-status');
@@ -54222,7 +54225,10 @@ async function paintPlus() {
   { const cloud = typeof onCloudMachine === 'function' && onCloudMachine();
     const go = document.getElementById('plus-forget-go'); const why = document.getElementById('plus-forget-cloud');
     if (why) why.hidden = !cloud;
-    if (cloud) { if (go) go.hidden = true; const ask = document.getElementById('plus-forget-ask'); if (ask) ask.hidden = true; } }
+    if (cloud) {
+      if (go) go.hidden = true;
+      for (const id of ['plus-forget-ask', 'plus-forget-kept']) { const e = document.getElementById(id); if (e) e.hidden = true; }   // review 1
+    } }
   /* kosmos#6389: the not-removed-yet note says remote access is paused, so it goes once that is no longer so. The
      engine keeps the reason, so a reload or another tab says it too. */
   if (typeof plusForgetKept === 'function') {

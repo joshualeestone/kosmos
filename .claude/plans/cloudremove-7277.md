@@ -20,3 +20,10 @@ web/index.html: #plus-forget-cloud line, painted from onCloudMachine() each repa
 409 with cloud:true. Tests: server.remote-forget-6389 (refusal never reaches the engine, even with anyway; control),
 render-plus-panel-3829 (no Remove, the line, View account, through a repaint, the real route refuses; every other
 pane in the check is the control).
+
+## Review
+- Round 1 (cloudremove-7277-review1.md): 0 blockers, 1 warning, 3 nits. Fixed: the Kosmos+ switch is the same lockout
+  (off stops the only way in): not offered while on, on a cloud machine, and PUT /api/remote refuses on:false there
+  (browser check through the real route, server test with a control); the cloud branch also hides the not-removed-yet
+  box; the Mac panes assert the cloud sentence stays hidden. OPEN, not a defect today: "cancel it from your account"
+  and the name "Kosmos cloud machine" are to confirm with the account side (S1/S6) before switch-on (on the card).
