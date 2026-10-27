@@ -948,7 +948,7 @@ function pageFunction(name, prelude = '') {
   return new Function(`${prelude}\n${script.slice(start, end)}\nreturn ${name};`)();
 }
 
-function connectHarness(st) {
+function connectHarness(st, { cloud = false } = {}) {
   const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
   const tables = ['FR_SAY', 'FR_GLYPH', 'FR_CONN_SAY'].map((n) => {
@@ -963,8 +963,14 @@ function connectHarness(st) {
   const realProgress = pageFunction('frConnPaintProgress',
     'const frMB = ' + realMB.toString() + ';\n'
     + 'const document = { getElementById: () => null };');
+  /* kosmos#4903 S5: a cloud machine (the page's onCloudMachine, read from the served meta) is given here as a stub;
+     without `cloud` the function is absent, which the page reads as "not a cloud machine" (the Mac wording). */
+  const cloudFns = cloud
+    ? 'function onCloudMachine() { return true; }\n'
+      + script.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + pageFunction('signinSay').toString() + '\n'
+    : '';
   const realPaintUrl = pageFunction('frConnPaintUrl',
-    'const esc = ' + realEsc.toString() + ';\n'
+    'const esc = ' + realEsc.toString() + ';\n' + cloudFns
     + 'const document = { getElementById: () => null };');
 
   /* win32-board-copy: the painter's Windows arms ask the platform copy layer; lifted as
@@ -973,6 +979,7 @@ function connectHarness(st) {
   const prelude = `
     const esc = ${realEsc.toString()};
     ${tables}
+    ${cloudFns}
     ${platformCopyLayer}
     const frCheckRow = ${realRow.toString()};
     const frMB = ${realMB.toString()};
@@ -1055,6 +1062,24 @@ test('the sign-in URL lands in the href escaped', () => {
   assert.ok(out.includes('href="https://claude.com/oauth?a=1&amp;state=&quot;&gt;'),
     'the URL was not escaped into the href');
   assert.ok(!out.includes('"><script>'), 'the URL broke out of its attribute');
+});
+
+test('kosmos#4903 S5: on a cloud machine the sign-in screen leads with the link, and never says a browser opened', () => {
+  const URL = 'https://claude.com/cai/oauth/authorize?code=true&x=1';
+  for (const phase of ['signin-browser-open', 'signin-awaiting-code']) {
+    const cloudH = connectHarness({ phase, url: URL }, { cloud: true });
+    const all = cloudH.els['fr-sub'].innerHTML + cloudH.els['fr-conn-url'].innerHTML;
+    assert.doesNotMatch(all, /browser has opened|Browser did not open/i, phase + ': a cloud machine was told a browser opened');
+    assert.match(cloudH.els['fr-sub'].innerHTML, /Sign in to Claude/, phase);
+    assert.match(cloudH.els['fr-conn-url'].innerHTML, /class="btn uprime" href="https:\/\/claude\.com\/cai\/oauth\/authorize\?code=true&amp;x=1"[^>]*>Open the Claude sign-in page</, phase + ': the link is not the primary way in');
+    // CONTROL: the same state on a Mac keeps its words.
+    const mac = connectHarness({ phase, url: URL });
+    assert.match(mac.els['fr-sub'].innerHTML, /Your browser has opened/, phase + ': the Mac wording changed');
+    assert.match(mac.els['fr-conn-url'].innerHTML, /Browser did not open\?/, phase);
+  }
+  // The code step on a cloud machine says where the code comes from.
+  const code = connectHarness({ phase: 'signin-awaiting-code', url: URL }, { cloud: true });
+  assert.match(code.els['fr-sub'].innerHTML, /Claude then shows a code: paste it here/);
 });
 
 test('a URL that arrives after the phase painted still surfaces, without a rebuild', () => {

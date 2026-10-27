@@ -17,6 +17,8 @@
 <meta name="kosmos-version" content="__KOSMOS_VERSION__">
 <!-- win32-board-copy: the platform the board runs on, stamped per request by server.js (stampServedPlatform) and read by servedPlatform(). -->
 <meta name="kosmos-platform" content="__KOSMOS_PLATFORM__">
+<!-- kosmos#4903 S5: "1" when this board is a Kosmos cloud machine (stamped beside the platform; read by onCloudMachine()). -->
+<meta name="kosmos-cloud-machine" content="__KOSMOS_CLOUD_MACHINE__">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kosmos</title>
 <!-- The tab icons (#45): the SITE's exact shape, four explicit PNGs and
@@ -14869,6 +14871,10 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <div id="acct-flow" hidden style="margin:10px 0 0;">
         <p class="dhint" id="acct-flow-say" role="status" aria-live="polite" tabindex="-1" style="margin:0;"></p>
+        <!-- kosmos#4903 S5: on a cloud machine no browser opens on the board, so the sign-in page's link IS the way in. -->
+        <div class="frow" id="acct-claude-open-row" hidden style="margin:8px 0 0;">
+          <a class="btn uprime" id="acct-claude-open" href="#" target="_blank" rel="noopener">Open the Claude sign-in page</a>
+        </div>
         <div class="frow" id="acct-code-row" hidden style="margin:8px 0 0;">
           <input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code"
                aria-label="Sign-in code" placeholder="Sign-in code">
@@ -20795,6 +20801,18 @@ function onWindows(platform) {
 function onLinux(platform) {
   const known = typeof platform === 'string' && platform ? platform : servedPlatform();
   return known === 'linux';
+}
+/* kosmos#4903 S5: whether this board is a Kosmos cloud machine, reached only through a browser: no Terminal, no
+   browser of its own, nobody at its keyboard. Read from the served meta only; an unstamped page (file://, a harness)
+   is not one. Words and flow only, never who may open the board. */
+function onCloudMachine() {
+  try {
+    if (typeof document === 'undefined' || !document || typeof document.querySelector !== 'function') return false;
+    const el = document.querySelector('meta[name="kosmos-cloud-machine"]');
+    return !!(el && typeof el.getAttribute === 'function' && el.getAttribute('content') === '1');
+  } catch {
+    return false;
+  }
 }
 /* #5865: what the person calls the machine Kosmos runs on, in words shown from elsewhere (a phone through Kosmos+).
    A Linux board is often a headless server, and a Windows board is a PC, so neither is "your Mac". */
@@ -30582,7 +30600,13 @@ function acctFlowPaint(st) {
     acctClaudeShowSub();
     flow.hidden = false;
     btn.disabled = true;
-    say.textContent = ACCT_FLOW_SAY[phase] || 'Working…';
+    say.textContent = (typeof signinSay === 'function' ? signinSay(ACCT_FLOW_SAY, phase) : ACCT_FLOW_SAY[phase]) || 'Working…';
+    /* kosmos#4903 S5: on a cloud machine, the sign-in page's link, once Claude has printed it. */
+    const openRow = document.getElementById('acct-claude-open-row');
+    const openA = document.getElementById('acct-claude-open');
+    const cloudUrl = typeof onCloudMachine === 'function' && onCloudMachine() && st && typeof st.url === 'string' && /^https:\/\//.test(st.url) ? st.url : '';
+    if (openA && cloudUrl) openA.href = cloudUrl;
+    if (openRow) openRow.hidden = !cloudUrl;
     const wantCode = phase === 'signin-awaiting-code';
     // Angel's contract: a rejected code does NOT move the polled state (the
     // POST answers alone, handled at the submit button). A because on this
@@ -84899,6 +84923,16 @@ async function frConnSettle() {
 
 function frMB(n) { return Math.max(0, Math.round(n / 1e6)) + 'MB'; }
 
+/* kosmos#4903 S5: a Kosmos cloud machine has no browser of its own, so nothing opens there: the sign-in page's link
+   is the way in, opened wherever the person is. Only the phases that assume a local browser change. */
+const CLOUD_SIGNIN_SAY = {
+  'signin-launching': 'Getting the Claude sign-in ready.',
+  'signin-browser-open': 'Open the Claude sign-in page and sign in there.',
+  'signin-awaiting-code': 'Open the Claude sign-in page and sign in. Claude then shows a code: paste it here.',
+};
+function signinSay(table, phase) {
+  return ((typeof onCloudMachine === 'function' && onCloudMachine()) && CLOUD_SIGNIN_SAY[phase]) || table[phase];
+}
 /** One sentence per phase, spoken once on each phase CHANGE — the per-second
     progress numbers stay out of the live region on purpose. */
 const FR_CONN_SAY = {
@@ -84958,7 +84992,7 @@ function frPaintConnect(st) {
   msg.textContent = '';
   const say = document.getElementById('fr-conn-say');
   if (say && Object.prototype.hasOwnProperty.call(FR_CONN_SAY, phase)) {
-    say.textContent = FR_CONN_SAY[phase];
+    say.textContent = typeof signinSay === 'function' ? signinSay(FR_CONN_SAY, phase) : FR_CONN_SAY[phase];
   }
 
   // Always a container, filled by frConnPaintUrl -- the one element that can
@@ -84998,12 +85032,13 @@ function frPaintConnect(st) {
     // on 'signin-browser-open', which is waiting on the PERSON to sign in in the browser --
     // a "working" spinner there would misrepresent who the screen is waiting on.
     box.innerHTML = '<div class="fr-ctitle">'
-      + (phase === 'signin-completing' ? spin + ' Finishing the sign-in&#8230;' : 'Your browser has opened')
+      + (phase === 'signin-completing' ? spin + ' Finishing the sign-in&#8230;' : (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Sign in to Claude' : 'Your browser has opened')
       + '</div>'
       + '<div class="fr-cdetail">'
       + (phase === 'signin-completing'
         ? 'Checking the connection. This screen will change on its own.'
-        : 'Sign in to Claude there. This screen will update when it is done.')
+        : (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Open the sign-in page below and sign in there. This screen will update when it is done.'
+          : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
     frConnPaintUrl(st && st.url);
     frActions(null, { label: 'Cancel', go: frConnCancel });
@@ -85011,8 +85046,10 @@ function frPaintConnect(st) {
   }
 
   if (phase === 'signin-awaiting-code') {
-    box.innerHTML = '<div class="fr-ctitle">Your browser has opened</div>'
-      + '<div class="fr-cdetail">Sign in to Claude there. This screen will notice when it is done.</div>'
+    box.innerHTML = '<div class="fr-ctitle">' + ((typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Sign in to Claude' : 'Your browser has opened') + '</div>'
+      + '<div class="fr-cdetail">' + ((typeof onCloudMachine === 'function' && onCloudMachine())
+        ? 'Open the sign-in page below and sign in. Claude then shows a code: paste it here.'
+        : 'Sign in to Claude there. This screen will notice when it is done.') + '</div>'
       + urlLine
       // The engine sets `because` when a typed code did not take; without
       // showing it, a rejected code looks like this screen simply asking twice.
@@ -85247,10 +85284,12 @@ function frConnPaintUrl(url) {
   const key = url || null;
   if (box.__frUrl === key) return;
   box.__frUrl = key;
-  box.innerHTML = key
-    ? '<div class="fr-cdetail">Browser did not open?</div>'
-      + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>'
-    : '';
+  /* kosmos#4903 S5: on a cloud machine nothing opens a browser, so the link is the way in, not a fallback. */
+  box.innerHTML = !key ? ''
+    : (typeof onCloudMachine === 'function' && onCloudMachine())
+      ? '<a class="btn uprime" href="' + esc(key) + '" target="_blank" rel="noopener">Open the Claude sign-in page</a>'
+      : '<div class="fr-cdetail">Browser did not open?</div>'
+        + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>';
 }
 
 function frConnPaintProgress(progress) {

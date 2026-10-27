@@ -242,6 +242,7 @@ function trustDialogHold(card, seen, capture) {
 const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
 const platformGate = require('./engine/platform');
+const cloudMachine = require('./engine/cloudmachine');   // kosmos#4903 S5
 /* win32-board-copy: the page's platform fact. The page needs it before any signed-in
    API answers (the not-signed-in panel is painted exactly when /api/* refuses), so the
    open static shell carries it in `<meta name="kosmos-platform">`, stamped per request
@@ -249,11 +250,16 @@ const platformGate = require('./engine/platform');
    unstamped page (file://, a harness) reads as "not Windows", so the Mac page is the
    default everywhere nothing says otherwise. */
 const PAGE_PLATFORM_MARKER = '__KOSMOS_PLATFORM__';
+/* kosmos#4903 S5: beside it, whether this board is a Kosmos cloud machine (engine/cloudmachine.js: the installer's
+   latch, Linux only), stamped the same way so the page's first paint already speaks to a person with only a browser.
+   Words and flow only; who may open the board is the tunnel's decision. */
 function stampServedPlatform(pageBuffer) {
+  const PAGE_CLOUD_MARKER = '__KOSMOS_CLOUD_MACHINE__';   // inside, so a test lifting this function has it
   const text = pageBuffer.toString('utf8');
-  return text.includes(PAGE_PLATFORM_MARKER)
-    ? text.replace(PAGE_PLATFORM_MARKER, platformGate.describe().platform)
-    : pageBuffer;
+  if (!text.includes(PAGE_PLATFORM_MARKER) && !text.includes(PAGE_CLOUD_MARKER)) return pageBuffer;
+  return text
+    .replace(PAGE_PLATFORM_MARKER, platformGate.describe().platform)
+    .replace(PAGE_CLOUD_MARKER, cloudMachine.isCloudMachine() ? '1' : '0');
 }
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');

@@ -60,11 +60,14 @@ test('the server stamps the page with ITS platform, per request, and leaves an u
   const fnAt = SERVER.indexOf('function stampServedPlatform(');
   assert.ok(marker && fnAt > -1, 'the stamp moved out of server.js');
   const fnSrc = SERVER.slice(fnAt, SERVER.indexOf('\n}\n', fnAt) + 2);
-  const stampWith = (platform) => new Function('platformGate', 'const PAGE_PLATFORM_MARKER = ' + JSON.stringify(marker[1]) + ';\n'
-    + fnSrc + '\nreturn stampServedPlatform;')({ describe: () => ({ platform }) });
+  const stampWith = (platform, cloud = false) => new Function('platformGate', 'cloudMachine', 'const PAGE_PLATFORM_MARKER = ' + JSON.stringify(marker[1]) + ';\n'
+    + fnSrc + '\nreturn stampServedPlatform;')({ describe: () => ({ platform }) }, { isCloudMachine: () => cloud });
   const buf = Buffer.from(PAGE.slice(0, PAGE.indexOf('</head>')));
   assert.match(stampWith('win32')(buf), /<meta name="kosmos-platform" content="win32">/);
   assert.match(stampWith('darwin')(buf), /<meta name="kosmos-platform" content="darwin">/);
+  // kosmos#4903 S5: the cloud-machine fact is stamped beside it, "1" only when the board says so.
+  assert.match(stampWith('linux', true)(buf), /<meta name="kosmos-cloud-machine" content="1">/);
+  assert.match(stampWith('linux', false)(buf), /<meta name="kosmos-cloud-machine" content="0">/, 'CONTROL');
   const unmarked = Buffer.from('<html>no marker</html>');
   assert.equal(stampWith('win32')(unmarked), unmarked, 'a page without the marker was rewritten');
   assert.ok(SERVER.includes('res.end(stampServedPlatform(buf));'), 'the page route no longer stamps what it serves');
