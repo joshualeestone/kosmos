@@ -34,3 +34,13 @@ The whole plan is in the card's comment 6431703337 and on branch linuxbundle-728
   distro that passes the 2.35 floor; slice E's stock ubuntu:24.04 run proves it end to end.
 - NIT ACCEPTED (both reviews): install_kosmos's four gates are pinned by source regexes, each removal red; the
   manifest name and the verifier's acceptance of a Linux manifest are proved in slice E's end-to-end run.
+
+## Review 3 (2026-10-26 22:1x): 0 blockers, 1 warning, 2 nits. CONVERGED after these fixes.
+- WARNING FIXED by removing code: review 2's refusal for an installed family copy below glibc 2.35 disagreed with the
+  unreadable-pointer arm (which cannot refuse a node that will not start), so one computer got opposite answers by
+  whether the download worked. Below the floor that copy's own node cannot start, so it is already broken and the
+  portable bundle repairs it: no refusal, the same answer both ways (tested).
+- NIT FIXED: suffixed getconf answers (2.35-ubuntu, 2.39.9000) and 2.3 are tested.
+- NIT FIXED: the info line says "could not confirm glibc 2.35 or newer" (true also when getconf is missing).
+- Checked by the reviewer and holding: odd getconf output always yields numeric parts or nothing; set -e and
+  pipefail are safe on musl; no other exact `_PTR_FILE` comparison exists.
