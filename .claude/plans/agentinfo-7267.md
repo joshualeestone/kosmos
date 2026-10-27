@@ -43,3 +43,7 @@ and dark, and never the conversation again.
   fields and the header, so a name-only save never writes "project manager" into the profile; the footer no longer
   offers the Terminal (a phone cannot open it); the reports-to sentence says where to restart. KEPT: the segmented
   control does not grow at accessibility sizes (a system control; still readable).
+- Round 4 (agentinfo-7267-review4.md): 0 blockers, 1 warning, 4 nits. Fixed: an agent whose session the phone will not
+  put in a request path says its settings are changed on the computer's board (never "could not reach"); an unreadable
+  200 says it cannot tell whether it saved; the row reads "More on your computer's board"; the info button's label
+  uses the agent's current name. KEPT: the segmented control at accessibility sizes (a system control).

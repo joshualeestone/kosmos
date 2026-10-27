@@ -114,6 +114,10 @@ extension Board {
         return names[to] ?? to
     }
 
+    // An agent whose session name the phone will not put in a request path (a found tmux session like "Angel"):
+    // nothing on this page can be read or changed from here, and it says so instead of "could not reach" (review 4).
+    static func agentPageOnBoardOnly(_ name: String) -> String { "\(name)\u{2019}s settings can be changed on your computer\u{2019}s board." }
+
     // MARK: Name and role (PUT /api/agent/<n>/profile, the board's Save under Profile)
 
     static let profileFieldMax = 80   // the route's cap on both, in UTF-16 units (a JS string's length)
@@ -149,6 +153,8 @@ extension Board {
     static func profileSaveResult(status: Int, body: Data?, running: Bool = true, before: String = "", typed: String = "") -> ProfileSave {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if status == 200, let obj { return .saved(profileSavedSentence(obj, running: running, before: before, typed: typed)) }
+        // A 200 this build cannot read may still have saved (review 4): say it cannot tell, never that it failed.
+        if status == 200 { return .refused("We could not tell whether that saved. Look again in a moment.") }
         if let e = obj?["error"] as? String, !e.isEmpty { return .refused(sentence(e)) }
         return status == 0 ? .noAnswer : .refused("We could not save that.")
     }

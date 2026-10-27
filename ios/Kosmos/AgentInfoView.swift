@@ -40,9 +40,16 @@ struct AgentInfoView: View {
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             }
-            switch part {
-            case .profile: profile
-            case .ai: aiSettings
+            if !Board.isAgentSession(agent.session) {
+                Section {
+                    Text(Board.agentPageOnBoardOnly(live.name)).foregroundColor(Palette.secondary)
+                }
+                moreRow
+            } else {
+                switch part {
+                case .profile: profile
+                case .ai: aiSettings
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -199,10 +206,14 @@ struct AgentInfoView: View {
         } header: { label("Fresh start") } footer: {
             Text("Each one shows what it stands to lose before you choose.")
         }
+        moreRow
+    }
+
+    @ViewBuilder private var moreRow: some View {
         Section {
             Button(action: openOnBoard) {
                 HStack {
-                    Text("More on your computer").foregroundColor(Palette.primary)
+                    Text("More on your computer\u{2019}s board").foregroundColor(Palette.primary)
                     Spacer()
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(Palette.tertiary)
                 }
@@ -246,6 +257,7 @@ struct AgentInfoView: View {
 
     private func load() async {
         let session = agent.session
+        guard Board.isAgentSession(session) else { return }   // the page says where to change it instead
         #if DEBUG
         if AgentInfoView.sample { applySample(); return }
         #endif

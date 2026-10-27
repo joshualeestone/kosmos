@@ -162,7 +162,7 @@ struct ChatView: View {
                 Button { infoOpen = true } label: {
                     Image(systemName: "info.circle").font(.system(size: 22)).foregroundColor(Palette.secondary)
                 }
-                .accessibilityLabel("\(agent.name)\u{2019}s profile and AI settings")
+                .accessibilityLabel("\(shown.name)\u{2019}s profile and AI settings")
             }
         }
         // kosmos#7267: on the chat itself, not inside the toolbar item (a link there is outside the navigation and

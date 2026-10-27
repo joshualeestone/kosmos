@@ -95,7 +95,9 @@ for phrase in ["'Saved. Its instructions say the new name too, so restart it whe
     check(boardSave.contains(phrase), "the board's save still says: \(phrase.prefix(50))")
 }
 check(Board.profileSaveResult(status: 400, body: Data(#"{"error":"an agent cannot report to itself"}"#.utf8)) == .refused("An agent cannot report to itself."), "the route's reason, as a sentence")
-check(Board.profileSaveResult(status: 200, body: Data("<html>".utf8)) == .refused("We could not save that."), "a 200 this build cannot read is never saved")
+check(Board.profileSaveResult(status: 200, body: Data("<html>".utf8)) == .refused("We could not tell whether that saved. Look again in a moment."), "a 200 this build cannot read: never said saved, never said failed (review 4)")
+check(Board.profileSaveResult(status: 500, body: Data("<html>".utf8)) == .refused("We could not save that."), "an error with no reason: could not save")
+check(Board.agentPageOnBoardOnly("Angel") == "Angel\u{2019}s settings can be changed on your computer\u{2019}s board." && !Board.isAgentSession("Angel"), "a session the phone will not request: said plainly (review 4)")
 check(Board.profileSaveResult(status: 0, body: nil) == .noAnswer, "no answer")
 
 section("instructions and skills")
