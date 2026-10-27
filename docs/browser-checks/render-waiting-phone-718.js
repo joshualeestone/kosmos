@@ -196,7 +196,7 @@ async function open(browser, opts) {
         const rows = Array.from({ length: 8 }, (_, i) => ({ name: 'notes-' + (i + 1) + '.md', modified: Date.now() - i * 60000, size: 1200 }));
         window.fetch = async (u) => {
           if (String(u).indexOf('/api/status') !== -1) return enc({ agents: list, counts: {}, checkedAt: Date.now() });
-          if (files && /\/api\/agent\/[^/]+\/files/.test(String(u))) { await new Promise((r) => setTimeout(r, 600)); return enc({ files: rows }); }
+          if (files && /\/api\/agent\/[^/]+\/files/.test(String(u))) { await new Promise((r) => setTimeout(r, 600)); return enc({ ok: true, stamp: 'late-7280', files: rows }); }
           return enc({});
         };
       }, [agents, !!files]);
