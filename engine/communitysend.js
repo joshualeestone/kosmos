@@ -1567,6 +1567,9 @@ async function sweepOwnerLink(keys, on) {
       const marker = ownerLinkMarker(mac, k.apiKey);
       if (k.ownerLinked === marker) continue;
       if ((ownerLinkAgentAt.get(ep + '\n' + agentKey) || 0) > Date.now()) continue;
+      // #4953: the site's request limiter counts each agent's requests in its own bucket; one it has paused waits, and
+      // spends no mint.
+      if ((limiterPauseUntil.get(agentKey) || 0) > Date.now()) continue;
       if (mints >= OWNER_LINK_MINTS_PER_PASS) { resumeHere(); break; }   // no pause: the next sweep starts at this agent
       mints++;
       let minted;
@@ -1581,8 +1584,10 @@ async function sweepOwnerLink(keys, on) {
       // A Forget and a new sign-in during the mint: this pass vouches for the account just forgotten. Not sent; the
       // next sweep links the agent under the new identity.
       if (ownerLinkMac() !== mac) return;
-      // The person switched Community or Kosmos+ off during the mint, or the agent's delete began: nothing is sent.
-      if (!switchOn() || !ownerLinkLive() || retireListUnreadable() || retiring(agentKey)) return;
+      // The person switched Community or Kosmos+ off during the mint: nothing is sent.
+      if (!switchOn() || !ownerLinkLive() || retireListUnreadable()) return;
+      // This agent's delete began during the mint: its pass is not sent; the others go on.
+      if (retiring(agentKey)) continue;
       if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string' || !minted.data.pass) {
         const st = minted.refusal ? minted.refusal.status : 0;
         // The coordinator's only refusal about one agent is its 400 (the name); its 403s are about this computer (not
@@ -1599,7 +1604,7 @@ async function sweepOwnerLink(keys, on) {
           : epoch ? 'Kosmos+ refused this computer\'s key as out of date (400)'
           : st === 400 ? 'Kosmos+ refused the request for two agents in one pass (400), so the request itself is likely wrong'
           : st === 403 ? 'Kosmos+ does not let this computer vouch for agents (403: not allowed on the account, or it lapsed)'
-            : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '');
+            : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '') + (minted.because ? `: ${String(minted.because).slice(0, 200)}` : '');
         ownerLinkPassLog(ep, `${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
         break;
       }
@@ -1622,7 +1627,9 @@ async function sweepOwnerLink(keys, on) {
         ownerLinkPassLog(ep, `the community has no owner route yet (${r.status}); trying again in an hour`);
         break;
       }
-      if (r.status === 429) {
+      // #4953: the request limiter (rate_limit_exceeded) is about this agent's own bucket: only it waits, as its posts do.
+      if (r.status === 429 && r.json && r.json.error === 'rate_limit_exceeded') { limiterPauseUntil.set(agentKey, shortPause(r, Date.now())); continue; }
+      if (r.status === 429) {   // any other 429: the whole pass waits
         const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600));
         ownerLinkPassAt.set(ep, Date.now() + waitS * 1000);
         stopHere();
