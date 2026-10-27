@@ -21,10 +21,16 @@
  * row is "not known", and the card keeps slice 2's reason. As on the badge, the live state is the latest answer (an
  * unknown one is unknown, review 5) and a fresh request outcome outranks it, either way. A connected answer clears the
  * live check's state at once, whichever answer it is (`heard`; for a stored key only from the reader that tries the
- * key), and an answer from a check that started before it was heard is ignored. In memory, on the board. Never throws.
+ * key), and an answer from a check that started before it was heard is ignored.
+ * Stated (review 8): the live half is the latest answer, up to an hour old when no other caller checked since; a sign-in
+ * made outside Kosmos (`claude /login` in a terminal) shows on the card at the next check, a fresh good request, or
+ * when AI Models is opened, whichever comes first. In memory, on the board. Never throws.
  */
 
 const CHECK_EVERY_MS = 60 * 60 * 1000;
+/* Review 8: a check still "running" after this long is taken as done (it hung), so the hour's re-check still happens.
+   Ten minutes is many times the live readers' own timeouts. */
+const HUNG_MS = 10 * 60 * 1000;
 
 /* account key ('default' or its folder) -> { at (ms the last check started), running, state (the live check's last
    answer: 'connected' | 'none' | null),
@@ -42,7 +48,7 @@ function keyOf(account) {
   if (!account || account.provider) return null;   // a vendor or Qwen folder is not a Claude account
   if (account.isDefault === true) return 'default';
   try { if (account.dir && accountsMod().isDefaultDir(account.dir)) return 'default'; } catch { /* filed by its folder */ }   // review 5
-  return typeof account.dir === 'string' && account.dir ? 'dir:' + account.dir : null;
+  return typeof account.dir === 'string' && account.dir ? 'dir:' + require('node:path').resolve(account.dir) : null;   // review 8: one spelling per folder
 }
 
 /* The full accounts.list() row for a card's account summary (the card carries the folder, not the row). */
@@ -67,7 +73,7 @@ function recordFor(account, now) {
   const key = keyOf(account);
   if (!key) return null;
   let rec = accounts.get(key);
-  if (!rec || (!rec.running && now - rec.at >= CHECK_EVERY_MS)) {
+  if (!rec || ((!rec.running || now - rec.at >= HUNG_MS) && now - rec.at >= CHECK_EVERY_MS)) {
     if (!rec) { rec = { at: now, running: false, state: null, apiKey: false, heardAt: 0, usedAt: now }; accounts.set(key, rec); }
     const startedAt = now;
     rec.at = now; rec.running = true;

@@ -73,15 +73,15 @@ test('CONTROL: a connected or unreachable account keeps slice 2\'s reason', asyn
 });
 
 
-test('a check still running is not started twice, however long it takes', async () => {
+test('a check still running is not started twice, and its late answer still lands (review 8: a hung one is retried an hour on)', async () => {
   let release;
   const calls = counting(() => new Promise((resolve) => { release = resolve; }));
   stallsignin.overlay(card(), T0);
-  stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS + 1);
-  assert.equal(calls.length, 1);
+  stallsignin.overlay(card(), T0 + 9 * 60 * 1000);
+  assert.equal(calls.length, 1, 'a second check started while the first ran');
   release(STATE.NONE);
   await settle(); await settle();
-  assert.equal(stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS + 2).deliveryStall.signedOut, true);
+  assert.equal(stallsignin.overlay(card(), T0 + 9 * 60 * 1000 + 1).deliveryStall.signedOut, true);
 });
 
 test('review 5: the live state is the latest answer, as the badge reads it: an unknown one is unknown', async () => {
@@ -318,4 +318,21 @@ test('review 7: a check of the default folder by path (its decoy file) never mar
   assert.equal(stallsignin.overlay(dflt, Date.now()).deliveryStall.signedOut, undefined, 'the decoy "not signed in" accused the default account');
   await sub.checkLive();
   assert.equal(stallsignin.overlay(dflt, Date.now()).deliveryStall.signedOut, true, 'CONTROL: the default account\'s own check is heard');
+});
+
+/* Review 8. */
+test('review 8: a check that never settles does not stop the hour\'s re-check', async () => {
+  const calls = counting(() => new Promise(() => {}));   // hangs for ever
+  stallsignin.overlay(card(), T0);
+  stallsignin.overlay(card(), T0 + 5 * 60 * 1000);
+  assert.equal(calls.length, 1, 'a running check was started twice within the hour');
+  stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS);
+  assert.equal(calls.length, 2, 'a hung check blocked every later check');
+});
+test('review 8: one folder is one account however its path is spelled', async () => {
+  counting(STATE.NONE);
+  stallsignin.overlay(card(), T0); await settle();
+  assert.equal(stallsignin.overlay(card(), T0 + 1).deliveryStall.signedOut, true);
+  stallsignin.heard({ dir: '/x/.claude-b/', isDefault: false }, STATE.CONNECTED, T0 + 2);
+  assert.equal(stallsignin.overlay(card(), T0 + 3).deliveryStall.signedOut, undefined, 'a trailing slash missed the account');
 });

@@ -121,3 +121,13 @@ checked and the card says what slice 2 says, which is the safe direction.
 - NIT fixed (a comment): in production the background check's own answer lands after its readers told heard the same
   thing, so that line changes nothing there.
 - NIT stated: an account that turns from a key to a sign-in within the hour keeps the key wording until the next check.
+
+## Review round 8, the last (sonnet): 0 blocker, 0 major, 3 minor, 1 nit. Fixes below are not re-reviewed (limit 8)
+- MINOR fixed: a check that never settles no longer blocks re-checking: one running ten minutes is taken as hung, and
+  the hour's re-check runs. Mutant red. (An earlier test that pinned "never restart, however long" now pins "not
+  twice within ten minutes, and a late answer still lands".)
+- NIT fixed: an account record is keyed by its resolved folder, so "/x/.claude-b/" and "/x/.claude-b" are one. Mutant red.
+- MINOR stated (header): the live half can be up to an hour old when no other caller checked; a sign-in outside
+  Kosmos shows at the next check, a fresh good request, or when AI Models is opened.
+- MINOR stated (again, see round 7): the join re-reads job files on each poll while a card is stuck. A short cache
+  would let the card lag the badge; it costs file reads, never a live check.
