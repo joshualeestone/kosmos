@@ -2273,10 +2273,35 @@ section("native board loop: connecting")
             cl.start()
             let stopped = await settle { cl.phase == .unreachable(mac: "Studio") }
             check(stopped, "a gate answering \(label) for ever ends at not answering (phase \(cl.phase))")
+            // 409: three misses of six posts each (the first and five re-signs); 503: one post per miss.
+            let expected = code == 409 ? 18 : 3
+            check(wl.sessionBodies.count == expected, "\(label): \(expected) posts before not answering, not \(wl.sessionBodies.count)")
             cl.stop()
         }
         check(Board.classifySession(status: 409, body: Data(#"{"because":"no"}"#.utf8), waiting: false) == .refused(because: "no"),
               "CONTROL: a 409 without retry is still a refusal")
+        // Review 2: a session 429 stays a refusal, as before (and as gate.html, which keeps the token on it).
+        check(Board.classifySession(status: 429, body: Data(#"{"because":"too many waiting"}"#.utf8), waiting: false) == .refused(because: "too many waiting"),
+              "a session 429 is still a refusal")
+        // Review 2: a nonce route an older gate refuses with 401 is no nonce route: the token alone, and still let in.
+        let (c5, w5, _, _) = make("kst1")
+        w5.deviceKey = .software(k)
+        w5.nonceStatus = 401
+        c5.start()
+        let in5 = await settle { isLive(c5) }
+        check(in5 && w5.sessionBodies.first?.keys.sorted() == ["token"], "a 401 on the nonce route sends the token alone and is let in")
+        c5.stop()
+        // Review 2: a long Allow wait with nonces does not end on misses: busy, busy, then pending resets the count.
+        let (c6, w6, _, _) = make("kst1")
+        w6.deviceKey = .software(k)
+        w6.issuesNonces = true
+        w6.sessionQueue = [(503, #"{"retry":true}"#), (503, #"{"retry":true}"#), (403, #"{"pending":true,"code":"K7-3M"}"#),
+                           (503, #"{"retry":true}"#), (503, #"{"retry":true}"#), (403, #"{"pending":true,"code":"K7-3M"}"#)]
+        c6.start()
+        let in6 = await settle { isLive(c6) }
+        check(in6, "busy answers between Allow polls do not end the wait (phase \(c6.phase))")
+        check(w6.sessionBodies.allSatisfy { $0["nonce"] != nil }, "every Allow poll carries a fresh proof")
+        c6.stop()
         // An older tunnel with no nonce route (404): the token alone, still let in.
         let (c4, w4, _, _) = make("kst1")
         w4.deviceKey = .software(k)
@@ -2309,7 +2334,8 @@ section("native board loop: connecting")
         c3.start()
         let refused = await settle { c3.phase == .kosmosPlusRefused }
         check(refused, "CONTROL: a Mac's 403 is still Kosmos+ refusing (phase: \(c3.phase))")
-        check(w3.handoffBodies.first?["fresh"] == nil, "CONTROL: a Mac is asked with no fresh key")
+        check(!w3.handoffBodies.isEmpty && w3.handoffBodies.first?["address"] != nil && w3.handoffBodies.first?["fresh"] == nil,
+              "CONTROL: a Mac is asked with no fresh key")
         c3.stop()
     }
     do {
