@@ -142,21 +142,35 @@ records, server logs, and the processors), which matches `privacy-label.md`.
 2026 KOSMOS Agent Manager, Inc.
 <!-- /copyright -->
 
-## Notes for App Review (draft; App Review reads this, customers do not)
+## Notes for App Review (draft, rewritten 2026-10-27 for the native app, kosmos #7352; App Review reads this, customers do not)
 
 Kosmos is a free companion to Kosmos+, a paid web service. Nothing is sold in
 the app and it links to no purchase (Guideline 3.1.3(f)).
 
-To review it you need two things we provide: a Kosmos+ demo account (below) and
-a computer running Kosmos that stays online during the review, signed in to that
-account, with the review phone already approved or approvable by us.
+What it does: Kosmos runs AI agents on the person's own computer. The app lets
+them see those agents, talk to them, and answer them from their phone.
 
-Native features beyond the web view: push notifications through APNs that open
-the agent that asked, an offline page that reloads by itself when the phone is
-back online, pull to refresh, and links to other sites that open in Safari rather than in the app.
+Native screens (Guideline 4.2): sign-in (email code, then a second step);
+Agents, a live list of the person's agents and what each is doing; a
+conversation with any agent, with photos, files, voice dictation and emoji;
+Projects, with each project's shared room; Tasks, grouped by project, and a
+page per task; Settings, including account deletion (Guideline 5.1.1(v)); push
+notifications that open the agent or room that asked, with Allow and Deny on a
+permission question. A few deeper pages show the person's own board (on
+their own computer) in an in-app view; links to any other site open in
+Safari.
 
-Face ID: the build carries a Face ID purpose string for a lock that is built but switched off in this version; the app
-never asks for Face ID.
+To review it you need two things we provide: the demo account below, and a
+computer running Kosmos on that account that we keep online for the whole
+review. On first sign-in the computer is asked to allow the new phone; we
+approve it from our side, so nothing is needed from you beyond signing in.
 
-Demo account: (Josh to fill in)
+Signing in: (OPEN, kosmos #7352: the reviewer cannot read the demo account's
+email or its second step, so this line waits on how the review account gets
+its codes to the reviewer.)
+
+Demo account: (Josh to fill in: see kosmos #7352, the review account)
 Contact during review: (Josh to fill in)
+
+Face ID: the build carries a Face ID purpose string for a lock that is built
+but switched off in this version; the app never asks for Face ID.
