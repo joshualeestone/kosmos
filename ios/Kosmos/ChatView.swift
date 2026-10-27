@@ -61,6 +61,8 @@ struct ChatView: View {
     @State private var settledAtEnd = false
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
+    // kosmos#7265 review 2: a page landed while the reader was at the newest message: keep them there, without animation.
+    @State private var keepAtEnd = false
     // The conversation's items on screen now.
     @State private var onScreen: Set<String> = []
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
@@ -390,6 +392,11 @@ struct ChatView: View {
                     proxy.scrollTo(id, anchor: .top)
                     keepAnchor = nil
                 }
+                .onChange(of: keepAtEnd) { now in
+                    guard now else { return }
+                    proxy.scrollTo("end", anchor: .bottom)
+                    keepAtEnd = false
+                }
                 .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
                 .onChange(of: working) { now in if now { follow(proxy) } }
                 // Only a message just sent scrolls down; one settling into its row does not move the person's place.
@@ -663,7 +670,9 @@ struct ChatView: View {
             // kosmos#7265 review: the newest rows are one eager stack and are all "on screen" while any of it shows, so
             // a reader back at the newest message is kept there rather than at the stack's first row (a stated limit:
             // a reader stopped part way inside the newest rows as a page lands may still move).
-            if atBottom { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+            // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
+            // reader is up there) rules it out.
+            if atBottom && !topVisible { keepAtEnd = true }
             else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
