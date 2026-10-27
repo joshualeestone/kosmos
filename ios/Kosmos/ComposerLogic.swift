@@ -37,16 +37,22 @@ enum ComposerExtras {
     }
 
     // What the microphone says when it cannot listen, in the person's words. nil: it can.
-    enum Mic: Equatable { case ready, listening, denied, restricted, unavailable }
+    enum Mic: Equatable { case ready, listening, denied, restricted, unavailable, unsupported }
     static func micLine(_ m: Mic) -> String? {
         switch m {
         case .ready, .listening: return nil
         case .denied: return "Kosmos is not allowed to use the microphone or speech recognition. You can allow both in Settings, Kosmos."
         case .restricted: return "This iPhone does not allow dictation here."
         case .unavailable: return "Dictation is not available right now. Try again in a moment."
+        case .unsupported: return "Dictation is not available in this iPhone's language."
         }
     }
     // VoiceOver's words for the two buttons.
     static let emojiLabel = "Add an emoji"   // the board's aria-label
     static func micLabel(listening: Bool) -> String { listening ? "Stop dictating" : "Dictate a message" }
+    static let emojiHint = "Shows emoji in place of the keyboard"
+    static let micHint = "Types what you say into the box"
+    // kosmos#7268 review 1: dictation rewrites the box as base + heard, so anyone else changing the box (Send clearing
+    // it, typing, an emoji) means dictation must stop, or its next result would bring the old words back.
+    static func dictationOverridden(current: String, lastWritten: String) -> Bool { current != lastWritten }
 }

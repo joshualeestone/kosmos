@@ -18,6 +18,7 @@ struct ComposerEmojiButton: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(open ? "Back to the keyboard" : ComposerExtras.emojiLabel)
+        .accessibilityHint(open ? "" : ComposerExtras.emojiHint)
     }
 }
 
@@ -35,6 +36,7 @@ struct ComposerMicButton: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(ComposerExtras.micLabel(listening: on))
+        .accessibilityHint(on ? "" : ComposerExtras.micHint)
     }
 }
 
@@ -64,30 +66,55 @@ struct EmojiPanel: View {
 // Asks for speech recognition and the microphone the first time, with the reasons in Info.plist. On this iPhone when it
 // can (requiresOnDeviceRecognition), so what is said stays on the phone where the phone allows it.
 @MainActor final class Dictation: ObservableObject {
-    @Published private(set) var state: ComposerExtras.Mic = .ready
+    @Published private(set) var state: ComposerExtras.Mic = .ready {
+        didSet { if state != oldValue { announce() } }
+    }
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var base = ""
+    private var lastWritten = ""
     private var onText: ((String) -> Void)?
+    // Review 1: a start in progress (awaiting permission or setup), and a generation, so a second press, a stop or a
+    // leave during the awaits cancels it, and an old recognition task can never stop or write for a newer one.
+    private var starting = false
+    private var generation = 0
+    // Review 1: the app's audio session as it was, put back when dictation stops (a video played later must be heard).
+    private var savedSession: (AVAudioSession.Category, AVAudioSession.Mode, AVAudioSession.CategoryOptions)?
+
+    var active: Bool { starting || state == .listening }
 
     func toggle(base: String, onText: @escaping (String) -> Void) {
-        if state == .listening { stop(); return }
-        Task { await start(base: base, onText: onText) }
+        if active { stop(); return }
+        generation += 1
+        let mine = generation
+        starting = true
+        Task { await start(base: base, onText: onText, generation: mine) }
     }
 
-    private func start(base: String, onText: @escaping (String) -> Void) async {
+    // Review 1: the box changed by someone else (Send cleared it, typing, an emoji): stop, so the next result cannot
+    // rewrite the box from the old snapshot. The composers call this from onChange of their text.
+    func boxChanged(to text: String) {
+        if active, ComposerExtras.dictationOverridden(current: text, lastWritten: lastWritten) { stop() }
+    }
+
+    private func start(base: String, onText: @escaping (String) -> Void, generation mine: Int) async {
+        lastWritten = base
         let speech = await withCheckedContinuation { c in SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) } }
+        guard mine == generation else { return }
         switch speech {
         case .authorized: break
-        case .restricted: state = .restricted; return
-        default: state = .denied; return
+        case .restricted: starting = false; state = .restricted; return
+        default: starting = false; state = .denied; return
         }
         let mic = await withCheckedContinuation { c in AVAudioSession.sharedInstance().requestRecordPermission { c.resume(returning: $0) } }
-        guard mic else { state = .denied; return }
-        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else { state = .unavailable; return }
+        guard mine == generation else { return }
+        guard mic else { starting = false; state = .denied; return }
+        guard let recognizer = SFSpeechRecognizer() else { starting = false; state = .unsupported; return }
+        guard recognizer.isAvailable else { starting = false; state = .unavailable; return }
         do {
             let session = AVAudioSession.sharedInstance()
+            savedSession = (session.category, session.mode, session.categoryOptions)
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             let req = SFSpeechAudioBufferRecognitionRequest()
@@ -101,13 +128,18 @@ struct EmojiPanel: View {
             self.base = base
             self.onText = onText
             request = req
+            starting = false
             state = .listening
             task = recognizer.recognitionTask(with: req) { [weak self] result, error in
                 let words = result?.bestTranscription.formattedString
                 let done = error != nil || (result?.isFinal ?? false)
                 Task { @MainActor in
-                    guard let self, self.state == .listening else { return }
-                    if let words { self.onText?(ComposerExtras.dictated(base: self.base, heard: words)) }
+                    guard let self, self.generation == mine, self.state == .listening else { return }
+                    if let words {
+                        let text = ComposerExtras.dictated(base: self.base, heard: words)
+                        self.lastWritten = text
+                        self.onText?(text)
+                    }
                     if done { self.stop() }
                 }
             }
@@ -117,8 +149,15 @@ struct EmojiPanel: View {
         }
     }
 
-    // Stops listening and lets go of the microphone. What was heard stays in the box.
+    // Stops listening and lets go of the microphone. What was heard stays in the box. A start still awaiting is
+    // cancelled (the generation moves on). Nothing to do when dictation never started (review 1: no audio work then).
     func stop() {
+        generation += 1
+        starting = false
+        guard request != nil || task != nil || engine.isRunning else {
+            if state == .listening { state = .ready }
+            return
+        }
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         request?.endAudio()
@@ -126,8 +165,28 @@ struct EmojiPanel: View {
         request = nil
         task = nil
         onText = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        if let (category, mode, options) = savedSession { try? session.setCategory(category, mode: mode, options: options) }
+        savedSession = nil
         if state == .listening { state = .ready }
+    }
+
+    // Leaving the composer: stop, and drop a refusal line so it is asked afresh next time (review 1: it was sticky).
+    func reset() {
+        stop()
+        if state != .ready { state = .ready }
+    }
+
+    // Review 1: VoiceOver hears a refusal, and listening starting and stopping.
+    private func announce() {
+        let words: String?
+        switch state {
+        case .listening: words = "Listening"
+        case .ready: words = nil
+        default: words = ComposerExtras.micLine(state)
+        }
+        if let words { UIAccessibility.post(notification: .announcement, argument: words) }
     }
 }
 
@@ -139,11 +198,12 @@ struct CursorField: View {
     @Binding var text: String
     var focus: FocusState<Bool>.Binding
     @Binding var insert: String?
+    var prompt: Text? = nil   // review 1: the direct message box's own placeholder colour
     var body: some View {
         if #available(iOS 18.0, *) {
-            CursorField18(placeholder: placeholder, text: $text, focus: focus, insert: $insert)
+            CursorField18(placeholder: placeholder, text: $text, focus: focus, insert: $insert, prompt: prompt)
         } else {
-            TextField(placeholder, text: $text, axis: .vertical)
+            TextField(placeholder, text: $text, prompt: prompt, axis: .vertical)
                 .focused(focus)
                 .onChange(of: insert) { glyph in
                     guard let glyph else { return }
@@ -160,9 +220,10 @@ private struct CursorField18: View {
     @Binding var text: String
     var focus: FocusState<Bool>.Binding
     @Binding var insert: String?
+    var prompt: Text?
     @State private var selection: TextSelection?
     var body: some View {
-        TextField(placeholder, text: $text, selection: $selection, axis: .vertical)
+        TextField(placeholder, text: $text, selection: $selection, prompt: prompt, axis: .vertical)
             .focused(focus)
             .onChange(of: insert) { glyph in
                 guard let glyph else { return }

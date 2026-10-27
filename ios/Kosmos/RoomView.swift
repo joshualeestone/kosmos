@@ -219,6 +219,7 @@ struct RoomView: View {
         // Signed out, another account or another Mac: the files this room showed belong to the one before (the chat's
         // reset, review 1).
         .onChange(of: client.chatEpoch) { _ in
+            dictation.reset(); emojiOpen = false   // kosmos#7268: another account's room starts clean
             clears += 1   // a clear's delayed steps belong to the account before
             if filteredInMode { settledAtBottom = false }   // the next room settles as on opening, as onDisappear does
             filteredInMode = false
@@ -1020,7 +1021,10 @@ struct RoomView: View {
         // KOSMOS_SAMPLE_EMOJI=open (with the room samples): the panel open, for the design shots.
         .onAppear { if RoomStore.sample, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
         #endif
-        .onDisappear { dictation.stop() }   // leaving the room lets go of the microphone
+        // Leaving the room lets go of the microphone and closes the panel (the board's: the panel belongs to the composer
+        // being left).
+        .onDisappear { dictation.reset(); emojiOpen = false }
+        .onChange(of: draft) { dictation.boxChanged(to: $0) }
         // Each picker on a host of its own, as the chat's (two presentations on one view can leave one that never opens).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
                                              maxSelectionCount: max(1, Board.maxFiles - countedFiles),
@@ -1109,6 +1113,7 @@ struct RoomView: View {
     // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
     private func send() {
         guard canPost else { return }
+        dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         let text = postWords
         let reply = replying
         let files = attachedHere

@@ -246,6 +246,7 @@ struct ChatView: View {
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
+            dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
             thread = nil
@@ -957,7 +958,10 @@ struct ChatView: View {
         // KOSMOS_SAMPLE_EMOJI=open (with the agent samples): the panel open, for the design shots.
         .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
         #endif
-        .onDisappear { dictation.stop() }   // leaving the conversation lets go of the microphone
+        // Leaving the conversation lets go of the microphone and closes the panel (the board's: the panel belongs to the
+        // composer being left).
+        .onDisappear { dictation.reset(); emojiOpen = false }
+        .onChange(of: draftText) { dictation.boxChanged(to: $0) }
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
         // Each picker on a host of its own: two presentations on one view can leave one that never opens (iOS 16).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
@@ -1061,7 +1065,8 @@ struct ChatView: View {
     // box's text runs up to them.
     private var field: some View {
         HStack(alignment: .bottom, spacing: 0) {
-            CursorField(placeholder: "Message \(shown.name)", text: $draftText, focus: $composerFocused, insert: $emojiInsert)
+            CursorField(placeholder: "Message \(shown.name)", text: $draftText, focus: $composerFocused, insert: $emojiInsert,
+                        prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary))
                 // As the board's aria-describedby: the reply is heard whenever the box is reached, not only when chosen.
                 .accessibilityHint(replying.map { replyingLine($0) } ?? "")
                 .accessibilityLabel("Message \(shown.name)")
@@ -1113,6 +1118,7 @@ struct ChatView: View {
         // A press in the air: the words wait in the box, and the line says why (dmChoiceBlocksSend).
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         composerNote = nil
+        dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
         pressLine = nil
         client.attachLine[agent.session] = nil

@@ -36,6 +36,11 @@ check(ComposerExtras.dictated(base: "Yes, ", heard: "send it") == "Yes, send it"
 check(ComposerExtras.dictated(base: "Yes", heard: "  ") == "Yes", "nothing heard yet: the box as it was")
 check(ComposerExtras.micLine(.ready) == nil && ComposerExtras.micLine(.listening) == nil, "no line while it can listen")
 check(ComposerExtras.micLine(.denied)?.contains("Settings, Kosmos") == true, "refused: where to allow it")
+check(ComposerExtras.micLine(.restricted) != nil && ComposerExtras.micLine(.unavailable)?.contains("Try again") == true, "restricted and unavailable each say so")
+check(ComposerExtras.micLine(.unsupported)?.contains("language") == true && ComposerExtras.micLine(.unsupported)?.contains("Try again") != true, "an unsupported language never says try again")
+check(!ComposerExtras.dictationOverridden(current: "Yes, send it", lastWritten: "Yes, send it"), "its own words: dictation goes on")
+check(ComposerExtras.dictationOverridden(current: "", lastWritten: "ship it"), "Send cleared the box: dictation stops (no words come back)")
+check(ComposerExtras.dictationOverridden(current: "ship it 👍", lastWritten: "ship it"), "an emoji or typing: dictation stops")
 check(ComposerExtras.micLabel(listening: true) == "Stop dictating" && ComposerExtras.micLabel(listening: false) == "Dictate a message", "VoiceOver's words")
 
 section("the reasons iOS shows the first time")
