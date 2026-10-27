@@ -116,8 +116,13 @@ const STEP_CLOCK_MS = 5 * 60 * 1000;
    character (Cf: the bidi marks, embeddings, overrides and isolates, the invisible operators, tag characters) and every
    default-ignorable code point (variation selectors, Hangul fillers and the rest). By category, not by list (review 1:
    a list of the bidi marks and C1 missed U+2061-2064, U+FE00-FE0F, the tags and more, and each let a key show). */
-const STEP_INVISIBLE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
-const STEP_INVISIBLE_TEST = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u;
+/* Review 3: combining marks (Mn) and the Braille blank (U+2800) render as nothing too. */
+const STEP_INVISIBLE = /[\p{Cc}\p{Cf}\p{Mn}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+const STEP_INVISIBLE_TEST = /[\p{Cc}\p{Cf}\p{Mn}\p{Default_Ignorable_Code_Point}\u2800]/u;
+/* Review 3: the "removed" copy keeps line breaks and tabs as a space, so lines of an ordinary command (a list of
+   hashes) are not joined into one long token that reads as a key. A key split by a line break is left to secretmask's
+   own line rejoin, as on main. */
+const STEP_HIDDEN_NOT_SPACE = /(?![\t\n\v\f\r])[\p{Cc}\p{Cf}\p{Mn}\p{Default_Ignorable_Code_Point}\u2800]/gu;
 /* kosmos#7368: one tool call's step: the shell command it runs in quotes, or the tool and what it acts on. Short, one line,
    masked; never the whole input. */
 function stepOfUse(use) {
@@ -136,13 +141,19 @@ function stepOfUse(use) {
        as before; a raw cap keeps the supervisor's loop bounded (review 3 of #7368), and the cut to STEP_MAX * 3 is taken
        AFTER the fold, so padding cannot push half a key past it (review 2). */
     const bound = STEP_MAX * 3;
-    const fold = (t) => Array.from(one(t)).slice(0, bound).join('');
+    /* The WHOLE value is folded, then cut (review 3: a raw cap before the fold let collapsed padding bring the cut-off
+       front of a key into view). Folding is two linear passes, as on main; only the masking is bounded. */
+    const fold = (t) => {
+      let out = '';
+      let n = 0;
+      for (const ch of one(t)) { if (n++ >= bound) break; out += ch; }
+      return out;
+    };
     const guarded = (v) => {
-      const raw = Array.from(v).slice(0, bound * 8).join('');
-      const shownText = sm.mask(fold(raw)).text;
-      if (STEP_INVISIBLE_TEST.test(raw)
-          && (sm.mask(fold(raw.replace(STEP_INVISIBLE, ''))).fired.length
-              || sm.mask(fold(raw.replace(STEP_INVISIBLE, ' '))).fired.length)) return sm.MASK;
+      const shownText = sm.mask(fold(v)).text;
+      if (STEP_INVISIBLE_TEST.test(v)
+          && (sm.mask(fold(v.replace(STEP_HIDDEN_NOT_SPACE, ''))).fired.length
+              || sm.mask(fold(v.replace(STEP_INVISIBLE, ' '))).fired.length)) return sm.MASK;
       return shownText;
     };
     const cut = (t) => {
@@ -153,8 +164,8 @@ function stepOfUse(use) {
        a key and broke the one-line step). Only the values a step shows are masked: with no invisible character a shell
        step adds one entry to mask()'s shared cache, as before, and a tool step two; each value holding one adds two
        more (review 2). */
-    /* A C0 control or a newline inside a key is one of the invisible characters, so the "removed" copy rejoins the key
-       the display fold splits (review 1); the display itself is always the folded, masked text (review 2). */
+    /* A C0 control inside a key is one of the invisible characters, so the "removed" copy rejoins the key the display
+       fold splits (review 1); the display itself is always the folded, masked text (review 2). */
     const shown = (v) => (one(v) ? guarded(v) : '');
     try {
       const cmd = shown(input.command);

@@ -126,3 +126,27 @@ test('#7386 review 2: padding cannot push half a key past the cut and into the s
     assert.ok(!ant.includes('sk-ant-api03') && !leaks(ant, ANT, 13), pad + ' spaces let part of the key show: ' + JSON.stringify(ant));
   }
 });
+
+test('#7386 review 3: a key past heavy padding is masked wherever the padding ends (no raw cap before the fold)', () => {
+  const GHP = 'ghp_' + 'Ab3dEf5hIj7kLm9nOp1qRs3tUv5wXy7zAb9cDe1f';
+  for (const [pad, n] of [[' ', 1900], ['\n', 1905], ['\t', 1915], [' ', 1925], ['\n', 4000]]) {
+    const step = stepVia('Bash', { command: (pad === ' ' ? '' : 'x') + pad.repeat(n) + 'echo ' + GHP });
+    assert.ok(!leaks(step, GHP, 4), JSON.stringify(pad) + ' x' + n + ' let part of the key show: ' + JSON.stringify(step));
+  }
+});
+
+test('#7386 review 3: CONTROL: an ordinary multi-line command (a list of hashes) is shown, not masked whole', () => {
+  const h1 = '3f2a9c1b7e4d6a8f0c2e4b6d8f1a3c5e7b9d0f2a';
+  const h2 = '9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b';
+  const step = stepVia('Bash', { command: 'git cherry-pick ' + h1 + '\ngit cherry-pick ' + h2 });
+  assert.ok(step.startsWith('running "git cherry-pick 3f2a'), JSON.stringify(step));
+});
+
+test('#7386 review 3: a key split by a combining mark or the Braille blank is masked', () => {
+  for (const ch of ['́', '̈', '⠀']) {
+    const step = stepVia('Bash', { command: 'export K=' + split(LIVE, 11, ch) + ' && run' });
+    assert.ok(!leaks(step, LIVE, 11), 'U+' + ch.codePointAt(0).toString(16) + ' let the key show: ' + JSON.stringify(step));
+  }
+  // Control: an accented word in an ordinary command is shown as it is.
+  assert.equal(stepVia('Bash', { command: 'echo café' }), 'running "echo café"');
+});
