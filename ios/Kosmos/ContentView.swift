@@ -567,6 +567,12 @@ final class BoardWeb: ObservableObject {
             let answer = AppTabs.answer(result, error: error)
             if answer == .refused { NSLog("[Tabs] the board refused \(tab)") }
             if let back = self.tracker.answered(serial: run.serial, answer, pageURL: webView.url) { self.answeredTab = back }
+            // kosmos#7266 review 1: a + the board turned down falls back to its section or its create page.
+            switch AppTabs.createFallback(door: door, answer, pageURL: webView.url) {
+            case .projects: self.press(.projects, ready: true, section: true)
+            case .load(let url): webView.load(URLRequest(url: url))
+            case nil: break
+            }
         }
     }
 
@@ -591,7 +597,7 @@ final class BoardWeb: ObservableObject {
     func loaded() {
         // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
         // replays as a section press.
-        if let tab = tracker.pending { press(tab, ready: true, section: true, door: tracker.pendingDoor) }
+        if let replay = tracker.replay { press(replay.tab, ready: true, section: true, door: replay.door) }
         if let round = tracker.loaded(host: webView?.url?.host) { schedule(round, at: PressTracker.launchReads) }
     }
 

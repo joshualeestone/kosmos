@@ -3683,13 +3683,24 @@ do {
     var t = PressTracker()
     let waited = t.press(.agents, page: .loading, section: true, door: AppTabs.Create.agent.rawValue)
     check(waited == nil && t.pending == .agents && t.pendingDoor == "new-agent", "#7266: a create on a loading page waits, with its door kept for the replay")
-    let run = t.press(.agents, page: .ready, section: true, door: t.pendingDoor)
+    // Review 1: through the tracker's own replay rule (ContentView.loaded uses it), not a hand-built door.
+    check(t.replay?.tab == .agents && t.replay?.door == "new-agent", "#7266: a waiting create has a replay with its door")
+    let replay = t.replay ?? (tab: .agents, door: nil)
+    let run = t.press(replay.tab, page: .ready, section: true, door: replay.door)
     check(run?.script.contains("'new-agent'") == true, "#7266: the replay presses the create, not the bare section")
     _ = t.press(.agents, page: .ready)   // the native Agents tab
     check(t.pending == nil && t.pendingDoor == nil, "#7266: the native tab ends a waiting create")
     _ = t.press(.projects, page: .loading, section: true, door: AppTabs.Create.project.rawValue)
     t.loadingOwnPage()
     check(t.pendingDoor == nil, "#7266: a page the app loads itself clears a waiting create")
+    // Review 1: a create the board turned down falls back; a waiting or opened press, or no create, does not.
+    let mac = URL(string: "https://studio.kosmosplus.com/?tab=agents#x")!
+    check(AppTabs.createFallback(door: "new-project", .refused, pageURL: mac) == .projects, "#7266: a refused project create opens the board's Projects")
+    check(AppTabs.createFallback(door: "new-agent", .refused, pageURL: mac) == .load(URL(string: "https://studio.kosmosplus.com/?tab=create")!), "#7266: a refused agent create loads the board's create page on the same Mac")
+    check(AppTabs.createFallback(door: "new-agent", .noDoor, pageURL: mac) != nil, "#7266: an older board without the door falls back too")
+    check(AppTabs.createFallback(door: "new-agent", .opened, pageURL: mac) == nil && AppTabs.createFallback(door: "new-agent", .absent, pageURL: mac) == nil, "#7266: an opened or still-waiting create has no fallback")
+    check(AppTabs.createFallback(door: "new-agent", .noDoor, pageURL: URL(string: "https://login.kosmosplus.com/")!) == nil, "#7266: on the sign-in page the create still waits")
+    check(AppTabs.createFallback(door: nil, .refused, pageURL: mac) == nil, "#7266: a plain section press has no create fallback")
 }
 
 print("")

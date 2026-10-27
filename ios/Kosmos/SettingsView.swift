@@ -214,7 +214,8 @@ struct SettingsView: View {
     // kosmos#7266: the credit the Agents tab's icon needs (Font Awesome Free's icons are CC BY 4.0).
     private var about: some View {
         Section {
-            Text("The Agents icon is from Font Awesome Free, used under the CC BY 4.0 licence.")
+            // Review 1 nit: the licence linked and its holder named, as CC BY 4.0 asks.
+            Text("The Agents icon is from Font Awesome Free, \u{00A9} Fonticons, Inc., used under the [CC BY 4.0 licence](https://creativecommons.org/licenses/by/4.0/).")
                 .font(.footnote).foregroundColor(Palette.secondary)
         } header: {
             Text("About")
