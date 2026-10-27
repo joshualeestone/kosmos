@@ -1299,7 +1299,8 @@ struct RoomBubble: View {
                 .accessibilityLabel("Files: " + row.attachments.map(\.name).joined(separator: ", "))
             }
         }
-        .padding(.vertical, 8).padding(.horizontal, 12)
+        // kosmos#7347 (Josh 10-27, Mona Lisa): 10 pt by 14 pt around the words, the Mac board's proportion.
+        .padding(.vertical, 10).padding(.horizontal, 14)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
         // kosmos#7101: the board's .msg-flash, a gold-deep outline on the post a reply's header went to, fading out.
         // A 2 pt ring 2 pt out, as the board's outline-offset, its corners kept parallel to the bubble's (review 5).
