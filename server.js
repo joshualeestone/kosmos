@@ -12284,7 +12284,10 @@ const server = http.createServer(async (req, res) => {
            The tunnel names the requesting session's device and key in two headers it writes over any visitor's copy
            (x-kosmos-session-device, x-kosmos-session-key; PigeonPete's tunnel branch for #7285). Trusting them costs
            nothing here: a header can only make this refuse, never let a removal through, so a forged or missing one is
-           safe; without them (an older tunnel) nothing changes. Another device can still remove this one. */
+           safe; without them (an older tunnel) nothing changes. Another device can still remove this one. A Devices row's
+           id is always a device id, byte for byte the session's device (PigeonPete, measured on kosmos-relay
+           devices.rs list, and pinned by a tunnel test), so x-kosmos-session-device is the one that matches; the key
+           header never equals a row id and is compared only as a harmless extra. */
         if ((verb === 'remove' || verb === 'deny') && id && isRemoteRequest(req) && cloudMachine.isCloudMachine()) {
           // Every piece of a comma-joined copy counts (review 1): a header can only make this refuse, so more is safer.
           const own = (h) => { const v = req.headers[h]; return typeof v === 'string' ? v.split(',').map((x) => x.trim()).filter(Boolean) : []; };

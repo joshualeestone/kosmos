@@ -37,3 +37,7 @@ refused (Remove until kosmos-relay S4 ships; Not me always), or shown not to be 
   already refuses it; a rewrite from blank would drop this computer's ids). The log says missing or unreadable once per
   loss; the ensure() pin matches the decided line exactly. Asked PigeonPete: the header values must be the ids the
   Devices list carries, or item 1 does nothing (harmlessly).
+- Round 3 (cloudlock-7285-review3.md): 0 blockers, 0 warnings, 3 nits. CONVERGED. Fixed: missing means ENOENT (any
+  other failure to look is unreadable and never written over); the log remembers which kind of loss it said; the
+  ordinary-save test goes through remote.fedSetStanding. The route comment records PigeonPete's measurement (row ids
+  are device ids, byte for byte the session's device).

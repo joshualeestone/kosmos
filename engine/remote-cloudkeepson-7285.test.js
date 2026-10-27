@@ -39,8 +39,9 @@ test('review 1: the keep-on survives the next ordinary save (the file is repaire
   assert.equal(remote.cloudKeepsOn(), true);
   assert.equal(remote.read().on, true, 'the missing file was not written again with on');
   // An ordinary save after it (as a standing refresh makes) keeps on.
-  fs.writeFileSync(FILE, JSON.stringify({ ...JSON.parse(fs.readFileSync(FILE, 'utf8')), email: 'x@example.invalid' }));
-  assert.equal(remote.read().on, true);
+  remote.fedSetStanding('member');   // a real ordinary save (review 3), the one a status poll makes
+  assert.equal(remote.read().standing, 'member', 'premise: the save landed');
+  assert.equal(remote.read().on, true, 'an ordinary save wrote off over the repair');
   // Review 2: a file that is there but cannot be read is kept on in memory, never rewritten (its ids would go).
   fs.writeFileSync(FILE, '{ damaged');
   assert.equal(remote.cloudKeepsOn(), true);

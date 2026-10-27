@@ -1073,24 +1073,26 @@ function setRelay(relay) {
    refresh, within a poll) would write off into it. Review 2: a file that is there but cannot be read is NOT rewritten
    (every ordinary save already refuses it, and a rewrite from blank would drop this computer's ids and settings, or
    replace a good file after a passing read error): it is kept on in memory each tick. Said in the log once per loss. */
-let cloudKeptOnSaid = false;
+let cloudKeptOnSaid = '';   // the kind of loss last said ('missing' or 'unreadable'), '' once the file reads well
 function cloudKeepsOn() {
   let s;
   try { s = read(); } catch { s = { ok: false }; }
+  // Missing means not there (ENOENT); any other failure to look is unreadable, and is never written over (review 3).
   let missing = false;
-  try { missing = !fs.existsSync(FILE); } catch { missing = false; }
-  if (s.ok !== false && !missing) { cloudKeptOnSaid = false; return false; }
+  try { fs.statSync(FILE); } catch (err) { missing = !!(err && err.code === 'ENOENT'); }
+  if (s.ok !== false && !missing) { cloudKeptOnSaid = ''; return false; }
   let cloud = false;
   try { cloud = require('./cloudmachine').isCloudMachine(); } catch { cloud = false; }
   if (!cloud) return false;
   let repaired = false;
   if (missing) { try { repaired = write({ on: true }).ok === true; } catch { repaired = false; } }
-  if (!cloudKeptOnSaid) {
+  const kind = missing ? 'missing' : 'unreadable';
+  if (cloudKeptOnSaid !== kind) {
     process.stderr.write('remote: remote.json is ' + (missing ? 'missing' : 'unreadable') + ' on this Kosmos cloud machine; remote access is kept wanted, the only way in'
       + (missing ? (repaired ? ', and the file is written again with it on\n' : ', but the file could not be written\n') : '\n'));
   }
-  // A written file reads on from now, so this is not called again: a later loss in the same run is said again.
-  cloudKeptOnSaid = !repaired;
+  // A written file reads on from now, so this is not called again and a later loss in the same run is said again.
+  cloudKeptOnSaid = repaired ? '' : kind;
   return true;
 }
 
