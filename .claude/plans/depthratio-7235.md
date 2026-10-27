@@ -73,3 +73,7 @@ touch it.
   (2) The comment's range was measured before round 4's warm-up change. Re-measured with the final order, 12 runs at
   load 13 to 22: median 3.22 to 4.12, 12 of 12 under 7.5, single pairs as high as 6.0 (the median absorbed them). Whole
   file 24 of 24. The comment cites this run.
+- Round 6 (blind, sonnet, 20:0x CDT): one NIT, applied. The title inherited from #5536 said "a ratio, so machine load
+  does not decide it", the one claim still overstating the test. It now reads "a median of paired ratios, so a load
+  burst on one sample does not decide it". No other file names the title. The pattern used in these measurements
+  ("scales linearly with path depth") still matches.

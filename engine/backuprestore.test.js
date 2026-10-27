@@ -257,7 +257,7 @@ test('#5536 an empty chunk is refused, and a deep folder clash is found', async 
     'the deep folder clash is found');
 });
 
-test('#5536 the collision check scales linearly with path depth (a ratio, so machine load does not decide it)', async () => {
+test('#5536 the collision check scales linearly with path depth (a median of paired ratios, so a load burst on one sample does not decide it)', async () => {
   // Every entry is listed twice, so all are refused before any fetch and the time is the path and collision checks.
   // Measured: depth x4 costs x3.8 to x4.5 with the trie (wall time, 10-08), x13 with the quadratic check; in CPU time, as
   // now timed, a median of x3.22 to x4.12, single pairs up to x6.0 (#7235, 12 runs at load 13 to 22 on 12 cores, 10-26).
