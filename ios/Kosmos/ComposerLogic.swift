@@ -26,16 +26,20 @@ enum ComposerExtras {
         let added = b.count - a.count
         guard added >= 1, added <= returnSlack,
               b.filter({ newLine.contains($0) }).count == a.filter({ newLine.contains($0) }).count + 1 else { return nil }
-        var prefix = 0
-        while prefix < a.count && a[prefix] == b[prefix] { prefix += 1 }
-        var suffix = 0
-        while suffix < a.count - prefix && a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
-        // Back to the start of the word being corrected: the change can begin before the caret.
-        var from = prefix
-        while from > 0 && !b[from - 1].isWhitespace { from -= 1 }
-        // The first new line from where the change can begin, among those whose whole tail was already in the text (an
-        // older break further on, in the unchanged tail, is the text's own).
-        guard let at = (max(from, b.count - 1 - suffix)..<b.count).first(where: { newLine.contains(b[$0]) }) else { return nil }
+        // The last changed character must be the new line, lined up from the left and from the right alike: with older
+        // breaks around it the two can disagree, and then it is a paste, not the key.
+        func lastChanged(leftFirst: Bool) -> Int {
+            var prefix = 0, suffix = 0
+            if leftFirst {
+                while prefix < a.count && a[prefix] == b[prefix] { prefix += 1 }
+                while suffix < a.count - prefix && a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
+            } else {
+                while suffix < a.count && a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
+            }
+            return b.count - 1 - suffix
+        }
+        let at = lastChanged(leftFirst: true)
+        guard newLine.contains(b[at]), newLine.contains(b[lastChanged(leftFirst: false)]) else { return nil }
         var out = b
         out.remove(at: at)
         return String(out)
