@@ -30641,7 +30641,9 @@ function acctClaudePaintUrl(st) {
   openRow.hidden = !url;
   // S5 review: the link can arrive or go inside an unchanged phase (no repaint), so the sentence above it follows it.
   const say = document.getElementById('acct-flow-say');
-  if (changed && say && live && typeof signinSay === 'function' && (phase === 'signin-browser-open' || phase === 'signin-awaiting-code')) {
+  // Review 2: only the generic sentence is re-said; a reason on screen (a rejected code, st.because) is never replaced.
+  if (changed && say && live && typeof signinSay === 'function' && (phase === 'signin-browser-open' || phase === 'signin-awaiting-code')
+      && say.textContent === signinSay(ACCT_FLOW_SAY, phase, !url)) {
     say.textContent = signinSay(ACCT_FLOW_SAY, phase, !!url);
   }
 }
