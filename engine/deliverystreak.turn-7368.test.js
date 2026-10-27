@@ -27,6 +27,7 @@ const assert = require('node:assert/strict');
 const store = require('./store');
 const ss = require('./win32streamstate');
 const ds = require('./deliverystreak');
+const fleet = require('../test-support/fleet');
 const status = require('./status');
 const { assertSandboxedDataRoot } = require('../test-support/data-root-sandbox');
 
@@ -269,10 +270,13 @@ test('#7368 review 4 B1 (measured): two calls in one message run one after the o
   assert.equal(r.last().queued, undefined, 'taken once the last call returns');
 });
 
-test('#7368 review 4 W1: the board log says each stuck step once, again for a new step, and forgets an agent gone from the board', () => {
+test('#7368 review 4 W1: the board log says each stuck step once, again for a new step, and forgets an agent gone from the board', (t) => {
   const said = new Map();
   const st = { since: '2026-10-27T12:00:00.000Z', count: 2, lastWhy: 'turn', step: 'running "x"' };
-  const card = (stall) => ({ sessionName: 'ada', deliveryStall: stall });
+  // A real card from the fleet fixture, with only deliveryStall set (fixture-discipline: never a hand-built card).
+  const board = fleet.install([fleet.agent('ada', { state: 'working' })]);
+  t.after(() => board.restore());
+  const card = (stall) => ({ ...board.card('ada'), deliveryStall: stall });
   assert.equal(ds.turnsToSay([card(st)], said).length, 1, 'said the first time');
   assert.equal(ds.turnsToSay([card(st)], said).length, 0, 'not again the next minute');
   assert.equal(ds.turnsToSay([card(null)], said).length, 0, 'a read without it says nothing');
