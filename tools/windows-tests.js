@@ -34,6 +34,17 @@
  *
  * WHAT A GREEN HERE IS NOT: a GitHub Windows runner is a Windows Server image, run as an
  * admin, with no Kosmos user setup. It is evidence about Windows, not about a user's laptop.
+ *
+ * ON YOUR OWN WINDOWS COMPUTER (#7247): `node tools/windows-tests.js` (and `npm test`, through
+ * tools/run-tests.sh) loads tools/no-schtasks-preload.cjs into every node process the run starts,
+ * so their schtasks calls do not reach the computer's real Task Scheduler, where Kosmos keeps its
+ * board and agents. It guards node only: test:shell's bash scripts never load it, and a process
+ * started with an environment that replaces NODE_OPTIONS or leaves it out runs unguarded. Most
+ * tests stub their scheduler calls; one that does not could end a live task, such as the board's.
+ * A test that needs the real scheduler sees schtasks.exe as missing (ENOENT). On
+ * CI the preload is not loaded. To run against the real scheduler on purpose, on a computer whose
+ * tasks you can lose, set KOSMOS_TESTS_REAL_SCHTASKS=1. To see every refused call, set
+ * KOSMOS_SCHTASKS_BLOCK_LOG to a file path.
  */
 
 const fs = require('node:fs');
@@ -278,6 +289,36 @@ function failureDetail(output, expected = []) {
   return out;
 }
 
+/* #7247: the environment each test file runs with. On a Windows computer that is not CI, NODE_OPTIONS gains
+   `--require tools/no-schtasks-preload.cjs`, so the file, and every process it starts that keeps NODE_OPTIONS, is
+   kept off the live Task Scheduler, where one test that reaches it could end the board's own task. CI's runner is throwaway and its real
+   scheduler is part of what this job measures, so it is left as it was; KOSMOS_TESTS_REAL_SCHTASKS=1 asks for the
+   real scheduler on a Windows computer too. tools/run-tests.sh reads this same rule (it runs childEnv), so the two
+   runners cannot disagree. */
+const PRELOAD = path.join(__dirname, 'no-schtasks-preload.cjs');
+/* CI as the runners set it (CI=true on GitHub). CI=false or CI=0, which some shells export, is not CI. */
+function onCi(env) { return !!env.CI && !/^(false|0)$/i.test(String(env.CI)); }
+function guardsScheduler(env = process.env, platform = process.platform) {
+  return platform === 'win32' && !onCi(env) && env.KOSMOS_TESTS_REAL_SCHTASKS !== '1';
+}
+function childEnv(env = process.env, platform = process.platform) {
+  if (!guardsScheduler(env, platform)) return env;
+  /* Quoted, as the checkout's path may hold a space, and with forward slashes: NODE_OPTIONS reads a backslash inside
+     quotes as an escape, so C:\Users\... fails to load (measured on the Windows box), while C:/Users/... loads. */
+  const require_ = `--require "${PRELOAD.replace(/\\/g, '/')}"`;
+  const prior = env.NODE_OPTIONS || '';
+  /* Not added twice; a different copy of a preload already there (an older one kept outside the repo) does not count,
+     so this checkout's own is always loaded. Matched by its exact spelling on purpose: a second load of the same
+     preload only wraps wrappers that already refuse the same calls, so a missed match costs nothing. */
+  return { ...env, NODE_OPTIONS: prior.includes(require_) ? prior : (prior ? prior + ' ' : '') + require_ };
+}
+/* The one line a run prints about the scheduler on a Windows computer, guarded or not. */
+function schedulerLine(env = process.env, platform = process.platform) {
+  if (platform !== 'win32') return null;
+  if (guardsScheduler(env, platform)) return 'schtasks calls are refused in every test (#7247); KOSMOS_TESTS_REAL_SCHTASKS=1 allows the real scheduler';
+  return 'schtasks calls reach this computer\'s REAL Task Scheduler (' + (onCi(env) ? 'CI is set' : 'KOSMOS_TESTS_REAL_SCHTASKS=1') + ', #7247)';
+}
+
 function count(output, label) {
   const m = String(output).match(new RegExp('^ℹ ' + label + ' (\\d+)$', 'm'));
   return m ? Number(m[1]) : null;
@@ -287,6 +328,9 @@ function main() {
   const root = path.join(__dirname, '..');
   const files = selectFiles(fs.readdirSync(path.join(root, 'engine')), fs.readdirSync(root));
   console.log(`windows-tests: ${files.length} files, node ${process.version}, ${process.platform}`);
+  const env = childEnv();
+  const line = schedulerLine();
+  if (line) console.log('windows-tests: ' + line);
   // A selection that finds nothing would pass having run nothing.
   if (files.length === 0) { console.log('windows-tests: no test files selected; refusing to report green'); return 1; }
   const began = Date.now();
@@ -298,7 +342,7 @@ function main() {
     // can outlive it on Windows. A hang is rare enough that the next files sharing the runner with
     // an orphan is accepted, and the hang itself is still reported red.
     const run = cp.spawnSync(process.execPath, ['--test', `--test-timeout=${PER_TEST_TIMEOUT_MS}`, file], {
-      cwd: root, stdio: ['ignore', 'pipe', 'pipe'], timeout: PER_FILE_TIMEOUT_MS, encoding: 'utf8',
+      cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], timeout: PER_FILE_TIMEOUT_MS, encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
     const output = `${run.stdout || ''}\n${run.stderr || ''}`;
@@ -342,6 +386,6 @@ function main() {
   return failed.length || blocking ? 1 : 0;
 }
 
-module.exports = { selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
+module.exports = { childEnv, guardsScheduler, schedulerLine, PRELOAD, selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
 
 if (require.main === module) process.exitCode = main();
