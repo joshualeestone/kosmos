@@ -66,6 +66,16 @@ const SHAPES = [
   ['time -a -o out.txt P', true],   // review 5: time -a takes no value
   ['echo "$(echo \')\' ; P)"', true],   // review 5: a ) inside quotes does not close the substitution
   ['"/opt/my tools/nohup" P', true],   // a quoted path to a prefix word
+  // #7320: shapes the reader missed (main's readers too)
+  ['bash -c -- "P x"', true],   // -c's script is the first operand after the options
+  ['bash -c -x "P"', true],
+  ['eval P auth', true],   // eval runs its arguments as a command line
+  ['eval "P auth"', true],
+  ['coproc P', true],
+  ['sudo -R /x P', true],   // -R DIR (--chroot) takes a value
+  ['echo \\>&P', true],   // an escaped > is text, so the & cuts and P runs
+  ['eval echo P', false],
+  ['bash -c -- "echo P"', false],
   ['echo P', false],
   ['git commit -m "fix P"', false],
   ['command -v P', false],
@@ -154,4 +164,68 @@ test('#7262: both guards give the same answer for every call shape (the readers 
     delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
     fs.rmSync(stub, { recursive: true, force: true });
   }
+});
+
+test('#7320: a word a shell unescapes is read in both spellings; an unclosed "$( repeated stays cheap', () => {
+  // POSIX: $'...' and a backslash inside a word are removed by bash, so these run schtasks
+  for (const cmd of ["$'schtasks' /Query", 'sch\\tasks /Query', "x=1 $'sch''tasks'"]) assert.equal(commandRuns(cmd), true, cmd);
+  // cmd: ^ is cmd's escape, so schtas^ks runs schtasks
+  assert.equal(callRuns('cmd.exe', ['/c', 'schtas^ks /Query']), true);
+  assert.deepEqual(lineWords("$'gh' auth").includes('gh'), true);
+  // CONTROL: the escape of another word, and a caret in an argument
+  for (const cmd of ["$'node' x.js", 'echo sch\\tasks']) assert.equal(commandRuns(cmd), false, cmd);
+  assert.equal(callRuns('cmd.exe', ['/c', 'echo schtas^ks']), false);
+  // the recursion over an unclosed "$( is capped (it was quadratic: 3000 repeats took 1.5 s)
+  const t0 = Date.now();
+  commandRuns('echo "$('.repeat(3000));
+  callRuns('bash', ['-c', 'echo "$('.repeat(3000)]);
+  assert.ok(Date.now() - t0 < 500, 'took ' + (Date.now() - t0) + ' ms');
+});
+
+test('#7320 review 1: eval unescapes double quotes, an escaped launcher is a launcher, ANSI-C codes, no unescaping without a shell', () => {
+  // each ran its middle command under Git Bash or cmd (checked live with echo in its place)
+  for (const cmd of ["eval \"echo a\\\\'; schtasks; echo b\\\\'\"", 'b\\ash -c schtasks', "$'bash' -c schtasks", 'e\\nv schtasks',
+    'e\\val schtasks', "$'eval' schtasks", "$'sch\\x74asks' /q", "$'sch\\164asks' /q"])
+    assert.equal(commandRuns(cmd), true, cmd);
+  assert.equal(callRuns('cmd', ['/c', 'c^md /c schtasks']), true);
+  // CONTROL: eval of an escaped quote only prints; no shell reads a spawn argument
+  assert.equal(commandRuns('eval "echo \\"x; schtasks\\""'), false);
+  assert.equal(callRuns('env', ['sch\\tasks']), false);
+  // after /c, cmd drops the outer quotes, so the caret escapes again: "ec^ho" hi printed hi (measured live)
+  assert.equal(callRuns('cmd', ['/c', '"sch^tasks"'], { windowsVerbatimArguments: true }), true);
+  assert.equal(commandRuns('echo "sch^tasks"'), false, 'a caret inside quotes in an argument is text');
+});
+
+test('#7320 review 2: a flat chain of escaped prefixes; \\U and NUL in $\'...\'; one-pass unescaping', () => {
+  // bash ran each (checked live with echo in place of schtasks)
+  for (const cmd of ['n\\ice '.repeat(8) + 'schtasks', 'e\\val '.repeat(5) + 'schtasks', "$'\\U73'chtasks /q", "$'schtasks\\0junk' /q"])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: spellings bash does not produce (it runs sch\tasks, or reads A=1 as a command)
+  for (const cmd of ["$'sch\\\\tasks' /q", "\\$'sch'tasks /q", "$'sch\\x27tasks' /q"]) assert.equal(commandRuns(cmd), false, cmd);
+  const t0 = Date.now();
+  commandRuns('n\\ice '.repeat(16000) + 'schtasks');
+  assert.ok(Date.now() - t0 < 2000, 'took ' + (Date.now() - t0) + ' ms');
+});
+
+test('#7320 review 3: nested env -S with escaped values stays cheap; $"..." quoting; C escapes in $\'...\'', () => {
+  // was 98 s at n = 4000 (each level branched eight ways); main took 0 ms
+  const line = 'env -S A=\\\\\'1\' '.repeat(6) + 'x '.repeat(4000);
+  const t0 = Date.now();
+  commandRuns(line);
+  callRuns('bash', ['-c', line]);
+  assert.ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms');
+  // and the memo does not hide a real one: the same nesting still finds schtasks at its end
+  assert.equal(commandRuns('env -S A=\\\\\'1\' '.repeat(3) + 'schtasks'), true);
+  // bash runs $"echo" HIT (checked live)
+  for (const cmd of ['$"schtasks" /q', 'sch$"t"asks /q']) assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: \t in $'...' is a tab, so sch<TAB>asks is not schtasks
+  assert.equal(commandRuns("$'sch\\tasks' /q"), false);
+});
+
+test('#7320 review 4: the env -S memo tells apart word lists that join to the same text', () => {
+  // the second command really runs schtasks (GNU env runs env -u x schtasks); a memo keyed on joined text hid it
+  assert.equal(callRuns('bash', ['-c', "env -S \"-S -u 'x\\\" \\\"schtasks'\"; bash -c 'env -S -u \"x\" \"schtasks\"'"]), true);
+  assert.equal(callRuns('env', ['-S', 'env -S -u', 'x" "schtasks']), true);
+  // CONTROL: the one-argument form alone runs nothing
+  assert.equal(callRuns('env', ['-S', '-u', 'x" "schtasks']), false);
 });

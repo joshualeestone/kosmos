@@ -436,3 +436,77 @@ test('#7270 review 7: a redirect in the slot of a switch\'s value is skipped, an
     'time -o schtasks.txt node x.js', 'powershell -EncodedCommand >nul ' + Buffer.from('Write-Output schtasks', 'utf16le').toString('base64')])
     assert.equal(commandRuns(cmd), false, cmd);
 });
+
+test('#7299: redirects among prefix switches, each prefix word\'s own value switches, and env --', () => {
+  for (const cmd of ['env -- schtasks', 'env -- A=1 schtasks', 'nice >x -n 5 schtasks', 'timeout >x -k 1 5 schtasks',
+    'time -o t.txt schtasks', 'exec -a name schtasks'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: a lookup with a redirect among its switches, a redirect file named like a switch, a value switch
+  // another prefix word does not have, and env -- running something else
+  for (const cmd of ['command >nul -v schtasks', 'command 2>/dev/null -p -v schtasks', 'nice >-n 5 node x.js',
+    'env -- node x.js', 'env -- -C schtasks.exe'])
+    assert.equal(commandRuns(cmd), false, cmd);
+  // nohup has no -o value, so -o no longer swallows the program after it: refused (nohup rejects -o, so the refusal is safe)
+  assert.equal(commandRuns('nohup -o schtasks.exe'), true);
+});
+
+test('#7299: a combined short switch ending in the valued letter takes the next word, and env -S is read as env\'s own arguments', () => {
+  // measured by Angel against 16df97ffb5: each was let through
+  for (const cmd of ['exec -la name schtasks', 'time -vo t.txt schtasks', 'timeout -vk 5 10 schtasks', 'nice -vn 5 schtasks',
+    'timeout >-k 5 schtasks', 'env -S "-- schtasks"', 'env -S "A=1 schtasks /End"', 'env -S"schtasks /End"', 'env -S "schtasks /End"'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL
+  for (const cmd of ['exec -la name node x.js', 'time -vo schtasks.txt node x.js', 'timeout -vk 5 10 node x.js', 'env -S "-- node x.js"',
+    'env -S "node x.js"'])
+    assert.equal(commandRuns(cmd), false, cmd);
+});
+
+test('#7299 review 1: the first valued letter of a combined switch takes the rest of the word; env -S past a redirect; env -iu', () => {
+  // exec -aa echo ran echo under bash (checked live); time follows GNU getopt af:o:pqvV
+  for (const cmd of ['exec -aa schtasks /query', 'time -oo schtasks', 'time -fXo schtasks', "env -S >x 'schtasks /query'",
+    'env -iu X schtasks', 'env -iS "schtasks /End"'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL
+  for (const cmd of ['exec -aa node x.js', 'time -vo t.txt node x.js', "env -S >x 'node x.js'", 'env -iu X node x.js',
+    'nice -n 10 node test.js'])
+    assert.equal(commandRuns(cmd), false, cmd);
+});
+
+test('#7299 review 2: env -S is split by env\'s own rules, and long options are read as GNU prefixes', () => {
+  // each ran its command live with echo in place of schtasks
+  for (const cmd of ['env -S "-u >b" schtasks', "env -S '-u a;b' schtasks", "env -S 'schtasks\\_/End'", 'env --unse X schtasks',
+    'nice --adj 5 schtasks', 'timeout --kill 5 10 schtasks', 'timeout --sig KILL 10 schtasks', "env --spl '-i schtasks'",
+    'time --out x schtasks', "env --split-s='schtasks /End'"])
+    assert.equal(commandRuns(cmd), true, cmd);
+  for (const args of [['-S', '-u', '>b', 'schtasks'], ['-S', '-u', 'a;b', 'schtasks'], ['-S', '-S"-u X"', 'schtasks']])
+    assert.equal(callRuns('env', args), true, JSON.stringify(args));
+  // CONTROL
+  for (const cmd of ['env -S "-u >b" node x.js', 'nice --adj 5 node x.js', 'timeout --sig KILL 10 node x.js', "env -S 'echo\\_schtasks'",
+    'env --unset=X node x.js'])
+    assert.equal(commandRuns(cmd), false, cmd);
+});
+
+test('#7299 review 3: a joined -S read with and without the shell\'s quotes; env\'s #, \\c, \\\' and ${VAR}', () => {
+  // the joined forms ran their command live (bash -c "env -S'A=1 printf' ..." printed)
+  for (const cmd of ["env -S'A=1 schtasks'", 'env -S"A=1 schtasks"', "env --split-string='A=1 schtasks'", "env -iS'A=1 schtasks'",
+    "env -S'-- schtasks'", 'env -S"-- schtasks"', 'env -S "A=1\\\\_schtasks"'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  for (const args of [['-S', '#', 'schtasks'], ['-S', 'schtasks\\c'], ['-S', 'sch${NOPE}tasks'], ['-S', "A='\\'' schtasks"]])
+    assert.equal(callRuns('env', args), true, JSON.stringify(args));
+  // CONTROL
+  for (const cmd of ["env -S'A=1 node x.js'", "env --split-string='-- node x.js'"]) assert.equal(commandRuns(cmd), false, cmd);
+  for (const args of [['-S', '# schtasks', 'node', 'x.js'], ['-S', 'node\\c schtasks']])
+    assert.equal(callRuns('env', args), false, JSON.stringify(args));
+});
+
+test('#7299 review 4: any word holding = is an env assignment; env -S is also read as a shell line; ${VAR} only where env expands it', () => {
+  // each ran schtasks' stand-in for real under Git Bash and env 8.32
+  assert.equal(callRuns('env', ['-S', 'a-b=1; schtasks']), true);
+  for (const cmd of ["env -S 'a-b=1; schtasks'", "env -S \\';\\schtasks", 'env a.b=1 schtasks', 'env -- -a=1 schtasks'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: the same shapes running something else; ${VAR} inside single quotes is text, so the program is that word
+  for (const cmd of ["env -S 'a-b=1; node x.js'", 'env a.b=1 node x.js', "env -S 'node x.js' --flag=1"])
+    assert.equal(commandRuns(cmd), false, cmd);
+  assert.equal(callRuns('env', ['-S', "'sch${X}tasks'"]), false);
+  assert.equal(callRuns('env', ['-S', 'sch${X}tasks']), true);
+});
