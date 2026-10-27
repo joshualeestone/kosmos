@@ -36,7 +36,7 @@ late in the day archives up to a day less than asked. If Mona wants the exact ti
 stay held instead.
 
 ## Proof
-`server.room-archive-7365.test.js` (12 tests) and one in `server.roomread-seen-4926.test.js`, real rows through the real route. Mutation-proven: dropping the live-only
+`server.room-archive-7365.test.js` (13 tests) and one in `server.roomread-seen-4926.test.js`, real rows through the real route. Mutation-proven: dropping the live-only
 text walk, the live paging, the archive paging, the row marking, the count rule, the age rule and the future-time
 refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read rooms or route lists): 1,058/1,058.
 
@@ -85,3 +85,11 @@ refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read roo
      mutation-proven. See the second weakest premise.
    - (N) The staleHeld comment in messages.js now says the read stops at the archive; the header says one undated row
      keeps a room live; the chmod test skips as root. Not done: pruning markers of deleted projects.
+6. (sonnet, 16:0x CDT) 0 BLOCKERs, 2 WARNINGs, 3 NITs.
+   - (W) Undo on a broken file with nothing to undo copied it aside and left it, so each press piled up a copy: it now
+     replaces the file. Tested, mutation-proven.
+   - (W) Removing a project left its marker, and project ids are reused: the DELETE route now drops it, beside the
+     other per-project cleanups. Tested with a control room, mutation-proven.
+   - (N) roomarchive.js is on the #5434 list of owner-only writers (writeSecret at 0600, no hand rename). Deferred: a
+     content-type check (the sibling Reopen route has none; cross-site writes are refused before routing), and a
+     mixed time-format test (a row in another format ends the run early, the safe direction, as the header says).
