@@ -729,17 +729,25 @@ test('#6726 r5-1: a project at a folder that holds home through another spelling
    guide's folder check in keepAgentReply, are not the attach's). The roster is the fleet's (leo and mara); nothing
    is created in the sandbox's launch folder. */
 test('#6726 r5-3: one attach reads each agent\'s instructions path once', () => withLeo(async (board) => {
+  /* #7232: keptRoots reads each agent's folder through create.workerDir, not instructions.fileFor (which also read the
+     launch job for a brief name keptRoots never used), so both are counted: fileFor once for the sender's Files, and a
+     workerDir of its own (outside fileFor) once per agent. */
   const instructions = require('./engine/instructions');
+  const create = require('./engine/create');
   const src = write(path.join(PROJ, 'cuts', 'count.txt'), 'x');
   const real = instructions.fileFor;
+  const realDir = create.workerDir;
   let calls = 0;
-  instructions.fileFor = (...a) => { calls += 1; return real(...a); };
+  let inFileFor = 0;
+  let dirs = 0;
+  instructions.fileFor = (...a) => { calls += 1; inFileFor += 1; try { return real(...a); } finally { inFileFor -= 1; } };
+  create.workerDir = (...a) => { if (!inFileFor) dirs += 1; return realDir(...a); };
   let got;
-  try { got = replyfile.attach(WHO, src, { roster: board.roster }); } finally { instructions.fileFor = real; }
+  try { got = replyfile.attach(WHO, src, { roster: board.roster }); } finally { instructions.fileFor = real; create.workerDir = realDir; }
   assert.equal(got.ok, true, JSON.stringify(got));
   replyfile.discard(got.rec);
-  assert.ok(calls >= 2, 'the agents were not read at all, so this arm proves nothing: ' + calls);
-  assert.ok(calls <= 3, 'one attach read the instructions path ' + calls + ' times for two agents (one each, plus the sender\'s Files)');
+  assert.ok(dirs >= 2, 'the agents were not read at all, so this arm proves nothing: ' + dirs);
+  assert.ok(calls + dirs <= 3, 'one attach read the agents\' folders ' + (calls + dirs) + ' times for two agents (one each, plus the sender\'s Files)');
 }));
 
 /* Review r5 finding 4: a container's Documents opens only to a project inside that container. */

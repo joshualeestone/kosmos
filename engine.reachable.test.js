@@ -20,7 +20,9 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
-  winSpellingRefusalForTests: 'test seam (#7221): engine/replyfile.js\'s Windows spelling rule, so engine/replyfile.win32-7221.test.js can check every spelling without a disk or a Windows box. Production reaches it through attach.',
+  setTableForTests: 'test seam (#7232): engine/windrives.js answers from this drive table (or as unknown) instead of the one it learns from Windows, so engine/replyfile.win32-7221.test.js can stand a dead mapped drive Z: in without mapping one. It throws outside a test process (store.isTestProcess). Production learns the table at board start.',
+  parseForTests: 'test seam (#7232): engine/windrives.js\'s reader for its PowerShell output, so engine/replyfile.win32-7221.test.js can check a network drive with no share named, an absent letter and an empty answer without a Windows box. Production reaches it through the board-start and attach-time learns.',
+  winSpellingRefusalForTests:'test seam (#7221): engine/replyfile.js\'s Windows spelling rule, so engine/replyfile.win32-7221.test.js can check every spelling without a disk or a Windows box. Production reaches it through attach.',
   setRecordMaxBytesForTests: 'test seam (#5536 slice 3): engine/restoresink.js\'s cap on the resume record, which engine/restoreresume-5536.test.js lowers to reach the dropped-record path without writing 256 MB. Production keeps the cap.',
   setTokenFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s path for agy\'s sign-in file, so engine/agyusage-6176.test.js and server.agyusage-6176.test.js can stand a file in for it; production checks the real path in the person\'s home folder.',
   setStoppedFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s record that asking stopped after a failed run, so engine/agyusage-6176.test.js can show it outlives a restart without touching the person\'s Kosmos folder (production refuses it in a test process).',

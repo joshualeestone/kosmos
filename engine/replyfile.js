@@ -52,6 +52,27 @@ const projects = require('./projects');
 const store = require('./store');
 /* #7221: how Windows spells a path, read without touching the disk (engine/winpath.js). */
 const { isNoFileNamespace, isNamespaceSpelling, isLongDrivePath, isDevicePart, isNetworkSpelling, driveOf, followableLinkTarget, shareOf, asShareSpelling, isPlainShare, isLocalVolumeSpelling, asDrivePath, writtenInside, sameWrittenPath, mayHold } = require('./winpath');
+/* #7232: which drive letters are network drives, and their shares, learned without contacting a server. */
+const windrives = require('./windrives');
+
+/* #7232: a path written on a drive letter, spelled on the share that letter maps to (Z:\x\y on \\srv\s is \\srv\s\x\y). */
+function onShareOf(share, p) {
+  return path.win32.join(share, asDrivePath(p).slice(2) || '\\');
+}
+/* #7232: where `p` is when it is written on ANOTHER computer: { share } (its share spelling, or null when the share of
+   its mapped drive is not known, so where it is cannot be named), or null when it may be on this computer, or when the
+   drive table is unknown (then everything is as before #7232). A plain \\host\share whose host may be this computer
+   (windrives.isThisComputer) is on this computer; so is a mapped drive whose share is on this computer. */
+function elsewhereOf(p) {
+  if (!windrives.known()) return null;
+  if (isNetworkSpelling(p)) {
+    if (!shareOf(p)) return null;   // a namespace that names no share: as before
+    const unc = asShareSpelling(p);
+    return windrives.isThisComputer(windrives.hostOf(unc)) ? null : { share: unc };
+  }
+  const place = windrives.placeOf(driveOf(p));
+  return place && place.remote ? { share: place.share ? onShareOf(place.share, p) : null } : null;
+}
 
 /* The type a stored file is described by, from its extension. The page words the
    card from it (pjFileWord) and the download carries it with nosniff, an attachment
@@ -195,22 +216,36 @@ function aboveIds(p) {
    runner switch leaves the old name's file behind. Every agent is listed: the sender, the roster the route hands
    in, and every agent created on this computer. */
 const KOSMOS_WRITES = ['Files', 'Inbox', 'start.log'].concat(...['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'].map((b) => [b, b + '.previous']));
-function keptRoots(sessionName, roster) {
+function keptRoots(sessionName, roster, { win = false, real = '' } = {}) {
   const home = process.env.AGENT_WORKFORCE_HOME || os.homedir();
   let legacy = null;
   try { legacy = store.dataRootFor(process.platform, home, process.env, store.LEGACY_APP); } catch { legacy = null; }
-  const workers = require('./create').workersDir();
+  const create = require('./create');
+  const workers = create.workersDir();
   const workersId = idOf(workers);
   const named = [store.ROOT, workers, path.join(home, '.config'), path.join(home, '.ssh')];
   if (legacy) named.push(legacy);
-  /* One pass over the agents, one instructions.fileFor each (it reads the agent's profile and launch job), and
-     everything else derived from that folder: review r5 finding 3. */
-  const instructions = require('./instructions');
+  /* #7232 B4: what Kosmos writes in an agent folder on ANOTHER computer, by its share spelling, matched with mayHold
+     (erring toward yes) since it is never stat'd. */
+  const keptShares = [];
+  /* One pass over the agents, one folder each, and everything else derived from that folder: review r5 finding 3.
+     #7232 B4: the folder is create.workerDir (what instructions.fileFor's dirname always was), not fileFor, which also
+     read the agent's launch job (schtasks on a cold cache) for a brief name this never used. On Windows the recorded
+     folder's SPELLING is read first, with no lstat: one on another computer (a share, or a mapped drive whose server is
+     not this one) holds no file on this computer, so for a local file the agent is passed over without touching it;
+     for a file on a share, Kosmos's own files there are kept by spelling. Where the share cannot be named, as before. */
   for (const name of agentNames(sessionName, roster)) {
-    let brief = null;
-    try { brief = instructions.fileFor(name); } catch { brief = null; }
-    if (typeof brief !== 'string' || !brief) continue;
-    const own = path.dirname(brief);
+    let key;
+    try { key = store.safeKey(name); } catch { continue; }
+    if (win) {
+      const spelled = create.recordedDirSpelling(key);
+      const away = spelled ? elsewhereOf(spelled) : null;
+      if (away && !isNetworkSpelling(real)) continue;
+      if (away && away.share) { for (const f of KOSMOS_WRITES) keptShares.push(path.win32.join(away.share, f)); continue; }
+    }
+    let own = null;
+    try { own = create.workerDir(key); } catch { own = null; }
+    if (typeof own !== 'string' || !own) continue;
     if (workersId && aboveIds(own).has(workersId)) { named.push(own); continue; }   // a created agent: all of it
     for (const f of KOSMOS_WRITES) named.push(path.join(own, f));
   }
@@ -226,6 +261,7 @@ function keptRoots(sessionName, roster) {
     mobileDocsId: idOf(path.join(lib, 'Mobile Documents')),
     cloudStorageId: idOf(path.join(lib, 'CloudStorage')),
     kept: new Set(named.map(idOf).filter(Boolean)),
+    keptShares,
   };
 }
 
@@ -262,14 +298,45 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
      contact this guards (review 2 finding 3: a file on a mapped-drive project used to resolve every share-written
      project, other agents' included). */
   const fileShare = win ? shareOf(real) : null;
-  /* The deepest project holding the file, by identity: the one whose folder is nearest the file in its chain. */
+  /* Where in the file's chain a project folder is (0 the file itself, 1 its folder, ...), by identity, or -1. Each
+     folder string is resolved at most once per attach (#7232: de-duplicated within ONE attach only; a verdict is never
+     kept across attaches, so a folder made or a link swapped since is always seen). */
+  const depthCache = new Map();
+  const depthOf = (folder) => {
+    if (depthCache.has(folder)) return depthCache.get(folder);
+    let root = null;
+    try { root = projects.folderState(folder).real; } catch { root = null; }
+    const rid = root ? idOf(root) : null;
+    const at = rid ? { root, rid, i: chain.findIndex((c, n) => n > 0 && c.id === rid) } : { i: -1 };
+    depthCache.set(folder, at);
+    return at;
+  };
+  const listsMe = (p) => (p.agents || []).includes(sessionName);
+  const usable = (p) => p && typeof p.folder === 'string' && p.folder;
+  /* #7232 B3: the agent's OWN projects first. None holding the file is a refusal (as it always was: the deepest
+     project would then not be the agent's), said before any other agent's folder is touched, so an attach of a file in
+     no project of the agent's never walks or resolves the board's other folders. A folder of the agent's own on
+     another computer (a share, or a mapped drive whose server is not this one) cannot hold a file on this computer, so
+     for a local file it is passed over unresolved; where that cannot be told (the table unknown, the share not named),
+     it is resolved as before. */
   let best = null;
+  for (const p of all) {
+    if (!usable(p) || !listsMe(p)) continue;
+    if (win && !fileShare && !isNetworkSpelling(real)) {
+      const away = elsewhereOf(p.folder);
+      if (away && away.share) continue;
+    }
+    const at = depthOf(p.folder);
+    if (at.i < 0) continue;
+    if (!best || at.i < best.depth) best = { root: at.root, rid: at.rid, depth: at.i, mine: true };
+  }
+  if (!best) return null;
   /* Projects of OTHER agents left unresolved below. A nested project the agent is not on exists to keep its files
      from the outer project's agents, so skipping it must not let the outer project answer instead (review 5 finding
      1): after the loop, a skipped one whose folder may hold the file refuses the attach. */
-  const skippedOthers = [];   // read only after best is the agent's: with no project of its own there, it is refused anyway
+  const skippedOthers = [];
   for (const p of all) {
-    if (!p || typeof p.folder !== 'string' || !p.folder) continue;
+    if (!usable(p) || listsMe(p)) continue;
     /* Only ANOTHER agent's project folder is ever left unresolved, and only when it leads to a share. The agent's own
        folders are resolved as on main, a share among them included: the person chose that share (review 11 finding
        2). Another agent's folder written as a share (any agent can register one) is resolved only for a file on that
@@ -279,27 +346,20 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
        identity decides; skipping those let a nested project's files through (review 11 finding 1). A folder written
        as a local volume (\\?\Volume{GUID}\) is walked like a drive path and resolved unless its links lead to a share
        (review 19 finding 1). */
-    if (win && !(p.agents || []).includes(sessionName)) {
+    if (win) {
       const skipped = otherFolderSkip(p.folder, fileShare);
       if (skipped) { skippedOthers.push(skipped); continue; }
     }
-    let root = null;
-    try { root = projects.folderState(p.folder).real; } catch { root = null; }
-    const rid = root ? idOf(root) : null;
-    if (!rid) continue;
-    const i = chain.findIndex((c, n) => n > 0 && c.id === rid);
-    if (i < 0) continue;
-    const mine = (p.agents || []).includes(sessionName);
-    if (!best || i < best.depth) best = { root, rid, depth: i, mine };
-    /* Several projects on the same deepest folder (review r7 finding 2): the agent is on it if ANY of them lists it,
-       so the order projects.json happens to list them in never decides. */
-    else if (i === best.depth && mine) best.mine = true;
+    /* A project of another agent nearer the file than every one of the agent's own is the deepest, and not the agent's:
+       refused, as it always was. One at the SAME deepest folder changes nothing (review r7 finding 2): the agent is on
+       that folder if ANY project there lists it, so the order projects.json happens to list them in never decides. */
+    const at = depthOf(p.folder);
+    if (at.i >= 0 && at.i < best.depth) return null;
   }
-  if (!best || !best.mine) return null;
   const holds = skippedOthers.map((s) => skippedMayHold(s, given, real));
   if (holds.includes('held')) return null;
   if (holds.includes('unplaced')) return { refused: OTHER_FOLDER_UNPLACED };
-  const k = keptRoots(sessionName, roster);
+  const k = keptRoots(sessionName, roster, { win, real });
   /* A project whose folder IS the home folder or CONTAINS it (/Users, /, the Data volume root), or holds the data
      root or the workers root, gives nothing (review r3 finding 3), wherever those roots live and however the folder
      is spelled. Two layers:
@@ -326,6 +386,7 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
   if (rootHolds(k.home, k.homeId) || rootHolds(k.data, k.dataId) || rootHolds(k.workers, k.workersId)
     || heldBelowRoot(k.homeId) || heldBelowRoot(k.dataId) || heldBelowRoot(k.workersId)) return { refused: WIDE_PROJECT };
   if (chain.some((c) => c.id && k.kept.has(c.id))) return { refused: KEPT_FOR_KOSMOS };
+  if (k.keptShares.some((f) => mayHold(f, given, real))) return { refused: KEPT_FOR_KOSMOS };   // #7232 B4, by spelling
   const hidden = hiddenRefusal(given, chain, best.depth, k);
   if (hidden) return { refused: hidden };
   if (k.libraryId && chain.some((c, n) => n > 0 && c.id === k.libraryId) && !libraryOpen(chain, k, best.depth)) return { refused: IN_LIBRARY };
@@ -347,6 +408,13 @@ function otherFolderSkip(folder, fileShare) {
     if (holdsNoFiles(folder)) return { folder, kind: 'nowhere', leadsTo: null };
     return { folder, kind: 'share', leadsTo: shareOf(folder) ? asShareSpelling(folder) : null };
   }
+  /* #7232 B1: a folder written on a mapped drive of ANOTHER computer is the share that drive maps to, read from the
+     drive table with nothing touched (its lstat walk and its realpath were the contact that stalled an attach on a dead
+     server): left unresolved and judged by where it leads, as a link to that share is below. Its share not known ->
+     leadsTo null -> 'unplaced', fail closed. Resolved as before when the file is on that same share (the server just
+     answered for it), as a folder written as that share is above. */
+  const away = isLocalVolumeSpelling(folder) ? null : elsewhereOf(folder);
+  if (away && fileShare && away.share && shareOf(away.share) === fileShare) return null;
   let leadsTo = null;
   let leadsNowhere = false;
   const noteShare = (cur, to, rest) => {
@@ -357,7 +425,18 @@ function otherFolderSkip(folder, fileShare) {
   /* A folder written as a local volume (\\?\Volume{GUID}\...) is walked too: it is on this computer, but a link below
      its root can still lead to a share (review 19 finding 1), so the volume spelling is accepted where the walk meets
      it and its parts are lstat'd like a drive path's. */
-  const onPath = (reached) => (isLocalVolumeSpelling(reached) ? null : winSpellingRefusal(reached, null));
+  /* #7232 B1/B2: each path the walk reaches (the folder as written, then where each link leads) is placed by the drive
+     table before any of its parts is read: on a mapped drive of another computer it leads to that drive's share (null
+     when not named: fail closed); on a letter no drive has, nowhere (its realpath would only say ENOENT). */
+  const onPath = (reached) => {
+    if (isLocalVolumeSpelling(reached)) return null;
+    const why = winSpellingRefusal(reached, null);
+    if (why) return why;
+    const place = windrives.placeOf(driveOf(reached));
+    if (place && place.absent) return DEAD_LINK;
+    if (place && place.remote) { leadsTo = place.share ? onShareOf(place.share, reached) : null; return ON_NETWORK; }
+    return null;
+  };
   const walked = walkLinks(asDrivePath(folder), onPath, 0, noteShare);
   if (walked === ON_NETWORK) return { folder, kind: leadsNowhere ? 'nowhere' : 'share', leadsTo };
   if (walked === DEAD_LINK || walked === TOO_MANY_LINKS) return { folder, kind: 'nowhere', leadsTo: null };
@@ -449,15 +528,15 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    and the realpath after it (the first one, and readOwn's second, which runs the walk again just before it): the
    realpath may already have made the contact, and for a file written inside one of the agent's project folders the
    open is not refused either (a project's files may be share paths by design); everywhere else the open is
-   refused; (b) the OTHER folders an attach resolves to judge containment: a project
-   folder on a drive letter that is mapped to a share (telling a mapped letter apart needs a call Node does not
-   have; the lstat walk of that folder touches the share too, before its realpath does; every registered project
-   folder's links are walked on each Windows attach of a project file, cheap on local disks, growing with the
-   number of projects), and the folders Kosmos
+   refused; (b) the OTHER folders an attach resolves to judge containment. #7232 narrowed this: a folder on a
+   mapped drive of another computer (engine/windrives.js, the drive table, learned without contacting a server) is
+   no longer walked or resolved, nor is an agent's recorded folder there for a local file, and another agent's
+   folders are not touched at all unless one of the agent's own projects holds the file. Still open: a letter
+   remapped between table refreshes (a remote letter that became local inside the 60 s window is the one narrow
+   fail-open), a mount the table calls local that is not (WinFsp, cloud drives), the table unknown (all as before),
+   the cost on local disks still growing with the number of projects, and the folders Kosmos
    itself made (the Files folder and its parent, each agent's folder, ~/.ssh, ~/.config), which a person or a
-   process of this user would have to replace with a link to a share; and every agent's RECORDED folder, which for
-   a connected agent is its own working folder and may simply be written as a share or a mapped drive: keptRoots
-   stats it and instructions.fileFor lstats it on each project-file attach, as on main (#7232); (c) a share is
+   process of this user would have to replace with a link to a share; (c) a share is
    matched by how it is WRITTEN (review 4 finding 2): a project written \\fileserver\x whose real path reads
    \\10.0.0.5\x (or a DFS path, or another name for the server) is not matched to its files, which are then refused,
    where main matched by identity. Write the project folder as Windows resolves it; (d) a link that IS one of the
@@ -528,6 +607,11 @@ function drivesReached(p, out) {
     const d = driveOf(reached);
     if (!d) return 'not on a drive';   // stops the walk; why is not needed here
     out.add(d);
+    /* #7232 B5: a root on a mapped drive of another computer, or on a letter no drive has, is not walked: its letter is
+       what it reaches, and lstat'ing its parts is the contact a dead server stalls. Stopping early only ever reaches
+       fewer drives, which refuses more. */
+    const place = windrives.placeOf(d);
+    if (place && (place.absent || place.remote)) return 'not walked';
     return null;
   });
 }

@@ -25998,6 +25998,10 @@ function start(port = PORT) {
   try { attachments.sweepOrphans(); } catch { /* best effort */ }
   setInterval(() => { try { attachments.sweepOrphans(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   require('./engine/agentnames').setFleetSource(() => nameCheckFleet());   // #5957: one display name per agent
+  /* #7232: the drive table a reply attach reads (which letters are network drives, and their shares), learned in the
+     background now and every minute, so an attach rarely waits on it. Windows only; a no-op elsewhere. There is no
+     projects-change hook here: an attach meeting a letter the table does not list learns it again once. */
+  try { require('./engine/windrives').startRefreshing(); } catch { /* unknown table: attach behaves as before */ }
   /* #5535 E0.6 slice (d): the company backup tick, hourly and only while orgenroll.mayReport (enrolled here AND the
      company's words accepted here). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
      while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a

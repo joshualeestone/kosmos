@@ -5,7 +5,23 @@
 Addresses #7232 (Windows reply attach: the per-attach project-folder walk/resolve grows with the board, a dead mapped
 drive stalls it, and per-agent profile dirs on a share are touched on every attach). Design produced 10-27 from a
 read-only study of engine/replyfile.js (#7221's hardening), engine/winpath.js, engine/projects.js, engine/create.js,
-engine/instructions.js. NOT YET BUILT.
+engine/instructions.js. BUILT 10-27 (A, B1-B5, tests); real dead-drive check not run (needs Josh's sign-out go).
+
+## Decided while building
+- B1 keeps #7221's same-share rule: another agent's folder on a remote letter is RESOLVED (not skipped) when the file
+  itself is on that letter's share, as a folder written as that share already is. The server just answered for the
+  file, so it is no stall; skipping it would judge by spelling and refuse an agent's own file when another project row
+  lists the same folder (review r7 finding 2's case). Links onto a remote letter are skipped by spelling, like links to
+  a share.
+- B1 also covers a link in another agent's folder that leads onto a remote letter (the walk places each reached path),
+  and B3 also passes over the agent's OWN project on a remote letter for a local file (same reasoning as B1: another
+  computer cannot hold a file on this one). Both fail closed where the share is unknown.
+- Share-spelled folders (\\host\share) are placed only when the drive table is known, so an unknown table is exactly
+  as before everywhere.
+- Refresh: board start + every 60 s (windrives.startRefreshing from server.js start), plus one re-learn per unlisted
+  letter. No projects.json change hook exists to reuse; a CLI process writing projects.json must not spawn PowerShell.
+- A learn that fails is not retried in the foreground for 60 s (else every attach would pay the 3 s timeout).
+- keptRoots uses create.workerDir on every platform (what fileFor's dirname always was), dropping readJob per agent.
 
 ## Done when (from the card)
 - An attach of a project file on a board with ~200 projects, one on a mapped drive whose server is down, answers in

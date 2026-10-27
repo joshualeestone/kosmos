@@ -1091,3 +1091,316 @@ test('#7250: a Files folder that is ITSELF a link to a share is refused without 
     fs.rmSync(filesLink, { force: true });
   }
 });
+
+/* ---------- #7232: the drive table (engine/windrives.js) ---------- */
+
+/* Z: is a mapped drive of another computer, \\10.255.255.1\zshare, in a drive table the test fixes
+   (windrives.setTableForTests). The disk is stood in for by wrapping fs (and projects.folderState): every Z:\ path and
+   every path on that share is counted, and is either refused at once as a dead server would after its stall
+   ("touched"; with stallMs, after busy-waiting that long, so a regression is slow as well as counted), or, for a live
+   server, served from a sandbox folder, with real paths read back on the share as Windows reads a mapped drive. Each
+   arm's control is that, without #7232, Z: is touched (and, for the scale arm, the attach then takes the stall). */
+const windrives = require('./windrives');
+const store = require('./store');
+const ZSHARE = '\\\\10.255.255.1\\zshare';
+const HERE = WIN ? winpath.driveOf(SANDBOX) : 'C';
+const zTable = (z) => ({ [HERE]: { kind: 'local', share: null }, ...(z ? { Z: z } : {}) });
+const Z_REMOTE = { kind: 'remote', share: ZSHARE };
+let zWorld = null;
+function zMap(p) {
+  if (!zWorld || (typeof p !== 'string' && !(p instanceof Buffer))) return null;
+  const s = String(p);
+  let rest = null;
+  if (/^(?:\\\\\?\\)?[Zz]:/.test(s)) { zWorld.touches.z++; rest = s.replace(/^(?:\\\\\?\\)?[Zz]:/, ''); }
+  else if (s.toLowerCase().startsWith(ZSHARE.toLowerCase())) { zWorld.touches.share++; rest = s.slice(ZSHARE.length); }
+  else return null;
+  if (!zWorld.alive) {
+    const until = Date.now() + zWorld.stallMs;
+    while (Date.now() < until) { /* a dead server's stall */ }
+    throw Object.assign(new Error('touched ' + s), { code: 'EHOSTUNREACH' });
+  }
+  return path.join(zWorld.backing, rest || '\\');
+}
+function zWorldOn({ alive = false, stallMs = 0 } = {}) {
+  const backing = path.join(SANDBOX, 'zbacking');
+  fs.mkdirSync(backing, { recursive: true });
+  zWorld = { alive, stallMs, touches: { z: 0, share: 0 }, calls: 0, backing: fs.realpathSync.native(backing) };
+  const saved = {};
+  for (const name of ['lstatSync', 'statSync', 'readlinkSync', 'readdirSync', 'openSync', 'accessSync']) {
+    saved[name] = fs[name];
+    fs[name] = function (p, ...rest) { zWorld.calls++; const m = zMap(p); return saved[name].call(fs, m === null ? p : m, ...rest); };
+  }
+  const realNative = fs.realpathSync.native;
+  const toShare = (r) => (r.toLowerCase().startsWith(zWorld.backing.toLowerCase()) ? ZSHARE + r.slice(zWorld.backing.length) : r);
+  fs.realpathSync.native = (p, ...rest) => { zWorld.calls++; const m = zMap(p); return m === null ? realNative(p, ...rest) : toShare(realNative(m, ...rest)); };
+  const folderState = projects.folderState;
+  projects.folderState = (folder) => (zMap(folder) === null ? folderState(folder) : { real: fs.realpathSync.native(folder) });
+  return () => {
+    for (const name of Object.keys(saved)) fs[name] = saved[name];
+    fs.realpathSync.native = realNative;
+    projects.folderState = folderState;
+    zWorld = null;
+  };
+}
+test.afterEach(() => { if (WIN) windrives.setTableForTests(null); });
+
+/* A project of WHO's with one file, on this computer. */
+function ownProject(name) {
+  const dir = path.join(SANDBOX, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'f.txt'), 'a project file\n');
+  return dir;
+}
+function attachIn(world, p, roster) {
+  const off = zWorldOn(world);
+  const t = process.hrtime.bigint();
+  let r;
+  let touches;
+  let calls;
+  try { r = replyfile.attach(WHO, p, { platform: 'win32', roster }); } finally { touches = zWorld.touches; calls = zWorld.calls; off(); }
+  const ms = Number(process.hrtime.bigint() - t) / 1e6;
+  if (r && r.ok) replyfile.discard(r.rec);
+  return { r, touches, calls, ms };
+}
+
+test('#7232: the drive table is read from numbers and paths; a network drive the redirector did not name has no share', () => {
+  const t = windrives.parseForTests('C\t3\t\r\nZ\t4\t\\\\srv\\s\r\nY\t4\t\r\nQ\t1\t\r\nR\t5\t\r\n');
+  assert.deepEqual(t.get('C'), { kind: 'local', share: null });
+  assert.deepEqual(t.get('Z'), { kind: 'remote', share: '\\\\srv\\s' });
+  assert.deepEqual(t.get('Y'), { kind: 'remote', share: null }, 'EnumNetworkDrives omitted it: no share, so callers fail closed');
+  assert.deepEqual(t.get('Q'), { kind: 'absent', share: null });
+  assert.deepEqual(t.get('R'), { kind: 'local', share: null }, 'a CD drive is on this computer');
+  assert.equal(windrives.parseForTests(''), null, 'nothing read: unknown, never an empty table');
+});
+
+test('#7232: a share whose server may be this computer is never "another computer"', () => {
+  for (const h of ['localhost', 'LOCALHOST', 'localhost.localdomain', '127.0.0.1', '127.0.0.2', '127.1', '2130706433', '0177.0.0.1', '0x7f.1',
+    '0.0.0.0', '::1', '[::1]', '0--1.ipv6-literal.net', '::ffff:127.0.0.1', os.hostname(), os.hostname().toUpperCase(), os.hostname() + '.corp.example',
+    'localhost@SSL@8443', '']) {
+    assert.equal(windrives.isThisComputer(h), true, h + ' may be this computer');
+  }
+  for (const list of Object.values(os.networkInterfaces())) for (const a of list || []) assert.equal(windrives.isThisComputer(a.address), true, a.address + ' is one of this computer\'s addresses');
+  // CONTROL: another computer is another computer
+  for (const h of ['10.255.255.1', 'fileserver', 'nas.corp.example', '[2001:db8::7]']) assert.equal(windrives.isThisComputer(h), false, h);
+  assert.equal(windrives.hostOf('\\\\srv\\s\\x'), 'srv');
+});
+
+test('#7232 B1: another agent\'s project on a dead mapped drive is never touched; a local project file attaches', winOnly, () => {
+  const own = ownProject('own7232-b1');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-z', name: 'Far', folder: 'Z:\\far', agents: ['someone-else'] },
+  ];
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  const { r, touches } = attachIn({}, path.join(own, 'f.txt'));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(touches.z + touches.share, 0, 'nothing on Z: or its share was touched');
+  // the long spelling of the same folder is the same drive
+  PROJECTS[1].folder = '\\\\?\\Z:\\far';
+  const again = attachIn({}, path.join(own, 'f.txt'));
+  assert.equal(again.r.ok, true, JSON.stringify(again.r));
+  assert.equal(again.touches.z, 0);
+});
+
+test('#7232 B1: a mapped drive whose share the redirector did not name fails closed (OTHER_FOLDER_UNPLACED), untouched', winOnly, () => {
+  const own = ownProject('own7232-unplaced');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-z', name: 'Far', folder: 'Z:\\far', agents: ['someone-else'] },
+  ];
+  windrives.setTableForTests(zTable({ kind: 'remote', share: null }));
+  const { r, touches } = attachIn({}, path.join(own, 'f.txt'));
+  assert.deepEqual([r.ok, r.because], [false, replyfile.OTHER_FOLDER_UNPLACED], JSON.stringify(r));
+  assert.equal(touches.z, 0);
+});
+
+test('#7232 B1: a link in another agent\'s folder onto a dead mapped drive is not followed', linkOnly, () => {
+  const own = ownProject('own7232-link');
+  const theirs = path.join(SANDBOX, 'theirs7232');
+  fs.mkdirSync(theirs, { recursive: true });
+  const link = path.join(theirs, 'onz');
+  fs.symlinkSync('Z:\\deep', link, 'dir');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-t', name: 'Theirs', folder: link, agents: ['someone-else'] },
+  ];
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  try {
+    const { r, touches } = attachIn({}, path.join(own, 'f.txt'));
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(touches.z, 0, 'the link onto Z: was not followed');
+  } finally { fs.rmSync(link, { force: true }); }
+});
+
+test('#7232 B1: a mapped drive whose server is THIS computer, under any name, is walked and resolved as before', winOnly, () => {
+  const own = ownProject('own7232-loop');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-z', name: 'Near', folder: 'Z:\\near', agents: ['someone-else'] },
+  ];
+  for (const share of ['\\\\127.0.0.2\\c$', '\\\\localhost\\c$', '\\\\[::1]\\c$', '\\\\0--1.ipv6-literal.net\\c$', '\\\\' + os.hostname() + '\\x', '\\\\' + os.hostname() + '.corp.example\\x']) {
+    windrives.setTableForTests(zTable({ kind: 'remote', share }));
+    const { r, touches } = attachIn({ alive: true }, path.join(own, 'f.txt'));
+    assert.equal(r.ok, true, share + ': ' + JSON.stringify(r));
+    assert.ok(touches.z > 0, share + ': a folder on this computer behind a share is resolved, as before');
+  }
+});
+
+test('#7232: with the drive table unknown, every folder is walked and resolved exactly as before', winOnly, () => {
+  const own = ownProject('own7232-unknown');
+  store.writeProfile('zagent', { dir: 'Z:\\agentdir' });
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-z', name: 'Far', folder: 'Z:\\far', agents: ['someone-else'] },
+  ];
+  windrives.setTableForTests(false);
+  const { r, touches } = attachIn({ alive: true }, path.join(own, 'f.txt'), [{ sessionName: 'zagent' }]);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(touches.z >= 2, 'the other agent\'s Z: folder and the agent folder on Z: were both read, as before: ' + touches.z);
+});
+
+test('#7232 B1: a file on the mapped drive\'s share, inside another agent\'s folder there, is refused', winOnly, () => {
+  const backing = path.join(SANDBOX, 'zbacking');
+  fs.mkdirSync(path.join(backing, 'other'), { recursive: true });
+  fs.mkdirSync(path.join(backing, 'mine'), { recursive: true });
+  fs.writeFileSync(path.join(backing, 'other', 'f.txt'), 'theirs\n');
+  fs.writeFileSync(path.join(backing, 'mine', 'f.txt'), 'mine\n');
+  PROJECTS = [
+    { id: 'p-share', name: 'Whole share', folder: ZSHARE, agents: [WHO] },
+    { id: 'p-z', name: 'Theirs', folder: 'Z:\\other', agents: ['someone-else'] },
+  ];
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  const { r } = attachIn({ alive: true }, ZSHARE + '\\other\\f.txt');
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], JSON.stringify(r));
+  // CONTROL: beside it, on the same share, the agent's own file attaches
+  const mine = attachIn({ alive: true }, ZSHARE + '\\mine\\f.txt');
+  assert.equal(mine.r.ok, true, JSON.stringify(mine.r));
+});
+
+test('#7232 B2: another agent\'s project on a letter no drive has is passed over untouched', winOnly, () => {
+  const own = ownProject('own7232-absent');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-z', name: 'Gone', folder: 'Z:\\gone', agents: ['someone-else'] },
+  ];
+  windrives.setTableForTests(zTable(null));
+  const { r, touches } = attachIn({}, path.join(own, 'f.txt'));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(touches.z, 0);
+});
+
+test('#7232 B3: a file in no project of the agent\'s touches no other agent\'s folder', winOnly, () => {
+  const own = ownProject('own7232-b3');
+  const theirs = path.join(SANDBOX, 'theirs7232-b3');
+  fs.mkdirSync(theirs, { recursive: true });
+  fs.writeFileSync(path.join(theirs, 'f.txt'), 'theirs\n');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-t', name: 'Theirs', folder: theirs, agents: ['someone-else'] },
+  ];
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  const resolved = [];
+  const realFS = projects.folderState;
+  projects.folderState = (folder) => { resolved.push(folder); return realFS(folder); };
+  const realLstat = fs.lstatSync;
+  const lstatted = [];
+  fs.lstatSync = (p, ...rest) => { lstatted.push(String(p)); return realLstat(p, ...rest); };
+  let r;
+  try { r = replyfile.attach(WHO, path.join(theirs, 'f.txt'), { platform: 'win32' }); } finally { fs.lstatSync = realLstat; projects.folderState = realFS; }
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], JSON.stringify(r));
+  assert.deepEqual(resolved, [own], 'only the agent\'s own project folder was resolved');
+  // the given path's own walk lstats it; nothing else under that folder is read to judge it as a project
+  assert.equal(lstatted.filter((p) => p.toLowerCase() === theirs.toLowerCase()).length, 1, 'their folder was walked once, as part of the given path only');
+});
+
+test('#7232 B3: own projects first keeps the deepest-folder rule (a nested project of another agent; the same folder listed twice)', winOnly, () => {
+  const outer = ownProject('own7232-outer');
+  const nested = path.join(outer, 'nested');
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(path.join(nested, 'secret.txt'), 'not for the outer project\n');
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  PROJECTS = [
+    { id: 'p-outer', name: 'Outer', folder: outer, agents: [WHO] },
+    { id: 'p-nested', name: 'Nested', folder: nested, agents: ['someone-else'] },
+  ];
+  let r = replyfile.attach(WHO, path.join(nested, 'secret.txt'), { platform: 'win32' });
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], 'a deeper project of another agent refuses: ' + JSON.stringify(r));
+  // the same deepest folder listed by another agent's project first and the agent's second: the agent is on it
+  PROJECTS = [
+    { id: 'p-nested', name: 'Nested', folder: nested, agents: ['someone-else'] },
+    { id: 'p-nested-mine', name: 'Nested too', folder: nested, agents: [WHO] },
+  ];
+  r = replyfile.attach(WHO, path.join(nested, 'secret.txt'), { platform: 'win32' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  replyfile.discard(r.rec);
+});
+
+test('#7232 B3: the agent\'s own project on a dead mapped drive is not resolved for a local file', winOnly, () => {
+  const own = ownProject('own7232-ownz');
+  PROJECTS = [
+    { id: 'p-own-z', name: 'Own far', folder: 'Z:\\mine', agents: [WHO] },
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+  ];
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  const { r, touches } = attachIn({}, path.join(own, 'f.txt'));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(touches.z, 0);
+});
+
+test('#7232 B4: an agent folder on a mapped drive is passed over for a local file, and keeps Kosmos\'s files on its share', winOnly, () => {
+  const own = ownProject('own7232-b4');
+  store.writeProfile('zagent', { dir: 'Z:\\agentdir' });
+  const roster = [{ sessionName: 'zagent' }];
+  PROJECTS = [{ id: 'p-own', name: 'Own', folder: own, agents: [WHO] }];
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  const local = attachIn({}, path.join(own, 'f.txt'), roster);
+  assert.equal(local.r.ok, true, JSON.stringify(local.r));
+  assert.equal(local.touches.z, 0, 'the agent folder on Z: was not read for a local file');
+  // a file in that agent's Files, on the share, from a project of WHO's on the whole share: kept for Kosmos
+  const backing = path.join(SANDBOX, 'zbacking');
+  fs.mkdirSync(path.join(backing, 'agentdir', 'Files'), { recursive: true });
+  fs.writeFileSync(path.join(backing, 'agentdir', 'Files', 'f.txt'), 'kept\n');
+  PROJECTS = [{ id: 'p-share', name: 'Whole share', folder: ZSHARE, agents: [WHO] }];
+  const kept = attachIn({ alive: true }, ZSHARE + '\\agentdir\\Files\\f.txt', roster);
+  assert.deepEqual([kept.r.ok, kept.r.because], [false, replyfile.KEPT_FOR_KOSMOS], JSON.stringify(kept.r));
+  assert.equal(kept.touches.z, 0, 'judged by its share spelling, not by reading Z:');
+});
+
+test('#7232 B5: an own project on a dead mapped drive is not walked to learn which drives the roots reach', winOnly, (t) => {
+  const own = ownProject('own7232-b5');
+  const other = 'QRSTUVWXY'.split('').find((d) => !fs.existsSync(d + ':' + path.sep));
+  if (!other) { setupSkip(t, 'no free drive letter from Q to Y'); return; }
+  PROJECTS = [
+    { id: 'p-own-z', name: 'Own far', folder: 'Z:\\mine\\deep', agents: [WHO] },
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+  ];
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  const { r, touches } = attachIn({}, other + ':\\x\\f.txt');
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], JSON.stringify(r));
+  assert.equal(touches.z, 0);
+});
+
+test('#7232 scale: 200 projects, one on a dead mapped drive, answers in under a second with a bounded number of reads', winOnly, (t) => {
+  const scale = path.join(SANDBOX, 'scale7232');
+  const own = path.join(scale, 'own');
+  fs.mkdirSync(own, { recursive: true });
+  fs.writeFileSync(path.join(own, 'f.txt'), 'the file\n');
+  PROJECTS = [{ id: 'p-own', name: 'Own', folder: own, agents: [WHO] }];
+  for (let i = 0; i < 198; i++) {
+    const dir = i % 3 === 0 ? path.join(scale, 'o' + (i - 1 < 0 ? 0 : i - 1), 'nested' + i) : path.join(scale, 'o' + i);
+    fs.mkdirSync(dir, { recursive: true });
+    PROJECTS.push({ id: 'p-o' + i, name: 'Other ' + i, folder: dir, agents: ['agent-' + i] });
+  }
+  PROJECTS.push({ id: 'p-dead', name: 'Dead', folder: 'Z:\\dead\\proj', agents: ['agent-dead'] });
+  assert.equal(PROJECTS.length, 200);
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  const { r, touches, calls, ms } = attachIn({ stallMs: 2000 }, path.join(own, 'f.txt'));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(touches.z + touches.share, 0, 'the dead drive was never touched');
+  /* The exact guard, so a slow runner cannot flake it: each of the 198 local folders costs a bounded number of reads
+     (its walk lstats each part of its path, then its resolve and its id), the rest of the attach a fixed number. */
+  const depth = scale.split(/[\\/]+/).filter(Boolean).length + 2;
+  t.diagnostic('reads ' + calls + ', ' + ms.toFixed(0) + ' ms');
+  assert.ok(calls < 200 * (depth + 8), 'reads: ' + calls + ' for depth ' + depth);
+  assert.ok(ms < 1000, 'answered in ' + ms.toFixed(0) + ' ms');
+});
