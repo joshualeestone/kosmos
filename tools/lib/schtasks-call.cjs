@@ -116,7 +116,9 @@ function decodePs(value) {
 }
 
 /* The index of the value a switch takes, from k: a redirect in its slot is the outer shell's, not the value
-   (powershell -ExecutionPolicy >nul Bypass -Command ..., review 7 of #7270). */
+   (powershell -ExecutionPolicy >nul Bypass -Command ..., review 7 of #7270). It skips a ">x" argv word the same
+   way when no shell takes it (spawn('powershell', ['-ep', '>x', ...])); PowerShell rejects that value, so nothing
+   leaks (#7299, left as is). */
 function valueAt(ws, k) {
   while (k < ws.length && ws[k].redirect) k += 1;
   return k;
@@ -186,6 +188,7 @@ function wordsRun(ws, i, depth, shell) {
     if (/^env(\.exe)?$/i.test(b)) {
       for (i += 1; i < ws.length && (ws[i].redirect || /^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1) {
         if (ws[i].redirect) continue;
+        if (ws[i].text === '--') { i += 1; break; }   // #7299: -- ends env's options; the program follows
         if (/^(-S|--split-string)$/.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1, 'posix');   // -S STRING is the command line
         const joined = ws[i].text.match(/^(?:-S|--split-string=)(.+)$/);   // -S"..." and --split-string=... (review 3)
         if (joined) return lineRuns([joined[1], rest(i + 1)].join(' '), depth + 1, 'posix');
@@ -197,18 +200,24 @@ function wordsRun(ws, i, depth, shell) {
        follows (then, else, do, while, until, {, !) (#7270). */
     if (/^(command|builtin)$/i.test(b)) {   // command -v, command -p -v: a lookup, which runs nothing
       let k = i + 1;
-      for (; k < ws.length && /^-/.test(ws[k].text); k += 1) if (/^-[a-zA-Z]*[vV]/.test(ws[k].text)) return false;
+      // #7299: a redirect among its switches (command >nul -v schtasks) is skipped, as the prefix loop below does.
+      for (; k < ws.length && (ws[k].redirect || /^-/.test(ws[k].text)); k += 1) if (!ws[k].redirect && /^-[a-zA-Z]*[vV]/.test(ws[k].text)) return false;
     }
     if (/^(nohup|exec|command|builtin|time|nice|then|else|do|while|until|\{|!)(\.exe)?$/i.test(b)) {
+      // nice -n N / --adjustment N, exec -a NAME, time -f FMT / -o FILE / --format / --output: each keyword's own (#7299)
+      const takes = /^nice/i.test(b) ? /^(-n|--adjustment)$/ : /^exec/i.test(b) ? /^-a$/ : /^time/i.test(b) ? /^(-[fo]|--format|--output)$/ : null;
       for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
-        // nice -n N / --adjustment N, exec -a NAME, time -f FMT / -o FILE / --format / --output
-        if (/^(-[nafo]|--adjustment|--format|--output)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
+        if (ws[i].redirect) continue;   // #7299: a redirect's file is not a switch (nice >-n 5 x)
+        if (takes && takes.test(ws[i].text)) i = valueAt(ws, i + 1);
       }
       continue;
     }
     /* timeout DURATION command. Windows' timeout /t 5 runs nothing, and reads so: /t is taken for the duration. */
     if (/^timeout(\.exe)?$/i.test(b)) {
-      for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) if (/^(-[sk]|--signal|--kill-after)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
+      for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
+        if (ws[i].redirect) continue;   // #7299: a redirect's file is not a switch
+        if (/^(-[sk]|--signal|--kill-after)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
+      }
       i = valueAt(ws, i);
       if (i < ws.length && /^\//.test(ws[i].text)) return false;
       i += 1;   // the duration

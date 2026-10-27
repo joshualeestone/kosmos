@@ -436,3 +436,17 @@ test('#7270 review 7: a redirect in the slot of a switch\'s value is skipped, an
     'time -o schtasks.txt node x.js', 'powershell -EncodedCommand >nul ' + Buffer.from('Write-Output schtasks', 'utf16le').toString('base64')])
     assert.equal(commandRuns(cmd), false, cmd);
 });
+
+test('#7299: a redirect among command\'s, nice\'s and timeout\'s switches is the outer shell\'s, not a switch', () => {
+  // Each of these read the redirect's file as a switch on main (measured, 10-27): the first two refused a lookup or a
+  // call of program "5"; the third let a real schtasks call through (the file -k was taken for timeout's -k, so the
+  // duration became "schtasks").
+  assert.equal(commandRuns('command >nul -v schtasks'), false);
+  assert.equal(commandRuns('nice >-n 5 schtasks'), false);
+  assert.equal(commandRuns('timeout >-k 5 schtasks'), true);
+  // CONTROL: the same forms without the redirect trick read as before.
+  for (const cmd of ['command >nul schtasks /Query', 'nice >x -n 5 schtasks', 'timeout >x -k 1 5 schtasks', 'exec -a name schtasks',
+    'time -o t.txt schtasks', 'env -- schtasks /Query'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  assert.equal(commandRuns('timeout >x 5 node x.js'), false);
+});
