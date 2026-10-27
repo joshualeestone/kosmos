@@ -1,0 +1,37 @@
+# wnpromote-7349: the What's New pool, checked before the cut claims the machine (kosmos#7349)
+
+## Why
+A Mac prod promote leaves `release/whats-new-pool.json` behind what prod serves until someone runs
+`whats-new-pool.js build` again (#5713). The next cut found that at step 1b-ii, after it had marked itself, claimed the
+machine and (possibly) waited up to 100 minutes on a pre-push build. On 2026-10-27 the 0.7.71 re-cut stopped there with
+the fleet held.
+
+## The change (card option 3)
+1. `tools/release.sh`: step 1b-ii's two checks (whats-new-check for $V, then pool prod-check) become one function,
+   `whats_new_gate`. It runs once right after `pointer_freeze_refuse`, before `kosmos_mark_run`, the machine claim and
+   the waits, quietly (stdout dropped), refusing with a line that names the build to run. 1b-ii still runs it (the
+   checkout can move during the waits). Exit 4 (prod unreadable) goes on, noted only at 1b-ii. The hotfix opt-out
+   `KOSMOS_CUT_NO_WHATS_NEW=1` skips both.
+2. `tools/promote-channel.sh`: a Mac prod promote ends by naming the build to run once its deploy serves.
+3. `docs/releasing.md`: run `prod-check` yourself before holding merges for a cut.
+
+## Rejected
+- Printing an exact next version in the promote hint: the next cut's version is not the promoted patch plus one
+  (0.7.70 was promoted while 0.7.71 was being cut), so a computed number would often be wrong.
+- Having promote-channel.sh run the build itself: the build reads what prod SERVES, which changes only at the deploy
+  after the promote, and it writes files that must go through a PR.
+- Moving 1b-ii wholesale before the claim: the checkout can move during the waits, so the check at 1b-ii stays.
+
+## Proof plan
+`tools/test-whats-new-early-7349.sh` runs a copy of release.sh with stand-in tools that record how many run markers
+exist when they are called: pool behind prod, highlights not for $V, a broken tool all stop with no marker and no cut
+home; CONTROL a current pool goes on; exit 4 goes on with no early NOTE; the opt-out runs neither tool; 1b-ii and the
+promote hint pinned structurally. Mutation list in the commit history of this plan's rounds.
+`test-pointer-freeze.sh`'s release arm sets the opt-out (its sandbox has no What's New tools).
+`tools.whats-new-check-3955.test.js` pins follow the call into `whats_new_gate`.
+
+## Weakest premise
+The hold itself is sent by a person before release.sh runs, so (2) moves the discovery before the machine claim and the
+waits, not before the hold. The docs line and the promote hint are what reach the person; nothing enforces them.
+
+## Review rounds
