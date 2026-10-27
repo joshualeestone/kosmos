@@ -2102,11 +2102,16 @@ function sameOpenedFile(gated, opened, platform = process.platform) {
      A side whose second read was not the same file carries an id no file has, so it never matches. */
   if (typeof gated.inoExact === 'bigint' && typeof opened.inoExact === 'bigint' && (gated.inoExact !== 0n || opened.inoExact !== 0n)) {
     if (gated.inoExact !== opened.inoExact || gated.inoExact === NO_FILE) return false;
-    return platform === 'win32' || gated.dev === opened.dev;
+    return gated.dev === opened.dev;
   }
+  /* #7333: the device is compared on Windows too. NTFS file ids are numbered per volume, so an equal id on another
+     volume is another file. Measured on Windows (node 24): st.dev is the volume serial and reads the same from
+     statSync(path) and fstatSync(fd) for a drive path, a \\?\ spelling, a junction and a subst letter; libuv fills
+     both from the same per-handle record (it opens a handle to stat a path), so a mount point or a share reads its own
+     volume's serial both ways too. `platform` is kept for callers and tests; no branch depends on it now. */
   if (Number(gated.ino) !== 0 && Number(opened.ino) !== 0) {
     if (gated.ino !== opened.ino) return false;
-    return platform === 'win32' || gated.dev === opened.dev;
+    return gated.dev === opened.dev;
   }
   if (gated.size !== opened.size || gated.mtimeMs !== opened.mtimeMs) return false;
   if (gated.birthtimeMs && opened.birthtimeMs && gated.birthtimeMs !== opened.birthtimeMs) return false;

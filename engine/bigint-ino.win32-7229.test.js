@@ -223,3 +223,21 @@ test('#7229 review 4: listFiles and listDir share one fingerprint on Windows (no
   assert.deepEqual(seen.slice(2), [[want, want], [want, want], [want, want]], 'both lists keep the sha: ' + JSON.stringify(seen));
   assert.equal(hashed, 1, 'the file is hashed once, not once per poll');
 });
+
+test('#7333: exact ids that match on two different volumes are two files (the device is compared on Windows too)', () => {
+  const exact = (id, dev) => { const s = { isFile: () => true, ino: 1, dev, size: 1, mtimeMs: 1 }; Object.defineProperty(s, 'inoExact', { value: id }); return s; };
+  assert.equal(projects.sameOpenedFile(exact(15481123720534727n, 111), exact(15481123720534727n, 222), 'win32'), false, 'same exact id, another volume, passed');
+  assert.equal(projects.sameOpenedFile(exact(15481123720534727n, 111), exact(15481123720534727n, 111), 'win32'), true, 'CONTROL: same exact id, same volume');
+});
+
+test('#7333: a real file read by path and by handle has the same device on this computer (what the compare relies on)', () => {
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev7333-'));
+  const f = path.join(dir, 'f.txt');
+  fs.writeFileSync(f, 'x');
+  const fd = fs.openSync(f, 'r');
+  try {
+    assert.equal(fs.statSync(f).dev, fs.fstatSync(fd).dev, 'stat by path and by handle disagree on the device');
+    assert.equal(projects.sameOpenedFile(fs.statSync(f), fs.fstatSync(fd)), true, 'the real file, by path and by handle, is the same file');
+  } finally { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); }
+});
