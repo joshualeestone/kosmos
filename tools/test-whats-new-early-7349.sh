@@ -42,9 +42,16 @@ run() {  # <check rc> <pool rc> [env...] : sets RC, OUT, LOG; each run gets a fr
   local crc="$1" prc="$2"; shift 2
   local sb="$T/run.$RANDOM$RANDOM"; mkdir -p "$sb/home" "$sb/tmp"
   : > "$sb/stub.log"
-  # KOSMOS_HARNESS_IGNORE_CUT=1: inside a real cut (step 3 runs this file) the sandboxed release.sh would otherwise
-  # refuse as "a second cut" before reaching what is under test here.
-  env HOME="$sb/home" TMPDIR="$sb/tmp" KOSMOS_SITE="$S" KOSMOS_HARNESS_IGNORE_CUT=1 \
+  # Every KOSMOS_* and AGENT_WORKFORCE_* the caller carries is dropped first: a hotfix cut exports
+  # KOSMOS_CUT_NO_WHATS_NEW=1 and its step 3 runs this file, and an inherited opt-out (or KOSMOS_CUT_LIVE_HOME=1) would
+  # turn the arms red with nothing wrong. Then only what these arms need is put back:
+  # KOSMOS_HARNESS_IGNORE_CUT=1, or inside a real cut the copy refuses as "a second cut"; the harness, light-side and
+  # pre-push bypasses, or a test-install.sh another agent runs makes it refuse or wait (as tools.release-gate.test.js
+  # found, #3619). The arm under test passes its own KOSMOS_CUT_NO_WHATS_NEW after these.
+  local v drop=()
+  for v in $(compgen -e | grep -E '^(KOSMOS_|AGENT_WORKFORCE_)'); do drop+=(-u "$v"); done
+  env "${drop[@]}" HOME="$sb/home" TMPDIR="$sb/tmp" KOSMOS_SITE="$S" KOSMOS_HARNESS_IGNORE_CUT=1 \
+    KOSMOS_CUT_IGNORE_HARNESS=1 KOSMOS_CUT_IGNORE_SIDE=1 KOSMOS_CUT_IGNORE_PREPUSH=1 \
     KOSMOS_RUN_MARKER_DIR="$sb/markers" STUB_LOG="$sb/stub.log" \
     STUB_RC_whats_new_check="$crc" STUB_RC_whats_new_pool="$prc" "$@" \
     bash "$RS/tools/release.sh" "$NEXTV" > "$sb/out" 2>&1

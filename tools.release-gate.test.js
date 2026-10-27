@@ -1140,9 +1140,10 @@ test('#5713: prod newer than the pool records stops the cut before it marks itse
 /* kosmos#7349: 1b-ii still refuses on its own, for a pool that falls behind AFTER the early check (a promote deployed
    while the cut waited on the machine). A stand-in curl, first on PATH, answers the prod pointer's URL with the
    recorded prod on its first read and a newer one after; every other URL goes to the real curl. */
-test('#7349: prod moving on after the early check still stops the cut AT 1b-ii, before anything is bumped', () => {
+test('#7349: prod moving on after the early check still stops the cut AT 1b-ii, before anything is bumped', (t) => {
   const { dir, home, site } = git_sandbox('0.6.02');   // the pool records prod 0.6.02, and the site serves it
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-curlstub-'));
+  t.after(() => { for (const d of [dir, site, bin]) fs.rmSync(d, { recursive: true, force: true }); });   // a red arm too
   const url = 'file://' + path.join(site, 'dist', 'latest.json');
   fs.writeFileSync(path.join(bin, 'later.json'), JSON.stringify({ version: '0.6.05', manifest: 'kosmos-0.6.05-arm64.manifest.json' }));
   const realCurl = spawnSync('/bin/sh', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim();
@@ -1160,16 +1161,13 @@ test('#7349: prod moving on after the early check still stops the cut AT 1b-ii, 
     '',
   ].join('\n'), { mode: 0o755 });
   const r = run_git(dir, '0.6.03', home, site, { env: { PATH: bin + ':' + process.env.PATH } });
-  const reads = Number(fs.readFileSync(path.join(bin, 'n'), 'utf8'));
+  const reads = fs.existsSync(path.join(bin, 'n')) ? Number(fs.readFileSync(path.join(bin, 'n'), 'utf8')) : 0;
   assert.equal(reads, 2, 'the prod pointer was not read once early and once at 1b-ii: ' + reads + '\n' + r.said.slice(-800));
   assert.doesNotMatch(r.said, /stopped before marking the cut/, 'CONTROL: the early check refused, so this did not reach 1b-ii');
   assert.match(r.said, /== 1b-ii\. the What's new highlights are for this version/, r.said.slice(-1200));
   assert.match(r.said, /prod serves 0\.6\.05 but the pool records 0\.6\.02/, r.said.slice(-1200));
   assert.doesNotMatch(r.said, /== 1c\./, 'a pool that fell behind reached step 1c');
   assert.equal(r.touched, false, 'the version was bumped before the refusal');
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.rmSync(site, { recursive: true, force: true });
-  fs.rmSync(bin, { recursive: true, force: true });
 });
 
 test('#5713: prod that cannot be read is a NOTE, and the cut goes on; CONTROL: a pool that records prod says nothing', () => {

@@ -53,3 +53,15 @@ waits, not before the hold. The docs line and the promote hint are what reach th
      _whats_new_check, like prod-check). The #3955 pins follow: the helper's exact command, both branches refuse on it,
      and the #5224 platform pin reads a call inside a one-line function. Both new arms mutation-proven.
    - NIT 2 (the reviewer verified the marker-count control can fail): nothing to change.
+3. (default, 10:4x CDT) 1 BLOCKER, 1 WARNING, 5 NITs, all applied but one (Linux, below).
+   - (B) A hotfix cut exports KOSMOS_CUT_NO_WHATS_NEW=1 and its step 3 runs test-whats-new-early-7349.sh, which
+     inherited it: 4 arms red mid-cut. run() now drops every KOSMOS_* and AGENT_WORKFORCE_* first, as
+     tools.cut-home-2724.test.js does. Mutation-proven (without the drop, 4 FAIL under the exported opt-out).
+   - (W) A test-install.sh another agent runs would refuse the copy (as #3619 found in release-gate): the harness,
+     light-side and pre-push bypasses are now pinned. NOT mutation-proven: proving it needs a stand-in harness running
+     on the shared Mac, which would make other agents' cuts and tests refuse; it follows release-gate's measured fix.
+   - NITs applied: an opt-out prod cut's NEXT line adds the `shown $V --promoted --none` route; "every cut stops"
+     became "the next cut stops" (rollback promotes and opt-out cuts pass); the docs name both checks to run before a
+     hold; the #7349 release-gate arm cleans up in t.after and reads a missing call count as 0.
+   - NIT 5, not changed: the new shell test runs on Linux CI too (it is not macOS-only, like test-pointer-freeze.sh);
+     unmeasured there until the PR's CI runs. Watch the first run.

@@ -2198,7 +2198,9 @@ if [ "$CUT_CHANNEL" = prod ]; then
   echo ""
   # kosmos#7349: a prod cut moves prod as a promote does, so the What's New pool is now behind what prod serves, and
   # the next cut stops at its first What's New check until a fresh build merges. Said where the operator can act.
-  echo "NEXT: prod serves $V now, so node tools/whats-new-pool.js build <the next cut's version> on a branch, merged to main. It records $V's highlights as shown; until it merges, every cut stops at its What's New check (kosmos#7349)."
+  echo "NEXT: prod serves $V now, so node tools/whats-new-pool.js build <the next cut's version> on a branch, merged to main. It records $V's highlights as shown; until it merges, the next cut stops at its What's New check (kosmos#7349)."
+  # An opt-out cut may have shipped no What's New at all, and then the build refuses; the pool takes that as below.
+  [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ] || echo "      (this cut ran with KOSMOS_CUT_NO_WHATS_NEW=1: if $V shipped no highlights, record it first with node tools/whats-new-pool.js shown $V --promoted --none)"
   KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$MAIN_REPO/tools/post-release-notes.sh" "$V" --publish \
     || echo "post-release-notes: hook returned non-zero (the release still shipped; this is best-effort)"
 fi
