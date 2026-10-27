@@ -75,3 +75,15 @@ The plan as posted on the card (comment 6431703337):
   FOR SLICE C: refuse a manifest whose node sha starts `unchecked:` or whose connector.glibc exceeds 2.35.
 - N1 FIXED (SMOKE_PID cleared after the wait). N2 covered by W1. N3: the gated tests require the gate's own message
   on a clean tree; connector-provenance.sh's shasum-only is left (it refuses, safely).
+
+## Slice A review 3 (2026-10-26 21:3x): CONVERGED, no blockers, no warnings
+- Confirmed: the shared tar-owner-gate change cannot refuse a Mac tarball (bsdtar's $2 is a link count) and now sees
+  GNU tar's owner; the connector case accepts the real glibc tunnel string and refuses FreeBSD, a foreign loader, musl;
+  the relay's own Linux build (build-tunnel-release-linux.sh) targets x86_64-unknown-linux-gnu on ubuntu-22.04 and maps
+  away $HOME, CARGO_HOME and RUSTUP_HOME, so the real artifact passes.
+- NITS TAKEN: a `, for <system>` label other than GNU/Linux is refused (code only: making `file` print "for OpenBSD"
+  needs a note section, so no fixture; decided); /github/home and /usr/local/cargo|rustup added to the cargo-home
+  check (with a test); the floor test passes a local node so a regression cannot reach the network; a comment that a
+  glibc refusal here (whole-file read) should be cross-checked against the relay's objdump -T read.
+- Also: KOSMOS_TUNNEL_LINUX_BIN now defaults to ~/work/kosmos-relay/dist/kosmos-tunnel-linux-x86_64 (as agreed on the
+  card); an explicitly empty value is still refused.

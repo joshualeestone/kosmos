@@ -51,7 +51,9 @@ sha256() {   # <file>: its sha256, with whichever tool this host has
 # A Linux bundle without a Linux connector is the defect this script exists to end (#7281): a cloud machine cannot
 # register (`kosmos-tunnel setup cloud`) or admit anyone. So it is required, and it must be ELF x86-64, never the
 # Mac's Mach-O that the Mac build signs.
-TUNNEL_IN="${KOSMOS_TUNNEL_LINUX_BIN:-}"
+# The default is where kosmos-relay's tools/fetch-tunnel-linux.sh puts it (agreed on kosmos#7281), as the Mac builder
+# defaults to its connector beside the relay checkout.
+TUNNEL_IN="${KOSMOS_TUNNEL_LINUX_BIN-$HOME/work/kosmos-relay/dist/kosmos-tunnel-linux-x86_64}"
 [ -n "$TUNNEL_IN" ] || { echo "KOSMOS_TUNNEL_LINUX_BIN is not set: the Linux bundle needs kosmos-relay's Linux x86_64 kosmos-tunnel" >&2; exit 1; }
 [ -f "$TUNNEL_IN" ] || { echo "KOSMOS_TUNNEL_LINUX_BIN names no file: $TUNNEL_IN" >&2; exit 1; }
 _tunnel_kind="$(file -b "$TUNNEL_IN" 2>/dev/null || echo unknown)"
@@ -63,6 +65,10 @@ esac
 # Review 2 (W1): for Linux, and for the loader a stock Ubuntu has. An ELF for another system (FreeBSD) is refused; a
 # binary that names a loader must name glibc's (a musl loader is absent from Ubuntu), and only then does the glibc
 # floor below apply; one that names none is static and needs no glibc.
+case "$_tunnel_kind" in
+  *", for GNU/Linux"*) ;;
+  *", for "*) echo "the Linux connector is built for another system: $_tunnel_kind" >&2; exit 1 ;;   # review 3: "for OpenBSD"
+esac
 case "$_tunnel_kind" in
   *"(SYSV)"*|*"(GNU/Linux)"*) ;;
   *) echo "the Linux connector is not built for Linux: $_tunnel_kind" >&2; exit 1 ;;
@@ -87,6 +93,8 @@ GLIBC_FLOOR="${KOSMOS_LINUX_GLIBC_FLOOR:-2.35}"
 [ "$GLIBC_FLOOR" = 2.35 ] || [ "${KOSMOS_ALLOW_DIRTY:-0}" = 1 ] || {
   echo "KOSMOS_LINUX_GLIBC_FLOOR=$GLIBC_FLOOR is for a test build only (KOSMOS_ALLOW_DIRTY=1); a release keeps 2.35" >&2; exit 1; }
 # Review 2 (W2): read the file itself (grep -a), never `strings`, whose absence would read as a static binary.
+# Review 3: this reads every GLIBC_ text in the file, while kosmos-relay's own build reads only the dynamic symbols
+# (objdump -T). It fails closed, so a refusal here that the relay's check did not make is worth cross-checking there.
 glibc_needed() {   # <file>: the newest GLIBC_x.y[.z] it names, or nothing
   LC_ALL=C grep -aoE 'GLIBC_[0-9]+\.[0-9]+(\.[0-9]+)?' "$1" | sed 's/^GLIBC_//' \
     | LC_ALL=C sort -t. -k1,1n -k2,2n -k3,3n | tail -1 || true
@@ -101,7 +109,7 @@ fi
 
 # Review 2 (W3): the shared home-path gate looks at Mach-O files and /Users only, and this connector is ELF built on
 # Linux. So the #6549 check is made here, for the Linux connector: no build machine's cargo or rustup home in it.
-if LC_ALL=C grep -aqE '/(home/[^/[:cntrl:]]+|root)/(\.cargo|\.rustup)/' "$TUNNEL_IN"; then
+if LC_ALL=C grep -aqE '/((home/[^/[:cntrl:]]+|root|github/home)/(\.cargo|\.rustup)|usr/local/(cargo|rustup))/' "$TUNNEL_IN"; then
   echo "the Linux connector names a build machine's cargo or rustup home (#6549): rebuild it with --remap-path-prefix" >&2; exit 1
 fi
 
