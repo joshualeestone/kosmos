@@ -97,7 +97,12 @@ async function hideArm(browser, cloud) {
     return {
       rows, folderShown: !!folder && getComputedStyle(folder).display !== 'none' && folder.getBoundingClientRect().height > 0,
       folderHidden: !!folder && !!folder.closest('[data-cloud-hide]') && getComputedStyle(folder.closest('[data-cloud-hide]')).display === 'none',
-      empty: (() => { const d = document.createElement('div'); d.innerHTML = boardEmpty(); return d.textContent; })(),
+      // Over file:// the board's first read fails, which paints the cannot-read card instead: the state is set to "looked
+      // and found none" first (the page's own globals), so the empty state is what is painted.
+      empty: (() => {
+        BOARD_DEVICE_OFFLINE = false; BOARD_SIGNED_OUT = false; BOARD_NEEDS_SIGNIN = false; BOARD_LOOK_FAILED = null; BOARD_SEEN = true;
+        const d = document.createElement('div'); d.innerHTML = boardEmpty(); return d.textContent;
+      })(),
       hint: hint ? hint.textContent : 'NO HINT',
     };
   }, cloud);

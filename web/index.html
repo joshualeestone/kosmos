@@ -20881,22 +20881,22 @@ function onCloudMachine() {
 /* kosmos#4903 seam H (Mona Lisa): a cloud machine is "your cloud machine", the words S1 and S6 use. Only with no explicit
    platform: an explicit one describes another computer's payload, not this board. */
 function hostMachine(platform) {
-  if (!platform && onCloudMachine()) return 'your cloud machine';
+  if (!platform && (typeof onCloudMachine === 'function' && onCloudMachine())) return 'your cloud machine';
   return onLinux(platform) ? 'the computer running Kosmos' : onWindows(platform) ? 'your PC' : 'your Mac';
 }
 function hostMachineCap(platform) {   // the same words opening a sentence
-  if (!platform && onCloudMachine()) return 'Your cloud machine';
+  if (!platform && (typeof onCloudMachine === 'function' && onCloudMachine())) return 'Your cloud machine';
   return onLinux(platform) ? 'The computer running Kosmos' : onWindows(platform) ? 'Your PC' : 'Your Mac';
 }
 /* kosmos#4903 seam H: "this computer" in the page's own sentences. To a person whose only window onto a cloud machine
    is a browser, "this computer" is the laptop in front of them, so there it is "your cloud machine". */
-function thisMachine() { return onCloudMachine() ? 'your cloud machine' : 'this computer'; }
-function ThisMachine() { return onCloudMachine() ? 'Your cloud machine' : 'This computer'; }
+function thisMachine() { return (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'your cloud machine' : 'this computer'; }
+function ThisMachine() { return (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Your cloud machine' : 'This computer'; }
 /* The restart and Start at login notices are hidden on a cloud machine: there is no login there for the person to start
    anything at. Right only while the box brings every agent back by itself after a restart (Baron confirms on a test
    box, #4903 seam H); if it does not, set this false and the notices come back. */
 const CLOUD_HIDES_RESTART = true;
-function cloudHidesRestart() { return CLOUD_HIDES_RESTART && onCloudMachine(); }
+function cloudHidesRestart() { return CLOUD_HIDES_RESTART && (typeof onCloudMachine === 'function' && onCloudMachine()); }
 function linuxCopyTable() {
   return {
     terminalBoxTitle: 'Start-up and restart',   // its Terminal button is hidden on Linux, as on Windows
@@ -21057,7 +21057,7 @@ function platformHides(el) {
 function applyPlatformCopy(root) {
   /* kosmos#4903 seam H: a cloud machine (always Linux) first, so its words win over the Linux ones: data-cloud-hide (CSS
      keyed on this stamp) and data-cloud-copy. The Linux pass below still runs. */
-  if (onCloudMachine() && root && typeof root.querySelectorAll === 'function') {
+  if ((typeof onCloudMachine === 'function' && onCloudMachine()) && root && typeof root.querySelectorAll === 'function') {
     document.documentElement.setAttribute('data-kosmos-cloud', '1');
     root.querySelectorAll('[data-cloud-copy]').forEach((el) => {
       if (el.getAttribute('data-cloud-copy') === 'thisMachine') el.textContent = thisMachine();
@@ -24035,7 +24035,7 @@ function paintRebootNote(note) {
   const up = note && rebootWhen(note.upAt);
   const held = slot.contains(document.activeElement);   // a re-check that removes or repaints it must not drop focus to the page
   if (!down || !up) { slot.innerHTML = ''; delete slot.dataset.shown; if (held) rebootFocusAway(); return; }
-  const head = ThisMachine() + ' restarted ' + down;   // kosmos#4903 seam H
+  const head = (typeof ThisMachine === 'function' ? ThisMachine() : 'This computer') + ' restarted ' + down;   // kosmos#4903 seam H
   const line = 'Kosmos was running and started again by itself ' + up + '.';
   /* The ten-minute re-check repaints only when the WORDS change (a new note, or "at 11:30 PM" becoming "yesterday at
      11:30 PM" after midnight): repainting the same words would take focus off Dismiss and re-announce the status. */
@@ -25451,7 +25451,7 @@ function paintOfflineNote(down, deviceIsOffline) {
     catch { /* no location: the sentence stands on its own */ }
     /* kosmos#4903 seam H: a cloud machine cannot be turned on or reached by a terminal from a browser, and its address
        means nothing to the person, so the remedy is to wait or look from the sign-in page. */
-    const cloud = onCloudMachine();
+    const cloud = (typeof onCloudMachine === 'function' && onCloudMachine());
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt"><b>' + hostMachineCap() + ' is not answering</b>'
@@ -28198,7 +28198,7 @@ function paintAgyOption(sel, current) {
   const on = (AGY_OFFERED !== false && AGY_INSTALLED === true) || current === 'antigravity';
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
-  else opt.dataset.off = AGY_OFFERED === false ? 'Not on ' + thisMachine()
+  else opt.dataset.off = AGY_OFFERED === false ? 'Not on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer')
     : AGY_INSTALLED === false ? 'Set up in Settings, AI Models' : 'Checking Antigravity';
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // #3946: a Swarm keeps its non-Claude providers greyed (typeof: these painters also run alone in tests)
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
@@ -40579,7 +40579,7 @@ function boardSigninHtml() {
      First, before any platform: Kosmos.exe, kosmos open and the Applications folder are all on that other computer. */
   /* kosmos#4903 seam H: a cloud machine is not reached through Kosmos+ and has no computer to open Kosmos on; its way back
      in is its own sign-in page. */
-  if (onCloudMachine()) {
+  if ((typeof onCloudMachine === 'function' && onCloudMachine())) {
     return '<div class="pj-empty boardfail">'
       + '<p><b>This page is signed out.</b><br>Press Reload. If it stays signed out, sign in at '
       + '<b>login.kosmosplus.com</b> and press Open my Kosmos.</p>'
@@ -40710,7 +40710,7 @@ function boardEmpty() {
      screen where somebody meets the word. */
   return '<div class="pj-empty">'
     + '<p><b>No agents yet.</b><br>An agent is a worker you put on a job. It '
-    + (onCloudMachine()   // kosmos#4903 seam H: and the point of a cloud machine is that it keeps going with yours off
+    + ((typeof onCloudMachine === 'function' && onCloudMachine())   // kosmos#4903 seam H: and the point of a cloud machine is that it keeps going with yours off
       ? 'runs on your cloud machine and keeps going while you are away, even with your own computer off.</p>'
       : 'runs on this computer and keeps going while you get on with something else.</p>')
     /* 🔑 `.btn.uprime.big` IS the pack's `.btn-gold`, measured rather than
@@ -43329,7 +43329,7 @@ async function paintTalk(sessionName, agentName) {
         + (!events.length && !h.source ? ' Its screen does not name them or say what they run.'
           : (!h.command ? ' Its screen does not say what they run.' : ''))
         + (/^Project config\b/i.test(String(h.source || '')) ? ' Codex says this one is in a project\u2019s own settings, which the agent can write to, so the agent could have written it.' : '')
-        + ' Trusting covers every hook Codex lists, for every Codex agent on this account, and trusted hooks can act freely on ' + thisMachine() + '. If you are not sure, continue without them.';
+        + ' Trusting covers every hook Codex lists, for every Codex agent on this account, and trusted hooks can act freely on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer') + '. If you are not sure, continue without them.';
     }
     qCodex.hidden = false;
   } else {
@@ -44267,7 +44267,7 @@ async function paintAgentFilesAll(sessionName) {
   if (more) more.hidden = true;
   if (!ok) {
     msg.textContent = status === 404 && !dir
-      ? 'This agent has no folder of its own on ' + thisMachine() + ', so there is no Files list.'
+      ? 'This agent has no folder of its own on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer') + ', so there is no Files list.'
       : asSentence((body && body.because) || 'We could not read this agent’s files just now.');
     return;
   }
@@ -44347,7 +44347,7 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
     const b = await res.json().catch(() => ({}));
     // A 404 is an agent with no folder of its own here: the same sentence as the list, never the
     // route's "no agent by that name" about the agent the person is looking at.
-    if (res.status === 404) failed = 'This agent has no folder of its own on ' + thisMachine() + ', so there is no Files folder to open.';
+    if (res.status === 404) failed = 'This agent has no folder of its own on this computer, so there is no Files folder to open.';
     else if (!res.ok) failed = asSentence(b.because || 'The folder did not open.');
   } catch {
     failed = 'We could not reach Kosmos to open the folder.';
@@ -58074,13 +58074,13 @@ async function paintAccountPicker(a) {
   const onDefaultDoor = !!keyedWord && !(acct && acct.dir) && !acctLive && !ACCOUNTS_UNREADABLE;
   const namedGone = !!keyedWord && !!(acct && acct.dir) && !acctLive && !ACCOUNTS_UNREADABLE;
   if (msg && !msg.textContent && !ours && onDefaultDoor) {
-    msg.textContent = 'It runs on ' + thisMachine() + '\'s own ' + keyedWord + ' key. To move it to a '
+    msg.textContent = 'It runs on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer') + '\'s own ' + keyedWord + ' key. To move it to a '
       + keyedWord + ' account, add one in Settings, AI Models.';
   } else if (msg && !msg.textContent && namedGone) {
     msg.textContent = 'The ' + keyedWord + ' account this agent runs on is no longer on this computer, so it cannot run. '
       + (ours ? 'Pick an account above and press Move.' : 'Add one in Settings, AI Models, then move it here.');
   } else if (msg && !msg.textContent && ours && onDefaultDoor) {
-    msg.textContent = 'It runs on ' + thisMachine() + '\'s own ' + keyedWord + ' key. Pick an account above and press Move to put it on one of yours.';
+    msg.textContent = 'It runs on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer') + '\'s own ' + keyedWord + ' key. Pick an account above and press Move to put it on one of yours.';
   } else if (msg && !msg.textContent && !ours && !(world.isKeyed && acctLive)) {
     /* #2338: a codex agent IS movable now -- `acctMoveWorld` gives it the OpenAI
        accounts and `setCodexAccount` performs the swap -- so the old "This is a
@@ -59884,7 +59884,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
               const on = switchAcctShown();
               if (on) return 'and it will run on ' + on + '.';
               if (switchAcctSending()) return 'and it runs on the ' + label + ' account shown above.';
-              return 'and with no ' + label + ' account shown above it runs on ' + thisMachine() + '\'s own ' + label + ' key, if one is set up.';
+              return 'and with no ' + label + ' account shown above it runs on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer') + '\'s own ' + label + ' key, if one is set up.';
             })())
         /* #5091: a switch to Claude can carry a picked account now, so the main-account sentence is said only when
            the picker is not sending one. */
@@ -60156,8 +60156,8 @@ function fillCreateAccounts(given) {
   asel.innerHTML = usable.length
     ? usable.map((x) =>
       `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${labelOf(x)}</option>`).join('')
-    : (openai ? '<option value="">The OpenAI sign-in on ' + thisMachine() + '</option>'
-      : keyed ? '<option value="">' + ThisMachine() + '\'s own ' + esc(switchKeyedWord(want)) + ' key, if one is set up</option>'
+    : (openai ? '<option value="">The OpenAI sign-in on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer') + '</option>'
+      : keyed ? '<option value="">' + (typeof ThisMachine === 'function' ? ThisMachine() : 'This computer') + '\'s own ' + esc(switchKeyedWord(want)) + ' key, if one is set up</option>'
       : '<option value="">Your Claude account</option>');
   /* #2097 (Josh re-rule 2026-09-04, supersedes the earlier "shown even at one"):
      HIDE the account row unless there are two or more accounts to choose from. A
@@ -62751,7 +62751,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   const n = ORGCHART_PARSED.length;
   if (n > ORGCHART_TEAM_DEFAULT && !ORGCHART_MANY_OK) {
     document.getElementById('orgchart-many-say').textContent = 'This starts ' + n + ' agents at once. Each one runs on your AI '
-      + 'subscription and uses ' + thisMachine() + '\'s memory. Start all ' + n + '?';
+      + 'subscription and uses ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer') + '\'s memory. Start all ' + n + '?';
     document.getElementById('orgchart-many-go').textContent = 'Start all ' + n;
     document.getElementById('orgchart-many').hidden = false;
     document.getElementById('orgchart-create').disabled = true;
@@ -66014,7 +66014,7 @@ async function watchForAgentNow(name, result, attempt) {
     // with AGENT_WORKFORCE_WORKERS set -- pointing a stuck person at a folder that
     // does not exist.
     warn.innerHTML = '<b>It was set up, but nothing is running under that name yet.</b> '
-      + (onCloudMachine()   // kosmos#4903 seam H: no login on a cloud machine, and its path means nothing to the person
+      + ((typeof onCloudMachine === 'function' && onCloudMachine())   // kosmos#4903 seam H: no login on a cloud machine, and its path means nothing to the person
         ? 'It keeps trying each time your cloud machine starts. If it appears under Agents, you can remove it there.'
         : result.folder
         ? 'It keeps trying at every login. Its folder is <code>' + esc(result.folder)
@@ -66419,7 +66419,7 @@ const PJ_NOTICE = [
     (name) => 'Start ' + name + ', then try again.'],
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
     (name) => 'Restart ' + name + ' from Kosmos, then try again.'],
-  [/^it has no folder of its own on this computer yet$|^there is no agent by that name to write to$|^that is not a folder$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on ' + thisMachine() + ', so it has nowhere to write.'],
+  [/^it has no folder of its own on this computer yet$|^there is no agent by that name to write to$|^that is not a folder$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer') + ', so it has nowhere to write.'],
   [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder |^there is already a file there that this editor cannot safely replace/, 'explain', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions live somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.'],
   // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
   // pressing again reads the same file the same way, so no button.
