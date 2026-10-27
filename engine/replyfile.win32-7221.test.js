@@ -1173,6 +1173,16 @@ function ownProject(name) {
   fs.writeFileSync(path.join(dir, 'f.txt'), 'a project file\n');
   return dir;
 }
+/* #7232: the roster rows an attach reads, as the board makes them (test-support/fleet, never hand-built: the
+   fixture-discipline rule). Not ours, so each row's sessionName is the name given. */
+function rosterOf(...names) {
+  const board = require('../test-support/fleet').install(names.map((name) => require('../test-support/fleet').agent(name, { ours: false })));
+  try {
+    const rows = board.roster.filter((r) => names.includes(r.sessionName));
+    if (rows.length !== names.length) throw new Error('fleet gave no roster row for ' + names.join(', '));
+    return rows;
+  } finally { board.restore(); }
+}
 function attachIn(world, p, roster) {
   const off = zWorldOn(world);
   const t = process.hrtime.bigint();
@@ -1276,7 +1286,7 @@ test('#7232: with the drive table unknown, every folder is walked and resolved e
     { id: 'p-z', name: 'Far', folder: 'Z:\\far', agents: ['someone-else'] },
   ];
   windrives.setTableForTests(false);
-  const { r, touches } = attachIn({ alive: true }, path.join(own, 'f.txt'), [{ sessionName: 'zagent' }]);
+  const { r, touches } = attachIn({ alive: true }, path.join(own, 'f.txt'), rosterOf('zagent'));
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.ok(touches.z >= 2, 'the other agent\'s Z: folder and the agent folder on Z: were both read, as before: ' + touches.z);
 });
@@ -1376,7 +1386,7 @@ test('#7232 B3: the agent\'s own project on a dead mapped drive is not resolved 
 test('#7232 B4: an agent folder on a mapped drive is passed over for a local file, and still keeps Kosmos\'s files on its share', winOnly, () => {
   const own = ownProject('own7232-b4');
   store.writeProfile('zagent', { dir: 'Z:\\agentdir' });
-  const roster = [{ sessionName: 'zagent' }];
+  const roster = rosterOf('zagent');
   PROJECTS = [{ id: 'p-own', name: 'Own', folder: own, agents: [WHO] }];
   windrives.setTableForTests(zTable(Z_REMOTE));
   const local = attachIn({}, path.join(own, 'f.txt'), roster);
@@ -1478,7 +1488,7 @@ test('#7232 review 1-2: an agent folder on a mapped drive whose share is not nam
   store.writeProfile('zvictim', { dir: 'Z:\\victim' });
   PROJECTS = [{ id: 'p-own', name: 'Outer', folder: backing, agents: [WHO] }];
   windrives.setTableForTests(zTable({ kind: 'remote', share: null }));
-  const { r, touches } = attachIn({ alive: true }, path.join(backing, 'victim', 'Files', 'f.txt'), [{ sessionName: 'zvictim' }]);
+  const { r, touches } = attachIn({ alive: true }, path.join(backing, 'victim', 'Files', 'f.txt'), rosterOf('zvictim'));
   assert.deepEqual([r.ok, r.because], [false, replyfile.KEPT_FOR_KOSMOS], JSON.stringify(r));
   assert.ok(touches.z > 0, 'the agent folder on Z: was read');
 });
@@ -1551,7 +1561,7 @@ test('#7232 review 2-1: a file on one share is judged by identity against a fold
   // B's own folder, kept for Kosmos
   store.writeProfile('agent-b', { dir: 'Z:\\b' });
   PROJECTS = [{ id: 'p-data', name: 'Data', folder: DSHARE, agents: [WHO] }];
-  const kept = attachIn({ alive: true }, DSHARE + '\\team\\b\\CLAUDE.md', [{ sessionName: 'agent-b' }]);
+  const kept = attachIn({ alive: true }, DSHARE + '\\team\\b\\CLAUDE.md', rosterOf('agent-b'));
   assert.deepEqual([kept.r.ok, kept.r.because], [false, replyfile.KEPT_FOR_KOSMOS], JSON.stringify(kept.r));
   // CONTROL: for a LOCAL file the same folder and agent folder on Z: are still passed over untouched
   const own = ownProject('own7232-r2');
@@ -1559,7 +1569,7 @@ test('#7232 review 2-1: a file on one share is judged by identity against a fold
     { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
     { id: 'p-b', name: 'B', folder: 'Z:\\b', agents: ['agent-b'] },
   ];
-  const local = attachIn({}, path.join(own, 'f.txt'), [{ sessionName: 'agent-b' }]);
+  const local = attachIn({}, path.join(own, 'f.txt'), rosterOf('agent-b'));
   assert.equal(local.r.ok, true, JSON.stringify(local.r));
   assert.equal(local.touches.z, 0);
 });
@@ -1685,7 +1695,7 @@ test('#7232 review 3-3: an agent folder written locally under a link onto a dead
     const own = ownProject('own7232-r3-link');
     PROJECTS = [{ id: 'p-own', name: 'Own', folder: own, agents: [WHO] }];
     windrives.setTableForTests(zTable(Z_REMOTE));
-    const { r, touches } = attachIn({ deadUnder: via }, path.join(own, 'f.txt'), [{ sessionName: 'zlinked' }]);
+    const { r, touches } = attachIn({ deadUnder: via }, path.join(own, 'f.txt'), rosterOf('zlinked'));
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(touches.z, 0, 'nothing below the link onto Z: was read');
   } finally { fs.rmSync(via, { force: true }); }
