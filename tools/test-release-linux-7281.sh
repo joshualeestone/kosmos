@@ -57,8 +57,13 @@ chk "pointer names per channel" [ "$(release_linux_pointer_file staging)" = late
 chk "prod pointer name" [ "$(release_linux_pointer_file prod)" = latest-linux.json ]
 out="$(unset KOSMOS_CUT_LINUX; release_linux_decide "$S" staging 2>&1; echo "rc=$? cut=$CUT_LINUX file=$LINUX_POINTER_FILE")"
 chk "CONTROL: no Linux pointer and no opt-in skips the family" [ "${out##*rc=}" = "0 cut=no file=latest-linux-staging.json" ]
-out="$(KOSMOS_CUT_LINUX=1 release_linux_decide "$S" prod 2>&1; echo "rc=$? cut=$CUT_LINUX file=$LINUX_POINTER_FILE")"
-chk "KOSMOS_CUT_LINUX=1 cuts it" [ "${out##*rc=}" = "0 cut=yes file=latest-linux.json" ]
+out="$(KOSMOS_CUT_LINUX=1 release_linux_decide "$S" staging 2>&1; echo "rc=$? cut=$CUT_LINUX file=$LINUX_POINTER_FILE")"
+chk "KOSMOS_CUT_LINUX=1 cuts it on staging" [ "${out##*rc=}" = "0 cut=yes file=latest-linux-staging.json" ]
+# Review 1 (W4): prod only once promote-channel.sh moves the Linux pointer too (slice C2).
+out="$(CUT_LINUX=; KOSMOS_CUT_LINUX=1 release_linux_decide "$S" prod 2>&1; echo "rc=$?")"
+chk "a prod Linux cut is refused until the promote keeps lockstep" [ "${out##*rc=}" = 1 ]
+out="$(KOSMOS_CUT_LINUX=1 RELEASE_LINUX_PROMOTE_LOCKSTEP=1 release_linux_decide "$S" prod 2>&1; echo "rc=$? cut=$CUT_LINUX file=$LINUX_POINTER_FILE")"
+chk "CONTROL: with the promote in lockstep, prod cuts it" [ "${out##*rc=}" = "0 cut=yes file=latest-linux.json" ]
 printf '{}\n' > "$S/dist/latest-linux-staging.json"
 out="$(unset KOSMOS_CUT_LINUX; release_linux_decide "$S" staging 2>&1; echo "rc=$?")"
 chk "a channel with a Linux pointer on disk refuses a cut without it (lockstep)" [ "${out##*rc=}" = 1 ]
@@ -76,12 +81,13 @@ chk "a Linux pointer on origin/main only is refused too" [ "${out##*rc=}" = 1 ]
 
 # ---- release_linux_check_manifest ----
 B="$T/build-ok"; newbuild "$B" 1.2.3
-chk "CONTROL: a release build passes" release_linux_check_manifest "$B/kosmos-linux-x64.manifest.json" "$COMMIT"
+chk "CONTROL: a release build passes" release_linux_check_manifest "$B/kosmos-linux-x64.manifest.json" "$COMMIT" 1.2.3
+chk "refused: a manifest for another version (review 1 W6)" not release_linux_check_manifest "$B/kosmos-linux-x64.manifest.json" "$COMMIT" 1.2.4
 for case_ in 'm.node.download_sha256 = "unchecked:abc"' 'm.app.dirty = true' 'm.connector.glibc_floor = "2.36"' 'm.platform = "darwin"' 'delete m.platform'; do
   Bx="$(mktemp -d "$T/build-bad.XXXXXX")"; newbuild "$Bx" 1.2.3 "$case_"
-  chk "refused: $case_" not release_linux_check_manifest "$Bx/kosmos-linux-x64.manifest.json" "$COMMIT"
+  chk "refused: $case_" not release_linux_check_manifest "$Bx/kosmos-linux-x64.manifest.json" "$COMMIT" 1.2.3
 done
-chk "refused: a connector other than the checked one" not release_linux_check_manifest "$B/kosmos-linux-x64.manifest.json" "$(printf 'd%.0s' $(seq 1 40))"
+chk "refused: a connector other than the checked one" not release_linux_check_manifest "$B/kosmos-linux-x64.manifest.json" "$(printf 'd%.0s' $(seq 1 40))" 1.2.3
 
 # ---- release_linux_publish ----
 S="$(newsite publish)"; B="$T/build-pub"; newbuild "$B" 1.2.3
@@ -104,8 +110,13 @@ before="$(cat "$S/dist/latest-linux-staging.json")"
 chk "republishing 1.2.3 with other bytes is refused" not release_linux_publish "$B2" "$S" 1.2.3 "$SETUP_SHA" /dev/null 2>/dev/null
 chk "and the pointer is unchanged" [ "$(cat "$S/dist/latest-linux-staging.json")" = "$before" ]
 chk "CONTROL: republishing the SAME bytes is allowed" release_linux_publish "$B" "$S" 1.2.3 "$SETUP_SHA" /dev/null >/dev/null
+# Review 1 (nit): the same tarball with a different manifest is refused too.
+B3="$T/build-pub3"; mkdir -p "$B3"; cp "$B"/kosmos-linux-x64.tar.gz "$B"/kosmos-linux-x64.tar.gz.sha256 "$B3/"
+node -e 'const f=process.argv[1];const m=JSON.parse(require("fs").readFileSync(f,"utf8"));m.built={at:"later"};require("fs").writeFileSync(process.argv[2],JSON.stringify(m))' "$B/kosmos-linux-x64.manifest.json" "$B3/kosmos-linux-x64.manifest.json"
+chk "republishing 1.2.3 with another manifest is refused" not release_linux_publish "$B3" "$S" 1.2.3 "$SETUP_SHA" /dev/null 2>/dev/null
 # A signer that refuses publishes no pointer.
-S="$(newsite signfail)"; B="$T/build-sf"; newbuild "$B" 1.2.4
+S="$(newsite signfail)"; B="$T/build-sf"; newbuild "$B" 1.2.4; newsite signctl >/dev/null
+chk "CONTROL: the same call without the refusal publishes" env STUB_SIGN_FAIL=0 bash -c ". '$T/tools/lib/release-linux.sh'; LINUX_POINTER_FILE=latest-linux.json; release_linux_publish '$B' '$T/site-signctl' 1.2.4 '$SETUP_SHA' /dev/null" >/dev/null 2>&1
 chk "a signer refusal stops the publish" not env STUB_SIGN_FAIL=1 bash -c ". '$T/tools/lib/release-linux.sh'; LINUX_POINTER_FILE=latest-linux.json; release_linux_publish '$B' '$S' 1.2.4 '$SETUP_SHA' /dev/null" 2>/dev/null
 chk "and no pointer was written" [ ! -f "$S/dist/latest-linux.json" ]
 chk "and no tarball was published" [ ! -f "$S/dist/kosmos-1.2.4-linux-x64.tar.gz" ]
@@ -118,7 +129,7 @@ chk "the site commit takes the pointer, manifest and signature" \
 # ---- release_site_restore's Linux arms ----
 S="$(newsite restore)"; B="$T/build-rs"; newbuild "$B" 1.2.5
 LINUX_POINTER_FILE=latest-linux-staging.json; release_linux_publish "$B" "$S" 1.2.5 "$SETUP_SHA" /dev/null >/dev/null
-release_site_restore "$S" 1.2.5 0 1 "" 1 >/dev/null
+release_site_restore "$S" 1.2.5 0 1 "" 1 0 >/dev/null
 chk "an aborted first Linux cut leaves no untracked Linux pointer" [ ! -f "$S/dist/latest-linux-staging.json" ]
 chk "nor its versioned tarball" [ ! -f "$S/dist/kosmos-1.2.5-linux-x64.tar.gz" ]
 chk "nor its manifest" [ ! -f "$S/dist/kosmos-1.2.5-linux-x64.manifest.json" ]
@@ -127,10 +138,33 @@ printf '{"version":"1.2.4"}\n' > "$S/dist/latest-linux.json"; git -C "$S" add di
 printf '{"version":"1.2.6"}\n' > "$S/dist/latest-linux.json"
 release_site_restore "$S" 1.2.6 1 1 "" 1 >/dev/null
 chk "a tracked Linux pointer is put back to what is served" [ "$(cat "$S/dist/latest-linux.json")" = '{"version":"1.2.4"}' ]
+# Review 1 (W3): a served Linux tarball (the Linux pair existed before the cut) is kept even when the Mac pair did not.
+printf 't\n' > "$S/dist/kosmos-1.2.6-linux-x64.tar.gz"
+release_site_restore "$S" 1.2.6 0 1 "" 1 1 >/dev/null
+chk "a Linux tarball that was there before the cut survives an abort (linux_had=1)" [ -f "$S/dist/kosmos-1.2.6-linux-x64.tar.gz" ]
+release_site_restore "$S" 1.2.6 0 1 "" 1 >/dev/null
+chk "and a caller that does not pass linux_had never removes it" [ -f "$S/dist/kosmos-1.2.6-linux-x64.tar.gz" ]
+release_site_restore "$S" 1.2.6 0 1 "" 1 0 >/dev/null
+chk "CONTROL: one this cut created (linux_had=0) is removed" [ ! -f "$S/dist/kosmos-1.2.6-linux-x64.tar.gz" ]
 # CONTROL: a served (tracked) versioned manifest is never removed.
 printf 'm\n' > "$S/dist/kosmos-1.2.4-linux-x64.manifest.json"; git -C "$S" add dist/kosmos-1.2.4-linux-x64.manifest.json; git -C "$S" commit -q -m m
-release_site_restore "$S" 1.2.4 0 1 "" 1 >/dev/null
+release_site_restore "$S" 1.2.4 0 1 "" 1 0 >/dev/null
 chk "CONTROL: a tracked versioned Linux manifest is kept" [ -f "$S/dist/kosmos-1.2.4-linux-x64.manifest.json" ]
+
+# ---- release.sh wires the lib (review 1 W5): each call is present and refuses on failure ----
+# A structural check, because a whole cut cannot run here: removing or un-gating any call reds one line below.
+RS="$HERE/tools/release.sh"
+wired() { grep -qF -- "$1" "$RS"; }
+chk "release.sh sources the lib" wired '. "$REPO/tools/lib/release-linux.sh"'
+chk "1d-linux decides, and exits on refusal" wired 'release_linux_decide "$SITE" "$CUT_CHANNEL" || exit 1'
+chk "1d-linux checks the Linux connector against relay main" wired 'tools/build-tunnel-release-linux.sh || exit 1'
+chk "step 4 builds the Linux bundle" wired 'bash tools/build-kosmos-linux.sh dist ) || {'
+chk "step 4 checks the manifest against the connector and V" wired 'release_linux_check_manifest "$REPO/dist/kosmos-linux-x64.manifest.json" "$LINUX_CONNECTOR_COMMIT" "$V" || exit 1'
+chk "the publish exits on failure" wired 'release_linux_publish "$REPO/dist" "$SITE" "$V" "$KM_SETUP_SHA" "$KOSMOS_MANIFEST_KEY" || exit 1'
+chk "the site commit takes the Linux paths" wired '_site_paths="$_site_paths $(release_linux_site_paths "$V")"'
+chk "step 6 refuses a Linux bundle that is not V" wired 'THE LINUX BUNDLE IS NOT $V"; exit 1'
+chk "step 8 refuses an export without the Linux pair" wired 'shasum -a 256 --status -c "kosmos-$V-linux-x64.tar.gz.sha256"'
+chk "the abort trap passes the Linux pair record" wired '"$_staging_ptr_had" "$_linux_pair_had";'
 
 echo "test-release-linux-7281: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

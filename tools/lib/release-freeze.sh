@@ -333,7 +333,9 @@ release_site_restore() {
   # holding precut/<file> reaches the restore arm.
   # staging_ptr_had defaults to 1 so a 5-arg caller (before #2036) is a no-op on the
   # staging pointer: had=1 skips its untracked-remove arm below, matching had_ptr's contract.
-  local site="$1" v="$2" had="$3" had_ptr="${4:-1}" bak_root="${5:-}" staging_ptr_had="${6:-1}" f rel _u
+  # kosmos#7281: linux_had (7th) is the Linux pair's own record; it defaults to 1, so a caller that does not pass it
+  # never removes a Linux file.
+  local site="$1" v="$2" had="$3" had_ptr="${4:-1}" bak_root="${5:-}" staging_ptr_had="${6:-1}" linux_had="${7:-1}" f rel _u
   [ -n "$site" ] && [ -n "$v" ] && [ -d "$site" ] || { echo "release_site_restore: site and version are required" >&2; return 0; }
   # #2036: dist/latest-staging.json is restored here too. When it is TRACKED (a prior staging
   # cut committed it), a changed one is checked out back to its committed value like latest.json.
@@ -382,8 +384,7 @@ release_site_restore() {
     # defect, so matching on the shape that makes a file cache-immutable -- the
     # version in its own name -- is what stops a fourth artifact repeating it.
     # An unmatched glob stays literal in bash and the -f test drops it.
-    # kosmos#7281: the Linux family's versioned files are created by the same cut, so the same gate covers them.
-    for f in "$site"/dist/kosmos-"$v"-arm64.* "$site"/dist/kosmos-"$v"-linux-x64.*; do
+    for f in "$site"/dist/kosmos-"$v"-arm64.*; do
       [ -f "$f" ] || continue
       rel="dist/$(basename "$f")"
       # 🛑 TRACKED FILES ARE NOT OURS TO DELETE, AND THIS IS WHY THE THIRD NAME
@@ -397,6 +398,16 @@ release_site_restore() {
       # restored rather than removed for the same reason.
       git -C "$site" ls-files --error-unmatch "$rel" >/dev/null 2>&1 && continue
       rm -f "$f" && echo "   removed: $rel (this cut created it and never served it; the name is cache-immutable, so it must not linger)"
+    done
+  fi
+  # kosmos#7281 review 1 (W3): the Linux family's versioned files, gated on the Linux pair's OWN record: a served Linux
+  # tarball on a checkout with no local Mac tarball of the same version is never taken for this cut's leftover.
+  if [ "$linux_had" != 1 ]; then
+    for f in "$site"/dist/kosmos-"$v"-linux-x64.*; do
+      [ -f "$f" ] || continue
+      rel="dist/$(basename "$f")"
+      git -C "$site" ls-files --error-unmatch "$rel" >/dev/null 2>&1 && continue
+      rm -f "$f" && echo "   removed: $rel (this cut created it and never served it)"
     done
   fi
   # #1548: the UNVERSIONED pointer (kosmos-arm64.tar.gz + .sha256) is not a versioned
