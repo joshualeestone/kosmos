@@ -11,6 +11,9 @@ struct SettingsView: View {
     let openPage: (URL) -> Void
     // The board's own Settings, shown under Today (AppTabs.barTab).
     let openBoardSettings: () -> Void
+    // kosmos#7266 slice B: the person on the shown computer, for the page's top (BoardClient.youName / youPicture).
+    var youName: String? = nil
+    var youPicture: Data? = nil
 
     private enum Load: Equatable {
         case reading
@@ -41,6 +44,7 @@ struct SettingsView: View {
         NavigationView {
             ScrollViewReader { scroller in
                 List {
+                    profile
                     notifications
                     computer
                     // Only while the app really asks for it: the lock is off by default (KosmosConfig.requireBiometricUnlock,
@@ -70,6 +74,37 @@ struct SettingsView: View {
         }
         .navigationViewStyle(.stack)
         .task { await read() }
+    }
+
+    // MARK: Profile (kosmos#7266 slice B)
+
+    // The person's picture and name on top, as a profile page; every setting under it. The picture and the name are
+    // the computer's own ("You" on the board): they are changed there, which the footer says.
+    private var profile: some View {
+        Section {
+            VStack(spacing: 10) {
+                Group {
+                    if let data = youPicture, let picture = UIImage(data: data) {
+                        Image(uiImage: picture).resizable().scaledToFill()
+                    } else {
+                        Image(systemName: "person.crop.circle.fill").resizable().scaledToFit().foregroundColor(Palette.secondary)
+                    }
+                }
+                .frame(width: 88, height: 88)
+                .clipShape(Circle())
+                .accessibilityHidden(true)
+                Text(youName ?? "You").font(.title2.weight(.semibold)).foregroundColor(Palette.primary)
+                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .listRowBackground(Color.clear)
+        } footer: {
+            Text("Your name and picture come from your computer. Change them in your Profile in the board's Settings.")
+                .font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+        }
     }
 
     // MARK: Notifications

@@ -710,6 +710,17 @@ do {
     check(rows.filter(\.shown).map(\.address) == ["mini.kosmosplus.com"], "only the shown Mac is checked")
     check(rows.first(where: { $0.name == "Old laptop" })?.status == "Offline" && rows.first(where: { $0.name == "Mini" })?.status == "Online", "each row says online or offline from not_connected")
     check(Board.switcherRows(heldRefused, shown: nil).isEmpty, "a held or refused Mac is not offered")
+    // kosmos#7266 slice B: the person's name and picture.
+    let mac0 = URL(string: "https://studio.kosmosplus.com/")!
+    check(Board.youRequest(mac: mac0).url?.path == "/api/you" && Board.youPictureRequest(mac: mac0).url?.path == "/api/you/avatar", "the person's record and picture are the board's own routes")
+    check(Board.parseYouName(Data(#"{"state":"saved","you":{"name":"  Sam Carter ","does":"x"}}"#.utf8)) == "Sam Carter", "a saved name, trimmed")
+    check(Board.parseYouName(Data(#"{"state":"absent","you":null}"#.utf8)) == nil && Board.parseYouName(Data(#"{"state":"saved","you":{"name":"   "}}"#.utf8)) == nil, "no name when none is saved, or it is blank")
+    check(Board.parseYouName(Data(#"{"state":"unknown","you":{"name":"Old"}}"#.utf8)) == nil && Board.parseYouName(Data("<html>".utf8)) == nil, "nor from an unreadable record or a page")
+    let png = Data([0x89, 0x50, 0x4e, 0x47])
+    check(Board.youPicture(status: 200, contentType: "image/png", data: png) == .picture(png), "a picture")
+    check(Board.youPicture(status: 204, contentType: nil, data: Data()) == .none && Board.youPicture(status: 404, contentType: "text/plain", data: Data("x".utf8)) == .none, "204 (none yet) and an older board's 404 are no picture")
+    check(Board.youPicture(status: 200, contentType: "text/html", data: Data("<html>".utf8)) == .unknown, "the gate's sign-in page at 200 is not a picture, and does not clear one")
+    check(Board.youPicture(status: 500, contentType: nil, data: nil) == .unknown && Board.youPicture(status: nil, contentType: nil, data: nil) == .unknown, "a 5xx or no answer learns nothing")
     check(Board.switcherRows([Board.Mac(name: "b", address: "b.kosmosplus.com", usable: true), Board.Mac(name: "A", address: "a.kosmosplus.com", usable: true)], shown: nil).map(\.name) == ["A", "b"], "by name, whatever its case")
     check(Board.pickMac(Board.parseMacs(Data(onlyRefused.utf8)) ?? [], remembered: nil)?.address == "new.kosmosplus.com", "and still picked when it is the only one, so the screen can say it refused")
     check(Board.parseMacs(Data("[]".utf8)) == nil, "a body that is not the list reads as nothing")
@@ -1685,6 +1696,9 @@ final class FakeBoardWorld {
     // The Mac cookie each status request carried, as the real session would send it from the jar.
     var presented: [String] = []
     var macsStatus = 200
+    // kosmos#7266 slice B: the person's record and picture (nil: no answer at all).
+    var youAnswer: (Int, String)? = nil
+    var youPictureAnswer: (Int, String, Data)? = nil
     // The gate's own cookie keyed apart from the one the app restored (a leading-dot domain), as a real host-only
     // Set-Cookie might be: both then sit in the jar side by side.
     var admitKeyedApart = false
@@ -1767,6 +1781,10 @@ final class FakeBoardWorld {
             return tasksAnswer.map { answer($0.0, $0.1) }
         case "/api/agent-stars":
             return starsAnswer.map { answer($0.0, $0.1) }
+        case "/api/you":
+            return youAnswer.map { answer($0.0, $0.1) }
+        case "/api/you/avatar":
+            return youPictureAnswer.map { (code, type, body) in (body, HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": type])!) }
         case "/api/status":
             presented.append((cookies.cookies(for: url) ?? []).filter { $0.name == Board.macCookieName }.map(\.value).joined(separator: ","))
             if let hook = onStatusRead { onStatusRead = nil; hook() }
@@ -2075,6 +2093,34 @@ section("native board loop: connecting")
         sessions.value = nil
         c.start()
         check(c.macs.isEmpty && c.switcherShown == nil, "a sign-out clears the switcher")
+        c.stop()
+    }
+    section("the person's name and picture (kosmos#7266 slice B)")
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100}]}"#
+        let face = Data([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
+        w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter","does":"runs the shop"}}"#)
+        w.youPictureAnswer = (200, "image/png", face)
+        c.start()
+        let got = await settle { c.youName == "Sam Carter" && c.youPicture == face }
+        check(got, "the shown computer's name and picture are read with its first list")
+        let reads = w.count("/api/you/avatar")
+        w.youPictureAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        for _ in 0..<3 { await c.refreshNow() }
+        check(w.count("/api/you/avatar") == reads, "and not on every 5-second read (every 5 minutes)")
+        w.clock += Board.youEvery + 1
+        await c.refreshNow()
+        _ = await settle { w.count("/api/you/avatar") > reads }
+        _ = await settle { false }
+        check(w.count("/api/you/avatar") > reads && c.youPicture == face, "a later read that is the gate's page keeps the picture shown")
+        w.youPictureAnswer = (204, "text/plain", Data())
+        w.youAnswer = (200, #"{"state":"absent","you":null}"#)
+        c.showMac(address: "laptop.kosmosplus.com")
+        check(c.youName == nil && c.youPicture == nil, "a switch forgets the other computer's person at once")
+        let laptop = await settle { isLive(c) && c.shownMacName == "Laptop" }
+        _ = await settle { w.requests.contains("GET laptop.kosmosplus.com/api/you/avatar") }
+        check(laptop && c.youName == nil && c.youPicture == nil, "a computer with no name or picture shows none (the gear and You)")
         c.stop()
     }
 
