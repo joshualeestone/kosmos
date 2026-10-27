@@ -59,7 +59,7 @@ function harness({ start, connect, cloud = false }) {
     "const MUSE_BUSY = 'busy'; const acctAddPickSay = () => {};",
     lift(SCRIPT, 'frConnActive'), lift(SCRIPT, 'acctFlowStop'), lift(SCRIPT, 'acctFocusAfterFlow'),
     // kosmos#4903 S5: the page's cloud-machine reader, stubbed; absent unless asked (the page then keeps the Mac words).
-    cloud ? 'function onCloudMachine() { return true; }\n' + SCRIPT.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + lift(SCRIPT, 'signinSay') : '',
+    cloud ? 'function onCloudMachine() { return true; }\n' + SCRIPT.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + lift(SCRIPT, 'signinSay') + '\n' + lift(SCRIPT, 'frCloudSigninDetail') : '',
     lift(SCRIPT, 'acctClaudePaintUrl'),
     lift(SCRIPT, 'acctFlowPaint'), lift(SCRIPT, 'acctFlowWatch'), lift(SCRIPT, 'acctAddStart'),
     'return { acctAddStart, acctFlowWatch, acctFlowPaint };',
@@ -133,11 +133,14 @@ test('kosmos#4903 S5: Settings\' Claude sign-in on a cloud machine shows the sig
   const row = h.document.getElementById('acct-claude-open-row');
   assert.equal(row.hidden, false, 'a cloud machine got no link: nothing opens a browser there');
   assert.equal(h.document.getElementById('acct-claude-open').href, URL);
-  assert.match(h.document.getElementById('acct-flow-say').textContent, /Open the Claude sign-in page/);
+  assert.match(h.document.getElementById('acct-flow-say').textContent, /Open the Claude sign-in page below/);
   // Not before Claude has printed a link, and never a link that is not https.
   const early = harness({ start: {}, connect: {}, cloud: true });
   early.page.acctFlowPaint({ phase: 'signin-browser-open', url: null });
   assert.equal(early.document.getElementById('acct-claude-open-row').hidden, true, 'a link row with no link');
+  // S5 design review: with no link yet it says one is coming, never "below".
+  assert.match(early.document.getElementById('acct-flow-say').textContent, /Its link appears here in a moment/);
+  assert.doesNotMatch(early.document.getElementById('acct-flow-say').textContent, /below/);
   const odd = harness({ start: {}, connect: {}, cloud: true });
   odd.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: 'javascript:alert(1)' });
   assert.equal(odd.document.getElementById('acct-claude-open-row').hidden, true, 'a non-https link was offered');
@@ -160,6 +163,8 @@ test('kosmos#4903 S5 review 1: a link that arrives on the SAME phase still lands
   h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?state=two' });
   assert.equal(href(), 'https://claude.com/oauth?state=two', 'a changed link kept the stale one');
   assert.equal(h.document.getElementById('acct-code').value, 'typed-so-far', 'the code field was rebuilt under the person');
+  // S5 design review: the sentence above the link follows it, inside the phase.
+  assert.match(h.document.getElementById('acct-flow-say').textContent, /sign-in page below/, 'the late link left the sentence saying it is coming');
   h.page.acctFlowPaint({ phase: 'signin-completing', url: 'https://claude.com/oauth?state=two' });
   assert.equal(row().hidden, true, 'review 2: the link stayed while Claude was finishing (a second press starts a second sign-in)');
   h.page.acctFlowPaint({ phase: 'connected', url: 'https://claude.com/oauth?state=two' });
