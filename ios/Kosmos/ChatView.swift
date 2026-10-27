@@ -262,6 +262,7 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
+            positionId = nil; personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
@@ -549,9 +550,11 @@ struct ChatView: View {
 
     // kosmos#7265: to the newest message. With the id anchor (idAnchor) the anchor is the end marker, which keeps the
     // end in view as rows land, until the person's own scroll moves the anchor; re-set through nil so a repeat is seen.
+    // Under the anchor the move is not animated (`animated` applies to the iOS 16 path only).
     private func goNewest(_ proxy: ScrollViewProxy, animated: Bool = false) {
         if Self.idAnchor {
-            if positionId == "end" { positionId = nil; DispatchQueue.main.async { positionId = "end" } } else { positionId = "end" }
+            // Through nil so a repeat is seen; put back only if nothing (the person's own scroll) moved it meanwhile.
+            if positionId == "end" { positionId = nil; DispatchQueue.main.async { if positionId == nil { positionId = "end" } } } else { positionId = "end" }
             return
         }
         if animated { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { proxy.scrollTo("end", anchor: .bottom) }
@@ -807,7 +810,7 @@ struct ChatView: View {
             // a reader stopped part way inside the newest rows as a page lands may still move).
             // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
             // reader is up there) rules it out.
-            if atBottom && endSeen && !topVisible { keepAtEndTick += 1 }
+            if atBottom && endSeen && !topVisible && !searching { keepAtEndTick += 1 }   // review: not while searching
             else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
@@ -1879,7 +1882,9 @@ struct PersonScroll: ViewModifier {
         if #available(iOS 18.0, *) {
             content.onScrollPhaseChange { _, phase in
                 let now = phase == .interacting || phase == .decelerating || phase == .tracking
-                if scrolling && !now { scrolling = false; rested() } else if now { scrolling = true }
+                // Every scroll that comes to rest re-reads where the reader is (review: a status-bar tap scrolls in the
+                // animating phase, which is not counted as the person's, and would otherwise leave atBottom true).
+                if now { scrolling = true } else if phase == .idle { scrolling = false; rested() }
             }
         } else {
             content
