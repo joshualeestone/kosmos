@@ -22130,7 +22130,9 @@ const server = http.createServer(async (req, res) => {
       const rec = messages.record();
       /* kosmos#7365: each post's reaction rows, grouped ONCE per request (log order kept). reactionsFor and claimOf
          each walk the rows they are given for this post's reaction events, so handing them the whole log made a read
-         O(posts x log): 76% of a 5,500-post room's read time. They see exactly the rows they keep, in the same order. */
+         O(posts x log): 76% of a 5,500-post room's read time. They see exactly the rows they keep, in the same order
+         (rowShaped makes every post id and reaction `of` a non-empty string, so String() keys them alike). Not grouped
+         by project: a reaction from another room on a shared post id counted before and still does. */
       const reactionRowsOf = new Map();
       for (const x of rec.rows) {
         if (!x || x.kind !== 'reaction') continue;
