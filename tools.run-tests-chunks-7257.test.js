@@ -68,7 +68,7 @@ test('#7257: on Windows node --test runs every file once, in order, in chunks un
   for (const c of tests) {
     assert.deepEqual(c.slice(1, 1 + OPTS.length), OPTS, 'each chunk keeps the options');
     assert.deepEqual(c.slice(-EXTRA.length), EXTRA, 'each chunk keeps the trailing arguments');
-    assert.ok(c.reduce((n, a) => n + a.length + 3, 0) <= 24000 + 200, 'a chunk is over the cap');
+    assert.ok(c.slice(1).reduce((n, a) => n + a.length + 3, 0) <= 24000, 'a chunk is over the cap');
     seen.push(...c.slice(1 + OPTS.length, -EXTRA.length));
   }
   assert.deepEqual(seen, FILES, 'every file exactly once, in order');
@@ -91,4 +91,19 @@ test('#7257: the node --test line itself is unchanged and the chunking exists on
   assert.match(SRC, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left');
   assert.match(SRC, /MINGW\*\|MSYS\*\|CYGWIN\*\)\n {4}_RT_WIN=1/, 'the flag is set only in the Windows case');
   assert.equal((SRC.match(/^\s*node\(\) \{/gm) || []).length, 1, 'one node() function');
+});
+
+test('#7257 review 1: a test failure outranks a 126/127 from another chunk; a chunk ended by a signal stops the rest', { skip: !BASH && 'no bash' }, () => {
+  // chunk A fails a test (1), chunk B cannot start node (127): the run reports the test failure, not "not a failing test"
+  assert.match(run(FILES, OPTS, [], { [FILES[10]]: 1, [FILES[1400]]: 127 }).out, /STATUS=1\b/);
+  assert.match(run(FILES, OPTS, [], { [FILES[1400]]: 127 }).out, /STATUS=127/, 'CONTROL: 127 alone is still 127');
+  // a Ctrl-C (130) in the first chunk: no later chunk starts
+  const r = run(FILES, OPTS, [], { [FILES[10]]: 130 });
+  assert.match(r.out, /STATUS=130/);
+  assert.equal(r.calls.filter((c) => c[0] === '--test').length, 1, 'chunks after an interrupted one must not start');
+  assert.match(r.err, /ran in 1 chunk\(s\)/);
+});
+
+test('#7257 review 1: the Windows flag is reset before the case, so the environment cannot set it', () => {
+  assert.match(SRC, /\n_RT_WIN=0 [^\n]*\ncase "\$\(uname -s/);
 });

@@ -179,6 +179,7 @@ _RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; export KOSMOS_SHELL_PARALLEL=1
 # where one test that reaches it could end the board's own task. The rule and the NODE_OPTIONS it builds are
 # tools/windows-tests.js's own (childEnv, schedulerLine), read here rather than written twice. cygpath gives node a
 # path it can read; without it the guard cannot be set up, and the run stops rather than reach the real scheduler.
+_RT_WIN=0   # set below on Windows only; never taken from the environment (review 1 of #7257)
 case "$(uname -s 2>/dev/null)" in
   MINGW*|MSYS*|CYGWIN*)
     _RT_WIN=1   # #7257: read below by the suite and harness checks and by the node --test line
@@ -650,7 +651,7 @@ _rt_suite_check=1
 _rt_harness_check=1
 if [ "${_RT_WIN:-0}" = 1 ]; then
   _rt_suite_check=0; _rt_harness_check=0
-  echo "run-tests: the live-suite and install-harness checks are not run on Windows (#7257: Git Bash's ps cannot answer them)" >&2
+  echo "run-tests: the live-suite and install-harness checks, and so the suite queue and its cap, are not run on Windows (#7257: Git Bash's ps cannot answer them)" >&2
 fi
 _rt_box_clear() {
   kosmos_refuse_if_machine_claimed "this test run" || return 1
@@ -853,8 +854,9 @@ fi
 # #7257: Windows caps a command line at about 32K characters, so one node --test over every file stopped with
 # "Argument list too long" and ran nothing. There, node is this function for the one call over KOSMOS_TEST_FILES: the
 # same options and trailing arguments over the files in chunks of under 24,000 characters, in order, the worst exit
-# status as the node part's, and one line naming the chunk count (so a run that did one chunk of many shows). Every
-# other node call goes to node itself. The node --test line below stays as it is (three guards find it flush left).
+# status as the node part's, and one line naming the chunk count (so a run that did one chunk of many shows). A test
+# failure outranks a 126/127 from another chunk (so the "not a failing test" line below stays true), and a chunk that
+# ends from a signal (128 and up, a Ctrl-C) stops the rest. Every other node call goes to node itself. The node --test line below stays as it is (three guards find it flush left).
 # The per-file watchdog has never run on Windows (it reads ps -A and pgrep, which Git Bash lacks), chunked or not.
 if [ "${_RT_WIN:-0}" = 1 ]; then
   node() {
@@ -866,20 +868,25 @@ if [ "${_RT_WIN:-0}" = 1 ]; then
       done
     fi
     if [ "$k" -lt 0 ]; then command node "$@"; return; fi
-    local opts=("${a[@]:0:k}") extra=("${a[@]:k+n}") chunk=() base=0 len=0 worst=0 rc chunks=0 x f
+    local opts=("${a[@]:0:k}") extra=("${a[@]:k+n}") chunk=() base=0 len=0 worst=0 failed=0 rc chunks=0 x f
     for x in "${opts[@]}" "${extra[@]}"; do base=$((base + ${#x} + 3)); done
+    _rt_chunk() {
+      command node "${opts[@]}" "${chunk[@]}" "${extra[@]}"; rc=$?
+      chunks=$((chunks + 1)); chunk=(); len=0
+      case "$rc" in 0|126|127) ;; *) [ "$rc" -gt "$failed" ] && failed=$rc ;; esac
+      [ "$rc" -gt "$worst" ] && worst=$rc
+      [ "$rc" -lt 128 ]
+    }
     for f in "${KOSMOS_TEST_FILES[@]}"; do
       if [ "${#chunk[@]}" -gt 0 ] && [ $((base + len + ${#f} + 3)) -gt 24000 ]; then
-        command node "${opts[@]}" "${chunk[@]}" "${extra[@]}"; rc=$?
-        [ "$rc" -gt "$worst" ] && worst=$rc
-        chunks=$((chunks + 1)); chunk=(); len=0
+        _rt_chunk || break
       fi
       chunk+=("$f"); len=$((len + ${#f} + 3))
     done
-    command node "${opts[@]}" "${chunk[@]}" "${extra[@]}"; rc=$?
-    [ "$rc" -gt "$worst" ] && worst=$rc
-    chunks=$((chunks + 1))
+    if [ "$rc" = "" ] || [ "$rc" -lt 128 ]; then _rt_chunk; fi
     echo "run-tests: node --test ran in $chunks chunk(s) over $n file(s) (#7257: Windows caps a command line)" >&2
+    unset -f _rt_chunk
+    if [ "$failed" -gt 0 ]; then return "$failed"; fi
     return "$worst"
   }
 fi

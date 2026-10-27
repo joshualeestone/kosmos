@@ -49,3 +49,9 @@ first and last files also appear as options, would run unchunked (the first just
 suite has not been run to the end on Windows: many POSIX-only files fail there, which is the next job, not this one.
 
 ## Review rounds
+- Round 1: no BLOCKER (reviewer ran the whole script with a logging stand-in: 1,844 files once each over 3 chunks, a
+  failing chunk made the run red, other node calls untouched, nothing left running). 4 WARNINGs, 1 NIT, all FIXED:
+  _RT_WIN=0 before the case so the environment cannot set it on a Mac; a chunk ending from a signal (128+, Ctrl-C) stops
+  the rest; a test failure outranks a 126/127 from another chunk, so the "not a failing test" line stays true; the skip
+  message names the suite queue and cap too; the cap assertion is exact (24,000). Negative control: the 2 new tests fail
+  on round 0. 5/5; full script with the stand-in: 3 chunks, all files.
