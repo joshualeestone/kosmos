@@ -8,7 +8,11 @@
  * is decoded), call and start, nested or quoted (cmd /c "schtasks /End"). The prefixes a command can carry are read
  * past too (#7270): NAME=value, cmd's @, cmd's if (exist, errorlevel, defined, a==b), nohup, exec, command, time,
  * nice, timeout with its duration, and a redirect with or without a space (schtasks>out.txt); backticks start a
- * command, and a here-document's body is not read as commands. A call through a shell (exec, execSync,
+ * command (outside a line known to be cmd's or PowerShell's). A here-document's body is read as commands, as it was:
+ * a line in it that starts with schtasks is refused even where only cat reads it. Telling a body apart from commands
+ * needs a real shell parser, and a reader that tried leaked (review 2 of #7270: a << in a quote or a comment switched
+ * the guard off for the rest of the script); refusing is the side that cannot reach the real scheduler. A backtick in
+ * an exec line of unknown shell cuts it, so echo `schtasks` under cmd is refused too. A call through a shell (exec, execSync,
  * shell: true) is read as a command line, every command in it. A word "schtasks" anywhere else (a git grep pattern, a
  * commit message, a script's source, echo schtasks) is not a call: refusing those would change results the guard has
  * no business changing (review 1 of #7247).
@@ -43,28 +47,6 @@ function baseName(p) {
   return String(p == null ? '' : p).trim().replace(/^["']+|["']+$/g, '').split(/[\\/]/).pop();
 }
 
-/* A here-document's body is text the shell feeds to a command, not commands (bash -c "cat <<'END' ... END"; #7270).
-   Its lines are dropped, up to the line that ends it. Only a POSIX shell has them. A here-string (<<<) is not one, and
-   neither is a shift inside arithmetic ($((1<<X)), review 1). */
-function dropHeredocs(text) {
-  const out = [];
-  const ends = [];
-  for (const line of String(text == null ? '' : text).split(/\r?\n/)) {
-    if (ends.length) {
-      const end = ends[0];
-      if ((end.tabs ? line.replace(/^\t+/, '') : line) === end.word) ends.shift();
-      continue;
-    }
-    out.push(line);
-    for (const m of line.matchAll(/(?<!<)<<(?!<)(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/g)) {
-      const before = line.slice(0, m.index);
-      if ((before.match(/\(\(/g) || []).length > (before.match(/\)\)/g) || []).length) continue;   // inside (( ))
-      ends.push({ word: m[3], tabs: !!m[1] });
-    }
-  }
-  return out.join('\n');
-}
-
 /* A command line cut into its commands at &, |, ;, parentheses and line ends outside quotes, so a quoted argument
    (node -e "require('x')") stays whole. Backticks start a command too, except in a line known to be cmd's or
    PowerShell's (where a backtick is text or an escape, review 1). shell is 'posix', 'other' or undefined (not known:
@@ -74,7 +56,7 @@ function commands(text, shell) {
   let cur = '';
   let quote = null;
   const cuts = shell === 'other' ? '&|;()\r\n' : '&|;()`\r\n';
-  for (const ch of shell === 'posix' ? dropHeredocs(text) : String(text == null ? '' : text)) {
+  for (const ch of String(text == null ? '' : text)) {
     if (quote) { if (ch === quote) quote = null; cur += ch; continue; }
     if (ch === '"' || ch === "'") { quote = ch; cur += ch; continue; }
     if (cuts.includes(ch)) { parts.push(cur); cur = ''; continue; }
@@ -164,8 +146,7 @@ function wordsRun(ws, i, depth, shell) {
     if (POSIX_SHELL.test(b)) {
       for (i += 1; i < ws.length && /^[-+]/.test(ws[i].text); i += 1) {
         if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(ws[i].text)) {   // -c, -lc, -ec (not -C)
-          /* The script as one quoted word is read from its inside, once: reading the quoted form and then its inside
-             would take a here-document twice and drop the commands after it (review 1). */
+          /* The script as one quoted word is read from its inside. */
           const script = ws[i + 1] && ws[i + 1].quoted ? ws[i + 1].inner : rest(i + 1);
           return lineRuns(script, depth + 1, 'posix');
         }
@@ -234,7 +215,11 @@ function callRuns(file, args, options) {
   if (options && options.shell) return commandRuns([String(file)].concat(list).join(' '));
   const base = baseName(file);
   if (PROGRAM.test(base)) return true;
-  if (isLauncher(base)) return wordsRun([base].concat(list).map(argWord), 0, 0);
+  if (isLauncher(base)) {
+    /* windowsVerbatimArguments: node joins the arguments as they are, so cmd /c echo a & schtasks runs it (review 2). */
+    if (options && options.windowsVerbatimArguments) return wordsRun(words([base].concat(list).join(' ')), 0, 0);
+    return wordsRun([base].concat(list).map(argWord), 0, 0);
+  }
   return false;
 }
 

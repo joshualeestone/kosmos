@@ -307,12 +307,9 @@ test('#7270: a prefix in front of schtasks does not end the scan', () => {
 });
 
 test('#7270: without a shell, each launcher argument is read as one word, as node passes it', () => {
-  // these never run schtasks: cmd only echoes the one quoted argument; a here-document body is text, not commands
+  // these never run schtasks: cmd only echoes the one quoted argument
   assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
   assert.equal(callRuns('cmd.exe', ['/d', '/s', '/c', 'echo', 'x | schtasks /End']), false);
-  assert.equal(callRuns('bash', ['-c', "cat <<'EOF'\nschtasks /Query\nEOF"]), false);
-  assert.equal(callRuns('bash', ['-c', 'cat <<-END\n\tschtasks /Query\n\tEND\necho done']), false);
-  assert.equal(commandRuns("bash -c \"cat <<EOF\nschtasks /Query\nEOF\""), false);
   // CONTROL: what does run it still reads as running it
   assert.equal(callRuns('cmd', ['/c', 'schtasks /End']), true);
   assert.equal(callRuns('cmd', ['/c', 'echo a & schtasks /End']), true);
@@ -345,4 +342,23 @@ test('#7270 review 1: an argument with no space reaches the launcher bare, so wh
   assert.equal(commandRuns('"C:\\Program Files\\Git\\bin\\bash.exe" -c "schtasks /Query"'), true);
   // a backtick is PowerShell's escape and plain text to cmd, so it does not cut their lines
   assert.equal(callRuns('powershell', ['-Command', 'Write-Output "a`nb" `schtasks']), false);
+});
+
+test('#7270 review 2: a here-document is read as commands, so no << can hide what comes after it', () => {
+  for (const args of [
+    ['-c', 'node -e "a<<b"\nschtasks /Query'], ['-c', "echo '<<EOF'\nschtasks /Query"], ['-c', '# see <<EOF in docs\nschtasks /Query'],
+    ['-c', 'let x=1<<y\nschtasks /Query'], ['-c', 'bash <<EOF\nschtasks /Query\nEOF'], ['-c', 'sh -s <<EOF\nschtasks /End /TN x\nEOF'],
+    ['-c', 'cat <<EOF\n$(schtasks /Query)\nEOF'],
+    // refused though only cat reads it: telling a body from commands needs a real shell parser (the accepted side)
+    ['-c', "cat <<'EOF'\nschtasks /Query\nEOF"],
+  ]) assert.equal(callRuns('bash', args), true, JSON.stringify(args));
+  assert.equal(commandRuns('bash -c "echo \'<<EOF\'\nschtasks /Query"'), true);
+});
+
+test('#7270 review 2: with windowsVerbatimArguments node passes the arguments as they are, so they are one command line', () => {
+  assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks'], { windowsVerbatimArguments: true }), true);
+  assert.equal(callRuns('cmd', ['/d', '/s', '/c', '"schtasks /End"'], { windowsVerbatimArguments: true }), true);
+  // CONTROL: the same call quoted by node only echoes, and a verbatim call running something else is not refused
+  assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
+  assert.equal(callRuns('cmd', ['/d', '/s', '/c', '"node x.js"'], { windowsVerbatimArguments: true }), false);
 });

@@ -13,7 +13,8 @@ tools/no-schtasks-preload.cjs (tools/lib/schtasks-call.cjs) missed common prefix
 4. The new tests fail against main's matcher (negative control) and the existing suite stays green under the guard.
 
 ## Changes
-- dropHeredocs: a here-document's lines are dropped up to its end word (`<<-` strips tabs; `<<<` is not one).
+- Here-documents: NOT read specially (tried in round 0, removed in round 2); a body line starting with schtasks is
+  refused, as on main.
 - commands: backticks split commands, as `$( )` already did.
 - words: `<` and `>` end a word; the redirect's target and the 2 of `2>` are not words.
 - wordsRun: NAME=value and a leading @ skipped; nohup/exec/command/builtin/time/nice/then/else/do/! read past their
@@ -23,6 +24,9 @@ tools/no-schtasks-preload.cjs (tools/lib/schtasks-call.cjs) missed common prefix
   double quote is one quoted word, as node passes it; any other is bare, as node passes it.
 
 ## Rejected
+- Skipping here-document bodies (round 0 to 1): a << in a quote, a comment or node -e switched the guard off for the
+  rest of a script, and bodies fed to bash or holding $( ) do run. Refusing a body line is the side that cannot reach
+  the real scheduler.
 - A real shell parser: out of proportion for a test guard; #7262 is the place for one shared reader.
 - Escaping inner quotes in asOneWord (node's MSVC `\"` rules): the tokenizer does not read `\"`, so an argument that
   already holds a quote is left as written. That keeps cmd's `""path" args"` form readable.
@@ -46,3 +50,9 @@ holds each one.
   $(( )) is a shift, not a here-document, and only a POSIX line has here-documents. NIT: backticks no longer cut cmd or
   PowerShell lines. Also found while fixing: a quoted -c script had its here-document taken twice; read once now.
   Negative control: the new test fails against round 0's matcher. 76/76 with windows-tests-1777 and win32job.
+- Round 2: 1 BLOCKER, 3 WARNINGs, 1 NIT. BLOCKER + WARNING (here-documents): FIXED by removing the here-document reader;
+  bodies read as commands again, as on main. WARNING windowsVerbatimArguments: FIXED (arguments joined as node passes
+  them). WARNING a backtick in an exec line of unknown shell (cmd on Windows) refuses echo `schtasks`: ACCEPTED, refusal
+  only, named in the header. NIT X==1 schtasks refused: ACCEPTED (cmd fails that line anyway). Reviewer harness of 225
+  calls rerun: every HEAD-false/main-true case is the intended one-quoted-argument read. Negative control: both new
+  tests fail against round 1. 78/78 with windows-tests-1777 and win32job.
