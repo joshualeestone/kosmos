@@ -144,6 +144,11 @@ records, server logs, and the processors), which matches `privacy-label.md`.
 
 ## Notes for App Review (draft, rewritten 2026-10-27 for the native app, kosmos #7352; App Review reads this, customers do not)
 
+For us, not for App Review: everything from the next paragraph on is pasted into
+the Notes field. The demo account is the Play review account and review computer
+from kosmos #4090. The demo email goes in the sign-in user name field (and a
+password only once the password sign-in of kosmos #7357 ships in the app).
+
 Kosmos is a free companion to Kosmos+, a paid web service. Nothing is sold in
 the app and it links to no purchase (Guideline 3.1.3(f)).
 
@@ -166,12 +171,12 @@ review. On first sign-in the computer is asked to allow the new phone; we
 approve it from our side, so nothing is needed from you beyond signing in.
 
 Signing in: enter the demo email and press Continue. The six-digit code
-arrives in the demo inbox (its login is below). For the second step, add the
-setup key below to any authenticator app and enter the code it shows.
+arrives in the demo inbox. For the second step, add the authenticator setup
+key to any authenticator app and enter the code it shows. The demo inbox
+login and the setup key are given below.
 
-Demo account, demo inbox password and authenticator setup key: entered in App
-Store Connect's sign-in fields only, never in this file (kosmos #7352 reuses
-the Play review account and review computer from kosmos #4090).
+Demo inbox login and authenticator setup key: (Josh to paste here in App Store
+Connect; never committed to this file)
 
 Contact during review: (Josh to fill in)
 

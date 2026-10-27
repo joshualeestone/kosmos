@@ -40,19 +40,33 @@ function code(file) {
   return src.replace(/"(?:\\.|[^"\\\n])*"|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => (m[0] === '"' ? m : ''));
 }
 
-/* The manifest without its XML comments, so a commented-out entry does not count as declared. */
-function manifestText() {
-  return fs.readFileSync(MANIFEST, 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+/* A target's manifest without its XML comments, so a commented-out entry does not count as declared. A target with
+   no manifest reads as one declaring nothing. */
+function manifestText(file = MANIFEST) {
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, '') : '';
 }
 
-test('kosmos#7352: every required-reason API the iPhone app uses is declared in its privacy manifest', () => {
-  const manifest = manifestText();
-  const files = swiftFiles(IOS);
-  assert.ok(files.length > 20, `the iPhone sources were found (${files.length} Swift files)`);
-  const sources = files.map((f) => [f, code(f)]);
-  for (const [category, uses] of Object.entries(CATEGORIES)) {
-    const users = sources.filter(([, text]) => uses.test(text)).map(([f]) => path.relative(__dirname, f));
-    if (users.length) assert.ok(manifest.includes(`<string>${category}</string>`), `${category} is used (${users.join(', ')}) but not declared in ${path.relative(__dirname, MANIFEST)}`);
+/* Apple checks each bundle's own manifest: the app, and the notification extension (KosmosNotice.appex). Each folder
+   is a synchronized group of its target, so its sources and its PrivacyInfo.xcprivacy go into that bundle. */
+const TARGETS = ['Kosmos', 'KosmosNotice'];
+
+test('kosmos#7352: every Swift folder under ios/ is a target checked here (a new extension cannot slip past)', () => {
+  const withSwift = fs.readdirSync(IOS, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== 'LogicTests' && !e.name.endsWith('.xcodeproj'))
+    .filter((e) => swiftFiles(path.join(IOS, e.name)).length > 0).map((e) => e.name).sort();
+  assert.deepEqual(withSwift, [...TARGETS].sort());
+});
+
+test('kosmos#7352: every required-reason API each target uses is declared in that target’s own privacy manifest', () => {
+  assert.ok(swiftFiles(path.join(IOS, 'Kosmos')).length > 20, 'the iPhone app sources were found');
+  for (const target of TARGETS) {
+    const file = path.join(IOS, target, 'PrivacyInfo.xcprivacy');
+    const manifest = manifestText(file);
+    const sources = swiftFiles(path.join(IOS, target)).map((f) => [f, code(f)]);
+    for (const [category, uses] of Object.entries(CATEGORIES)) {
+      const users = sources.filter(([, text]) => uses.test(text)).map(([f]) => path.relative(__dirname, f));
+      if (users.length) assert.ok(manifest.includes(`<string>${category}</string>`), `${category} is used (${users.join(', ')}) but not declared in ${path.relative(__dirname, file)}`);
+    }
   }
 });
 
