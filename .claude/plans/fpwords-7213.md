@@ -3,7 +3,9 @@
 From Josh's five-model 0.7.71 report (card comment 2026-10-27): given an old-style `sha256:` label on a value that is
 really a PDF fingerprint, `kosmos fingerprint <file> <value>` said "the bytes differ only in the PDF's own dates or ID",
 while the file was byte-identical to the approved one. Ask: say the value is a PDF fingerprint, not that the bytes
-differ. Keep the advice (give the value without sha256: for a byte check).
+differ. Josh called the advice right (a byte check needs no label). Review round 1 showed the old wording ("give
+the value without sha256:") cannot produce a match on this path, since the value is known not to be the file's plain
+sha256, so it now names the value that can: the approved file's plain sha256 (what shasum -a 256 prints for it).
 
 ## Change
 - `engine/fileprint.js` `compare`, the sha256:-labelled fallback match: the words now say the value is this PDF's

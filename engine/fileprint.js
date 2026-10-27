@@ -307,7 +307,7 @@ function compare(p, expected) {
        same as a plain sha256 of a copy whose dates were already empty. So the words say what the value is, and claim
        nothing about whether the bytes differ (Josh's 0.7.71 report: the file was byte-identical, and "the bytes differ"
        was wrong). */
-    return { ok: true, match: true, kind: 'pdf-normalized', got: fp, words: 'matches the PDF fingerprint, not the bytes: that value is this PDF\'s fingerprint (its dates and ID left out), not its plain sha256 (a mark sent before #7213 labelled a PDF fingerprint sha256:), so it does not show whether the bytes are identical. For a byte-for-byte check give the value without sha256:' };
+    return { ok: true, match: true, kind: 'pdf-normalized', got: fp, words: 'matches the PDF fingerprint, not the bytes: that value is this PDF\'s fingerprint (its dates and ID left out), not its plain sha256, so it does not show whether the bytes are identical. For a byte-for-byte check give the approved file\'s plain sha256 (what shasum -a 256 prints for it), with no label. (A mark sent before #7213 labelled a PDF fingerprint sha256:.)' };
   }
   return { ok: true, match: false, kind, got, words: 'differs from ' + kindWords(want) + ': this file gives ' + got };
 }

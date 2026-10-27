@@ -126,13 +126,15 @@ test('#7213 follow-up (Josh 0.7.71): an older mark checked against the SAME PDF 
   const p = at('cups-a.pdf');
   const fpHex = fp.fingerprint(p).slice('pdf-normalized:'.length);
   // CONTROL: the file's own plain sha256 is a plain byte match, so the words below come from the fingerprint fallback.
-  assert.match(fp.compare(p, 'sha256:' + hex(p)).words, /^matches the plain sha256|^matches /);
+  const own = fp.compare(p, 'sha256:' + hex(p));
+  assert.equal(own.match, true);
+  assert.equal(own.kind, 'sha256', 'CONTROL: the plain sha256 is a byte match, not the fingerprint fallback');
   assert.notEqual(fpHex, hex(p), 'CONTROL: this PDF has dates to leave out, so its fingerprint is not its plain sha256');
   const same = fp.compare(p, 'sha256:' + fpHex);   // what a mark sent before #7213 says about this very file
   assert.equal(same.match, true);
   assert.match(same.words, /that value is this PDF's fingerprint/);
   assert.doesNotMatch(same.words, /bytes differ/, 'a byte-identical file was told its bytes differ');
-  assert.match(same.words, /give the value without sha256:/, 'the byte-check advice stays');
+  assert.match(same.words, /give the approved file's plain sha256 \(what shasum -a 256 prints for it\), with no label/, 'the byte-check advice names a value that can match');
 });
 
 test('#7213 review 1: a PDF whose dates are already empty matches a PDF fingerprint with the same hex, whatever its label', () => {
