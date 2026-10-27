@@ -88,3 +88,23 @@ test('#7386: CONTROL: an invisible character with no secret behind it masks noth
   assert.equal(stepVia('Read', { file_path: 'C:\\work\\a\u0085b.md' }), 'using Read on C:\\work\\a\u0085b.md');
   assert.equal(stepVia('Bash', { command: 'npm install' }), 'running "npm install"');
 });
+
+test('#7386 review 1: the whole family of invisible characters is covered, by category, not a list', () => {
+  // Each measured to let a key show with a list of only the bidi marks and C1.
+  for (const ch of ['⁡', '⁣', '⁤', '⁪', '⁯', '᠎', '͏', '️', '\u{e0041}', 'ᅟ', 'ㅤ', '឴', '￹']) {
+    const cmd = stepVia('Bash', { command: 'export K=' + split(LIVE, 11, ch) + ' && run' });
+    assert.ok(!leaks(cmd, LIVE, 11), 'U+' + ch.codePointAt(0).toString(16) + ' let a key in a command show: ' + JSON.stringify(cmd));
+    const tool = stepVia('mcp__s__' + split(ANT, 30, ch), {});
+    assert.ok(!leaks(tool, ANT, 13), 'U+' + ch.codePointAt(0).toString(16) + ' let a key in a tool name show: ' + JSON.stringify(tool));
+  }
+});
+
+test('#7386 review 1: a C0 control or a newline in a tool name is folded, so it cannot split a key or break the line', () => {
+  for (const ch of ['\u0001', '\n', '\t', '\u007f']) {
+    const step = stepVia('mcp__s__' + split(ANT, 30, ch), {});
+    assert.ok(!leaks(step, ANT, 13), JSON.stringify(ch) + ' let the key show: ' + JSON.stringify(step));
+    assert.ok(!/[\u0000-\u001f\u007f]/.test(step), 'a control character reached the one-line step: ' + JSON.stringify(step));
+  }
+  // Control: an ordinary tool name with a newline in it is shown on one line.
+  assert.equal(stepVia('Grep\nx', {}), 'using Grep x');
+});
