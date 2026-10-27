@@ -154,7 +154,7 @@ test('#7365: the archive route sets the marker, refuses a bad or future time, an
   assert.equal(roomarchive.markerFor(pid), null, 'a refused archive wrote a marker');
   const missing = await post('no-such-project-7365', '', { before: new Date().toISOString() });
   assert.equal(missing.code, 404, missing.text);
-  const when = new Date(Date.now() - DAY).toISOString();
+  const when = new Date(Date.now() - 2 * DAY).toISOString();
   const ok = await post(pid, '', { before: when });
   assert.equal(ok.code, 200, ok.text);
   assert.equal(ok.json.marker.before, when);
@@ -165,10 +165,12 @@ test('#7365: the archive route sets the marker, refuses a bad or future time, an
   assert.equal(roomarchive.markerFor(pid), null, 'Undo left the marker');
   // Loose strings Date.parse would read as a date are refused: only an ISO time is a time here.
   for (const before of ['1', 'March 7', '2024-01-01', '2024-01-01T10:00']) assert.equal((await post(pid, '', { before })).code, 400, before);
-  // A page clock a few seconds fast is read as now, never stored as a time in the future.
-  const fast = await post(pid, '', { before: new Date(Date.now() + 20 * 1000).toISOString() });
+  // A page clock a few seconds fast is read as now, and now is moved back a day: the marker never archives the last day.
+  const asked = Date.now();
+  const fast = await post(pid, '', { before: new Date(asked + 20 * 1000).toISOString() });
   assert.equal(fast.code, 200, fast.text);
-  assert.ok(Date.parse(fast.json.marker.before) <= Date.now(), fast.json.marker.before);
+  const used = Date.parse(fast.json.marker.before);
+  assert.ok(used <= Date.now() - roomarchive.KEEP_RECENT_MS && used >= asked - roomarchive.KEEP_RECENT_MS, fast.json.marker.before);
   assert.equal((await post(pid, '/undo')).code, 200);
 });
 
@@ -197,7 +199,8 @@ test('#7365: a marker file that will not parse is moved aside, bytes kept, and A
   assert.equal((await get(room.small)).json.archivedCount, 20, 'CONTROL: with the file whole again the marker reads');
 });
 
-test('#7365: a marker file that cannot be READ refuses the write and changes nothing', async () => {
+// chmod 000 does not stop root reading, so as root this test cannot set up its case.
+test('#7365: a marker file that cannot be READ refuses the write and changes nothing', { skip: typeof process.getuid === 'function' && process.getuid() === 0 }, async () => {
   const file = roomarchive.fileFor();
   const before = fs.readFileSync(file, 'utf8');
   fs.chmodSync(file, 0o000);
@@ -222,7 +225,7 @@ test('#7365: Undo clears the person\'s marker only; what the automatic rule arch
 test('#7365: a room whose every message is archived does not tell agents nothing was said', async () => {
   const pid = projects.create({ name: 'Archive all' }).id;
   projects.writeAll(projects.readAll().map((q) => (q.id === pid ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q)));
-  fs.appendFileSync(path.join(store.ROOT, 'messages.jsonl'), JSON.stringify({ kind: 'post', id: 'all1', project: pid, from: 'alpha', to: [], text: 'only post', at: new Date(Date.now() - DAY).toISOString(), outcomes: {} }) + '\n');
+  fs.appendFileSync(path.join(store.ROOT, 'messages.jsonl'), JSON.stringify({ kind: 'post', id: 'all1', project: pid, from: 'alpha', to: [], text: 'only post', at: new Date(Date.now() - 2 * DAY).toISOString(), outcomes: {} }) + '\n');
   // CONTROL: before the archive, the post is shown.
   assert.match((await get(pid, '?as=text')).text, /\[all1\]/);
   assert.equal(roomarchive.setMarker(pid, new Date().toISOString()).ok, true);
@@ -235,6 +238,17 @@ test('#7365: archivedCount stops at a row with no readable time, so a row Kosmos
   const rows = [{ at: '2024-01-01T00:00:00.000Z' }, { at: 'garbage' }, { at: '2024-01-02T00:00:00.000Z' }];
   assert.equal(roomarchive.archivedCount(rows, { before: '2025-01-01T00:00:00.000Z' }), 1);
   assert.equal(roomarchive.archivedCount(rows, null), 0, 'three rows are inside the newest 1,000');
+});
+
+test('#7365: archiving "up to now" leaves the last day live, so an ask still being told to its agent is not archived', async () => {
+  const pid = projects.create({ name: 'Archive recent' }).id;
+  projects.writeAll(projects.readAll().map((q) => (q.id === pid ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q)));
+  const row = (id, ago) => JSON.stringify({ kind: 'post', id, project: pid, from: 'alpha', to: ['beta'], mentioned: ['beta'], text: '@beta can you take this?', at: new Date(Date.now() - ago).toISOString(), outcomes: {} });
+  fs.appendFileSync(path.join(store.ROOT, 'messages.jsonl'), [row('rc-old', 3 * DAY), row('rc-new', 60 * 60 * 1000)].join('\n') + '\n');
+  assert.equal((await post(pid, '', { before: new Date().toISOString() })).code, 200);
+  const r = await get(pid);
+  assert.deepEqual(r.json.rows.filter((x) => x.archived).map((x) => x.id), ['rc-old'], 'the hour-old ask was archived');
+  assert.match((await get(pid, '?as=text')).text, /\[rc-new\]/);
 });
 
 // LAST: enforcement on, so both routes are proven to be outside every auth-exempt set.

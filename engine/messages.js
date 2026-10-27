@@ -1332,7 +1332,8 @@ function staleHeld(projectId, ids, log, now, member) {
        reply followed such a read, the rule's premise): the
        ROOM_READ_ROWS - 1 rows before X, less one for each row after X and before that reply, of the kinds the read
        shows, in the order it shows them (server.js). Outside rows count as full slots; the read skips outside rows past
-       its cap, so it reaches further back than that, never less far. */
+       its cap, so it reaches further back than that, never less far, except that it stops at the room's archive
+       (kosmos#7365), whose posts that same read drops from the member's held list. */
     const covered = new Set();
     const firstReply = new Map();
     if (answered.size && rows.some((r) => r && r.kind === 'post' && r.project === projectId && want.has(r.id))) {
