@@ -184,3 +184,14 @@ test('#7320 review 1: eval unescapes double quotes, an escaped launcher is a lau
   assert.equal(callRuns('cmd', ['/c', '"sch^tasks"'], { windowsVerbatimArguments: true }), true);
   assert.equal(commandRuns('echo "sch^tasks"'), false, 'a caret inside quotes in an argument is text');
 });
+
+test('#7320 review 2: a flat chain of escaped prefixes; \\U and NUL in $\'...\'; one-pass unescaping', () => {
+  // bash ran each (checked live with echo in place of schtasks)
+  for (const cmd of ['n\\ice '.repeat(8) + 'schtasks', 'e\\val '.repeat(5) + 'schtasks', "$'\\U73'chtasks /q", "$'schtasks\\0junk' /q"])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: spellings bash does not produce (it runs sch\tasks, or reads A=1 as a command)
+  for (const cmd of ["$'sch\\\\tasks' /q", "\\$'sch'tasks /q", "$'sch\\x27tasks' /q"]) assert.equal(commandRuns(cmd), false, cmd);
+  const t0 = Date.now();
+  commandRuns('n\\ice '.repeat(16000) + 'schtasks');
+  assert.ok(Date.now() - t0 < 2000, 'took ' + (Date.now() - t0) + ' ms');
+});

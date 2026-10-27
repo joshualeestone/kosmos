@@ -49,3 +49,11 @@ extra word, harmless for the same reason.
   ACCEPTED: eval nested past DEPTH 6. Reviewer NIT corrected by a live probe: cmd /c "ec^ho" hi printed hi (the /c
   quote stripping exposes the caret), so cmd /c "sch^tasks" IS refused, and the test says so. Negative control: the new
   test fails against round 0. 64/64 (1 skip, #7318's); 87 win32 files 0 fail 0 refusals.
+- Round 2: no BLOCKER (every HEAD miss the base also misses; linear to 16,000 escaped words; no throw). 2 WARNINGs, 3
+  NITs. FIXED: an escaped word whose plain spelling is a launcher or prefix (SPECIAL) and whose escaped one is not now
+  simply becomes the command word in the same loop, so a flat chain (n\ice x8) costs no depth (eval chains still nest,
+  as eval really re-parses, and stop at DEPTH like plain eval); $'...' decodes \U and a NUL ends the word; the POSIX
+  unescape is one left-to-right pass as bash reads it ($'sch\tasks', \$'sch'tasks no longer read as schtasks; A\=1 x
+  checked from a file: no longer an assignment). ACCEPTED: carets in a PowerShell line read as cmd's (refusal of the
+  guarded word only); g\h.exe in an exec line also read as gh.exe (same). Negative control: the new test fails against
+  round 1. 65/65 (1 skip, #7318's); 87 win32 files 0 fail 0 refusals.

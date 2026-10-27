@@ -166,14 +166,47 @@ function unescaped(w, shell) {
     return out;
   }
   if (shell !== 'posix') return w.text;
-  const ansi = (c) => c.replace(/\\(x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{1,4}|[0-7]{1,3}|.)/g, (m, e) => {
-    if (/^x/.test(e)) return String.fromCharCode(parseInt(e.slice(1), 16));
-    if (/^u/.test(e)) return String.fromCharCode(parseInt(e.slice(1), 16));
-    if (/^[0-7]/.test(e)) return String.fromCharCode(parseInt(e, 8));
-    return e;
-  });
-  return w.raw.replace(/\$'((?:\\.|[^'])*)'/g, (m, c) => ansi(c)).replace(/\\(.)/g, '$1').replace(/["']/g, '');
+  /* One left-to-right pass, as bash reads the word (review 2: decoding $'..' first and then unescaping the result read
+     $'sch\\\\tasks' as schtasks). '...' is literal; "..." keeps a backslash except before \\ " $ `; $'...' decodes
+     \\xHH, \\uHHHH, \\UHHHHHHHH and octal, and a NUL ends the word, as it does for bash. */
+  const raw = w.raw;
+  let out = '';
+  let q = null;
+  for (let k = 0; k < raw.length; k += 1) {
+    const c = raw[k];
+    if (q === "'") { if (c === "'") q = null; else out += c; continue; }
+    if (q === 'ansi') {
+      if (c === "'") { q = null; continue; }
+      if (c !== '\\' || k + 1 >= raw.length) { out += c; continue; }
+      const m = raw.slice(k + 1).match(/^(x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{1,4}|U[0-9a-fA-F]{1,8}|[0-7]{1,3}|[\s\S])/);
+      k += m[1].length;
+      const e = m[1];
+      let ch = e;
+      if (/^[xuU]/.test(e) && e.length > 1) {
+        const v = parseInt(e.slice(1), 16);
+        ch = v <= 0x10ffff ? String.fromCodePoint(v) : '';
+      } else if (/^[0-7]/.test(e)) ch = String.fromCharCode(parseInt(e, 8) & 0xff);
+      if (ch === '\0') return out;   // the word ends at a NUL
+      out += ch;
+      continue;
+    }
+    if (c === '\\' && k + 1 < raw.length) {
+      const n = raw[k + 1];
+      if (q === '"' && !'\\"$`'.includes(n)) { out += c; continue; }
+      out += n;
+      k += 1;
+      continue;
+    }
+    if (q === '"') { if (c === '"') q = null; else out += c; continue; }
+    if (c === '$' && raw[k + 1] === "'") { q = 'ansi'; k += 1; continue; }
+    if (c === "'" || c === '"') { q = c; continue; }
+    out += c;
+  }
+  return out;
 }
+/* The words the walk treats specially: when an escaped word's plain spelling is one of these, the plain spelling is the
+   command word. */
+const SPECIAL = /^(cmd|powershell|pwsh|sh|bash|zsh|dash|ksh|fish|env|sudo|nohup|time|nice|timeout|exec|command|builtin|coproc|eval|then|else|do|while|until|\{|!|if|elif|call|start)(\.exe)?$/i;
 const DEPTH = 6;   // shells inside shells, as far as anyone writes them
 
 /* The last part of a program path, without quotes. */
@@ -321,11 +354,14 @@ function walk(ws, i, depth, shell, out) {
     out.push(word);
     const plain = unescaped(w, shell).replace(/^@/, '');
     if (plain && plain !== word) out.push(plain);
-    const b = baseName(word);
-    /* The unescaped spelling can be a launcher the escaped one is not (b\ash -c x, e\val x, c^md /c x; review 1): the
-       call is also walked with that spelling in its place. */
-    if (plain && plain !== word && baseName(plain) !== b) {
-      walk([{ raw: plain, text: plain, quoted: false, inner: null }].concat(ws.slice(i + 1)), 0, depth + 1, shell, out);
+    let b = baseName(word);
+    /* The unescaped spelling can be a launcher the escaped one is not (b\ash -c x, e\val x, c^md /c x; review 1). When
+       the escaped spelling means nothing here, the plain one simply is the command word, read in this same loop, so a
+       flat chain of them (n\ice n\ice ... x, review 2) costs no depth; only when both mean something is the call also
+       walked with the plain one in its place. */
+    if (plain && plain !== word && baseName(plain) !== b && SPECIAL.test(baseName(plain))) {
+      if (!SPECIAL.test(b)) b = baseName(plain);
+      else walk([{ raw: plain, text: plain, quoted: true, inner: plain }].concat(ws.slice(i + 1)), 0, depth + 1, shell, out);
     }
     if (CMD.test(b)) {
       for (i += 1; i < ws.length && (ws[i].redirect || /^\//.test(ws[i].text)); i += 1) {
