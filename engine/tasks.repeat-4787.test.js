@@ -227,9 +227,12 @@ test('#4787 slice 2: a run reported past its slot\'s miss grace is marked late, 
      Days are stepped with nextAfter, never as 86400000 ms: across a daylight-saving change a day is 23 or 25 hours, and
      the ms sum lands an hour off the 09:00 slot (red in America/Chicago on 2026-10-27, the week before Nov 1). */
   const day2 = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, taskrepeat.nextAfter({ every: 'day', at: '09:00' }, slot3));
+  assert.equal(new Date(day2).getHours(), 9, 'precondition: the day-after-next slot is 09:00 local, DST or not');
   tasks.recordRun(id, n, 'bob', 'next day, on time', day2 + 5 * 60000);
+  assert.equal(stored(id, n).lastRunBy, 'bob', 'precondition: this run was recorded (the check below would hold without it)');
   assert.equal(stored(id, n).lastRunLate, undefined, 'after a missed day, the next day\'s 09:05 run is on time');
   const day3 = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, day2);
+  assert.equal(new Date(day3).getHours(), 9, 'precondition: the next slot is 09:00 local too');
   tasks.recordRun(id, n, 'bob', 'very late', day3 + 4 * 3600000);
   assert.equal(stored(id, n).lastRunLate, true, 'CONTROL: four hours after its slot is late');
   tasks.setRepeat(id, n, { every: 'day', at: '10:00' });

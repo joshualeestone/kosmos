@@ -31,3 +31,12 @@ in UTC, Tokyo and London; it passed at 07:17 because before 09:00 its slots stop
 aborted the 0.7.71 re-cut at step 3. The product already follows the clock (taskrepeat.nextAfter); only the test
 assumed a 24-hour day. Fix: day2 and day3 are taken with nextAfter. 25/25 in all five zones. Carried in this PR so the
 re-cut needs one CI cycle, not two.
+
+## Review 3 (09:2x, opus, the combined diff): 0 blockers, 1 warning, 3 nits
+- W1 FIXED: the missed-day assertion could pass vacuously (lastRunLate was already undefined from the run before);
+  it now first asserts the run was recorded (lastRunBy bob).
+- NIT FIXED: day2 and day3 are asserted to be 09:00 local, so the test no longer only trusts nextAfter.
+- The reviewer simulated the slot sequence for two years in nine zones (both hemispheres, a half-hour DST zone):
+  0 failures with nextAfter; the old ms sums failed about 310 times per DST zone and never in UTC, so it can see the bug.
+- NITs RECORDED: the moved-agent exception rests on #6085's reading of the binary; the community count includes
+  moderator-removed comments.
