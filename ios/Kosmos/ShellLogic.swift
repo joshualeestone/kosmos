@@ -380,6 +380,14 @@ enum AppTabs {
     // box up) must not leave the person on an unexplained page. A refused project create opens the board's Projects
     // section; a refused agent create loads the board's own create page (?tab=create, a deep link the board has long
     // served). nil when the press opened, still waits, or was not a create.
+    // kosmos#7266 review 3 (with the switcher): a + creates on the computer the switcher shows, not on whichever one the
+    // shared board page happens to be on. The board to load first, or nil when the page is already on that computer
+    // (or no computer is shown yet, as before the switcher).
+    static func createTarget(pageURL: URL?, shown: URL?) -> URL? {
+        guard let shown, let want = shown.host?.lowercased() else { return nil }
+        return pageURL?.host?.lowercased() == want ? nil : shown
+    }
+
     enum CreateFallback: Equatable { case projects, load(URL) }
     static func createFallback(door: String?, _ answer: DoorAnswer, pageURL: URL?) -> CreateFallback? {
         guard let door, answer != .opened, afterAnswer(answer, pageURL: pageURL).over else { return nil }
