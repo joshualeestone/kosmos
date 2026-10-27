@@ -36,4 +36,10 @@ if (e.KM_LJ_SETUP_SHA) {
   if (!/^[0-9a-f]{64}$/.test(e.KM_LJ_SETUP_SHA)) { process.stderr.write('write-latest-pointer: KM_LJ_SETUP_SHA is not a lower-case sha256; refusing\n'); process.exit(1); }
   ptr.setup_sha256 = e.KM_LJ_SETUP_SHA;
 }
+// kosmos#7281: optional KM_LJ_VERSIONED adds "versioned", the immutable tarball name, which the Linux family's pointer
+// carries (engine/update.js readManifest checks it equals kosmos-<version>-linux-x64.tar.gz, as the Windows pointer's).
+if (e.KM_LJ_VERSIONED) {
+  if (e.KM_LJ_VERSIONED !== `kosmos-${e.KM_LJ_VERSION}-linux-x64.tar.gz`) { process.stderr.write('write-latest-pointer: KM_LJ_VERSIONED does not name this version\'s linux-x64 tarball; refusing\n'); process.exit(1); }
+  ptr.versioned = e.KM_LJ_VERSIONED;
+}
 require('node:fs').writeFileSync(out, JSON.stringify(ptr) + '\n');
