@@ -19,11 +19,13 @@
  * caught it). This check now also walks the project tip at 360 and 375 in both engines, and at 375 with
  * Android's larger text (x1.3, Chromium only: its mobile emulation honours -webkit-text-size-adjust on px text as
  * Android's font scale does; WebKit ignores it). Every step must point, sit fully on screen, and have its area
- * in view. Measured: without the tip fix the Conversation step goes flat at 360 and 375 in both engines; the x1.3
+ * in view. Measured before #7196: without the tip fix the Conversation step went flat at 360 and 375 in both engines
+ * (since #7196 fits the room above its composer, no case walked makes room at all, 10-27: see #7312); the x1.3
  * case points even without the fix (the layout leaves room there), so it guards against a future break and does
  * not reproduce this one. The make-room step is in the tour code every stepped tip shares, so the agent page's tip
  * and the board's tour are walked at the same sizes: wherever the page made room, that card must then point, fully
- * on screen; their other steps are printed as MEASURE lines, not judged (this card does not own them). And only a
+ * on screen (currently unused: no case makes room since #7196, #7312); their other steps are printed as MEASURE
+ * lines, not judged (this card does not own them). And only a
  * step whose card would otherwise go flat may scroll the page (the project tip: the Conversation step, or none).
  *
  *   node docs/browser-checks/render-chatbox-phone-4108.js            # headed
@@ -246,7 +248,8 @@ function heightOf(page, sel) {
            every step the card points, the WHOLE card is on screen, and its area is in view.
            The make-room step lives in the tour code every stepped tip shares, so the agent page's tip and the board's tour
            are walked too: wherever it scrolled, the card must then point and be fully on screen (their other steps are
-           reported, not judged: this card does not own them). */
+           reported, not judged: this card does not own them). Since #7196 no case makes room, so that guard runs zero
+           times (measured 10-27; #7312 decides whether the make-room code goes or gets a case that needs it). */
         const TIP_CASES = [[360, 1], [375, 1]].concat(engine === 'chromium' ? [[375, 1.3]] : []);
         for (const [width, scale] of TIP_CASES) {
           const tag = `[${engine} ${width}x${PHONE[1]}${scale !== 1 ? ' text x' + scale : ''}]`;
@@ -278,7 +281,7 @@ function heightOf(page, sel) {
                    10-27, no case walked makes room any more, in either engine, and no step of the agent page's tip or the
                    board tour does either. So the line is reported, not judged. What the person sees is still judged above
                    (each step points at its area, fully on screen, and only the Conversation step may scroll). Whether the
-                   tour's make-room code can now go is a separate card. */
+                   tour's make-room code can now go is #7312. */
                 if (w.scrolled.includes('Conversation')) madeRoom.push(tag);
                 console.log(`MEASURE  ${tag} project tip made room for Conversation: ${w.scrolled.includes('Conversation')}`);
                 chk(w.steps.length === 4, `${tag} the project tip walked all four steps`, String(w.steps.length));
