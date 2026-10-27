@@ -32,7 +32,7 @@ _deploy_linux_get() {  # <url> <out>
   while [ "$n" -lt "${FETCH_ATTEMPTS:-3}" ]; do
     n=$((n + 1))
     code="$(curl -sSL --connect-timeout 15 --speed-limit 1024 --speed-time 60 --max-time 1200 -H 'Cache-Control: no-cache' \
-      -o "$2" -w '%{http_code}' "$1" 2>/dev/null)" || code="${code:-000}"
+      -o "$2" -w '%{http_code}' "$1" 2>/dev/null)" || code=000   # review 2: a cut-off 200 is not a 200 (deploy-site.sh does the same)
     case "$code" in ''|*[!0-9]*) code=000 ;; esac
     case "$1" in file://*) [ -s "$2" ] && code=200 || code=404 ;; esac   # file:// (the tests) has no HTTP status
     case "$code" in 200|404) break ;; esac
@@ -69,6 +69,12 @@ deploy_linux_carry() {
            fi ;;
       404) : ;;
       *) echo "deploy-site: could not read the live dist/$p (HTTP $code) -- refusing for now (exit 75: try again later) (kosmos#7281)" >&2; return 75 ;;
+    esac
+    # Review 2: a 200 with no readable version (a rewrite page, a garbled file) cannot tell us the live version, so the
+    # backwards check would pass by default: treat it as "could not read" instead.
+    case "$code" in
+      200) printf '%s' "$live_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
+             || { echo "deploy-site: the live dist/$p answered but names no version -- refusing for now (exit 75: try again later) (kosmos#7281)" >&2; return 75; } ;;
     esac
     case " $DEPLOY_LINUX_ARTS " in *" $name "*) continue ;; esac   # both pointers on one build
     if [ -f "$site/dist/$name" ]; then
