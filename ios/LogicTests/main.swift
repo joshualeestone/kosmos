@@ -3679,7 +3679,16 @@ for sel in AppTabs.visible(tasksTab: true) {
 
 check(AppTabs.pressScript(door: "new-agent").contains("window.kosmosAppTab('new-agent')"), "#7266: the create name goes to the door")
 check(AppTabs.pressScript(.agents) == nil && AppTabs.pressScript(.projects) == AppTabs.pressScript(door: "projects"), "#7266: a section press is unchanged")
-check(AppTabs.pressScript(door: "new-agent").contains("return 'absent'; return 'refused'") && !AppTabs.pressScript(door: "projects").contains(".rm-back"), "#7266 review 2: only a create reads a covered board as absent (it waits); a section press is unchanged")
+check(AppTabs.pressScript(door: "new-agent").contains("return 'covered'; return 'refused'") && !AppTabs.pressScript(door: "projects").contains(".rm-back"), "#7266 review 2: only a create reads a covered board as covered; a section press is unchanged")
+// Review 3: through the real answer parsing, the covered answer waits and never falls back (review 2 returned 'absent',
+// which answer() reads as .noDoor and the fallback fired).
+let coveredMac = URL(string: "https://studio.kosmosplus.com/?tab=agents")!
+check(AppTabs.answer("covered", error: nil) == .absent && AppTabs.createFallback(door: "new-agent", AppTabs.answer("covered", error: nil), pageURL: coveredMac) == nil, "#7266 review 3: a covered create's own answer string waits and has no fallback")
+check(AppTabs.createFallback(door: "new-agent", AppTabs.answer("refused", error: nil), pageURL: coveredMac) != nil, "#7266 review 3: CONTROL: a plain refusal through the same parsing does fall back")
+var lateT = PressTracker()
+let firstRun = lateT.press(.projects, page: .ready, section: true, door: "new-project")
+_ = lateT.press(.tasks, page: .ready, section: true)
+check(firstRun.map { !lateT.isCurrent($0.serial) } == true, "#7266 review 3: an answer to an earlier press is not current (its fallback is skipped)")
 do {
     var t = PressTracker()
     let waited = t.press(.agents, page: .loading, section: true, door: AppTabs.Create.agent.rawValue)
