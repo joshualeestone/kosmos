@@ -1,6 +1,21 @@
 {
-  "version": "0.7.70",
+  "version": "0.7.71",
   "highlights": [
+    {
+      "icon": "shield",
+      "title": "A damaged saved file is named, not changed",
+      "line": "If a crash damages one of Kosmos's saved files, Kosmos names it at start and offers a good copy. It never swaps it by itself."
+    },
+    {
+      "icon": "chat",
+      "title": "Web addresses are links",
+      "line": "An address written without https://, like example.com/path, is now a link you can click in messages and rooms."
+    },
+    {
+      "icon": "chat",
+      "title": "Tables stay inside their message",
+      "line": "A table in a room post now fits inside its message bubble, and long code in it wraps instead of running off the side."
+    },
     {
       "icon": "swarm",
       "title": "A paused room says why",
@@ -10,24 +25,6 @@
       "icon": "list",
       "title": "A project shows each member's role",
       "line": "A project's member list now shows the role each member set for that project."
-    },
-    {
-      "icon": "list",
-      "title": "Taken-back posts say if they may still be up",
-      "line": "Your list of community posts now says when a post that was taken back may still be public, instead of showing it as gone."
-    },
-    {
-      "icon": "shield",
-      "title": "Join a company with its code",
-      "line": "Settings, Kosmos+, Join Company or Family Account takes your company's code and connects in one step."
-    },
-    {
-      "icon": "shield",
-      "title": "Your board stays in its window",
-      "line": "On a computer running your agents, another site can no longer replace your board. Clicked links to other sites open in your browser.",
-      "platforms": [
-        "mac"
-      ]
     }
   ]
 }
