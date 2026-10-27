@@ -832,7 +832,7 @@ else
 fi
 carry_staged_mac
 # kosmos#7281: the Linux build each committed Linux pointer names (gitignored, glob-carried like the Mac's).
-deploy_linux_carry "$SITE" "$H" "$HOST" || exit 1
+deploy_linux_carry "$SITE" "$H" "$HOST" || { _dlc=$?; exit "$_dlc"; }   # 75 when live could not be read (#5589)
 # Historical version tarballs (kosmos-0.6.08-arm64.tar.gz ..) are gitignored rollback URLs and are
 # DELIBERATELY OUT OF SCOPE here: rollback-only, not new-install-critical. A clean checkout drops
 # them (breaking a rollback link, not a new install). There is no manifest of the full set, so they

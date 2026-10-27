@@ -73,6 +73,31 @@ chk "deploy_linux_pointers lists both" [ "$(deploy_linux_pointers "$S" HEAD | tr
 S="$(newsite committed latest-linux.json 1.7.0 "$SHA")"; printf '{"version":"9.9.9"}\n' > "$S/dist/latest-linux.json"
 chk "an uncommitted edit to the pointer does not change what is carried" [ "$(carry "$S" HEAD "$H1")" = "rc=0 arts=kosmos-1.7.0-linux-x64.tar.gz" ]
 
+# ---- review 1 ----
+# BLOCKER: the setup floor, RUN on a real Linux pointer (it used to read kosmos-0.7.80-linux-x64.tar.gz as 0.7.80-linux).
+. "$HERE/tools/lib/setup-floor.sh"
+LP='{"version":"0.7.80","sha256":"'"$SHA"'","artifact":"kosmos-0.7.80-linux-x64.tar.gz","manifest":"kosmos-0.7.80-linux-x64.manifest.json","versioned":"kosmos-0.7.80-linux-x64.tar.gz"}'
+chk "the setup floor accepts a Linux pointer" kosmos_setup_floor_pointer_ok "a Linux pointer" "$LP"
+chk "CONTROL: and a Mac one" kosmos_setup_floor_pointer_ok "a Mac pointer" '{"version":"0.7.80","sha256":"'"$SHA"'","artifact":"kosmos-0.7.80-arm64.tar.gz","manifest":"kosmos-0.7.80-arm64.manifest.json"}'
+chk "and still refuses an artifact for another version" not kosmos_setup_floor_pointer_ok "a mismatched pointer" '{"version":"0.7.80","artifact":"kosmos-0.7.79-linux-x64.tar.gz"}' 2>/dev/null
+# W2: a host that cannot be reached is "try again later" (75), not "not served" (1).
+S="$(newsite transient latest-linux.json 1.7.0 "$SHA")"
+out="$(FETCH_ATTEMPTS=1 FETCH_RETRY_DELAY=0 deploy_linux_carry "$S" HEAD "http://127.0.0.1:1" >/dev/null 2>&1; echo "rc=$?")"
+chk "an unreachable host returns 75 (autodeploy retries), not 1" [ "$out" = "rc=75" ]
+# W3: a refused fetch leaves no temp in the shared dist/ and nothing in deploy-site's in-flight slots.
+S="$(newsite litter latest-linux.json 1.7.0 "$(printf 'c%.0s' $(seq 1 64))")"
+( deploy_linux_carry "$S" HEAD "$H1" >/dev/null 2>&1; echo "A=${_FETCH_TMP_A:-} S=${_FETCH_TMP_S:-}" ) > "$T/slots"
+chk "no temp is left in dist/ after a refusal" [ -z "$(ls -A "$S/dist" | grep '^\.')" ]
+chk "and the in-flight slots are cleared" [ "$(cat "$T/slots")" = "A= S=" ]
+# W4: never move a Linux pointer backwards from what live serves.
+H5="$(newhost newer 1.7.0)"; printf '{"version":"1.8.0"}\n' > "${H5#file://}/dist/latest-linux.json"
+S="$(newsite stale latest-linux.json 1.7.0 "$SHA")"
+chk "a committed Linux pointer older than live is refused" [ "$(carry "$S" HEAD "$H5")" = "rc=1 arts=" ]
+chk "a deliberate rollback names its version and passes" [ "$(KOSMOS_LINUX_ROLLBACK=1.7.0 carry "$S" HEAD "$H5")" = "rc=0 arts=kosmos-1.7.0-linux-x64.tar.gz" ]
+printf '{"version":"1.6.0"}\n' > "${H5#file://}/dist/latest-linux.json"
+chk "CONTROL: moving forward from live passes" [ "$(carry "$S" HEAD "$H5")" = "rc=0 arts=kosmos-1.7.0-linux-x64.tar.gz" ]
+chk "a fetched tarball is served mode 644" [ "$(stat -f %Lp "$S/dist/kosmos-1.7.0-linux-x64.tar.gz")" = 644 ]
+
 # ---- the export check ----
 X="$T/export"; mkdir -p "$X/dist"; DEPLOY_LINUX_ARTS="kosmos-1.7.0-linux-x64.tar.gz"
 cp "${H1#file://}/dist/kosmos-1.7.0-linux-x64.tar.gz" "${H1#file://}/dist/kosmos-1.7.0-linux-x64.tar.gz.sha256" "$X/dist/"
@@ -89,7 +114,7 @@ DS="$HERE/tools/deploy-site.sh"
 wired() { grep -qF -- "$1" "$DS"; }
 chk "the lib is sourced" wired '. "$REPO/tools/lib/deploy-linux.sh" || {'
 chk "the committed Linux pointers meet the setup floor" wired 'kosmos_setup_floor_pointer_ok "the committed dist/$_lp"'
-chk "the carry runs after the Mac carries and refuses" wired 'deploy_linux_carry "$SITE" "$H" "$HOST" || exit 1'
+chk "the carry runs after the Mac carries and refuses with its own code (75 = try again)" wired 'deploy_linux_carry "$SITE" "$H" "$HOST" || { _dlc=$?; exit "$_dlc"; }'
 chk "the export check refuses" wired 'deploy_linux_export_ok "$EXPORT" || { rm -rf "$EXPORT"; exit 1; }'
 chk "the live-pointer snapshot watches the Linux pointers" wired 'latest-win-staging.json latest-linux.json latest-linux-staging.json; do'
 order() {
