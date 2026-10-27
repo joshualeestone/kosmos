@@ -28,7 +28,7 @@ COMMIT="$(printf 'c%.0s' $(seq 1 40))"
 # A site checkout with an origin, as release.sh's SITE is.
 newsite() {
   local s="$T/site-$1" o="$T/origin-$1.git"
-  git init -q --bare "$o"
+  git init -q --bare -b main "$o"
   git init -q -b main "$s"; git -C "$s" config user.email t@t; git -C "$s" config user.name t
   mkdir -p "$s/dist"; printf 'x\n' > "$s/dist/.keep"
   git -C "$s" add dist/.keep; git -C "$s" commit -q -m init
