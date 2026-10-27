@@ -40,14 +40,23 @@ function releaseDir(files) {
   for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(d, name), body);
   return d;
 }
-function family({ sys = 'Linux', machine = 'x86_64', files = {}, channel = '' } = {}) {
+function family({ sys = 'Linux', machine = 'x86_64', files = {}, channel = '', env = {}, home = fs.mkdtempSync(path.join(WORK, 'home-')), expectStatus = 0 } = {}) {
   const dist = releaseDir(files);
-  const r = spawnSync('sh', ['-c', `_PTR_FILE=latest.json\n${FAMILY}\nprintf '%s|%s' "$LINUX_FAMILY" "$_PTR_FILE"`], {
+  const r = spawnSync('sh', ['-c', `die() { echo "DIE: $*"; exit 9; }\n_PTR_FILE=latest.json\n${FAMILY}\nprintf '%s|%s' "$LINUX_FAMILY" "$_PTR_FILE"`], {
     encoding: 'utf8',
-    env: { PATH: unameAs(sys, machine) + ':' + process.env.PATH, KOSMOS_RELEASE_BASE: 'file://' + dist, KOSMOS_UPDATE_CHANNEL: channel },
+    env: { PATH: unameAs(sys, machine) + ':' + process.env.PATH, KOSMOS_RELEASE_BASE: 'file://' + dist, KOSMOS_UPDATE_CHANNEL: channel, KOSMOS_HOME: home, ...env },
   });
-  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.status, expectStatus, r.stdout + r.stderr);
   return r.stdout;
+}
+/* A KOSMOS_HOME whose runtime/bin/node is the install's own (a regular file that runs), or a link to a system one. */
+function homeWithNode(linked) {
+  const h = fs.mkdtempSync(path.join(WORK, 'home-'));
+  fs.mkdirSync(path.join(h, 'runtime', 'bin'), { recursive: true });
+  const own = path.join(h, 'runtime', 'bin', linked ? 'real-node' : 'node');
+  fs.writeFileSync(own, '#!/bin/sh\necho v24.19.0\n', { mode: 0o755 });
+  if (linked) fs.symlinkSync(own, path.join(h, 'runtime', 'bin', 'node'));
+  return h;
 }
 const PTR = JSON.stringify({ version: '0.7.71', sha256: 'a'.repeat(64), artifact: 'kosmos-0.7.71-linux-x64.tar.gz' });
 
@@ -60,6 +69,23 @@ test('#7281: a Linux x86_64 machine takes the Linux family when its pointer answ
 test('#7281 TRANSITIONAL: with no Linux pointer published, or one with no version, it keeps the portable bundle', () => {
   assert.equal(family({}), '|latest.json');
   assert.equal(family({ files: { 'latest-linux.json': '<html>not found</html>' } }), '|latest.json', 'a 200 page that is not a pointer was taken for one');
+});
+
+test('#7281 review 1: a local copy or a test arch override never turns the family on (the Linux CI installs the checkout)', () => {
+  assert.equal(family({ files: { 'latest-linux.json': PTR }, env: { KOSMOS_SRC: '/tmp/x' } }), '|latest.json', 'KOSMOS_SRC took the network family');
+  assert.equal(family({ files: { 'latest-linux.json': PTR }, env: { KOSMOS_BUNDLE_ARCH: 'test-arch' } }), '|latest.json');
+});
+
+test('#7281 review 1: only an a.b.c version turns the family on', () => {
+  assert.equal(family({ files: { 'latest-linux.json': '{"error":"no such file","version":"unknown"}' } }), '|latest.json');
+  assert.equal(family({ files: { 'latest-linux.json': '{"version":"0.7"}' } }), '|latest.json');
+});
+
+test('#7281 review 1: an installed Linux-family copy refuses on an unreadable Linux pointer instead of downgrading', () => {
+  const out = family({ files: {}, home: homeWithNode(false), expectStatus: 9 });
+  assert.match(out, /DIE: Could not read the Linux release pointer/);
+  // CONTROL: a portable install (its node a link to a system one) keeps the transitional fallback.
+  assert.equal(family({ files: {}, home: homeWithNode(true) }), '|latest.json');
 });
 
 test('#7281 CONTROL: a Mac, and a Linux computer that is not x86_64, never read the Linux pointer', () => {
