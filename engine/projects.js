@@ -1905,8 +1905,7 @@ function listFiles(folder, limit, opts) {
     }
     if (!ent.isFile()) return;
     let st;
-    // #7229 review 4: with the exact id on Windows, as listDir's rows are, so both lists key one fingerprint alike.
-    try { const at = path.join(abs, ent.name); st = exactPathStat(fs.statSync(at), at, false); } catch { return; }
+    try { st = fs.statSync(path.join(abs, ent.name)); } catch { return; }
     files.push({ name: relName, size: st.size, modified: st.mtime.toISOString(), abs: path.join(abs, ent.name), st });
   };
   while (queue.length && !truncated) {
@@ -1955,6 +1954,9 @@ function listFiles(folder, limit, opts) {
   /* #6761: the rows shown get a fingerprint (opts.fingerprint, the Files routes only): what is already known, the rest
      queued and hashed in the background, so a poll never waits on a hash. Only the rows shown: a folder of thousands is
      never read whole for a list of ten. The stamp includes them, so the page repaints when one arrives. */
+  /* #7229 reviews 4 and 5: the rows SHOWN carry the exact id on Windows, as listDir's do, so both lists key one
+     fingerprint alike; only these, not every file walked (the extra stat cost up to 1.85x on a 2000-file folder). */
+  for (const f of files.slice(0, cap)) f.st = exactPathStat(f.st, f.abs, false);
   const shown = files.slice(0, cap).map((f) => rowOf(f, opts && opts.fingerprint));
   const stamp = crypto.createHash('sha1')
     .update(files.map((f) => JSON.stringify([f.name, f.size, f.modified])).join('\n') + (truncated ? '\ntruncated' : '') + fingerprintStampPart(shown)).digest('hex').slice(0, 16);

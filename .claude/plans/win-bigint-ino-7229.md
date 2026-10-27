@@ -82,3 +82,11 @@ zip size) it can only be a regular file at the same listed name inside the folde
   every poll and the sha never stayed. listFiles now builds its stats exactly too; every stat that reaches the
   fingerprint cache on Windows carries the exact id. Test: alternating the two lists keeps the sha on both and hashes
   once (on round 3 it flips every tick). Every other consumer checked consistent. 21/21 with filehash-6761.
+- Round 5: no BLOCKER. End to end through the real board routes on this box with real colliding pairs (records
+  recycled until ids passed 2^53): origin/main SERVES the swapped colliding file on download and preview and puts its
+  bytes in a zip; the branch refuses all three; ordinary list/browse/preview/download/zip unchanged. WARNING FIXED:
+  listFiles gave every WALKED file a second (BigInt) stat, 1.3-1.85x slower on 2000 files; now only the shown rows
+  (after sort and cap) get the exact id. NITs: the two-read residual (already in Weakest part); a swap at download says
+  "not there any more" (wording, left). Test gap found: the collision tests depend on this disk having ids past 2^53;
+  on four later runs none collided and those tests SKIPPED (stated reason). A helper that recycles records to raise
+  sequence numbers (as the reviewer did) would make them run every time: follow-up.
