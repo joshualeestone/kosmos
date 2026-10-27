@@ -6632,6 +6632,8 @@ cmd_agent() {
       for _rma in "$@"; do if [ "$_rma" = "--yes" ]; then KOSMOS_RM_YES=1; else _rmw+=("$_rma"); fi; done
       [ -n "${_rmw[0]:-}" ] || { say "$KOSMOS_RM_USAGE"; exit 2; }
       case "${_rmw[0]}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent remove" "$KOSMOS_RM_USAGE" "${_rmw[0]}" target ;; esac
+      # A path step is no agent name: encoded, "." and ".." would still be resolved away by curl (another route).
+      case "${_rmw[0]}" in .|..) say "There is no agent called ${_rmw[0]}."; exit 2 ;; esac
       _no_more_words "agent remove" 1 "$KOSMOS_RM_USAGE" "${_rmw[@]}"
       # Nobody can answer the question, so nothing is asked of the board either.
       if [ -z "$KOSMOS_RM_YES" ] && [ ! -t 0 ]; then
@@ -6809,17 +6811,21 @@ cmd_agent() {
         local rm_answer=""
         printf '%sRemove %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$rm_label"
         read -r rm_answer || rm_answer=""
-        case "$rm_answer" in y|Y|yes|Yes|YES) ;; *) say "Cancelled. Nothing was removed."; exit 1 ;; esac
+        case "$(printf '%s' "$rm_answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) say "Cancelled. Nothing was removed."; exit 1 ;; esac
       fi
       rc=0
-      body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 60 -X DELETE "$URL/api/agent/$rm_path/removal" 2>/dev/null) || rc=$?
+      body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 120 -X DELETE "$URL/api/agent/$rm_path/removal" 2>/dev/null) || rc=$?
       # 28 is curl's timeout: the request left, so the agent may have been removed.
       if [ "$rc" -eq 28 ]; then
         say "Kosmos was slow to answer and we stopped waiting. $rm_label may have been removed; look at the board before trying again: $URL/"
         exit 3
       fi
       # 18, 52 and 56 also mean the request left before the connection broke: it may have happened, as for 28.
-      if [ "$rc" -ne 0 ]; then say_unreached "remove $rm_label" "$rc" write; case "$rc" in 18|52|56) exit 3 ;; *) exit 1 ;; esac; fi
+      case "$rc" in
+        0) ;;
+        18|52|56) say "Kosmos stopped answering after it was asked. $rm_label may have been removed; look at the board before trying again: $URL/"; exit 3 ;;
+        *) say_unreached "remove $rm_label" "$rc" write; exit 1 ;;
+      esac
       # A removal that threw partway answers {error, detail} with no outcome (server.js): read as failed-partway.
       rm_parsed=$(printf '%s' "$body" | "$_node" -e "$_rmparse"'console.log([one(j.outcome||(j.detail!==undefined?"failed-partway":"")),one(j.because||j.error)].join("\t"))})') \
         || { say "Kosmos gave an answer we could not read when removing $rm_label. Look at the board to see whether it is still there: $URL/"; exit 1; }

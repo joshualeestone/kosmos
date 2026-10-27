@@ -252,3 +252,44 @@ test('#7362 review 1: a connection dropped after the removal was sent says it MA
     assert.doesNotMatch(err.join('\n'), /Is it running/);
   } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
 });
+
+test('#7362 review 2 Mac: a removal that threw partway (500 {error, detail}) says it MAY be partly removed, exit 3', () => withStub([200, PLAN], [500, { error: 'the removal failed partway and we cannot tell you how far it got', detail: 'boom' }], async (port, seen) => {
+  const r = await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
+  assert.equal(deletes(seen).length, 1, 'CONTROL: the removal was sent');
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /Sally Sales may be partly removed: the removal failed partway/);
+  assert.doesNotMatch(r.out, /did not remove/);
+}));
+
+test('#7362 review 2 Mac: a connection dropped after the removal was sent says it MAY have been removed, exit 3', async () => {
+  let deleted = 0;
+  const srv = http.createServer((req, res) => {
+    if (req.method === 'DELETE') { deleted++; req.socket.destroy(); return; }
+    if (req.url.includes('/removal')) { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(PLAN)); return; }
+    res.writeHead(200, { 'content-type': 'text/html' }); res.end('<title>Kosmos</title>Agent Workforce');
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const r = await cli(srv.address().port, ['agent', 'remove', 'Sally Sales', '--yes']);
+    assert.equal(deleted, 1, 'CONTROL: the removal reached the board');
+    assert.equal(r.code, 3, r.out);
+    assert.match(r.out, /Sally Sales may have been removed; look at the board/);
+  } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
+});
+
+for (const dot of ['.', '..']) {
+  test(`#7362 review 2: "${dot}" is refused as a name before any request, in both CLIs`, () => withStub([200, PLAN], REMOVED, async (port, seen) => {
+    const w = await winRun(port, ['agent', 'remove', dot, '--yes']);
+    assert.equal(w.code, 2, w.err);
+    assert.match(w.err, /There is no agent called/);
+    assert.equal(seen.length, 0, 'Windows: nothing was sent');
+    const ok = await winRun(port, ['agent', 'remove', 'Sally Sales', '--yes']);
+    assert.equal(deletes(seen).length, 1, 'CONTROL: a plain name is sent');
+    if (process.platform === 'win32') return;   // the bash CLI cannot run here
+    const before = seen.length;
+    const m = await cli(port, ['agent', 'remove', dot, '--yes']);
+    assert.equal(m.code, 2, m.out);
+    assert.equal(seen.length, before, 'Mac: nothing was sent');
+    void ok;
+  }));
+}

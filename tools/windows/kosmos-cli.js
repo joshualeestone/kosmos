@@ -1941,6 +1941,8 @@ async function agentRemove(ctx, args) {
   const name = words[0];
   if (!name) { ctx.err(AGENT_REMOVE_USAGE); return 2; }
   if (/^--[A-Za-z]/.test(name)) { refuseOption(ctx, 'agent remove', AGENT_REMOVE_USAGE, name, 'target'); return 2; }
+  // A path step is no agent name: encoded, "." and ".." would still be resolved away by fetch (another route).
+  if (name === '.' || name === '..') { ctx.err('There is no agent called ' + name + '.'); return 2; }
   if (tooManyWords(ctx, 'agent remove', 1, AGENT_REMOVE_USAGE, words)) return 2;
   // Nobody can answer the question, so nothing is asked of the board either.
   if (!yes && !ctx.canAsk()) { ctx.err('Nothing was removed: there is no terminal here to confirm on. To remove ' + name + ' without being asked, add --yes.'); return 2; }
