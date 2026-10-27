@@ -267,7 +267,8 @@ function pdfHeadOf(p) {
  * { ok, match, kind, got, words } where `got` is this file's value of the kind compared, or { ok: false, words } when
  * the expected value is not a hash or the file cannot be read. A `sha256:` value that misses the plain bytes of a PDF
  * is tried against its PDF fingerprint too (a mark sent after #6849 and before this change labelled that sha256:), and a match
- * there says the bytes differ; a bare value never is, so a bare shasum check stays byte for byte. */
+ * there says the value is a PDF fingerprint, not whether the bytes differ; a bare value never is, so a bare shasum check
+ * stays byte for byte. */
 function compare(p, expected) {
   let want = String(expected == null ? '' : expected).trim().toLowerCase();
   const bare = /^[0-9a-f]{64}$/.test(want);   // a shasum value: never an older mark, which always said sha256:
@@ -302,8 +303,11 @@ function compare(p, expected) {
   }
   if (!bare && fp.startsWith(PDF_KIND) && hexOf(fp) === hexOf(want)) {
     /* Review 3: a sha256: value typed by hand cannot be told from an older mark, so the words never call this a byte
-       match. It is the PDF fingerprint that matches, and the bytes differ only in the PDF's own dates or ID. */
-    return { ok: true, match: true, kind: 'pdf-normalized', got: fp, words: 'matches the PDF fingerprint, not the bytes: the bytes differ only in the PDF\'s own dates or ID (a mark sent before #7213 labelled a PDF fingerprint sha256:). For a byte-for-byte check give the value without sha256:' };
+       match. What is known is only that the value is this PDF's fingerprint: an older mark of an identical file reads the
+       same as a plain sha256 of a copy whose dates were already empty. So the words say what the value is, and claim
+       nothing about whether the bytes differ (Josh's 0.7.71 report: the file was byte-identical, and "the bytes differ"
+       was wrong). */
+    return { ok: true, match: true, kind: 'pdf-normalized', got: fp, words: 'matches the PDF fingerprint, not the bytes: that value is this PDF\'s fingerprint (its dates and ID left out), not its plain sha256 (a mark sent before #7213 labelled a PDF fingerprint sha256:), so it does not show whether the bytes are identical. For a byte-for-byte check give the value without sha256:' };
   }
   return { ok: true, match: false, kind, got, words: 'differs from ' + kindWords(want) + ': this file gives ' + got };
 }
