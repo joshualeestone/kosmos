@@ -11,6 +11,10 @@
 #                                                    PROMOTE_LINUX_FAILED and returns 0, so the caller finishes the
 #                                                    promote's other steps and refuses at the end (promote_linux_refuse_if_failed)
 #   promote_linux_cleanup                            removes the snapshot and any temp copy (the caller's EXIT trap)
+#
+# NOT ATOMIC: latest.json and latest-linux.json move by two renames. A kill between them (or of the whole run after the
+# first) leaves the pair apart with no message. The remedy is the one the failure messages give: copy
+# dist/latest-linux-staging.json onto dist/latest-linux.json and commit both before any deploy.
 
 PROMOTE_LINUX=no
 PROMOTE_LINUX_SNAP=""
@@ -18,6 +22,7 @@ PROMOTE_LINUX_TMP=""
 PROMOTE_LINUX_FAILED=0
 PROMOTE_LINUX_KL=""        # the key-list temp folder, removed by the EXIT trap too (review 2)
 PROMOTE_LINUX_REMEDY_SAID=0
+PROMOTE_LINUX_ARTS=""      # "<versioned> <sha256> <manifest>", checked again right before the writes (review 4 W3)
 
 promote_linux_prepare() {
   local site="$1" v="$2" named="${3:-}" stg="$1/dist/latest-linux-staging.json" prod="$1/dist/latest-linux.json" tools field
@@ -35,6 +40,7 @@ promote_linux_prepare() {
   # rather than leaving the two apart (kosmos#7281 follow-up).
   if [ -n "$named" ]; then
     echo "promote-linux: a named promote (--version) cannot move the Linux pointer yet, and staging publishes the Linux family; promote from the staging pointer instead (kosmos#7281). Nothing was written." >&2
+    echo "promote-linux: to roll prod back by hand meanwhile: in the site checkout, restore BOTH dist/latest.json and dist/latest-linux.json from one earlier commit (git checkout <commit> -- dist/latest.json dist/latest-linux.json), check both name the same version, commit, and deploy. The versioned files they name are never replaced, so they are still there." >&2
     return 1
   fi
   PROMOTE_LINUX_SNAP="$(mktemp "${TMPDIR:-/tmp}/promote-linux-staging.XXXXXX")" || { echo "promote-linux: could not make a temp file" >&2; return 1; }
@@ -45,16 +51,17 @@ promote_linux_prepare() {
   [ "$lv" = "$v" ] || { echo "promote-linux: latest-linux-staging.json names $lv, not $v; a channel's two pointers must name one version (kosmos#7281 lockstep). Nothing was written." >&2; return 1; }
   [ "$lver" = "kosmos-$v-linux-x64.tar.gz" ] && [ "$lman" = "kosmos-$v-linux-x64.manifest.json" ] \
     || { echo "promote-linux: latest-linux-staging.json does not name $v's Linux tarball and manifest. Nothing was written." >&2; return 1; }
-  ( cd "$site/dist" && shasum -a 256 --status -c "$lver.sha256" ) 2>/dev/null && [ "$(awk 'NR==1{print $1}' "$site/dist/$lver.sha256")" = "$lsha" ] \
-    || { echo "promote-linux: $lver is missing, or does not match its .sha256 and the pointer's sha256. Nothing was written." >&2; return 1; }
-  [ -f "$site/dist/$lman" ] && [ -f "$site/dist/$lman.sig" ] \
-    || { echo "promote-linux: $lman or its signature is missing. Nothing was written." >&2; return 1; }
-  node "$tools/manifest-sign.js" verify "$site/dist/$lman" "$site/dist/$lman.sig" >/dev/null 2>&1 \
-    || { echo "promote-linux: $lman's signature does not verify under the pinned keys. Nothing was written." >&2; return 1; }
+  promote_linux_artifacts_ok "$site" "$lver" "$lsha" "$lman" || return 1
+  PROMOTE_LINUX_ARTS="$lver $lsha $lman"
   # Review 1 (W2): the same two checks the Mac manifest gets. Under the keys prod's CURRENT Linux release pins (what its
   # installs check with), and, with a recovery key pinned, under the served release key list (#6609).
   local cur rc kl
   cur="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$prod" 2>/dev/null | head -1)" || cur=""
+  # Review 4 (W2): a prod pointer that exists but names no manifest cannot say which keys its installs accept.
+  if [ -f "$prod" ] && [ -z "$cur" ]; then
+    echo "promote-linux: latest-linux.json exists but names no manifest, so which keys prod's installs accept cannot be told. Nothing was written." >&2
+    return 1
+  fi
   if [ -n "$cur" ]; then
     case "$cur" in *"/"*|*".."*) echo "promote-linux: latest-linux.json's manifest ('$cur') is not a bare filename. Nothing was written." >&2; return 1 ;; esac
     rc=0; [ -f "$site/dist/$cur" ] && { node "$tools/manifest-sign.js" verify-under "$site/dist/$lman" "$site/dist/$lman.sig" "$site/dist/$cur" >/dev/null 2>&1 || rc=$?; } || rc=2
@@ -86,6 +93,21 @@ promote_linux_unchanged() {
   [ "$PROMOTE_LINUX" = yes ] || return 0
   cmp -s "$1/dist/latest-linux-staging.json" "$PROMOTE_LINUX_SNAP" \
     || { echo "promote-linux: latest-linux-staging.json changed while the promote ran; nothing was written. Re-run the promote." >&2; return 1; }
+  # Review 4 (W3): the gates can queue for a long time, so the files the pointer names are checked again too.
+  # shellcheck disable=SC2086
+  promote_linux_artifacts_ok "$1" $PROMOTE_LINUX_ARTS
+}
+
+# The tarball matches its .sha256 and the pointer's sha256, and the manifest's signature verifies under the pinned keys.
+promote_linux_artifacts_ok() {
+  local site="$1" lver="$2" lsha="$3" lman="$4" tools
+  tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  ( cd "$site/dist" && shasum -a 256 --status -c "$lver.sha256" ) 2>/dev/null && [ "$(awk 'NR==1{print $1}' "$site/dist/$lver.sha256")" = "$lsha" ] \
+    || { echo "promote-linux: $lver is missing, or does not match its .sha256 and the pointer's sha256. Nothing was written." >&2; return 1; }
+  [ -f "$site/dist/$lman" ] && [ -f "$site/dist/$lman.sig" ] \
+    || { echo "promote-linux: $lman or its signature is missing. Nothing was written." >&2; return 1; }
+  node "$tools/manifest-sign.js" verify "$site/dist/$lman" "$site/dist/$lman.sig" >/dev/null 2>&1 \
+    || { echo "promote-linux: $lman's signature does not verify under the pinned keys. Nothing was written." >&2; return 1; }
 }
 
 promote_linux_stage() {
