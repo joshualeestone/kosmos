@@ -54221,7 +54221,14 @@ async function paintPlus() {
      Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
   { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
-  /* kosmos#7277: a cloud machine offers no Remove (the server refuses it too), and says why instead. */
+  /* kosmos#6389: the not-removed-yet note says remote access is paused, so it goes once that is no longer so. The
+     engine keeps the reason, so a reload or another tab says it too. */
+  if (typeof plusForgetKept === 'function') {
+    if (r.enrolled !== true || r.on === true) plusForgetKept(false);
+    else if (r.forgetKept && (document.getElementById('plus-forget-ask') || {}).hidden !== false) plusForgetKeptSay(r.forgetKept);   // not beside an open confirm
+  }
+  /* kosmos#7277: a cloud machine offers no Remove (the server refuses it too), and says why instead. After the kept
+     note above (review 2), so nothing re-shows a box whose buttons the server refuses. */
   { const cloud = typeof onCloudMachine === 'function' && onCloudMachine();
     const go = document.getElementById('plus-forget-go'); const why = document.getElementById('plus-forget-cloud');
     if (why) why.hidden = !cloud;
@@ -54229,12 +54236,6 @@ async function paintPlus() {
       if (go) go.hidden = true;
       for (const id of ['plus-forget-ask', 'plus-forget-kept']) { const e = document.getElementById(id); if (e) e.hidden = true; }   // review 1
     } }
-  /* kosmos#6389: the not-removed-yet note says remote access is paused, so it goes once that is no longer so. The
-     engine keeps the reason, so a reload or another tab says it too. */
-  if (typeof plusForgetKept === 'function') {
-    if (r.enrolled !== true || r.on === true) plusForgetKept(false);
-    else if (r.forgetKept && (document.getElementById('plus-forget-ask') || {}).hidden !== false) plusForgetKeptSay(r.forgetKept);   // not beside an open confirm
-  }
   { const og = document.getElementById('plus-org'); if (og) { og.hidden = r.enrolled !== true; if (!og.hidden) plusOrgMaybe(); } }   // #5531
   paintDevices();
 }

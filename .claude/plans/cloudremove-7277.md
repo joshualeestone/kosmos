@@ -27,3 +27,8 @@ pane in the check is the control).
   (browser check through the real route, server test with a control); the cloud branch also hides the not-removed-yet
   box; the Mac panes assert the cloud sentence stays hidden. OPEN, not a defect today: "cancel it from your account"
   and the name "Kosmos cloud machine" are to confirm with the account side (S1/S6) before switch-on (on the card).
+- Round 2 (cloudremove-7277-review2.md): 0 blockers, 2 warnings, 1 nit. Fixed: the cloud block runs after the kept
+  note, so nothing re-shows a box the server refuses. Filed as #7285 for the Kosmos Cloud lead, outside this change:
+  removing your own browser in Devices (a lockout only if kosmos-tunnel's hosted gate does not let the owner back in;
+  the tunnel is not in this repo) and an unreadable remote.json stopping the tunnel (older than this branch, no person
+  triggers it).
