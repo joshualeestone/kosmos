@@ -31,7 +31,7 @@ let n = 0; try { n = fs.readdirSync(dir).length; } catch {}
 fs.appendFileSync(process.env.STUB_LOG, '$tool ' + process.argv[2] + ' markers=' + n + '\n');
 const rc = Number(process.env['STUB_RC_' + '$tool'.replace(/-/g, '_')] || 0);
 if (rc) process.stderr.write('$tool stand-in refuses (' + rc + ')\n');
-else process.stdout.write('$tool stand-in: 2 highlight(s) passing line\n');   // as the real tools print on a pass
+else { process.stdout.write('$tool stand-in: 2 highlight(s) passing line\n'); process.stderr.write('$tool stand-in pass-time note\n'); }   // as the real tools can on a pass
 process.exit(rc);
 EOF
 done
@@ -64,7 +64,8 @@ run 0 3
 
 # the highlights file is not for this version (whats-new-check refuses): stopped early too, prod-check never asked.
 run 1 0
-{ [ "$RC" != 0 ] && has "$OUT" "$STOP" && has "$LOG" "whats-new-check $NEXTV markers=0" && ! has "$LOG" "prod-check" && ! marked && ! home_made; } \
+{ [ "$RC" != 0 ] && has "$OUT" "$STOP" && has "$OUT" "whats-new-check stand-in refuses (1)" && has "$OUT" "Otherwise fix what it names" \
+  && has "$LOG" "whats-new-check $NEXTV markers=0" && ! has "$LOG" "prod-check" && ! marked && ! home_made; } \
   && pass "highlights not for this version: stopped before the marker, prod not asked" \
   || bad "highlights refusal (rc=$RC): log=[$LOG] out=$(printf '%s' "$OUT" | tail -3)"
 
@@ -79,7 +80,8 @@ run 0 0
 { ! has "$OUT" "$STOP" && has "$LOG" "whats-new-pool prod-check markers=0" && home_made; } \
   && pass "CONTROL: a current pool goes on past the early check (asked before the marker, then the cut home is made)" \
   || bad "CONTROL current pool (rc=$RC): log=[$LOG] home=$(home_made && echo y || echo n) out=$(printf '%s' "$OUT" | tail -3)"
-has "$OUT" "highlight(s) passing line" && bad "the early check printed the tools' passing lines (1b-ii prints them)" || pass "the early check is quiet when it passes"
+{ has "$OUT" "highlight(s) passing line" || has "$OUT" "pass-time note"; } && bad "the early check printed the tools' passing output (1b-ii prints it)" \
+  || pass "the early check is quiet when it passes, stdout and a pass-time stderr note alike"
 
 # prod could not be read (exit 4): goes on, as at 1b-ii, and the early run does not print 1b-ii's NOTE.
 run 0 4
