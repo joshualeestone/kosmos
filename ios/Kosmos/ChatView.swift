@@ -1077,8 +1077,9 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let replying { replyStrip(replying) }
-            if !attachedHere.isEmpty || uploadingHere > 0 { chips }
+            // kosmos#7346 review: over the conversation running behind, the strips get the page's ground, edge to edge.
+            if let replying { replyStrip(replying).background(Palette.ground.opacity(0.94).padding(.horizontal, -12)) }
+            if !attachedHere.isEmpty || uploadingHere > 0 { chips.background(Palette.ground.opacity(0.94).padding(.horizontal, -12)) }
             // kosmos#7346: one floating box, + then the text then emoji and mic; no send arrow (the keyboard's Send sends).
             // Radius 24, at least 48 pt, the card colour with a soft shadow and a hairline edge (Mona Lisa's spec).
             HStack(alignment: .bottom, spacing: 0) {
@@ -1092,6 +1093,7 @@ struct ChatView: View {
             if let line = ComposerExtras.micLine(dictation.state) {
                 Text(line).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+                    .background(Palette.ground.opacity(0.94).padding(.horizontal, -12))
             }
             // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it. The tab bar is
             // already hidden in a conversation, so nothing sits under the panel.
@@ -1116,7 +1118,7 @@ struct ChatView: View {
             // to send (as the arrow did: not while dictation is finishing, not with a file still on its way).
             if let without = ComposerExtras.typedReturn(was: was, now: now) {
                 draftText = without
-                if canSend { send() }
+                sendOrSayWhy()
                 return
             }
             // kosmos#7348: the sent text came back into the box (the keyboard's dictation or Writing Tools finishing late).
@@ -1235,7 +1237,7 @@ struct ChatView: View {
                 // kosmos#7346: the return key reads Send, and a lone new line typed into the box sends (typedReturn).
                 .submitLabel(.send)
                 // With no arrow on screen, VoiceOver gets Send as an action on the box itself.
-                .accessibilityAction(named: "Send") { if canSend { send() } }
+                .accessibilityAction(named: "Send") { sendOrSayWhy() }
                 .padding(.vertical, 13)
                 .padding(.leading, 2)
             ComposerEmojiButton(open: emojiOpen) {
@@ -1250,6 +1252,14 @@ struct ChatView: View {
 
     // Words, or files with no words (their names go as the words). Not with files while another is still on its way
     // (the message would go without it); words alone go, as on the board.
+    // kosmos#7346 review: with no arrow to grey out, a Send that cannot go says why, on screen and to VoiceOver.
+    private func sendOrSayWhy() {
+        if canSend { send(); return }
+        guard !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedHere.isEmpty else { return }
+        let why = dictation.finishing ? "Waiting for the last words." : dictation.busy ? "Stop dictating first." : uploadingHere > 0 ? Board.stillAddingLine : nil
+        if let why { composerNote = why; UIAccessibility.post(notification: .announcement, argument: why) }
+    }
+
     private var canSend: Bool {
         // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then send.
         !dictation.busy && Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && (attachedHere.isEmpty || uploadingHere == 0)
@@ -1867,8 +1877,6 @@ extension Palette {
     // The board's own chat colours (Mona Lisa's slice 3a spec: Josh 2026-09-25 and #3340 for night mode).
     static let personBubble = pair(0xe8ebf5, 0x1b1f65)
     static let agentBubble = pair(0xfbf4e4, 0x252529)
-    static let sendFill = pair(0xe3b341, 0xe3b341)
-    static let sendGlyph = pair(0x14161a, 0x14161a)
     static let link = pair(0x2457c5, 0x9db8ff)
     static let pillStroke = pair(0xe3e1dc, 0x000000, lightAlpha: 1, darkAlpha: 0)
 }

@@ -20,15 +20,24 @@ enum ComposerExtras {
     // kosmos#7346 (Josh 10-27): no send arrow; the keyboard's Send key sends. The box is a multi-line field, so the key
     // arrives as one new line typed into the text: that one character, and nothing else changed, is a send, and this is
     // the text without it. Pasted text (more than the one character) keeps its line breaks, and is nil here.
+    // Review: the keyboard can fix the word before the caret in the same change as the Send key (autocorrect, "tomorow"
+    // to "tomorrow"), so a change of a few characters holding exactly one more new line also counts, and the result keeps
+    // the correction: the first new line at or after where the texts start to differ is the one taken out.
+    static let returnSlack = 4
     static func typedReturn(was: String, now: String) -> String? {
         let a = Array(was), b = Array(now)
-        guard b.count == a.count + 1 else { return nil }
+        let newLine: Set<Character> = ["\n", "\r\n"]
+        let added = b.count - a.count
+        guard added >= 1, added <= returnSlack,
+              b.filter({ newLine.contains($0) }).count == a.filter({ newLine.contains($0) }).count + 1 else { return nil }
         var i = 0
         while i < a.count && a[i] == b[i] { i += 1 }
-        let newLine: Set<Character> = ["\n", "\r\n"]
-        guard newLine.contains(b[i]) else { return nil }
-        let after: [Character] = Array(b[(i + 1)...]), rest: [Character] = Array(a[i...])
-        return after == rest ? was : nil
+        // Back to the start of the word being corrected, so a correction that ends in a new line is still found.
+        while i > 0 && !b[i - 1].isWhitespace { i -= 1 }
+        guard let at = b[i...].firstIndex(where: { newLine.contains($0) }) else { return nil }
+        var out = b
+        out.remove(at: at)
+        return String(out)
     }
 
     static func insert(_ glyph: String, into text: String, selection: Range<Int>?) -> (text: String, caret: Int) {
