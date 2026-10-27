@@ -23,6 +23,14 @@ Weakest premise: an engine sentence shown raw (textContent = out.because) outsid
 above still says "this computer" on a cloud machine. Those are off the finish-line path today; a site found later gets
 cloudWords() at its render.
 
+The opposite class: page-authored text that goes through a funnel is rewritten too, which is right when the page means
+the board's machine and wrong if it ever meant the person's own device. The one found is plusForgetKeptSay (its "this
+computer is not removed yet" goes through asSentence while its PLUS_FORGET_WORDS tail does not), which cannot show on a
+cloud machine: kosmos#7277 hides the Kosmos+ remove and kept boxes there.
+
+Every call is guarded as the page guards thisMachine (`typeof cloudWords === 'function' ? cloudWords : String`), because
+the repo's tests lift page functions one at a time without their callees.
+
 ## Tests
 - web.cloudwords-4903.test.js: the funnels, restartFailureLine and cloudWords lifted from the page, cloud and control;
   a word-boundary arm; red on a mutant that drops cloudWords from pjSentence.
