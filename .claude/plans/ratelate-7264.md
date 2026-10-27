@@ -33,7 +33,11 @@ is ahead is capped until reset plus grace, then idle; the bound never retires ea
 expects idle between the old row's reset (16:01) and the newer limit (17:00). Controls: both new tests fail on main.
 
 ## Weakest premise
-That Josh's rows are dateless (a dated weekly line is retired by limitResetAt regardless of the restart).
+That Josh's rows are dateless (a dated weekly line is retired by limitResetAt regardless of the restart), and that they
+are SESSION limits. The report does not record the wording. A session row whose reset passed is retired at the
+restart (this change). A weekly last-day row (day-kind, 24h05 span) always has its clock time come round within the
+span, so it still reads Rate Limit for up to about 24 h after a restart: the accepted residual below. If Josh's cards
+stay red for hours after this ships, that is the case, and the follow-up below is the fix.
 
 ## Reviews
 - Round 1 (sonnet): a restart more than a span after the reset was still kept -> retired at the sighting; a test passed
@@ -42,10 +46,15 @@ That Josh's rows are dateless (a dated weekly line is retired by limitResetAt re
   re-time on a new footer; the count guard re-capped a retired row on a redraw -> removed. Real-flow tests through
   fleet.install for both scenarios and the redraw; each fails on the commit before.
 - Round 3 (sonnet): a gap, a repeated footer, a footer changing in place (which re-timed a row as new and HELD
-  messages) -> a late entry stays late and its sighting only moves later (new footer or more rows); a gap alone moves
-  nothing, so a sleeping laptop never re-caps yesterday's row.
+  messages) -> a late entry stays late and its sighting only moves later (new footer or more rows; the "more rows"
+  part was removed by the challenge loop, see below); a gap alone moves nothing, so a sleeping laptop never re-caps
+  yesterday's row.
 - Round 4 (opus): no blocker. A new limit within the 2-minute gone window inherited the sighting -> also moved when the
-  previous capture lacked the row. Tests tightened (the footer-in-place arm runs before the reset).
+  previous capture lacked the row (SUPERSEDED: removed by the challenge loop, see below). Tests tightened (the
+  footer-in-place arm runs before the reset).
+- Challenge loop iteration 1 (opus): moving a late sighting on more rows or a returning row re-capped a released row
+  on a redraw or scroll back -> only a new turn footer moves it now; the review 3 "more rows" and review 4 "returning
+  row" rules are gone. Iteration 2 (sonnet): two comments said a late row is never retired -> fixed.
 - Accepted residual: a late DAY-kind row (a weekly limit's last day) whose reset passed reads capped up to ~24 h on an
   idle agent (before: forever). Follow-up: time it from the turn footer's "done <clock>" where it has one.
 - Not taken: a dateless day-span line printed within a minute of the board's sighting with its reset ~24 h on can read
