@@ -118,16 +118,6 @@ extension Board {
     // nothing on this page can be read or changed from here, and it says so instead of "could not reach" (review 4).
     static func agentPageOnBoardOnly(_ name: String) -> String { "\(name)\u{2019}s settings can be changed on your computer\u{2019}s board." }
 
-    // kosmos#7280: the board's agent deep link with a section (?tab=detail&agent=<n>&sec=model opens AI Settings). A
-    // board without #7280 ignores sec and lands on the conversation, as before. Only the board's own section names.
-    static let boardSections: Set<String> = ["profile", "model"]
-    static func withBoardSection(_ url: URL, _ sec: String) -> URL? {
-        guard boardSections.contains(sec), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              parts.queryItems?.contains(where: { $0.name == "tab" && $0.value == "detail" }) == true else { return nil }
-        parts.queryItems = (parts.queryItems ?? []).filter { $0.name != "sec" } + [URLQueryItem(name: "sec", value: sec)]
-        return parts.url
-    }
-
     // MARK: Name and role (PUT /api/agent/<n>/profile, the board's Save under Profile)
 
     static let profileFieldMax = 80   // the route's cap on both, in UTF-16 units (a JS string's length)

@@ -1841,3 +1841,17 @@ extension Board {
         return phase
     }
 }
+
+// kosmos#7280: here, not in AgentInfoLogic.swift, because BoardClient.chatURL calls it and every LogicTests runner
+// that compiles BoardClient.swift compiles this file.
+extension Board {
+    // kosmos#7280: the board's agent deep link with a section (?tab=detail&agent=<n>&sec=model opens AI Settings). A
+    // board without #7280 ignores sec and lands on the conversation, as before. Only the board's own section names.
+    static let boardSections: Set<String> = ["profile", "model"]
+    static func withBoardSection(_ url: URL, _ sec: String) -> URL? {
+        guard boardSections.contains(sec), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.queryItems?.contains(where: { $0.name == "tab" && $0.value == "detail" }) == true else { return nil }
+        parts.queryItems = (parts.queryItems ?? []).filter { $0.name != "sec" } + [URLQueryItem(name: "sec", value: sec)]
+        return parts.url
+    }
+}
