@@ -10987,6 +10987,12 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    nobody asked about. */
 /* Same revert as the app-wide primary above (Josh, 22:05): no edge. */
 #firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); }
+/* kosmos#4903 S5 design (Mona Lisa): on a cloud machine the sign-in link IS the next step, so it is the primary button,
+   and it lost to `#firstrun .btn` exactly as the confirm above did. No underline (it is a button), full width on a
+   phone. The Mac's fallback link is a plain .btn and keeps its quiet look. */
+#firstrun #fr-conn-url .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); text-decoration: none; }
+#firstrun #fr-conn-url .btn.uprime:hover { background: var(--gold); border-color: var(--gold); }
+@media (max-width: 600px) { #firstrun #fr-conn-url .btn.uprime { flex: 1 1 100%; text-align: center; } }
 /* #3731 (Josh, 0.6.94: "is there really a blue stroke around the buttons?"). When a download
    finishes, focus moves to "Sign in with Subscription" so a keyboard user lands on the choice,
    and the browser drew that focus in its own blue. The ring is Kosmos's now, the same ink ring as
@@ -85193,6 +85199,16 @@ function frMB(n) { return Math.max(0, Math.round(n / 1e6)) + 'MB'; }
 
 /* kosmos#4903 S5: a Kosmos cloud machine has no browser of its own, so nothing opens there: the sign-in page's link
    is the way in, opened wherever the person is. Only the phases that assume a local browser change. */
+/* S5 design note 2: on screen, the sentence above the link says "below" once the link is painted, and "in a moment"
+   only while it is not. frConnPaintUrl re-says it, because the link can arrive inside a phase without a rebuild. */
+function frCloudSigninDetail(phase, hasUrl) {
+  if (phase === 'signin-awaiting-code') {
+    return hasUrl ? 'Open the Claude sign-in page below and sign in. Claude then shows a code: paste it here.'
+      : 'Its link appears here in a moment. Sign in there, and Claude then shows a code: paste it here.';
+  }
+  return hasUrl ? 'Open the Claude sign-in page below and sign in there. This screen will update when it is done.'
+    : 'Its link appears here in a moment. This screen will update when you have signed in.';
+}
 const CLOUD_SIGNIN_SAY = {
   'signin-launching': 'Getting the Claude sign-in ready.',
   'signin-browser-open': 'Open the Claude sign-in page and sign in there. Its link appears here in a moment.',
@@ -85310,7 +85326,7 @@ function frPaintConnect(st) {
       + '<div class="fr-cdetail">'
       + (phase === 'signin-completing'
         ? 'Checking the connection. This screen will change on its own.'
-        : cloud ? 'Open the sign-in page (its link appears below) and sign in there. This screen will update when it is done.'
+        : cloud ? '<span id="fr-conn-cloudsay-open">' + esc(frCloudSigninDetail('signin-browser-open', !!shownUrl)) + '</span>'
           : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
     frConnPaintUrl(shownUrl);
@@ -85321,15 +85337,18 @@ function frPaintConnect(st) {
   if (phase === 'signin-awaiting-code') {
     box.innerHTML = '<div class="fr-ctitle">' + (cloud ? 'Sign in to Claude' : 'Your browser has opened') + '</div>'
       + '<div class="fr-cdetail">' + (cloud
-        ? 'Open the sign-in page (its link appears below) and sign in. Claude then shows a code: paste it here.'
+        ? '<span id="fr-conn-cloudsay-code">' + esc(frCloudSigninDetail('signin-awaiting-code', !!shownUrl)) + '</span>'
         : 'Sign in to Claude there. This screen will notice when it is done.') + '</div>'
       + urlLine
       // The engine sets `because` when a typed code did not take; without
       // showing it, a rejected code looks like this screen simply asking twice.
       + ((st && st.because) ? '<div class="fr-note">' + esc(st.because) + '</div>' : '')
-      + '<label class="fr-cdetail" for="fr-conn-code">If Claude gives you a code to paste, put it here:</label>'
+      // S5 design note 3: on a cloud machine a code always comes and the sentence above already asks for it, so the field
+      // carries a placeholder instead of a second "paste the code" label. The Mac keeps the label (a code is the exception).
+      + (cloud ? '' : '<label class="fr-cdetail" for="fr-conn-code">If Claude gives you a code to paste, put it here:</label>')
       + '<div class="fr-code-row">'
-      + '<input id="fr-conn-code" type="text" autocomplete="off" spellcheck="false" aria-label="Sign-in code">'
+      + '<input id="fr-conn-code" type="text" autocomplete="off" spellcheck="false" aria-label="Sign-in code"'
+      + (cloud ? ' placeholder="Paste the code from Claude"' : '') + '>'
       + '<button class="btn" id="fr-conn-code-go" type="button">Use code</button>'
       + '</div>';
     document.getElementById('fr-conn-code-go').onclick = frConnSubmitCode;
@@ -85561,8 +85580,14 @@ function frConnPaintUrl(url) {
   if (box.__frUrl === key) return;
   box.__frUrl = key;
   /* kosmos#4903 S5: on a cloud machine nothing opens a browser, so the link is the way in, not a fallback. */
+  const cloudNow = typeof onCloudMachine === 'function' && onCloudMachine();
+  // The phase is in the id (one span per phase), so this needs nothing but getElementById.
+  for (const [id, phase] of [['fr-conn-cloudsay-open', 'signin-browser-open'], ['fr-conn-cloudsay-code', 'signin-awaiting-code']]) {
+    const say = cloudNow && document.getElementById(id);
+    if (say) say.textContent = frCloudSigninDetail(phase, !!key);
+  }
   box.innerHTML = !key ? ''
-    : (typeof onCloudMachine === 'function' && onCloudMachine())
+    : cloudNow
       ? '<a class="btn uprime" href="' + esc(key) + '" target="_blank" rel="noopener">Open the Claude sign-in page</a>'
       : '<div class="fr-cdetail">Browser did not open?</div>'
         + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>';

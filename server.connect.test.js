@@ -968,6 +968,7 @@ function connectHarness(st, { cloud = false } = {}) {
   const cloudFns = cloud
     ? 'function onCloudMachine() { return true; }\n'
       + script.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + pageFunction('signinSay').toString() + '\n'
+      + pageFunction('frCloudSigninDetail').toString() + '\n'
     : '';
   const realPaintUrl = pageFunction('frConnPaintUrl',
     'const esc = ' + realEsc.toString() + ';\n' + cloudFns
@@ -1087,6 +1088,37 @@ test('kosmos#4903 S5: on a cloud machine the sign-in screen leads with the link,
   // The code step on a cloud machine says where the code comes from.
   const code = connectHarness({ phase: 'signin-awaiting-code', url: URL }, { cloud: true });
   assert.match(code.els['fr-sub'].innerHTML, /Claude then shows a code: paste it here/);
+});
+
+test('kosmos#4903 S5 design: a cloud machine says "below" once the link is there, and asks for the code once', () => {
+  const URL = 'https://claude.com/cai/oauth/authorize?code=true&x=1';
+  for (const phase of ['signin-browser-open', 'signin-awaiting-code']) {
+    const withUrl = connectHarness({ phase, url: URL }, { cloud: true });
+    assert.match(withUrl.els['fr-sub'].innerHTML, /Open the Claude sign-in page below/, phase + ': the sentence does not point at the link');
+    assert.doesNotMatch(withUrl.els['fr-sub'].innerHTML, /its link appears|in a moment/i, phase + ': it still says the link is coming while it is there');
+    const early = connectHarness({ phase, url: null }, { cloud: true });
+    assert.match(early.els['fr-sub'].innerHTML, /Its link appears here in a moment/, phase + ': with no link yet it must say one is coming');
+    assert.doesNotMatch(early.els['fr-sub'].innerHTML, /below/, phase + ': it pointed at a link that is not there');
+  }
+  // The link arriving inside the phase (no rebuild) re-says the sentence.
+  const late = connectHarness({ phase: 'signin-awaiting-code', url: null }, { cloud: true });
+  late.paint({ phase: 'signin-awaiting-code', url: URL });
+  assert.match(late.els['fr-conn-cloudsay-code'].textContent, /sign-in page below/, 'a late link left the sentence saying it is coming');
+  // Note 3: on a cloud machine the code field has a placeholder and no second "paste the code" label.
+  const code = connectHarness({ phase: 'signin-awaiting-code', url: URL }, { cloud: true }).els['fr-sub'].innerHTML;
+  assert.doesNotMatch(code, /If Claude gives you a code to paste/, 'the code step still asks twice');
+  assert.match(code, /<input id="fr-conn-code"[^>]*placeholder="Paste the code from Claude"/);
+  // CONTROL: the Mac keeps its label (a code is the exception there) and has no placeholder, and its words are unchanged.
+  const mac = connectHarness({ phase: 'signin-awaiting-code', url: URL }).els['fr-sub'].innerHTML;
+  assert.match(mac, /If Claude gives you a code to paste, put it here:/);
+  assert.doesNotMatch(mac, /placeholder=/);
+  assert.match(mac, /Sign in to Claude there\. This screen will notice when it is done\./);
+});
+
+test('kosmos#4903 S5 design: on a cloud machine the sign-in link is the gold primary, which #firstrun .btn would otherwise paint white', () => {
+  // `#firstrun .btn` (1,1,0) outranks `.btn.uprime` (0,2,0), so the link needs its own scoped rule (as the confirm has).
+  assert.match(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'),
+    /#firstrun #fr-conn-url \.btn\.uprime \{ background: var\(--gold-bright\);[^}]*text-decoration: none; \}/);
 });
 
 test('a URL that arrives after the phase painted still surfaces, without a rebuild', () => {
