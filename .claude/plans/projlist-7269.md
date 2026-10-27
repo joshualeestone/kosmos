@@ -32,3 +32,9 @@ projects of 3, 12 and 15 members with nesting, and the tiles.
   at the card's text edge; Open counts only states the list draws; VoiceOver says "in <parent>"; a four-level ladder
   test; the provider table and mark map (no reader left) removed, the marks' SVG-equals-board check kept (#7267 draws
   them). KEPT: the tiles' words are Josh's (Open, Needs you, Working, Done), not the group headings'.
+- Round 2 (projlist-7269-review2.md): 0 blockers, 3 warnings, 4 nits. Fixed: the tiles count the groups the list is
+  drawing (a live update can no longer make a tile and its group disagree; tested through keepingPlaces); a project
+  name may wrap (3 lines) at accessibility sizes; a parent with a folder problem still starts its line. KEPT: Open
+  can be one fewer than the "N Tasks" title when a newer Mac sends a state this build has no group for (the title is
+  the board's words, the tiles follow the list); the avatar letter's fixed size is AgentAvatar's (AgentsView.swift,
+  shared, unchanged here); at accessibility sizes on an SE the tiles take two rows (a design call: reachable by scroll).

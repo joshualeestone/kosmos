@@ -192,7 +192,7 @@ struct TasksView: View {
             Section {
                 EmptyView()
             } header: {
-                TaskTiles(tiles: Tasks.tiles(read, project: project))
+                TaskTiles(tiles: Tasks.tiles(shown, rosterUnknown: read.rosterUnknown))
                     .listRowInsets(EdgeInsets())
                     .padding(.top, 4)
             }

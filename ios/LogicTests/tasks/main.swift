@@ -95,7 +95,7 @@ check(Tasks.sections(few, project: nil).allSatisfy { !$0.unknown }, "control: ag
 
 section("the count tiles (kosmos#7269)")
 func tileCounts(_ r: Board.TasksRead, _ project: String? = nil) -> [String] {
-    Tasks.tiles(r, project: project).map { (t: Tasks.Tile) -> String in
+    Tasks.tiles(Tasks.sections(r, project: project), rosterUnknown: r.rosterUnknown).map { (t: Tasks.Tile) -> String in
         let n: String = t.count.map { String($0) } ?? "?"
         return t.label + "=" + n
     }
@@ -106,6 +106,13 @@ check(tileCounts(Board.TasksRead(tasks: [], rosterUnknown: false)) == ["Open=0",
 let twoProjects = Board.TasksRead(tasks: [row(1, "working", project: "p1"), row(2, "decision", project: "p2"), row(3, "closed", project: "p2")], rosterUnknown: false)
 let pickedTiles: [String] = tileCounts(twoProjects, "p2")
 let allTiles: [String] = tileCounts(twoProjects)
+// Review 2: the tiles count what the list draws. A live update keeps a moved row in the group it was drawn in, and the
+// tiles follow the list, not the newer read.
+let drawnFirst = Tasks.sections(Board.TasksRead(tasks: [row(1, "working")], rosterUnknown: false), project: nil)
+let movedRead = Board.TasksRead(tasks: [row(1, "closed")], rosterUnknown: false)
+let keptPlaces = Tasks.keepingPlaces(drawnFirst, with: movedRead, project: nil)
+let keptTiles = Tasks.tiles(keptPlaces, rosterUnknown: false).map { "\($0.label)=\($0.count ?? -1)" }
+check(keptTiles == ["Open=1", "Needs you=0", "Working=1", "Done=0"], "a task that moved while drawn counts where the list shows it: \(keptTiles)")
 check(pickedTiles == ["Open=1", "Needs you=1", "Working=0", "Done=1"], "the picked project's tasks only, as the list under them")
 check(allTiles == ["Open=2", "Needs you=1", "Working=1", "Done=1"], "All projects counts them all")
 

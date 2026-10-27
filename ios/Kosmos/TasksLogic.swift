@@ -143,17 +143,17 @@ enum Tasks {
     }
 
     // kosmos#7269 (Josh, 2026-10-26: "a row of tiles with counts at the top", "open, needs you, working, done", "nice
-    // and clean"): four counts over the tasks in view (the picked project, or all), in Josh's order. Open is every task
-    // not completed; Needs you counts Needs Your Decision and is nil (shown "?") when the agents could not be read, as
-    // the board's tile says it cannot tell rather than 0. Display only: a tile does not filter.
+    // and clean"): four counts in Josh's order, counted from the groups the list is drawing (review 2: counted from the
+    // newest read, a task that moved while the list kept its place made the tile and its group disagree). Open is
+    // every drawn task not completed; Needs you is nil (shown "?") when the agents could not be read, as the board's
+    // tile says it cannot tell rather than 0. Display only: a tile does not filter.
     struct Tile: Equatable { let key: String; let label: String; let count: Int? }
-    static func tiles(_ read: Board.TasksRead, project: String?) -> [Tile] {
-        let rows = scoped(read.tasks, project: project)
-        func n(_ state: String) -> Int { rows.filter { $0.state == state }.count }
+    static func tiles(_ shown: [Section], rosterUnknown: Bool) -> [Tile] {
+        func n(_ key: String) -> Int { shown.filter { $0.group.key == key }.reduce(0) { $0 + $1.rows.count } }
+        let open = shown.filter { $0.group.key != "closed" }.reduce(0) { $0 + $1.rows.count }
         return [
-            // Only the states the list draws a group for, so the tile and the list below it never disagree (review 1).
-            Tile(key: "open", label: "Open", count: rows.filter { r in r.state != "closed" && groups.contains { $0.key == r.state } }.count),
-            Tile(key: "decision", label: "Needs you", count: read.rosterUnknown ? nil : n("decision")),
+            Tile(key: "open", label: "Open", count: open),
+            Tile(key: "decision", label: "Needs you", count: rosterUnknown ? nil : n("decision")),
             Tile(key: "working", label: "Working", count: n("working")),
             Tile(key: "closed", label: "Done", count: n("closed")),
         ]

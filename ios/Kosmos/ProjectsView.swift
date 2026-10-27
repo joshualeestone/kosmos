@@ -622,6 +622,7 @@ struct ProjectRowView: View {
     var through: [Int] = []
     var parentName: String? = nil
     let unreadable: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject var store: RoomStore
 
     private var word: Board.ProjectWord? { Board.projectWord(project, agentsUnreadable: unreadable) }
@@ -629,7 +630,9 @@ struct ProjectRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(1)
+                // Review 2: at the largest sizes a sub-project's indent leaves little room, so the name may wrap.
+                Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble) }
                 Spacer(minLength: 8)
                 if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
@@ -669,12 +672,12 @@ struct ProjectRowView: View {
     @ScaledMetric(relativeTo: .callout) private var nameMid: CGFloat = 10.5
     private static let rail = Palette.pair(0xbdb8ae, 0x4a4e55)
     @ViewBuilder private var connector: some View {
-        if depth > 0 || !through.isEmpty || (hasKids && project.folderProblem == nil) {
+        if depth > 0 || !through.isEmpty || hasKids {
             GeometryReader { g in
                 Path { path in
-                    // A parent: the line's start, from under its last line (its faces, or its name when it has none) down
-                    // to its row's bottom.
-                    if hasKids && project.folderProblem == nil {
+                    // A parent: the line's start, from under its last line (faces, name or folder problem) down to its
+                    // row's bottom space, which no text is in.
+                    if hasKids {
                         let px = CGFloat(depth) * indent + face / 2 + 1.5
                         path.move(to: CGPoint(x: px, y: g.size.height - 10 + 2))
                         path.addLine(to: CGPoint(x: px, y: g.size.height))
