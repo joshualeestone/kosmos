@@ -564,6 +564,9 @@ function realpathOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.rea
    file as the first (its number id or size differs), inoExact is a value no file has, so sameOpenedFile refuses it. */
 const EXACT_IDS = process.platform === 'win32';
 const NO_FILE = -1n;
+/* Unsigned: node fills BigInt stats from a signed 64-bit array, so an id whose top bit is set (an NTFS sequence number
+   of 0x8000 or more) reads negative, while the number stat reads it unsigned (review 1 of #7229). */
+const u64 = (ino) => BigInt.asUintN(64, ino);
 function withExactIno(st, ino) {
   if (st && ino !== undefined) Object.defineProperty(st, 'inoExact', { value: ino, enumerable: false, configurable: true });
   return st;
@@ -572,16 +575,18 @@ function exactPathStat(st, p, lstat) {
   if (!EXACT_IDS || !st) return st;
   let big;
   try { big = lstat ? fs.lstatSync(p, { bigint: true }) : fs.statSync(p, { bigint: true }); } catch { return withExactIno(st, NO_FILE); }
-  return withExactIno(st, Number(big.ino) === st.ino && Number(big.size) === st.size ? big.ino : NO_FILE);
+  // The id only: size is not identity, and a file being written to grows between the two reads (review 1).
+  const ino = u64(big.ino);
+  return withExactIno(st, Number(ino) === st.ino ? ino : NO_FILE);
 }
 /* The exact id of an OPENED file, from a BigInt stat of the same descriptor (no second path read, so no race). */
 function exactOpenedStat(st, fd) {
   if (!EXACT_IDS || !st) return st;
-  try { return withExactIno(st, fs.fstatSync(fd, { bigint: true }).ino); } catch { return withExactIno(st, NO_FILE); }
+  try { return withExactIno(st, u64(fs.fstatSync(fd, { bigint: true }).ino)); } catch { return withExactIno(st, NO_FILE); }
 }
 async function exactOpenedStatAsync(st, fh) {
   if (!EXACT_IDS || !st) return st;
-  try { return withExactIno(st, (await fh.stat({ bigint: true })).ino); } catch { return withExactIno(st, NO_FILE); }
+  try { return withExactIno(st, u64((await fh.stat({ bigint: true })).ino)); } catch { return withExactIno(st, NO_FILE); }
 }
 function statOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.stat ? fsWorldForTests.stat(p) : exactPathStat(fs.statSync(p), p, false); }
 /* #4997: the listed walk's lstat, through the same world (a world without one reads its stat: a fake folder has no links). */
@@ -2163,7 +2168,8 @@ function browsedEntry(ent, dirAbs, relDir, depth, maxDepth) {
   }
   if (!ent.isFile()) return null;
   let st;
-  try { st = fs.lstatSync(path.join(dirAbs, ent.name)); } catch { return null; }
+  // #7229 review 1: with its exact id on Windows, so the zip's first check (entry against gate) is exact too.
+  try { const at = path.join(dirAbs, ent.name); st = exactPathStat(fs.lstatSync(at), at, true); } catch { return null; }
   if (!st.isFile()) return null;
   return { kind: 'file', name, size: st.size, modified: st.mtime.toISOString(), st };
 }
@@ -2575,6 +2581,8 @@ function trueChildName(parent, name) {
 const WINDOWS_FOLDER_REFUSED = 'on Windows a project folder needs to be on a drive (like C:\\work) or a network share (like \\\\server\\share)';
 function windowsProjectFolderOk(folder, platform = process.platform) {
   if (platform !== 'win32') return true;
+  // \work or /work: rooted with no drive letter, which Windows reads on the current drive (review 1).
+  if (/^[\\/](?![\\/])/.test(String(folder))) return true;
   return winpath.driveOf(folder) !== null || winpath.shareOf(folder) !== null;
 }
 

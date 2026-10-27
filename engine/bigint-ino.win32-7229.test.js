@@ -98,3 +98,61 @@ test('#7229: on Windows a project folder must be a drive path or a share', () =>
   }
   assert.equal(projects.windowsProjectFolderOk('\\\\.\\pipe\\x', 'darwin'), true, 'only Windows reads these spellings');
 });
+
+const filepreview = require('./filepreview.js');
+const { Worker } = require('node:worker_threads');
+
+test('#7229 review 1: the zip\'s first check (the listed entry against the gate) refuses a colliding file swapped in', winOnly, (t) => {
+  const p = pair();
+  if (!p) { t.skip('no two files here had equal number ids'); return; }
+  const dir = path.join(SANDBOX, 'zip');
+  fs.mkdirSync(dir, { recursive: true });
+  const [a, b] = p;
+  const target = path.join(dir, 'x.txt');
+  fs.copyFileSync(a, path.join(SANDBOX, 'a-backup.txt'));
+  fs.renameSync(a, target);
+  const walked = projects.walkListedDir(dir, '', 'this folder', { maxDepth: 2 });
+  assert.equal(walked.ok, true, JSON.stringify(walked).slice(0, 200));
+  const e = walked.files.find((f) => f.name === 'x.txt');
+  assert.ok(e && typeof e.st.inoExact === 'bigint', 'the listed entry carries its exact id');
+  fs.renameSync(b, target);   // the colliding file, same size, swapped in after the listing
+  const gate = filepreview.resolve(dir, 'x.txt', 'this folder', { maxDepth: 2, act: 'download' });
+  assert.equal(gate.ok, true);
+  assert.equal(gate.st.ino, e.st.ino, 'the collision: the number ids are equal');
+  assert.equal(projects.sameOpenedFile(e.st, gate.st), false, 'the swapped file is refused');
+  PAIR = null;   // the pair has been moved; later tests make their own files
+});
+
+test('#7229 review 1: a file being written to is still the same file (only the id is compared)', winOnly, async () => {
+  const file = path.join(SANDBOX, 'grow.log');
+  fs.writeFileSync(file, '');
+  const w = new Worker(`const fs=require('fs');const end=Date.now()+700;while(Date.now()<end)fs.appendFileSync(${JSON.stringify(file)},'line\\n');`, { eval: true });
+  let refused = 0;
+  let reads = 0;
+  const until = Date.now() + 500;
+  while (Date.now() < until) {
+    const st = projects.exactPathStat(fs.statSync(file), file, false);
+    reads += 1;
+    if (st.inoExact === -1n) refused += 1;
+  }
+  await new Promise((r) => w.on('exit', r));
+  assert.ok(reads > 100, 'the loop ran: ' + reads);
+  assert.equal(refused, 0, refused + ' of ' + reads + ' reads of a growing file were taken for another file');
+});
+
+test('#7229 review 1: exact ids are unsigned (node reads BigInt stats as signed 64-bit)', winOnly, () => {
+  const f = path.join(SANDBOX, 'u.txt');
+  fs.writeFileSync(f, 'u');
+  const fd = fs.openSync(f, 'r');
+  try { assert.ok(projects.exactOpenedStat(fs.fstatSync(fd), fd).inoExact >= 0n); } finally { fs.closeSync(fd); }
+  // an id with the top bit set: the signed read is negative, the unsigned one equals the number stat's reading
+  assert.equal(Number(BigInt.asUintN(64, -9223090561878060492n)), Number(0x8001000000001234n));
+  const src = fs.readFileSync(path.join(__dirname, 'projects.js'), 'utf8');
+  assert.equal((src.match(/u64\(/g) || []).length >= 3, true, 'all three exact readers normalise');
+});
+
+test('#7229 review 1: a rooted folder with no drive letter is on the current drive, so it is allowed', () => {
+  assert.equal(projects.windowsProjectFolderOk('\\work', 'win32'), true);
+  assert.equal(projects.windowsProjectFolderOk('/work', 'win32'), true);
+  assert.equal(projects.windowsProjectFolderOk('\\\\.\\pipe\\x', 'win32'), false, 'CONTROL');
+});

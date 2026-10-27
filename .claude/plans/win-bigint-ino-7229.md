@@ -51,3 +51,11 @@ The gated side reads the path twice (number, then BigInt); a swap between the tw
 id or size differs, which a colliding same-size file would not. That needs a collision AND a swap inside microseconds.
 
 ## Review rounds
+- Round 1: 3 BLOCKERs, 1 WARNING, 1 NIT. BLOCKERs FIXED: (1) the zip's first check compared the listed entry's plain
+  lstat (browsedEntry), so a colliding file swapped in after the listing passed (reviewer made it with a real pair);
+  browsedEntry's files now carry the exact id. (2) the second path read compared size too, so a file being written to
+  read as another file in 180,831 of 188,930 reads (preview/download refused); only the id is compared now. (3) node
+  fills BigInt stats from a signed 64-bit array, so an id whose top bit is set (NTFS sequence >= 0x8000) read negative
+  and every such file would be refused; all three readers take BigInt.asUintN(64). WARNING FIXED: \work and /work
+  (rooted, current drive) are allowed again. NIT (dev ids skipped on Windows, pre-existing): noted for a card.
+  Negative control: the 4 new tests fail on round 0. 8/8; 87 win32 files 1596 tests, 0 fail.
