@@ -44,3 +44,35 @@ both are merged; do not push before then (it would carry two unmerged branches).
 ## Weakest premise
 That pausing the room's paint while the archive is open is safe for everything else loadRoom paints (the held strip,
 the unanswered lines). Check each before building.
+It was not safe: review 1 found the early return skipped the speech stamps, the hold strip, pending posts and the reply
+map. Fixed by moving the return to just before the rows are written.
+
+## Review rounds
+1. (general-purpose, 17:5x CDT 2026-10-27) 1 BLOCKER, 9 WARNINGs, 1 CONVENTION, 4 NITs; the BLOCKER, all WARNINGs, the
+   CONVENTION and NITs 1 and 2 applied (24b6f23f1e).
+   - (B) Undo read e.currentTarget after an await (null by then) and threw before leaving the archive: it holds the
+     button first.
+   - (W) the archive's early return in paintRoom skipped every state update: moved to just before the rows are written
+     (test pins the order; mutation to the top reds it).
+   - (W) pjWinReset closed the archive, and the poll resets the window on a gap read: decoupled (test, mutation reds).
+   - (W) the poll's let-go measured the archive's DOM, and Back lost the reader's place: guarded, and the place is
+     anchored on open and restored on Back.
+   - (W) "everything before today" always became 24 hours back on the server: relabelled "everything older than a day".
+     Mona's design said "before today"; noted for her design review.
+   - (W) reply headers said "unavailable" for archived originals: "Original message may be in the archive" in the live
+     room ("may": the page cannot tell archived from removed, the weakest part of this fix), and the archive view looks
+     originals up among its own posts.
+   - (W) a failed earlier archive page could not be retried: it uses the earlier-pages line with Try again.
+   - (W) focus and announcements on every view change: focus to Back on open, to the message box on Back and Undo.
+   - (W) Undo did not reset the window: it does, as Archive does.
+   - (W) the tests and the check left the risky paths unproven: three source-order tests; the check gains a poll
+     landing while the archive is open, archived-original headers, focus, Back's place, the "older than a day" time,
+     and the final step asserts the archive is closed.
+   - (C) indentation fixed. Phone width: still unmeasured until the design shots.
+   - NIT 1 (a late poll restoring the old count): stored after loadRoom's generation check. NIT 2 (focus during the
+     Archive request): moves to the Working line.
+   - NIT 3 (the count says "messages" but counts every archived row) and NIT 4 (the archive view is a snapshot; a
+     reaction made in it does not repaint): left, recorded. Kosmos lines in a room are rare and read as messages to a
+     person; reactions in the archive are a follow-up if anyone asks for them.
+   - Found by the sweep, not the reviewer: the confirm was a 42nd body child (web.consolidated-980), so it moved inside
+     the room's section; the modal sweep needed its row; the check needed its four wiring lines.
