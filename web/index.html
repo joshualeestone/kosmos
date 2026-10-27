@@ -7589,6 +7589,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) > #askcard,
   html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) #pj-one-view > .pj-crumbrow,
   html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) #pj-one-view .pjmidhead { display: none; }
+  /* The phone-pairing card stepping aside takes its own top gap with it, and #conn gets the floating notices' clearance
+     only after a [hidden] card (the #askcard[hidden] + #conn rule), so it would ride up under a notice. Same clearance
+     while the card is out of the way. */
+  html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) > #askcard:not([hidden]) + #conn { margin-top: var(--topnotes-clear, 0px); }
   #pj-room .msg-av { width: var(--room-av); height: var(--room-av); flex-basis: var(--room-av); font-size: .8125rem; }
   #pj-room .msg:not(.you) .msg-b { margin-right: calc(var(--room-av) + var(--room-av-gap)); }
   #pj-room .msg.you .msg-b { margin-left: calc(var(--room-av) + var(--room-av-gap)); }
