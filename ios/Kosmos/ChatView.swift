@@ -1698,7 +1698,10 @@ private struct EdgeOpen: ViewModifier {
     let touched: () -> Void
     @State private var position = ScrollPosition()
     func body(content: Content) -> some View {
+        // Round 10: the initial-offset anchor back, for a long thread only. Rounds 7 to 9 without it never reached the newest
+        // message (5 of 5 opens each stopped at message 255 of 260, as main does); round 6 with it reached it in 8 of 10.
         content.scrollPosition($position)
+            .defaultScrollAnchor(long ? .bottom : nil, for: .initialOffset)
             .defaultScrollAnchor(long && active ? .bottom : nil, for: .sizeChanges)
             .onScrollPhaseChange { _, phase in if phase == .interacting { touched() } }
             .onAppear {
