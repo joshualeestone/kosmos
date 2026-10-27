@@ -17,6 +17,9 @@
  *    **X**, a project manager."), so the match ignores case and a leading article;
  *  - an agent whose delivery is held (a menu, a usage limit, signed out, text in its box) or refused passes the ask to
  *    the next, in the same tick. Quiet hours and the usage cap hold for everyone, so they stop the tick and cost no try.
+ *    A tick in which some were held and the rest refused costs one try, so a menu left open all evening does not keep
+ *    the day alive past MAX_TRIES refusals by the others. A delivery that THREW counts as maybe reached (chat.js's own
+ *    reading of a throw), so the day is recorded as asked and nobody else is typed into.
  * When, all of:
  *  - sending is on and its setting reads (feedbacksend.read: on and ok). Switched off, or unreadable, nobody is asked, so
  *    an install that said no is never spent a turn on a report it will not send;
@@ -178,7 +181,7 @@ function sweepOnce(o) {
        does not forget it (review 2). Only written when it changes. */
     let workedOn = null;
     try { workedOn = typeof asked.workedOn === 'function' ? asked.workedOn() : null; } catch { workedOn = null; }
-    if (workedOn !== today && workedToday(o.roster, today, dateKey)) {
+    if (send && send.ok === true && send.on === true && workedOn !== today && workedToday(o.roster, today, dateKey)) {
       workedOn = today;
       try { if (typeof asked.markWorked === 'function') asked.markWorked(today); } catch { /* the roster still says so this tick */ }
     }
@@ -192,9 +195,10 @@ function sweepOnce(o) {
          next is asked;
        - quiet hours or the usage cap (chat's `quiet` / `capped`): nothing typed, and it holds for every agent, so the tick
          stops and no try is spent; a later tick asks again;
-       - refused (COULD_NOT, or a throw): nothing typed, the next is asked (review 2: one agent's refusal must not lose the
-         day for the others);
-       - placed or unconfirmed: asked, and the day is done.
+       - busy (chat's `busy`: another line is still being placed in that pane): treated as held (review 3);
+       - refused (COULD_NOT): nothing typed, the next is asked (review 2: one agent's refusal must not lose the day for the
+         others);
+       - placed, unconfirmed, or a throw (which may have typed before it threw, review 3): asked, and the day is done.
        A try is spent only when every candidate refused, and then one try for the tick, not one per candidate. */
     const D = o.DELIVERY || {};
     const heldOnes = [];
@@ -207,9 +211,9 @@ function sweepOnce(o) {
       let r = null;
       let state = null;
       try { r = o.deliver(session, nudgeText(), o.roster); state = r && r.state; }
-      catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+      catch (err) { reached = { session, name, delivered: false, delivery: 'threw: ' + String((err && err.message) || err) }; break; }
       if (r && (r.quiet === true || r.capped === true)) { paused = (r.quiet === true ? 'quiet hours' : 'the usage cap') + (r.because ? ': ' + r.because : ''); break; }
-      if (r && r.held === true) { heldOnes.push(name + (r.heldBy ? ' (' + r.heldBy + ')' : '')); continue; }
+      if (r && (r.held === true || r.busy === true)) { heldOnes.push(name + (r.held === true ? (r.heldBy ? ' (' + r.heldBy + ')' : '') : ' (busy)')); continue; }
       const delivered = D.PLACED != null && state === D.PLACED;
       if (delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED)) { reached = { session, name, delivered, delivery: state }; break; }
       refused.push(name + ' (' + (state || 'no answer') + ')');
