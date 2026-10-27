@@ -449,10 +449,12 @@ struct ProjectsView: View {
     @State private var listShown = false
     @State private var showArchived = false
 
-    init(client: BoardClient, roomRequest: Binding<PushBridge.RoomTarget?>, openPage: @escaping (URL) -> Void) {
+    init(client: BoardClient, roomRequest: Binding<PushBridge.RoomTarget?>, openPage: @escaping (URL) -> Void,
+         create: @escaping () -> Void = {}) {
         self.client = client
         self._roomRequest = roomRequest
         self.openPage = openPage
+        self.create = create
         _store = StateObject(wrappedValue: RoomStore(client: client))
     }
 
