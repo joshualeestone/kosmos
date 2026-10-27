@@ -298,3 +298,16 @@ test('#7367: in the few seconds a passing read error is kept, the sweep tells no
     Date.now = realNow;
   }
 });
+
+test('#7367: the stamps going unknown DURING the history reads is caught by owed()\'s check after them', () => {
+  const { id } = fixture();
+  const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const list = only(id);
+  assert.equal(hs.owed(list, rows, NOW, { read: holdAt(3 * HOUR) }).length, 1, 'CONTROL: with the stamps known one owner is owed');
+  const f = projects.file();
+  const good = fs.readFileSync(f);
+  const midRead = (...a) => { fs.writeFileSync(f, Buffer.alloc(good.length + 7, 0)); return holdAt(3 * HOUR)(...a); };
+  let out;
+  try { out = hs.owed(list, rows, NOW, { read: midRead }); } finally { fs.writeFileSync(f, good); }
+  assert.deepEqual(out, [], 'damaged mid-read: owed nobody');
+});

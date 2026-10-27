@@ -16,7 +16,9 @@
  * post, so one damaged file silenced every agent; the Projects page is where that file's fault is shown
  * (projects.readAll throws for it). The cost: while the file is damaged, a deleted-and-re-made project's old rows show
  * again. ok is false then, so a reader that KEEPS what it worked out (engine/receipt.js) or ACTS on old rows
- * (messages.sweepUnanswered, which would nudge about a deleted project's ask) does nothing until the file reads. A project
+ * (messages.sweepUnanswered, which would nudge about a deleted project's ask) does nothing until the file reads. Every
+ * such reader (receipt, sweepUnanswered/unanswered, undo.plan, holdstale.owed and its timer) checks before and after
+ * its reads; the list is kept in .claude/plans/failopen-projects-7367.md. A project
  * id with no record, or a record with no valid createdAt, keeps every row (no stamp to compare with).
  */
 

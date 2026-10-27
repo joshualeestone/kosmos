@@ -2809,6 +2809,30 @@ test('#7367: with the projects file damaged the unanswered sweep nudges nobody; 
   });
 });
 
+test('#7367: unanswered() itself answers nothing while the stamps are unknown (the sweep\'s second read)', () => {
+  const projects = require('./projects');
+  const pid = projects.create({ name: 'Unanswered Damage Room' }).id;
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    arm([]);
+    messages.setUnansweredAfterForTests(0);
+    const f = projects.file();
+    const good = fs.readFileSync(f);
+    try {
+      const sent = messages.sendPost({ operator: true, project: pid, projectName: 'Unanswered Damage Room', text: '@mara still there?' }, board.agents, MEMBERS);
+      assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+      const much = Date.now() + 60 * 60 * 1000;
+      assert.ok(Object.keys(messages.unanswered(pid, much)).length > 0, 'CONTROL: with a good file the ask is unanswered');
+      fs.writeFileSync(f, Buffer.alloc(good.length + 7, 0));
+      let damaged;
+      try { damaged = messages.unanswered(pid, much); } finally { fs.writeFileSync(f, good); }
+      assert.deepEqual(damaged, {}, 'damaged: nothing unanswered');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+    }
+  });
+});
+
 // #2442: the room-nudge sweep is a pane write into agents (#185), so it must also
 // respect removal. A removed agent gets no room traffic, not even a nudge for an
 // ask that predates its removal.
