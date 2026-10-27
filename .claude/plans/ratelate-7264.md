@@ -19,6 +19,9 @@ for as long as it stayed in the last 25 rows: for good, on an idle agent.
 - else the occurrence before the sighting (read as the reset timed from one span before it): that reset has passed,
   so the row is retired at once;
 - a row that cannot be read (an unknown zone) still gets null and is kept.
+- a late entry that sees a turn footer it has not seen, on a capture that is not itself a first one, is re-timed from
+  now (not late): a NEW limit printing the same words is timed from its arrival and never inherits the late sighting
+  (review 2's blocker). A redraw copies the old footer, so it never re-times.
 `limitUntil` and the delivery hold keep `limitFirstSeenOf` (no time for a late row), so messages are still typed.
 
 ## Tests
@@ -28,3 +31,12 @@ expects idle between the old row's reset (16:01) and the newer limit (17:00). Co
 
 ## Weakest premise
 That Josh's rows are dateless (a dated weekly line is retired by limitResetAt regardless of the restart).
+
+## Reviews
+- Round 1 (sonnet): a restart more than a span after the reset was still kept -> retired at the sighting; a test passed
+  a bare number -> now takes the late path.
+- Round 2 (opus): BLOCKER, a new limit with the same words inherited the late sighting and was lifted while binding ->
+  re-time on a new footer; the count guard re-capped a retired row on a redraw -> removed. Real-flow tests through
+  fleet.install for both scenarios and the redraw; each fails on the commit before.
+- Not taken: a dateless day-span line printed within a minute of the board's sighting with its reset ~24 h on can read
+  the earlier occurrence (pre-existing on main in limitResetTimeOnlyAt; rare). Noted for a follow-up.
