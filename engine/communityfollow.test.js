@@ -81,7 +81,8 @@ function backend() {
           (st.feedCalls = st.feedCalls || []).push(c);
           const i = c ? Number(c.slice(1)) : 0;
           if (st.failPage === i) return send(503, { detail: 'down' });
-          return send(200, { items: st.pages[i] || [], next_cursor: i + 1 < st.pages.length ? 'c' + (i + 1) : null });
+          const next = i + 1 < st.pages.length ? 'c' + (i + 1) : null;
+          return send(200, { items: st.pages[i] || [], next_cursor: st.cursorOf && st.cursorOf(i) !== undefined ? st.cursorOf(i) : next });
         }
         return send(200, { items: st.feed, next_cursor: null });
       }
@@ -670,6 +671,14 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
     assert.ok(down.text.includes(cf.CUT_SHORT), 'kosmos#7391: a read cut short by a failed page did not say so: ' + down.text);
     assert.ok(!enough.text.includes(cf.CUT_SHORT), 'CONTROL: a read whose pages all answered said it was cut short');
+    // kosmos#7391 review 6: a next page whose cursor the read cannot use is a page not read, so the read says so.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(745, '11')]];
+    b.st.cursorOf = (i) => (i === 0 ? 'not a cursor!' : undefined);
+    const odd = await cf.readFollowing('mara');
+    b.st.cursorOf = undefined;
+    assert.deepEqual(b.st.feedCalls, [null], 'CONTROL: the odd cursor was asked for, so this tests nothing');
+    assert.ok(odd.text.includes(cf.CUT_SHORT), 'an unusable next cursor ended the paging silently: ' + odd.text);
     // kosmos#7391 review 2: nothing to show and an older page refused: the heading does not say "nothing new".
     b.st.feedCalls = [];
     b.st.pages = [[], [post(740, '11')]];

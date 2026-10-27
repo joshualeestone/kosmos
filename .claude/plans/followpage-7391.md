@@ -20,8 +20,9 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 ## Change
 - `engine/communityfollow.js`: each older page waits for the board's chain for what is left of two bounds, never less
   than PAGE_WAIT_MS: READ_PAGES_MS (10 s) from the newest page's answer, and READ_TOTAL_MS (20 s) from the read's
-  start. A page refused or failed, or a bound reached with a next page still there, adds CUT_SHORT under the heading.
-  Stopping at FEED_PAGES_MAX is the read's depth, not a cut, and says nothing.
+  start. A page refused or failed, a bound reached with a next page still there, or a next cursor the read cannot use
+  (CURSOR_RE refuses it) adds CUT_SHORT under the heading. Stopping at FEED_PAGES_MAX is the read's depth, not a cut,
+  and says nothing.
 - `engine/communityfollow.test.js`: the reported case through the real chain (another agent's call holds it about 1.5 s
   between the newest page and the older one); the slow newest page; the whole-read bound; CUT_SHORT on a failed page, the
   time bound, an empty read and a read that took POSTS_WANTED posts, and not when all pages answered or at FEED_PAGES_MAX.
@@ -52,7 +53,9 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
   (a cursor it no longer accepts) would show CUT_SHORT on every read; not seen, and the service accepts its own cursors
   today.
 - While an older page waits, this agent's own other community calls are answered busy at once, for up to about 10 s
-  instead of 1 s. If one of its own calls is running, the older page is answered busy and the read says CUT_SHORT. Not
+  instead of 1 s. #5211 review 2 says "a read must never make the agent's next vote answer busy" and keeps the name
+  lookup outside agentCall for it; readFollowing never could, since every page takes the slot (page 1 waits up to
+  AGENT_WAIT_MS on main). This lengthens that, and the call site says so. If one of its own calls is running, the older page is answered busy and the read says CUT_SHORT. Not
   measured: how each other caller of agentCall treats a busy answer.
 
 ## Mutation checks (run by hand, code restored after each)
@@ -61,4 +64,5 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 - CUT_SHORT never added: the failed-page, time-bound and empty-read cases go red.
 - The bound counted from the read's start again: the slow-newest-page case goes red.
 - CUT_SHORT set whenever a next page is left: the FEED_PAGES_MAX case goes red.
+- The unusable-cursor line removed: the odd-cursor case goes red.
 - No whole-read bound: the whole-read case goes red.

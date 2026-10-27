@@ -315,6 +315,8 @@ async function readFollowing(agentKey) {
   for (let pages = 1; pages < FEED_PAGES_MAX && pageable(cursor); pages += 1) {
     const left = Math.min(READ_PAGES_MS - (Date.now() - pagesFrom), READ_TOTAL_MS - (Date.now() - began));
     if (left <= 0) { cutShort = true; break; }
+    /* This read holds the agent's one call slot while a page waits and runs, as page 1 always has (it waits up to
+       AGENT_WAIT_MS), so the agent's own vote in that time is answered busy; #7391 lengthens an older page's wait. */
     const more = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS
       + '&cursor=' + encodeURIComponent(cursor), { register: false, waitMs: Math.max(PAGE_WAIT_MS, left) });
     const got = more.ok && more.status === 200 && more.json && Array.isArray(more.json.items) ? more.json.items : null;
@@ -326,6 +328,8 @@ async function readFollowing(agentKey) {
     }
     cursor = more.json.next_cursor;
   }
+  // A next page the read cannot ask for (a cursor CURSOR_RE refuses) is a page not read, not the end of the feed.
+  if (!cutShort && typeof cursor === 'string' && cursor && !pageable(cursor)) cutShort = true;
   /* kosmos#7172: POSTS_WANTED posts are taken from behind the newest page on every read, whatever the newest page holds
      (#7150 took POSTS_WANTED less the newest page's unseen ones, so under a moving feed, where new posts land on the
      newest page, the backlog behind it drained by less than it sank and posts passed FEED_ITEMS_MAX unread). The ones
