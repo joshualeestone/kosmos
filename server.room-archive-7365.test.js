@@ -163,7 +163,32 @@ test('#7365: the archive route sets the marker, refuses a bad or future time, an
   assert.equal(undo.json.cleared, true);
   assert.equal(roomarchive.markerFor(pid), null, 'Undo left the marker');
   // Loose strings Date.parse would read as a date are refused: only an ISO time is a time here.
-  for (const before of ['1', 'March 7', '2024-01-01']) assert.equal((await post(pid, '', { before })).code, 400, before);
+  for (const before of ['1', 'March 7', '2024-01-01', '2024-01-01T10:00']) assert.equal((await post(pid, '', { before })).code, 400, before);
+  // A page clock a few seconds fast is read as now, never stored as a time in the future.
+  const fast = await post(pid, '', { before: new Date(Date.now() + 20 * 1000).toISOString() });
+  assert.equal(fast.code, 200, fast.text);
+  assert.ok(Date.parse(fast.json.marker.before) <= Date.now(), fast.json.marker.before);
+  assert.equal((await post(pid, '/undo')).code, 200);
+});
+
+test('#7365: a marker file that cannot be read is never replaced by a write', async () => {
+  const file = roomarchive.fileFor();
+  const kept = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  fs.writeFileSync(file, '{"' + room.small + '": {"before": "2024');   // cut off mid-write by something else
+  try {
+    const r = await post(room.routes, '', { before: new Date(Date.now() - DAY).toISOString() });
+    assert.equal(r.code, 503, r.text);
+    assert.equal((await post(room.routes, '/undo')).code, 503);
+    assert.equal(fs.readFileSync(file, 'utf8'), '{"' + room.small + '": {"before": "2024', 'a refused write changed the file');
+    // The read side still works and keeps more live: the small room's marker is unreadable, so nothing is archived there.
+    assert.equal((await get(room.small)).json.archivedCount, 0);
+  } finally {
+    if (kept === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, kept);
+  }
+  // CONTROL: with the file whole again, the same write lands.
+  assert.equal((await post(room.routes, '', { before: new Date(Date.now() - DAY).toISOString() })).code, 200);
+  assert.equal((await post(room.routes, '/undo')).code, 200);
+  assert.equal((await get(room.small)).json.archivedCount, 20);
 });
 
 test('#7365: Undo clears the person\'s marker only; what the automatic rule archives stays archived', async () => {
