@@ -262,3 +262,56 @@ test('work seen in the morning survives a restart that forgets it', () => {
   // Control: with no record of the morning, the same roster is not asked.
   assert.equal(run(afterRestart, { asked: memAsked() }).sent.length, 0);
 });
+
+test('a delivery that throws counts as maybe reached: recorded as asked, and nobody else is typed into', () => {
+  const cards = roster([['pia', { displayName: 'Pia', role: templateRole('pm') }], ['bo']]).map((c) => worked(c));
+  const tried = [];
+  const asked = memAsked();
+  const { out } = run(cards, { asked, deliver: (s) => { tried.push(s); throw new Error('after the keystroke'); } });
+  assert.deepEqual(tried, [by(cards, 'pia')], 'a second agent was typed into');
+  assert.equal(out.result.delivered, false);
+  assert.match(out.result.delivery, /^threw: /);
+  assert.deepEqual(asked.sets, [[TODAY, by(cards, 'pia')]]);
+});
+
+test('a busy pane is passed over like a held one and costs no try', () => {
+  const cards = roster([['pia', { displayName: 'Pia', role: templateRole('pm') }], ['bo']]).map((c) => worked(c));
+  const book = new Map();
+  const busyPm = (s) => (s === by(cards, 'pia') ? { state: DELIVERY.COULD_NOT, busy: true } : { state: DELIVERY.PLACED });
+  assert.equal(run(cards, { book, deliver: busyPm }).out.result.session, by(cards, 'bo'));
+  const only = roster([['pia']]).map((c) => worked(c));
+  const book2 = new Map();
+  run(only, { book: book2, deliver: () => ({ state: DELIVERY.COULD_NOT, busy: true }) });
+  assert.equal(book2.get('day').tries, 0);
+});
+
+/* The server's log line reads name, session, act, delivery and because (server.js, feedback-nudge); every line must
+   carry them in the shape it prints. */
+function logShape(r) {
+  for (const k of ['name', 'session', 'act', 'because']) assert.equal(typeof r[k], 'string', k + ' in ' + JSON.stringify(r));
+  assert.ok(r.delivery === null || typeof r.delivery === 'string', 'delivery in ' + JSON.stringify(r));
+}
+
+test('logs: a held day once, a failed record once, and tries 1 and MAX_TRIES but not between', () => {
+  const cards = roster([['mara']]).map((c) => worked(c));
+  const lines = [];
+  const log = (r) => { logShape(r); lines.push(r); };
+  const book = new Map();
+  for (let i = 0; i < 5; i++) run(cards, { book, log, asked: memAsked(), deliver: () => ({ state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu' }) });
+  assert.equal(lines.filter((l) => l.act === 'held').length, 1, JSON.stringify(lines));
+  lines.length = 0;
+  const failing = { ...memAsked(), set: () => false };
+  run(cards, { log, asked: failing });
+  assert.equal(lines.filter((l) => l.act === 'record').length, 1, JSON.stringify(lines));
+  assert.equal(lines.filter((l) => l.act === 'nudge' && l.delivered === true).length, 1);
+  lines.length = 0;
+  const book3 = new Map();
+  const counts = [];
+  for (let i = 0; i < nudge.MAX_TRIES; i++) {
+    const before = lines.length;
+    run(cards, { book: book3, log, asked: memAsked(), deliver: () => ({ state: DELIVERY.COULD_NOT }) });
+    counts.push(lines.length - before);
+  }
+  assert.deepEqual(counts, [1, 0, 1]);
+  assert.match(lines[lines.length - 1].because, /today is left alone/);
+});
