@@ -69,3 +69,11 @@ suite has not been run to the end on Windows: many POSIX-only files fail there, 
   values) with every chunk. WARNING: a run stopped by a signal says "stopped after N chunk(s) (exit E): M of T file(s)
   not run". NIT: 126/127 (node cannot run) stops the rest too. End to end with the stand-in: full 3 chunks/1,844 files,
   --only 1/1, a named file once. 8/8; the new tests fail on round 2.
+- Round 4: 1 BLOCKER, 1 WARNING, 2 NITs, all FIXED. BLOCKER: a trailing argument in another spelling (./x) or a glob
+  ran once per chunk, or reran files an earlier chunk ran (one node --test runs each once). Simplified instead of
+  patched: on Windows an option, and the word after an option without =, go to every chunk; a word naming a listed file
+  in any spelling (./x, the repo's own path) is dropped; anything else (another file, a glob, a folder) is refused with
+  "Name them with --only" before any chunk runs. WARNING: one file over the cap left an empty last call, and node --test
+  with no files runs every test; there is never a call with no files now. NITs: the reporter warning reads options before
+  the files only; the not-run count has no trailing files to miscount. End to end with the stand-in: full 1,844 once,
+  ./engine/tasks.test.js once, --only once. 9/9; the new tests fail on round 3.

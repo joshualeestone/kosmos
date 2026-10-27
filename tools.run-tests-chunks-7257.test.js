@@ -39,6 +39,7 @@ function run(files, opts, extra, statusFor) {
   const script = [
     `export PATH="${bashDir}:$PATH"`,
     'set -uo pipefail',   // as run-tests.sh runs (review 2: an unset variable passed here and ended the real script)
+    'REPO=/no/such/repo',   // node() reads it to spell a listed file
     '_RT_WIN=1',
     'KOSMOS_TEST_FILES=(' + files.map((f) => `'${f}'`).join(' ') + ')',
     block(),
@@ -116,21 +117,34 @@ test('#7257 review 2: a run that fits in one chunk (every --only run) runs under
   assert.equal(r.calls.filter((c) => c[0] === '--test').length, 1);
 });
 
-test('#7257 review 3: a test file named after the suite\'s files runs once, in the last chunk; one already listed is not added', { skip: !BASH && 'no bash' }, () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-chunks-extra-'));
-  const extraFile = path.join(dir, 'extra.test.js').replace(/\\/g, '/');
-  fs.writeFileSync(extraFile, '');
-  try {
-    const r = run(FILES, OPTS, [extraFile, '--test-name-pattern', 'x']);
-    const tests = r.calls.filter((c) => c[0] === '--test');
-    assert.ok(tests.length > 1);
-    assert.equal(tests.filter((c) => c.includes(extraFile)).length, 1, 'the named file runs once');
-    assert.ok(tests[tests.length - 1].includes(extraFile), 'in the last chunk');
-    for (const c of tests) assert.deepEqual(c.slice(-2), ['--test-name-pattern', 'x'], 'an option and its value go to every chunk');
-    // a file already in the suite's list stays in its own chunk, once
-    const again = run(FILES, OPTS, [FILES[3]]).calls.filter((c) => c[0] === '--test');
-    assert.equal(again.flat().filter((x) => x === FILES[3]).length, 1);
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+test('#7257 review 4: after the suite\'s files, a listed file in any spelling is dropped, anything else is refused, options pass', { skip: !BASH && 'no bash' }, () => {
+  // a listed file, as written and as ./written: dropped (it runs in its own chunk, once)
+  for (const again of [FILES[3], './' + FILES[3]]) {
+    const r = run(FILES, OPTS, [again]);
+    assert.match(r.out, /STATUS=0/, again);
+    assert.equal(r.calls.filter((c) => c[0] === '--test').flat().filter((x) => x === FILES[3] || x === './' + FILES[3]).length, 1, again);
+  }
+  // another file, a glob, a folder: refused before any chunk runs (they would run once per chunk)
+  for (const other of ['engine/not-in-the-list.test.js', 'engine/tasks.test*.js', 'engine']) {
+    const r = run(FILES, OPTS, [other]);
+    assert.match(r.out, /STATUS=2/, other);
+    assert.match(r.err, /Name them with --only/, other);
+    assert.equal(r.calls.filter((c) => c[0] === '--test').length, 0, 'nothing runs: ' + other);
+  }
+  // an option and its value go to every chunk, even when the value names a file
+  const r = run(FILES, OPTS, ['--test-name-pattern', 'x', '--import', './tools/x.mjs']);
+  const tests = r.calls.filter((c) => c[0] === '--test');
+  assert.ok(tests.length > 1);
+  for (const c of tests) assert.deepEqual(c.slice(-4), ['--test-name-pattern', 'x', '--import', './tools/x.mjs']);
+});
+
+test('#7257 review 4: one file over the cap never leaves a call with no files (node --test would run every test)', { skip: !BASH && 'no bash' }, () => {
+  const huge = 'engine/' + 'x'.repeat(24100) + '.test.js';
+  const r = run([huge], OPTS, []);
+  const tests = r.calls.filter((c) => c[0] === '--test');
+  assert.equal(tests.length, 1);
+  assert.ok(tests[0].includes(huge));
+  assert.match(r.err, /ran in 1 chunk\(s\) over 1 file\(s\)/);
 });
 
 test('#7257 review 3: node() expands no array the way bash before 4.4 calls unbound under set -u, and stops after 126/127', { skip: !BASH && 'no bash' }, () => {
