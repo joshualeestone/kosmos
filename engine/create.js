@@ -4962,12 +4962,13 @@ function createAgentInner(opts) {
   const runner = providerRunner(provider);
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : runner === 'muse' ? museBin : claudeBin;
 
-  const steps = [];
-  /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (off by default, never on Windows). */
+  /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (off by default, never on Windows).
+     Before `steps` on purpose: the accept test below must stay where orgpolicy-names-6233 reads it. */
   const compatVendor = require('./anthropiccompat').vendorOf(provider);
   if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform)) {
-    return { outcome: OUTCOME.REFUSED, because: require('./anthropiccompat').notYet(provider), steps };
+    return { outcome: OUTCOME.REFUSED, because: require('./anthropiccompat').notYet(provider), steps: [] };
   }
+  const steps = [];
   if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
     && !compatVendor
     && !(provider === 'antigravity' && antigravityEnabled())   // #3568: behind its flag
