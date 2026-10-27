@@ -2,8 +2,8 @@
 
 ## The call
 docs/browser-checks/render-acct-modal-trap-7202.js gains a fifth opener: loginAdvGo, the path kosmos#7198's Refresh
-login takes into the dialog. On Settings, where the page has read its account list, loginAdvGo opens the dialog only for
-a row it lists, so the arm hands the page one listed row through its own accountsRead (as #7198's
+login takes into the dialog. Where the page has read its account list (Settings and an agent page), loginAdvGo opens
+the dialog only for a row it lists, so the arm hands the page one listed row there through its own accountsRead (as #7198's
 render-refreshlogin-5407 does). It calls loginAdvGo with the focused control as the opener, then puts the page's
 account state back after the arm. The opener is found by its label, not by position.
 
@@ -35,3 +35,11 @@ render-refreshlogin-5407 uses, and loginAdvGo reads only dir and apiKey from it.
    assert was never shown to fail; the mutation above now shows it. (N) The arm relied on staying last; it is now found
    by label and the page's account state is restored after it. (N) The assert also rules out Add a provider's own
    button, where closing falls back. (N) The header says the feed matters on Settings.
+2. (sonnet, 21:3x CDT) No BLOCKER. Applied: (W) the arm fed the account list on every page, replacing the board's
+   real unloaded branch. It now feeds only where ACCOUNTS_LOADED. Measured with the feed removed: Settings AND the agent
+   page fail to open the dialog (both have read their lists); the board does not. So the board takes the unloaded
+   branch and the other two take the listed-row branch, and the comments say exactly that (my first rewording said
+   "Settings only", which the measurement showed wrong). (N) The restore is commented as a deliberate byte-for-byte
+   write and also clears the opener reference. (N) A thrown evaluate skipping the restore ends the run; each page
+   reloads by goto, so nothing leaks.
+   The check: 259 of 259.
