@@ -4427,8 +4427,6 @@ do {
     check(Download.fileName("photo\u{202E}gpj.exe") == "photogpj.exe" && Download.fileName("a\u{2028}b") == "ab", "review 1: no direction or separator characters in a name")
     check(Download.getting("report.pdf") == "Getting report.pdf" && Download.failed("The network connection was lost.") == "The file could not be downloaded (The network connection was lost.).",
           "Mona Lisa's words")
-    check(Download.isFailure(Download.couldNotGet) && Download.isFailure(Download.failed("x")) && !Download.isFailure(Download.notFromThisBoard) && !Download.isFailure(Download.notABoard),
-          "a failure and a refusal are told apart, for the Mac's two titles")
 }
 
 print("")

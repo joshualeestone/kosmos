@@ -960,6 +960,8 @@ struct WebView: UIViewRepresentable {
         private var downloadFolders: [ObjectIdentifier: URL] = [:]
         private var downloadNames: [ObjectIdentifier: String] = [:]
         private var lineTimers: [ObjectIdentifier: DispatchWorkItem] = [:]
+        // The lines of downloads still on their way, newest last: the newest is shown, and when it ends the one before it is.
+        private var lines: [ShellState.Downloading] = []
         private var cancelledByPerson: Set<ObjectIdentifier> = []
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -1007,6 +1009,7 @@ struct WebView: UIViewRepresentable {
                       decisionHandler: @escaping (WKDownload.RedirectPolicy) -> Void) {
             if let url = request.url, Download.isSameOrigin(url, page: pageURL) { decisionHandler(.allow); return }
             NSLog("[Download] refused a download redirected to another address")
+            cancelledByPerson.insert(ObjectIdentifier(download))   // said here: the cancel that follows is not said again
             say(Download.fromElsewhere, refusal: true)
             decisionHandler(.cancel)
         }
@@ -1039,10 +1042,12 @@ struct WebView: UIViewRepresentable {
             // "Getting <name>" only for a file that takes more than a second (Mona Lisa).
             let show = DispatchWorkItem { [weak self, weak download] in
                 guard let self, let download else { return }
-                self.shell?.downloading = ShellState.Downloading(id: id, name: name, cancel: { [weak self] in
+                let line = ShellState.Downloading(id: id, name: name, cancel: { [weak self] in
                     self?.cancelledByPerson.insert(id)
                     download.cancel { _ in }
                 })
+                self.lines.append(line)
+                self.shell?.downloading = line
             }
             lineTimers[id] = show
             DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: show)
@@ -1074,10 +1079,11 @@ struct WebView: UIViewRepresentable {
             say(Download.failed(e.localizedDescription), refusal: false)
         }
 
-        // The line goes with ITS download; another one still on its way keeps its own.
+        // The line goes with ITS download; another still on its way is shown again, with its own Cancel.
         private func endLine(_ id: ObjectIdentifier) {
             lineTimers.removeValue(forKey: id)?.cancel()
-            if shell?.downloading?.id == id { shell?.downloading = nil }
+            lines.removeAll { $0.id == id }
+            shell?.downloading = lines.last
         }
 
         // The share sheet with the file (Save to Files, AirDrop, send on): the sheet is the consent, so nothing is asked

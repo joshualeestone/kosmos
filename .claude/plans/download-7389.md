@@ -55,3 +55,5 @@ Challenge loop to convergence. Merge on green (beta rule).
 - The Getting line belongs to its own download; per-page counts reset on each commit; names lose direction marks.
 - Mona Lisa listed 204/205 as said; the Mac keeps it quiet because the board's own page says why. Followed the Mac
   so the person is not told twice.
+- Review 2: a refused redirect is marked as said (no second message on its cancel); the Getting lines stack, so a
+  download still on its way is shown again with its Cancel when another ends.

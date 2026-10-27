@@ -16,8 +16,6 @@ enum Download {
     static let stoppedBeforeItBegan = "it stopped before it began"
     static let failedLead = "The file could not be downloaded ("
     static func failed(_ reason: String) -> String { failedLead + reason + ")." }
-    /// A failure (the file did not arrive), as against a refusal (a rule said no): the Mac titles the two differently.
-    static func isFailure(_ sentence: String) -> Bool { sentence == couldNotGet || sentence.hasPrefix(failedLead) }
     static func getting(_ name: String) -> String { "Getting \(name)" }
 
     /// The names Kosmos+ keeps for itself, so a page under one is a Kosmos+ service, not a board. A COPY of
