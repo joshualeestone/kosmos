@@ -128,14 +128,17 @@ test('#5805 not held: a dateless line the board saw too late to read, a reset al
      reset for is typed as before: a session limit printing a time more than five hours on (the board saw it late). */
   const late = '> hello\n' + `  ⎿  You've hit your session limit · resets ${clockAt(Date.now() + 6 * 3600e3)} (America/Chicago)\n`
     + '✻ Sautéed for 0s · done 10:35 PM\n' + STATUS_LINE;
+  // kosmos#7264: a session limit cannot reset more than its span after it printed, and this line was on screen before
+  // the board saw it, so a reset six hours on can only be yesterday's: the line is retired and the card reads idle
+  // (before #7264 it read capped for good). Either way nothing is held.
   await onScreen(late, async (board, tmux) => {
     const card = board.agents.find((c) => c.sessionName === 'casey');
-    assert.equal(card.state, status.STATE.RATE_LIMITED, 'CONTROL: the dateless line still reads capped');
+    assert.equal(card.state, status.STATE.IDLE, 'a late session line whose reset can only have passed still reads capped');
     assert.equal(card.limitUntil, null, 'CONTROL: no reset read for it');
     const v = chat.deliverAutomatic('casey', 'A colleague line.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
     assert.ok(tmux.typed().length > 0, 'a dateless line with no reset read held a timer\'s line');
-  });
+  }, 'idle');
   // A reset already past: status retires the line, so the card reads idle again and the line is typed.
   await onScreen(PAST(), async (board, tmux) => {
     assert.equal(board.agents.find((c) => c.sessionName === 'casey').state, status.STATE.IDLE, 'the screen did not read idle once its reset passed');

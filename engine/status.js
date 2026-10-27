@@ -3219,7 +3219,17 @@ function limitFirstSeenOf(agent, text) {
 function limitRetireFromOf(agent, text) {
   const key = limitRowKey(agent, text);
   const seen = key ? limitFirstSeen.get(key) : null;
-  return seen ? { at: seen.at, late: seen.late === true } : null;
+  return seen ? { at: seen.at, late: seen.late === true, count: Number(seen.count) || 0 } : null;
+}
+/* kosmos#7264: whether a dateless reset line can be read at all (a real clock time, in a zone this runtime knows), so a
+   late row given no time because its next reset is beyond the span is told apart from one that cannot be read. */
+function limitTimeOnlyReadable(line) {
+  const m = LIMIT_RESET_TIME_ONLY.exec(String(line == null ? '' : line));
+  if (!m) return false;
+  const hour12 = Number(m[1]);
+  const minute = m[2] === undefined ? 0 : Number(m[2]);
+  if (hour12 < 1 || hour12 > 12 || minute > 59) return false;
+  try { zoneOffsetMs(m[4], Date.now()); return true; } catch { return false; }
 }
 /* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
    this can read. A dated line is read as limitResetAt reads it; a dateless one from when the screen pass first saw it
@@ -3316,20 +3326,17 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
     if (resetAt === null && typeof firstSeenOf === 'function') {
       let first = null;
       try { first = firstSeenOf(row); } catch { first = null; }
-      // A number, or (limitRetireFromOf) { at, late }.
+      // A number, or (limitRetireFromOf) { at, late, count }.
       const late = first !== null && typeof first === 'object' && first.late === true;
       const at = first !== null && typeof first === 'object' ? first.at : first;
       if (Number.isFinite(at)) {
         resetAt = limitResetTimeOnlyAt(row, at);
-        /* kosmos#7264: a row seen late whose clock time does not come round again within its span after the sighting
-           cannot be waiting for that one (it was on screen before the sighting, and no limit lasts longer than its
-           span), so its reset was the occurrence before the sighting: retired now. Read as the reset timed from one
-           span before the sighting, so a row this cannot read at all (an unknown zone) still gets null and is kept. */
-        if (resetAt === null && late) {
-          const span = /\bsession limit\b/i.test(row) ? SESSION_LIMIT_SPAN_MS : DAY_LIMIT_SPAN_MS;
-          const before = limitResetTimeOnlyAt(row, at - span);
-          if (before !== null && before <= at) resetAt = before;
-        }
+        /* kosmos#7264: a row seen late (on screen before the board's sighting) whose clock time does not come round
+           again within its span after the sighting cannot still be binding, since no limit outlasts its span: its reset
+           was before the sighting, so it is retired at the sighting. Not for a row this cannot read (an unknown zone:
+           kept, as before), and not while two rows on screen share this record (count > 1): a new limit printed with
+           the same reset time beside a stale one would read as the stale one's, and be lifted while it binds. */
+        if (resetAt === null && late && limitTimeOnlyReadable(row) && first.count <= 1) resetAt = at - RESET_GRACE_MS;   // passed long before: no grace owed
       }
     }
     if (!superseded && (resetAt === null || now < resetAt + RESET_GRACE_MS)) return;
