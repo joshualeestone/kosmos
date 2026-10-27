@@ -103,6 +103,9 @@ test('#5393 providersFrom groups the cards by runner; paused only from rate_limi
   for (const r of rows) assert.ok(!('quota' in r) && !('remaining' in r) && !('untimed' in r), 'no quota figure, and no internal field (untimed), is ever reported');
 });
 
+/* #7206 review 3: providersFrom trusts the word, so the INVARIANT lives in its only producer, the overview route in
+   server.js, which tags 'qwen' or a provider anthropiccompat.vendorOf knows and nothing else. A new producer of
+   providerWord must filter the same way. */
 test('#7206: a card the route tags with a provider word has that word\'s row, never its runner\'s (any vendor, not a list)', () => {
   const rows = worldview.providersFrom([
     { runner: 'claude', state: 'rate_limited', providerWord: 'deepseek' },
