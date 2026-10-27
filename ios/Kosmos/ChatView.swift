@@ -364,11 +364,13 @@ struct ChatView: View {
                     proxy.scrollTo("end", anchor: .bottom)
                     // kosmos#7265 (Josh, 10-26: a long DM opened in the middle): the first jump can land short while the
                     // rows below it are still estimated, so it is repeated as they are drawn, until the person touches
-                    // the thread or the newest message is really on screen.
+                    // the thread. Not gated on atBottom: that starts true and changes only when the end marker is drawn,
+                    // so a jump that lands short of it (nothing drawn there yet) still read as at the bottom (measured
+                    // 10-26: a blank thread for 10 s while every re-jump was skipped).
                     if !Self.sampleNoFix {
-                        for at in [0.1, 0.3, 0.6, 1.0, 1.6] {
+                        for at in [0.1, 0.3, 0.6, 1.0, 1.6, 2.5] {
                             DispatchQueue.main.asyncAfter(deadline: .now() + at) {
-                                if !touchedSinceOpen && !atBottom { proxy.scrollTo("end", anchor: .bottom) }
+                                if !touchedSinceOpen { proxy.scrollTo("end", anchor: .bottom) }
                             }
                         }
                     }
@@ -1667,7 +1669,7 @@ extension Palette {
 // kosmos#7265: lay the chat out from its bottom where iOS can (17 and later), so it opens on the newest message.
 private struct OpensAtBottom: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(iOS 17.0, *), !ChatView.sampleNoFix {
+        if #available(iOS 17.0, *), !ChatView.sampleNoFix, !ChatView.sampleNoAnchor {
             content.defaultScrollAnchor(.bottom)
         } else {
             content
@@ -1679,7 +1681,10 @@ extension ChatView {
     // kosmos#7265, a Debug build only: KOSMOS_SAMPLE_NOFIX=1 turns the fix off, so one build shows both arms.
     #if DEBUG
     static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
+    // And KOSMOS_SAMPLE_NOANCHOR=1 keeps the re-jumps but drops iOS 17's bottom anchor, to tell the two halves apart.
+    static let sampleNoAnchor = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOANCHOR"] == "1"
     #else
     static let sampleNoFix = false
+    static let sampleNoAnchor = false
     #endif
 }
