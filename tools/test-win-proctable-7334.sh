@@ -160,5 +160,57 @@ if ! kill -0 "$OWN" 2>/dev/null && kill -0 "$FOREIGN" 2>/dev/null; then ok "shel
 else bad "shell-parallel stop: own shard $OWN alive=$(kill -0 "$OWN" 2>/dev/null && echo yes || echo no)(no), foreign $FOREIGN alive=$(kill -0 "$FOREIGN" 2>/dev/null && echo yes || echo no)(yes)"; fi
 kill "$FOREIGN" 2>/dev/null
 
+# --- review 2 -------------------------------------------------------------------
+# A process that is there but whose command line cannot be read is a run pgrep cannot rule out: could not tell (2), not
+# a skip. The seam reads one pid's command line as unreadable (a real case is an elevated Git Bash read from an
+# unelevated one). A gone pid named by the seam changes nothing (the control).
+start perl -e 'select(undef, undef, undef, 60)' "r2-$TAG"; U=$!
+shows "$U" "perl *r2-$TAG" || bad "FIXTURE: the review 2 stand-in never showed"
+KOSMOS_WIN_CMDLINE_UNREADABLE_PID="$U" pgrep -fa '^zz-no-such-command-7334$' >/dev/null; rc=$?
+KOSMOS_WIN_CMDLINE_UNREADABLE_PID="$DEAD" pgrep -fa '^zz-no-such-command-7334$' >/dev/null; rc0=$?
+[ "$rc" = 2 ] && [ "$rc0" = 1 ] && ok "a live process whose command line cannot be read makes pgrep -fa exit 2 (a gone one does not)" \
+  || bad "unreadable command line: rc=$rc(2), gone-pid control rc=$rc0(1)"
+out="$(KOSMOS_WIN_CMDLINE_UNREADABLE_PID="$U" _kosmos_suite_candidates)"; rc=$?
+out2="$(KOSMOS_WIN_CMDLINE_UNREADABLE_PID="$U" kosmos_refuse_if_suite_live "this check" 2>&1)"; rc2=$?
+[ "$rc" = 2 ] && [ "$rc2" = 1 ] && case "$out2" in *"could not tell"*) true ;; *) false ;; esac \
+  && ok "and the suite check refuses with could not tell" || bad "unreadable command line, suite check: candidates rc=$rc(2), check rc=$rc2 [$out2]"
+kill "$U" 2>/dev/null; wait "$U" 2>/dev/null
+
+# The stand-in powershell.exe again, now printing what FAKEPS_OUT holds and exiting 0.
+printf '#!/bin/bash\necho x >> "%s/fakeps/calls"\ncat "%s/fakeps/out"\n' "$T" "$T" > "$T/fakeps/powershell.exe"
+anc() { ( PATH="$T/fakeps:$PATH"; _kosmos_win_native_ancestors "$1" 10; printf '%s' "$_KOSMOS_WIN_ANC" ); }
+fresh() { rm -f "$T/fakeps/calls" "$KOSMOS_RUN_MARKER_DIR/winanc/"*; printf '%s' "$1" > "$T/fakeps/out"; }
+# An unquoted program path with a space in it reads as the program, not as its first word.
+fresh 'C:\Program Files\nodejs\node.exe --test x.test.js
+'
+got="$(anc "$$")"
+[ "$got" = "node --test x.test.js" ] && ok "an unquoted C:\\Program Files\\...\\node.exe --test reads as node --test" || bad "unquoted spaced path: [$got]"
+fresh 'C:\Windows\System32\cmd.exe /d /s /c "bash tools/run-tests.sh"
+'
+got="$(anc "$$")"
+[ "$got" = 'cmd /d /s /c "bash tools/run-tests.sh"' ] && ok "CONTROL: an unquoted path with no space still reads as its first word" || bad "unquoted plain path: [$got]"
+# An empty answer is kept only when Windows found the first parent; otherwise it is asked again.
+fresh ''
+anc "$$" >/dev/null; anc "$$" >/dev/null
+c1="$(grep -c x "$T/fakeps/calls" 2>/dev/null)"
+fresh '?kosmos-parent-seen
+'
+anc "$$" >/dev/null; got="$(anc "$$")"
+c2="$(grep -c x "$T/fakeps/calls" 2>/dev/null)"
+[ "$c1" = 2 ] && [ "$c2" = 1 ] && [ -z "$got" ] && ok "an empty answer is asked again unless the first parent was found (then kept, and empty)" \
+  || bad "empty answer caching: no parent seen asked $c1 times (2), parent seen asked $c2 times (1), answer [$got]"
+# A program whose name has a space keeps its real start in the key (stat's fields are counted after the name).
+cp "$(command -v perl)" "$T/pe rl.exe" 2>/dev/null
+start "$T/pe rl.exe" -e 'select(undef, undef, undef, 60)'; SP=$!
+k=0; while ! grep -q '(pe rl)' "/proc/$SP/stat" 2>/dev/null && [ "$k" -lt 30 ]; do sleep 0.1; k=$((k + 1)); done
+want="$(sed 's/.*) //' "/proc/$SP/stat" 2>/dev/null | awk '{print $20}')"
+fresh 'node --test y.test.js
+'
+anc "$SP" >/dev/null
+kept="$(ls "$KOSMOS_RUN_MARKER_DIR/winanc/" 2>/dev/null | grep "^$SP\.")"
+[ -n "$want" ] && [ "${kept##*.}" = "$want" ] && ok "a program named with a space is kept under its real start ($want)" \
+  || bad "spaced program name: kept [$kept], want start [$want], stat [$(cat "/proc/$SP/stat" 2>/dev/null)]"
+kill "$SP" 2>/dev/null; wait "$SP" 2>/dev/null
+
 echo "test-win-proctable-7334: $FAILS failed"
 [ "$FAILS" = 0 ]

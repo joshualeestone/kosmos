@@ -115,6 +115,28 @@ real programs, so it is as before.
    which now reads /proc/<pid>/cwd through the lsof function, so a fixture working in a run-tests.sh sandbox is still
    dropped.
 
+## Review 2 (decided)
+1. pgrep -fa now exits 2 (could not tell, so the guards refuse) when a process is still in /proc but its command line
+   cannot be read or is empty, after a second read (a process can be caught mid-start); a process gone since the
+   listing is still skipped. `_kosmos_win_cmdline` returns 1 for gone and 2 for unreadable so the two are told apart.
+   Weakest part: a real process that is always unreadable (an elevated Git Bash beside an unelevated run) now makes
+   every check here refuse until it exits; that is the fail-closed side the review asked for, and none was seen on
+   this box (every /proc entry readable over five sweeps; an exited child leaves /proc at once). Test seam
+   KOSMOS_WIN_CMDLINE_UNREADABLE_PID (it can only make a guard refuse more). New arms: pgrep exits 2 and the suite
+   check refuses "could not tell"; the seam naming a gone pid changes nothing.
+2. An unquoted Windows command line whose first word is not a .exe takes the words up to the first one that is, so
+   `C:\Program Files\nodejs\node.exe --test` reads as node --test. No later .exe, or words split by more than one
+   space: the first word, as before. New arm, with a control for a plain path.
+3. An empty answer from PowerShell is kept only when the walk saw the first parent (it prints a marker line then);
+   otherwise it is asked again on the next check rather than kept for the process's life. New arm.
+4. The start time is read from /proc/<pid>/stat after the last ") ", so a program whose name has a space keys its cache
+   file by its real start. New arm (a copy of perl named "pe rl.exe").
+5. pgrep exits 2 when /proc/[0-9]* matches nothing (unreachable while this subshell is itself listed; not testable).
+   The winanc pruning stays as it is: files of gone pids are removed only when a new answer is written, so a quiet box
+   keeps a few small files until the next write; no reader trusts one, since the name carries the process's start.
+
+All four testable arms fail with e6f24b7cfd's lib (5 reds) and pass with this one.
+
 ## Not covered
 - A Mac or Linux run of the shell tests: not available from this box. The Mac path is unchanged by construction (see
   Design) and the new test file checks the gate.

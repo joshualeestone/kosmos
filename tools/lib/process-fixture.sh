@@ -131,15 +131,21 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
   # Review 1: every word's backslashes read as slashes, so a suite started as `bash C:\...\tools\run-tests.sh` matches
   # the guards' ([^ ]*/)?tools/run-tests\.sh like one started with slashes (unread, it was a live suite no check saw).
   # Every reader here gets the same form, so a marker's recorded command still compares equal to a live one.
+  # Review 2: it returns 1 only when the process is gone (no /proc/<pid>), and 2 when the process is there but its
+  # command line cannot be read or holds no words (an elevated Git Bash read from an unelevated one, say), so pgrep can
+  # tell "gone" (skip it) from "could not read it" (could not tell). KOSMOS_WIN_CMDLINE_UNREADABLE_PID is a test seam
+  # that reads that one pid's command line as unreadable; it can only make a guard refuse more.
   _kosmos_win_cmdline() {
     local w first=1 c=""
     _KOSMOS_WIN_CMD=""
-    [ -r "/proc/$1/cmdline" ] || return 1
+    [ -e "/proc/$1" ] || return 1
+    [ "$1" != "${KOSMOS_WIN_CMDLINE_UNREADABLE_PID:-}" ] || return 2
+    [ -r "/proc/$1/cmdline" ] || { [ -e "/proc/$1" ] && return 2; return 1; }
     while IFS= read -r -d '' w || [ -n "$w" ]; do
       if [ "$first" = 1 ]; then _kosmos_win_argv0 "$w"; w="$_KOSMOS_WIN_A0"; first=0; c="$w"
       else c="$c ${w//\\//}"; fi
-    done 2>/dev/null < "/proc/$1/cmdline" || return 1
-    [ -n "$c" ] || return 1
+    done 2>/dev/null < "/proc/$1/cmdline" || { [ -e "/proc/$1" ] && return 2; return 1; }
+    [ -n "$c" ] || { [ -e "/proc/$1" ] && return 2; return 1; }
     _KOSMOS_WIN_CMD="$c"
   }
   ps() {
@@ -170,10 +176,16 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
     local re="$2" self="${BASHPID:-}" d p found=1 rc
     [ -n "$self" ] && [ -r /proc/self/cmdline ] || return 2
     for d in /proc/[0-9]*; do
+      [ -e "$d" ] || return 2   # review 2: the glob matched nothing, so not even this subshell is listed: could not tell
       p="${d#/proc/}"
       case "$p" in *[!0-9]*) continue ;; esac
       [ "$p" = "$self" ] && continue
-      _kosmos_win_cmdline "$p" || continue
+      # Review 2: a process gone since the listing is skipped; one still there whose command line cannot be read (asked
+      # twice, since a process can be caught mid-start) is a run this cannot rule out, so the answer is "could not tell".
+      _kosmos_win_cmdline "$p"; rc=$?
+      [ "$rc" = 2 ] && { _kosmos_win_cmdline "$p"; rc=$?; }
+      [ "$rc" = 2 ] && return 2
+      [ "$rc" = 0 ] || continue
       [[ $_KOSMOS_WIN_CMD =~ $re ]] 2>/dev/null; rc=$?
       [ "$rc" -ge 2 ] && return 2   # not a regex this bash can read: could not tell
       [ "$rc" = 0 ] || continue
@@ -208,21 +220,27 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
   # removed whenever one is written. A file this cannot read is asked again, never trusted.
   declare -gA _KOSMOS_WIN_ANC_SEEN 2>/dev/null || true
   _kosmos_win_native_ancestors() {
-    local pid="$1" n="$2" wp key out rc line a0 rest dir f g b got=0
-    local -a st=()
+    local pid="$1" n="$2" wp key out rc line a0 rest dir f g b got=0 stl start="" seen=0 w
+    local -a st=() words=()
     _KOSMOS_WIN_ANC=""
     case "$pid" in ''|*[!0-9]*) return 1 ;; esac
     case "$n" in ''|*[!0-9]*|0) return 1 ;; esac
     read -r wp 2>/dev/null < "/proc/$pid/winpid" || return 1
     case "$wp" in ''|*[!0-9]*) return 1 ;; esac
-    read -r -a st 2>/dev/null < "/proc/$pid/stat" || st=()
-    key="$pid:$wp:${st[21]:-}"
+    # The start, field 22 of /proc/<pid>/stat. Review 2: field 2 is the program's name in parentheses and may hold a
+    # space, so the fields are counted from after the last ") ", where field 3 is the first.
+    if read -r stl 2>/dev/null < "/proc/$pid/stat" && [ "${stl#*) }" != "$stl" ]; then
+      read -r -a st <<< "${stl##*) }"
+      start="${st[19]:-}"
+    fi
+    case "$start" in *[!0-9]*) start="" ;; esac
+    key="$pid:$wp:$start"
     if [ -n "${_KOSMOS_WIN_ANC_SEEN[$key]+set}" ]; then
       _KOSMOS_WIN_ANC="${_KOSMOS_WIN_ANC_SEEN[$key]}"; _kosmos_win_anc_first "$n"; return 0
     fi
     # The same place as cut-guard.sh's _kosmos_marker_dir, spelled out here because heavy-gate.sh sources this file alone.
     dir="${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}/winanc"
-    f=""; case "${st[21]:-}" in ''|*[!0-9]*) ;; *) f="$dir/$pid.$wp.${st[21]}" ;; esac
+    f=""; [ -n "$start" ] && f="$dir/$pid.$wp.$start"
     if [ -n "$f" ] && [ -f "$f" ]; then
       while IFS= read -r line; do
         _KOSMOS_WIN_ANC="${_KOSMOS_WIN_ANC}${_KOSMOS_WIN_ANC:+$'\n'}$line"
@@ -232,23 +250,39 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
       _KOSMOS_WIN_ANC_SEEN[$key]="$_KOSMOS_WIN_ANC"; _kosmos_win_anc_first "$n"; return 0
     fi
     _KOSMOS_WIN_ANC=""
-    out="$(MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-CimInstance Win32_Process -Filter 'ProcessId=$wp'; for (\$i = 0; \$i -lt 10 -and \$p; \$i++) { \$q = Get-CimInstance Win32_Process -Filter ('ProcessId=' + \$p.ParentProcessId); if (-not \$q -or \$q.CreationDate -gt \$p.CreationDate) { break }; \$c = \$q.CommandLine; if (-not \$c) { \$c = \$q.Name }; [Console]::Out.WriteLine((\$c -replace '[\r\n]+', ' ')); \$p = \$q }" 2>/dev/null </dev/null)"; rc=$?
+    out="$(MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-CimInstance Win32_Process -Filter 'ProcessId=$wp'; for (\$i = 0; \$i -lt 10 -and \$p; \$i++) { \$q = Get-CimInstance Win32_Process -Filter ('ProcessId=' + \$p.ParentProcessId); if (\$i -eq 0 -and \$q) { [Console]::Out.WriteLine('?kosmos-parent-seen') }; if (-not \$q -or \$q.CreationDate -gt \$p.CreationDate) { break }; \$c = \$q.CommandLine; if (-not \$c) { \$c = \$q.Name }; [Console]::Out.WriteLine((\$c -replace '[\r\n]+', ' ')); \$p = \$q }" 2>/dev/null </dev/null)"; rc=$?
     while IFS= read -r line; do
       line="${line%$'\r'}"
       line="${line#"${line%%[![:space:]]*}"}"
       [ -n "$line" ] || continue
+      if [ "$line" = '?kosmos-parent-seen' ]; then seen=1; continue; fi
       if [ "${line:0:1}" = '"' ]; then
         rest="${line:1}"; a0="${rest%%\"*}"
         if [ "$a0" = "$rest" ]; then rest=""; else rest="${rest#*\"}"; fi
       else
         a0="${line%% *}"; rest="${line#"$a0"}"
+        # Review 2: an unquoted program path with a space (C:\Program Files\nodejs\node.exe --test) splits there. When
+        # the first word is not a .exe and a later one is, the program is every word up to that one.
+        case "$a0" in *.[Ee][Xx][Ee]) ;; *)
+          read -r -a words <<< "$line"
+          a0=""
+          for w in "${words[@]}"; do
+            a0="${a0:+$a0 }$w"
+            case "$w" in *.[Ee][Xx][Ee]) rest="${line#"$a0"}"; break ;; esac
+          done
+          # No .exe after it, or words split by more than one space: the first word, as before.
+          case "$a0" in *.[Ee][Xx][Ee]) [ "${line#"$a0"}" != "$line" ] || a0="" ;; *) a0="" ;; esac
+          [ -n "$a0" ] || { a0="${line%% *}"; rest="${line#"$a0"}"; } ;;
+        esac
       fi
       rest="${rest#"${rest%%[![:space:]]*}"}"
       _kosmos_win_argv0 "$a0"
       _KOSMOS_WIN_ANC="${_KOSMOS_WIN_ANC}${_KOSMOS_WIN_ANC:+$'\n'}$_KOSMOS_WIN_A0${rest:+ $rest}"
     done <<< "$out"
-    # Kept only when PowerShell answered, so a failed call is asked again next time.
-    if [ "$rc" = 0 ]; then
+    # Kept only when PowerShell answered, so a failed call is asked again next time. Review 2: and an EMPTY answer only
+    # when Windows found the first parent (the walk then stopped on a reused pid, which cannot change); an empty answer
+    # with no parent seen may be a lookup that failed quietly, so it is asked again rather than kept for the process's life.
+    if [ "$rc" = 0 ] && { [ -n "$_KOSMOS_WIN_ANC" ] || [ "$seen" = 1 ]; }; then
       _KOSMOS_WIN_ANC_SEEN[$key]="$_KOSMOS_WIN_ANC"
       if [ -n "$f" ] && mkdir -p "$dir" 2>/dev/null; then
         for g in "$dir"/*.*.*; do
