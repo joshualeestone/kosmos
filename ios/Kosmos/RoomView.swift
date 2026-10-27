@@ -1031,9 +1031,13 @@ struct RoomView: View {
         // Leaving the room lets go of the microphone and closes the panel (the board's: the panel belongs to the composer
         // being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
-        .onChange(of: draft) { now in
+        .onChange(of: draft) { [was = draft] now in
             // kosmos#7348: the posted text came back into the box (the keyboard's dictation or Writing Tools finishing late).
-            if Board.refilledWithSent(now, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { draft = ""; return }
+            if Board.refilledWithSent(now, was: was, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) {
+                draft = ""
+                takeReturned()   // review: a refused post's words that arrived in the same pass are taken now
+                return
+            }
             dictation.boxChanged(to: now)
         }
         // Each picker on a host of its own, as the chat's (two presentations on one view can leave one that never opens).
