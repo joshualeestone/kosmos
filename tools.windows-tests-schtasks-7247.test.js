@@ -450,3 +450,12 @@ test('#7299: a redirect among command\'s, nice\'s and timeout\'s switches is the
     assert.equal(commandRuns(cmd), true, cmd);
   assert.equal(commandRuns('timeout >x 5 node x.js'), false);
 });
+
+test('#7299 review: a combined short switch ending in the keyword\'s valued letter takes the next word', () => {
+  // Each was let through on main (measured, 10-27): the value was read as the command.
+  for (const cmd of ['exec -la name schtasks', 'time -vo t.txt schtasks', 'timeout -vk 5 10 schtasks', 'nice -vn 5 schtasks'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: the same switches running something else.
+  for (const cmd of ['exec -la name node x.js', 'time -vo schtasks.txt node x.js', 'timeout -vk 5 10 node x.js'])
+    assert.equal(commandRuns(cmd), false, cmd);
+});

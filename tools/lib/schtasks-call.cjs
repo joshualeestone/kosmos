@@ -205,7 +205,9 @@ function wordsRun(ws, i, depth, shell) {
     }
     if (/^(nohup|exec|command|builtin|time|nice|then|else|do|while|until|\{|!)(\.exe)?$/i.test(b)) {
       // nice -n N / --adjustment N, exec -a NAME, time -f FMT / -o FILE / --format / --output: each keyword's own (#7299)
-      const takes = /^nice/i.test(b) ? /^(-n|--adjustment)$/ : /^exec/i.test(b) ? /^-a$/ : /^time/i.test(b) ? /^(-[fo]|--format|--output)$/ : null;
+      // A combined short switch ending in the valued letter takes the next word too (exec -la N, time -vo FILE).
+      const takes = /^nice/i.test(b) ? /^(-[a-zA-Z]*n|--adjustment)$/ : /^exec/i.test(b) ? /^-[a-zA-Z]*a$/
+        : /^time/i.test(b) ? /^(-[a-zA-Z]*[fo]|--format|--output)$/ : null;
       for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
         if (ws[i].redirect) continue;   // #7299: a redirect's file is not a switch (nice >-n 5 x)
         if (takes && takes.test(ws[i].text)) i = valueAt(ws, i + 1);
@@ -216,7 +218,7 @@ function wordsRun(ws, i, depth, shell) {
     if (/^timeout(\.exe)?$/i.test(b)) {
       for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
         if (ws[i].redirect) continue;   // #7299: a redirect's file is not a switch
-        if (/^(-[sk]|--signal|--kill-after)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
+        if (/^(-[a-zA-Z]*[sk]|--signal|--kill-after)$/.test(ws[i].text)) i = valueAt(ws, i + 1);   // -vk 5 too (#7299 review)
       }
       i = valueAt(ws, i);
       if (i < ws.length && /^\//.test(ws[i].text)) return false;
