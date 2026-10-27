@@ -17,7 +17,7 @@ final class ShellState: ObservableObject {
     // Bumped to ask the WebView to leave the failed page.
     @Published var backCount = 0
     // kosmos#7389: a file on its way from the board (shown after a second), and how to stop it.
-    struct Downloading { let name: String; let cancel: () -> Void }
+    struct Downloading { let id: ObjectIdentifier; let name: String; let cancel: () -> Void }
     @Published var downloading: Downloading?
     // Whether this failure has already had its one immediate automatic retry.
     private var autoRetried = false

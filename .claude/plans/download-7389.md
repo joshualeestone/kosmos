@@ -45,3 +45,13 @@ second shows "Getting <name>" with Cancel at the bottom. Anything refused is sai
 ## Review bound
 
 Challenge loop to convergence. Merge on green (beta rule).
+
+## Review 1
+- Every board download is an <a download> and never reaches the response policy, so what arrives is judged at its
+  destination (Download.decideDestination, the Mac's decideDestinationUsing): 204/205 silent, errors and a web page
+  where a file was expected refused (unless the Files page says it itself); an HTML attachment is the file.
+- Refusals go through the Mac's guard; failures are always said, never over another message. The person's Cancel
+  is quiet; WebKit stopping a download before it had a destination is said. Redirects stay on the page's origin.
+- The Getting line belongs to its own download; per-page counts reset on each commit; names lose direction marks.
+- Mona Lisa listed 204/205 as said; the Mac keeps it quiet because the board's own page says why. Followed the Mac
+  so the person is not told twice.

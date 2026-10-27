@@ -8,7 +8,12 @@ enum Download {
     static let notFromThisBoard = "That file is not from this board, so it was not saved."
     static let fromElsewhere = "The file came from somewhere Kosmos does not save from, so it was not saved."
     static let notABoard = "This page is not a board Kosmos saves files from, so the file was not saved."
+    // A response the window cannot show and that is not an attachment (the Mac's wording for that case).
+    static let notOpenedElsewhere = "That file came from somewhere Kosmos does not save from, so it was not opened or saved."
+    static let notOpenedNotABoard = "This page is not a board Kosmos saves files from, so the file was not opened or saved."
     static let couldNotGet = "Kosmos could not get that file. Try again in a moment."
+    // WebKit stopped a download itself before it had anywhere to go (the Mac measured it for a redirect elsewhere).
+    static let stoppedBeforeItBegan = "it stopped before it began"
     static let failedLead = "The file could not be downloaded ("
     static func failed(_ reason: String) -> String { failedLead + reason + ")." }
     /// A failure (the file did not arrive), as against a refusal (a rule said no): the Mac titles the two differently.
@@ -60,27 +65,52 @@ enum Download {
     /// Content-Disposition is attachment. `canShow`: WebKit can show its type.
     enum ResponseDecision: Equatable { case show, save, refuse(String?) }
     static func decideResponse(status: Int, attachment: Bool, canShow: Bool, target: URL?, page: URL?,
-                               coordinator: URL, signInPage: Bool) -> ResponseDecision {
+                               coordinator: URL) -> ResponseDecision {
         let wanted = attachment || !canShow
         guard wanted else { return .show }
-        // Nothing to save, an error, or the sign-in page where the file should be: never saved as the file.
-        if status == 204 || status == 205 { return .show }
+        if status == 204 || status == 205 { return .show }   // nothing to save; WebKit leaves the page as it is
         guard page != nil else { return .refuse(nil) }   // no page yet: the app's own load, not a file anyone asked for
-        guard isBoardPage(page, coordinator: coordinator) else { return .refuse(notABoard) }
-        guard let target, isSameOrigin(target, page: page) else { return .refuse(attachment ? fromElsewhere : notFromThisBoard) }
-        guard (200...299).contains(status), !signInPage else { return .refuse(couldNotGet) }
+        let board = isBoardPage(page, coordinator: coordinator)
+        // An attachment is refused as not saved; a file the window cannot show, as not opened or saved (the Mac's words).
+        guard board else { return .refuse(attachment ? notABoard : notOpenedNotABoard) }
+        guard let target, isSameOrigin(target, page: page) else { return .refuse(attachment ? fromElsewhere : notOpenedElsewhere) }
+        // What arrives is judged again at its destination (decideDestination): the status, and a web page for a file.
         return .save
     }
 
-    /// The gate's sign-in page served in place of a file (a session that ended): an HTML answer where a file was asked.
-    static func looksLikeSignInPage(mimeType: String?) -> Bool {
-        (mimeType ?? "").lowercased().hasPrefix("text/html")
+    /// The board's Files routes say a refused or signed-out answer on the page themselves (their look), so the app does
+    /// not say it twice. The Mac's pageSaysDownloadRefusal: /api/agent/<name>/files/download, /api/project/<id>/file-download.
+    static func pageSaysRefusal(_ url: URL?) -> Bool {
+        let path = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedPath } ?? ""
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        if parts.count == 6, parts[1] == "api", parts[2] == "agent", !parts[3].isEmpty, parts[4] == "files", parts[5] == "download" { return true }
+        if parts.count == 5, parts[1] == "api", parts[2] == "project", !parts[3].isEmpty, parts[4] == "file-download" { return true }
+        return false
+    }
+
+    /// What arrives for a download, judged before anything is kept (every board download comes here: `<a download>`
+    /// never reaches the response policy). The Mac's decideDestinationUsing: a 204 or 205 is nothing (the board's page
+    /// says why it refused), an error is never kept as the file, and a web page where a file was expected (a signed-out
+    /// computer answers with its sign-in page) is refused; a web page sent AS an attachment is the file. Said only
+    /// where the page does not say it itself.
+    enum Destination: Equatable { case keep, drop(String?) }
+    static func decideDestination(status: Int?, mimeType: String?, attachment: Bool, url: URL?) -> Destination {
+        let quietIfPageSays: String? = pageSaysRefusal(url) ? nil : couldNotGet
+        if let status, status == 204 || status == 205 { return .drop(nil) }
+        if let status, !(200...299).contains(status) { return .drop(quietIfPageSays) }
+        if (mimeType ?? "").lowercased().hasPrefix("text/html"), !attachment { return .drop(quietIfPageSays) }
+        return .keep
     }
 
     /// The name the file is shared under: the answer's own name, made safe for a file (no path, no leading dot), or
     /// "download" when it has none.
     static func fileName(_ suggested: String?) -> String {
-        let raw = (suggested ?? "").replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: "\\", with: "-")
+        // No control or format characters (a right-to-left override would make "gpj.exe" read as an image).
+        let clean = String(String.UnicodeScalarView((suggested ?? "").unicodeScalars.filter {
+            $0.properties.generalCategory != .control && $0.properties.generalCategory != .format
+                && $0.properties.generalCategory != .lineSeparator && $0.properties.generalCategory != .paragraphSeparator
+        }))
+        let raw = clean.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: "\\", with: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var name = String(raw.drop(while: { $0 == "." }))
         if name.count > 120 { name = String(name.suffix(120)) }
@@ -93,8 +123,11 @@ enum Download {
     /// times on one page.
     static let repeatSeconds: TimeInterval = 10
     static let perPage = 2
-    static func shouldSay(up: Bool, lastAt: Date?, now: Date, shownThisPage: Int) -> Bool {
-        if up || shownThisPage >= perPage { return false }
+    /// A failure (`refusal` false) is always said, as on the Mac, but never over another message.
+    static func shouldSay(up: Bool, refusal: Bool, lastAt: Date?, now: Date, shownThisPage: Int) -> Bool {
+        if up { return false }
+        if !refusal { return true }
+        if shownThisPage >= perPage { return false }
         if let lastAt, now.timeIntervalSince(lastAt) < repeatSeconds { return false }
         return true
     }
