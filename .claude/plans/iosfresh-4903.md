@@ -1,0 +1,36 @@
+# iosfresh-4903: the iPhone opens a Kosmos cloud machine (kosmos#4903, kosmos#7337)
+
+Owner: Angel. Splinter, 07:58 and 08:15 CDT 10-27: build both halves on one branch, merge after the UNHOLD, and not
+the freshness half alone.
+
+## Finished looks like
+The iPhone app opens a Kosmos cloud machine from the switcher with no Allow anywhere, and a Mac behaves as before.
+
+## Why it could not
+A hosted box's gate (relay crates/tunnel/src/proxy.rs `pending_answer`) refuses, in order: a sign-in that proves no
+device key (403 NO_KEY), then one older than ten minutes (hosted::FRESH_SECS). The app proved no key and asked for no
+fresh handoff.
+
+## What changes
+1. Freshness: `hosted` is read from /v1/account/macs (Ice Cream Kitty adds it on S3, cloudwait-4903); a hosted computer
+   is asked with `{"fresh": true}`; Kosmos+'s `step_up_required` shows "Sign in again to open <name>" with the remedy
+   the app already names (log out under Settings, Kosmos+, and sign in again).
+2. The key (#7337): before each session request, GET /_kosmos/nonce, sign gateproof::message (kosmos-gate-v2, host,
+   nonce, base64url(SHA-256(token)), k1. id) with the key #7042's native sign-in kept, and post {token, nonce, key, sig}.
+   409 retry (a spent nonce, or a hosted box that has just allowed the key) signs again with a new nonce, five times
+   in a row at most, then waits as a slow answer.
+3. The board only ever uses a key the sign-in KEPT (`SignInClient.keptDeviceKey`), never a new one: a phone signed in
+   on the web page has none, and sends the token alone as before. So does a gate with no nonce route (404).
+
+## Verification
+- Logic tests 1387/1387: the proof verifies over the gate's message and not over another host's; 409 then a new nonce
+  then admitted; no key = no nonce asked, token alone; 404 nonce = token alone; hosted = fresh handoff; step-up =
+  signInAgain; Mac controls. Controls: main's BoardClient fails the hosted checks; swapping two message fields fails the
+  signature check.
+- The app target builds (iphoneos27.0), which compiles AgentsView, SignInClient and BoardClient+App.
+- Still owed: a real cloud box (after S3, S4 and #7281 reach production) and a real Mac in gate-v2 enforcing mode.
+
+## Weakest premise
+That sending a key proof to a MAC changes nothing a person sees there. A Mac with the v2 marker answers a keyed knock
+with its keyed code (the code the phone already shows for Allow); an already-allowed phone should stay admitted. Not
+measured on a real Mac.
