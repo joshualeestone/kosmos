@@ -667,7 +667,10 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.equal(down.ok, true, down.because);
     assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
-    // Review 3: each older page waits at most PAGE_WAIT_MS for the agent's call chain (the first page keeps the default).
+    assert.ok(down.text.includes(cf.CUT_SHORT), 'kosmos#7391: a read cut short by a failed page did not say so: ' + down.text);
+    assert.ok(!enough.text.includes(cf.CUT_SHORT), 'CONTROL: a read whose pages all answered said it was cut short');
+    // kosmos#7391: each older page waits for the board's call chain for what is left of READ_PAGES_MS, never less than
+    // PAGE_WAIT_MS (the first page keeps the default). At 1 s a busy board refused them on every read.
     const calls = [];
     const real = cs.agentCall;
     cs.agentCall = (k, m, p, o) => { calls.push({ p, waitMs: o && o.waitMs }); return real(k, m, p, o); };
@@ -679,7 +682,19 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     const feedCalls = calls.filter((c) => c.p.startsWith('/agents/me/following/feed'));
     assert.equal(feedCalls.length, 2, JSON.stringify(calls));
     assert.equal(feedCalls[0].waitMs, undefined, 'the first page lost its default wait');
-    assert.equal(feedCalls[1].waitMs, cf.PAGE_WAIT_MS, 'an older page did not ask for the short PAGE_WAIT_MS wait');
+    assert.ok(feedCalls[1].waitMs > cf.PAGE_WAIT_MS && feedCalls[1].waitMs <= 10000,
+      'an older page did not wait for the rest of the read-time bound: ' + feedCalls[1].waitMs);
+    // kosmos#7391, the reported case: a board busy enough that an older page needs more than PAGE_WAIT_MS to be let
+    // into the chain. Stood in for by refusing (as agentCall's busy answer) any older page that offers to wait 2 s or less.
+    cs.agentCall = (k, m, p, o) => (p.includes('&cursor=') && !((o && o.waitMs) > 2000)
+      ? Promise.resolve({ ok: false, busy: true, because: 'busy' }) : real(k, m, p, o));
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(720, '11')]];
+      const busy = await cf.readFollowing('mara');
+      assert.ok(busy.text.includes('POST720'), 'kosmos#7391: on a busy board the post behind the newest page was not reached: ' + busy.text);
+      assert.ok(!busy.text.includes(cf.CUT_SHORT), busy.text);
+    } finally { cs.agentCall = real; }
     // Review 3: no older page starts once READ_PAGES_MS has passed since the read began.
     cf._setReadPagesMs(0);
     try {
@@ -687,6 +702,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
       const late = await cf.readFollowing('mara');
       assert.equal(late.ok, true, late.because);
       assert.deepEqual(b.st.feedCalls, [null], 'an older page started after the read-time bound');
+      assert.ok(late.text.includes(cf.CUT_SHORT), 'kosmos#7391: a read the time bound cut short did not say so: ' + late.text);
     } finally { cf._setReadPagesMs(null); }
   } finally { await b.close(); }
 });

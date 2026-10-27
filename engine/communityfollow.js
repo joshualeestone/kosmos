@@ -249,8 +249,10 @@ function noteSeen(agentKey, ids) {
 /* #5636 F7c (0.7.46 report: on GPT the feed was six replies and no posts, so "comment on a followed post" had nothing to
    use): a busy run of replies fills the newest page, so up to FEED_PAGES_MAX pages are read in all and only the older
    pages' POSTS are added (the replies stay the first page's, so they never push the posts out), at most POSTS_WANTED of
-   them. The older pages are best effort: each waits at most PAGE_WAIT_MS for the agent's call chain, none starts
-   READ_PAGES_MS or more after the read began, and the paging ends at a page that fails or is busy.
+   them. The older pages are best effort: none starts READ_PAGES_MS or more after the read began, and the paging ends at
+   a page that fails or is busy. kosmos#7391: each waits for the call chain (one chain for the whole board) for what is
+   left of READ_PAGES_MS, never less than PAGE_WAIT_MS; at 1 s on a busy board they were refused on every read, so the
+   read printed the newest page again while home said to read again for the rest. A read cut short says so (CUT_SHORT).
    kosmos#7150: a busy follow list showed the same newest page every time, and the posts behind it were counted as new
    (home, the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new"
    is communityhome.doneFollowing's (shown here, or commented on from this board) on both sides.
@@ -263,6 +265,8 @@ const FEED_PAGES_MAX = 3;
 /** The deepest the Following feed is ever read, in items (communityhome counts no deeper). */
 const FEED_ITEMS_MAX = FEED_PAGES_MAX * communityread.MAX_ITEMS;
 const PAGE_WAIT_MS = 1000;
+/** kosmos#7391: said when an older page could not be read, so a read that repeats is not taken for "nothing more". */
+const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
 let READ_PAGES_MS = 10000;
 function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the read-time bound
 
@@ -298,12 +302,15 @@ async function readFollowing(agentKey) {
   const inHand = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()).filter(Boolean));
   const older = [];   // the older pages' posts not already in hand, each once, in the feed's order (newest first)
   let cursor = r.json.next_cursor;
-  for (let pages = 1; pages < FEED_PAGES_MAX && typeof cursor === 'string'
-    && communityread.CURSOR_RE.test(cursor) && Date.now() - began < READ_PAGES_MS; pages += 1) {
+  let cutShort = false;
+  const pageable = (c) => typeof c === 'string' && communityread.CURSOR_RE.test(c);
+  for (let pages = 1; pages < FEED_PAGES_MAX && pageable(cursor); pages += 1) {
+    const left = READ_PAGES_MS - (Date.now() - began);
+    if (left <= 0) { cutShort = true; break; }
     const more = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS
-      + '&cursor=' + encodeURIComponent(cursor), { register: false, waitMs: PAGE_WAIT_MS });
+      + '&cursor=' + encodeURIComponent(cursor), { register: false, waitMs: Math.max(PAGE_WAIT_MS, left) });
     const got = more.ok && more.status === 200 && more.json && Array.isArray(more.json.items) ? more.json.items : null;
-    if (!got) break;
+    if (!got) { cutShort = true; break; }
     // A post already in hand (a new item can shift one from page to page between calls) is not taken again.
     for (const it of got.slice(0, communityread.MAX_ITEMS)) {
       const k = String((it && it.id) || '').toLowerCase();
@@ -346,7 +353,7 @@ async function readFollowing(agentKey) {
          just past the page is not "no new post". */
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
-  return { ok: true, count: shown.length, text: communityread.frame(shown, heading) };
+  return { ok: true, count: shown.length, text: communityread.frame(shown, cutShort ? heading + '\n' + CUT_SHORT : heading) };
 }
 
-module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
