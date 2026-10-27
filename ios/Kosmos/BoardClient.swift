@@ -1104,7 +1104,15 @@ final class BoardClient: ObservableObject {
             keepMacSession(mac, url: url, session: session)
             env.defaults.set(mac.address, forKey: Board.rememberedMacKey)
         }
-        guard let (mac, url, _) = admitted else { return }
+        guard let (mac, url, held) = admitted else { return }
+        // kosmos#7266 review 2: a run that restored the kept session never asked Kosmos+ for the Macs, so the switcher
+        // had nothing to list on the common launch. Asked here in the background while the list is empty, without
+        // touching the session. Known: online and offline in the list are as of the last read (a switch, a Try again
+        // that asks afresh, or a new launch reads it again).
+        if macs.isEmpty && macsReadGen != gen {
+            macsReadGen = gen
+            Task { await self.readMacs(session: held, gen) }
+        }
         // Another Mac: its agents' pictures are its own, even for an agent of the same name.
         // Another Mac: its pictures and the chats (opened on the one before) go now, before any chat call reaches it.
         if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; forgetChats(); forgetToday() }
@@ -1130,6 +1138,16 @@ final class BoardClient: ObservableObject {
         else { set(.kosmosPlusDown, gen) }
     }
 
+    // The run that last asked for the Macs (chooseMac asks too, when it runs).
+    private var macsReadGen = -1
+    // The switcher's list only: a failure here changes nothing on screen (the shown computer is already open).
+    private func readMacs(session: String, _ gen: Int) async {
+        let result = await env.send(Board.macsRequest(coordinator: coordinator, session: session))
+        guard gen == generation, let (data, answer) = result, (200...299).contains(answer.statusCode),
+              let macs = Board.parseMacs(data) else { return }
+        self.macs = Board.reachableMacs(macs, coordinator: coordinator)
+    }
+
     private func chooseMac(session: String, _ gen: Int) async -> Board.Mac? {
         let result = await env.send(Board.macsRequest(coordinator: coordinator, session: session))
         let status = result?.1.statusCode ?? 0
@@ -1139,6 +1157,7 @@ final class BoardClient: ObservableObject {
         // Review 1: a list that lands after a sign-out or another start is not this run's to show.
         guard gen == generation else { return nil }
         self.macs = Board.reachableMacs(macs, coordinator: coordinator)
+        macsReadGen = gen
         guard let mac = Board.pickMac(self.macs, remembered: env.defaults.string(forKey: Board.rememberedMacKey),
                                       chosen: chosenMac) else {
             set(.noMac, gen); return nil
