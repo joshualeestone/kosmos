@@ -418,6 +418,8 @@ function plan(projectId, task, { now = Date.now(), cred } = {}) {
      the undo for a plan that is not ready, as for an open task; it comes back when the file reads. */
   if (!require('./projectborn').snapshot().ok) return { ready: false, because: 'stamps-unknown', files: [] };
   const holds = receipt.holdsFrom(taskchat.read(projectId, task.number), closedAt);
+  // Checked again after the read, as receipt.js does: the stamps can go unknown between the two (a passing read error).
+  if (!require('./projectborn').snapshot().ok) return { ready: false, because: 'stamps-unknown', files: [] };
   const holders = Object.keys(holds);
   if (!holders.length) return { ready: true, closedAt: closedIso, files: [] };
   const index = readIndex();

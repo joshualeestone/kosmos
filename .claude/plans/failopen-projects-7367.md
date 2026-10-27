@@ -24,7 +24,14 @@ agent talking, where before 0.7.70 it only broke the Projects page.
 While the projects file is damaged, a re-made project's predecessor rows show again. Showing a room is better than
 silencing every room; the Projects page reports the damaged file. Also accepted (pre-#7185 behaviour, narrow): the
 "which room did you mean" check and the room valve count a deleted project's posts from the last hour while the file is
-damaged, so a project deleted and re-made within the hour of the damage can see one extra hold.
+damaged, so a project deleted and re-made within the hour of the damage can see one extra hold. Likewise the #4580
+fold: a post identical to the same sender's post in a deleted same-id project, inside the fold window, reads as a
+retry of it while the file is damaged.
+
+## Readers that ACT on or KEEP rows: gated while the stamps are unknown
+receipt keep (before and after its read), messages.sweepUnanswered and unanswered(), undo.plan (before and after its
+read; apply plans through it), holdstale.owed. Loops over projects.readAll() are gated naturally while the file is
+truly damaged (it throws).
 
 ## Tests
 messages.test.js: for an all-NUL file and a truncated file, a room post is PLACED and the room reads whole, with a

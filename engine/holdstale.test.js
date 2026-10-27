@@ -276,3 +276,25 @@ test('#6209 part 3 review 8: the book keeps a told entry for good and drops a st
   assert.ok(!book.has('x:old-tries@1/1'), 'a tries entry 31 days old was kept');
   assert.ok(book.has('x:fresh-tries@1/1'), 'control: a fresh tries entry was pruned');
 });
+
+test('#7367: in the few seconds a passing read error is kept, the sweep tells nobody (old rows show then); after, it tells as before', () => {
+  const { id } = fixture();
+  const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const read = holdAt(3 * HOUR);
+  const realReadAll = projects.readAll;
+  projects.readAll = () => { const e = new Error('held by a scanner'); e.code = 'UNREADABLE'; throw e; };
+  try {
+    assert.equal(require('../engine/projectborn').snapshot().ok, false, 'CONTROL: the one failed read is seen');
+  } finally {
+    projects.readAll = realReadAll;
+  }
+  // The projects file itself reads again (the sweep's own projects come from it), but the stamps are still unknown.
+  assert.equal(pass(id, rows, read).sent.length, 0, 'inside the window: nothing typed');
+  const realNow = Date.now;
+  Date.now = () => realNow() + 6000;
+  try {
+    assert.equal(pass(id, rows, read).sent.length, 1, 'CONTROL: after the window the same hold is told');
+  } finally {
+    Date.now = realNow;
+  }
+});

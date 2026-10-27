@@ -58,6 +58,9 @@ function holdSet(projectId, n, read) {
 function owed(projects, log, now = Date.now(), o = {}) {
   const tasks = require('./tasks');
   const read = typeof o.read === 'function' ? o.read : require('./taskchat').read;
+  /* #7367: while the projects file cannot be read, task histories and room rows keep a deleted same-id project's rows
+     (fails open), and this sweep ACTS on them (a line typed to an owner, a row written): it owes nobody until it reads. */
+  if (!require('./projectborn').snapshot().ok) return [];
   /* The room's posts by project and sender, read once per pass rather than once per held task and owner. */
   const posted = new Map();
   for (const r of Array.isArray(log) ? log : []) {
