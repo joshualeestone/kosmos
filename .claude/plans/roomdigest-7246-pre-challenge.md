@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomdigest-7246
-diff_hash: e6d4983629433ebc4e0500b3d9d5ff6d0ef7d19104e1e995b217827acd053436
-validation: passed (detached-validate roomdigest-7246-v1, PASSED attempt 1 at 18:01 CDT, validation_rc=0 audit_rc=0, head 9387c6111b, on Agent1s). roomdigest-7246.test.js 10/10; every roomhold test 294/294; 15 of 15 mutants red.
+diff_hash: 94f74678a4310e565fb622d5831724499b416d48a3dfe20e89acdee2e56050c8
+validation: passed on the merged tree a652419078 (origin/main merged in 2026-10-27, 403 commits): tools/run-tests.sh, the full suite on Agent1s at load about 3, 24711 tests, 24338 passed, 0 failed, 0 cancelled, 373 skipped (Windows-only), EXIT=0, head unchanged 07:21 to 07:43 CDT. The earlier run on fb61ce6e09 had 15 timeouts under load; none recur here. Before the merge: roomdigest-7246.test.js 10/10; every roomhold test 294/294; 15 of 15 mutants red (head 9387c6111b).
 subdir_audit: passed (no CLAUDE.md in the diff)
 timestamp: 2026-10-26T23:02:11Z
 iterations: 4
