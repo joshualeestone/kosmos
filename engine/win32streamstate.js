@@ -67,6 +67,14 @@ const LIMIT_LINE_MAX = 300;
 /** #7369: the token's first word while the agent's last turn was refused for its sign-in; `stateFor` adds when, the
     plain state under it, and Claude's sentence. */
 const AUTH = 'auth';
+/** #7361: the token's first word for an idle read from THIS file (`stateFor` asked with { streamIdle: true }), as
+    against `claude agents --json`'s plain `idle`. The two are not the same fact: this idle is written on the turn's
+    `result` (or the start), so it proves no turn is running; `agents --json` also reads idle while a session waits on
+    something (#570, #5949). `stream-idle <since>`, since being when the file recorded it (its `at`), so status can tell
+    an automatic "working" written before the turn ended (stale: its Stop hook's idle never landed) from one written
+    after (a new turn the file has not caught up with yet). Win32capture returns it; classify reads it as IDLE with
+    `liveToken`. */
+const STREAM_IDLE = 'stream-idle';
 
 /** Bumped if the file's shape ever changes, so a board never trusts a file it
     was not written to read. */
@@ -267,6 +275,24 @@ function isAuthToken(token) {
   return typeof token === 'string' && /^auth \S+ (?:busy|idle)(?: |$)/.test(token);
 }
 
+/** #7361: the stream's own idle token, `stream-idle <since>`, or bare `stream-idle` when the time is not known. */
+function streamIdleToken(since) {
+  return typeof since === 'string' && Number.isFinite(Date.parse(since)) && !/\s/.test(since) ? STREAM_IDLE + ' ' + since : STREAM_IDLE;
+}
+
+/** #7361: whether a state token is the stream's own idle (`streamIdleToken`). Never the `auth ... idle` one: a refused
+    turn's idle is the sign-in's to read (classify), not proof of a finished good turn. */
+function isStreamIdleToken(token) {
+  return typeof token === 'string' && /^stream-idle(?: \S+)?$/.test(token);
+}
+
+/** #7361: when a stream idle token says the file recorded idle, as an ISO string, or null when it does not say. */
+function streamIdleSince(token) {
+  if (!isStreamIdleToken(token)) return null;
+  const m = / (\S+)$/.exec(token);
+  return m && Number.isFinite(Date.parse(m[1])) ? new Date(Date.parse(m[1])).toISOString() : null;
+}
+
 /**
  * #7369: what one `result` event says about the sign-in. `undefined` for no claim, or `{ line }` when Claude Code ended
  * the turn on a sign-in error (is_error, and its sentence is one of claudesignintext's). Only a result: the assistant
@@ -392,8 +418,12 @@ function clearState(name, ownerPid) {
  *
  * @param {string} name the recorded agent name
  * @param {{sessionId: string, pid: number}} live the agent's row from `claude agents --json`
+ * @param {number} [nowMs] the clock a limit's reset is compared with (default Date.now())
+ * @param {{ streamIdle?: boolean }} [opts] #7361: `streamIdle` answers a plain idle as `stream-idle <at>` (the file's
+ *   own time), which win32capture asks for so classify can tell it from `agents --json`'s idle. Limit and auth tokens
+ *   are unchanged either way.
  */
-function stateFor(name, live, nowMs) {
+function stateFor(name, live, nowMs, opts) {
   if (!live || typeof live.sessionId !== 'string' || !live.sessionId || !Number.isInteger(live.pid)) return null;
   let rec;
   try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
@@ -424,6 +454,7 @@ function stateFor(name, live, nowMs) {
     const line = typeof auth.line === 'string' && auth.line ? ' ' + auth.line : '';
     return AUTH + ' ' + auth.since + ' ' + base + line;
   }
+  if (base === IDLE && opts && opts.streamIdle === true) return streamIdleToken(typeof rec.at === 'string' ? rec.at : null);
   return base;
 }
 
@@ -662,4 +693,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { STEP_CLOCK_MS, BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, isLimitToken, isAuthToken, usageOfEvent, claudeAccountDirFor };
+module.exports = { STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
