@@ -124,3 +124,21 @@ map. Fixed by moving the return to just before the rows are written.
      the CSS comment describes its rules, and the archive's bubbles are quieter by opacity, not a filter; the poll's
      no-repaint stamp includes the archive count, so an archive set elsewhere draws the boundary row.
    - Also: 3a's two room-read pin fixes (roomRows) are applied here, since this branch merges 3a.
+4. (sonnet, 18:5x CDT) 0 BLOCKERs, 5 WARNINGs, 5 NITs; the WARNINGs and NITs 6 and 8 applied; NITs 7, 9, 10 answered.
+   - (W) the "poll lands while the archive is open" step slept 6.5 s and never proved a poll ran: it waits until
+     PJ_WIN.newest holds the new post (a CONTROL that fails on timeout), then asserts the archive is untouched.
+   - (W) the 390 px section filled a search box that may be hidden at phone width: dropped (already cleared).
+   - (W) openProject's close of the confirm moved focus to the new room's button, and an in-flight Archive's outcome
+     was said nowhere: that close keeps focus where it is, and the answer is said by the project's name.
+   - (W) a slow Undo closed an archive view opened again meanwhile: it closes only the view it was pressed in. Not
+     reachable by the vm harness (the handler is a listener); the browser check's Undo step runs the normal order.
+   - (W) the Undo sentence repeats the server's 30 days and 1,000: a test ties it to ARCHIVE_AGE_MS and ARCHIVE_KEEP
+     (mutation: 31 days reds it).
+   - NIT 6: msgToast is a polite live region, so Archive and Undo no longer also call pjRoomAnnounce (heard once).
+   - NIT 8: Back marks the room seen when it is on screen.
+   - NIT 7, answered: the typeof PJ_ARCH guards are for lifted tests that run loadRoom or pjRoomRow WITHOUT PJ_ARCH
+     declared at all (typeof an undeclared name is 'undefined'); in the page nothing calls them before load.
+   - NIT 9, left: two small reads per Archive press (n=1); the server builds the room rows for each. Not measured as
+     costly; the POST answering its own count would remove both, a server change for a later slice.
+   - NIT 10, answered: the archive route is an operator write that needs only the project, so a room with no agents
+     archives normally; nothing ends in "could not" there.

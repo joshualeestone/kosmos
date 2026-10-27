@@ -76112,6 +76112,8 @@ function pjArchClose(quiet, hadFocusIn) {
   const box = document.getElementById('pj-room');
   if (box && box.__lastBody) { box.__lastRoom = undefined; paintRoom(box.__lastBody); }
   if (box && anchor) restoreThreadAnchor(box, anchor);
+  // Posts that arrived while the archive was open are on screen now (the first-paint path does not mark them, review 4).
+  if (box && PJ_CURRENT && document.visibilityState === 'visible' && typeof pjMarkSeen === 'function') pjMarkSeen(PJ_CURRENT);
   if (hadFocus) { const post = document.getElementById('pj-post'); if (post) post.focus({ preventScroll: true }); }
   if (!quiet) pjRoomAnnounce('Back in the room.');
 }
@@ -76123,17 +76125,19 @@ document.getElementById('pj-arch-undo').addEventListener('click', async (e) => {
   const btn = e.currentTarget;
   // Read before disabling: a disabled button loses focus to the body, and WebKit never focuses a clicked one (review 3).
   const hadFocus = !document.activeElement || document.activeElement === btn || document.activeElement === document.body;
+  const gen = PJ_ARCH.gen;   // the archive view this Undo was pressed in (review 4)
   btn.disabled = true;
   let ok = false;
   try { const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room/archive/undo', { method: 'POST' }); ok = res.ok; } catch { ok = false; }
   btn.disabled = false;
   if (!ok) { msgToast('We could not undo the archive just now; nothing changed.'); return; }
-  const said = 'Undone. Messages you archived are back in the room; any older than 30 days and past the newest 1,000 stay archived.';
-  msgToast(said);
-  pjArchClose(true, hadFocus);
+  // msgToast is a polite live region, so it is heard once; no second announcement (review 4). The numbers are the
+  // server's ARCHIVE_AGE_MS and ARCHIVE_KEEP (engine/roomarchive.js); web.room-archive-7365.test.js ties them.
+  msgToast('Undone. Messages you archived are back in the room; any older than 30 days and past the newest 1,000 stay archived.');
+  // Only the view it was pressed in: one closed and opened again meanwhile is left as it is (review 4).
+  if (gen === PJ_ARCH.gen) pjArchClose(true, hadFocus);
   // As after Archive: the window held before Undo stops at the old boundary, so it starts again from the newest page.
   if (PJ_CURRENT === pid) { pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
-  pjRoomAnnounce(said);
 });
 document.addEventListener('click', (e) => {
   if (e.target && e.target.closest && e.target.closest('#pj-arch-open')) pjArchOpen();
@@ -76195,14 +76199,16 @@ function pjArchAsk() {
   const cut = document.getElementById('pjarch-cut');
   const showCut = () => { const b = pjArchBefore(when.value); cut.textContent = b ? 'Messages from before ' + pjRoomArchWhen(b) + '.' : ''; };
   showCut(); when.onchange = showCut;
-  const close = () => {
+  let leftFor = false;   // closed because another project opened (focus is theirs now; the outcome is still said)
+  const close = (restoreFocus = true) => {
     if (ask !== PJ_ARCH_ASK_GEN) return;   // a later opening owns the confirm now
     PJ_ARCH_ASK_GEN += 1;
     back.hidden = true; keep.onclick = null; go.onclick = null; when.onchange = null; PJ_ARCH_ASK_CLOSE = null;
     document.removeEventListener('keydown', onEsc);
-    const a = document.getElementById('pj-arch-ask'); if (a) a.focus();
+    if (restoreFocus) { const a = document.getElementById('pj-arch-ask'); if (a) a.focus(); }
   };
-  PJ_ARCH_ASK_CLOSE = close;   // openProject closes it: the choice belongs to the room it was asked in
+  // openProject closes it: the choice belongs to the room it was asked in, and focus stays where the person put it.
+  PJ_ARCH_ASK_CLOSE = () => { leftFor = true; close(false); };
   /* Escape only while the choice is still theirs: once Archive is pressed the request is in flight. Tab stays inside
      the confirm (aria-modal), from the choice to Keep to Archive and round (review 2). */
   const onEsc = (e) => {
@@ -76232,12 +76238,16 @@ function pjArchAsk() {
       out = await res.json().catch(() => null);
       ok = res.ok && !!(out && out.ok);
     } catch { ok = false; }
-    if (ask !== PJ_ARCH_ASK_GEN) return;   // closed meanwhile (another project opened): this answer is not for the confirm on screen
+    if (ask !== PJ_ARCH_ASK_GEN) {
+      // Closed meanwhile: this answer is not for the confirm on screen. When another project opened, the archive was still
+      // set (or not) in the room it was asked in, so say which, by name (review 4).
+      const p = leftFor ? pjById(pid) : null;
+      if (p) msgToast(ok ? 'The archive in ' + (p.name || 'that project') + ' is set. Undo is in its archive.' : 'We could not archive ' + (p.name || 'that project') + ' just now; nothing changed.');
+      return;
+    }
     if (!ok) { go.disabled = false; keep.disabled = false; when.disabled = false; msg.textContent = 'We could not archive just now; nothing changed.'; go.focus(); return; }
     close();
-    const said = pjArchOutcome(was, await pjArchCount(pid), out.marker && out.marker.before);
-    msgToast(said);
-    pjRoomAnnounce(said);
+    msgToast(pjArchOutcome(was, await pjArchCount(pid), out.marker && out.marker.before));   // a live region: heard once
     // Pages already read may hold rows that are now archived, so the window starts again from the newest page.
     if (PJ_CURRENT === pid) { pjArchReset(); pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
   };

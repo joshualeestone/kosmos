@@ -223,3 +223,13 @@ test('#7365 3b review 3: what Archive says depends on the count before and after
   assert.match(ctx.f(NaN, NaN, t), /^Messages before .+ are archived\. Undo is in the archive\.$/);
   for (const x of [ctx.f(0, 0, undefined), ctx.f(NaN, 3, ''), ctx.f(1, 2, 'bad')]) assert.doesNotMatch(x, /  |\( /, 'no hole where a time would be: ' + x);
 });
+
+test('#7365 3b review 4: the Undo sentence states the server\'s own archive rule, so the two cannot drift apart', () => {
+  const roomarchive = require('./engine/roomarchive');
+  const days = roomarchive.ARCHIVE_AGE_MS / (24 * 60 * 60 * 1000);
+  const keep = roomarchive.ARCHIVE_KEEP.toLocaleString('en-US');
+  const said = SCRIPT.match(/msgToast\('Undone\. Messages you archived are back in the room; any older than (\d+) days and past the newest ([\d,]+) stay archived\.'\)/);
+  assert.ok(said, 'the Undo sentence was not found');
+  assert.equal(Number(said[1]), days);
+  assert.equal(said[2], keep);
+});

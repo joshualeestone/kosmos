@@ -222,7 +222,9 @@ function findUnder(dir, name) {
     // A poll lands while the archive is open, with a new post in the live room: the archive stays as it is.
     const sent = await fetch(base + '/api/project/' + pid + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'posted while the archive was open' }) });
     chk(sent.ok, 'CONTROL: a post reached the live room while the archive was open', String(sent.status));
-    await p.waitForTimeout(6500);   // longer than the room's 5-second poll
+    // Wait until a poll has really read the new post into the live window (review 4: a fixed sleep proved nothing).
+    const polled = await p.waitForFunction(() => Array.isArray(PJ_WIN.newest) && PJ_WIN.newest.some((r) => r && /posted while the archive was open/.test(r.text || '')), null, { timeout: 15000 }).then(() => true, () => false);
+    chk(polled, 'CONTROL: a poll read the new post while the archive was open');
     const kept = await p.evaluate(() => ({ head: !document.getElementById('pj-arch-head').hidden, n: document.querySelectorAll('#pj-room .msg').length,
       leaked: /posted while the archive was open|live post/.test(document.getElementById('pj-room').textContent) }));
     chk(kept.head && kept.n >= 200 && !kept.leaked, 'a poll that lands while the archive is open leaves the archive on screen and paints no live row over it', JSON.stringify(kept));
@@ -307,9 +309,7 @@ function findUnder(dir, name) {
     chk(narrow.sw <= narrow.vw, 'at 390px the page does not scroll sideways', JSON.stringify(narrow));
     chk(narrow.w > 0 && narrow.left >= 0 && narrow.right <= Math.min(narrow.vw, narrow.headRight), 'at 390px the archive button is shown, inside the window and inside its header', JSON.stringify(narrow));
     // And the archive view at 390px: its header above the thread must not push the newest archived post under the composer.
-    await p.fill('#pj-room-search', '');
-    await p.waitForTimeout(300);
-    await archiveWith('day', /are archived/);
+    await archiveWith('day', /are archived/);   // the search was cleared before the resize, so nothing to fill here (review 4)
     await scrollToStart();
     await p.waitForSelector('#pj-arch-open', { timeout: 5000 }).catch(() => null);
     await p.click('#pj-arch-open');
