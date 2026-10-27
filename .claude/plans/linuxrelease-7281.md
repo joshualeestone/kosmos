@@ -44,3 +44,23 @@ prod pointer), so C1 alone is safe; the lockstep refusal in C2 is what keeps pro
 - The Linux tarball is served from the site's /dist like the Mac's (about 45 MB), not R2 (card's weakest premise).
 - No sandboxed install of the Linux bundle in the cut (the cut Mac cannot run it); slice E's CI on stock ubuntu:24.04
   is that check, run against the staging pointer after a staging cut.
+
+## C1 built (22:3x) and review 1 (22:3x): 0 blockers, 6 warnings, 3 nits, all handled
+Built: tools/lib/release-linux.sh (decide / check_manifest / publish / site_paths), release.sh steps 1d-linux, 4,
+publish, 6, _site_paths, the post-commit cleanup and step 8; release_site_restore's Linux arms; write-latest-pointer's
+optional `versioned`. Test tools/test-release-linux-7281.sh: 55 checks, the lib against a fake site with a stub signer
+in a temp copy (no seam in shipped code), plus structural checks that release.sh wires each call.
+- W1 FIXED: after 7b the Linux manifest, .sig and a first Linux pointer stayed untracked in the shared checkout, so the
+  next pull refused. Removed like the Mac manifest (checked by its loop; mutant red).
+- W2 FIXED (half): step 8 refuses an export without kosmos-$V-linux-x64.tar.gz and a verifying .sha256 (mutant red).
+  The other half, a LATER deploy from a checkout without the Linux tarball, is C3's (deploy-site refetches the live
+  Linux pair as it does the Mac's $ART).
+- W3 FIXED: the Linux versioned files are removed on abort only on the Linux pair's own record (_linux_pair_had, a 7th
+  release_site_restore argument defaulting to 1 = never remove); a served Linux tarball on a checkout without the Mac
+  tarball survives (tested both ways; mutant red).
+- W4 FIXED: a prod Linux cut is refused until C2 makes the promote move the Linux pointer too
+  (RELEASE_LINUX_PROMOTE_LOCKSTEP=1, which C2 sets in release.sh when it lands). Staging-only meanwhile (mutant red).
+- W5 FIXED: structural checks for every call site and its refusal (each removal red).
+- W6 FIXED: the manifest's version must equal V (mutant red).
+- NITs FIXED: manifest immutability (mutant red); a note when KOSMOS_ALLOW_STALE_TUNNEL also covers the Linux
+  connector; the signer-refusal test has its control.
