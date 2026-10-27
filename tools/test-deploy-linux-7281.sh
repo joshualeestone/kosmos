@@ -54,6 +54,15 @@ S="$(newsite liar latest-linux.json 1.7.0 "$SHA")"
 chk "a served .sha256 that disagrees with the pointer is refused" [ "$(carry "$S" HEAD "$H2")" = "rc=1 arts=" ]
 S="$(newsite badname latest-linux.json 1.7.0 "$SHA")"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.versioned="../evil.tar.gz";require("fs").writeFileSync(f,JSON.stringify(p))' "$S/dist/latest-linux.json"; git -C "$S" commit -qam bad
 chk "a pointer naming anything but kosmos-<v>-linux-x64.tar.gz is refused" [ "$(carry "$S" HEAD "$H1")" = "rc=1 arts=" ]
+# A host whose .sha256 is right but whose tarball is not (a corrupt or half-uploaded file).
+H3="$(newhost corrupt 1.7.0)"; printf '%s  kosmos-1.7.0-linux-x64.tar.gz\n' "$SHA" > "${H3#file://}/dist/kosmos-1.7.0-linux-x64.tar.gz.sha256"; printf 'corrupt\n' > "${H3#file://}/dist/kosmos-1.7.0-linux-x64.tar.gz"
+S="$(newsite corrupt latest-linux.json 1.7.0 "$SHA")"
+chk "served bytes that do not hash to the pointer are refused, even under a matching .sha256" [ "$(carry "$S" HEAD "$H3")" = "rc=1 arts=" ]
+# A pointer naming another family's tarball, with bytes that would otherwise check out.
+H4="$(newhost family 1.7.0)"; cp "${H1#file://}/dist/kosmos-1.7.0-linux-x64.tar.gz" "${H4#file://}/dist/kosmos-1.7.0-arm64.tar.gz"
+printf '%s  kosmos-1.7.0-arm64.tar.gz\n' "$SHA" > "${H4#file://}/dist/kosmos-1.7.0-arm64.tar.gz.sha256"
+S="$(newsite family latest-linux.json 1.7.0 "$SHA")"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.versioned="kosmos-1.7.0-arm64.tar.gz";require("fs").writeFileSync(f,JSON.stringify(p))' "$S/dist/latest-linux.json"; git -C "$S" commit -qam fam
+chk "a Linux pointer naming the Mac tarball is refused" [ "$(carry "$S" HEAD "$H4")" = "rc=1 arts=" ]
 E="$T/site-none"; git init -q -b main "$E"; git -C "$E" config user.email t@t; git -C "$E" config user.name t; mkdir -p "$E/dist"; printf x > "$E/dist/.keep"; git -C "$E" add dist/.keep; git -C "$E" commit -q -m e
 chk "CONTROL: no Linux pointer committed: nothing carried, no refusal" [ "$(carry "$E" HEAD "file:///nonexistent")" = "rc=0 arts=" ]
 # Both pointers on one build: carried once.
