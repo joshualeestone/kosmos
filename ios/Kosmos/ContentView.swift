@@ -981,6 +981,16 @@ enum YouFace {
     // Review 1: ContentView redraws on every 5 s agents read, and a picture can be several MB, so the decoded circle is
     // kept and made again only when the picture's bytes change.
     private static var lastPicture: (data: Data, image: UIImage)?
+    // Review 2 nit: the profile page's picture, decoded once per picture too (Settings redraws with the board).
+    private static var lastProfile: (data: Data, image: UIImage)?
+    static func profileImage(_ data: Data?) -> UIImage? {
+        guard let data else { return nil }
+        if let last = lastProfile, last.data == data { return last.image }
+        guard let picture = UIImage(data: data) else { return nil }
+        let image = circle(picture, side: 88 * 3)   // the page draws it at 88 pt
+        lastProfile = (data, image)
+        return image
+    }
     static func tabImage(_ data: Data?, letter: String?, dark: Bool) -> UIImage? {
         if let data {
             if let last = lastPicture, last.data == data { return last.image }
