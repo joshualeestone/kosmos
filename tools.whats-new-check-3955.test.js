@@ -88,7 +88,7 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
   assert.ok(b < mine && mine < bump, 'the check does not sit between the versions entry and the bump');
   const block = sh.slice(mine, sh.indexOf('step "== 1c.', mine));
   /* kosmos#7349: 1b-ii runs the check through whats_new_gate, the function the cut also runs before it marks itself. */
-  assert.match(block, /whats_new_gate note \|\| exit 1/, 'a refusal does not stop the cut');
+  assert.match(block, /^\s*whats_new_gate note \|\| exit 1$/m, 'a refusal does not stop the cut');   // a commented-out call does not count
   const gate = sh.slice(at('whats_new_gate() {'), sh.indexOf('\n}\n', at('whats_new_gate() {')));
   assert.match(sh, /_whats_new_check\(\) \{ node "\$REPO\/tools\/whats-new-check\.js" "\$V" "\$REPO\/web\/whats-new\.json" --platform=mac; \}/, 'the check whats_new_gate runs is not the highlights check for $V');
   assert.match(gate, /^\s*_whats_new_check \|\| return 1$/m, 'whats_new_gate (note) does not refuse on the check');

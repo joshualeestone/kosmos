@@ -102,13 +102,16 @@ run 1 3 KOSMOS_CUT_NO_WHATS_NEW=1
   || bad "opt-out (rc=$RC): log=[$LOG] out=$(printf '%s' "$OUT" | tail -3)"
 
 # Step 1b-ii cannot be reached without a real cut, so its wiring is pinned structurally: it runs the same function.
-awk '/step "== 1b-ii\. the What/{s=1} /step "== 1c\./{exit} s&&/whats_new_gate note \|\| exit 1/{print "wired"; exit}' "$HERE/release.sh" | grep -q wired \
+awk '/step "== 1b-ii\. the What/{s=1} /step "== 1c\./{exit} s&&/^[ \t]*whats_new_gate note \|\| exit 1$/{print "wired"; exit}' "$HERE/release.sh" | grep -q wired \
   && pass "step 1b-ii runs whats_new_gate (the same checks), refusing on it" || bad "step 1b-ii no longer runs whats_new_gate note || exit 1"
 
 # The promote's hint (kosmos#7349): said on a Mac prod promote, pinned structurally (a promote needs a full fixture,
 # tools/test-staging-channel-2036.sh): inside the non-Windows branch, after the PROMOTED line.
 awk '/promote-channel: PROMOTED \$V to prod/{p=1} p&&/whats-new-pool\.js build/{print "hint"; exit} p&&/^fi$/{exit}' "$HERE/promote-channel.sh" | grep -q hint \
   && pass "promote-channel.sh names the pool build after a Mac prod promote" || bad "promote-channel.sh: the pool-build hint is missing from the Mac branch"
+# ...and not on a rollback, where prod-check passes and a build records nothing: the hint line is guarded by ALLOW_OLDER.
+grep -qE '^[[:space:]]*\[ "\$ALLOW_OLDER" = 1 \] \|\| echo "promote-channel: NEXT, once the deploy serves' "$HERE/promote-channel.sh" \
+  && pass "the promote hint is skipped on a rollback (--allow-older)" || bad "promote-channel.sh: the pool-build hint is not guarded by ALLOW_OLDER"
 
 # A prod cut moves prod as a promote does, so it names the build too: inside its final prod block.
 awk '/^if \[ "\$CUT_CHANNEL" = prod \]; then$/{p=1; h=0} p&&/whats-new-pool\.js build/{h=1} p&&/bash "\$MAIN_REPO\/tools\/post-release-notes\.sh"/{if(h)print "hint"; exit}' "$HERE/release.sh" | grep -q hint \
