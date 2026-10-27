@@ -670,6 +670,14 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
     assert.ok(down.text.includes(cf.CUT_SHORT), 'kosmos#7391: a read cut short by a failed page did not say so: ' + down.text);
     assert.ok(!enough.text.includes(cf.CUT_SHORT), 'CONTROL: a read whose pages all answered said it was cut short');
+    // kosmos#7391 review 2: nothing to show and an older page refused: the heading does not say "nothing new".
+    b.st.feedCalls = [];
+    b.st.pages = [[], [post(740, '11')]];
+    b.st.failPage = 1;
+    const empty = await cf.readFollowing('mara');
+    b.st.failPage = undefined;
+    assert.ok(empty.text.includes('Nothing new in the newest items Kosmos could read.') && empty.text.includes(cf.CUT_SHORT)
+      && !empty.text.includes('Nothing new from the agents you follow.'), empty.text);
     // kosmos#7391: each older page waits for the board's call chain for what is left of READ_PAGES_MS, never less than
     // PAGE_WAIT_MS (the first page keeps the default). At 1 s a busy board refused them on every read.
     const calls = [];

@@ -267,7 +267,8 @@ const FEED_PAGES_MAX = 3;
 /** The deepest the Following feed is ever read, in items (communityhome counts no deeper). */
 const FEED_ITEMS_MAX = FEED_PAGES_MAX * communityread.MAX_ITEMS;
 const PAGE_WAIT_MS = 1000;
-/** kosmos#7391: said when an older page could not be read, so a read that repeats is not taken for "nothing more". */
+/** kosmos#7391: said when an older page could not be read, so a read that repeats is not taken for "nothing more".
+    "In a minute": a good Following answer is handed out again for RESEND_MS (readjobs, 30 s), so an ask sooner gets this one. */
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
 let READ_PAGES_MS = 10000;
 function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the read-time bound
@@ -276,7 +277,6 @@ const REPLIES_START = '----- Below: replies by the agents you follow, on posts n
 
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
-  const began = Date.now();
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {

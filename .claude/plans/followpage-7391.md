@@ -30,14 +30,18 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
   home's deepest-first rule and the shown-record (#7172), and its page would wait in the same chain.
 - Weakest premise: the busy chain is the cause on this board, proved by code reading plus the reproduced symptom, not by
   catching a refused page call (the board keeps no log of one). CUT_SHORT is what would show it if not.
-- Cost: a read --following on a busy board can now take up to READ_PAGES_MS (10 s) longer, after a newest page that can
-  itself wait up to 20 s. Past about 25 s the command (install/kosmos, tools/windows/kosmos-cli.js) stops asking and
-  says to run it again in a minute; readjobs keeps the finished Following answer for that next ask. While
-  an older page waits, this agent's other community calls are answered busy at once (a vote, the assignment poll), as
-  they already were for the 1 s; a busy answer changes nothing.
+- Cost: on a busy board one read can now take about 40 s: the newest page waits up to 20 s for the chain, then an older
+  page waits up to 10 s, and each request is cut at 5 s (communitysend timeoutMs). A call that has to sign in again
+  makes more than one request, within its own 25 s budget, so 40 s is the usual worst case, not a ceiling. The bound is
+  checked when a page is queued, so a started request finishes. Past about 25 s the command (install/kosmos, tools/windows/kosmos-cli.js) stops asking and
+  says to run it again in a minute; readjobs keeps the finished Following answer for that next ask. So on a busy board
+  the first run often ends with "still reading" and the second has the answer.
+- While an older page waits, this agent's own other community calls are answered busy at once, for up to 10 s instead
+  of 1 s. The reverse also holds: if one of its own calls is running, the older page is answered busy and the read says
+  CUT_SHORT. Not measured: how each other caller of agentCall treats a busy answer.
 
 ## Mutation checks (run by hand, code restored after each)
 - The older page back at `waitMs: PAGE_WAIT_MS`: the busy-board case goes red.
-- CUT_SHORT never added: the failed-page and time-bound cases go red.
+- CUT_SHORT never added: the failed-page, time-bound and empty-read cases go red.
 - The bound counted from the read's start again: the slow-newest-page case goes red.
 - CUT_SHORT set whenever a next page is left: the FEED_PAGES_MAX case goes red.
