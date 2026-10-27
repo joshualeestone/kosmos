@@ -1,8 +1,8 @@
 'use strict';
 /**
  * kosmos#7285 item 1, through the real POST /api/remote/devices/(remove|deny) route: on a Kosmos cloud machine, a remote
- * session may not remove or turn away the very browser it is (named by the tunnel's x-kosmos-session-key, else
- * x-kosmos-session-device). CONTROLS: another device, a computer that is not a cloud machine, a local request, and no
+ * session may not remove or turn away the very browser it is (named by the tunnel's x-kosmos-session-key or
+ * x-kosmos-session-device; the key is also compared with every key holding a row). CONTROLS: another device, a computer that is not a cloud machine, a local request, and no
  * headers (an older tunnel) all reach the engine as before. The engine's verbs are stubbed (nothing reaches Kosmos+).
  *
  *   node --test server.cloudowndevice-7285.test.js
@@ -34,7 +34,7 @@ const real = { remove: remote.deviceRemove, deny: remote.deviceDeny, cloud: cm.i
 remote.deviceRemove = async (id) => { calls.push(['remove', id]); return { ok: true }; };
 remote.deviceDeny = async (id) => { calls.push(['deny', id]); return { ok: true }; };
 remote.boardV2 = () => false;   // the board-v2 rule for Not me is not under test here
-// The tunnel's list, as the board reads it (engine/remote.js devicesList): each row's device id and the key holding it.
+// The tunnel's list, as the board reads it (engine/remote.js devicesList): each row's device id and every key holding it.
 let LIST = { ok: true, data: { devices: [] } };
 let listReads = 0;
 remote.devicesList = async () => { listReads += 1; return LIST; };
@@ -93,7 +93,9 @@ test('#7285 follow-up (PigeonPete): a row held by the requesting session\'s KEYS
     assert.equal(got.body.code, 'own_device_cloud');
   }
   // Removing an id deletes EVERY key holding it, so a row whose second key is this browser's is refused too.
-  assert.equal((await post('remove', 'd-shared', { ...VIA_PLUS, ...SESSION })).status, 409, 'a row this key holds, not first');
+  for (const verb of ['remove', 'deny']) {
+    assert.equal((await post(verb, 'd-shared', { ...VIA_PLUS, ...SESSION })).status, 409, verb + ': a row this key holds, not first');
+  }
   // This browser's own id dropped off its key's list (a key holds at most 16): the session's device header names an id
   // no row has, and the row the person picks is still held by the session's key.
   assert.equal((await post('remove', 'd-sibling', { ...VIA_PLUS, 'x-kosmos-session-key': 'k1.mine', 'x-kosmos-session-device': 'd-gone' })).status, 409);
@@ -103,14 +105,15 @@ test('#7285 follow-up (PigeonPete): a row held by the requesting session\'s KEYS
 test('#7285 follow-up CONTROLS: a different key, a row with no key, and no key header go through; the list is read only with a key header', async () => {
   cm.isCloudMachine = () => true;
   calls.length = 0;
-  LIST = { ok: true, data: { devices: [{ device_id: 'd-sibling', keys: ['k1.mine'] }, { device_id: 'd-other', keys: ['k1.someone'] }, { device_id: 'd-nokey', keys: [] }] } };
+  LIST = { ok: true, data: { devices: [{ device_id: 'd-sibling', keys: ['k1.mine'] }, { device_id: 'd-other', keys: ['k1.someone'] }, { device_id: 'd-nokey', keys: [] }, { device_id: 'd-nokeys' }] } };
   assert.equal((await post('remove', 'd-other', { ...VIA_PLUS, ...SESSION })).status, 200, 'a row held by another key');
   assert.equal((await post('remove', 'd-nokey', { ...VIA_PLUS, ...SESSION })).status, 200, 'a row with no key');
+  assert.equal((await post('remove', 'd-nokeys', { ...VIA_PLUS, ...SESSION })).status, 200, 'a row with keys absent (an older tunnel)');
   assert.equal((await post('remove', 'd-unlisted', { ...VIA_PLUS, ...SESSION })).status, 200, 'an id the list does not have');
   listReads = 0;
   assert.equal((await post('remove', 'd-sibling', { ...VIA_PLUS, 'x-kosmos-session-device': 'd-mine' })).status, 200, 'no key header: the device id alone decides');
   assert.equal(listReads, 0, 'the list is not read without a key header');
-  assert.deepEqual(calls, [['remove', 'd-other'], ['remove', 'd-nokey'], ['remove', 'd-unlisted'], ['remove', 'd-sibling']]);
+  assert.deepEqual(calls, [['remove', 'd-other'], ['remove', 'd-nokey'], ['remove', 'd-nokeys'], ['remove', 'd-unlisted'], ['remove', 'd-sibling']]);
 });
 
 test('#7285 follow-up: a list that cannot be read, with a key header, refuses and says it could not check', async () => {
@@ -125,4 +128,15 @@ test('#7285 follow-up: a list that cannot be read, with a key header, refuses an
   assert.equal((await post('deny', 'd-sibling', { ...VIA_PLUS, ...SESSION })).status, 409, 'a thrown read refuses too');
   remote.devicesList = async () => { listReads += 1; return LIST; };
   assert.deepEqual(calls, []);
+});
+
+test('#7285 review 1: GET /api/remote/devices does not hand the rows\' keys to the page', async () => {
+  LIST = { ok: true, data: { devices: [{ device_id: 'd-sibling', name: 'phone', keys: ['k1.mine'] }] } };
+  const res = await fetch(base + '/api/remote/devices', { headers: PAGE });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  const row = (body.allowed || []).find((d) => d.device_id === 'd-sibling');
+  assert.ok(row, 'CONTROL: the row itself is listed: ' + JSON.stringify(body));
+  assert.equal(row.name, 'phone');
+  assert.equal('keys' in row, false, 'keys reached the page');
 });
