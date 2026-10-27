@@ -259,7 +259,8 @@ test('#5536 an empty chunk is refused, and a deep folder clash is found', async 
 
 test('#5536 the collision check scales linearly with path depth (a ratio, so machine load does not decide it)', async () => {
   // Every entry is listed twice, so all are refused before any fetch and the time is the path and collision checks.
-  // Measured: depth x4 costs x3.75 to x4.5 with the trie (10-08, and #7235 alone 10-26), x13 with the quadratic check.
+  // Measured: depth x4 costs x3.75 to x4.5 with the trie (wall time, 10-08), x13 with the quadratic check; in CPU time, as now
+  // timed, x3.58 to x3.98 (#7235, alone, 12 runs, 10-26).
   // kosmos#7235: each depth's fixture is built ONCE, so no sample pays for a build (and the deep build's garbage) inside
   // its timed region; only run() is timed.
   const fixtureAt = (depth) => {
@@ -268,12 +269,14 @@ test('#5536 the collision check scales linearly with path depth (a ratio, so mac
   };
   const shallowRun = fixtureAt(500);
   const deepRun = fixtureAt(2000);
+  // kosmos#7235 round 2: CPU time (user + system), not wall time. The check is CPU work with nothing to wait on, so a
+  // stretch where another process held the core no longer counts against whichever sample it fell in.
   const timeOnce = async (run) => {
-    const t0 = process.hrtime.bigint();
+    const t0 = process.cpuUsage();
     const { r } = await run();
-    const ns = Number(process.hrtime.bigint() - t0);
+    const { user, system } = process.cpuUsage(t0);
     assert.equal(r.failed.length, 400);
-    return ns;
+    return user + system;
   };
   /* kosmos#7235: alone this ratio reads about 3.8 (x3.75 to x3.88, 12 of 12), but inside a full suite it read x8 to x9
      about one run in four. Reasoned, not reproduced inside a suite: the old test took all of one depth's samples, then
@@ -291,7 +294,7 @@ test('#5536 the collision check scales linearly with path depth (a ratio, so mac
   }
   ratios.sort((a, b) => a - b);
   const ratio = ratios[2];
-  assert.ok(ratio < 7.5, `depth x4 cost x${ratio.toFixed(1)}; the trie measured about 4, the quadratic check about 13`);
+  assert.ok(ratio < 7.5, `depth x4 cost x${ratio.toFixed(1)} (pairs ${ratios.map((x) => x.toFixed(1)).join(', ')}); the trie measured about 4, the quadratic check about 13`);
 });
 
 test('#5536 maxTotalBytes caps what a restore commits, before fetching (control: exactly the budget restores)', async () => {
