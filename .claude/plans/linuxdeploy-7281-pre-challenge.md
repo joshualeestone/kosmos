@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: linuxdeploy-7281
-diff_hash: b9a92d8764d3eaf3f238956cc9cbef221efb5dfb267e081fc01608dabdc91ce8
+diff_hash: 1e623d389c19a8c31d2860e7e7e9062595919511f4a3fdd4e11431901efc7eeb
 validation: focused-passed (tools/test-deploy-linux-7281.sh 44/44); every deploy-site and setup-floor shell test on the committed head 15/15 rc 0 (sweep 3), then every setup-floor-using test after review 3's fix 9/9 rc 0; main has not touched these files since the base; full suite via PR CI
 subdir_audit: passed
-timestamp: 2026-10-27T05:24:19Z
+timestamp: 2026-10-27T06:14:14Z
 iterations: 3
 converged: true
 ---
@@ -26,6 +26,9 @@ Validation, stated as it happened:
   1, the backwards guard off, a temp slot not cleared, a cut-off keeping its status, the arch list loosened, a garbled
   live pointer passing, versioned ignored by the floor.
 - Not run: tools/deploy-site.sh itself (it deploys).
+
+After C1's PR CI showed it (01:12): tools.every-test-runs.test.js requires a new tools/test-*.sh in test:shell;
+tools/test-deploy-linux-7281.sh added before this PR's node suite could fail on it (guard 27/27).
 
 The per-round findings and decisions are in .claude/plans/linuxdeploy-7281.md.
 
