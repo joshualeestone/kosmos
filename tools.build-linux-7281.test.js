@@ -250,4 +250,15 @@ test('CONTROL: with an ELF connector it packs the bundle, and its manifest lists
   const sidecar = fs.readFileSync(tarball + '.sha256', 'utf8').trim().split(/\s+/);
   assert.equal(sidecar[1], 'kosmos-linux-x64.tar.gz');
   assert.equal(m.sha256, sidecar[0], 'the manifest and the sidecar disagree about the tarball');
+  // kosmos#7281 rehearsal: under macOS /bin/bash 3.2 the VERSION line was a syntax error's leftovers, with exit 0.
+  assert.doesNotMatch(r.stderr, /syntax error/, 'the builder printed a syntax error and still exited 0');
+  const version = spawnSync('tar', ['-xzOf', tarball, 'VERSION'], { encoding: 'utf8' }).stdout;
+  const nodeLine = version.split('\n').find((l) => l.startsWith('node:'));
+  assert.equal(nodeLine, 'node:   v' + VER + ' (linux-x64) UNCHECKED (test build)', 'VERSION: ' + version);
+});
+
+test('no case inside $( ) with a bare pattern: macOS /bin/bash 3.2 ends the substitution at its ")" (kosmos#7281 rehearsal)', () => {
+  // Linux CI runs bash 5, which parses it, so only this source check can see it there. "(pattern)" is the safe form.
+  const bad = LINUX.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => /\$\(\s*case\b.*?\bin\s+[^(\s]/.test(l));
+  assert.deepEqual(bad, [], 'a bare-pattern case inside $( ): ' + JSON.stringify(bad));
 });
