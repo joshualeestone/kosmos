@@ -67,7 +67,9 @@ const ALLOWED_ROOTS = [real(REPO), real(os.tmpdir()), path.resolve(os.tmpdir())]
 function envVar(vars, name) {
   if (!WIN) return vars[name];
   const k = Object.keys(vars).filter((x) => x.toUpperCase() === name.toUpperCase()).sort()[0];
-  if (k !== undefined) return vars[k];
+  // node drops a key whose value is undefined after choosing it, and a child with no PATH searches the parent's
+  // (review 3 of #7318: {...process.env, PATH: undefined} still runs gh from the parent's PATH).
+  if (k !== undefined && vars[k] !== undefined) return vars[k];
   return name.toUpperCase() === 'PATH' && vars !== process.env ? envVar(process.env, name) : undefined;
 }
 function pathExts(vars) {
@@ -91,7 +93,9 @@ const within = (where, root) => {
 // One command word: is it a real tool? `cwd` resolves a relative path the way the spawn will.
 function realToolIn(word, cwd, env) {
   if (typeof word !== 'string' || !word) return null;
-  if (cwd != null && typeof cwd !== 'string') cwd = cwd instanceof URL ? url.fileURLToPath(cwd) : String(cwd);   // node takes a URL
+  if (cwd != null && typeof cwd !== 'string') {   // node takes a file: URL; anything else is left for node to reject
+    try { cwd = cwd instanceof URL ? url.fileURLToPath(cwd) : String(cwd); } catch { cwd = undefined; }
+  }
   // Expand $VAR / ${VAR} (and cmd's %VAR% on Windows) from the call's env (else this process's) and drop quotes, so a
   // fake reached as "$TMPDIR"/fake/gh resolves where the shell will put it.
   const vars = env || process.env;
@@ -117,11 +121,16 @@ function realToolIn(word, cwd, env) {
    else .com then .exe, in the current directory unless this process has NoDefaultCurrentDirectoryInExePath, then PATH;
    cmd tries the child env's PATHEXT, in the current directory unless the child env has that variable; Git Bash tries
    the name and then .exe, on PATH only. So a fake gh.cmd ahead of a real gh.exe on PATH hides nothing: node runs the
-   gh.exe. Elsewhere, the one file PATH finds. Any regular file runs on Windows (no execute bit). */
+   gh.exe. Elsewhere, the one file PATH finds. Any regular file runs on Windows (no execute bit).
+   Every lookup is applied to every bare word, whichever one the call will really use: so a fake that cmd or Git Bash
+   would run (gh.cmd, or an extensionless gh script, ahead of a real gh.exe) is refused when node's lookup would reach
+   the real one (review 3, accepted: it can only refuse, never let a real CLI run; telling the lookups apart needs the
+   shared reader to say which program reads each word). */
 function onPath(name, pathVar, vars, cwd) {
   if (WIN) {
-    const dirs = String(pathVar || '').split(';').map((d) => d.replace(/^"|"$/g, '')).filter(Boolean);
     const here = cwd || process.cwd();
+    // A relative PATH entry is relative to the call's cwd, as node, cmd and bash read it (review 3).
+    const dirs = String(pathVar || '').split(';').map((d) => d.replace(/^"|"$/g, '')).filter(Boolean).map((d) => path.resolve(here, d));
     const exts = pathExts(vars || {});
     const lower = name.toLowerCase();
     const hasExt = /\.[^.\\/]+$/.test(name);
@@ -135,7 +144,7 @@ function onPath(name, pathVar, vars, cwd) {
       return null;
     };
     const finds = [
-      first(hasExt ? [name] : [name + '.com', name + '.exe'], (process.env.NoDefaultCurrentDirectoryInExePath ? [] : [here]).concat(dirs)),
+      first(hasExt ? [name, name + '.com', name + '.exe'] : [name + '.com', name + '.exe'], (process.env.NoDefaultCurrentDirectoryInExePath ? [] : [here]).concat(dirs)),
       first(exts.some((e) => lower.endsWith(e)) ? [name] : exts.map((e) => name + e), (envVar(vars || {}, 'NoDefaultCurrentDirectoryInExePath') ? [] : [here]).concat(dirs)),
       first(hasExt ? [name] : [name, name + '.exe'], dirs),
     ];

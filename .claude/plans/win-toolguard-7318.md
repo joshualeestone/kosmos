@@ -51,3 +51,11 @@ the safe side for a guard against real CLIs.
   longer throws; cmd's %VAR% is expanded on Windows. NIT noted: test-support.tool-guard-4326.test.js still fails 12 on
   Windows at base (POSIX fixtures); not this card. Negative control: the new test fails against round 1. 60/60; 87 win32
   files with both preloads: 1588 tests, 0 fail, 0 refusals.
+- Round 3: no BLOCKER (POSIX unchanged line by line; every common Windows call right; 89 win32 files with both
+  preloads 0 fail 0 refusals). 3 WARNINGs, 2 NITs. FIXED: PATH: undefined is dropped as node drops it, so the parent's
+  PATH is searched; a relative PATH entry resolves against the call's cwd (node ran rel\bin\x.exe, measured); node's
+  lookup of a name with an extension also tries .com/.exe after it; a non-file cwd URL no longer throws in the guard.
+  ACCEPTED and said in the onPath comment: every lookup applies to every bare word, so a fake cmd or Git Bash would
+  really run (gh.cmd, an extensionless gh) is refused when node's lookup reaches a real gh.exe later on PATH; it can
+  only refuse, and telling lookups apart needs the shared reader to say which program reads each word. Negative
+  control: the new test fails against round 2. 61/61; win32 sweep below.

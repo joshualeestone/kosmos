@@ -324,3 +324,29 @@ test('#7318 review 2: each Windows lookup (node, cmd, Git Bash) is judged; a URL
     fs.rmSync(stub, { recursive: true, force: true });
   }
 });
+
+test('#7318 review 3: PATH undefined falls back; a relative PATH entry is the call\'s; a bad cwd URL does not throw', { skip: !WIN && 'Windows lookup rules' }, () => {
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-7318r3-'));
+  try {
+    const realBin = path.join(stub, 'real');
+    fs.mkdirSync(realBin);
+    fs.writeFileSync(path.join(realBin, 'gh.exe'), '');
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = realBin;
+    const saved = process.env.PATH;
+    process.env.PATH = realBin;
+    try {
+      // node drops PATH: undefined and searches the parent's PATH (measured)
+      assert.equal(refusedCall('gh', [], { env: { PATH: undefined, Path: path.join(stub, 'nothing') } }), 'gh');
+    } finally {
+      process.env.PATH = saved;
+    }
+    // PATH 'real' relative to the call's cwd (node ran rel\bin\probe1.exe for PATH 'bin', measured)
+    assert.equal(refusedCall('gh', [], { cwd: stub, env: { PATH: 'real' } }), 'gh');
+    assert.equal(refusedCall('gh', [], { cwd: path.join(stub, 'real'), env: { PATH: 'nothing' } }), 'gh', 'the cwd itself, as node looks there');
+    // a non-file URL is node's to reject, not a throw in the guard
+    assert.doesNotThrow(() => refusedCall('gh', [], { cwd: new URL('http://example.invalid/'), env: { PATH: path.join(stub, 'nothing') } }));
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
+});
