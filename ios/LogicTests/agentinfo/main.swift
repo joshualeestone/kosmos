@@ -17,6 +17,10 @@ section("one agent's row of /api/status")
 let status = #"{"agents":[{"sessionName":"cleo","name":"Cleo","role":"Designer","runner":"","modelName":"Opus 5.5","running":true,"profile":{"reportsTo":"dana"},"account":{"label":"Work account","provider":"anthropic"}},{"sessionName":"gus","name":"","runner":"codex","modelName":"o3","running":false,"state":"stopped","plannedModelName":"GPT 5.6 Sol","account":{"provider":"alibaba"}},{"sessionName":"eli","runner":"gemini","running":true,"modelName":"Gemini 3.8 Flash","settingModelName":"Gemini 3.8 Pro"}]}"#
 let cleo = Board.parseAgentDetails(Data(status.utf8), session: "cleo")
 check(cleo?.name == "Cleo" && cleo?.role == "Designer" && cleo?.reportsTo == "dana" && cleo?.accountLabel == "Work account", "the fields the page reads")
+let roles = Board.parseAgentDetails(Data(#"{"agents":[{"sessionName":"r","role":"From the file","profile":{"role":"Saved by the person"}}]}"#.utf8), session: "r")
+check(roles?.role == "Saved by the person", "the saved role first, as the board (review 2)")
+let failedRestart = Board.parseAgentDetails(Data(#"{"agents":[{"sessionName":"f","state":"needs_you","disruption":{"failed":true},"modelName":"Opus 5","plannedModelName":"Haiku 4.5"}]}"#.utf8), session: "f")!
+check(failedRestart.stopped && Board.modelLine(failedRestart) == "Claude Haiku 4.5", "a restart that did not come back is not running, as the board's card")
 func acct(_ a: String) -> String? { Board.parseAgentDetails(Data(("{\"agents\":[{\"sessionName\":\"a\",\"account\":" + a + "}]}").utf8), session: "a")?.accountLabel }
 check(acct(#"{"name":"Work","email":"w@x","keyTail":"1234","label":"account-b"}"#) == "Work" && acct(#"{"email":"w@x","label":"account-b"}"#) == "w@x"
       && acct(#"{"keyTail":"1234","label":"account-b"}"#) == "API key ending 1234" && acct(#"{"label":"account-b"}"#) == "account-b", "the board's acctParenthetical order")
@@ -63,6 +67,7 @@ check(Board.profileSaveRequest(mac: mac, session: "cleo", name: "  ", role: "", 
 let long = Board.profileSaveRequest(mac: mac, session: "cleo", name: String(repeating: "n", count: 81), role: String(repeating: "r", count: 90), shownName: "Cleo")
 let longBody = long?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
 check((longBody?["displayName"] as? String)?.count == 80 && (longBody?["role"] as? String)?.count == 80, "over the route's 80: cut to 80, as the board's Save (never a false no-answer)")
+check(Board.capped(String(repeating: "😀", count: 50)).utf16.count == 80 && Board.capped(String(repeating: "😀", count: 50)).count == 40, "80 in UTF-16 units, the route's count, cut between whole emoji")
 check(Board.profileSaveRequest(mac: mac, session: "../x", name: "A", role: "", shownName: "B") == nil, "a session that is not one: no request")
 check(Board.profileSaveResult(status: 200, body: Data(#"{"role":"x"}"#.utf8)) == .saved("Saved."), "saved")
 func said(_ json: String, running: Bool = true, before: String = "Bob", typed: String = "Scarlet") -> String {
@@ -71,6 +76,7 @@ func said(_ json: String, running: Bool = true, before: String = "Bob", typed: S
 }
 check(said(#"{"renamed":{"changed":true,"ok":true,"was":"Bob"}}"#) == "Saved. Bob will not answer to Scarlet until you restart it. You can restart it from your computer.", "renamed while running: both names, and where to restart")
 check(said(#"{"renamed":{"changed":true,"ok":true}}"#, before: "Scarlet") == "Saved. Its instructions say the new name too, so restart it when you are ready and it will know.", "running, name not edited here: the board's sentence")
+check(said(#"{"renamed":{"changed":true,"ok":true,"was":""}}"#) == "Saved. Bob will not answer to Scarlet until you restart it. You can restart it from your computer.", "an empty was falls back to the shown name, as the board's ren.was || wasCalled")
 check(said(#"{"renamed":{"changed":true,"ok":true,"was":"Bob"}}"#, running: false) == "Saved. It will know its new name when it next starts.", "stopped: no restart claim")
 check(said(#"{"renamed":{"changed":false,"ok":false,"because":"we could not update its instructions"}}"#) == "Saved here, but we could not update its instructions.", "a partial save says so")
 check(said(#"{"reports":{"state":"told"}}"#, typed: "Bob") == "Saved. They are running on what they read when they started, so restart them to use it now." && said(#"{"reports":{"state":"told"}}"#, running: false, typed: "Bob") == "Saved.", "reports-to told: restart only while running")
@@ -86,10 +92,11 @@ check(Board.profileSaveResult(status: 200, body: Data("<html>".utf8)) == .refuse
 check(Board.profileSaveResult(status: 0, body: nil) == .noAnswer, "no answer")
 
 section("instructions and skills")
-check(Board.parseInstructions(Data(#"{"exists":false,"text":""}"#.utf8)) == "", "none yet: empty, not unreadable")
+check(Board.parseInstructions(Data(#"{"exists":false,"editable":true,"text":""}"#.utf8)) == "", "no file yet: empty, not unreadable")
+check(Board.parseInstructions(Data(#"{"exists":false,"editable":false,"because":"it is a link"}"#.utf8)) == nil, "a file that cannot be read is never \"no instructions yet\" (review 2)")
 check(Board.parseInstructions(Data(#"{"exists":true,"text":"Be kind."}"#.utf8)) == "Be kind.", "the text")
 check(Board.parseInstructions(Data("x".utf8)) == nil, "unreadable")
-check(Board.parseSkills(Data(#"{"ok":true,"skills":[{"name":"Minutes","key":"minutes"},{"name":""}]}"#.utf8)) == ["Minutes"], "the skills' names")
+check(Board.parseSkills(Data(#"{"ok":true,"skills":[{"name":"Minutes","key":"minutes"},{"name":"Minutes","key":"minutes-2"},{"name":""}]}"#.utf8))?.map(\.key) == ["minutes", "minutes-2"], "the skills, keyed (two may share a name)")
 check(Board.parseSkills(Data(#"{"ok":false,"because":"x"}"#.utf8)) == nil, "the route could not: unreadable, never \"none\"")
 
 section("fresh start")

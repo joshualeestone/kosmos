@@ -14,7 +14,7 @@ struct AgentInfoView: View {
     @State private var details: Board.AgentDetails?
     @State private var readFailed = false
     @State private var instructions: String?
-    @State private var skills: [String]?
+    @State private var skills: [Board.Skill]?
     // Name and role as typed, and what was last read, so Save shows only for a change.
     @State private var nameText = ""
     @State private var roleText = ""
@@ -72,7 +72,7 @@ struct AgentInfoView: View {
             VStack(spacing: 2) {
                 Text(live.name).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                     .multilineTextAlignment(.center)
-                if let role = live.role {
+                if let role = details?.role ?? live.role {   // the saved role first, as the fields show (review 2)
                     Text(role).font(.subheadline).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
                 }
             }
@@ -92,7 +92,8 @@ struct AgentInfoView: View {
     @ViewBuilder private var profile: some View {
         Section {
             TextField("What you call them", text: $nameText)
-                .onChange(of: nameText) { v in if v.count > Board.profileFieldMax { nameText = String(v.prefix(Board.profileFieldMax)) } }
+                .disabled(saving)   // review 2: typing during a save would be marked saved, then overwritten
+                .onChange(of: nameText) { v in let c = Board.capped(v); if c != v { nameText = c } }
                 .textInputAutocapitalization(.words)
                 .foregroundColor(Palette.primary)
         } header: { label("Name") } footer: {
@@ -100,7 +101,8 @@ struct AgentInfoView: View {
         }
         Section {
             TextField("Executive Assistant, Bookkeeper, Researcher…", text: $roleText)
-                .onChange(of: roleText) { v in if v.count > Board.profileFieldMax { roleText = String(v.prefix(Board.profileFieldMax)) } }
+                .disabled(saving)
+                .onChange(of: roleText) { v in let c = Board.capped(v); if c != v { roleText = c } }
                 .foregroundColor(Palette.primary)
         } header: { label("What they do") } footer: {
             Text("Shown under their name, and written into their own instructions.")
@@ -141,7 +143,7 @@ struct AgentInfoView: View {
                 if skills.isEmpty {
                     Text("No skills here yet.").foregroundColor(Palette.secondary)
                 } else {
-                    ForEach(skills, id: \.self) { Text($0).foregroundColor(Palette.primary) }
+                    ForEach(skills) { Text($0.name).foregroundColor(Palette.primary) }
                 }
             } else {
                 unread
@@ -269,7 +271,7 @@ struct AgentInfoView: View {
             Board.profileSaveRequest(mac: $0, session: details.session, name: typed, role: roleText, shownName: before)
         }
         switch Board.profileSaveResult(status: res?.1.statusCode ?? 0, body: res?.0, running: live.running, before: before,
-                                       typed: String(typed.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Board.profileFieldMax))) {
+                                       typed: Board.capped(typed.trimmingCharacters(in: .whitespacesAndNewlines))) {
         case .saved(let said):
             saveLine = (said, true)
             // What was sent is now what the boxes hold, so the read after it refills them with the saved values.
@@ -303,7 +305,7 @@ struct AgentInfoView: View {
         details = d
         fill(d)
         instructions = "You look after the spring catalogue: the cover, the order of the pages, and getting proofs to the printer on time.\n\nAsk before you spend money or send anything outside the team."
-        skills = ["Meeting minutes", "Proof checklist"]
+        skills = [Board.Skill(key: "meeting-minutes", name: "Meeting minutes"), Board.Skill(key: "proof-checklist", name: "Proof checklist")]
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] == "ai" { part = .ai }
     }
     #endif

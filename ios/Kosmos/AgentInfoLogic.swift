@@ -37,7 +37,9 @@ extension Board {
         return AgentDetails(
             session: session,
             name: text(row["name"]) ?? session,
-            role: text(row["role"]),
+            // The person's saved role first, then the line parsed out of the instruction file, as the board reads it
+            // (review 2: the parsed line alone made a saved role look undone, and a name-only save sent it back).
+            role: text(profile?["role"]) ?? text(row["role"]),
             reportsTo: text(profile?["reportsTo"]),
             runner: (row["runner"] as? String) ?? "",
             modelName: text(row["modelName"]),
@@ -49,7 +51,9 @@ extension Board {
             accountLabel: text(account?["name"]) ?? text(account?["email"])
                 ?? text(account?["keyTail"]).map { "API key ending " + $0 } ?? text(account?["label"]),
             running: (row["running"] as? Bool) != false,
-            stopped: (row["state"] as? String) == "stopped")
+            // The board's cardStOf presence off: stopped, or a restart that did not come back (#4006).
+            stopped: (row["state"] as? String) == "stopped"
+                || ((row["state"] as? String) == "needs_you" && ((row["disruption"] as? [String: Any])?["failed"] as? Bool) == true))
     }
 
     // The board's modelLine (web/index.html), with no tense: an attribute of the agent, as on its card (Mona Lisa's
@@ -90,11 +94,20 @@ extension Board {
 
     // MARK: Name and role (PUT /api/agent/<n>/profile, the board's Save under Profile)
 
-    static let profileFieldMax = 80   // the route's cap on both
+    static let profileFieldMax = 80   // the route's cap on both, in UTF-16 units (a JS string's length)
+    // At most 80 UTF-16 units, cut between whole characters, so what is sent is what the route keeps (review 2).
+    static func capped(_ s: String) -> String {
+        var out = ""
+        for ch in s {
+            if out.utf16.count + String(ch).utf16.count > profileFieldMax { break }
+            out.append(ch)
+        }
+        return out
+    }
     static func profileSaveRequest(mac: URL, session: String, name: String, role: String, shownName: String) -> URLRequest? {
         // Cut to the route's 80, as the board's Save does (review 1: refusing here read as "could not reach").
-        let n = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(profileFieldMax))
-        let r0 = String(role.trimmingCharacters(in: .whitespacesAndNewlines).prefix(profileFieldMax))
+        let n = capped(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        let r0 = capped(role.trimmingCharacters(in: .whitespacesAndNewlines))
         guard isAgentSession(session), !n.isEmpty else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/profile", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "PUT"
@@ -124,7 +137,8 @@ extension Board {
         let ren = saved["renamed"] as? [String: Any]
         let changed = (ren?["changed"] as? Bool) == true
         let renameTo = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        let was = ((ren?["was"] as? String) ?? before).trimmingCharacters(in: .whitespacesAndNewlines)
+        let said = ((ren?["was"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let was = said.isEmpty ? before.trimmingCharacters(in: .whitespacesAndNewlines) : said   // the board's ren.was || wasCalled
         let edited = renameTo != before.trimmingCharacters(in: .whitespacesAndNewlines)
         if changed && running && edited && !was.isEmpty && was != renameTo {
             return "Saved. \(was) will not answer to \(renameTo) until you restart it. You can restart it from your computer."
@@ -154,17 +168,23 @@ extension Board {
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
     }
-    // GET .../instructions: "" when the agent has none yet (exists false), nil when the answer cannot be read.
+    // GET .../instructions: "" when the agent has none yet (no file: exists false AND editable, engine/instructions.js
+    // read), nil when the answer or the file cannot be read (exists false and not editable: a link, too big, not text).
     static func parseInstructions(_ data: Data) -> String? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        if (obj["exists"] as? Bool) == false { return "" }
+        if (obj["exists"] as? Bool) == false { return (obj["editable"] as? Bool) == true ? "" : nil }
         return obj["text"] as? String
     }
-    // GET .../skills: the skills' names, nil when the answer cannot be read or says it could not.
-    static func parseSkills(_ data: Data) -> [String]? {
+    // GET .../skills: the skills (key and name; two may share a name), nil when the answer cannot be read or says it
+    // could not.
+    struct Skill: Equatable, Identifiable { let key: String; let name: String; var id: String { key } }
+    static func parseSkills(_ data: Data) -> [Skill]? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (obj["ok"] as? Bool) != false, let list = obj["skills"] as? [[String: Any]] else { return nil }
-        return list.compactMap { ($0["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        return list.compactMap { x in
+            guard let name = x["name"] as? String, !name.isEmpty else { return nil }
+            return Skill(key: (x["key"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? name, name: name)
+        }
     }
 
     // MARK: Fresh start (POST .../compact or .../clear, the board's memoryCommand)

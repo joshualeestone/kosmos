@@ -14,6 +14,9 @@ struct ChatView: View {
     let openOnBoard: () -> Void
     // kosmos#7267: the info button opens the agent's own page (Profile | AI Settings), not the board's copy of this chat.
     @State private var infoOpen = false
+    #if DEBUG
+    static var sampleInfoOpened = false
+    #endif
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var thread: Board.Thread?
@@ -171,7 +174,9 @@ struct ChatView: View {
         // KOSMOS_SAMPLE_INFO=profile|ai with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
         .onAppear {
             let env = ProcessInfo.processInfo.environment
-            if env["KOSMOS_SAMPLE_AGENTS"] == "1", env["KOSMOS_SAMPLE_INFO"] != nil {
+            // Once a launch, so Back leaves the page (review 2: it pushed again each time the chat reappeared).
+            if env["KOSMOS_SAMPLE_AGENTS"] == "1", env["KOSMOS_SAMPLE_INFO"] != nil, !ChatView.sampleInfoOpened {
+                ChatView.sampleInfoOpened = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { infoOpen = true }
             }
         }

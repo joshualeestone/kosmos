@@ -32,3 +32,9 @@ and dark, and never the conversation again.
   (never a false "could not reach"); the account in the board's order (name, email, API key ending, label); a
   Fresh start refused before delivery says the route's words; result lines are announced to VoiceOver; the mark
   scales with text; shots retaken.
+- Round 2 (agentinfo-7267-review2.md): 1 blocker, 2 warnings, 5 nits, all fixed. BLOCKER: the role is the person's
+  saved role first (profile.role), then the file's line, as the board reads it, in the fields and the header. The
+  fields are locked while a save is in flight; "No instructions yet." only when there is no file (an unreadable one
+  says it cannot be read); a failed restart counts as not running for the model line; skills keyed by key; the 80
+  cap counted in UTF-16 units, as the route; an empty `was` falls back to the shown name; the Debug sample opens the
+  page once a launch.
