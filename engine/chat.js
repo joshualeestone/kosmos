@@ -2929,14 +2929,16 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
      - read: while the card reads it, status kicks authprobe (`claude auth status` for the agent's own account, async,
        30 s cache) and drops the auth_failed once that reads HEALTHY (reconcileReport, #1930), and a Windows turn that
        succeeds clears it at the source. So the release needs no turn, which a held queue would never give it.
-   That second story holds only for an account authprobe can check (status.claudeSignInCheckable: a Kosmos job on a
-   Claude account, not a Qwen or vendor home), so any other Claude card is not held, as before. */
+   That second story holds only for an account authprobe can check (a Kosmos job on a Claude account, not a Qwen or
+   vendor home), so any other Claude card is not held, as before. Review 1: and only while that check POSITIVELY reads
+   signed out (status.claudeSignedOutConfirmed: authprobe EXPIRED), never on the label alone, so a re-check in flight
+   (UNCHECKED for a few seconds every 30 s) or an agent printing live 401s over a HEALTHY account holds nothing. */
 function signinHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
   if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED) return null;
   if (String(card.runner || 'claude') === 'claude') {
     if (card.stateReported === true) return null;   // the reported line: never cleared for Claude (above)
-    if (status.claudeSignInCheckable(card.sessionName || sessionName) !== true) return null;   // nothing could release it
+    if (status.claudeSignedOutConfirmed(card.sessionName || sessionName) !== true) return null;   // review 1: the account check must say signed out
   } else if (card.stateReported !== true) {
     return null;   // The REPORTED state only (the seam line): a screen-read auth_failed has no clearing writer on these runners.
   }

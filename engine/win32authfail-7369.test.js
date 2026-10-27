@@ -136,13 +136,15 @@ test('#7369 Windows: a later turn that reached the model and succeeded clears it
   } finally { b.done(); }
 });
 
-test('#7369 Windows: messages are held in Claude\'s words while it reads signed out; CONTROL: not held once it is idle', () => {
+test('#7369 Windows: messages are held in Claude\'s words while it reads signed out; CONTROL: not held once it is idle', async () => {
   const acct = account(subscription.STATE.NONE);
   const b = box('winhold', 'sid-a5', 8005);
   try {
     b.pub.started(8005, 'sid-a5');
     assert.equal(chat.signinHeldVerdict('winhold', b.roster()), null, 'CONTROL: an idle Claude card is not held');
     signedOutTurn(b.pub, NOT_LOGGED_IN);
+    b.roster();   // review 1: the hold waits for the account check's answer; one look kicks it
+    await settle();
     const v = chat.signinHeldVerdict('winhold', b.roster());
     assert.ok(v && v.held === true && v.heldBy === 'limit' && v.heldFor === 'signin', JSON.stringify(v));
     assert.equal(v.because, 'held: it is signed out of Claude; Kosmos sends it once it is signed in again');
@@ -200,4 +202,25 @@ test('#7369 Windows: the token round-trips through the state file (stateFor), af
     pub.event({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: Math.floor(Date.now() / 1000) + 3600, rateLimitType: 'five_hour' } });
     assert.match(win32streamstate.stateFor(name, live), /^limit /, 'out of usage reads first, as on the Mac');
   } finally { pub.stopped(); }
+});
+
+test('#7369 review 1 CONTROLS: an agent QUOTING a sign-in error in its reply, and an error result about tokens, never read signed out', () => {
+  const acct = account(subscription.STATE.NONE);
+  const b = box('winquote', 'sid-a9', 8009);
+  try {
+    b.pub.started(8009, 'sid-a9');
+    // The agent's own prose (debugging someone's auth) ends in a good result.
+    b.pub.wrote();
+    b.pub.event({ type: 'system', subtype: 'init' });
+    b.pub.event({ type: 'assistant', message: { content: [{ type: 'text', text: 'The log says: Invalid API key · Please run /login (401)' }] } });
+    b.pub.event({ type: 'result', subtype: 'success', is_error: false, result: 'The log says: Invalid API key · Please run /login (401)' });
+    assert.notEqual(b.card().state, status.STATE.AUTH_FAILED, 'quoted words in a good turn are not a sign-out');
+    // An error result for another reason that mentions tokens.
+    b.pub.wrote();
+    b.pub.event({ type: 'system', subtype: 'init' });
+    b.pub.event({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'API Error: 400 prompt is too long: 210000 tokens > 200000 maximum' });
+    assert.notEqual(b.card().state, status.STATE.AUTH_FAILED, 'a 400 about tokens is not a sign-out');
+    signedOutTurn(b.pub, NOT_LOGGED_IN);
+    assert.equal(b.card().state, status.STATE.AUTH_FAILED, 'CONTROL: the same box does read a real sign-out');
+  } finally { b.done(); acct.restore(); }
 });

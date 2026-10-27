@@ -8884,6 +8884,18 @@ function claudeSignInCheckable(name) {
   } catch { return false; }
 }
 
+/* #7369 review 1: whether this agent's own account check (the same guards as liveAuthForAuthFailed) POSITIVELY reads
+   signed out right now: authprobe EXPIRED, fresh from its cache. chat.signinHeldVerdict holds a Claude agent only on this,
+   never on the card's label alone: a stale HEALTHY being re-checked reads UNCHECKED for a few seconds every 30 s, and an
+   agent printing live 401s keeps its auth_failed label over a HEALTHY account, and neither may hold a healthy agent's
+   messages. Asking also keeps the check fresh (authprobe kicks a re-check when its entry is old). */
+function claudeSignedOutConfirmed(name, readJobFn, verdictFn) {
+  const ap = require('./authprobe');
+  try {
+    return liveAuthForAuthFailed(name, readJobFn || ((n) => require('./create').readJob(n)), verdictFn || ap.verdict) === ap.EXPIRED;
+  } catch { return false; }
+}
+
 /* #2093: the per-account live-auth verdict for a running codex agent whose screen said nothing
    usable (UNKNOWN). Resolve the agent's OWN codex home from its job and probe that account only.
    Mirrors liveAuthForAuthFailed's discipline exactly: an unresolvable job returns undefined so
@@ -10086,7 +10098,7 @@ module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, split
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignInCheckable, codexLiveAuthFor,
+  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignInCheckable, claudeSignedOutConfirmed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an

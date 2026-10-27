@@ -38,3 +38,11 @@ writes the clearing report, so after a sign-in the agent would stay held for a d
 Per platform with controls: Windows stream (a sign-in error result -> AUTH_FAILED; a usage-limit result and a normal
 result do not); Mac screen AUTH_FAILED Claude card -> held (control: idle Claude card not held; control: non-claude
 behaviour unchanged); release when the probe reads HEALTHY (control: still held while it reads signed out).
+
+## Review 1 (decided)
+- Hold only when the agent's own account check POSITIVELY reads signed out (status.claudeSignedOutConfirmed: authprobe
+  EXPIRED), never on the card label alone. Fixes: a stale HEALTHY being re-checked (UNCHECKED a few seconds every 30 s)
+  no longer flaps a healthy agent into the hold; a Mac agent printing live 401s over a HEALTHY account is not held.
+- Residual, as before #7369: `claude auth status` reads healthy while `claude -p` keeps refusing (a revoked token it
+  still calls logged in). The card may read idle and messages go to a dead session. That is #7212 slice 3's live check
+  (PigeonPete), not this card.

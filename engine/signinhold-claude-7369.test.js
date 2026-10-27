@@ -182,7 +182,35 @@ test('#7369 CONTROL: a non-Claude screen-read auth_failed (no report) is still n
   try {
     const asGrok = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, runner: 'grok' } : c));
     assert.equal(caseyOf(board).state, status.STATE.AUTH_FAILED, 'CONTROL: the fixture is signed out');
+    status.claudeSignedOutConfirmed('casey');   // review 1: the hold needs the account check's answer; ask, let it settle
+    await settle();
     assert.notEqual(chat.signinHeldVerdict('casey', board.agents), null, 'CONTROL: the Claude card is held');
     assert.equal(chat.signinHeldVerdict('casey', asGrok), null, 'a grok card is held only on its report (#5948)');
   } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#7369 review 1: only a POSITIVE signed-out reading confirms; HEALTHY, a re-check in flight and UNKNOWN never do', () => {
+  const job = () => ({ configDir: null });
+  for (const [v, want] of [[authprobe.EXPIRED, true], [authprobe.HEALTHY, false], [authprobe.UNCHECKED, false], [authprobe.UNKNOWN, false]]) {
+    assert.equal(status.claudeSignedOutConfirmed('casey', job, () => v), want, String(v));
+  }
+  assert.equal(status.claudeSignedOutConfirmed('casey', () => null, () => authprobe.EXPIRED), false, 'no job: never confirmed');
+});
+
+test('#7369 review 1: the signed-out screen with the account check RE-CHECKING (stale HEALTHY) holds nothing; confirmed, it holds', async () => {
+  account(subscription.STATE.NONE);
+  await withFleet(SIGNED_OUT_SCREEN, async (board, tmux) => {
+    assert.equal(caseyOf(board).state, status.STATE.AUTH_FAILED, 'CONTROL: a signed-out screen');
+    assert.ok(chat.signinHeldVerdict('casey', board.agents), 'CONTROL: with the check reading signed out it is held');
+    authprobe.resetForTest();
+    authprobe.setChecker(() => new Promise(() => {}));   // a re-check that has not answered yet: UNCHECKED
+    try {
+      assert.equal(chat.signinHeldVerdict('casey', board.agents), null, 'a check in flight is no reason to hold');
+      const d = chat.deliverAutomatic('casey', 'A colleague line.', board.agents);
+      assert.notEqual(d.held, true, JSON.stringify(d));
+      assert.equal(tmux.pastedTo('casey').length, 1, 'typed, as before #7369');
+    } finally {
+      authprobe.setChecker(async () => ({ state: liveAnswer }));
+    }
+  });
 });
