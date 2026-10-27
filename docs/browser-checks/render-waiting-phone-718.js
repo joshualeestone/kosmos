@@ -194,6 +194,9 @@ async function open(browser, opts) {
       await page.addInitScript(([list, files]) => {
         const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
         const rows = Array.from({ length: 8 }, (_, i) => ({ name: 'notes-' + (i + 1) + '.md', modified: Date.now() - i * 60000, size: 1200 }));
+        // Chromium anchors scrolling and absorbs content growing above; WebKit (Safari, the iPhone) does not, which is why
+        // the hold exists. With the late list, anchoring is off so this measures what Safari would see.
+        if (files) document.addEventListener('DOMContentLoaded', () => { const st = document.createElement('style'); st.textContent = '* { overflow-anchor: none !important; }'; document.head.appendChild(st); });
         window.fetch = async (u) => {
           if (String(u).indexOf('/api/status') !== -1) return enc({ agents: list, counts: {}, checkedAt: Date.now() });
           if (files && /\/api\/agent\/[^/]+\/files/.test(String(u))) { await new Promise((r) => setTimeout(r, 600)); return enc({ ok: true, stamp: 'late-7280', files: rows }); }
@@ -217,6 +220,8 @@ async function open(browser, opts) {
           modelShown: !!(document.getElementById('d-sec-model') && !document.getElementById('d-sec-model').hidden),
           modelTop: document.getElementById('d-sec-model') ? Math.round(document.getElementById('d-sec-model').getBoundingClientRect().top) : null,
           fileRows: document.querySelectorAll('#d-files-list > *').length,
+          // Where a scroll lands under the app header on a phone (html scroll-padding-top): the section's correct top.
+          landing: Math.round(parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0),
           filesShown: !!(document.getElementById('d-files') && !document.getElementById('d-files').hidden) };
       });
       await page.close();
@@ -242,13 +247,14 @@ async function open(browser, opts) {
     chk(toModel.detailShown && toModel.current === BASE.sessionName && toModel.modelShown && !toModel.talkShown
       && toModel.modelTop !== null && toModel.modelTop >= 0 && toModel.modelTop < 667,
       '[link/phone] ?tab=detail&agent=&sec=model opens that agent\'s AI Settings, on screen', JSON.stringify(toModel));
-    // Review 1: with the Files list landing late above it, AI Settings is put back at the top (the hold), not left
-    // pushed down. The stimulus must have fired (8 rows painted) or the arm proves nothing. Measured red with the hold
-    // replaced by a one-shot scroll (the first version of this change).
+    // Review 1: with the Files list landing late above it (scroll anchoring off, as on Safari), AI Settings is put back
+    // where a scroll lands, under the app header (scroll-padding-top, 187px at this width), not left pushed down. The
+    // stimulus must have fired (8 rows painted) or the arm proves nothing; the control with the hold replaced by a
+    // one-shot scroll must fail it.
     const toModelFiles = await fromLink([BASE], 3000, '&sec=model', true);
     if (!(toModelFiles.filesShown && toModelFiles.fileRows >= 8)) chk(false, '[link/phone] the late Files list really painted above AI Settings', JSON.stringify(toModelFiles));
-    else chk(toModelFiles.modelShown && toModelFiles.modelTop !== null && toModelFiles.modelTop >= 0 && toModelFiles.modelTop <= 667 / 4,
-      '[link/phone] &sec=model stays at the top when the Files list arrives late above it', JSON.stringify(toModelFiles));
+    else chk(toModelFiles.modelShown && toModelFiles.modelTop !== null && Math.abs(toModelFiles.modelTop - toModelFiles.landing) <= 2,
+      '[link/phone] &sec=model stays where it landed when the Files list arrives late above it', JSON.stringify(toModelFiles));
     for (const sec of ['remove', 'term']) {
       const r = await fromLink([BASE], 2000, '&sec=' + sec);
       chk(r.detailShown && r.talkShown, '[link/phone] &sec=' + sec + ' is not a section a link opens: it lands on the conversation', JSON.stringify(r));
