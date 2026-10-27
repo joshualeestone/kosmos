@@ -55,7 +55,7 @@ jobs:
       - name: Hide every system node, so the install must bring its own
         run: |
           # The hosted image has node on PATH (and in the tool cache); a Linux-family install must not need it.
-          for n in $( (which -a node nodejs 2>/dev/null || true) | sort -u); do sudo mv "$n" "$n.hidden-7281"; done
+          for n in $( (which -a node nodejs 2>/dev/null || true) | sort -u); do sudo mv "$n" "$n.hidden-7281" && echo "$n" >> "$RUNNER_TEMP/hidden-nodes-7281"; done
           if command -v node >/dev/null 2>&1; then echo "FAIL: a system node is still on PATH: $(command -v node)" >&2; exit 1; fi
           echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" >> "$GITHUB_ENV"
 
@@ -111,4 +111,5 @@ jobs:
 
       - name: Put the system node back (the runner is discarded, but say so plainly)
         if: always()
-        run: for f in $(echo "$PATH:/usr/local/bin:/usr/bin" | tr ':' '\n' | sort -u | while read -r d; do ls "$d"/*.hidden-7281 2>/dev/null; done); do sudo mv "$f" "${f%.hidden-7281}"; done
+        # Review 2: from the list the hide step wrote (PATH was reset after hiding, so scanning it would miss some).
+        run: if [ -f "$RUNNER_TEMP/hidden-nodes-7281" ]; then while read -r n; do sudo mv "$n.hidden-7281" "$n" || true; done < "$RUNNER_TEMP/hidden-nodes-7281"; fi
