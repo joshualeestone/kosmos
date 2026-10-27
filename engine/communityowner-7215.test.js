@@ -22,6 +22,9 @@ const http = require('node:http');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-communityowner-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+// The fake community is on loopback, so the coordinator is overridden too: the board links only when both are the
+// defaults or both are overridden. Nothing reaches it: remote.macRequest is stubbed below.
+process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:9';
 const communitystore = require('./communitystore');
 const feedpublish = require('./feedpublish');
 const remote = require('./remote');
@@ -104,6 +107,7 @@ test.beforeEach(async () => {
   cs.setSender((url, init) => fetch(url, init));
   cs.setTimeoutMs(2000);
   cs._ownerLinkReset(15 * 60 * 1000);
+  cs.resetPauses();   // the #4953 limiter pause is module-wide and keyed by agent ('ava' recurs)
   stubRemote();
   be = await backend();
   await cs.sweep();   // Community's on-period starts here; a post from before it is never sent
@@ -314,11 +318,25 @@ test('a site 429 pauses the pass', async () => {
   be.st.mode.headers = { 'retry-after': '99999' };
   await registered('ava');
   await registered('bo');
-  await cs.sweep();
+  const lines = await ownerLogs(() => cs.sweep());
   assert.equal(ownerCalls().length, 1, 'the whole pass waits, not only that agent (bo is not asked)');
+  assert.ok(lines.some((l) => l.includes('asked to slow down (429)')), 'the 429 arm, not the generic one: ' + JSON.stringify(lines));
   await cs.sweep();
   assert.equal(ownerCalls().length, 1, 'asked once, then the pass waits');
   assert.equal(agentNamed('ava').owner, null);
+});
+
+test('production passes only to the production site: a loopback community with the default coordinator links nothing', async () => {
+  await registered('ava');
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;   // the real Kosmos+, with this test's loopback community
+  try {
+    const lines = await ownerLogs(() => cs.sweep());
+    assert.equal(R.mints.length, 0, 'no pass asked for');
+    assert.ok(lines.some((l) => l.includes('not the same deployment')), JSON.stringify(lines));
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was; }
+  await cs.sweep();
+  assert.ok(agentNamed('ava').owner, 'control: with both overridden it links');
 });
 
 test('the site limiter on one agent (rate_limit_exceeded) pauses only that agent, which then spends no mint', async () => {
