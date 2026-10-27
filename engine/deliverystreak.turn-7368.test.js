@@ -34,14 +34,14 @@ function recording() {
 const toolUse = (name, input) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } });
 
 test('#7368: the step names the shell command, or the tool and what it acts on, and nothing for a plain reply', () => {
-  assert.equal(ss.stepOfEvent(toolUse('Bash', { command: 'npm install' })), 'running `npm install`');
+  assert.equal(ss.stepOfEvent(toolUse('Bash', { command: 'npm install' })), 'running "npm install"');
   assert.equal(ss.stepOfEvent(toolUse('Read', { file_path: 'C:\\work\\notes.md' })), 'using Read on C:\\work\\notes.md');
   assert.equal(ss.stepOfEvent(toolUse('WebFetch', {})), 'using WebFetch');
   assert.equal(ss.stepOfEvent({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } }), null, 'a reply with no tool has no step');
   assert.equal(ss.stepOfEvent({ type: 'result' }), null);
   const long = ss.stepOfEvent(toolUse('Bash', { command: 'x'.repeat(500) }));
   assert.ok(long.length <= 80 && long.endsWith('\u2026'), 'a long command is cut to one short line: ' + long.length);
-  assert.equal(ss.stepOfEvent(toolUse('Bash', { command: 'a\n\n  b' })), 'running `a b`', 'one line, whitespace folded');
+  assert.equal(ss.stepOfEvent(toolUse('Bash', { command: 'a\n\n  b' })), 'running "a b"', 'one line, whitespace folded');
 });
 
 test('#7368: a turn begins when the agent goes busy, a message written into it does not restart the clock, and its end clears it', () => {
@@ -52,7 +52,7 @@ test('#7368: a turn begins when the agent goes busy, a message written into it d
   const began = r.last().turnSince;
   assert.ok(typeof began === 'string' && Number.isFinite(Date.parse(began)), 'going busy stamps the turn: ' + began);
   r.pub.event(toolUse('Bash', { command: 'sleep forever' }));
-  assert.equal(r.last().step, 'running `sleep forever`', 'the step is written as it changes');
+  assert.equal(r.last().step, 'running "sleep forever"', 'the step is written as it changes');
   const t0 = Date.now(); while (Date.now() - t0 < 5) { /* let the clock move, so a restarted turn would read differently */ }
   r.pub.wrote();   // the person sends another message into the busy agent
   assert.equal(r.last().turnSince, began, 'a message queued behind the turn does not move its start');
@@ -67,8 +67,8 @@ test('#7368: turnFor reads a busy agent\'s turn from its state file, and nothing
   fs.mkdirSync(dir, { recursive: true });
   const at = (n) => path.join(dir, require('./store').safeKey(n) + '.json');
   const since = new Date(Date.now() - 2 * HOUR).toISOString();
-  fs.writeFileSync(at('ada'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: 1, at: since, turnSince: since, step: 'running `npm install`' }));
-  assert.deepEqual(ss.turnFor('ada'), { since, step: 'running `npm install`' });
+  fs.writeFileSync(at('ada'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: 1, at: since, turnSince: since, step: 'running "npm install"' }));
+  assert.deepEqual(ss.turnFor('ada'), { since, step: 'running "npm install"' });
   fs.writeFileSync(at('bea'), JSON.stringify({ v: 1, state: 'idle', sessionId: 's', pid: 1, at: since, turnSince: since }));
   assert.equal(ss.turnFor('bea'), null, 'CONTROL: an idle agent has no turn, whatever the file still says');
   fs.writeFileSync(at('cal'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: 1, at: since }));
@@ -79,7 +79,7 @@ test('#7368: turnFor reads a busy agent\'s turn from its state file, and nothing
 test('#7368: a turn over an hour with messages placed behind it is a stall that names the step; each condition alone is not', () => {
   ds.resetForTests();
   const now = Date.now();
-  const turn = { since: new Date(now - 2 * HOUR).toISOString(), step: 'running `npm install`' };
+  const turn = { since: new Date(now - 2 * HOUR).toISOString(), step: 'running "npm install"' };
   assert.equal(ds.turnStuckOf('ada', turn, { now }), null, 'a long turn with nothing waiting behind it is not said');
   ds.note('ada', { state: 'placed' }, now - 3 * HOUR);   // placed BEFORE the turn began: not behind it
   assert.equal(ds.turnStuckOf('ada', turn, { now }), null, 'a message placed before the turn is not behind it');
@@ -89,7 +89,7 @@ test('#7368: a turn over an hour with messages placed behind it is a stall that 
   assert.ok(st, 'two messages placed behind a two-hour turn are a stall');
   assert.equal(st.lastWhy, 'turn');
   assert.equal(st.count, 2);
-  assert.equal(st.step, 'running `npm install`');
+  assert.equal(st.step, 'running "npm install"');
   assert.equal(st.since, turn.since);
   const young = { since: new Date(now - 59 * 60 * 1000).toISOString(), step: null };
   assert.equal(ds.turnStuckOf('ada', young, { now }), null, 'CONTROL: under an hour is a long turn, not a stuck one');
@@ -105,7 +105,7 @@ test('#7368: the person is told to restart and send the waiting messages again, 
   assert.match(st.next, /send them again/, 'a restart drops what the process had queued, so they are to be sent again');
   const line = ds.turnLine('ada', st);
   assert.match(line, /^turn-stuck: ada has been on one step since .+, with 1 message waiting behind it\.\n$/);
-  assert.match(ds.turnLine('ada', { ...st, count: 3, step: 'running `x`' }), /\(running `x`\), with 3 messages waiting/);
+  assert.match(ds.turnLine('ada', { ...st, count: 3, step: 'running "x"' }), /\(running "x"\), with 3 messages waiting/);
 });
 
 test('#7368: an agent gone from the board loses its placed times, so one coming back under the name starts clean', () => {

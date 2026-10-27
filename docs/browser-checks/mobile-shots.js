@@ -697,7 +697,7 @@ async function stallRoute(page, data, kind) {
             /* kosmos#7368: a Windows agent on one step for two hours with three messages waiting behind it. */
             a.state = 'working';
             a.deliveryStall = { since: new Date(Date.now() - 2 * 3600e3).toISOString(), count: 3, lastWhy: 'turn',
-              step: 'running `npm install`', words: ds.WHY_WORDS.turn, next: ds.NEXT_WORDS.turn };
+              step: 'running "npm install"', words: ds.WHY_WORDS.turn, next: ds.NEXT_WORDS.turn };
           } else {
             a.state = 'idle';
             a.deliveryStall = { since: new Date(Date.now() - 2 * 3600e3).toISOString(), count: 9, lastWhy: 'menu',

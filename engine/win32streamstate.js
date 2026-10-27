@@ -103,7 +103,7 @@ function stepOfEvent(event) {
     const one = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
     const cut = (v) => (v.length > STEP_MAX ? v.slice(0, STEP_MAX - 1) + '\u2026' : v);
     const cmd = one(input.command);
-    if (cmd) return cut('running `' + cmd + '`');
+    if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
     const target = one(input.file_path) || one(input.path) || one(input.url) || one(input.pattern) || one(input.query);
     return cut('using ' + use.name + (target ? ' on ' + target : ''));
   } catch { return null; }
