@@ -153,7 +153,7 @@ test('#7266 review 2: the app reads a covered create with the door\'s own box te
   const swift = fs.readFileSync(nodePath.join(__dirname, 'ios', 'Kosmos', 'ShellLogic.swift'), 'utf8');
   const door = PAGE.match(/document\.querySelector\('(\.rm-back[^']*)'\)\) return false;/);
   assert.ok(door, 'the board door has its backdrop guard');
-  assert.ok(swift.includes("document.querySelector('" + door[1] + "')) return 'absent'"), 'the app create script uses the same backdrop test');
+  assert.ok(swift.includes("document.querySelector('" + door[1] + "')) return 'covered'"), 'the app create script uses the same backdrop test');
   assert.ok(swift.includes("t.closest('[inert]')"), 'and the same inert-bar test');
 });
 

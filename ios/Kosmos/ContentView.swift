@@ -565,10 +565,12 @@ final class BoardWeb: ObservableObject {
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
+            let current = self.tracker.isCurrent(run.serial)
             if answer == .refused { NSLog("[Tabs] the board refused \(tab)") }
             if let back = self.tracker.answered(serial: run.serial, answer, pageURL: webView.url) { self.answeredTab = back }
-            // kosmos#7266 review 1: a + the board turned down falls back to its section or its create page.
-            switch AppTabs.createFallback(door: door, answer, pageURL: webView.url) {
+            // kosmos#7266 review 1: a + the board turned down falls back to its section or its create page. Review 3: only
+            // for the newest press, so a late answer never loads over what the person opened since.
+            switch current ? AppTabs.createFallback(door: door, answer, pageURL: webView.url) : nil {
             case .projects: self.press(.projects, ready: true, section: true)
             case .load(let url): webView.load(URLRequest(url: url))
             case nil: break

@@ -347,9 +347,11 @@ enum AppTabs {
     // create name refuses it, and the press ends with the page on its own section.
     static func pressScript(door name: String) -> String {
         // kosmos#7266 review 2: a create (the + buttons) refused while a box is up or the bar is inert is not an older
-        // board's "unknown name": it answers absent, so the press waits for the next load like any covered press and is
-        // never sent to a fallback (which would reload the page under the box). The board door's own guards, read here.
-        let covered = Create(rawValue: name) == nil ? "" : "var t = document.getElementById('tabs'); if (!t || t.closest('[inert]') || document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return 'absent'; "
+        // board's "unknown name": it answers 'covered', which answer() reads as no answer (.absent), so the press waits
+        // for the next load like any covered press and never reaches a fallback (which would reload the page under the
+        // box). Review 3: not 'absent', which answer() reads as a page without the door (.noDoor) and DOES fall back.
+        // The board door's own guards, read here.
+        let covered = Create(rawValue: name) == nil ? "" : "var t = document.getElementById('tabs'); if (!t || t.closest('[inert]') || document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return 'covered'; "
         return "(function () { if (typeof window.kosmosAppTab !== 'function') return 'absent'; try { if (window.kosmosAppTab('\(name)') === true) return 'opened'; \(covered)return 'refused'; } catch (e) { return 'refused'; } })()"
     }
 
@@ -499,6 +501,8 @@ struct PressTracker {
     // Every press, every page the app loads itself and every drop take a new number; an answer counts only for the
     // latest, so a late answer to an earlier press can neither end nor move anything newer.
     private(set) var serial = 0
+    // kosmos#7266 review 3: whether an answer is to the newest press (a late one may not act, a fallback included).
+    func isCurrent(_ serial: Int) -> Bool { serial == self.serial }
     // Moves on only when a lock drops the page, so reads of the dropped page are ignored.
     private(set) var generation = 0
     // Moves on with each round of Tasks reads, so only the latest round runs (they do not stack).
