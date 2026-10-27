@@ -3797,6 +3797,29 @@ do {
     _ = any.press(.agents, page: .loading, section: true, door: "new-agent")
     check(any.replay(host: "studio.kosmosplus.com")?.door == "new-agent", "#7266 review 5: CONTROL: a create with no computer named replays on any page")
 }
+do {
+    // Review 6: a failed load of the named computer ends its create; a failed load elsewhere does not (the control).
+    var t = PressTracker()
+    _ = t.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    t.loadFailed(host: "studio.kosmosplus.com")
+    check(t.pending == .agents && t.pendingHost == "laptop.kosmosplus.com", "#7266 review 6: CONTROL: a failed load of another computer leaves the create waiting")
+    t.loadFailed(host: "Laptop.KosmosPlus.com")
+    check(t.pending == nil && t.pendingDoor == nil && t.pendingHost == nil, "#7266 review 6: a failed load of the named computer (any case) ends the create")
+    var u = PressTracker()
+    _ = u.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    check(u.replay(host: "LAPTOP.kosmosplus.com")?.door == "new-agent", "#7266 review 6: the replay's host match ignores case, as createTarget's does")
+    let run = u.press(.agents, page: .ready, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    _ = u.answered(serial: run?.serial ?? -1, .opened, pageURL: URL(string: "https://laptop.kosmosplus.com/"))
+    check(u.pendingHost == nil, "#7266 review 6: an opened create clears its computer")
+    var d = PressTracker()
+    _ = d.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    d.drop(selected: .agents)
+    check(d.pendingHost == nil, "#7266 review 6: a dropped page clears it")
+    var n = PressTracker()
+    _ = n.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    _ = n.press(.agents, page: .ready)
+    check(n.pendingHost == nil, "#7266 review 6: the native tab clears it")
+}
 
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")

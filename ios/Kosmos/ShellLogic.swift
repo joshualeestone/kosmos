@@ -508,7 +508,7 @@ struct PressTracker {
     var replay: (tab: AppTabs.Tab, door: String?, host: String?)? { pending.map { ($0, pendingDoor, pendingHost) } }
     // Review 5: what a load on `host` replays: nothing while the waiting press is for another computer (it keeps waiting).
     func replay(host: String?) -> (tab: AppTabs.Tab, door: String?, host: String?)? {
-        guard pendingHost == nil || pendingHost == host else { return nil }
+        guard pendingHost == nil || pendingHost?.lowercased() == host?.lowercased() else { return nil }
         return replay
     }
     // Whether the latest press's script is running (sent, no answer yet). Only then does the bar not follow the page:
@@ -564,6 +564,17 @@ struct PressTracker {
         let next = AppTabs.afterAnswer(answer, pageURL: pageURL)
         if next.over { pending = nil; pendingDoor = nil; pendingHost = nil }
         return answer == .opened ? pressed : next.barTo
+    }
+
+    // kosmos#7266 review 6: a load of the computer a waiting create was for failed (an offline computer): the create
+    // ends there, so it neither holds the bar through later loads nor opens much later on a retry of that board.
+    mutating func loadFailed(host: String?) {
+        guard let want = pendingHost, want.lowercased() == host?.lowercased() else { return }
+        serial += 1
+        running = false
+        pending = nil
+        pendingDoor = nil
+        pendingHost = nil
     }
 
     // The app is loading a page of its own choosing (an agent tap, a notification): no earlier press may cover it,
