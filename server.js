@@ -7370,6 +7370,10 @@ const server = http.createServer(async (req, res) => {
                    give-up episode is kept only by the helper sweeps over RUNNING agents, and this row is a
                    stopped agent with no live session for a Kosmos helper to have given up on. */
                 ownBound: null,
+                /* #7212 slice 2: and deliveryStall, so the two needs-the-person rules read it here without a strict-shape
+                   miss. Always null here: the card carries a stall only while it reads idle or working, and this row is
+                   an agent with no live session. */
+                deliveryStall: null,
                 /* kosmos#5957 slice 2: a stopped agent is the likeliest to be far behind, so its offline row says so too. */
                 rulesBehind: require('./engine/doctrine').rulesBehind(k.name, profile),
                 /* kosmos#5957 slice 3: and how long it has gone without running, once that is two weeks or more

@@ -8678,6 +8678,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     reachedByChannel: false,
     runner: null,
     lastWorked: null,   // #5959 slice 2: no pane, nothing observed; its page shows no health line
+    deliveryStall: null,   // #7212 slice 2: carried only while a pane card reads idle or working
     task: null,
     state: status.state,
     stateConfidence: status.confidence,
