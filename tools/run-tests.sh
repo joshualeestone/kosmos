@@ -872,25 +872,29 @@ if [ "${_RT_WIN:-0}" = 1 ]; then
     # Arrays read as ${x[@]+"${x[@]}"}: an empty one under set -u is "unbound" in bash before 4.4 (review 3).
     local opts=() extra=() chunk=() base=0 len=0 worst=0 failed=0 rc=0 chunks=0 ran=0 x f prev=""
     for ((i = 0; i < k; i++)); do opts+=("${a[i]}"); done
-    # Trailing arguments (review 3 and 4): an option, and the word after an option without its own =value, go to every
-    # chunk. A word naming one of the suite's files (in any spelling: ./x, the repo's own path) is dropped, since it runs
-    # in its chunk. Anything else (another file, a glob, a folder) would run once per chunk, or rerun files of earlier
-    # chunks that one node --test call would have run once, so it is refused: name such files with --only.
+    # Trailing arguments (reviews 3 to 5): an option goes to every chunk, and so does the word after one of the options
+    # that take a value (listed here; any other option is a flag, so --test-only x.test.js is a flag and a file). A word
+    # naming one of the suite's files (in any spelling: ./x, the repo's own path) is dropped, since it runs in its chunk.
+    # Anything else (another file, a glob, a folder) would run once per chunk, or rerun files of earlier chunks that one
+    # node --test call would have run once, so it is refused: name such files with --only.
     for ((i = k + n; i < ${#a[@]}; i++)); do
       x="${a[i]}"
-      if [ "${x#-}" != "$x" ] || { [ -n "$prev" ] && [ "${prev#*=}" = "$prev" ]; }; then
+      if [ "${x#-}" != "$x" ]; then
         extra+=("$x")
-        if [ "${x#-}" != "$x" ]; then prev="$x"; else prev=""; fi
+        case "$x" in
+          --test-name-pattern|--test-skip-pattern|--test-concurrency|--test-reporter|--test-reporter-destination|--test-shard|--test-timeout|--import|--require|-r|--loader|--experimental-loader|--conditions|-C|--env-file) prev="$x" ;;
+          *) prev="" ;;
+        esac
         continue
       fi
-      prev=""
+      if [ -n "$prev" ]; then extra+=("$x"); prev=""; continue; fi
       f="${x#./}"; f="${f#"$REPO"/}"
       for x in "${KOSMOS_TEST_FILES[@]}"; do [ "$x" = "$f" ] && continue 2; done
       echo "run-tests: on Windows, test files after the suite's own are not taken ('${a[i]}'): the suite runs in chunks, so it would run once per chunk. Name them with --only (#7257)." >&2
       return 2
     done
     for x in ${opts[@]+"${opts[@]}"} ${extra[@]+"${extra[@]}"}; do base=$((base + ${#x} + 3)); done
-    for x in ${opts[@]+"${opts[@]}"}; do
+    for x in ${extra[@]+"${extra[@]}"}; do   # the user's own options (review 5: opts are the runner's, fixed)
       case "$x" in --test-reporter-destination*) echo "run-tests: --test-reporter-destination is written again by each chunk on Windows, so it holds the last chunk's results (#7257)" >&2 ;; esac
     done
     _rt_chunk() {

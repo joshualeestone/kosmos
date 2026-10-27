@@ -154,3 +154,15 @@ test('#7257 review 3: node() expands no array the way bash before 4.4 calls unbo
   assert.match(r.out, /STATUS=127/);
   assert.equal(r.calls.filter((c) => c[0] === '--test').length, 1, 'node cannot run: no later chunk is tried');
 });
+
+test('#7257 review 5: a flag followed by a file is a flag and a file; a value-taking option keeps its value', { skip: !BASH && 'no bash' }, () => {
+  // --test-only takes no value: the listed file after it is dropped, once, and an unknown one is refused
+  const listed = run(FILES, OPTS, ['--test-only', FILES[3]]);
+  assert.match(listed.out, /STATUS=0/);
+  assert.equal(listed.calls.filter((c) => c[0] === '--test').flat().filter((x) => x === FILES[3]).length, 1);
+  const glob = run(FILES, OPTS, ['--test-only', 'engine/tasks*.test.js']);
+  assert.match(glob.out, /STATUS=2/);
+  assert.equal(glob.calls.filter((c) => c[0] === '--test').length, 0);
+  // the user's reporter destination is warned about
+  assert.match(run(FILES, OPTS, ['--test-reporter-destination', 'o.txt']).err, /written again by each chunk/);
+});

@@ -77,3 +77,11 @@ suite has not been run to the end on Windows: many POSIX-only files fail there, 
   with no files runs every test; there is never a call with no files now. NITs: the reporter warning reads options before
   the files only; the not-run count has no trailing files to miscount. End to end with the stand-in: full 1,844 once,
   ./engine/tasks.test.js once, --only once. 9/9; the new tests fail on round 3.
+- Round 5: 1 BLOCKER, 1 WARNING, 1 NIT, all FIXED. BLOCKER: "the word after an option" took a file after a FLAG
+  (--test-only engine/x.test.js) for the flag's value, so it went to every chunk (and a glob there too). Now only options
+  that take a value (a fixed list: the name/skip patterns, concurrency, reporter, reporter destination, shard, timeout,
+  import, require, loader, conditions, env-file) keep the next word; after any other option the word is checked as a
+  file (dropped if listed, refused otherwise). WARNING: the reporter-destination warning read the runner's own options,
+  so it never fired for the user's; it reads the user's now. NIT: the comments say what the code does. No caller in the
+  repo passes run-tests.sh node arguments (package.json, workflows, queued-heavy.sh). 10/10; the new test fails on
+  round 4.
