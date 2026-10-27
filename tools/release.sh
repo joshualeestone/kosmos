@@ -444,11 +444,18 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 . "$REPO/tools/lib/pointer-freeze.sh"
 pointer_freeze_refuse "$SITE" release.sh || exit 1
 # kosmos#7349: step 1b-ii's two What's New checks, in one function so the early run below and 1b-ii cannot drift.
-# 0 goes on; 1 stops (the tools say why on stderr). prod-check's 4 (prod could not be read) goes on; $1 = note says so.
+# 0 goes on; 1 stops (the tools say why on stderr). prod-check's 4 (prod could not be read) goes on; $1 = note says so,
+# and $1 = quiet keeps prod-check's reason for a 4 to itself too (it would read as an error with no "goes on" beside it).
+_whats_new_prod_check() { node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json"; }
 whats_new_gate() {
   node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" --platform=mac || return 1
-  local pc=0
-  node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json" || pc=$?
+  local pc=0 err
+  if [ "$1" = quiet ]; then
+    err="$(_whats_new_prod_check 2>&1 >/dev/null)" || pc=$?
+    [ "$pc" = 0 ] || [ "$pc" = 4 ] || printf '%s\n' "$err" >&2
+  else
+    _whats_new_prod_check || pc=$?
+  fi
   case "$pc" in
     0) ;;
     4) [ "$1" != note ] || echo "NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on." ;;
@@ -460,7 +467,7 @@ whats_new_gate() {
 # to be where that was found, with the machine claimed. Quiet when it passes (1b-ii prints the result); 1b-ii still runs,
 # since the checkout can move during the waits. KOSMOS_CUT_NO_WHATS_NEW=1 skips both, as before.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ] && ! whats_new_gate quiet >/dev/null; then
-  echo "release: stopped before marking the cut or claiming the machine (kosmos#7349): step 1b-ii's What's New check refuses $V (above). After a prod promote: node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again. Nothing was claimed, bumped or built." >&2
+  echo "release: stopped before marking the cut or claiming the machine (kosmos#7349): step 1b-ii's What's New check refuses $V (above). After a prod promote: node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again (if that build is already on origin/main, fast-forward this checkout instead). Nothing was claimed, bumped or built." >&2
   exit 1
 fi
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
@@ -2184,6 +2191,9 @@ fi
 # live). Best-effort: the release already shipped, so a hook non-zero must not fail the cut.
 if [ "$CUT_CHANNEL" = prod ]; then
   echo ""
+  # kosmos#7349: a prod cut moves prod as a promote does, so the What's New pool is now behind what prod serves, and
+  # the next cut stops at its first What's New check until a fresh build merges. Said where the operator can act.
+  echo "NEXT: prod serves $V now, so node tools/whats-new-pool.js build <the next cut's version> on a branch, merged to main. It records $V's highlights as shown; until it merges, every cut stops at its What's New check (kosmos#7349)."
   KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$MAIN_REPO/tools/post-release-notes.sh" "$V" --publish \
     || echo "post-release-notes: hook returned non-zero (the release still shipped; this is best-effort)"
 fi
