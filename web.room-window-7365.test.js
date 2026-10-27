@@ -18,7 +18,7 @@ const SRC = [
   liftConst(SCRIPT, 'PJ_WIN_PAGE'),
   liftConst(SCRIPT, 'PJ_WIN'),
   liftConst(SCRIPT, 'THREAD_BOTTOM_SLACK'),
-  liftAll(SCRIPT, ['pjWinReset', 'pjWinOlderLine', 'pjWinMerge', 'pjWinRead', 'pjWinEarlier', 'loadRoom']),
+  liftAll(SCRIPT, ['pjWinReset', 'pjWinOlderLine', 'pjWinMerge', 'pjWinNoteReactions', 'pjWinRead', 'pjWinEarlier', 'loadRoom']),
 ].join('\n');
 
 /* A room of `n` posts, one second apart (so every key is "<at>|0"), paged as the server pages it. */
@@ -64,7 +64,7 @@ function harness(room, project = 'proj') {
   };
   vm.createContext(ctx);
   vm.runInContext('var PJ_CURRENT = ' + JSON.stringify(project) + '; var PJ_ROOM_GEN = 0; var PJ_ROOM_QUERY = "";\n' + SRC
-    + '\nthis.api = { loadRoom, pjWinEarlier, pjWinMerge, pjWinReset, PJ_WIN, set query(q) { PJ_ROOM_QUERY = q; }, set current(p) { PJ_CURRENT = p; } };', ctx);
+    + '\nthis.api = { loadRoom, pjWinEarlier, pjWinMerge, pjWinReset, pjWinNoteReactions, PJ_WIN, set query(q) { PJ_ROOM_QUERY = q; }, set current(p) { PJ_CURRENT = p; } };', ctx);
   return { api: ctx.api, box, painted, anchors };
 }
 const ids = (body) => JSON.parse(JSON.stringify(body.rows.map((r) => r.id)));   // out of the vm realm
@@ -191,4 +191,17 @@ test('#7365 review 1: a reader on the floor NOW is not anchored when a gap lands
   await h.api.loadRoom();   // the box is on the floor (its default)
   assert.equal(h.anchors.restored, restoredBefore, 'no anchor pulls a floor reader off the newest row');
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1050));
+});
+
+test('#7365 review 1: a reaction made here on an earlier page\'s post is kept in the held row', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  await h.api.pjWinEarlier();   // 601 to 800 held
+  h.api.pjWinNoteReactions('proj', 'p700', [{ emoji: '👍', count: 1, who: ['you'], mine: true }], null);
+  await h.api.loadRoom();   // the next poll rebuilds from the held rows
+  const row = h.painted.at(-1).rows.find((r) => r.id === 'p700');
+  assert.equal(row.reactions[0].emoji, '👍');
+  h.api.pjWinNoteReactions('other-project', 'p701', [{ emoji: '🔥', count: 1, who: ['you'], mine: true }], null);
+  assert.equal('reactions' in h.api.PJ_WIN.older.find((r) => r.id === 'p701'), false, 'another project\'s answer touches nothing');
 });
