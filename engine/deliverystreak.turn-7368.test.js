@@ -324,3 +324,19 @@ test('#7368 seam: a hung MCP call, as Claude Code 2.1.312 streams it, stays the 
   r.pub.event(toolResult(id));
   assert.equal(r.last().queued, undefined, 'CONTROL: the call returning does take them');
 });
+
+test('#7368 seam: a refused tool call, as Claude Code 2.1.312 streams it, closes its call and takes the waiting message', () => {
+  // Measured 10-27 with a permissions deny rule: a system event (subtype permission_denied) whose message is a plain
+  // string, then a main-agent tool_result with is_error true for the refused call.
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.event(init);
+  r.pub.event(toolUse('Bash', { command: 'echo hi' }));
+  const id = lastId;
+  r.pub.wrote();
+  assert.equal(r.last().queued, 1);
+  assert.doesNotThrow(() => r.pub.event({ type: 'system', subtype: 'permission_denied', message: 'Permission to use Bash with command echo hi has been denied.' }));
+  assert.equal(r.last().queued, 1, 'the denial notice alone closes nothing');
+  r.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, is_error: true, content: 'Permission to use Bash with command echo hi has been denied.' }] } });
+  assert.equal(r.last().queued, undefined, 'the refused result closes the call like any other');
+});
