@@ -19,11 +19,16 @@ const { callRuns, commandRuns } = require('./tools/lib/schtasks-call.cjs');
 const { realToolInScript, refusedCall } = require('./test-support/tool-guard');
 
 const b64 = (s) => Buffer.from(s, 'utf16le').toString('base64');
-/* tool-guard's verdict is POSIX-shaped: a word is a path only when it has a '/', its name must be exactly gh, vercel
-   or cloudflared (so gh.exe never matches), and a bare name resolves only to an executable file on PATH. It does not
-   judge Windows paths, although tools/run-tests.sh preloads it on Windows too (#7318). So on win32 its arms here are
-   skipped and the schtasks arms still run (measured on Homer's box, 10-27). */
-const TOOL_GUARD_HOST = process.platform !== 'win32';
+/* The stand-in for a real gh: a POSIX script with an execute bit, or on Windows gh.cmd, which is what PATH and PATHEXT
+   find there (#7318: tool-guard reads Windows paths, extensions and PATH lookup). */
+const WIN = process.platform === 'win32';
+const GH = WIN ? 'gh.cmd' : 'gh';
+const writeGh = (dir) => {
+  const p = path.join(dir, GH);
+  fs.writeFileSync(p, WIN ? '@echo off\r\n' : '#!/bin/sh\n');
+  fs.chmodSync(p, 0o755);
+  return p;
+};
 
 test('#7262: the words a call runs are the ones in command position, not its arguments', () => {
   assert.deepEqual(lineWords('X=1 nohup gh auth status'), ['nohup', 'gh']);
@@ -123,10 +128,9 @@ test('#7262: fill substitutes the program once, so an encoded row survives a bas
   assert.equal(Buffer.from(args[1], 'base64').toString('utf16le'), `${p} x`);
 });
 
-test('#7262: tool-guard judges a BARE name by the call\'s PATH through the shared reader (review 1)', { skip: !TOOL_GUARD_HOST && 'tool-guard does not judge Windows paths or executables (#7318)' }, () => {
+test('#7262: tool-guard judges a BARE name by the call\'s PATH through the shared reader (review 1)', () => {
   const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cmdwords-7262-path-'));
-  fs.writeFileSync(path.join(stub, 'gh'), '#!/bin/sh\n');
-  fs.chmodSync(path.join(stub, 'gh'), 0o755);
+  writeGh(stub);
   try {
     const env = { PATH: stub };
     // Without the stand-in marked real, a PATH-stub fake is allowed: the CONTROL.
@@ -145,9 +149,7 @@ test('#7262: tool-guard judges a BARE name by the call\'s PATH through the share
 
 test('#7262: both guards give the same answer for every call shape (the readers cannot drift)', () => {
   const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cmdwords-7262-'));
-  const gh = path.join(stub, 'gh');
-  fs.writeFileSync(gh, '#!/bin/sh\n');
-  fs.chmodSync(gh, 0o755);
+  const gh = writeGh(stub);
   process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = stub;   // the stand-in counts as a real install
   try {
     for (const [shape, runs] of SHAPES) {
@@ -156,7 +158,6 @@ test('#7262: both guards give the same answer for every call shape (the readers 
       const t = fill(shape, gh);
       const sched = typeof s === 'string' ? commandRuns(s) : callRuns(s[0], s[1], s[2]);
       assert.equal(sched, runs, `schtasks guard on ${label}`);
-      if (!TOOL_GUARD_HOST) continue;   // nothing tool-guard does on Windows is measured here (#7318)
       const tool = (typeof t === 'string' ? realToolInScript(t) : refusedCall(t[0], t[1], t[2])) === 'gh';
       assert.equal(tool, runs, `tool guard on ${label}`);
     }
@@ -228,4 +229,40 @@ test('#7320 review 4: the env -S memo tells apart word lists that join to the sa
   assert.equal(callRuns('env', ['-S', 'env -S -u', 'x" "schtasks']), true);
   // CONTROL: the one-argument form alone runs nothing
   assert.equal(callRuns('env', ['-S', '-u', 'x" "schtasks']), false);
+
+test('#7318: tool-guard reads Windows names, paths and PATH lookup on Windows, and only there', () => {
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-7318-'));
+  try {
+    if (!WIN) {
+      // CONTROL: the POSIX reading is unchanged; gh.exe is not gh, and a backslash is not a path separator.
+      assert.equal(refusedCall('/opt/x/gh.exe', []), null);
+      assert.equal(refusedCall('/opt/x/gh', []), 'gh');
+      return;
+    }
+    const bin = path.join(stub, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh.exe'), '');
+    fs.writeFileSync(path.join(bin, 'vercel.cmd'), '@echo off\r\n');
+    fs.writeFileSync(path.join(bin, 'cloudflared.ps1'), '');   // not on PATHEXT: not something PATH lookup runs
+    // Not real yet: a stand-in under the temp dir is a fake (the CONTROL), whichever way it is spelled.
+    assert.equal(refusedCall(path.join(bin, 'gh.exe'), []), null);
+    assert.equal(refusedCall(path.join(bin, 'gh.exe').toUpperCase(), []), null, 'the allowed roots compare case-insensitively');
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = bin;
+    // A path with a backslash or a drive letter, any case, any PATHEXT extension.
+    assert.equal(refusedCall(path.join(bin, 'gh.exe'), ['auth', 'status']), 'gh');
+    assert.equal(refusedCall(path.join(bin, 'GH.EXE'), []), 'gh');
+    assert.equal(refusedCall(path.join(bin, 'vercel.cmd'), ['whoami']), 'vercel');
+    assert.equal(realToolInScript('"' + path.join(bin, 'gh.exe') + '" auth status'), 'gh');
+    // A bare name through PATH plus PATHEXT, with PATH spelled as a copy of process.env spells it (Path).
+    assert.equal(refusedCall('gh', ['x'], { env: { Path: bin, PATHEXT: '.COM;.EXE;.BAT;.CMD' } }), 'gh');
+    assert.equal(refusedCall('vercel', ['x'], { env: { PATH: bin } }), 'vercel', 'PATHEXT defaults when the env has none');
+    assert.equal(realToolInScript('cmd /c "vercel whoami"', undefined, { PATH: bin }), 'vercel');
+    // CONTROL: a name PATH plus PATHEXT does not find, and a tool named only in an argument.
+    assert.equal(refusedCall('cloudflared', [], { env: { PATH: bin } }), null);
+    assert.equal(refusedCall('git', ['commit', '-m', 'fix gh.exe'], { env: { PATH: bin } }), null);
+    assert.equal(refusedCall('gh', ['x'], { env: { PATH: path.join(stub, 'empty') } }), null, 'a name found nowhere runs nothing');
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
 });

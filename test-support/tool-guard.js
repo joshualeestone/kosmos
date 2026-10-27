@@ -52,8 +52,36 @@ const TOOLS = {
 // #7262: the words a call runs as commands, shared with the Windows scheduler guard.
 const { callWords, lineWords } = require(path.join(__dirname, '..', 'tools', 'lib', 'command-words.cjs'));
 const REPO = path.resolve(__dirname, '..');
-const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+/* #7318: on Windows a program is gh.exe or vercel.cmd (any PATHEXT extension, in any case), a path may use \ or a
+   drive letter, a bare name is found in the current directory and then on PATH with each PATHEXT extension, and paths
+   and variable names compare case-insensitively. Everywhere else the POSIX reading below is unchanged. */
+const WIN = process.platform === 'win32';
+// realpathSync.native on Windows also expands an 8.3 short name (C:\Users\RUNNER~1), so a fake under the temp dir
+// is still seen under it however the temp dir is spelled.
+const real = (p) => { try { return WIN ? fs.realpathSync.native(p) : fs.realpathSync(p); } catch { return path.resolve(p); } };
 const ALLOWED_ROOTS = [real(REPO), real(os.tmpdir()), path.resolve(os.tmpdir())];
+// A variable from an env object: on Windows names are case-insensitive, and a copy of process.env keeps "Path".
+function envVar(vars, name) {
+  if (!WIN) return vars[name];
+  const k = Object.keys(vars).find((x) => x.toUpperCase() === name.toUpperCase());
+  return k === undefined ? undefined : vars[k];
+}
+function pathExts(vars) {
+  return String(envVar(vars, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map((e) => e.toLowerCase());
+}
+// The tool a file name is, or null: exactly gh / vercel / cloudflared, or on Windows any case with a PATHEXT extension.
+function toolName(base, vars) {
+  if (!WIN) return Object.prototype.hasOwnProperty.call(TOOLS, base) ? base : null;
+  const lower = base.toLowerCase();
+  const exts = pathExts(vars);
+  return Object.keys(TOOLS).find((n) => lower === n || exts.some((e) => lower === n + e)) || null;
+}
+const isPathWord = (w) => (WIN ? /[\\/]/.test(w) || /^[A-Za-z]:/.test(w) : w.includes('/'));
+const within = (where, root) => {
+  const a = WIN ? where.toLowerCase() : where;
+  const b = WIN ? root.toLowerCase() : root;
+  return a === b || a.startsWith(b + path.sep);
+};
 
 // One command word: is it a real tool? `cwd` resolves a relative path the way the spawn will.
 function realToolIn(word, cwd, env) {
@@ -61,16 +89,16 @@ function realToolIn(word, cwd, env) {
   // Expand $VAR / ${VAR} from the call's env (else this process's) and drop quotes, so a fake
   // reached as "$TMPDIR"/fake/gh resolves where the shell will put it.
   const vars = env || process.env;
-  const w = word.replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (m, k) => (vars[k] != null ? String(vars[k]) : m))
+  const w = word.replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (m, k) => (envVar(vars, k) != null ? String(envVar(vars, k)) : m))
     .replace(/['"]/g, '').replace(/^\(+|[);]+$/g, '');
-  const base = path.basename(w);
-  if (!Object.prototype.hasOwnProperty.call(TOOLS, base)) return null;
+  const name = toolName(path.basename(w), vars);
+  if (!name) return null;
   let where;
-  if (!w.includes('/')) {
+  if (!isPathWord(w)) {
     // A bare name runs whatever the CALL's PATH finds first. Refuse only if that is a real
     // install; a PATH-stub dir of fakes (the standard pattern) is allowed, and a name found
     // nowhere would not run at all.
-    const found = onPath(w, vars.PATH);
+    const found = onPath(w, envVar(vars, 'PATH'), vars, cwd);
     if (!found) return null;
     where = real(found);
   } else {
@@ -79,11 +107,27 @@ function realToolIn(word, cwd, env) {
   // Test seam (the guard's own test only): dirs whose tools count as REAL installs even under the
   // temp dir, so the refusal can be proven with a harmless stand-in instead of the operator's CLI.
   const realDirs = String(process.env.KOSMOS_TOOL_GUARD_REAL_DIRS || '').split(path.delimiter).filter(Boolean).map(real);
-  if (realDirs.some((r) => where === r || where.startsWith(r + path.sep))) return base;
-  if (ALLOWED_ROOTS.some((r) => where === r || where.startsWith(r + path.sep))) return null;
-  return base;
+  if (realDirs.some((r) => within(where, r))) return name;
+  if (ALLOWED_ROOTS.some((r) => within(where, r))) return null;
+  return name;
 }
-function onPath(name, pathVar) {
+function onPath(name, pathVar, vars, cwd) {
+  if (WIN) {
+    // Windows: the current directory first, then PATH; a name with no PATHEXT extension is tried with each one, and
+    // what runs is any regular file (no execute bit there).
+    const exts = pathExts(vars || {});
+    const lower = name.toLowerCase();
+    const tries = exts.some((e) => lower.endsWith(e)) ? [name] : exts.map((e) => name + e);
+    for (const dir of [cwd || process.cwd()].concat(String(pathVar || '').split(';'))) {
+      const d = dir.replace(/^"|"$/g, '');
+      if (!d) continue;
+      for (const t of tries) {
+        const p = path.join(d, t);
+        try { if (fs.statSync(p).isFile()) return p; } catch { /* next */ }
+      }
+    }
+    return null;
+  }
   for (const dir of String(pathVar || '').split(path.delimiter)) {
     if (!dir) continue;
     const p = path.join(dir, name);
