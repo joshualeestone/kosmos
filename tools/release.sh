@@ -908,10 +908,14 @@ release_linux_decide "$SITE" "$CUT_CHANNEL" || exit 1
 # 0.7.71 cut, 2026-10-27: the decision is CUT_LINUX from here on. Exported, the variable reached step 3's suite, and
 # every test that runs a nested release.sh tried to cut the Linux family there and stopped at 1d-linux (9 reds).
 unset KOSMOS_CUT_LINUX
-# kosmos#7363: step 3's suite runs with EVERY KOSMOS_CUT_* removed, not one variable at a time per incident. They are
-# this cut's own overrides (KOSMOS_CUT_CHANNEL at 0.7.25 and KOSMOS_CUT_LINUX at 0.7.71 each reached the suite, where
-# tests that run a nested release.sh obeyed them and the cut aborted); the suite must test the tree, not this cut's
-# settings. Every exported name with the prefix, so one added later is covered too. ${a[@]+...}: bash 3.2 under set -u.
+# kosmos#7363 cut_suite helpers START (lifted verbatim between these markers by tools/test-cut-suite-env-7363.sh and
+# tools/test-cut-parallel-region.sh, whose step-3 region calls them)
+# Step 3's suite runs with EVERY KOSMOS_CUT_* removed, not one variable at a time per incident. They are this cut's own
+# overrides (KOSMOS_CUT_CHANNEL at 0.7.25 and KOSMOS_CUT_LINUX at 0.7.71 each reached the suite, where tests that run a
+# nested release.sh obeyed them and the cut aborted); the suite must test the tree, not this cut's settings. Every
+# exported name with the prefix, so one added later is covered too. NOT covered: overrides without the prefix
+# (KOSMOS_ALLOW_VERSION_JUMP is unset above; KOSMOS_ALLOW_STALE_TUNNEL, KOSMOS_SETUP_FLOOR_TEST, KOSMOS_TUNNEL_BIN and
+# others still reach the suite, and the tests that run a nested release.sh drop them by name). ${a[@]+...}: bash 3.2.
 cut_suite_env() {
   local v strip=()
   for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) strip+=(-u "$v") ;; esac; done
@@ -924,6 +928,7 @@ cut_suite_unset() {
   local v
   for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) unset "$v" ;; esac; done
 }
+# kosmos#7363 cut_suite helpers END
 LINUX_TUNNEL_BIN="${KOSMOS_TUNNEL_LINUX_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel-linux-x86_64}"
 LINUX_CONNECTOR_COMMIT=""
 if [ "$CUT_LINUX" = yes ]; then
@@ -1147,6 +1152,7 @@ kosmos_gate_or_abort "the gated steps (the suite and the headless page layer)" |
 # its guarantee (contention makes false reds, never false greens) holds exactly as
 # in serial mode.
 # >>> #2760-P1 gated-steps region START (extracted verbatim by tools/test-cut-parallel-region.sh, which drives it under stubs to prove a red suite or red page still aborts in BOTH modes) >>>
+# (kosmos#7363: it calls cut_suite_env and cut_suite_unset, defined above between the cut_suite helpers markers.)
 _cut_parallel=0
 if kosmos_cut_parallel_ok; then _cut_parallel=1; fi
 if [ "$_cut_parallel" = 1 ]; then

@@ -15,7 +15,10 @@ them. `${a[@]+...}` keeps an empty list safe under set -u on macOS bash 3.2.
 ## Rejected
 - Unsetting the variables in release.sh before step 3 (the #7340 shape): some are read after step 3 (KOSMOS_CUT_PARALLEL
   decides the path itself; the renew settings run all cut long), so they cannot be unset in the cut's own shell.
-- A list of names: it is the per-variable shape that let each new one through; the prefix closes the class.
+- A list of names: it is the per-variable shape that let each new one through; the prefix closes it for every
+  KOSMOS_CUT_* name. Residual, not this card: operator overrides WITHOUT the prefix (KOSMOS_ALLOW_STALE_TUNNEL,
+  KOSMOS_SETUP_FLOOR_TEST, KOSMOS_TUNNEL_BIN and others) still reach the suite and are dropped by name in the tests that
+  run a nested release.sh; KOSMOS_ALLOW_VERSION_JUMP is unset before step 3.
 - Stripping the 3b page layer's environment as well: 3b reads no KOSMOS_CUT_* (none in tools/browser-checks.sh or
   docs/browser-checks, checked in review 1), and runs no nested release.sh; widened only if that changes.
 
@@ -50,3 +53,14 @@ validation run will show it; a test that did would have been reading the operato
      so. Nobody exports such a KOSMOS_CUT_*.
    - NITs left: the call-site pin counts `yarn test >"$_suite_log"` lines only (a new suite run with another redirect
      would not be counted); the first grep -q '^}$' checks either function's closing line.
+3. (default, 15:2x CDT) 0 BLOCKERs, 2 WARNINGs, 3 NITs; both WARNINGs and NITs 1, 2 applied.
+   - (W1) the awk lift of the helpers had no upper bound: a changed closing line would lift the rest of release.sh
+     (reviewer measured 1,302 lines, failing closed only by luck). Both helpers now sit between `# kosmos#7363
+     cut_suite helpers START/END` markers, and both tests lift between them and refuse a block that is empty, has no
+     END marker or runs past 40 lines (mutation-proven: without the END marker both refuse at 1,319 lines).
+   - (W2) "the prefix closes the class" overclaimed: it closes every KOSMOS_CUT_* name; overrides without the prefix
+     (KOSMOS_ALLOW_STALE_TUNNEL, KOSMOS_SETUP_FLOOR_TEST, KOSMOS_TUNNEL_BIN, ...) are a stated residual, in the code
+     comment and the plan.
+   - NIT 1: the region's START marker names the two helpers it calls. NIT 2: the test checks cut_suite_unset is
+     defined before the rerun. NIT 3 (step 4b's test-install.sh inherits KOSMOS_CUT_*, but reads only test seams a cut
+     never sets) recorded, outside step 3.
