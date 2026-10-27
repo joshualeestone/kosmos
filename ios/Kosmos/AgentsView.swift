@@ -28,6 +28,7 @@ struct AgentsView: View {
             content
                 .navigationTitle("Agents")
                 .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) { MacSwitcher(client: client) }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
                             .accessibilityLabel("Add agent")
@@ -475,6 +476,48 @@ enum Palette {
         case .asked: return askedWord
         case .needsYou: return dangerWord
         case .working, .quiet: return secondary
+        }
+    }
+}
+
+// kosmos#7266 slice C: the Kosmos switcher, top left of Agents and Projects. It names the computer whose agents and
+// projects are shown; with two or more on the account it opens a list of them, online or offline, the shown one
+// checked, and choosing one shows that computer (BoardClient.showMac). With one it is the name alone.
+struct MacSwitcher: View {
+    @ObservedObject var client: BoardClient
+
+    var body: some View {
+        let rows = Board.switcherRows(client.macs, shown: client.switcherShown)
+        let name = rows.first(where: \.shown)?.name ?? client.shownMacName ?? client.phase.macName
+        if let name {
+            if rows.count > 1 {
+                Menu {
+                    Section("Your computers") {
+                        ForEach(rows, id: \.address) { row in
+                            Button { client.showMac(address: row.address) } label: {
+                                if row.shown {
+                                    Label { Text(row.name); Text(row.status) } icon: { Image(systemName: "checkmark") }
+                                } else {
+                                    Text(row.name); Text(row.status)
+                                }
+                            }
+                            .accessibilityLabel("\(row.name), \(row.status)\(row.shown ? ", showing" : "")")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                    }
+                    .foregroundColor(Palette.primary)
+                }
+                .accessibilityLabel("Showing \(name)")
+                .accessibilityHint("Choose another computer")
+            } else {
+                Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    .foregroundColor(Palette.secondary)
+                    .accessibilityLabel("Showing \(name)")
+            }
         }
     }
 }

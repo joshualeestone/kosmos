@@ -465,6 +465,7 @@ struct ProjectsView: View {
             content
                 .navigationTitle("Projects")
                 .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) { MacSwitcher(client: client) }
                     // kosmos#7266 review 1: two items, not one HStack, so each keeps the toolbar's full tap target.
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
                         sortMenu

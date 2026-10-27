@@ -79,6 +79,12 @@ final class BoardClient: ObservableObject {
     private var shownMac: Board.Mac?
     // kosmos#7197: the name of the Mac whose list is shown, for a screen that names it while the phase does not.
     var shownMacName: String? { shownMac?.name }
+    // kosmos#7266: the account's computers as Kosmos+ last listed them, for the switcher, and the one the person chose
+    // there (it wins over the remembered and the most recently seen one while it is usable, Board.pickMac).
+    @Published private(set) var macs: [Board.Mac] = []
+    private var chosenMac: String?
+    // The computer the switcher marks: the shown list's, else the one being opened.
+    var switcherShown: String? { shownMac?.address ?? admitted?.mac.address ?? chosenMac }
     // The Mac to name when the shown list or chat stops updating: the shown one first (the list and its chat are
     // its), the phase's only when no list was shown (Board.failingMacName).
     var failingMacName: String? { Board.failingMacName(shown: shownMacName, phase: phase.macName) }
@@ -160,6 +166,9 @@ final class BoardClient: ObservableObject {
             updatedAt = Date()
             fresh = true
             phase = .live(mac: Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true))
+            // kosmos#7266: two computers for the switcher's shots, the second offline.
+            shownMac = Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true)
+            macs = [shownMac!, Board.Mac(name: "Laptop", address: "laptop.kosmosplus.com", usable: true, connected: false)]
             loadSampleThreads()
             return
         }
@@ -185,6 +194,8 @@ final class BoardClient: ObservableObject {
             updatedAt = nil
             shownMac = nil
             shownOwner = nil
+            macs = []
+            chosenMac = nil
             pictures = [:]
             pictureVersions = [:]
             forgetToday()   // kosmos#7030: no count or tasks while signed out
@@ -242,6 +253,30 @@ final class BoardClient: ObservableObject {
         // Unless a read that started with this pull re-sorted the list, the next live update must not re-sort it under
         // the person's thumb (a read already in the air may have moved updatedAt without re-sorting).
         if sortedTicket <= before { resortNext = false }
+    }
+
+    // kosmos#7266: the switcher. Another computer: the session held for this one (and the kept one) is dropped and the
+    // chosen one opened, remembered for the next launch once it lets this iPhone in. The same one again does nothing.
+    func showMac(address: String) {
+        guard address != switcherShown else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return }
+        #endif
+        chosenMac = address
+        admitted = nil
+        skipSaved = true
+        // The list before is the other computer's: it goes now, so "not answering" never names it over the chosen one
+        // (failingMacName prefers the shown Mac), and its chats, pictures and Today go with it.
+        agents = []
+        updatedAt = nil
+        shownMac = nil
+        stars = nil
+        pictureTask?.cancel()
+        pictures = [:]
+        pictureVersions = [:]
+        forgetChats()
+        forgetToday()
+        start()
     }
 
     func stop() {
@@ -1006,6 +1041,8 @@ final class BoardClient: ObservableObject {
         chatsOwner = nil
         admitted = nil
         shownMac = nil
+        macs = []          // kosmos#7266: another account's computers are never offered
+        chosenMac = nil
         shownOwner = nil
         pictureTask?.cancel()
         pictures = [:]
@@ -1096,8 +1133,9 @@ final class BoardClient: ObservableObject {
         guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
             kosmosPlusFailed(status: status, gen); return nil
         }
-        guard let mac = Board.pickMac(Board.reachableMacs(macs, coordinator: coordinator),
-                                      remembered: env.defaults.string(forKey: Board.rememberedMacKey)) else {
+        self.macs = Board.reachableMacs(macs, coordinator: coordinator)
+        guard let mac = Board.pickMac(self.macs, remembered: env.defaults.string(forKey: Board.rememberedMacKey),
+                                      chosen: chosenMac) else {
             set(.noMac, gen); return nil
         }
         return mac
