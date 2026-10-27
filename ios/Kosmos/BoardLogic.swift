@@ -420,6 +420,42 @@ enum Board {
         return r
     }
 
+    // kosmos#7266 slice B: the person on this Mac, for the Settings tab's picture and the profile page. GET /api/you
+    // answers { state, you: { name, ... } } (engine/you.js read); GET /api/you/avatar answers 200 with the picture, or
+    // 204 when there is none.
+    static let youEvery: TimeInterval = 300
+    static func youRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/you", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    static func youPictureRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/you/avatar", relativeTo: mac)!.absoluteURL)
+        r.setValue("image/*", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    // The saved name, trimmed; nil when the board has none (absent, unreadable, or blank).
+    static func parseYouName(_ data: Data) -> String? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              obj["state"] as? String == "saved",
+              let you = obj["you"] as? [String: Any],
+              let name = (you["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty
+        else { return nil }
+        return name
+    }
+
+    // What the picture read means: a picture, none (204, or a 404 from an older board without the route), or nothing
+    // learned (no answer, the gate's sign-in page, a 5xx), which keeps what was shown.
+    enum YouPicture: Equatable { case picture(Data), none, unknown }
+    static func youPicture(status: Int?, contentType: String?, data: Data?) -> YouPicture {
+        guard let status else { return .unknown }
+        if status == 204 || status == 404 { return .none }
+        if (200...299).contains(status), (contentType ?? "").lowercased().hasPrefix("image/"), let data, !data.isEmpty { return .picture(data) }
+        return .unknown
+    }
+
     // The same agent-name characters a notification tap accepts.
     static func isAgentSession(_ s: String) -> Bool { PushBridge.isAgentSession(s) }
 

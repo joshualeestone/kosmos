@@ -113,6 +113,15 @@ struct ContentView: View {
         })
     }
 
+
+    // kosmos#7266 slice B: the person's picture, the board's (BoardClient.youPicture), or in a Debug sample with
+    // KOSMOS_SAMPLE_YOUPIC=1 a drawn one, so no real face is ever in a screenshot.
+    private var youPicture: Data? {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_YOUPIC"] == "1" { return YouFace.sample }
+        #endif
+        return board.youPicture
+    }
     var body: some View {
         Group {
             if isUnlocked && nativeSignIn {
@@ -130,7 +139,10 @@ struct ContentView: View {
                         tabPage(which)
                             .tabItem {
                                 // kosmos#7266: Agents draws its own icon (Font Awesome Free's user-tie, a template image).
-                                if let asset = which.asset { Label(which.title, image: asset) } else { Label(which.title, systemImage: which.symbol) }
+                                if which == .settings, let face = YouFace.tabImage(youPicture) {
+                                    // kosmos#7266 slice B: Settings shows the person's picture when the computer has one.
+                                    Label { Text(which.title) } icon: { Image(uiImage: face) }
+                                } else if let asset = which.asset { Label(which.title, image: asset) } else { Label(which.title, systemImage: which.symbol) }
                             }
                             // kosmos#7030: Today's badge is the board's one number, the Dock's (counts.waiting); none at 0 or off.
                             // kosmos#7032: Projects' is the board's unread room posts (counts.projectsUnread).
@@ -362,7 +374,7 @@ struct ContentView: View {
                 // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
                 showBoardPage()
                 web.pressBoardSection(.settings)
-            })
+            }, youName: board.youName, youPicture: youPicture)
         } else {
             webBoard(which)
         }
@@ -947,4 +959,34 @@ final class SessionMessageProxy: NSObject, WKScriptMessageHandler {
             port: origin.port
         )
     }
+}
+
+// kosmos#7266 slice B: the person's picture as the Settings tab draws it: a circle the size of the bar's icons, drawn as
+// it is (not tinted). nil for no picture or bytes that are not one, so the gear shows.
+enum YouFace {
+    static let tabSide: CGFloat = 26
+    static func tabImage(_ data: Data?) -> UIImage? {
+        guard let data, let picture = UIImage(data: data) else { return nil }
+        return circle(picture, side: tabSide).withRenderingMode(.alwaysOriginal)
+    }
+    static func circle(_ picture: UIImage, side: CGFloat) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            let rect = CGRect(x: 0, y: 0, width: side, height: side)
+            UIBezierPath(ovalIn: rect).addClip()
+            // Fill the circle, cropping the longer side (aspect fill).
+            let scale = max(side / picture.size.width, side / picture.size.height)
+            let w = picture.size.width * scale, h = picture.size.height * scale
+            picture.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
+        }
+    }
+    #if DEBUG
+    // A drawn face for screenshots: a coloured disc with initials.
+    static let sample: Data? = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 240)).image { _ in
+        UIColor(red: 0.18, green: 0.34, blue: 0.77, alpha: 1).setFill()
+        UIBezierPath(rect: CGRect(x: 0, y: 0, width: 240, height: 240)).fill()
+        let words = NSAttributedString(string: "SC", attributes: [.font: UIFont.systemFont(ofSize: 96, weight: .semibold), .foregroundColor: UIColor.white])
+        let size = words.size()
+        words.draw(at: CGPoint(x: (240 - size.width) / 2, y: (240 - size.height) / 2))
+    }.pngData()
+    #endif
 }
