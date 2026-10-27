@@ -64,7 +64,7 @@ deploy_linux_carry() {
     local mp mver
     case "$p" in latest-linux.json) mp=latest.json ;; *) mp=latest-staging.json ;; esac
     if git -C "$site" cat-file -e "$commit:dist/$mp" 2>/dev/null; then
-      mver="$(git -C "$site" show "$commit:dist/$mp" 2>/dev/null | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+      mver="$(git -C "$site" show "$commit:dist/$mp" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).version||""))}catch{}})')"
       [ "$mver" = "$ver" ] || { echo "deploy-site: the committed dist/$mp names $mver but dist/$p names $ver; a channel's two pointers must name one version (kosmos#7281 lockstep) -- refusing" >&2; return 1; }
     fi
     # Review 1 (W4): never move a Linux pointer backwards from what live serves (a checkout behind main); a deliberate

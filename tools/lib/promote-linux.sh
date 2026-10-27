@@ -34,8 +34,8 @@ promote_linux_prepare() {
   local have=no from="staging"
   if [ -n "$named" ]; then
     # Review 5 (W1): a named promote takes the Linux pointer committed with the Mac one it promotes, so it stays
-    # available once staging publishes the Linux family (kosmos#7005). The versioned files it names are never
-    # replaced, so they are checked in the working tree.
+    # available once staging publishes the Linux family (kosmos#7005). The files it names are read from the working
+    # tree and must hash to the sha256 in that committed pointer (promote_linux_artifacts_ok).
     from="the commit $named"
     git -C "$site" cat-file -e "$named:dist/latest-linux-staging.json" 2>/dev/null && have=yes
   else
