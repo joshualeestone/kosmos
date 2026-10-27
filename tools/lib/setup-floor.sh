@@ -100,6 +100,10 @@ kosmos_setup_floor_pointer_ok() {
   esac
   v=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p')
   art=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
+  # kosmos#7281 review 3: a pointer that names its build in "versioned" (the Linux family's, as the Windows pair does)
+  # is checked on that name; "artifact" may then be an unversioned alias. A Mac pointer has no "versioned".
+  _fv=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"versioned":[[:space:]]*"\([^"]*\)".*/\1/p')
+  [ -z "$_fv" ] || art="$_fv"
   kosmos_setup_floor_ok "$label" "$v" || return 1
   [ -n "$art" ] || {
     echo "setup floor (kosmos#6149): $label names no artifact, so what it installs cannot be checked -- refusing" >&2
