@@ -171,6 +171,8 @@ function heightOf(page, sel) {
   });
   const server = await srv.start(0);
   const base = 'http://127.0.0.1:' + server.address().port;
+  // Where the project tip's walk made room for its Conversation step (#7196 follow-up: reported at the end).
+  const madeRoom = [];
   try {
     const res = await fetch(base + '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ name: 'Spring launch', agents: NAMES, description: 'Sell more tea' }) });
@@ -271,9 +273,14 @@ function heightOf(page, sel) {
                 }
                 /* Only a step whose card would otherwise go flat may scroll: here that is the Conversation step, or none. */
                 chk(w.scrolled.every((t) => t === 'Conversation'), `${tag} the tip scrolls the page only for the Conversation step (a pointing card is never moved)`, JSON.stringify(w.scrolled));
-                /* At ordinary text size the Conversation step is flat without the fix (measured, both engines), so here the
-                   page MUST have made room: if a layout change ever gives the room back, this says the fix went unused. */
-                if (scale === 1) chk(w.scrolled.includes('Conversation'), `${tag} the page made room for the Conversation step (the fix ran)`, JSON.stringify(w.scrolled));
+                /* This used to require, at ordinary text size, that the page made room for the Conversation step (the fix
+                   ran). #7196 (9f62cd78a6) fits the room's thread above its composer, which gives that room back: measured
+                   10-27, no case walked makes room any more, in either engine, and no step of the agent page's tip or the
+                   board tour does either. So the line is reported, not judged. What the person sees is still judged above
+                   (each step points at its area, fully on screen, and only the Conversation step may scroll). Whether the
+                   tour's make-room code can now go is a separate card. */
+                if (w.scrolled.includes('Conversation')) madeRoom.push(tag);
+                console.log(`MEASURE  ${tag} project tip made room for Conversation: ${w.scrolled.includes('Conversation')}`);
                 chk(w.steps.length === 4, `${tag} the project tip walked all four steps`, String(w.steps.length));
               } else {
                 for (const st of w.steps) console.log(`MEASURE  ${tag} ${tipId} tip, ${st.title || '?'}: ${JSON.stringify(st)}`);
@@ -293,6 +300,7 @@ function heightOf(page, sel) {
   } finally {
     try { await server.close(); } catch { /* server may already be down */ }
   }
+  console.log(`MEASURE  the project tip made room in: ${JSON.stringify(madeRoom)} (${ENGINES.join(', ')} walked; reported, not judged)`);
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
   console.log('\nALL PASS');
 })().catch((e) => { console.error(e); process.exit(1); });
