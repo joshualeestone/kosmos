@@ -252,7 +252,30 @@ enum Board {
         // agent carries none), and whether it is over its ceiling (context.overCeiling, the board's "Full").
         var contextPercent: Double? = nil
         var contextFull = false
+        // kosmos#7354: the agent's replies the person has not read (dmUnread, server.js withDmUnread), and whether it is
+        // the guide, which the Mac's waiting total leaves out of the DM count.
+        var dmUnread = 0
+        var isGuide = false
         var id: String { session }
+    }
+
+    // kosmos#7354 (Josh 10-27, Mona Lisa's design): the red count on an agent's avatar: one when it needs the person, plus
+    // its unread replies (the guide's replies are not counted). This is the Mac's waitingTotal (engine/status.js) agent by
+    // agent, so the rows add up to the tab's number less the rooms' unread, which the Projects tab shows.
+    static func noticeCount(_ a: Agent) -> Int {
+        (a.needsYou ? 1 : 0) + (a.isGuide ? 0 : max(0, a.dmUnread))
+    }
+    // The count to VoiceOver, which does not see the badge.
+    static func noticeWords(_ n: Int) -> String? { n > 0 ? "\(n) waiting" : nil }
+
+    // kosmos#7354: POST /api/agent/<name>/seen, the person has this agent's DM open (server.js dmSeen, the board's
+    // own read cursor); its unread replies stop counting. nil for a name the board would refuse.
+    static func dmSeenRequest(mac: URL, session: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/seen", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
     }
 
     // `/api/status`'s `agents`: one row per agent, keyed by `sessionName`.
@@ -290,7 +313,9 @@ enum Board {
                          waitingSince: isoDate(row["waitingSince"] as? String),
                          stateProject: (row["stateProject"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                          contextPercent: Board.contextPercent(row["context"]),
-                         contextFull: Board.isRealTrue((row["context"] as? [String: Any])?["overCeiling"]))
+                         contextFull: Board.isRealTrue((row["context"] as? [String: Any])?["overCeiling"]),
+                         dmUnread: max(0, (row["dmUnread"] as? NSNumber)?.intValue ?? 0),
+                         isGuide: (row["isGuide"] as? Bool) == true)
         }
     }
 

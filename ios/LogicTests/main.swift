@@ -4005,6 +4005,23 @@ do {
         check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
         check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
         check(Board.pill(a("unknown")) == .cantTell && Board.pill(a("something_new")) == .cantTell, "unknown and unrecognised states are grey")
+        // kosmos#7354: the red count on each avatar is the Mac's waiting total (engine/status.js waitingTotal), agent by agent.
+        do {
+            let rows = Board.parseAgents(Data(#"{"agents":[{"sessionName":"a","state":"needs_you","dmUnread":2},{"sessionName":"b","state":"idle","dmUnread":3},{"sessionName":"g","state":"idle","dmUnread":4,"isGuide":true},{"sessionName":"c","state":"working","dmUnread":null},{"sessionName":"d","state":"idle"}]}"#.utf8)) ?? []
+            check(rows.map(\.dmUnread) == [2, 3, 4, 0, 0] && rows.map(\.isGuide) == [false, false, true, false, false],
+                  "kosmos#7354: dmUnread and isGuide are read; a null or missing count is 0")
+            check(rows.map(Board.noticeCount) == [3, 3, 0, 0, 0], "needs you counts one, plus unread replies; the guide's replies are not counted")
+            // The Mac's own sum over the same rows, less the rooms' unread: needsYou (agents needing the person) + dmUnread
+            // of agents that are not the guide.
+            let macSum = rows.filter(\.needsYou).count + rows.filter { !$0.isGuide }.reduce(0) { $0 + $1.dmUnread }
+            check(rows.map(Board.noticeCount).reduce(0, +) == macSum, "the rows add up to the Mac's total for agents")
+            check(Board.noticeCount(Board.Agent(session: "x", name: "x", role: nil, state: "idle", task: nil, needsYou: false)) == 0,
+                  "CONTROL: an agent with nothing waiting shows no count")
+            check(Board.noticeWords(3) == "3 waiting" && Board.noticeWords(0) == nil, "VoiceOver hears the count, never a zero")
+            let seen = Board.dmSeenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, session: "dana")
+            check(seen?.httpMethod == "POST" && seen?.url?.path == "/api/agent/dana/seen", "opening the chat moves the board's read cursor (server.js dmSeen)")
+            check(Board.dmSeenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, session: "../x") == nil, "CONTROL: a name the board would refuse is never sent")
+        }
         check(Board.presenceWords(.off, word: "Issue") == "not running", "review: a grey dot beside another word is spoken")
         check(Board.presenceWords(.off, word: "Not running") == nil, "CONTROL: not said twice when the word says it")
         check(Board.presenceWords(.unsure, word: "Idle") != nil && Board.presenceWords(.on, word: "Idle") == nil, "a hollow dot is spoken; a green one adds nothing")

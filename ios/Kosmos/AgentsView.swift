@@ -367,6 +367,7 @@ struct AgentRow: View {
         .accessibilityElement(children: .ignore)
         // A list shown as not current says so to VoiceOver too, not only by colour.
         .accessibilityLabel(([agent.name, agent.role, word, stale ? nil : Board.presenceWords(Board.presence(agent), word: word),
+                              stale ? nil : Board.noticeWords(Board.noticeCount(agent)),
                               Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
                              + (stale ? ["not updating"] : [])).compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
@@ -377,7 +378,7 @@ struct AgentRow: View {
 
     private var avatar: some View {
         AgentAvatar(name: agent.name, picture: picture, tone: nil, presence: stale ? .unsure : Board.presence(agent), size: size, memoryPercent: agent.contextPercent,
-                    memoryQuiet: stale)
+                    memoryQuiet: stale, notices: stale ? 0 : Board.noticeCount(agent))
     }
 
     private var name: some View {
@@ -421,6 +422,8 @@ struct AgentAvatar: View {
     // A list that is not updating draws the arc in the secondary colour its words take then (opaque, so it stays clear of
     // the translucent track).
     var memoryQuiet = false
+    // kosmos#7354: the red count at the top right (Board.noticeCount), the tab badge's red; 0 draws nothing.
+    var notices = 0
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -458,7 +461,24 @@ struct AgentAvatar: View {
                     .animation(.easeInOut(duration: 0.2), value: tone)
             }
         }
+        .overlay(alignment: .topTrailing) { noticeBadge }
         .accessibilityHidden(true)
+    }
+
+    // kosmos#7354: white numerals on the system red, as the tab bar's own badge, 9+ past nine; a ring in the card colour
+    // keeps it clear of the picture and the context ring.
+    @ViewBuilder private var noticeBadge: some View {
+        if notices > 0 {
+            Text(notices > 9 ? "9+" : String(notices))
+                .font(.system(size: 11, weight: .bold)).monospacedDigit()
+                .foregroundColor(.white)
+                .padding(.horizontal, 4)
+                .frame(minWidth: 18, minHeight: 18)
+                .background(Capsule().fill(Color.red))
+                .overlay(Capsule().stroke(Palette.card, lineWidth: 2))
+                .offset(x: 5, y: -5)
+                .transition(.scale.combined(with: .opacity))
+        }
     }
 
     // A track and an arc of the percent from 12 o'clock, just outside the picture, one weight in every band as the
