@@ -24,6 +24,17 @@ enum SignIn {
     static func reviewBody(email: String, password: String, deviceName: String) -> [String: Any] {
         ["email": email, "password": password, "device_name": deviceName]
     }
+    /// What a review sign-in's answer means for the screen. A refusal stays on the password step with its sentence (it
+    /// is never a code step: no code was sent), and a 404 means the door closed since the link showed.
+    enum ReviewAnswer: Equatable { case closed, refused(String), answered(Answer) }
+    static let reviewRefused = "That email and password do not match."
+    static let reviewClosed = "Password sign-in is not open now. Sign in with a code instead."
+    static func reviewAnswer(status: Int, json: Any?) -> ReviewAnswer {
+        if status == 404 { return .closed }
+        let answer = answer(status: status, json: json)
+        if case .refused(let message, _) = answer { return .refused(message ?? reviewRefused) }
+        return .answered(answer)
+    }
     /// Whether the review door is open, from a GET's status: nil when the answer says neither (asked again later).
     static func reviewDoorOpen(status: Int) -> Bool? {
         switch status {

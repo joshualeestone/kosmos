@@ -91,8 +91,11 @@ final class SignInModel: ObservableObject {
             do {
                 let answer = try await client.reviewSignIn(email: typed, password: secret)
                 guard mine == attempt else { return }
-                password = ""
-                take(answer, email: typed)
+                switch answer {
+                case .closed: reviewDoor = false; password = ""; step = .email; error = SignIn.reviewClosed
+                case .refused(let sentence): error = sentence   // stays here: no code was sent
+                case .answered(let signedIn): password = ""; take(signedIn, email: typed)
+                }
             } catch { if mine == attempt { fail(error) } }
         }
     }
@@ -248,6 +251,7 @@ final class SignInModel: ObservableObject {
     func appReturned() {
         guard case .email = step else { return }
         Task { await checkPasskeys() }
+        Task { await checkReviewDoor() }   // kosmos#7357: an answer missed before (offline, a 429) is asked again too
     }
 
     /// kosmos#7050 slice C: sign in with a passkey, in Apple's passkey sheet. The grant finish brings back is spent at
@@ -438,7 +442,7 @@ struct SignInView: View {
     @ViewBuilder private var content: some View {
         switch model.step {
         case .email:
-            title("Sign in to Kosmos+").task { await model.checkPasskeys(); await model.checkReviewDoor() }
+            title("Sign in to Kosmos+").task { async let passkeys: Void = model.checkPasskeys(); await model.checkReviewDoor(); await passkeys }
             line("Use the email address of your Kosmos+ account. We will send you a six-digit code.")
             TextField("Email address", text: $model.email)
                 .textContentType(.username).keyboardType(.emailAddress)
@@ -485,7 +489,7 @@ struct SignInView: View {
                 .onChange(of: model.password) { _ in model.error = nil }
             errorLine
             primary("Sign in", action: model.passwordSignIn)
-            link("Use a code instead", action: model.differentEmail)
+            link("Sign in with a code", action: model.differentEmail)
         case .second(_, let kind, _, let sentTo):
             title("One more step")
             line(SignIn.secondWords(kind: kind, sentTo: sentTo))
