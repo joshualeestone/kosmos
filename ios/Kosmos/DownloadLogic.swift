@@ -11,6 +11,8 @@ enum Download {
     // A response the window cannot show and that is not an attachment (the Mac's wording for that case).
     static let notOpenedElsewhere = "That file came from somewhere Kosmos does not save from, so it was not opened or saved."
     static let notOpenedNotABoard = "This page is not a board Kosmos saves files from, so the file was not opened or saved."
+    // A download that redirected somewhere else (the Mac's words for it).
+    static let redirectedElsewhere = "The file pointed somewhere Kosmos does not save from, so it was not saved."
     static let couldNotGet = "Kosmos could not get that file. Try again in a moment."
     // WebKit stopped a download itself before it had anywhere to go (the Mac measured it for a redirect elsewhere).
     static let stoppedBeforeItBegan = "it stopped before it began"
@@ -81,7 +83,9 @@ enum Download {
     static func pageSaysRefusal(_ url: URL?) -> Bool {
         let path = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedPath } ?? ""
         let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        if parts.count == 6, parts[1] == "api", parts[2] == "agent", !parts[3].isEmpty, parts[4] == "files", parts[5] == "download" { return true }
+        // download-folder (#6724) says its refusals on the page too; the Mac's list misses it.
+        if parts.count == 6, parts[1] == "api", parts[2] == "agent", !parts[3].isEmpty, parts[4] == "files",
+           parts[5] == "download" || parts[5] == "download-folder" { return true }
         if parts.count == 5, parts[1] == "api", parts[2] == "project", !parts[3].isEmpty, parts[4] == "file-download" { return true }
         return false
     }

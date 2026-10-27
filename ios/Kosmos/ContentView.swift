@@ -952,7 +952,6 @@ struct WebView: UIViewRepresentable {
         var pageURL: URL?
         private var commits = 0
         // A message on screen, when the last refusal was said, and how often each refusal was said on this page.
-        private var messageUp = false
         private var refusalLastAt: Date?
         private var refusalsShown: (commit: Int, by: [String: Int]) = (0, [:])
         // Each download's own folder and name, the one-second timer before "Getting <name>" shows, and the downloads the
@@ -962,7 +961,8 @@ struct WebView: UIViewRepresentable {
         private var lineTimers: [ObjectIdentifier: DispatchWorkItem] = [:]
         // The lines of downloads still on their way, newest last: the newest is shown, and when it ends the one before it is.
         private var lines: [ShellState.Downloading] = []
-        private var cancelledByPerson: Set<ObjectIdentifier> = []
+        // Weak, so an entry goes with its download and a later one at the same address can never inherit it.
+        private let cancelledByPerson = NSHashTable<WKDownload>.weakObjects()
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
             pageURL = webView.url
@@ -1007,10 +1007,11 @@ struct WebView: UIViewRepresentable {
         // A download's redirect stays on the page's own origin; anywhere else is refused (iOS has no other check there).
         func download(_ download: WKDownload, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
                       decisionHandler: @escaping (WKDownload.RedirectPolicy) -> Void) {
-            if let url = request.url, Download.isSameOrigin(url, page: pageURL) { decisionHandler(.allow); return }
+            // Judged against where the download started (the Mac's rule), not whichever page is on screen by now.
+            if let url = request.url, Download.isSameOrigin(url, page: download.originalRequest?.url) { decisionHandler(.allow); return }
             NSLog("[Download] refused a download redirected to another address")
-            cancelledByPerson.insert(ObjectIdentifier(download))   // said here: the cancel that follows is not said again
-            say(Download.fromElsewhere, refusal: true)
+            cancelledByPerson.add(download)   // said here: the cancel that follows is not said again
+            say(Download.redirectedElsewhere, refusal: true)
             decisionHandler(.cancel)
         }
 
@@ -1023,7 +1024,7 @@ struct WebView: UIViewRepresentable {
             case .drop(let sentence):
                 NSLog("[Download] what arrived was not the file, so nothing was kept")
                 if let sentence { say(sentence, refusal: false) }
-                cancelledByPerson.insert(ObjectIdentifier(download))   // said here (or by the page): the cancel that follows is not
+                cancelledByPerson.add(download)   // said here (or by the page): the cancel that follows is not
                 completionHandler(nil)
                 return
             case .keep: break
@@ -1033,7 +1034,7 @@ struct WebView: UIViewRepresentable {
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-" + UUID().uuidString, isDirectory: true)
             do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) } catch {
                 say(Download.failed(error.localizedDescription), refusal: false)
-                cancelledByPerson.insert(id)
+                cancelledByPerson.add(download)
                 completionHandler(nil)
                 return
             }
@@ -1042,9 +1043,12 @@ struct WebView: UIViewRepresentable {
             // "Getting <name>" only for a file that takes more than a second (Mona Lisa).
             let show = DispatchWorkItem { [weak self, weak download] in
                 guard let self, let download else { return }
-                let line = ShellState.Downloading(id: id, name: name, cancel: { [weak self] in
-                    self?.cancelledByPerson.insert(id)
+                let line = ShellState.Downloading(id: id, name: name, cancel: { [weak self, weak download] in
+                    guard let self, let download else { return }
+                    // The person's Cancel: quiet, and cleaned up now (WebKit need not report a cancel it was asked for).
+                    self.cancelledByPerson.add(download)
                     download.cancel { _ in }
+                    self.cleanUp(id)
                 })
                 self.lines.append(line)
                 self.shell?.downloading = line
@@ -1057,18 +1061,17 @@ struct WebView: UIViewRepresentable {
         func downloadDidFinish(_ download: WKDownload) {
             let id = ObjectIdentifier(download)
             endLine(id)
-            cancelledByPerson.remove(id)
+            cancelledByPerson.remove(download)
             guard let folder = downloadFolders.removeValue(forKey: id), let name = downloadNames.removeValue(forKey: id) else { return }
             share(folder.appendingPathComponent(name), folder: folder)
         }
 
         func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
             let id = ObjectIdentifier(download)
-            endLine(id)
-            downloadNames.removeValue(forKey: id)
             let hadFolder = downloadFolders[id] != nil
-            if let folder = downloadFolders.removeValue(forKey: id) { try? FileManager.default.removeItem(at: folder) }
-            let quiet = cancelledByPerson.remove(id) != nil
+            cleanUp(id)
+            let quiet = cancelledByPerson.contains(download)
+            cancelledByPerson.remove(download)
             if quiet { return }   // the person's own Cancel, or something already said
             let e = error as NSError
             // WebKit stopped it itself before it had anywhere to go: said, never a tap that did nothing.
@@ -1079,6 +1082,14 @@ struct WebView: UIViewRepresentable {
             say(Download.failed(e.localizedDescription), refusal: false)
         }
 
+        // A download that ended without a file: its line, its folder and its name go. Safe to run twice (Cancel runs it,
+        // and so does the failure that may follow).
+        private func cleanUp(_ id: ObjectIdentifier) {
+            endLine(id)
+            downloadNames.removeValue(forKey: id)
+            if let folder = downloadFolders.removeValue(forKey: id) { try? FileManager.default.removeItem(at: folder) }
+        }
+
         // The line goes with ITS download; another still on its way is shown again, with its own Cancel.
         private func endLine(_ id: ObjectIdentifier) {
             lineTimers.removeValue(forKey: id)?.cancel()
@@ -1086,41 +1097,85 @@ struct WebView: UIViewRepresentable {
             shell?.downloading = lines.last
         }
 
+        // What the person is shown, one at a time and in order: a message, or the share sheet with a file. Nothing is
+        // dropped while another is on screen; it waits its turn (a sheet for every file that arrived, every failure).
+        private enum Shown { case message(String, refusal: Bool), sheet(URL, folder: URL) }
+        private var waiting: [Shown] = []
+        private var showing = false
+
         // The share sheet with the file (Save to Files, AirDrop, send on): the sheet is the consent, so nothing is asked
         // first; closing it keeps nothing and says nothing. The file goes when the sheet does.
         private func share(_ file: URL, folder: URL) {
-            guard let top = Self.topController(), !top.isBeingDismissed else { try? FileManager.default.removeItem(at: folder); return }
-            let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
-            sheet.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: folder) }
-            // An iPad shows it as a popover, which needs somewhere to point.
-            sheet.popoverPresentationController?.sourceView = top.view
-            sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.maxY - 40, width: 1, height: 1)
-            top.present(sheet, animated: true)
+            waiting.append(.sheet(file, folder: folder))
+            showNext()
         }
 
-        // A refusal (a rule said no) or a failure (the file did not arrive), in one alert, as the Mac's guard allows: a
-        // refusal at most twice per page and not within 10 s of the last; a failure always, but never over another message.
+        // A refusal (a rule said no) or a failure (the file did not arrive). A refusal as the Mac's guard allows: not
+        // while another message is up or waiting, at most twice per page, not within 10 s of the last. A failure always,
+        // in its turn.
         func say(_ sentence: String, refusal: Bool) {
-            if refusalsShown.commit != commits { refusalsShown = (commits, [:]) }
-            guard Download.shouldSay(up: messageUp, refusal: refusal, lastAt: refusalLastAt, now: Date(),
-                                     shownThisPage: refusalsShown.by[sentence, default: 0]),
-                  let top = Self.topController(), !top.isBeingDismissed else { return }
-            if refusal { refusalsShown.by[sentence, default: 0] += 1 }
-            let alert = UIAlertController(title: refusal ? "Kosmos did not save that file" : "Kosmos could not save that file",
-                                          message: sentence, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
-                self?.messageUp = false
-                if refusal { self?.refusalLastAt = Date() }
-            })
-            // Up from now, so a second message cannot slip in while this one animates; and down again if it never appeared
-            // (a present that fails says nothing, and must not silence every later message).
-            messageUp = true
-            top.present(alert, animated: true)
-            DispatchQueue.main.async { [weak self, weak alert] in
-                if alert?.presentingViewController == nil { self?.messageUp = false }
+            if refusal {
+                if refusalsShown.commit != commits { refusalsShown = (commits, [:]) }
+                guard Download.shouldSay(up: showing || !waiting.isEmpty, refusal: true, lastAt: refusalLastAt, now: Date(),
+                                         shownThisPage: refusalsShown.by[sentence, default: 0]) else { return }
+                refusalsShown.by[sentence, default: 0] += 1
+            }
+            waiting.append(.message(sentence, refusal: refusal))
+            showNext()
+        }
+
+        // Shows the next thing waiting, once nothing else is on screen. A presentation that does not happen (another is
+        // still animating in or out) is tried again shortly, never lost.
+        private func showNext() {
+            guard !showing, let next = waiting.first else { return }
+            guard let top = Self.topController(), !top.isBeingDismissed, !top.isBeingPresented else { retryShowing(); return }
+            waiting.removeFirst()
+            showing = true
+            let shown: UIViewController
+            switch next {
+            case .message(let sentence, let refusal):
+                let alert = UIAlertController(title: refusal ? "Kosmos did not save that file" : "Kosmos could not save that file",
+                                              message: sentence, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+                    if refusal { self?.refusalLastAt = Date() }
+                    self?.shownEnded()
+                })
+                shown = alert
+            case .sheet(let file, let folder):
+                let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+                sheet.completionWithItemsHandler = { [weak self] _, _, _, _ in
+                    try? FileManager.default.removeItem(at: folder)
+                    self?.shownEnded()
+                }
+                // An iPad shows it as a popover, which needs somewhere to point.
+                sheet.popoverPresentationController?.sourceView = top.view
+                sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.maxY - 40, width: 1, height: 1)
+                shown = sheet
+            }
+            top.present(shown, animated: true)
+            DispatchQueue.main.async { [weak self, weak shown] in
+                guard let self, shown?.presentingViewController == nil else { return }
+                // It did not appear: back to the front of the line, and tried again.
+                self.showing = false
+                self.waiting.insert(next, at: 0)
+                self.retryShowing()
             }
         }
 
+        private func shownEnded() {
+            showing = false
+            showNext()
+        }
+
+        private var retryScheduled = false
+        private func retryShowing() {
+            guard !retryScheduled else { return }
+            retryScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.retryScheduled = false
+                self?.showNext()
+            }
+        }
         private static func topController() -> UIViewController? {
             let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
                 .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
