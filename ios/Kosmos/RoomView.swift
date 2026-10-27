@@ -984,7 +984,7 @@ struct RoomView: View {
                         .accessibilityFocused($composerFocused)
                         .accessibilityLabel("Post to everyone on this project")
                         // With no Post arrow on screen, VoiceOver gets Post as an action on the box itself.
-                        .accessibilityAction(named: "Post") { if canPost { send() } }
+                        .accessibilityAction(named: "Post") { postOrSayWhy() }
                         .padding(.vertical, 13).padding(.leading, 2)
                     ComposerEmojiButton(open: emojiOpen) {
                         if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
@@ -1036,7 +1036,7 @@ struct RoomView: View {
                 // With the @name list open, Send picks its first name, as Enter does on the board, rather than posting a
                 // half-typed name.
                 if let first = mentionOptions?.first, let text = Board.mentionPick(draft, key: first.session) { draft = text; return }
-                if canPost { send() }
+                postOrSayWhy()
                 return
             }
             // kosmos#7348: the posted text came back into the box (the keyboard's dictation or Writing Tools finishing late).
@@ -1133,6 +1133,14 @@ struct RoomView: View {
 
     // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through
     // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
+    // kosmos#7346 review: with no arrow to grey out, a Send that cannot post says why, to VoiceOver and on screen.
+    private func postOrSayWhy() {
+        if canPost { send(); return }
+        guard !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let why = dictation.finishing ? "Waiting for the last words." : dictation.busy ? "Stop dictating first." : uploadingHere > 0 ? Board.stillAddingLine : nil
+        if let why { client.attachLine[attachKey] = why; Self.say(why) }
+    }
+
     private func send() {
         guard canPost else { return }
         dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
