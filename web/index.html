@@ -45094,7 +45094,7 @@ function detailRevealTalkOnPhone(key) {
      keyboard. Known gap: a scroll that fires none of those (dragging a narrow window's
      scrollbar, iOS's tap on the status bar) can be pulled back once within the window. */
   if (REVEAL_HOLD) REVEAL_HOLD();
-  const top0 = talk.getBoundingClientRect().top;
+  let top0 = talk.getBoundingClientRect().top;
   const until = performance.now() + REVEAL_HOLD_MS;
   const stop = () => {
     clearInterval(timer);
@@ -45106,6 +45106,10 @@ function detailRevealTalkOnPhone(key) {
     if (performance.now() > until || talk.hidden || !talk.offsetParent) return stop();
     if (Math.abs(talk.getBoundingClientRect().top - top0) > REVEAL_HOLD_DRIFT_PX) {
       try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { stop(); }
+      /* #7280 review 2: where it sits now is the new place to hold. A section on a page too short to reach its landing
+         stops short the first time; once content above makes room it lands for real, and holding the old spot would
+         scroll it again on every tick. */
+      top0 = talk.getBoundingClientRect().top;
     }
   }, REVEAL_HOLD_TICK_MS);
   for (const ev of REVEAL_HOLD_STOPS) window.addEventListener(ev, stop, { capture: true, passive: true });

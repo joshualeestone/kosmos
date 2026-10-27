@@ -2,7 +2,7 @@
 
 ## Finished looks like
 `?tab=detail&agent=<session>&sec=model` opens that agent's AI Settings (and `profile`, or any other section in
-DETAIL_SECTIONS except talk and swarm), scrolled to the top on a phone, instead of the conversation. A missing,
+DETAIL_SECTIONS except talk, swarm, term and remove; see Review 1), landed under the app header on a phone (its scroll padding), instead of the conversation. A missing,
 unknown, talk or swarm `sec` lands on the conversation as today. `sec` on `?tab=settings` stays Settings' own.
 
 ## Shape
