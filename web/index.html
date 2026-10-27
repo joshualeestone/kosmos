@@ -75580,6 +75580,7 @@ async function pjWinEarlier() {
   PJ_WIN.cursor = page.olderCursor || null;
   PJ_WIN.olderCount = Number(page.olderCount) || 0;
   const body = Object.assign({}, box.__lastBody, { rows: pjWinMerge(PJ_WIN.older, PJ_WIN.newest) });
+  convPause();   // old rows are not news to read aloud (as a Direct conversation's earlier page does)
   const anchor = threadAnchor(box);
   box.__lastBody = body;
   paintRoom(body);
@@ -77713,7 +77714,12 @@ function paintRoom(body) {
      it slices this block out and drives it alone. A harness that reads a
      fragment cannot see what the fragment's control flow does to its function. */
   const seededRoom = PJ_CURRENT ? ROOM_SPOKE_SEEDED.has(PJ_CURRENT) : false;
+  /* kosmos#7365: rows from an earlier page the reader scrolled back to are history, never somebody speaking now, so they
+     are not stamped (an agent whose last post was only in that page read as having just spoken; review 1). */
+  // typeof: tests lift this block on its own, without the window's state (the room-scroll harness's posture).
+  const earlierKeys = typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === PJ_CURRENT && PJ_WIN.older.length ? new Set(PJ_WIN.older.map((r) => r && r.key)) : null;
   for (const m of PJ_CURRENT ? allRows : []) {
+    if (earlierKeys && m && m.key && earlierKeys.has(m.key)) continue;
     const who = m && m.from;
     if (!who || !m.at) continue;
     /* #1397: a row Kosmos REFUSED is not the agent speaking. See

@@ -61,6 +61,7 @@ function harness(room, project = 'proj') {
     paintRoom: (body) => { painted.push(body); box.__lastBody = body; },
     threadAnchor: () => { anchors.taken += 1; return { mid: 'x' }; },
     restoreThreadAnchor: () => { anchors.restored += 1; return true; },
+    convPause: () => {},
   };
   vm.createContext(ctx);
   vm.runInContext('var PJ_CURRENT = ' + JSON.stringify(project) + '; var PJ_ROOM_GEN = 0; var PJ_ROOM_QUERY = "";\n' + SRC
