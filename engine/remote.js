@@ -1065,6 +1065,26 @@ function setRelay(relay) {
   return { ok: true };
 }
 
+/* kosmos#7285 item 2: on a Kosmos cloud machine the tunnel is the person's only way in, and the switch that would
+   repair a damaged remote.json is reachable only through it. So there, a settings file that cannot be read (or is
+   gone) keeps the tunnel wanted instead of reading as off, which on a Mac is the safe answer and here is a lockout.
+   Switching it off on purpose is refused there anyway (server.js PUT /api/remote, kosmos#7277). Said once in the log. */
+let cloudKeptOnSaid = false;
+function cloudKeepsOn() {
+  let s;
+  try { s = read(); } catch { s = { ok: false }; }
+  const damaged = s.ok === false || !fs.existsSync(FILE);
+  if (!damaged) { cloudKeptOnSaid = false; return false; }
+  let cloud = false;
+  try { cloud = require('./cloudmachine').isCloudMachine(); } catch { cloud = false; }
+  if (!cloud) return false;
+  if (!cloudKeptOnSaid) {
+    cloudKeptOnSaid = true;
+    process.stderr.write('remote: remote.json cannot be read on this Kosmos cloud machine; keeping remote access on, the only way in\n');
+  }
+  return true;
+}
+
 /** Reconcile reality with the switch. Idempotent; the server calls it at
     boot with the board's port and after every toggle. Never throws. */
 function ensure(port) {
@@ -1072,7 +1092,7 @@ function ensure(port) {
     if (typeof port === 'number') localPort = port;
     // Never during a Forget (#3827): the board's tick calls this every 15s, and a
     // tunnel started in the retire wait would run on the key being deleted.
-    const wanted = !forgetting && read().on && enrolled() && !!RELAY() && typeof localPort === 'number';
+    const wanted = !forgetting && (read().on || cloudKeepsOn()) && enrolled() && !!RELAY() && typeof localPort === 'number';
     if (!wanted) { stopChild(); return; }
     // Samples the tunnel's last failure (kosmos#4277). It also means a healthy board's
     // backoff is reset every tick (status() does that on `up`), not only when a page asks.
@@ -4257,7 +4277,8 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LABEL /* kosmos#6596 step 8 */, connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = {
+  cloudKeepsOn, clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LABEL /* kosmos#6596 step 8 */, connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
