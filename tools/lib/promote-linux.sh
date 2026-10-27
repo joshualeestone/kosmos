@@ -15,8 +15,9 @@
 #   promote_linux_cleanup                            removes the snapshot and any temp copy (the caller's EXIT trap)
 #
 # NOT ATOMIC: latest.json and latest-linux.json move by two renames. A kill between them (or of the whole run after the
-# first) leaves the pair apart with no message. The remedy is the one the failure messages give: copy
-# dist/latest-linux-staging.json onto dist/latest-linux.json and commit both before any deploy.
+# first) leaves the pair apart with no message. The remedy is the one the failure messages give
+# (PROMOTE_LINUX_RESTORE: the staging pointer, or for a named promote the pointer committed with it), then commit both
+# before any deploy.
 
 PROMOTE_LINUX=no
 PROMOTE_LINUX_SNAP=""
@@ -26,11 +27,18 @@ PROMOTE_LINUX_KL=""        # the key-list temp folder, removed by the EXIT trap 
 PROMOTE_LINUX_REMEDY_SAID=0
 PROMOTE_LINUX_ARTS=""      # "<versioned> <sha256> <manifest>", checked again right before the writes (review 4 W3)
 PROMOTE_LINUX_NAMED=""     # the commit a named promote read the pointer from; empty for the staging pointer
+PROMOTE_LINUX_RESTORE=""   # how to put the promoted pointer in place by hand, said by every failure message
 
 promote_linux_prepare() {
   local site="$1" v="$2" named="${3:-}" stg="$1/dist/latest-linux-staging.json" prod="$1/dist/latest-linux.json" tools field
   tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   PROMOTE_LINUX=no; PROMOTE_LINUX_NAMED="$named"
+  # Review 7 (W1): a named promote's pointer is the committed one; staging has usually moved past it.
+  if [ -n "$named" ]; then
+    PROMOTE_LINUX_RESTORE="write the pointer committed with it (git -C $site show $named:dist/latest-linux-staging.json > $site/dist/latest-linux.json)"
+  else
+    PROMOTE_LINUX_RESTORE="copy dist/latest-linux-staging.json onto dist/latest-linux.json"
+  fi
   local have=no from="staging"
   if [ -n "$named" ]; then
     # Review 5 (W1): a named promote takes the Linux pointer committed with the Mac one it promotes, so it stays
@@ -45,6 +53,8 @@ promote_linux_prepare() {
     # No Linux pointer to promote. A Linux PROD pointer would then stay put while latest.json moves: refuse.
     if [ -f "$prod" ]; then
       echo "promote-linux: prod publishes the Linux family (dist/latest-linux.json) but $from has no Linux staging pointer to move it to $v; its pointer must move with latest.json (kosmos#7281 lockstep). Nothing was written." >&2
+      # Review 7 (W3): a rollback to a build from before the first Linux cut has no Linux pointer to pair with.
+      [ -z "$named" ] || echo "promote-linux: $v was cut before the Linux family, so prod cannot roll back to it in lockstep. Roll back to a build that has a Linux build. Deleting dist/latest-linux.json is not a way round it: installed Linux copies refuse to update when their pointer cannot be read (kosmos#7281)." >&2
       return 1
     fi
     return 0
@@ -135,10 +145,10 @@ promote_linux_commit() {
   [ "$PROMOTE_LINUX" = yes ] || return 0
   if ! mv "$PROMOTE_LINUX_TMP" "$site/dist/latest-linux.json"; then
     PROMOTE_LINUX_FAILED=1
-    echo "promote-linux: latest.json IS promoted but latest-linux.json is NOT (the rename failed). The promote carries on with /setup and the alias; before any deploy, copy dist/latest-linux-staging.json onto dist/latest-linux.json and commit it with latest.json." >&2
+    echo "promote-linux: latest.json IS promoted but latest-linux.json is NOT (the rename failed). The promote carries on with /setup and the alias; before any deploy, $PROMOTE_LINUX_RESTORE and commit it with latest.json." >&2
   elif ! cmp -s "$PROMOTE_LINUX_SNAP" "$site/dist/latest-linux.json"; then
     PROMOTE_LINUX_TMP=""; PROMOTE_LINUX_FAILED=1
-    echo "promote-linux: latest-linux.json WAS replaced but does not read back as the verified snapshot. Before any deploy, copy dist/latest-linux-staging.json onto it by hand, check it, and commit it with latest.json." >&2
+    echo "promote-linux: latest-linux.json WAS replaced but does not read back as the verified snapshot. Before any deploy, $PROMOTE_LINUX_RESTORE, check it, and commit it with latest.json." >&2
   else
     PROMOTE_LINUX_TMP=""
     echo "   latest-linux.json -> $(cat "$site/dist/latest-linux.json")"
@@ -149,7 +159,7 @@ promote_linux_commit() {
 promote_linux_refuse_if_failed() {
   [ "$PROMOTE_LINUX_FAILED" = 1 ] || return 0
   PROMOTE_LINUX_REMEDY_SAID=1
-  echo "promote-linux: REFUSED AT THE END: latest.json, /setup and the alias were promoted, latest-linux.json was NOT. Before any deploy, copy dist/latest-linux-staging.json onto dist/latest-linux.json and commit it with latest.json (kosmos#7281 lockstep)." >&2
+  echo "promote-linux: REFUSED AT THE END: latest.json, /setup and the alias were promoted, latest-linux.json was NOT. Before any deploy, $PROMOTE_LINUX_RESTORE and commit it with latest.json (kosmos#7281 lockstep)." >&2
   return 1
 }
 
@@ -160,7 +170,7 @@ promote_linux_cleanup() {
   # Review 2 (W2): a later step (/setup, the alias) can exit before promote_linux_refuse_if_failed runs; the EXIT trap
   # is the one place every such exit passes, so the Linux remedy is said here when it has not been.
   if [ "$PROMOTE_LINUX_FAILED" = 1 ] && [ "$PROMOTE_LINUX_REMEDY_SAID" != 1 ]; then
-    echo "promote-linux: ALSO NOT DONE: latest-linux.json. Before any deploy, copy dist/latest-linux-staging.json onto dist/latest-linux.json and commit it with latest.json (kosmos#7281 lockstep)." >&2
+    echo "promote-linux: ALSO NOT DONE: latest-linux.json. Before any deploy, $PROMOTE_LINUX_RESTORE and commit it with latest.json (kosmos#7281 lockstep)." >&2
   fi
   return 0
 }
