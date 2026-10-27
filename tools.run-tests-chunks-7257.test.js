@@ -1,0 +1,94 @@
+'use strict';
+/*
+ * #7257: on Windows, tools/run-tests.sh runs its one node --test over every test file in chunks, because Windows caps a
+ * command line at about 32K characters and one call stopped with "Argument list too long". The chunking is a node()
+ * shell function defined only under the Windows flag, so the node --test line stays flush left for the guards that find
+ * it (#1934, #3605, #4273, #4317). This cuts that block out of run-tests.sh and runs it in bash with a stand-in node.
+ *
+ *   node --test tools.run-tests-chunks-7257.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const cp = require('node:child_process');
+
+const SRC = fs.readFileSync(path.join(__dirname, 'tools', 'run-tests.sh'), 'utf8');
+const BASH = (() => { try { cp.execFileSync('bash', ['-c', 'exit 0'], { stdio: 'ignore' }); return true; } catch { return false; } })();
+
+/* The Windows node() block: from its if line to the fi before NODE_STATUS=0. */
+function block() {
+  const start = SRC.indexOf('if [ "${_RT_WIN:-0}" = 1 ]; then\n  node() {');
+  const end = SRC.indexOf('\nfi\nNODE_STATUS=0', start);
+  assert.ok(start > 0 && end > start, 'the Windows node() block was not found in run-tests.sh');
+  return SRC.slice(start, end + 4);
+}
+
+/* Runs the block in bash with a stand-in node that logs each call (one line of arguments per call, NUL-separated) and
+   exits with the status named by a file whose name it sees, else 0. */
+function run(files, opts, extra, statusFor) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-chunks-7257-'));
+  const log = path.join(dir, 'calls.log');
+  const stub = path.join(dir, 'node');
+  const st = statusFor ? Object.entries(statusFor).map(([f, c]) => `  case " $* " in *" ${f} "*) code=${c};; esac`).join('\n') : '';
+  fs.writeFileSync(stub, `#!/bin/bash\nprintf '%s\\0' "$@" >> "${log.replace(/\\/g, '/')}"\necho >> "${log.replace(/\\/g, '/')}"\ncode=0\n${st}\nexit $code\n`);
+  fs.chmodSync(stub, 0o755);
+  // A PATH entry for bash: on Windows C:\x is /c/x, since the colon in C: would end the entry.
+  const bashDir = dir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (m, d) => '/' + d.toLowerCase());
+  const script = [
+    `export PATH="${bashDir}:$PATH"`,
+    '_RT_WIN=1',
+    'KOSMOS_TEST_FILES=(' + files.map((f) => `'${f}'`).join(' ') + ')',
+    block(),
+    `node --test ${opts.map((o) => `'${o}'`).join(' ')} "\${KOSMOS_TEST_FILES[@]}" ${extra.map((o) => `'${o}'`).join(' ')}`,
+    'echo "STATUS=$?"',
+    'node -e 1; echo "PLAIN=$?"',
+  ].join('\n');
+  // From a file: a script naming 1500 files is itself over Windows' command-line cap as one bash -c argument.
+  const scriptFile = path.join(dir, 'run.sh');
+  fs.writeFileSync(scriptFile, script);
+  const r = cp.spawnSync('bash', [scriptFile.replace(/\\/g, '/')], { encoding: 'utf8' });
+  if (r.error) throw r.error;
+  const raw = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
+  fs.rmSync(dir, { recursive: true, force: true });
+  const calls = raw.split('\n').filter(Boolean).map((l) => l.split('\0').filter((x) => x !== ''));
+  return { calls, out: r.stdout, err: r.stderr };
+}
+
+const FILES = Array.from({ length: 1500 }, (_, i) => `engine/some-fairly-long-test-file-name-number-${String(i).padStart(4, '0')}.test.js`);
+const OPTS = ['--require', '/repo/test-support/launch-guard.js', '--test-timeout=600000'];
+const EXTRA = ['--test-name-pattern', 'x'];
+
+test('#7257: on Windows node --test runs every file once, in order, in chunks under the cap, with the same options', { skip: !BASH && 'no bash' }, () => {
+  const { calls, out, err } = run(FILES, OPTS, EXTRA);
+  const tests = calls.filter((c) => c[0] === '--test');
+  assert.ok(tests.length > 1, 'expected several chunks, got ' + tests.length);
+  const seen = [];
+  for (const c of tests) {
+    assert.deepEqual(c.slice(1, 1 + OPTS.length), OPTS, 'each chunk keeps the options');
+    assert.deepEqual(c.slice(-EXTRA.length), EXTRA, 'each chunk keeps the trailing arguments');
+    assert.ok(c.reduce((n, a) => n + a.length + 3, 0) <= 24000 + 200, 'a chunk is over the cap');
+    seen.push(...c.slice(1 + OPTS.length, -EXTRA.length));
+  }
+  assert.deepEqual(seen, FILES, 'every file exactly once, in order');
+  assert.match(out, /STATUS=0/);
+  assert.match(err, new RegExp(`ran in ${tests.length} chunk\\(s\\) over ${FILES.length} file\\(s\\)`));
+  // CONTROL: a node call that is not the one over KOSMOS_TEST_FILES goes to node itself, once
+  assert.ok(calls.some((c) => c[0] === '-e' && c[1] === '1'));
+  assert.match(out, /PLAIN=0/);
+});
+
+test('#7257: the worst exit status of any chunk is the node part\'s; one small run is one chunk', { skip: !BASH && 'no bash' }, () => {
+  const { out } = run(FILES, OPTS, [], { [FILES[1400]]: 1 });
+  assert.match(out, /STATUS=1/, 'a failing file in a later chunk must make the run red');
+  const small = run(FILES.slice(0, 5), OPTS, []);
+  assert.equal(small.calls.filter((c) => c[0] === '--test').length, 1);
+  assert.match(small.err, /ran in 1 chunk\(s\) over 5 file\(s\)/);
+});
+
+test('#7257: the node --test line itself is unchanged and the chunking exists only under the Windows flag', () => {
+  assert.match(SRC, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left');
+  assert.match(SRC, /MINGW\*\|MSYS\*\|CYGWIN\*\)\n {4}_RT_WIN=1/, 'the flag is set only in the Windows case');
+  assert.equal((SRC.match(/^\s*node\(\) \{/gm) || []).length, 1, 'one node() function');
+});

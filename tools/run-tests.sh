@@ -181,6 +181,7 @@ _RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; export KOSMOS_SHELL_PARALLEL=1
 # path it can read; without it the guard cannot be set up, and the run stops rather than reach the real scheduler.
 case "$(uname -s 2>/dev/null)" in
   MINGW*|MSYS*|CYGWIN*)
+    _RT_WIN=1   # #7257: read below by the suite and harness checks and by the node --test line
     if ! _rt_wt="$(cygpath -m "$REPO/tools/windows-tests.js" 2>/dev/null)" || [ -z "$_rt_wt" ]; then
       case "${CI:-}" in ""|false|FALSE|False|0) _rt_ci="" ;; *) _rt_ci=1 ;; esac   # as windows-tests.js onCi reads it
       if [ "${KOSMOS_TESTS_REAL_SCHTASKS:-}" != 1 ] && [ -z "$_rt_ci" ]; then
@@ -644,12 +645,19 @@ _rt_suite_max_now() {
 }
 _rt_suite_check=1
 { [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
+# #7257: on Windows the live-suite and install-harness checks cannot answer: they read the process table with ps -A and
+# pgrep, which Git Bash's ps does not take, so they exit "could not tell" and refuse every run. They are not run there.
+_rt_harness_check=1
+if [ "${_RT_WIN:-0}" = 1 ]; then
+  _rt_suite_check=0; _rt_harness_check=0
+  echo "run-tests: the live-suite and install-harness checks are not run on Windows (#7257: Git Bash's ps cannot answer them)" >&2
+fi
 _rt_box_clear() {
   kosmos_refuse_if_machine_claimed "this test run" || return 1
   if [ "$_rt_suite_check" = 1 ]; then
     kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" "$(($(_rt_suite_max_now) - 1))" || return 1
   fi
-  if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+  if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ] && [ "$_rt_harness_check" = 1 ]; then
     kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || return 1
   fi
   return 0
@@ -670,7 +678,7 @@ if [ "$KOSMOS_ONLY" = 1 ]; then
   if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
     if ! kosmos_holds_machine_claim; then
       kosmos_refuse_if_machine_claimed "this --only run" || exit 1
-      if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+      if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ] && [ "$_rt_harness_check" = 1 ]; then
         kosmos_refuse_if_harness_live "this --only run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs it anyway" || exit 1
       fi
     fi
@@ -842,6 +850,39 @@ fi
 #
 # #6059: fresh-connections.js makes the global fetch open a new connection per request, so a kept-alive socket
 # left idle on a loaded runner cannot come back ECONNRESET on the next request (one preload for ~240 files).
+# #7257: Windows caps a command line at about 32K characters, so one node --test over every file stopped with
+# "Argument list too long" and ran nothing. There, node is this function for the one call over KOSMOS_TEST_FILES: the
+# same options and trailing arguments over the files in chunks of under 24,000 characters, in order, the worst exit
+# status as the node part's, and one line naming the chunk count (so a run that did one chunk of many shows). Every
+# other node call goes to node itself. The node --test line below stays as it is (three guards find it flush left).
+# The per-file watchdog has never run on Windows (it reads ps -A and pgrep, which Git Bash lacks), chunked or not.
+if [ "${_RT_WIN:-0}" = 1 ]; then
+  node() {
+    local n=${#KOSMOS_TEST_FILES[@]} k=-1 i
+    local a=("$@")
+    if [ "${1:-}" = --test ] && [ "$n" -gt 0 ]; then
+      for ((i = 0; i + n <= ${#a[@]}; i++)); do
+        if [ "${a[i]}" = "${KOSMOS_TEST_FILES[0]}" ] && [ "${a[i + n - 1]}" = "${KOSMOS_TEST_FILES[n - 1]}" ]; then k=$i; break; fi
+      done
+    fi
+    if [ "$k" -lt 0 ]; then command node "$@"; return; fi
+    local opts=("${a[@]:0:k}") extra=("${a[@]:k+n}") chunk=() base=0 len=0 worst=0 rc chunks=0 x f
+    for x in "${opts[@]}" "${extra[@]}"; do base=$((base + ${#x} + 3)); done
+    for f in "${KOSMOS_TEST_FILES[@]}"; do
+      if [ "${#chunk[@]}" -gt 0 ] && [ $((base + len + ${#f} + 3)) -gt 24000 ]; then
+        command node "${opts[@]}" "${chunk[@]}" "${extra[@]}"; rc=$?
+        [ "$rc" -gt "$worst" ] && worst=$rc
+        chunks=$((chunks + 1)); chunk=(); len=0
+      fi
+      chunk+=("$f"); len=$((len + ${#f} + 3))
+    done
+    command node "${opts[@]}" "${chunk[@]}" "${extra[@]}"; rc=$?
+    [ "$rc" -gt "$worst" ] && worst=$rc
+    chunks=$((chunks + 1))
+    echo "run-tests: node --test ran in $chunks chunk(s) over $n file(s) (#7257: Windows caps a command line)" >&2
+    return "$worst"
+  }
+fi
 NODE_STATUS=0
 _rt_wd_pid=""
 _rt_wd_flag=""
