@@ -47,3 +47,67 @@ test('#7221: mayHold lets an 8.3 short name in a folder stand for any one long n
   assert.equal(winpath.mayHold(String.raw`C:\Program Files\App`, String.raw`C:\PROGRA~1\App\x.txt`, String.raw`C:\Program Files\Other\x.txt`), true);
   assert.equal(winpath.mayHold(String.raw`C:\Program Files\App`, String.raw`C:\Program Files\Other\x.txt`, String.raw`C:\Program Files\Other\x.txt`), false);
 });
+
+/* #7249: the one classifier pins every spelling the 7221 suite uses to exactly one kind. This is
+   the table the card asks for, run as a guard: if a spelling drifts to another kind, or classify
+   returns a kind outside the set, it is red on every platform (so Windows CI exercises it too). */
+test('#7249: classify pins every spelling the suite uses to exactly one kind', () => {
+  const KINDS = ['local-volume', 'local-drive', 'share', 'no-file-namespace', 'unplaceable', 'local-other'];
+  const TABLE = [
+    // local-volume: a volume named without a drive letter, and its NT and Shadow Copy forms
+    [String.raw`\\?\Volume{8567e582-9e23-4c72-a97e-1fbdfc2f255f}\work`, 'local-volume'],
+    [String.raw`\\?\GLOBALROOT\Device\HarddiskVolume3\work`, 'local-volume'],
+    [String.raw`\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\x`, 'local-volume'],
+    [String.raw`\??\Volume{8567e582-9e23-4c72-a97e-1fbdfc2f255f}\x`, 'local-volume'],
+    [String.raw`\??\GLOBALROOT\Device\HarddiskVolumeShadowCopy12\x`, 'local-volume'],
+    // local-drive: the plain, long, NT and DosDevices-alias spellings of a drive letter
+    [String.raw`C:\x`, 'local-drive'], [String.raw`c:/Users/a/f`, 'local-drive'],
+    [String.raw`\\?\C:\Users\a\f.txt`, 'local-drive'], [String.raw`\\.\C:\work\inner`, 'local-drive'],
+    [String.raw`\??\C:\x`, 'local-drive'], [String.raw`\??\Global\C:\data`, 'local-drive'],
+    [String.raw`\\?\Global\C:\data`, 'local-drive'], [String.raw`\\?\GLOBALROOT\GLOBAL??\D:\x`, 'local-drive'],
+    [String.raw`\\?\GLOBALROOT\??\E:\x`, 'local-drive'], [String.raw`\\?\Global\Global\C:\work\nested`, 'local-drive'],
+    // share: the plain, UNC-namespace, Mup, GLOBAL?? and NT spellings
+    [String.raw`\\host\share\x`, 'share'], ['//host/share/x', 'share'],
+    [String.raw`\\?\UNC\host\share`, 'share'], [String.raw`\??\UNC\host\share\x`, 'share'],
+    [String.raw`\\?\GLOBALROOT\Device\Mup\Host\Share\x`, 'share'], [String.raw`\??\GLOBALROOT\Device\Mup\host\share`, 'share'],
+    [String.raw`\??\Global\UNC\Host\Share\x`, 'share'], [String.raw`\\?\GLOBALROOT\GLOBAL??\UNC\host\share`, 'share'],
+    // no-file-namespace: a pipe, a mailslot, a DOS device namespace
+    [String.raw`\\.\pipe\x`, 'no-file-namespace'], [String.raw`\\.\mailslot\m`, 'no-file-namespace'],
+    [String.raw`\\.\COM1`, 'no-file-namespace'], ['\\\\.\\LPT2\\', 'no-file-namespace'],
+    [String.raw`\\.\NUL`, 'no-file-namespace'], [String.raw`\??\pipe\x`, 'no-file-namespace'],
+    // unplaceable: network-spelled, names no drive/volume/share
+    [String.raw`\\.\Weird\x`, 'unplaceable'], [String.raw`\\?\GLOBALROOT\Device\Something`, 'unplaceable'],
+    [String.raw`\??\GLOBALROOT\Device\LanmanRedirector\host\share`, 'unplaceable'],
+    [String.raw`\\?\Global\GLOBALROOT\x`, 'unplaceable'],
+    // local-other: names no drive at all
+    [String.raw`\Users\a\Files\f.txt`, 'local-other'], [String.raw`..\other\f.txt`, 'local-other'],
+    ['f.txt', 'local-other'],
+  ];
+  for (const [spelling, kind] of TABLE) {
+    const c = winpath.classify(spelling);
+    assert.ok(KINDS.includes(c.kind), spelling + ': kind ' + c.kind + ' is not one of the documented set');
+    assert.equal(c.kind, kind, spelling);
+  }
+  // the share kind carries its server\share; a local-drive carries its letter
+  assert.equal(winpath.classify(String.raw`\\?\GLOBALROOT\Device\Mup\Host\Share\x`).share, 'host\\share');
+  assert.equal(winpath.classify(String.raw`\??\Global\C:\data`).drive, 'C');
+  // the subtlety pinned: a DosDevices drive alias is local-drive by kind, yet networkSpelled by shape
+  const alias = winpath.classify(String.raw`\??\Global\C:\data`);
+  assert.equal(alias.kind, 'local-drive');
+  assert.equal(alias.networkSpelled, true, 'the alias keeps the old network SHAPE, so isNetworkSpelling is unchanged');
+  /* networkSpelled gates the refusals that fire BEFORE any realpath (otherFolderSkip, winRealRefusal),
+     so pin it for EVERY row, not just the one alias, against the legacy isNetworkSpelling expression
+     kept here as an independent oracle. A future edit to classify that changed the flag for any kind
+     would turn this red, which a per-kind assertion alone would miss (networkSpelled is not a function
+     of kind: a plain C:\ and a \??\Global\C:\ alias are both local-drive but differ on the flag). */
+  const L_NAMESPACE = /^[\\/]{2}/;
+  const L_LOCAL_LONG = /^[\\/]{2}[?.][\\/](?=[A-Za-z]:[\\/])/;
+  const L_NT_PREFIX = /^\\\?\?\\/;
+  const L_NT_LOCAL = /^\\\?\?\\(?=[A-Za-z]:[\\/])/;
+  const L_LOCAL_VOLUME = /^(?:[\\/]{2}[?.][\\/]|\\\?\?\\)(?:Volume\{[0-9a-f-]+\}|GLOBALROOT[\\/]Device[\\/]HarddiskVolume(?:ShadowCopy)?\d+)[\\/]/i;
+  const legacyNetworkSpelled = (s) => ((L_NAMESPACE.test(s) && !L_LOCAL_LONG.test(s)) || (L_NT_PREFIX.test(s) && !L_NT_LOCAL.test(s))) && !L_LOCAL_VOLUME.test(s);
+  for (const [spelling] of TABLE) {
+    assert.equal(winpath.classify(spelling).networkSpelled, legacyNetworkSpelled(spelling), 'classify networkSpelled parity: ' + spelling);
+    assert.equal(winpath.isNetworkSpelling(spelling), legacyNetworkSpelled(spelling), 'isNetworkSpelling parity: ' + spelling);
+  }
+});
