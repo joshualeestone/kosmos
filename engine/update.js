@@ -435,10 +435,14 @@ async function refresh() {
       let pointer = channel;
       /* kosmos#7281 TRANSITIONAL: a Linux x86_64 board whose Linux pointer gives no readable version (not published
          yet) reads the Mac pair it has always read, unless it already runs the Linux family (then that is no offer,
-         as setup.sh refuses rather than downgrade). `family` records which pair answered. The installer decides its
+         as setup.sh refuses rather than downgrade). The installer decides its
          own family the same way, so an offer read from the Mac pair installs the portable bundle it describes. */
       let readAs = platform;
-      if (!latest && pointerFamily(platform) === 'linux' && !linuxFamilyInstalled()) {
+      /* Review 1 (W2): only when the Linux pointer names NO a.b.c version, the same test setup.sh uses to pick the
+         family; one that names a version but fails the strict checks is no offer, never the Mac pair's version (which
+         setup.sh would not install). */
+      const linuxNamesVersion = !!(body && typeof body.version === 'string' && /^\d+\.\d+\.\d+$/.test(body.version.trim()));
+      if (!latest && !linuxNamesVersion && pointerFamily(platform) === 'linux' && !linuxFamilyInstalled()) {
         readAs = 'darwin';
         try {   // the Linux pointer's answer already says the host was reached; a failed second read is no offer
           const mac = await doFetch(`${lookBase}/${pointerFor('darwin', channel)}`, { signal: ctl.signal, cache: 'no-store' });
@@ -450,7 +454,7 @@ async function refresh() {
         if (prod && newer(prod.version, latest.version)) { latest = prod; pointer = 'prod'; }
       }
       const wasPaused = cache.paused === true;
-      cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel, pointer, family: pointerFamily(readAs) };
+      cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel, pointer };
       landed = true;
       // kosmos#6620: ask whether the fleet's updates are paused (fails open) only when an automatic install would
       // follow this look (autoInstallWouldStart: the same gates maybeAutoInstall uses), so a board that would not

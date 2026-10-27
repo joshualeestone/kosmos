@@ -64,6 +64,13 @@ test('#7281: Linux refuses a manifest that names another platform, and takes its
   assert.equal(check(release('1.2.3', undefined), 'linux').code, 0);
 });
 
+test('#7281 review 1: a copy that runs the Linux family takes only a manifest that says linux', () => {
+  const unnamed = check(release('1.2.3', undefined), 'linux', { ownLinux: true });
+  assert.equal(unnamed.code, 1, 'a Linux-family copy took the Mac build under the Linux name');
+  assert.match(unnamed.why, /"macOS", not Linux/);
+  assert.equal(check(release('1.2.3', 'linux'), 'linux', { ownLinux: true }).code, 0, 'CONTROL: its own family');
+});
+
 test('#7281: the installer check alone is not held to the platform (both families carry the same setup.sh)', () => {
   const r = check(release('1.2.3', 'linux'), 'darwin', { skipTarball: true });
   assert.equal(r.code, 0);
