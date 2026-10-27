@@ -284,3 +284,155 @@ test('#7247: a launcher given by a quoted path with a space is read as that laun
   assert.equal(commandRuns('"C:\\Program Files\\Git\\bin\\bash.exe" -c "echo schtasks"'), false);
   assert.equal(callRuns('bash', ['-C', 'script.sh']), false);
 });
+
+test('#7270: a prefix in front of schtasks does not end the scan', () => {
+  for (const cmd of [
+    'X=1 schtasks /Query', 'A=1 B=2 schtasks.exe /End', '@schtasks /Query', '@C:\\Windows\\System32\\schtasks.exe /Query',
+    'if exist x schtasks /Query', 'if not exist C:\\x schtasks /Query', 'if /i not exist x schtasks /Query',
+    'if errorlevel 1 schtasks /Query', 'if defined X schtasks /Query', 'if "%A%"=="1" schtasks /Query',
+    'if %A% equ 1 schtasks /Query', 'nohup schtasks /Query', 'exec schtasks /Query', 'command schtasks /Query',
+    'time schtasks /Query', 'time -p schtasks /Query', 'nice -n 10 schtasks /Query', 'timeout 5 schtasks /Query',
+    'timeout -s KILL 5 schtasks /Query', 'schtasks>out.txt', 'schtasks>>out.txt /Query', '>out.txt schtasks /Query',
+    '2>err.txt schtasks /Query', 'echo `schtasks /Query`', 'if schtasks /Query; then echo y; fi',
+    'while true; do schtasks /Query; done', '! schtasks /Query',
+  ]) assert.equal(commandRuns(cmd), true, cmd);
+  assert.equal(callRuns('bash', ['-c', 'X=1 schtasks /End /TN Kosmos-board']), true);
+  assert.equal(callRuns('cmd', ['/c', '@schtasks /Query']), true);
+  // CONTROL: the same prefixes in front of something else, and Windows' timeout, which runs nothing
+  for (const cmd of [
+    'X=1 node x.js', '@echo schtasks', 'if exist schtasks.log echo found', 'if errorlevel 1 echo schtasks',
+    'nohup node x.js', 'time git grep schtasks', 'timeout 5 node x.js', 'timeout /t 5 /nobreak', 'echo hi>schtasks',
+    'type <schtasks', 'echo `git grep schtasks`', 'X="schtasks /End" node x.js',
+  ]) assert.equal(commandRuns(cmd), false, cmd);
+});
+
+test('#7270: without a shell, each launcher argument is read as one word, as node passes it', () => {
+  // these never run schtasks: cmd only echoes the one quoted argument
+  assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
+  assert.equal(callRuns('cmd.exe', ['/d', '/s', '/c', 'echo', 'x | schtasks /End']), false);
+  // CONTROL: what does run it still reads as running it
+  assert.equal(callRuns('cmd', ['/c', 'schtasks /End']), true);
+  assert.equal(callRuns('cmd', ['/c', 'echo a & schtasks /End']), true);
+  assert.equal(callRuns('bash', ['-c', "cat <<'EOF'\nhello\nEOF\nschtasks /Query"]), true);
+  assert.equal(callRuns('bash', ['-c', 'cat <<< schtasks; schtasks /Query']), true);
+  assert.equal(callRuns('powershell', ['-Command', 'schtasks /Query']), true);
+});
+
+test('#7270: cmd\'s ""path" args" form and env -S are read as they run', () => {
+  assert.equal(commandRuns('cmd /c ""C:\\Program Files\\x\\schtasks.exe" /End"'), true);
+  assert.equal(commandRuns('cmd /s /c ""C:\\Program Files\\x\\schtasks.exe" /End /TN x"'), true);
+  assert.equal(callRuns('cmd', ['/s', '/c', '""C:\\Program Files\\x\\schtasks.exe" /End"']), true);
+  assert.equal(commandRuns('env -S "schtasks /End"'), true);
+  assert.equal(callRuns('env', ['-S', 'schtasks /End']), true);
+  // CONTROL
+  assert.equal(commandRuns('cmd /c ""C:\\Program Files\\x\\node.exe" x.js"'), false);
+  assert.equal(commandRuns('env -S "node x.js"'), false);
+});
+
+test('#7270 review 1: an argument with no space reaches the launcher bare, so what follows & ; | runs and is read', () => {
+  for (const [file, args] of [
+    ['cmd', ['/c', 'ver&schtasks']], ['cmd.exe', ['/d', '/s', '/c', 'schtasks|more']], ['bash', ['-c', 'true&&schtasks']],
+    ['bash', ['-c', 'schtasks;echo']], ['powershell', ['-Command', 'schtasks;echo']], ['cmd', ['/c', 'schtasks>out.txt']],
+    ['bash', ['-c', 'schtasks /Query >/dev/null; exec /bin/bash']], ['bash', ['-c', 'echo $((1<<X))\nschtasks /Query']],
+  ]) assert.equal(callRuns(file, args), true, JSON.stringify([file, args]));
+  // CONTROL: a lookup runs nothing; a quoted launcher path is still read as that launcher
+  for (const cmd of ['command -v schtasks', 'command -v schtasks >/dev/null && echo yes', 'command -V schtasks'])
+    assert.equal(commandRuns(cmd), false, cmd);
+  assert.equal(commandRuns('"C:\\Program Files\\Git\\bin\\bash.exe" -c "echo schtasks"'), false);
+  assert.equal(commandRuns('"C:\\Program Files\\Git\\bin\\bash.exe" -c "schtasks /Query"'), true);
+  // a backtick is PowerShell's escape and plain text to cmd, so it does not cut their lines
+  assert.equal(callRuns('powershell', ['-Command', 'Write-Output "a`nb" `schtasks']), false);
+});
+
+test('#7270 review 2: a here-document is read as commands, so no << can hide what comes after it', () => {
+  for (const args of [
+    ['-c', 'node -e "a<<b"\nschtasks /Query'], ['-c', "echo '<<EOF'\nschtasks /Query"], ['-c', '# see <<EOF in docs\nschtasks /Query'],
+    ['-c', 'let x=1<<y\nschtasks /Query'], ['-c', 'bash <<EOF\nschtasks /Query\nEOF'], ['-c', 'sh -s <<EOF\nschtasks /End /TN x\nEOF'],
+    ['-c', 'cat <<EOF\n$(schtasks /Query)\nEOF'],
+    // refused though only cat reads it: telling a body from commands needs a real shell parser (the accepted side)
+    ['-c', "cat <<'EOF'\nschtasks /Query\nEOF"],
+  ]) assert.equal(callRuns('bash', args), true, JSON.stringify(args));
+  assert.equal(commandRuns('bash -c "echo \'<<EOF\'\nschtasks /Query"'), true);
+});
+
+test('#7270 review 2: with windowsVerbatimArguments node passes the arguments as they are, so they are one command line', () => {
+  assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks'], { windowsVerbatimArguments: true }), true);
+  assert.equal(callRuns('cmd', ['/d', '/s', '/c', '"schtasks /End"'], { windowsVerbatimArguments: true }), true);
+  // CONTROL: the same call quoted by node only echoes, and a verbatim call running something else is not refused
+  assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
+  assert.equal(callRuns('cmd', ['/d', '/s', '/c', '"node x.js"'], { windowsVerbatimArguments: true }), false);
+});
+
+test('#7270 review 3: each launcher is read as it reads its arguments', () => {
+  // PowerShell joins what follows -Command (checked live on 5.1), cmd reads the line node builds
+  for (const [file, args] of [
+    ['powershell.exe', ['-NoProfile', '-Command', 'Get-Date', '; schtasks /End /TN Kosmos\\board']],
+    ['powershell.exe', ['-Command', 'Write-Output', 'a; schtasks /Query']],
+    ['cmd.exe', ['/c', 'echo', 'x"&schtasks']], ['cmd.exe', ['/c', 'echo', 'x"y & schtasks /End']],
+    ['cmd', ['/s', '/c', '""C:\\Program Files\\x\\schtasks.exe" /End"']],
+  ]) assert.equal(callRuns(file, args), true, JSON.stringify([file, args]));
+  // CONTROL: one quoted argument still only echoes; PowerShell running something else is not refused
+  assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
+  assert.equal(callRuns('powershell.exe', ['-Command', 'Write-Output', 'schtasks']), false);
+});
+
+test('#7270 review 3: a quoted path is read both as a path and as a line, and either one running schtasks is enough', () => {
+  for (const cmd of [
+    '"D:\\wt - copy\\schtasks.exe" /Query', 'cmd /c "D:\\wt - copy\\schtasks.exe"', '"C:\\a -b\\Git\\bin\\bash.exe" -c "schtasks"',
+    '>nul 2>&1 schtasks /Query', '2>&1 schtasks', 'X=1 2>&1 schtasks', 'env --split-string="schtasks /End"', 'env -S"schtasks /End"',
+  ]) assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL
+  for (const cmd of ['"D:\\wt - copy\\node.exe" x.js', '"C:\\a -b\\Git\\bin\\bash.exe" -c "echo schtasks"', 'node x.js 2>&1',
+    'command -p -v schtasks', 'env --split-string="node x.js"'])
+    assert.equal(commandRuns(cmd), false, cmd);
+});
+
+test('#7270 review 4: cmd drops the first and last quote after /c, which can move an & out of quotes', () => {
+  // each one runs its last command under cmd (checked live with echo in place of schtasks)
+  for (const args of [
+    ['/c', 'echo a b', 'x & schtasks'], ['/c', 'echo x y', 'z', '& schtasks'], ['/d', '/s', '/c', 'echo a b', 'x & schtasks'],
+    ['/c', 'C:\\Program Files\\x\\tool.exe', 'arg & schtasks /End'],
+  ]) assert.equal(callRuns('cmd', args), true, JSON.stringify(args));
+  assert.equal(commandRuns('cmd /c "a b" "x & schtasks" /End'), true);
+  // CONTROL: one quoted argument after a plain word still only echoes, and a tool path with a space runs that tool
+  assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
+  assert.equal(callRuns('cmd', ['/c', 'C:\\Program Files\\x\\tool.exe', 'arg']), false);
+});
+
+test('#7270 review 5: a redirect stays in the cmd line, a lone backtick does not cut the command, a start title after switches', () => {
+  // each one runs schtasks (the first and the start form checked live with echo in its place)
+  assert.equal(callRuns('cmd', ['/c', 'echo a b', '>', 'x & schtasks']), true);
+  for (const cmd of ['env A=`x schtasks /Query', 'start /wait "" schtasks /Query', 'start /b /wait "" cmd /c schtasks',
+    'if [ -f x ]; then schtasks /Query; fi', 'nohup.exe schtasks /Query'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  assert.equal(callRuns('cmd', ['/c', 'echo a`b & schtasks'], { windowsVerbatimArguments: true }), true);
+  // CONTROL: a redirect to a file named for schtasks, a start title naming it, and a lookup in any case run nothing
+  for (const cmd of ['echo hi > schtasks.log', 'node x.js 2> "schtasks & co.txt"', 'start "schtasks" node x.js',
+    'Command -v schtasks', 'echo a`b'])
+    assert.equal(commandRuns(cmd), false, cmd);
+  // a backtick in a verbatim PowerShell line is its escape, not a command
+  assert.equal(callRuns('powershell', ['-Command', 'Write-Output', '`schtasks'], { windowsVerbatimArguments: true }), false);
+});
+
+test('#7270 review 6: loops and groups, long options that take a value, and a redirect among a launcher\'s switches', () => {
+  for (const cmd of ['while schtasks /Query; do sleep 1; done', 'until schtasks /Query; do sleep 1; done', '{ schtasks /Query; }',
+    'env --chdir x schtasks', 'env --unset X schtasks', 'timeout --kill-after 5 10 schtasks', 'cmd 2>nul /c schtasks',
+    'bash 2>/dev/null -c "schtasks /Query"', 'powershell >nul -Command schtasks'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: the same forms running something else
+  for (const cmd of ['while true; do node x.js; done', '{ echo schtasks; }', 'env --chdir schtasks node x.js',
+    'cmd 2>nul /c echo schtasks', 'bash 2>/dev/null -c "echo schtasks"'])
+    assert.equal(commandRuns(cmd), false, cmd);
+});
+
+test('#7270 review 7: a redirect in the slot of a switch\'s value is skipped, and nice and time take their long values', () => {
+  const enc = Buffer.from('schtasks /Query', 'utf16le').toString('base64');
+  for (const cmd of ['powershell -ExecutionPolicy >nul Bypass -Command schtasks', 'bash -o >x pipefail -c schtasks',
+    'env -u >x A schtasks', 'powershell -EncodedCommand >nul ' + enc, 'nice --adjustment 5 schtasks', 'time -f %e schtasks',
+    'time -o t.txt schtasks', 'timeout -k >x 1 5 schtasks'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL
+  for (const cmd of ['powershell -ExecutionPolicy >nul Bypass -Command node x.js', 'nice --adjustment 5 node x.js',
+    'time -o schtasks.txt node x.js', 'powershell -EncodedCommand >nul ' + Buffer.from('Write-Output schtasks', 'utf16le').toString('base64')])
+    assert.equal(commandRuns(cmd), false, cmd);
+});
