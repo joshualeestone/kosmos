@@ -7384,6 +7384,10 @@ const server = http.createServer(async (req, res) => {
                    give-up episode is kept only by the helper sweeps over RUNNING agents, and this row is a
                    stopped agent with no live session for a Kosmos helper to have given up on. */
                 ownBound: null,
+                /* #7212 slice 2: and deliveryStall, so the two needs-the-person rules read it here without a strict-shape
+                   miss. Always null here: the card carries a stall only while it reads idle or working, and this row is
+                   an agent with no live session (the minute sweep forgets its streak: it is not on the roster). */
+                deliveryStall: null,
                 /* kosmos#5957 slice 2: a stopped agent is the likeliest to be far behind, so its offline row says so too. */
                 rulesBehind: require('./engine/doctrine').rulesBehind(k.name, profile),
                 /* kosmos#5957 slice 3: and how long it has gone without running, once that is two weeks or more
@@ -26160,7 +26164,27 @@ function start(port = PORT) {
           }
         } catch { /* said next minute */ }
       };
+      /* #7212 slice 2: agents whose current delivery stall was already said, and when (deliverystreak.stallsToSay). */
+      const stallSaid = new Map();
+      /* #7212 slice 2: an agent no message has been seen to reach for half an hour, whatever the cause, is said once per
+         stall and again each day it lasts. Agents gone from the board lose their streaks (not on an empty read). */
+      const sayStalls = () => {
+        try {
+          const ds = require('./engine/deliverystreak');
+          const r = safeRoster();
+          if (!Array.isArray(r) || !r.length) return;
+          const names = r.map((c) => c && c.sessionName).filter((n) => typeof n === 'string' && n);
+          ds.sweep(names);
+          for (const c of r) ds.settleFor(c);   // a card that says itself starts its streak over (round 3)
+          const byName = new Map(r.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
+          const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
+          /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
+          const shown = names.filter((n) => { const c = byName.get(n); return !!(c && c.deliveryStall); });
+          for (const st of ds.stallsToSay(shown, stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
+        } catch { /* said next minute */ }
+      };
       const sweep = setInterval(() => {
+        sayStalls();
         /* ⚠️ safeRoster(), NEVER paneRoster(): the sweep delivers, and
            delivery needs full snapshot-shaped cards (target and all).
            paneRoster's thin rows fail addressable() before anything is

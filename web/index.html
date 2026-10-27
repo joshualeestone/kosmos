@@ -22081,7 +22081,7 @@ const PRESSAY = {
 /* #4006: a restart that did not come back is red (st attn) but NOT online: nothing is running, so the presence is
    off, which also keeps "Start this agent" offered (refreshStartAffordance shows it for presence off). */
 const CARD_ST_FAILED_RESTART = Object.freeze({ st: 'attn', pres: 'off' });
-function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.crashLoop && a.crashLoop.looping === true) return { st: 'attn', pres: (CARD_ST[a.state] || CARD_ST.unknown).pres }; /* #5154 slice A: a crash loop wears the needs-you look; review 1: its PRESENCE stays its state's (an offline agent between crashes keeps its offline dot, tense and Start), like #4006's failed restart */ if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.crashLoop && a.crashLoop.looping === true) return { st: 'attn', pres: (CARD_ST[a.state] || CARD_ST.unknown).pres }; /* #5154 slice A: a crash loop wears the needs-you look; review 1: its PRESENCE stays its state's (an offline agent between crashes keeps its offline dot, tense and Start), like #4006's failed restart */ if (a && a.deliveryStall) return { st: 'attn', pres: (CARD_ST[a.state] || CARD_ST.unknown).pres }; /* #7212 slice 2: a delivery stall wears the needs-you look too, with its state's presence (Mona Lisa: the issue edge, so the Issue count and the card agree) */ if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -22117,6 +22117,9 @@ function stateCopyOf(a) {
   /* #5154 slice A: Kosmos keeps restarting it and it keeps stopping. First, because between crashes its state can
      read working or idle, and that word on a red card would contradict the sentence under it. */
   if (a && a.crashLoop && a.crashLoop.looping === true) return { label: 'Keeps stopping', attn: true };
+  /* #7212 slice 2 (Mona Lisa's design): no message has reached it for half an hour. The engine sets deliveryStall only
+     on an idle or working card, so the pill says what is wrong in place of a word that would read as fine. */
+  if (a && a.deliveryStall) return { label: 'Messages stuck', attn: true };
   if (a && a.state === 'restarting') return { label: restartingLabel(a), attn: false };
   // #2808 class 2: a deliberate agent question reads "Question", attn:false (calm), not
   // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not
@@ -22311,6 +22314,17 @@ function stateReason(a, opts) {
     const since = Date.parse(a.unsentInput.since);
     const mins = Number.isFinite(since) ? Math.max(3, Math.round((Date.now() - since) / 60000)) : 3;
     return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.';
+  }
+  /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause (engine/deliverystreak.js).
+     The card only carries it while it reads idle or working, the states that look fine. The reason is the engine's
+     words (one copy). After the unsent-text sentence above, which names the sharper cause when it is the box. */
+  if (a && a.deliveryStall && typeof a.deliveryStall.since === 'string' && typeof a.deliveryStall.words === 'string') {
+    const since = Date.parse(a.deliveryStall.since);
+    const mins = Number.isFinite(since) ? Math.max(30, Math.round((Date.now() - since) / 60000)) : 30;
+    const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + mins + ' minutes';
+    const who = (typeof a.name === 'string' && a.name) ? a.name : 'this agent';
+    const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Open it to see what it shows, or restart it';
+    return 'No message has reached ' + who + ' for ' + when + '. ' + a.deliveryStall.words + '. ' + next + '.';
   }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
@@ -22771,7 +22785,9 @@ function agentNeedsAttention(a) {
     || (a.stuckError && a.stuckError.stuck === true)
     // #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) gave up on this agent.
     // Keep byte-for-byte aligned with engine/status.js needsPerson.
-    || (a.ownBound && a.ownBound.raised === true)));
+    || (a.ownBound && a.ownBound.raised === true)
+    // #7212 slice 2: no message has been seen to reach it for half an hour. Keep aligned with engine/status.js needsPerson.
+    || !!a.deliveryStall));
 }
 
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the

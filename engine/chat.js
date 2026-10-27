@@ -69,6 +69,7 @@ const { execFileSync } = require('node:child_process');
 
 const store = require('./store');
 const status = require('./status');
+const deliverystreak = require('./deliverystreak');   // #7212 slice 2
 const { withFileLock } = require('./filelock');
 
 /**
@@ -1150,6 +1151,7 @@ async function pressRememberedNow(target, card) {
     const mine = still && still.id === kept.id;
     if (outcome === 'sent') {
       if (mine) forgetUnsent(target);   // only the line this retry pressed
+      deliverystreak.note(name, { state: DELIVERY.PLACED });   // #7212 slice 2 round 3: a line Kosmos sent through ends the streak
       if (kept.seq != null) tellEarlierSubmitted(kept.seq);
       return 'sent';
     }
@@ -2356,7 +2358,8 @@ function typingGate(sessionName, raw, roster, envelope, trailer, at) {
 function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronousGap) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);
-  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null };
+  // #7212 slice 2: contentRefused, so a refusal of the message itself never counts toward the agent's delivery stall.
+  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null, contentRefused: true };
 
   /* kosmos#6436: every gate before the first keystroke, shared with the retry that presses a line left unsent. */
   const gate = typingGate(sessionName, raw, roster, envelope, trailer, at);
@@ -2393,7 +2396,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   let tail = '';
   if (typeof trailer === 'string' && trailer) {
     if (/[\r\n\u0000-\u0008\u000b-\u001f\u007f]/.test(trailer)) {
-      return { state: DELIVERY.COULD_NOT, because: 'the attached file\'s name has characters we will not type into a terminal', at, paneState: null, paneNote: null };
+      return { state: DELIVERY.COULD_NOT, because: 'the attached file\'s name has characters we will not type into a terminal', at, paneState: null, paneNote: null, contentRefused: true };
     }
     tail = trailer;
   }
@@ -2800,6 +2803,9 @@ function movedToldAfter(sessionName, m, v) {
   return v && typeof v.then === 'function' ? v.then(mark) : mark(v);
 }
 
+/* #7212 slice 2: a delivery is noted under the card's own sessionName (the key its card field reads), not the name the
+   sender typed: resolveCard tolerates case, so `kosmos msg Casey` reaches casey's card and must count there. */
+function streakKey(sessionName, card) { return (card && typeof card.sessionName === 'string' && card.sessionName) || sessionName; }
 function deliver(sessionName, raw, roster, envelope, trailer, opts) {
   const card = resolveCard(roster, sessionName);
   const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
@@ -2812,7 +2818,8 @@ function deliver(sessionName, raw, roster, envelope, trailer, opts) {
     };
   }
   const m = movedNoteFor(sessionName, raw, opts, card);   // #5400 (a card that is not ours is refused before any typing)
-  return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false));
+  // #7212 slice 2: every verdict is noted, so an agent no line reaches for half an hour is said, whatever the cause.
+  return deliverystreak.noted(streakKey(sessionName, card), movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false)));
 }
 
 /**
@@ -2964,12 +2971,12 @@ function menuHeld(sessionName, roster) {
 function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}) {
   let menuHold = null;
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
-  if (menuHold) return menuHold;
+  if (menuHold) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), menuHold);   // #7212 slice 2: a hold never reaches deliver
   let limitHold = null;
   try { limitHold = accountHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws (#5948: or signed out)
-  if (limitHold) return limitHold;
+  if (limitHold) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), limitHold);
   const held = quotaHeldVerdict(sessionName, roster, opts);
-  if (held) return held;
+  if (held) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), held);
   // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
   const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
   let v;
@@ -2990,12 +2997,12 @@ function inputHold(v) {
 async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer, opts = {}) {
   let menuHold = null;
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
-  if (menuHold) return menuHold;
+  if (menuHold) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), menuHold);   // #7212 slice 2: a hold never reaches deliver
   let limitHold = null;
   try { limitHold = accountHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws (#5948: or signed out)
-  if (limitHold) return limitHold;
+  if (limitHold) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), limitHold);
   const held = quotaHeldVerdict(sessionName, roster, opts);
-  if (held) return held;
+  if (held) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), held);
   // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.
   const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
   let v;
@@ -3008,7 +3015,7 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
 async function deliverAsync(sessionName, raw, roster, envelope, trailer, opts) {
   const card = resolveCard(roster, sessionName);
   if (!card || card.isNamedOurs !== true) {
-    return deliverWithGap(sessionName, raw, roster, envelope, trailer, true);
+    return deliverystreak.noted(streakKey(sessionName, card), deliverWithGap(sessionName, raw, roster, envelope, trailer, true));   // #7212 slice 2
   }
   const target = paneTarget(card);
   const before = deliveryQueues.get(target) || Promise.resolve();
@@ -3019,7 +3026,7 @@ async function deliverAsync(sessionName, raw, roster, envelope, trailer, opts) {
   });
   deliveryQueues.set(target, delivery);
   try {
-    return await delivery;
+    return await deliverystreak.noted(streakKey(sessionName, card), delivery);   // #7212 slice 2
   } finally {
     if (deliveryQueues.get(target) === delivery) deliveryQueues.delete(target);
   }

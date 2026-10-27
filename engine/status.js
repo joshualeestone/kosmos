@@ -1774,6 +1774,21 @@ function unsentSweep(names) {
   const present = new Set(Array.from(names || [], String));
   for (const m of [unsentSeen, unsentRead]) for (const k of [...m.keys()]) if (!present.has(k)) m.delete(k);
 }
+/* #7212 slice 2: the card's deliveryStall (engine/deliverystreak.js), with its limitShownOn rule. Never throws. */
+function deliveryStallOf(pane, status) {
+  try {
+    const st = status || {};
+    const ds = require('./deliverystreak');
+    /* A read stays a read: the minute sweep starts a stopped or otherwise self-speaking card's streak over
+       (deliverystreak.settleFor), never this getter. */
+    /* Only a card that reads idle or working: those look fine while nothing reaches them (Josh's read Idle for a
+       week). A stopped agent refuses lines by design, and needs_you, a sign-in or a limit already say themselves. */
+    if (st.state !== STATE.IDLE && st.state !== STATE.WORKING) return null;
+    // The card's own four fields, built as the card builds them.
+    const limitShown = ds.limitShownOn({ limitUntil: claudeLimitUntilIso(pane, st), limitFrom: st.limitFrom, quotaUntil: st.quotaUntil, poolUntil: st.poolUntil });
+    return ds.stallOf(pane && pane.name, { limitShown });
+  } catch { return null; }
+}
 /* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
    else null. The plain capture this pass already made decides whether to look; only a pane showing something there
    is captured again with colours, and only when what it shows changed since the last colour read. */
@@ -8710,6 +8725,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     reachedByChannel: false,
     runner: null,
     lastWorked: null,   // #5959 slice 2: no pane, nothing observed; its page shows no health line
+    deliveryStall: null,   // #7212 slice 2: carried only while a pane card reads idle or working
     task: null,
     state: status.state,
     stateConfidence: status.confidence,
@@ -9588,6 +9604,9 @@ function snapshot() {
       limitUntil: claudeLimitUntilIso(pane, status),
       /* #6249: text has sat unsent in its input box for a few minutes ({ since }), else null. */
       unsentInput: unsentInputOf(pane, text),
+      /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause ({ since, count,
+         lastWhy }), else null. A run of usage-limit holds alone is not said while the card shows the limit itself. */
+      deliveryStall: deliveryStallOf(pane, status),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
       because: status.because,
@@ -9772,7 +9791,10 @@ function needsPerson(a) {
     // said so only in a log -- now it counts as needing the person. Like stuckError, ownBound is NOT normalised
     // into snapshot()'s shape (server.js attaches it via ownbounds.peek only to the /api/status rows, where
     // `raised` can be true), so the read is GUARDED on presence for the same bare-snapshot-row reason.
-    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true));
+    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true)
+    // #7212 slice 2: no message has been seen to reach it for half an hour (only ever set on an idle or working card).
+    // Guarded on presence like the two above: bare rows built elsewhere may omit it.
+    || (Object.prototype.hasOwnProperty.call(a, 'deliveryStall') && Boolean(a.deliveryStall)));
 }
 /**
  * The numbers on the summary line, for a given set of cards.
@@ -9992,7 +10014,7 @@ function sessionStartIn(text, want) {
 }
 
 module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
-  composerText, unsentInputOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
+  composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number
