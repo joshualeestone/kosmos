@@ -1125,6 +1125,11 @@ const SCREENS = [
     await roomFloor7196(page);
   }, verify: async (page) => {
     await newestAbove7196(page, 24, false);
+    // Where the rule applies (the phone room, 30rem and narrower), the header must actually be out of the way: a shot
+    // named for it must not pass on the old layout. Wider sizes (the small tablet) show the room unchanged.
+    const headH = await page.evaluate(() => { if (!matchMedia('(max-width: 30rem)').matches) return 0;
+      const h = document.querySelector('#pj-one-view .pjmidhead'); return h ? h.getBoundingClientRect().height : 0; });
+    if (headH > 0) throw new Error('the room header still shows while typing with the keyboard up (' + Math.round(headH) + 'px)');
   },
   after: async (page) => {
     if (page.__vp7272) { await page.setViewportSize(page.__vp7272); page.__vp7272 = null; }

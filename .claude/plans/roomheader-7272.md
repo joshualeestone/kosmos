@@ -26,14 +26,22 @@ lines). They return when either condition ends. Kept, as in the talk view: Kosmo
   ResizeObserver on the elements that hide, which also catches #conn changing height; a focus listener would not.
 
 ## Proof
-- docs/browser-checks/render-room-scroll.js section 4c (SE, Chromium): typing with the keyboard up hides the header,
-  the newest row is above the composer and no header control is under it; CONTROL: the header forced back, the same
-  read sees the collision (the card's screen); focus leaving brings the header back and with the keyboard closed the
-  newest row clears the composer; on a 393x852 phone focus leaving with the keyboard up keeps the newest row above the
-  composer. 44 of 44.
-- Mutation: the .pjmidhead hide removed, the first 4c arm reds with the card's numbers (search under the composer,
-  newest row 405 vs composer 259). Restored, cmp-checked.
-- Shots: room-typing-7272 (focus first, then the keyboard), SE and iPhone 15, Chromium and WebKit, 0 overflow.
+- docs/browser-checks/render-room-scroll.js section 4c, 50 of 50 with #7196's arms:
+  - SE (Chromium): typing with the keyboard up hides the header, the newest row sits just above the composer (within
+    40px) and no header control is under it. The read makes no fit call of its own.
+  - CONTROL: with the header forced back, the same read sees the collision (the card's screen).
+  - The connection notice stays on screen while typing.
+  - A room search holding a value keeps the header.
+  - On 393x852, from the search box to the composer with the keyboard already up (no resize), the thread takes the
+    freed space: the composer ends at the visible bottom.
+  - Focus leaving brings the header back, and with the keyboard closed the newest row clears the composer.
+- Mutations, each red on its own arm, file restored and cmp-checked:
+  - the .pjmidhead hide removed;
+  - the search clause removed;
+  - #conn hidden again;
+  - the header ResizeObserver removed (the composer floats 150px above the keyboard).
+- Shots: room-typing-7272 (focus first, then the keyboard), every phone size, Chromium and WebKit. Its verify fails if
+  the header still shows at 30rem or narrower.
 - Guards that name the touched code: 19 files, 213 of 213.
 
 ## Weakest premise
@@ -73,3 +81,8 @@ person who needs the room's search while composing.
    NIT: the first arm also asserts the newest row is within 40px of the composer (it fills the space, not only clears
    it). NIT: the comment says "a non-empty value" (spaces keep the header; safe).
    Check 50 of 50. Mutations: observer off (red), plus the three from round 1.
+3. (default model, 20:3x CDT) No BLOCKER or WARNING. NITs applied: (1) the Proof section described a deleted arm and
+   an old count; rewritten. (2) The shot could pass on the old layout; its verify now fails if the header shows where
+   the rule applies (wider sizes show the room unchanged). (3) With the phone-pairing card stepped aside, #conn lost the
+   floating notices' clearance; a rule gives it back while typing. The talk view (#d-talk-box) has the same latent gap,
+   outside this card.
