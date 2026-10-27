@@ -54,3 +54,17 @@ discarded and re-run on the committed head (log linuxdeploy-tests2.log).
 - NITs RECORDED: the live pointers were already read for LIVE_PTRS_BEFORE (reuse them later); the 75 branches of the
   .sha256 and tarball fetches are untested (the live-pointer branch is).
 Sweep 3 on the committed head 3e5e56ccc7 (every deploy-site and setup-floor shell test): 15/15 rc 0.
+
+## Review 3 (2026-10-27 00:0x): 0 blockers, 1 warning, 1 nit. CONVERGED.
+- WARNING FIXED: the setup floor read a pointer's `artifact`, while the Linux code reads `versioned`. C1's writer puts
+  the versioned name in both, but nothing pinned that; a Windows-shaped Linux pointer (artifact = the unversioned
+  alias) would have refused every deploy. The floor now checks `versioned` when a pointer names one (Mac pointers
+  have none, so they are unchanged). Tested: an alias artifact with a matching versioned name passes, a mismatched
+  versioned name refuses (mutant: ignore versioned -> red). Every test that uses setup-floor.sh: 9/9 rc 0.
+- Checked clean: sed -E alternation works on BSD and GNU sed (already used in the repo); only arm64 and linux-x64 are
+  published today; Windows .zip pointers never reach the floor; `[ $? = 75 ]` sees the carry's status under set -e; a
+  404 without curl -f exits 0 with code 404, and the live site answers 404 (not a rewrite page) for a missing Linux
+  pointer, so the first Linux deploy does not loop on 75.
+- NIT NOT TAKEN: folding the two `200)` arms; they are separate on purpose (the version must be readable before the
+  backwards check runs), and the comment says so.
+Test: 44 checks.
