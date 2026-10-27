@@ -60,6 +60,19 @@ case "$_tunnel_kind" in
   *ELF\ 64-bit\ LSB*executable,\ x86-64*) ;;
   *) echo "the Linux connector must be an ELF 64-bit x86-64 executable; $TUNNEL_IN is: $_tunnel_kind" >&2; exit 1 ;;
 esac
+# Review 2 (W1): for Linux, and for the loader a stock Ubuntu has. An ELF for another system (FreeBSD) is refused; a
+# binary that names a loader must name glibc's (a musl loader is absent from Ubuntu), and only then does the glibc
+# floor below apply; one that names none is static and needs no glibc.
+case "$_tunnel_kind" in
+  *"(SYSV)"*|*"(GNU/Linux)"*) ;;
+  *) echo "the Linux connector is not built for Linux: $_tunnel_kind" >&2; exit 1 ;;
+esac
+_tunnel_dynamic=no
+case "$_tunnel_kind" in
+  *"interpreter /lib64/ld-linux-x86-64.so.2"*) _tunnel_dynamic=yes ;;
+  *interpreter\ *) echo "the Linux connector needs a loader a stock Ubuntu does not have (only glibc's /lib64/ld-linux-x86-64.so.2 is there): $_tunnel_kind" >&2; exit 1 ;;
+  *"dynamically linked"*) echo "the Linux connector is dynamically linked but names no loader: $_tunnel_kind" >&2; exit 1 ;;
+esac
 # Review 1 (B2): the provenance the Mac and Windows builders require, by the same shared check: a .sha256 sidecar
 # that matches these bytes and a 40-hex, never -dirty, kosmos-relay commit (tools/lib/connector-provenance.sh).
 . "$REPO/tools/lib/connector-provenance.sh"
@@ -69,15 +82,27 @@ _tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
 # floor is the oldest glibc a Kosmos Linux install supports (kosmos-relay builds it on Ubuntu 22.04: 2.35; cloud
 # machines are 24.04). A static connector needs none and passes.
 GLIBC_FLOOR="${KOSMOS_LINUX_GLIBC_FLOOR:-2.35}"
-glibc_needed() {   # <file>: the newest GLIBC_x.y[.z] its symbols name, or nothing
-  { strings -a "$1" 2>/dev/null || true; } | grep -oE 'GLIBC_[0-9]+\.[0-9]+(\.[0-9]+)?' | sed 's/^GLIBC_//' \
+# Review 2 (W5): a different floor is a TEST build only (the gate a dirty tree and an unchecked node have), and the
+# floor used is recorded in the manifest beside what the connector needs.
+[ "$GLIBC_FLOOR" = 2.35 ] || [ "${KOSMOS_ALLOW_DIRTY:-0}" = 1 ] || {
+  echo "KOSMOS_LINUX_GLIBC_FLOOR=$GLIBC_FLOOR is for a test build only (KOSMOS_ALLOW_DIRTY=1); a release keeps 2.35" >&2; exit 1; }
+# Review 2 (W2): read the file itself (grep -a), never `strings`, whose absence would read as a static binary.
+glibc_needed() {   # <file>: the newest GLIBC_x.y[.z] it names, or nothing
+  LC_ALL=C grep -aoE 'GLIBC_[0-9]+\.[0-9]+(\.[0-9]+)?' "$1" | sed 's/^GLIBC_//' \
     | LC_ALL=C sort -t. -k1,1n -k2,2n -k3,3n | tail -1 || true
 }
-_tunnel_glibc="$(glibc_needed "$TUNNEL_IN")"
+_tunnel_glibc=""
+[ "$_tunnel_dynamic" = yes ] && _tunnel_glibc="$(glibc_needed "$TUNNEL_IN")"
 if [ -n "$_tunnel_glibc" ]; then
   _newest="$(printf '%s\n%s\n' "$_tunnel_glibc" "$GLIBC_FLOOR" | LC_ALL=C sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
   [ "$_newest" = "$GLIBC_FLOOR" ] || [ "$_tunnel_glibc" = "$GLIBC_FLOOR" ] || {
     echo "the Linux connector needs glibc $_tunnel_glibc, newer than the supported floor $GLIBC_FLOOR: it would not start on an older supported Linux" >&2; exit 1; }
+fi
+
+# Review 2 (W3): the shared home-path gate looks at Mach-O files and /Users only, and this connector is ELF built on
+# Linux. So the #6549 check is made here, for the Linux connector: no build machine's cargo or rustup home in it.
+if LC_ALL=C grep -aqE '/(home/[^/[:cntrl:]]+|root)/(\.cargo|\.rustup)/' "$TUNNEL_IN"; then
+  echo "the Linux connector names a build machine's cargo or rustup home (#6549): rebuild it with --remap-path-prefix" >&2; exit 1
 fi
 
 # ---- the tree is a commit -----------------------------------------------------
@@ -219,6 +244,7 @@ smoke_fail() { echo "FAIL: $1" >&2; sed 's/^/    /' "$SMOKE_LOG" >&2; kill "$SMO
 PAGE="$(curl -fsS -m 5 "$SMOKE_URL/" 2>/dev/null)" || smoke_fail "the staged app did not answer at $SMOKE_URL. It said:"
 case "$PAGE" in *Kosmos*) ;; *) smoke_fail "the staged app answered with something that is not its own page:" ;; esac
 kill "$SMOKE_PID" 2>/dev/null || true; wait "$SMOKE_PID" 2>/dev/null || true
+SMOKE_PID=""   # review 2 (N1): the trap must not kill this id again once another process may have it
 rm -f "$SMOKE_LOG"; rm -rf "$SMOKE_ROOTS"
 echo "    boots, answers, and serves its own page"
 
@@ -260,7 +286,7 @@ KM_VERSION="$_ver" KM_ARCH="$NARCH" KM_ARTIFACT="$(basename "$TARBALL_OUT")" \
 KM_SHA="$(awk '{print $1}' "$TARBALL_OUT.sha256")" \
 KM_APP_COMMIT="$_app_commit" KM_APP_DIRTY="$_app_dirty" \
 KM_NODE_VERSION="v$NODE_VERSION" KM_NODE_SHA="$NODE_SHA" \
-KM_TUNNEL_SHA="$_tunnel_sha" KM_TUNNEL_COMMIT="$_tunnel_src" KM_TUNNEL_GLIBC="${_tunnel_glibc:-}" \
+KM_TUNNEL_SHA="$_tunnel_sha" KM_TUNNEL_COMMIT="$_tunnel_src" KM_TUNNEL_GLIBC="${_tunnel_glibc:-}" KM_GLIBC_FLOOR="$GLIBC_FLOOR" \
 KM_PINNED_KEYS="$KM_PINNED_KEYS" \
 KM_SETUP_SHA="$(sha256 "$REPO/install/setup.sh")" \
 KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || echo '?')" \
@@ -277,7 +303,7 @@ const m = {
   // signed_sha256 and input_sha256 as the Mac entry has them (tools/verify-manifest.sh reads them): the Linux
   // connector is not signed, so both are the bytes shipped. glibc: the newest the connector needs (empty when static).
   // (No apostrophes in this program: it sits inside single quotes in the shell.)
-  connector: { signed_sha256: e.KM_TUNNEL_SHA, input_sha256: e.KM_TUNNEL_SHA, commit: e.KM_TUNNEL_COMMIT, glibc: e.KM_TUNNEL_GLIBC },
+  connector: { signed_sha256: e.KM_TUNNEL_SHA, input_sha256: e.KM_TUNNEL_SHA, commit: e.KM_TUNNEL_COMMIT, glibc: e.KM_TUNNEL_GLIBC, glibc_floor: e.KM_GLIBC_FLOOR },
   built: { at: e.KM_BUILT, host: e.KM_HOST },
   pinned_keys: JSON.parse(e.KM_PINNED_KEYS || "[]"),
   setup_sha256: e.KM_SETUP_SHA,

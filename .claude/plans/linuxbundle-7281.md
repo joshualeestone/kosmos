@@ -62,3 +62,16 @@ The plan as posted on the card (comment 6431703337):
   must refuse a platform other than absent or darwin. Must land no later than slice C.
 - NIT FIXED (N3): connector carries signed_sha256 and input_sha256 (tools/verify-manifest.sh reads them).
 - NIT FIXED (N4): the Mach-O refusal test uses an unpublished node version, proving the refusal comes first.
+
+## Slice A review 2 (2026-10-26 21:2x): no blockers, 5 warnings, 3 nits
+- W1 FIXED: the connector must be for Linux (SYSV or GNU/Linux OS byte; FreeBSD refused) and, if it names a loader,
+  glibc's /lib64/ld-linux-x86-64.so.2 (musl refused); the glibc floor applies only then (static: none).
+- W2 FIXED: GLIBC_ versions read with grep -a from the file, never `strings` (missing strings read as static).
+- W3 FIXED (locally, not in the shared gate): the Linux connector may not name /home/<u>/.cargo|.rustup or
+  /root/...; the shared home-path gate stays as the Mac cut uses it (smaller blast radius; decided, not missed).
+- W4 FIXED in tools/lib/tar-owner-gate.sh: also reads GNU tar's owner/group column; a test packs a tarball with the
+  build account on this host's own tar and expects a refusal (and a neutral control passes).
+- W5 FIXED: a floor other than 2.35 needs KOSMOS_ALLOW_DIRTY=1; connector.glibc_floor recorded in the manifest.
+  FOR SLICE C: refuse a manifest whose node sha starts `unchecked:` or whose connector.glibc exceeds 2.35.
+- N1 FIXED (SMOKE_PID cleared after the wait). N2 covered by W1. N3: the gated tests require the gate's own message
+  on a clean tree; connector-provenance.sh's shasum-only is left (it refuses, safely).

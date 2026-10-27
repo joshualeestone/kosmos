@@ -66,11 +66,26 @@ test('one node version for the Mac, Windows and Linux bundles (two runtimes drif
 
 /* ---- the builder, run ---------------------------------------------------------------------------------------- */
 
-function elf(extra = '') {   // the smallest header `file` calls "ELF 64-bit LSB executable, x86-64", then `extra` text
-  const b = Buffer.alloc(64);
-  b.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0], 0);
-  b.writeUInt16LE(2, 16); b.writeUInt16LE(0x3e, 18); b.writeUInt32LE(1, 20); b.writeUInt16LE(64, 52);
-  return Buffer.concat([b, Buffer.from(extra)]);
+/* An ELF x86-64 executable `file` reads as such: a header, an optional PT_INTERP naming `interp` (the loader a dynamic
+   binary asks for), one PT_LOAD, then `extra` bytes (GLIBC_ version names, a build path). `osabi` 9 is FreeBSD. */
+function elf(extra = '', { interp = '/lib64/ld-linux-x86-64.so.2', osabi = 0 } = {}) {
+  const hdr = Buffer.alloc(64);
+  hdr.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, osabi], 0);
+  hdr.writeUInt16LE(2, 16); hdr.writeUInt16LE(0x3e, 18); hdr.writeUInt32LE(1, 20);
+  hdr.writeBigUInt64LE(0x400000n, 24); hdr.writeBigUInt64LE(64n, 32); hdr.writeUInt16LE(64, 52); hdr.writeUInt16LE(56, 54);
+  const str = interp ? Buffer.from(interp + '\0') : Buffer.alloc(0);
+  const n = interp ? 2 : 1; hdr.writeUInt16LE(n, 56);
+  const dataOff = 64 + 56 * n;
+  const phs = [];
+  if (interp) {
+    const ph = Buffer.alloc(56); ph.writeUInt32LE(3, 0); ph.writeUInt32LE(4, 4);
+    for (const [at, v] of [[8, dataOff], [16, 0x400000 + dataOff], [24, 0x400000 + dataOff], [32, str.length], [40, str.length], [48, 1]]) ph.writeBigUInt64LE(BigInt(v), at);
+    phs.push(ph);
+  }
+  const load = Buffer.alloc(56); load.writeUInt32LE(1, 0); load.writeUInt32LE(5, 4);
+  for (const [at, v] of [[8, 0], [16, 0x400000], [24, 0x400000], [32, dataOff + str.length], [40, dataOff + str.length], [48, 0x1000]]) load.writeBigUInt64LE(BigInt(v), at);
+  phs.push(load);
+  return Buffer.concat([hdr, ...phs, str, Buffer.from(extra)]);
 }
 const sha = (buf) => require('node:crypto').createHash('sha256').update(buf).digest('hex');
 /* A connector with the sidecars kosmos-relay's build writes (tools/lib/connector-provenance.sh checks them). */
@@ -102,6 +117,10 @@ function fixtures() {
   connector(d, 'tunnel-elf', elf('\0GLIBC_2.17\0GLIBC_2.34\0'));
   connector(d, 'tunnel-new-glibc', elf('\0GLIBC_2.17\0GLIBC_2.39\0'));
   connector(d, 'tunnel-bare', elf(), { sidecars: false });
+  connector(d, 'tunnel-freebsd', elf('', { interp: null, osabi: 9 }));
+  connector(d, 'tunnel-musl', elf('', { interp: '/lib/ld-musl-x86_64.so.1' }));
+  connector(d, 'tunnel-cargo-path', elf('\0/home/runner/.cargo/registry/src/x.rs\0'));
+  connector(d, 'tunnel-static', elf('\0GLIBC_2.99 in a message, not a symbol\0', { interp: null }));
   connector(d, 'tunnel-dirty', elf(), { commit: 'a'.repeat(40) + '-dirty' });
   connector(d, 'tunnel-macho', macho());
   return { d, nodeTar };
@@ -140,6 +159,10 @@ test('review 1: a connector without its provenance, from a dirty tree, or needin
     ['tunnel-bare', /connector_provenance: no .*\.commit beside the connector/],
     ['tunnel-dirty', /built from a DIRTY tree/],
     ['tunnel-new-glibc', /needs glibc 2\.39, newer than the supported floor 2\.35/],
+    // Review 2: an ELF for another system, one that needs a loader Ubuntu lacks, one that leaks a build home.
+    ['tunnel-freebsd', /is not built for Linux/],
+    ['tunnel-musl', /needs a loader a stock Ubuntu does not have/],
+    ['tunnel-cargo-path', /names a build machine's cargo or rustup home/],
   ];
   for (const [name, why] of cases) {
     const r = build(f, path.join(f.d, name), path.join(f.d, 'out-' + name));
@@ -148,13 +171,47 @@ test('review 1: a connector without its provenance, from a dirty tree, or needin
   }
 });
 
-test('review 1: an unchecked node is a test build only, and the manifest says so', () => {
+test('review 1 and 2: an unchecked node, and a different glibc floor, are test builds only', () => {
   const f = fixtures();
-  const env = { ...process.env, KOSMOS_NODE_UNCHECKED: '1', NODE_LINUX_SOURCE: f.nodeTar, KOSMOS_TUNNEL_LINUX_BIN: path.join(f.d, 'tunnel-elf') };
-  delete env.KOSMOS_ALLOW_DIRTY;
-  const r = spawnSync('bash', [path.join(ROOT, 'tools', 'build-kosmos-linux.sh'), path.join(f.d, 'out-unchecked')], { encoding: 'utf8', env, timeout: 60000 });
-  assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /refusing to package a -dirty tree|an unchecked node is for a test build only/);
+  // Review 2 (N3): on a clean tree (CI) the refusal must be the gate itself, not the dirty-tree one before it.
+  const clean = spawnSync('git', ['-C', ROOT, 'diff', '--quiet', 'HEAD', '--', '.']).status === 0;
+  const want = (gate) => (clean ? gate : new RegExp('refusing to package a -dirty tree|' + gate.source));
+  const run = (extra) => {
+    const env = { ...process.env, KOSMOS_TUNNEL_LINUX_BIN: path.join(f.d, 'tunnel-elf'), ...extra };
+    delete env.KOSMOS_ALLOW_DIRTY;
+    return spawnSync('bash', [path.join(ROOT, 'tools', 'build-kosmos-linux.sh'), path.join(f.d, 'out-gated')], { encoding: 'utf8', env, timeout: 60000 });
+  };
+  const unchecked = run({ KOSMOS_NODE_UNCHECKED: '1', NODE_LINUX_SOURCE: f.nodeTar });
+  assert.notEqual(unchecked.status, 0);
+  assert.match(unchecked.stderr, want(/an unchecked node is for a test build only/));
+  const floor = run({ KOSMOS_LINUX_GLIBC_FLOOR: '2.99' });
+  assert.notEqual(floor.status, 0);
+  assert.match(floor.stderr, want(/KOSMOS_LINUX_GLIBC_FLOOR=2\.99 is for a test build only/));
+});
+
+test('review 2: a static connector needs no glibc (a GLIBC_ text in it is not a symbol version)', () => {
+  const f = fixtures();
+  const r = build(f, path.join(f.d, 'tunnel-static'), path.join(f.d, 'out-static'));
+  assert.equal(r.status, 0, r.stderr);
+  const m = JSON.parse(fs.readFileSync(path.join(f.d, 'out-static', 'kosmos-linux-x64.manifest.json'), 'utf8'));
+  assert.equal(m.connector.glibc, '', 'a static connector was recorded as needing glibc');
+});
+
+test('review 2 (W4): the owner gate refuses a tarball that records the build account, on this host\'s own tar', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ownergate-7281-'));
+  fs.writeFileSync(path.join(d, 'f'), 'x');
+  const me = require('node:os').userInfo().username;
+  const bsd = /bsdtar/i.test(spawnSync('tar', ['--version'], { encoding: 'utf8' }).stdout);
+  const owner = bsd ? ['--uname', me, '--gname', me] : ['--owner=' + me + ':0', '--group=' + me + ':0'];
+  const tgz = path.join(d, 'mine.tar.gz');
+  assert.equal(spawnSync('tar', ['-czf', tgz, ...owner, '-C', d, 'f']).status, 0);
+  const gate = (file) => spawnSync('bash', ['-c', '. "$1"; tar_owner_gate "$2" "$3"', '_', path.join(ROOT, 'tools', 'lib', 'tar-owner-gate.sh'), file, me], { encoding: 'utf8' });
+  const r = gate(tgz);
+  assert.notEqual(r.status, 0, 'the owner gate passed a tarball recording the build account (' + (bsd ? 'bsdtar' : 'GNU tar') + ' listing)');
+  const neutral = path.join(d, 'neutral.tar.gz');
+  const nOwner = bsd ? ['--uname', 'kosmos', '--gname', 'kosmos'] : ['--owner=kosmos:0', '--group=kosmos:0'];
+  assert.equal(spawnSync('tar', ['-czf', neutral, ...nOwner, '-C', d, 'f']).status, 0);
+  assert.equal(gate(neutral).status, 0, 'CONTROL: a neutral owner was refused');
 });
 
 test('review 1: the odd-names check is the Mac builder\'s, word for word (the signed manifest\'s rule, #6468)', () => {
@@ -184,6 +241,7 @@ test('CONTROL: with an ELF connector it packs the bundle, and its manifest lists
   assert.match(m.node.download_sha256, /^unchecked:[0-9a-f]{64}$/, 'a test build\'s node was recorded as a checked download');
   assert.equal(m.connector.commit, 'a'.repeat(40), 'the connector\'s commit sidecar was not recorded');
   assert.equal(m.connector.glibc, '2.34', 'the glibc the connector needs was not recorded');
+  assert.equal(m.connector.glibc_floor, '2.35', 'the floor it was held to was not recorded');
   assert.equal(m.connector.signed_sha256, m.connector.input_sha256);
   assert.ok(m.pinned_keys.length >= 1, 'no pinned keys: the next cut would refuse its own key');
   assert.deepEqual(m.files.map((x) => x.path).sort(), list.sort(), 'the manifest does not describe the tarball file for file');
