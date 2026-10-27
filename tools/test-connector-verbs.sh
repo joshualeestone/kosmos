@@ -229,8 +229,8 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # kosmos#7215 re-decided for engine/communitysend.js (linking community agents to this computer's Kosmos+ account, the
 # owner pass): it calls /v1/mac/community-owner-pass, which only a connector carrying that route signs. An older
 # connector refuses to sign it ("mac-request does not sign"); sweepOwnerLink reads that as a route that does not exist
-# yet, sends nothing to the community site and waits an hour before asking again (engine/communityowner-7215.test.js
-# pins it). Linking never worked before this route, and the sweep's other passes do not use mac-request, so nothing
+# yet, sends nothing to the community site and waits an hour before asking again (held in memory, so a board restart
+# asks once more; engine/communityowner-7215.test.js pins that it is the long wait, not the short pause). Linking never worked before this route, and the sweep's other passes do not use mac-request, so nothing
 # that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
 [ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/communitysend.js engine/companycommunity.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/personalbackup.js engine/personalbackupkey.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the seventeen the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"

@@ -77,11 +77,12 @@ function backend() {
 }
 
 // remote, stubbed: signed in with Kosmos+ on, a mac id, and a coordinator that vouches by name.
-const real = { enrolled: remote.enrolled, read: remote.read, macIdHere: remote.macIdHere, macRequest: remote.macRequest };
+const real = { enrolled: remote.enrolled, read: remote.read, macIdHere: remote.macIdHere, macRequest: remote.macRequest, busy: remote.busy };
 let R;
 function stubRemote() {
-  R = { enrolled: true, on: true, mac: 'mac-1', mints: [], mint: null };
+  R = { enrolled: true, on: true, mac: 'mac-1', mints: [], mint: null, busy: null };
   remote.enrolled = () => R.enrolled;
+  remote.busy = () => R.busy;
   remote.read = () => ({ on: R.on });
   remote.macIdHere = () => R.mac;
   remote.macRequest = async (method, route, body) => {
@@ -154,6 +155,20 @@ test('a new computer identity (a Forget and a new sign-in) links the agent again
   R.mac = 'mac-2';
   await cs.sweep();
   assert.equal(ownerCalls().length, n + 1);
+});
+
+test('a Forget pressed during the mint (the identity not yet changed): nothing is sent, and the next sweep links', async () => {
+  await registered('ava');
+  // remote.forget() sets its flag, then waits for this request: the mac id and the switches still read as before.
+  R.mint = (body) => { R.busy = { ok: false, because: 'this computer is being forgotten; try again in a moment' };
+    return { ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } }; };
+  const n = ownerCalls().length;
+  await cs.sweep();
+  assert.equal(R.mints.length, 1, 'the mint went');
+  assert.equal(ownerCalls().length, n, 'its pass was not sent');
+  R.busy = null; R.mint = null;
+  await cs.sweep();
+  assert.equal(ownerCalls().length, n + 1, 'linked on the next sweep, nothing paused');
 });
 
 test('a new agent key (as from registering again) links that agent again; the marker never holds the key itself', async () => {
