@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-npmtest-7257
-diff_hash: 7a3c87480a08a0684645c5e584bdb15961eaf5149a8624c6c86b3ee168ca6c15 *-
+diff_hash: 7a3c87480a08a0684645c5e584bdb15961eaf5149a8624c6c86b3ee168ca6c15
 
 validation: tools.run-tests-chunks-7257.test.js 10/10 and engine/windows-tests-1777.test.js on the Windows box; end to end with a logging stand-in node: plain run 3 chunks over all 1,844 files once each, --only, KOSMOS_TEST_PART=node, a red chunk; real node 120 s: tests run (4,205 passing seen) with no Argument list too long; tools.shell-shard-4317.test.js fails 2 on Windows on main and here alike; full suite via CI
 subdir_audit: passed
