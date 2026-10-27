@@ -11,6 +11,7 @@ computer" into "your cloud machine" (and "This computer" into "Your cloud machin
 in the two sentence funnels every engine reason goes through (asSentence, pjSentence: about 110 call sites), in
 restartFailureLine, the made-agent warning lines (tc-why), and the finish-line sites that paint engine text raw:
 the single create's refusal, name refusal, partial-create sentence and step labels, an import row's refusal, and the
+Remove, Delete-leftover and restore screens (their hints, refusals and outcomes, guarded by function in the test), the
 Remove dialog's hint and keeps list ("on this computer" there would tell a person their files are on their laptop).
 
 Why: the engine runs on the cloud machine, so its "this computer" always means that machine; and its sentences are also
@@ -28,8 +29,9 @@ the board's machine and wrong if it ever meant the person's own device. The one 
 computer is not removed yet" goes through asSentence while its PLUS_FORGET_WORDS tail does not), which cannot show on a
 cloud machine: kosmos#7277 hides the Kosmos+ remove and kept boxes there.
 
-Every call is guarded as the page guards thisMachine (`typeof cloudWords === 'function' ? cloudWords : String`), because
-the repo's tests lift page functions one at a time without their callees.
+Every call is guarded as the page guards thisMachine, falling back to the identity, because the repo's tests lift page
+functions one at a time without their callees; cloudWords returns anything that is not a string unchanged, so off a
+cloud machine every sink renders exactly as before. web.cloudwords-4903.test.js pins the guard's form at each sink.
 
 ## Tests
 - web.cloudwords-4903.test.js: the funnels, restartFailureLine and cloudWords lifted from the page, cloud and control;

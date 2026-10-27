@@ -49007,7 +49007,7 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
   } else {
     // Says WHY rather than simply not being there. Somebody looking for this
     // deserves an answer.
-    hint.textContent = (ask && ask.because) || 'We cannot remove this agent right now.';
+    hint.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((ask && ask.because) || 'We cannot remove this agent right now.');
     document.getElementById('d-remove-start').hidden = true;
     /* #2651: ONLY the untied refusal (Kosmos cannot tie the running session to
        this card) is overridable, and only to CLEAR THE CARD off the board -- the
@@ -49195,7 +49195,7 @@ document.getElementById('you-file').addEventListener('change', async (e) => {
       method: 'PUT', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file,
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (out && out.error) || 'we could not save that picture'; return; }
+    if (!res.ok) { msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((out && out.error) || 'we could not save that picture'); return; }
     YOU_PIC = true;
     YOU_PIC_V += 1;
     msg.textContent = 'Saved.';
@@ -49282,7 +49282,7 @@ document.getElementById('hist-del').addEventListener('click', async () => {
       body: JSON.stringify({ confirm: 'delete' }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (out && out.error) || 'we could not delete it'; btn.disabled = false; return; }
+    if (!res.ok) { msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((out && out.error) || 'we could not delete it'); btn.disabled = false; return; }
     closeHistModal();
     await refreshHistory();
     /* ⚠️ THE OPEN CONVERSATION SURFACES ARE NOW SHOWING SOMETHING THAT NO
@@ -49414,7 +49414,7 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        nothing happened. */
     if (!res.ok || !done || done.outcome === 'refused') {
       if (onPanel()) {
-        msg.textContent = (done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.';
+        msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.');
         btn.disabled = false;
       }
       return;
@@ -49428,14 +49428,14 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        (rm-go), which re-enables its button on a partial for the same reason. */
     if (done.outcome === 'partial') {
       if (onPanel()) {
-        msg.textContent = done.because || 'We could not clear that card just now. Try again in a moment.';
+        msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || 'We could not clear that card just now. Try again in a moment.');
         btn.disabled = false;
       }
       return;
     }
     // REMOVED: the card is off the board. Do not re-enable a button that is now
     // gone; the message says what happened (including the session left running).
-    if (onPanel()) msg.textContent = done.because || 'Cleared from your board.';
+    if (onPanel()) msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || 'Cleared from your board.');
     /* ⚠️ REPAINT NOW, don't wait for the 5s poll. Same as the normal-remove
        handler (rm-go): a person who just cleared a card should see it leave the
        Agents roster and appear on the Removed list immediately, not sit there
@@ -49478,7 +49478,7 @@ async function loadLeftover(sessionName) {
      Remove section above already says what state the agent is in. */
   if (!plan || !plan.ok) { box.hidden = true; DEL_PLAN = null; return; }
   DEL_PLAN = plan;
-  document.getElementById('d-delete-hint').textContent = plan.hint || '';
+  document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.hint || '');
   box.hidden = false;
 }
 function openDeleteModal(plan) {
@@ -49537,7 +49537,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
     body = await res.json().catch(() => null);
   } catch { res = null; }
   if (!res || !body || (!res.ok && body.outcome !== 'partial')) {
-    msg.textContent = (body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.';
+    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.');
     go.disabled = false;
     return;
   }
@@ -49564,7 +49564,7 @@ document.addEventListener('click', async (e) => {
   btn.disabled = false;
   const rmsg = document.getElementById('removed-msg');
   if (!plan) { if (rmsg) rmsg.textContent = 'We could not reach the board just now.'; return; }
-  if (!plan.ok) { if (rmsg) rmsg.textContent = plan.because || 'We cannot delete that right now.'; return; }
+  if (!plan.ok) { if (rmsg) rmsg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.because || 'We cannot delete that right now.'); return; }
   openDeleteModal(plan);
 });
 
@@ -49652,8 +49652,8 @@ document.getElementById('rm-go').addEventListener('click', async () => {
        * where the agent may be half-removed. `loadRemoval` gets this right for
        * its own 5xx; this handler did not.
        */
-      msg.textContent = (done && (done.because || done.error))
-        || 'we could not remove it, and we cannot tell you why';
+      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((done && (done.because || done.error))
+        || 'we could not remove it, and we cannot tell you why');
       go.disabled = false;
       return;
     }
@@ -49666,7 +49666,7 @@ document.getElementById('rm-go').addEventListener('click', async () => {
      * agent gone from it while the agent is still working.
      */
     if (done.outcome === 'partial') {
-      msg.textContent = done.because;
+      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because);
       // ⚠️ Re-enabled. Some partials are a tmux or launchd call that failed
       // once; leaving the only button dead forces a dismiss-and-reopen to
       // retry, and the dismiss is the answer that keeps the agent.
@@ -49745,14 +49745,14 @@ function reportDiscarded(done, forAgent) {
     // Not scoped to CURRENT: the panel it was about is gone, and this is the
     // one surface still on screen.
     if (done.outcome === 'partial' || done.outcome === 'refused' || done.outcome === 'removed') {
-      back.textContent = done.because || done.error || '';
+      back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || done.error || '');
     }
     return;
   }
   // Same reason as the handler above: a thrown removal answers with `error`,
   // not `because`, and it is the message that says the agent may be half gone.
   if (done.error && !done.because) { 
-    if (CURRENT && CURRENT.sessionName === forAgent) back.textContent = done.error;
+    if (CURRENT && CURRENT.sessionName === forAgent) back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.error);
     return;
   }
   /**
@@ -49763,9 +49763,9 @@ function reportDiscarded(done, forAgent) {
    */
   if (!CURRENT || CURRENT.sessionName !== forAgent) return;
   if (done.outcome === 'partial' || done.outcome === 'refused') {
-    back.textContent = done.because || 'The removal did not finish.';
+    back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || 'The removal did not finish.');
   } else if (done.outcome === 'removed') {
-    back.textContent = done.because || '';
+    back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || '');
   }
 }
 
@@ -50931,7 +50931,7 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
        * mattering, which is better than getting the distinction right.
        */
       const say = document.getElementById('removed-msg');
-      if (say) say.textContent = back.because || 'The restore did not finish.';
+      if (say) say.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(back.because || 'The restore did not finish.');
       /**
        * ⚠️ THE CACHE IS LEFT ALONE, AND `tick()` IS NOT CALLED. The first
        * version of this branch did both, and between them they erased the note
