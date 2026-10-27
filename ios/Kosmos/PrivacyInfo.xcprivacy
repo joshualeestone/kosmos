@@ -5,7 +5,8 @@
   required-reason API. Swept 10-27 on the app and the notification extension: UserDefaults (and @AppStorage) is the
   only one, read and written by this app alone (no app-group suite), so the reason is CA92.1. No file timestamps,
   system boot time, disk space or active keyboard APIs are used; a new use of any of them needs its reason added here.
-  The extension (KosmosNotice) uses none and needs no manifest. The App Privacy answers are separate
+  The extension (KosmosNotice) uses none, so it has no manifest; ios.privacy-manifest-7352.test.js fails if it starts
+  to. The App Privacy answers are separate
   (ios/store/privacy-label.md).
 -->
 <plist version="1.0">
