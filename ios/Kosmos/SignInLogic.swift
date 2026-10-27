@@ -31,6 +31,12 @@ enum SignIn {
     static let reviewTooMany = "Too many tries. Wait a minute, then try again."
     static let reviewNoAnswer = "Kosmos+ could not answer. Try again."
     static let reviewClosed = "Password sign-in is not open now. Sign in with a code instead."
+    // Ice Cream Kitty, m733: a review sign-in's session is a device the server made (review-*), never this phone's key, so
+    // a key kept by an earlier code sign-in is dropped when one is admitted (never proved under it, #7337).
+    static func reviewDropsKey(_ answer: Answer) -> Bool {
+        if case .signedIn = answer { return true }
+        return false
+    }
     static func reviewAnswer(status: Int, json: Any?) -> ReviewAnswer {
         if status == 404 { return .closed }
         let answer = answer(status: status, json: json)
