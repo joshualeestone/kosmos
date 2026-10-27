@@ -84,6 +84,9 @@ chk "and still refuses an artifact for another version" not kosmos_setup_floor_p
 chk "an rc build under a clean version is refused" not kosmos_setup_floor_pointer_ok "rc" '{"version":"0.7.80","artifact":"kosmos-0.7.80-rc-arm64.tar.gz"}' 2>/dev/null
 chk "extra text after the arch is refused" not kosmos_setup_floor_pointer_ok "evil" '{"version":"0.7.80","artifact":"kosmos-0.7.80-arm64-evil.tar.gz"}' 2>/dev/null
 chk "an unknown arch is refused" not kosmos_setup_floor_pointer_ok "arch" '{"version":"0.7.80","artifact":"kosmos-0.7.80-sparc.tar.gz"}' 2>/dev/null
+# Review 3: a Windows-shaped Linux pointer (artifact = the unversioned alias, versioned = the build) is checked on its build.
+chk "a Linux pointer whose artifact is the alias passes on its versioned name" kosmos_setup_floor_pointer_ok "alias" '{"version":"0.7.80","artifact":"kosmos-linux-x64.tar.gz","versioned":"kosmos-0.7.80-linux-x64.tar.gz"}'
+chk "and its versioned name is still held to the version" not kosmos_setup_floor_pointer_ok "alias-wrong" '{"version":"0.7.80","artifact":"kosmos-linux-x64.tar.gz","versioned":"kosmos-0.7.79-linux-x64.tar.gz"}' 2>/dev/null
 # W2: a host that cannot be reached is "try again later" (75), not "not served" (1).
 S="$(newsite transient latest-linux.json 1.7.0 "$SHA")"
 out="$(FETCH_ATTEMPTS=1 FETCH_RETRY_DELAY=0 deploy_linux_carry "$S" HEAD "http://127.0.0.1:1" >/dev/null 2>&1; echo "rc=$?")"
