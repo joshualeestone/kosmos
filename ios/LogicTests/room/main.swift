@@ -697,7 +697,7 @@ for phrase in ["'\">Add ' + esc(nameR)\n        + ' to this project</button>", "
     check(boardPage.contains(phrase), "the board's Add still says: \(phrase.prefix(60))")
 }
 
-section("the provider marks the phone carries are the board's own (kosmos#7114; the agent page draws them, #7267)")
+section("the provider marks the phone carries are the board's own (kosmos#7114; nothing draws them since #7269 until the agent page, #7267, planned)")
 // Each mark is the board's own first-run mark (the template ones drawn in the text colour, so currentColor is black).
 let markKeys = ["MarkClaude": "claude", "MarkOpenAI": "openai", "MarkGemini": "gemini", "MarkGrok": "xai", "MarkMeta": "meta", "MarkQwen": "qwen"]
 for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {

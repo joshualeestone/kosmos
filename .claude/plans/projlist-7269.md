@@ -38,3 +38,6 @@ projects of 3, 12 and 15 members with nesting, and the tiles.
   can be one fewer than the "N Tasks" title when a newer Mac sends a state this build has no group for (the title is
   the board's words, the tiles follow the list); the avatar letter's fixed size is AgentAvatar's (AgentsView.swift,
   shared, unchanged here); at accessibility sizes on an SE the tiles take two rows (a design call: reachable by scroll).
+- Round 3 (projlist-7269-review3.md): 0 blockers, 1 warning, 1 nit, both fixed. The "N Tasks on M Projects" line
+  under the tiles counts the drawn rows by the group they are drawn in, as the tiles do (a moved row and an unknown
+  state no longer split them; tested with a control). The marks test heading says the agent page is planned.

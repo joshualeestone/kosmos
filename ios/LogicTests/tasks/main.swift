@@ -113,6 +113,10 @@ let movedRead = Board.TasksRead(tasks: [row(1, "closed")], rosterUnknown: false)
 let keptPlaces = Tasks.keepingPlaces(drawnFirst, with: movedRead, project: nil)
 let keptTiles = Tasks.tiles(keptPlaces, rosterUnknown: false).map { "\($0.label)=\($0.count ?? -1)" }
 check(keptTiles == ["Open=1", "Needs you=0", "Working=1", "Done=0"], "a task that moved while drawn counts where the list shows it: \(keptTiles)")
+check(Tasks.title(movedRead, drawn: keptPlaces, project: nil).hasPrefix("1 Task"), "the line under the tiles counts the same drawn rows (review 3): \(Tasks.title(movedRead, drawn: keptPlaces, project: nil))")
+check(Tasks.title(movedRead, project: nil).hasPrefix("0 Tasks"), "CONTROL: the read alone says 0, so the line above can fail")
+check(Tasks.title(mixed, drawn: Tasks.sections(mixed, project: nil), project: nil).hasPrefix("7 Tasks") && tileCounts(mixed).first == "Open=7",
+      "an unknown state: the line and the Open tile agree (both count what is drawn)")
 check(pickedTiles == ["Open=1", "Needs you=1", "Working=0", "Done=1"], "the picked project's tasks only, as the list under them")
 check(allTiles == ["Open=2", "Needs you=1", "Working=1", "Done=1"], "All projects counts them all")
 

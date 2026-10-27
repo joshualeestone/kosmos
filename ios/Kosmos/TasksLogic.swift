@@ -268,7 +268,16 @@ enum Tasks {
     static func title(_ read: Board.TasksRead?, project: String?) -> String {
         guard let read else { return "Tasks" }
         let rows = scoped(read.tasks, project: project)
-        let open = rows.filter { $0.state != "closed" }
+        return title(rows: rows, open: rows.filter { $0.state != "closed" }, read: read, project: project)
+    }
+    // kosmos#7269 review 3: the line under the count tiles counts the rows the list is drawing, as the tiles do, so a
+    // live update cannot make the two disagree; the picked project is still named from the read. Open is by the group a
+    // row is DRAWN in (a moved row keeps its place, with its fresh state), as the tiles count.
+    static func title(_ read: Board.TasksRead?, drawn: [Section], project: String?) -> String {
+        guard let read else { return "Tasks" }
+        return title(rows: drawn.flatMap(\.rows), open: drawn.filter { $0.group.key != "closed" }.flatMap(\.rows), read: read, project: project)
+    }
+    private static func title(rows: [Board.TaskRow], open: [Board.TaskRow], read: Board.TasksRead, project: String?) -> String {
         let head = String(open.count) + (open.count == 1 ? " Task" : " Tasks")
         if let project {
             let picked = pickerProjects(read).first { $0.id == project }

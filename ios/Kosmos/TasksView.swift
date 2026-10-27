@@ -200,7 +200,7 @@ struct TasksView: View {
                 EmptyView()
             } header: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(Tasks.title(read, project: project))
+                    Text(Tasks.title(read, drawn: shown, project: project))
                         .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
                     // kosmos#7078: the board's tsk-msg line after a New task, where the board puts it.
                     if let notice {
