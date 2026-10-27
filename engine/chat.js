@@ -2357,7 +2357,8 @@ function typingGate(sessionName, raw, roster, envelope, trailer, at) {
 function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronousGap) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);
-  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null };
+  // #7212 slice 2: contentRefused, so a refusal of the message itself never counts toward the agent's delivery stall.
+  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null, contentRefused: true };
 
   /* kosmos#6436: every gate before the first keystroke, shared with the retry that presses a line left unsent. */
   const gate = typingGate(sessionName, raw, roster, envelope, trailer, at);
@@ -2394,7 +2395,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   let tail = '';
   if (typeof trailer === 'string' && trailer) {
     if (/[\r\n\u0000-\u0008\u000b-\u001f\u007f]/.test(trailer)) {
-      return { state: DELIVERY.COULD_NOT, because: 'the attached file\'s name has characters we will not type into a terminal', at, paneState: null, paneNote: null };
+      return { state: DELIVERY.COULD_NOT, because: 'the attached file\'s name has characters we will not type into a terminal', at, paneState: null, paneNote: null, contentRefused: true };
     }
     tail = trailer;
   }

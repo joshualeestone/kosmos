@@ -93,7 +93,7 @@ test('the log line names the agent, when, how many tries, and the last reason in
   for (let i = 0; i < 3; i += 1) ds.note('a', held('menu'), T0 + i * MIN);
   const [s] = ds.stallsToSay(['a'], new Map(), { now: T0 + 30 * MIN });
   assert.equal(ds.stallLine(s), 'delivery-stall: no message has been seen to reach a since 2026-10-27T12:00:00.000Z '
-    + '(3 tries); the last one did not land because its screen was waiting on a question or a menu\n');
+    + '(3 tries). Its screen is waiting on a question or a menu.\n');
 });
 
 test('an agent gone from the board loses its streak', () => {
@@ -172,9 +172,61 @@ test('the card says it in words, with the engine\'s reason, after the unsent-tex
   assert.ok(at > fn.indexOf('a.unsentInput && typeof a.unsentInput.since'), 'the unsent-text sentence names the sharper cause first');
   assert.ok(at < fn.indexOf("a.state === 'restarting'"), 'before the state rules');
   const stateReason = new Function(fn + '\nreturn stateReason;')();
-  const card = (mins, words) => ({ state: 'idle', deliveryStall: { since: new Date(Date.now() - mins * MIN).toISOString(), count: 4, lastWhy: 'menu', words } });
-  assert.equal(stateReason(card(45, ds.WHY_WORDS.menu)), 'No message has reached this agent for about 45 minutes. The last one did '
-    + 'not go through because its screen was waiting on a question or a menu. Open it to see what it shows, or restart it.');
-  assert.match(stateReason(card(180, ds.WHY_WORDS.refused)), /^No message has reached this agent for about 3 hours\. /);
+  const card = (mins, words) => ({ name: 'Ada', state: 'idle', deliveryStall: { since: new Date(Date.now() - mins * MIN).toISOString(), count: 4, lastWhy: 'menu', words } });
+  // Mona Lisa's words (#7212 design review): the agent's name, and the reason as its own sentence.
+  assert.equal(stateReason(card(45, ds.WHY_WORDS.menu)), 'No message has reached Ada for about 45 minutes. Its screen is waiting on a '
+    + 'question or a menu. Open it to see what it shows, or restart it.');
+  assert.match(stateReason(card(180, ds.WHY_WORDS.refused)), /^No message has reached Ada for about 3 hours\. Kosmos could not type into it\. /);
   assert.doesNotMatch(String(stateReason({ state: 'idle', deliveryStall: null })), /No message has reached/);
+});
+
+test('round 1 W2: a refusal of the message itself (empty, too long, a bad attachment name) never counts as a stall', () => {
+  const now = Date.now();
+  for (let i = 0; i < 4; i += 1) {
+    const v = chat.deliver('nobody-content', '', []);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT);
+    assert.equal(v.contentRefused, true, 'the verdict says the message was refused, not the agent');
+  }
+  assert.equal(ds.stallOf('nobody-content', { now: now + 40 * MIN }), null);
+  ds.note('flagged', { state: 'could_not', contentRefused: true }, T0);
+  ds.note('flagged', { state: 'could_not', contentRefused: true }, T0 + MIN);
+  ds.note('flagged', { state: 'could_not', contentRefused: true }, T0 + 2 * MIN);
+  assert.equal(ds.stallOf('flagged', { now: T0 + 40 * MIN }), null);
+});
+
+test('round 1 W1: a card that reads stopped or restarting starts its streak over, so the agent that comes back is not stalled', () => {
+  for (const state of ['stopped', 'restarting']) {
+    const at = Date.now() - 40 * MIN;
+    for (let i = 0; i < 3; i += 1) ds.note('back', refused, at + i * MIN);
+    assert.equal(status.deliveryStallOf({ name: 'back' }, { state }), null);
+    assert.equal(status.deliveryStallOf({ name: 'back' }, { state: 'idle' }), null, state + ': refusals while it was down are gone');
+  }
+  // CONTROL: the same refusals on a card that never left idle are a stall.
+  const at = Date.now() - 40 * MIN;
+  for (let i = 0; i < 3; i += 1) ds.note('stayed', refused, at + i * MIN);
+  assert.ok(status.deliveryStallOf({ name: 'stayed' }, { state: 'idle' }));
+});
+
+test('Mona Lisa\'s design: the pill reads Messages stuck with the issue look, on the page and on the phone', () => {
+  const PAGE = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const grab = (re, what) => { const m = PAGE.match(re); assert.ok(m, 'CONTROL: ' + what + ' was not found in the page'); return m[0]; };
+  const { stateCopyOf, cardStOf } = new Function(
+    grab(/\nconst STATE_COPY = \{[\s\S]*?\n\};\n/, 'STATE_COPY')
+    + grab(/\nconst CARD_ST = \{[\s\S]*?\n\};\n/, 'CARD_ST')
+    + grab(/\nconst CARD_ST_FAILED_RESTART = [^\n]*\n/, 'CARD_ST_FAILED_RESTART')
+    + grab(/\nfunction restartingLabel\(a\) \{[\s\S]*?\n\}\n/, 'restartingLabel')
+    + grab(/\nfunction stateCopyOf\(a\) \{[\s\S]*?\n\}\n/, 'stateCopyOf')
+    + grab(/\nfunction cardStOf\(a\) \{[^\n]*\n/, 'cardStOf')
+    + '\nreturn { stateCopyOf, cardStOf };')();
+  const stall = { since: '2026-10-27T12:00:00.000Z', count: 3, lastWhy: 'menu', words: ds.WHY_WORDS.menu };
+  for (const state of ['idle', 'working']) {
+    assert.deepEqual(stateCopyOf({ state, deliveryStall: stall }), { label: 'Messages stuck', attn: true }, state);
+    const st = cardStOf({ state, deliveryStall: stall });
+    assert.equal(st.st, 'attn', state + ': the issue edge');
+    assert.equal(st.pres, cardStOf({ state }).pres, state + ': its presence stays its state\'s');
+    assert.notEqual(stateCopyOf({ state }).label, 'Messages stuck', 'CONTROL: no stall, no pill');
+  }
+  const cardlabel = require('./cardlabel');
+  assert.equal(cardlabel.labelOf({ state: 'idle', deliveryStall: stall }), 'Messages stuck', 'the phone reads the same word');
+  assert.equal(cardlabel.labelOf({ state: 'idle', deliveryStall: null }), 'Idle');
 });

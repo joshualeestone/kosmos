@@ -43,6 +43,20 @@ whatever the cause.
   project's Issue pill. Stated; own_bound shows how to add it if wanted.
 - The reason words live once, in engine/deliverystreak.js WHY_WORDS, and ride on the card (`words`).
 
+## Design (Mona Lisa's review, #7212 comment, 2026-10-27 10:58)
+- The pill reads **Messages stuck** with the issue triangle, in place of Idle or Working, on the grid tile, the list
+  row and the agent page; the tile gets the `.acard.attn` edge (cardStOf), so the Issue count and the cards agree.
+  The phone's word (engine cardlabel.labelOf) is the same, kept equal by cardlabel-5959's parity list.
+- The sentence: "No message has reached <name> for about N. <reason>. Open it to see what it shows, or restart it."
+- Built instead of the plan's "one press" button and "board notice": the pill and the issue edge ARE the notice, and
+  the card already opens the agent page, where restart lives. No new button.
+
+## Round 1 (blind review) changes
+- A card reading stopped or restarting, and the offline row, start the streak over: lines refused while it was down
+  are not a stall of the agent that comes back.
+- A refusal of the message itself (`contentRefused`: empty, too long, a bad attachment name) never counts.
+- The board log says a stall only for a card that carries one (one rule with the card).
+
 ## Built (local, branch heldwarn2-7212; merge hold on)
 4ad318dfc5 engine recorder + wiring; 9b850fa6ef golden card re-capture; 621502920e card field gate, needsPerson,
 page sentence; 672b1bfe0a offline row + paneless card carry deliveryStall null (web.not-running went 14 red

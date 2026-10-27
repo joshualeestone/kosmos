@@ -1774,22 +1774,24 @@ function unsentSweep(names) {
   const present = new Set(Array.from(names || [], String));
   for (const m of [unsentSeen, unsentRead]) for (const k of [...m.keys()]) if (!present.has(k)) m.delete(k);
 }
-/* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
-   else null. The plain capture this pass already made decides whether to look; only a pane showing something there
-   is captured again with colours, and only when what it shows changed since the last colour read. */
 /* #7212 slice 2: the card's deliveryStall (engine/deliverystreak.js), with its limitShownOn rule. Never throws. */
 function deliveryStallOf(pane, status) {
   try {
     const st = status || {};
+    const ds = require('./deliverystreak');
+    /* Lines refused while it was down are not a stall of the agent that comes back (round 1 W1). */
+    if (st.state === STATE.STOPPED || st.state === 'restarting') ds.reset(pane && pane.name);
     /* Only a card that reads idle or working: those look fine while nothing reaches them (Josh's read Idle for a
        week). A stopped agent refuses lines by design, and needs_you, a sign-in or a limit already say themselves. */
     if (st.state !== STATE.IDLE && st.state !== STATE.WORKING) return null;
-    const ds = require('./deliverystreak');
     // The card's own four fields, built as the card builds them.
     const limitShown = ds.limitShownOn({ limitUntil: claudeLimitUntilIso(pane, st), limitFrom: st.limitFrom, quotaUntil: st.quotaUntil, poolUntil: st.poolUntil });
     return ds.stallOf(pane && pane.name, { limitShown });
   } catch { return null; }
 }
+/* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
+   else null. The plain capture this pass already made decides whether to look; only a pane showing something there
+   is captured again with colours, and only when what it shows changed since the last colour read. */
 function unsentInputOf(pane, text, now = Date.now()) {
   const name = pane && pane.name;
   const claude = !!pane && (!pane.runner || pane.runner === 'claude')
