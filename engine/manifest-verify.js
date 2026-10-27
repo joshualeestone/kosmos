@@ -124,7 +124,22 @@ function win32HeaderRefusal(m, { version, arch, sha }) {
   return null;
 }
 
-function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS, skipTarball = false }) {
+/* kosmos#7281: one key signs every family, so a host could serve another family's genuine manifest and tarball at
+ * this family's address. A manifest that NAMES another platform is refused: on a Mac anything but darwin (the Mac's
+ * own manifest names none), on Linux anything but linux (tools/build-kosmos-linux.sh writes "linux"). A manifest
+ * naming none is still taken on Linux: the portable bundle's is the Mac one, the shell suites verify Mac-shaped
+ * manifests on Linux runners, and a Mac bundle on Linux cannot pass setup.sh's run probe of its own node anyway.
+ * The installer check alone (skipTarball) is not held to it: both families of a cut carry the same setup.sh bytes.
+ * Windows has its own header check (win32HeaderRefusal). Returns the sentence to refuse with, or null. */
+function platformRefusal(m, platform) {
+  const said = m && m.platform;
+  if (said === undefined) return null;
+  if (platform === 'darwin' && said !== 'darwin') return `the signed manifest is for ${JSON.stringify(said)}, not macOS`;
+  if (platform === 'linux' && said !== 'linux') return `the signed manifest is for ${JSON.stringify(said)}, not Linux`;
+  return null;
+}
+
+function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS, skipTarball = false, platform = process.platform }) {
   if (!keys.length) return { code: 3, why: 'no release signing key is pinned in this install' };
   const bytes = fs.readFileSync(manifest);
   let sigText;
@@ -133,6 +148,8 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
   if (r.code !== 0) return r;
   const m = r.manifest;
   if (skipTarball) return { code: 0, why: `the signed manifest for ${version} is genuine`, manifest: m };
+  const wrong = platformRefusal(m, platform);
+  if (wrong) return { code: 1, why: wrong };
   if (typeof m.sha256 !== 'string' || sha256File(tarball) !== m.sha256) return { code: 1, why: 'the download does not match its signed manifest' };
   if (stage === '-') return { code: 0, why: `the download matches the signed manifest for ${version}` };
   const bad = filesRefusal(m, stage);
@@ -255,6 +272,17 @@ function asTheInstallerNamesIt(home) {
   try { if (fs.realpathSync(home) === fs.realpathSync(dflt)) return dflt; } catch { /* either gone: as handed */ }
   return home;
 }
+/* kosmos#7281: the manifest a run-setup reads: the Linux family's (kosmos-<v>-linux-x64.manifest.json) on a Linux
+ * x86_64 copy that runs its OWN node (a regular file; the portable bundle links in a system node), else the Mac one,
+ * arm64 only, as setup.sh's ARCH is on a Mac (an Intel Mac is refused before any update is offered). A portable
+ * Linux copy keeps the Mac one: release.sh cuts both families at one version, so it exists for any version offered. */
+function setupManifestName(version, home, { platform = process.platform, arch = process.arch } = {}) {
+  let own = false;
+  if (platform === 'linux' && arch === 'x64') {
+    try { own = fs.lstatSync(path.join(home, 'runtime', 'bin', 'node')).isFile(); } catch { own = false; }
+  }
+  return own ? `kosmos-${version}-linux-x64.manifest.json` : `kosmos-${version}-arm64.manifest.json`;
+}
 function runSetup({ setupUrl, base, version, home, spawnSync = require('child_process').spawnSync }) {
   const say = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_RUN; };
   const sayFetch = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_FETCHED; };
@@ -297,8 +325,8 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
       keys = t.keys;
     }
     if (!get(setupUrl, files.setup)) return sayFetch('the installer could not be downloaded');
-    // arm64 only, as setup.sh's ARCH is on a Mac (an Intel Mac is refused before any update is offered).
-    if (!get(`${b}/kosmos-${version}-arm64.manifest.json`, files.manifest) || !get(`${b}/kosmos-${version}-arm64.manifest.json.sig`, files.sig)) {
+    const mname = setupManifestName(version, home);
+    if (!get(`${b}/${mname}`, files.manifest) || !get(`${b}/${mname}.sig`, files.sig)) {
       return sayFetch(`the signed manifest for ${version} could not be downloaded`);
     }
     let installedVersion = '';
@@ -515,7 +543,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   return { ok: true, why: v.why, keys: v.keys };
 }
 
-module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, pauseUrl, pausedIn, pausedSync, pausedAsync, PAUSED_SENTENCE, PAUSE_DEFAULT_COORDINATOR, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS,
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, pauseUrl, pausedIn, pausedSync, pausedAsync, PAUSED_SENTENCE, PAUSE_DEFAULT_COORDINATOR, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS, setupManifestName /* kosmos#7281 */,
   RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, MAX_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
