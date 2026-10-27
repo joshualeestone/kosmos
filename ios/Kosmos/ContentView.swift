@@ -581,6 +581,7 @@ final class BoardWeb: ObservableObject {
     }
 
     func loadingOwnPage() { tracker.loadingOwnPage() }
+    func loadFailed(host: String?) { tracker.loadFailed(host: host) }
 
     // kosmos#7010: the board's own section for a native tab, pressed on purpose (the Settings screen's row). When the
     // shared page is a Kosmos+ page (the account page that screen opens), there is no board to press, so the board is
@@ -908,6 +909,8 @@ struct WebView: UIViewRepresentable {
                                                   coordinator: KosmosConfig.coordinatorOrigin) else { return }
             failedURL = failingURL
             failedProvisionally = provisional
+            // kosmos#7266 review 6: a create waiting for this computer's board ends with its failed load.
+            web?.loadFailed(host: failingURL?.host)
             // The host only: a Mac link carries the person's sign-in token in its
             // fragment (#kst=), which must never reach a log.
             NSLog("[Shell] load failed: \(e.domain) \(e.code) host=\(failedURL?.host ?? "?")")
