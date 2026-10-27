@@ -908,6 +908,15 @@ release_linux_decide "$SITE" "$CUT_CHANNEL" || exit 1
 # 0.7.71 cut, 2026-10-27: the decision is CUT_LINUX from here on. Exported, the variable reached step 3's suite, and
 # every test that runs a nested release.sh tried to cut the Linux family there and stopped at 1d-linux (9 reds).
 unset KOSMOS_CUT_LINUX
+# kosmos#7363: step 3's suite runs with EVERY KOSMOS_CUT_* removed, not one variable at a time per incident. They are
+# this cut's own overrides (KOSMOS_CUT_CHANNEL at 0.7.25 and KOSMOS_CUT_LINUX at 0.7.71 each reached the suite, where
+# tests that run a nested release.sh obeyed them and the cut aborted); the suite must test the tree, not this cut's
+# settings. Every exported name with the prefix, so one added later is covered too. ${a[@]+...}: bash 3.2 under set -u.
+cut_suite_env() {
+  local v strip=()
+  for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) strip+=(-u "$v") ;; esac; done
+  env ${strip[@]+"${strip[@]}"} "$@"
+}
 LINUX_TUNNEL_BIN="${KOSMOS_TUNNEL_LINUX_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel-linux-x86_64}"
 LINUX_CONNECTOR_COMMIT=""
 if [ "$CUT_LINUX" = yes ]; then
@@ -1144,7 +1153,7 @@ if [ "$_cut_parallel" = 1 ]; then
   # never trips errexit; its exit is reaped by `wait` below. nice -n 19 means the
   # foreground render checks always win the scheduler, so their timing -- and thus
   # their flake-rate -- stays near-serial.
-  ( cd "$REPO" && nice -n 19 yarn test >"$_suite_log" 2>&1 ) &
+  ( cd "$REPO" && cut_suite_env nice -n 19 yarn test >"$_suite_log" 2>&1 ) &   # #7363
   _suite_bg_pid=$!
   # The render checks, foreground at NORMAL priority: the SAME command, env
   # exclusion (#2724) and strict version pin (#1708) as the serial step 3b below.
@@ -1174,7 +1183,7 @@ step "== 3. the whole suite, on the tree that ships =="
 # summary lines, and names the log a red run's detail lives in.
 _suite_log="$(mktemp)"
 _suite_exit=0
-( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
+( cd "$REPO" && cut_suite_env yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?   # #7363
 fi
 grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
 # 📌 AN AUDIT TRAIL, NOT A GUARD (Splinter, 2026-08-25 05:30; the guard reading
