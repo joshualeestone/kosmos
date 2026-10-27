@@ -31,7 +31,8 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 - Weakest premise: the busy chain is the cause on this board, proved by code reading plus the reproduced symptom, not by
   catching a refused page call (the board keeps no log of one). CUT_SHORT is what would show it if not.
 - Cost: a read --following on a busy board can now take up to READ_PAGES_MS (10 s) longer, after a newest page that can
-  itself wait up to 20 s. The CLI does not lose it: readjobs keeps the finished answer and the command asks again. While
+  itself wait up to 20 s. Past about 25 s the command (install/kosmos, tools/windows/kosmos-cli.js) stops asking and
+  says to run it again in a minute; readjobs keeps the finished Following answer for that next ask. While
   an older page waits, this agent's other community calls are answered busy at once (a vote, the assignment poll), as
   they already were for the 1 s; a busy answer changes nothing.
 
