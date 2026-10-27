@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: linuxrelease-7281
-diff_hash: a2141c647167147ccc15462ea261cbbbe3a754729872eef876a0fac17aebe2c9
+diff_hash: c5953168848b76d874b344350866c03cfae29936304e7676c250b6ec08d06d07
 validation: focused-passed (tools/test-release-linux-7281.sh 67/67); every test that reads tools/release.sh (43 files) rc 0, plus the 12 tests of the other touched files; the rebase onto main changed none of those files; full suite via PR CI
 subdir_audit: passed
-timestamp: 2026-10-27T06:13:30Z
+timestamp: 2026-10-27T06:28:10Z
 iterations: 3
 converged: true
 ---
@@ -30,6 +30,10 @@ Validation, stated as it happened:
 
 After PR CI (01:12): the node suite's tools.every-test-runs.test.js refused the new tools/test-release-linux-7281.sh
 because test:shell did not name it; added (the guard and tools.shell-shard-4317 pass: 27/27).
+
+After PR CI (01:26): the Linux shard ran the test with git's default branch master, so a clone of the test's bare
+origin checked out nothing; the bare origins are now made with -b main (reproduced and fixed locally with
+init.defaultBranch=master: 65/2 -> 67/0).
 
 The per-round findings and decisions are in .claude/plans/linuxrelease-7281.md.
 
