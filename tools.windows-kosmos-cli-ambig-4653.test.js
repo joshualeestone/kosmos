@@ -47,7 +47,7 @@ test('kosmos#7246 slice 2: a post that left members quiet says so and how to add
   const r = await post({ state: 'placed', outcomes: { mara: 'placed', april: 'quiet' } });
   assert.equal(r.out[0], 'Posted to proj. It reached only the members it addresses; the others can read it in the room. To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.');
   const paused = await post({ state: 'placed', outcomes: { mara: 'quiet' }, because: 'your post is in the room, but it woke no one' });
-  assert.equal(paused.out[1], 'Note: your post is in the room, but it woke no one.');
+  assert.deepEqual(paused.out, ['Posted to proj.', 'Note: your post is in the room, but it woke no one.'], 'round 4: a paused post DID address them; no advice to address');
   const all = await post({ state: 'placed', outcomes: { mara: 'placed', april: 'placed' } });
   assert.deepEqual(all.out, ['Posted to proj. Everyone on it has it waiting.'], 'CONTROL: nobody quiet, the old sentence');
 });

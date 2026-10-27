@@ -2193,7 +2193,11 @@ function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = tr
     }
     const head = postHeader(text);
     if (head && (!head.word || nameResolves(head.sender, from === undefined || from === null ? [] : [String(from)], roster).length)) {
-      for (const part of head.targets) for (const m of nameResolves(part, list, roster)) out.add(m);
+      for (const part of head.targets) {
+        // Round 4: "Ada -> all:" or "-> everyone:" is the header's @all (and, like @all, not with { all: false }).
+        if (/^(all|everyone)$/i.test(part)) { if (all) for (const m of list) if (m !== from) out.add(m); continue; }
+        for (const m of nameResolves(part, list, roster)) out.add(m);
+      }
     }
   } catch { /* the @-names alone */ }
   return out;
@@ -2887,7 +2891,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      not typed, not held, the post in the room for them to read. */
   let quiet = 0;
   let loopPausedHere = false;
-  let wokeSomeone = false;
   const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
   const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line
   const deliverOne = (name) => {
@@ -2898,7 +2901,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const asked = asksMember(name);
       if (asked && loopPaused) loopPausedHere = true;
       if (!asked || loopPaused) { outcomes[name] = roomhold.QUIET; quiet += 1; return null; }
-      wokeSomeone = true;
     }
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
        is held rather than typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
@@ -3127,7 +3129,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
    * The person reads the room from the record, and the record is written below.
    */
   /* kosmos#7246 slice 2: quiet members were never to be typed into; a post that addressed nobody is recorded, not refused. */
-  if (wokeSomeone) require('./roomloop').noteWake(projectId);   // one per post that woke anyone (round 1)
   if (operator === true) require('./roomloop').clear(projectId);   // round 3: the person is here, so the count starts over
   if (loopPausedHere) {
     const note = require('./roomloop').pauseNote(projectId);
@@ -3215,6 +3216,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          the LAST key: kosmos post reads it anchored on the end of the answer. */
       ...(note4653 ? { ambiguousNote: note4653 } : {}) };
   };
+
+  /* C: one per post that wakes anyone (round 1), counted here, once and synchronously, before any member is typed
+     (round 4): the async route types members over several turns of the event loop, and a count taken after them let
+     posts started meanwhile all read "not paused" and run past the cap. `charged` is the members this post wakes. A post
+     that then reaches nobody still counts: the cap is a backstop, and it errs toward quiet. */
+  if (operator !== true && !loopPaused && charged > 0) require('./roomloop').noteWake(projectId);
 
   if (asynchronousDelivery) {
     /* #4765: every member AT ONCE, not one after another. Most of a delivery is a wait (the paste-to-Enter gap,

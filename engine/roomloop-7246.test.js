@@ -289,3 +289,42 @@ test('round 3: a person\'s post clears the pause, so the agents can wake each ot
     assert.deepEqual(post(board, 'angel', '@monalisa after the person').woke, ['monalisa'], 'the person posted and the pause still held');
   });
 });
+
+/* Round 4: the window itself, the header's "all", a row from before the upgrade, and two async posts at the cap. */
+test('round 4: the cap frees as its oldest wake leaves the hour, and a new pause is said again', () => {
+  const t0 = Date.parse('2026-10-27T12:00:00Z');
+  for (let i = 0; i < roomloop.LOOP_CAP; i += 1) roomloop.noteWake('p', t0 + i * 1000);
+  assert.equal(roomloop.paused('p', t0 + 60000), true);
+  assert.equal(roomloop.freesAt('p', t0 + 60000), t0 + roomloop.LOOP_WINDOW_MS, 'the window frees when its first wake is an hour old');
+  assert.ok(roomloop.pauseNote('p', t0 + 60000), 'the first pause is said');
+  assert.equal(roomloop.pauseNote('p', t0 + 61000), '', 'and only once');
+  assert.equal(roomloop.paused('p', t0 + roomloop.LOOP_WINDOW_MS + 500), false, 'the oldest wake aged out, so there is room');
+  roomloop.noteWake('p', t0 + roomloop.LOOP_WINDOW_MS + 600);
+  assert.equal(roomloop.paused('p', t0 + roomloop.LOOP_WINDOW_MS + 700), true);
+  assert.ok(roomloop.pauseNote('p', t0 + roomloop.LOOP_WINDOW_MS + 700), 'a new pause (a later free time) is said again');
+  assert.equal(roomloop.paused('other', t0 + 60000), false, 'CONTROL: another project is not paused');
+});
+test('round 4: "Ada -> all:" and "-> everyone:" are the header\'s @all', () => {
+  assert.deepEqual(addressed('angel', 'Angel -> all: the build is green'), fleetNames.filter((n) => n !== 'angel').sort());
+  assert.deepEqual(addressed('angel', 'Angel -> Everyone: x'), fleetNames.filter((n) => n !== 'angel').sort());
+  assert.deepEqual([...messages.addressedMembers('Angel -> all: x', fleetNames, FLEET, new Set(), 'angel', { all: false })], [],
+    'like @all, not a request to a swarm switched off here');
+  assert.deepEqual(addressed('angel', 'Angel -> allison: x'), [], 'CONTROL: a word that starts with all is not all');
+});
+test('round 4: a row from before the upgrade (no outcomes) is charged for everyone it went to', () => {
+  assert.equal(messages.reachedCount({ kind: 'post', to: ['a', 'b', 'c'] }), 3);
+  assert.equal(messages.reachedCount({ kind: 'post', to: ['a', 'b'], outcomes: { a: roomhold.QUIET, b: 'placed' } }), 1, 'CONTROL: a quiet member is not charged');
+});
+test('round 4: two posts started together at the last free wake: only one wakes anyone', async () => {
+  const board = fleet.install(room());
+  try {
+    for (let i = 0; i < roomloop.LOOP_CAP - 1; i += 1) post(board, 'angel', '@monalisa ping ' + i);
+    armSender('angel-discord');
+    arm();
+    const a = messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@monalisa first of two' }, board.agents, MEMBERS);
+    const b = messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@pigeonpete second of two' }, board.agents, MEMBERS);
+    const [ra, rb] = await Promise.all([a, b]);
+    assert.equal(ra.outcomes.monalisa, 'placed', 'the first post fills the cap and wakes its member');
+    assert.equal(rb.outcomes.pigeonpete, roomhold.QUIET, 'a post started while the first was still typing ran past the cap');
+  } finally { board.restore(); }
+});

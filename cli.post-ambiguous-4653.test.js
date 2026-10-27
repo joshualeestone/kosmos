@@ -91,6 +91,7 @@ test('kosmos#7246 slice 2: install/kosmos says when a post left members quiet, a
   // state, then because, as the route sends them (the CLI reads because at that position only).
   const paused = await postAgainst({ state: 'placed', because: 'your post is in the room, but it woke no one', outcomes: { mara: 'quiet' } });
   assert.match(paused.stdout, /Note: your post is in the room, but it woke no one\./);
+  assert.doesNotMatch(paused.stdout, /reached only the members it addresses/, 'round 4: a paused post DID address them; the advice contradicts the note');
   const all = await postAgainst({ state: 'placed', outcomes: { mara: 'placed' } });
   assert.match(all.stdout, /Posted to proj\. Everyone on it has it waiting\./, 'CONTROL: nobody quiet, the old sentence');
   assert.doesNotMatch(all.stdout, /Note:/);
