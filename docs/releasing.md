@@ -41,7 +41,10 @@ improvement it gained would have died with the session that wrote it.
    commit `release/whats-new-pool.json` with the build. It refuses, writing nothing, if it cannot read prod or
    match what prod showed; `--offline` builds without the check and says so, and the next online build catches
    up. The cut checks it too: step 1b-ii runs `node tools/whats-new-pool.js prod-check` and stops when prod is
-   newer than the pool records (build again and commit). A version that reached prod with no What's New at all
+   newer than the pool records (build again and commit). Since kosmos#7349 release.sh also runs both 1b-ii checks
+   at its very start, before it marks the cut, claims the machine or waits, and a Mac prod promote ends by naming
+   the build to run once its deploy serves. Before you hold merges for a cut, run
+   `node tools/whats-new-pool.js prod-check` yourself: a 3 means the cut would stop, so merge a fresh build first. A version that reached prod with no What's New at all
    (cut with `KOSMOS_CUT_NO_WHATS_NEW=1`) is recorded with
    `node tools/whats-new-pool.js shown <version> --promoted --none`. `icon` is one of `swarm`, `tasks`, `phone`,
    `list`, `chat`, `shield`, `spark`; a title of about 40 characters; one plain
