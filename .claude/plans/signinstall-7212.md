@@ -81,3 +81,18 @@ checked and the card says what slice 2 says, which is the safe direction.
   file read per folder), once an hour per account; not worth a second cache.
 - NIT stated in the header: heard is stamped on arrival, so a slow connected check can hide a newer "none" until the
   next hour (the safe direction).
+
+## Review round 5 (opus): 2 major, 2 minor. The root of both majors: a second copy of the badge's logic, drifted
+- MAJOR fixed: the card read only the stuck agent's own requests, while the AI Models badge reads the freshest request
+  of ANY agent on the account and a Check now on its folder. So the card missed a sibling's 401 (a revocation shows on
+  the agent whose turn hit it, not on the one that is stuck: a stall cannot coexist with its own fresh 401, since an
+  auth_failed card resets the streak) and contradicted a sibling's good request. The badge's join is now ONE function,
+  server.js claudeObservationsFor, used by the accounts route and handed to the overlay as obsFor (built only on a
+  tick where some card is stuck: it reads job files). Mutant (ignore obsFor) red.
+- MAJOR fixed: round 4's rule (a request older than the last connected answer does not count) let an expiry-blind
+  "connected" from auth status erase a real 401, including a Check now's, so the card and the badge disagreed again.
+  Removed: as on the badge, a fresh request outcome outranks the live check either way. Decided, and this reverses
+  round 4: after the person signs in, the card says "signed out" until the 401 is five minutes old or a good request
+  is seen, exactly as long as the badge says "rejected". Agreeing with the badge beats clearing sooner than it.
+- MINOR fixed: the live state is the latest answer (an unknown one is unknown), as the badge reads it.
+- MINOR fixed: a connected answer for the default account named by its folder clears the default account's record.

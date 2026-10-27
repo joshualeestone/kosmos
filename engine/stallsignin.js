@@ -12,14 +12,16 @@
  * check an hour, not fifteen, and an agent moved to another account reads that account's record.
  *
  * Review 3: "signed out" is decided as the AI Models screen decides its badge (observed.verdict): the account's live
- * check AND the freshest real request Kosmos saw for it (the stuck agent's own, or a Check now on its folder). `claude
+ * check AND the freshest real request Kosmos saw for it. Review 5: that evidence is the badge's own, handed in by the
+ * status route (server.js claudeObservationsFor: any agent on the account, or a Check now on its folder), so the card
+ * and the badge cannot disagree; reading only the stuck agent's requests missed a sibling's 401 and contradicted a
+ * sibling's good request. `claude
  * auth status` alone is expiry-blind (#874): it says logged in while Anthropic refuses every request, the very case
  * this card is for, so a fresh 401 is "signed out" whatever it says. Unreachable, a check still running, or no account
- * row is "not known", and the card keeps slice 2's reason. A connected answer clears the live check's "none" at once
- * (`heard`; for a stored key only from the reader that tries the key), and a "none" from a check that started
- * before it was heard, or a request seen before it, is ignored. (Heard is stamped when the connected answer arrives, so
- * a slow connected check can hide a newer "none" until the next hour: the safe direction, stated.) In memory, on the
- * board. Never throws.
+ * row is "not known", and the card keeps slice 2's reason. As on the badge, the live state is the latest answer (an
+ * unknown one is unknown, review 5) and a fresh request outcome outranks it, either way. A connected answer clears the
+ * live check's "none" at once (`heard`; for a stored key only from the reader that tries the key), and a "none" from
+ * a check that started before it was heard is ignored. In memory, on the board. Never throws.
  */
 
 const CHECK_EVERY_MS = 60 * 60 * 1000;
@@ -39,6 +41,7 @@ const checkRow = (row) => (deps && deps.checkRow ? deps.checkRow(row) : accounts
 function keyOf(account) {
   if (!account || account.provider) return null;   // a vendor or Qwen folder is not a Claude account
   if (account.isDefault === true) return 'default';
+  try { if (account.dir && accountsMod().isDefaultDir(account.dir)) return 'default'; } catch { /* filed by its folder */ }   // review 5
   return typeof account.dir === 'string' && account.dir ? 'dir:' + account.dir : null;
 }
 
@@ -72,8 +75,9 @@ function recordFor(account, now) {
       try {
         const { STATE } = require('./subscription');
         // Only an answer moves it, and a "signed out" that started before a connected answer was heard is stale.
-        if (state === STATE.NONE && startedAt > rec.connectedAt) rec.state = 'none';   // a tie is not newer: never claim signed out on it
-        else if (state === STATE.CONNECTED) rec.state = 'connected';
+        // The latest answer, as the badge reads it (review 5): unknown is unknown, not the last answer kept.
+        if (state === STATE.NONE) { if (startedAt > rec.connectedAt) rec.state = 'none'; }   // a tie is not newer: never claim signed out on it
+        else rec.state = state === STATE.CONNECTED ? 'connected' : null;
       } catch { /* not known */ }
     }, () => { /* not known: the card keeps its reason */ }).finally(() => { rec.running = false; });
   }
@@ -83,13 +87,11 @@ function recordFor(account, now) {
 
 /* The AI Models badge's own verdict (observed.verdict) for this card's account: its live check, and the freshest real
    request seen for the agent or the folder. True for "rejected" (a fresh 401) or "signed_out". */
-function outBy(card, rec, now) {
+function outBy(card, rec, now, obsFor) {
   const observed = require('./observed');
-  const a = card.sessionName ? observed.read(observed.PROVIDER.ANTHROPIC, String(card.sessionName)) : null;
-  const d = card.account && card.account.dir ? observed.readDir(observed.PROVIDER.ANTHROPIC, card.account.dir) : null;
-  let obs = a && d ? (d.at >= a.at ? d : a) : (a || d);
-  // Review 4: a request seen before a connected answer was heard is older than the sign-in, so it does not outrank it.
-  if (obs && obs.at <= rec.connectedAt) obs = null;
+  const dir = card.account && card.account.dir;
+  // The badge's evidence when the route hands it in; without it (a caller with no account join), the folder's Check now.
+  const obs = typeof obsFor === 'function' ? ((obsFor(dir) || {}).obs || null) : (dir ? observed.readDir(observed.PROVIDER.ANTHROPIC, dir) : null);
   const v = observed.verdict({ checkLiveState: rec.state, observedOutcome: obs && obs.outcome, observedAt: obs && obs.at, now });
   return v.badge === 'rejected' || v.badge === 'signed_out';
 }
@@ -97,11 +99,11 @@ function outBy(card, rec, now) {
 /* The card as the person should read it: a stuck Claude agent (runner empty or claude) whose own account was last seen
    signed out (or whose stored key was refused) names that cause, in deliverystreak's words; any other card is returned
    as it is. */
-function overlay(card, now = Date.now()) {
+function overlay(card, now = Date.now(), { obsFor } = {}) {
   try {
     if (!card || !card.deliveryStall || typeof card.deliveryStall.since !== 'string' || (card.runner && card.runner !== 'claude')) return card;
     const rec = recordFor(card.account, now);
-    if (!rec || !outBy(card, rec, now)) return card;
+    if (!rec || !outBy(card, rec, now, obsFor)) return card;
     const ds = require('./deliverystreak');
     const why = rec.apiKey ? 'keyrefused' : 'signedout';
     return { ...card, deliveryStall: { ...card.deliveryStall, signedOut: true, words: ds.WHY_WORDS[why], next: ds.NEXT_WORDS[why] } };

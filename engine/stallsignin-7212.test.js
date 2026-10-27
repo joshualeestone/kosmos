@@ -3,6 +3,11 @@
 /* #7212 slice 3: a stuck Claude agent whose own account was signed out says so, from at most one live check of that
    account per hour (engine/stallsignin.js), read as the AI Models badge reads it (observed.verdict). */
 
+const os = require('node:os');
+const path = require('node:path');
+const SANDBOX = path.join(os.tmpdir(), 'kosmos-stallsignin-test-' + process.pid);
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const stallsignin = require('./stallsignin');
@@ -14,7 +19,17 @@ const accounts = require('./accounts');
 
 const T0 = Date.parse('2026-10-27T12:00:00Z');
 const STALL = { since: '2026-10-27T11:20:00.000Z', count: 4, lastWhy: 'unconfirmed', words: ds.WHY_WORDS.unconfirmed, next: ds.NEXT_WORDS.unconfirmed };
-const card = (extra = {}) => ({ sessionName: 'ada', runner: '', account: { dir: '/x/.claude-b', isDefault: false }, deliveryStall: STALL, ...extra });
+/* A real card from test-support/fleet (fixture discipline), copied, with the fields this slice reads. */
+const fleet = require('../test-support/fleet');
+const realCards = new Map();
+function realCard(name) {
+  if (!realCards.has(name)) {
+    const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+    try { realCards.set(name, { ...board.agents[0] }); } finally { board.restore(); }
+  }
+  return realCards.get(name);
+}
+const card = (extra = {}, name = 'ada') => ({ ...realCard(name), runner: '', account: { dir: '/x/.claude-b', isDefault: false }, deliveryStall: STALL, ...extra });
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 /* Review 1: the seam is the account list and the live call, so which row a card is matched to is tested too. */
@@ -33,7 +48,7 @@ function counting(answer, rows = ROWS) {
 }
 
 test.beforeEach(() => { stallsignin.resetForTests(); observed._clearForTest(); sub.setRunner(null); });
-test.after(() => stallsignin.resetForTests());
+test.after(() => { stallsignin.resetForTests(); try { require('node:fs').rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 test('a signed-out account names the cause once its check has answered', async () => {
   const calls = counting(STATE.NONE);
@@ -69,13 +84,16 @@ test('a check still running is not started twice, however long it takes', async 
   assert.equal(stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS + 2).deliveryStall.signedOut, true);
 });
 
-test('an unreachable answer after a signed-out one keeps it; a connected one clears it', async () => {
+test('review 5: the live state is the latest answer, as the badge reads it: an unknown one is unknown', async () => {
   counting((n) => (n === 1 ? STATE.NONE : n === 2 ? STATE.UNKNOWN : STATE.CONNECTED));
   stallsignin.overlay(card(), T0); await settle();
   stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS); await settle();
-  assert.equal(stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS + 1).deliveryStall.signedOut, true, 'could-not-check undid a real answer');
+  assert.equal(stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS + 1).deliveryStall.signedOut, undefined, 'an old "none" outlived a check that could not tell (the badge says unchecked)');
   stallsignin.overlay(card(), T0 + 2 * stallsignin.CHECK_EVERY_MS); await settle();
-  assert.equal(stallsignin.overlay(card(), T0 + 2 * stallsignin.CHECK_EVERY_MS + 1).deliveryStall.signedOut, undefined, 'signing in again did not clear it');
+  assert.equal(stallsignin.overlay(card(), T0 + 2 * stallsignin.CHECK_EVERY_MS + 1).deliveryStall.signedOut, undefined);
+  stallsignin.resetForTests(); counting(STATE.NONE);
+  stallsignin.overlay(card(), T0); await settle();
+  assert.equal(stallsignin.overlay(card(), T0 + 1).deliveryStall.signedOut, true, 'CONTROL: a "none" answer is signed out');
 });
 
 test('nothing is checked for a card that is not stuck, not Claude, or not on a Claude account', async () => {
@@ -105,7 +123,7 @@ test('the status route applies the overlay to every card it returns, and the min
      stall cannot be planted in from here. */
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
   const map = src.indexOf('const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map(');
-  const hook = src.indexOf("agents[i] = require('./engine/stallsignin').overlay(agents[i]);", map);
+  const hook = src.indexOf("agents[i] = require('./engine/stallsignin').overlay(agents[i], undefined, { obsFor });", map);
   assert.ok(map > 0 && hook > map, 'the status route no longer overlays its cards');
   assert.ok(hook - map < 20000, 'the overlay moved away from the status route\'s cards');
   assert.ok(src.includes("require('./engine/stallsignin').sweep();"), 'the minute sweep no longer forgets accounts');
@@ -113,9 +131,9 @@ test('the status route applies the overlay to every card it returns, and the min
 
 test('review 1: each card is checked on its own row: the default, a second account, a key; no row, no check', async () => {
   const calls = counting(STATE.CONNECTED);
-  stallsignin.overlay(card({ sessionName: 'dflt', account: { dir: '/x/.claude', isDefault: true } }), T0);
-  stallsignin.overlay(card({ sessionName: 'second' }), T0);
-  stallsignin.overlay(card({ sessionName: 'gone', account: { dir: '/x/.claude-gone', isDefault: false } }), T0);
+  stallsignin.overlay(card({ account: { dir: '/x/.claude', isDefault: true } }, 'dflt'), T0);
+  stallsignin.overlay(card({}, 'second'), T0);
+  stallsignin.overlay(card({ account: { dir: '/x/.claude-gone', isDefault: false } }, 'gone'), T0);
   await settle(); await settle();
   assert.deepEqual(calls.map((r) => r.dir), ['/x/.claude', '/x/.claude-b'], 'a card was checked on another account\'s row');
 });
@@ -154,15 +172,15 @@ test('review 1: an account list that throws clears running, so the stall is chec
 /* Review 2: the record is the account's. */
 test('one live check per account and hour, however many agents on it are stuck, and whatever stalls they start', async () => {
   const calls = counting(STATE.CONNECTED);
-  for (const n of ['a1', 'a2', 'a3', 'a4', 'a5']) stallsignin.overlay(card({ sessionName: n }), T0);
+  for (const n of ['a1', 'a2', 'a3', 'a4', 'a5']) stallsignin.overlay(card({}, n), T0);
   assert.equal(calls.length, 1, 'five stuck agents on one account started five checks');
   await settle();
-  for (let i = 1; i <= 20; i += 1) stallsignin.overlay(card({ sessionName: 'a1' }), T0 + i * 5000);   // the status tick
-  stallsignin.overlay(card({ sessionName: 'a1', deliveryStall: { ...STALL, since: '2026-10-27T12:30:00.000Z' } }), T0 + 200000);
+  for (let i = 1; i <= 20; i += 1) stallsignin.overlay(card({}, 'a1'), T0 + i * 5000);   // the status tick
+  stallsignin.overlay(card({ deliveryStall: { ...STALL, since: '2026-10-27T12:30:00.000Z' } }, 'a1'), T0 + 200000);
   assert.equal(calls.length, 1, 'the tick, or a new stall within the hour, ran another check');
-  stallsignin.overlay(card({ sessionName: 'a2' }), T0 + stallsignin.CHECK_EVERY_MS);
+  stallsignin.overlay(card({}, 'a2'), T0 + stallsignin.CHECK_EVERY_MS);
   assert.equal(calls.length, 2, 'an hour on, the account is checked again');
-  stallsignin.overlay(card({ sessionName: 'b1', account: { dir: '/x/.claude', isDefault: true } }), T0 + 1);
+  stallsignin.overlay(card({ account: { dir: '/x/.claude', isDefault: true } }, 'b1'), T0 + 1);
   assert.equal(calls.length, 3, 'CONTROL: an agent on another account has its own check');
 });
 
@@ -203,19 +221,6 @@ test('review 2: the sweep forgets an account no stuck card has read for an hour,
 });
 
 /* Review 3. */
-test('review 3: a fresh 401 for the stuck agent is "signed out" though auth status says logged in (#874)', async () => {
-  counting(STATE.CONNECTED);
-  stallsignin.overlay(card(), T0); await settle();
-  observed.saw(observed.PROVIDER.ANTHROPIC, 'ada', observed.OUTCOME.REJECTED, T0 + 1000);
-  const out = stallsignin.overlay(card(), T0 + 2000);
-  assert.equal(out.deliveryStall.words, 'Its Claude account is signed out', 'an expiry-blind "logged in" hid a refused account');
-  observed.saw(observed.PROVIDER.ANTHROPIC, 'ada', observed.OUTCOME.OK, T0 + 3000);
-  assert.equal(stallsignin.overlay(card(), T0 + 4000).deliveryStall.signedOut, undefined, 'CONTROL: a fresh good request is not signed out');
-  observed._clearForTest();
-  observed.sawDir(observed.PROVIDER.ANTHROPIC, '/x/.claude-b', observed.OUTCOME.REJECTED, T0 + 5000);
-  assert.equal(stallsignin.overlay(card(), T0 + 6000).deliveryStall.signedOut, true, 'a Check now on the folder that was refused counts too');
-  assert.equal(stallsignin.overlay(card(), T0 + 6000 + observed.freshMs() + 1).deliveryStall.signedOut, undefined, 'a stale 401 decided it');
-});
 
 test('review 3: a refused key is cleared only by the reader that tries the key', async () => {
   counting(STATE.NONE);
@@ -230,7 +235,7 @@ test('review 3: a refused key is cleared only by the reader that tries the key',
 test('review 3: subscription.checkLive clears only the account it checked, default included', async () => {
   counting(STATE.NONE);
   const T = Date.now() - 1000;   // review 4: checkLive stamps real time, so this test runs on it
-  const dflt = card({ sessionName: 'd', account: { dir: '/x/.claude', isDefault: true } });
+  const dflt = card({ account: { dir: '/x/.claude', isDefault: true } }, 'd');
   stallsignin.overlay(card(), T); stallsignin.overlay(dflt, T); await settle(); await settle();
   assert.equal(stallsignin.overlay(card(), T + 1).deliveryStall.signedOut, true);
   assert.equal(stallsignin.overlay(dflt, T + 1).deliveryStall.signedOut, true);
@@ -253,13 +258,36 @@ test('review 3: accounts.checkRowLive tells stallsignin, as the reader that trie
   assert.equal(stallsignin.overlay(card(), Date.now()).deliveryStall.signedOut, undefined);
 });
 
-test('review 4: a sign-in heard after a 401 clears the card; a 401 seen after the sign-in brings it back', async () => {
+
+/* Review 5: the card reads the badge's own evidence (server.js claudeObservationsFor, handed in as obsFor). */
+const evidence = (map) => (dir) => ({ obs: map[dir] || null, checkObs: null });
+test('review 5: a sibling agent\'s fresh 401 on the account is "signed out" though auth status says logged in (#874)', async () => {
   counting(STATE.CONNECTED);
   stallsignin.overlay(card(), T0); await settle();
-  observed.saw(observed.PROVIDER.ANTHROPIC, 'ada', observed.OUTCOME.REJECTED, T0 + 1000);
-  assert.equal(stallsignin.overlay(card(), T0 + 2000).deliveryStall.signedOut, true, 'control: the 401 says signed out');
-  stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.CONNECTED, T0 + 30000);   // the person signed in again
-  assert.equal(stallsignin.overlay(card(), T0 + 31000).deliveryStall.signedOut, undefined, 'the card said sign in again after the sign-in');
-  observed.saw(observed.PROVIDER.ANTHROPIC, 'ada', observed.OUTCOME.REJECTED, T0 + 40000);
-  assert.equal(stallsignin.overlay(card(), T0 + 41000).deliveryStall.signedOut, true, 'a newer 401 did not count');
+  const refused = evidence({ '/x/.claude-b': { outcome: observed.OUTCOME.REJECTED, at: T0 + 1000 } });
+  assert.equal(stallsignin.overlay(card(), T0 + 2000, { obsFor: refused }).deliveryStall.words, 'Its Claude account is signed out', 'an expiry-blind logged-in hid a refused account');
+  assert.equal(stallsignin.overlay(card(), T0 + 2000 + observed.freshMs() + 1, { obsFor: refused }).deliveryStall.signedOut, undefined, 'CONTROL: a stale 401 decides nothing');
+  assert.equal(stallsignin.overlay(card(), T0 + 2000).deliveryStall.signedOut, undefined, 'CONTROL: with no evidence, the live check decides');
+});
+test('review 5: a sibling\'s fresh good request is not "signed out", whatever the live check says (credentials gone, token held)', async () => {
+  counting(STATE.NONE);
+  stallsignin.overlay(card(), T0); await settle();
+  const working = evidence({ '/x/.claude-b': { outcome: observed.OUTCOME.OK, at: T0 + 1000 } });
+  assert.equal(stallsignin.overlay(card(), T0 + 2000, { obsFor: working }).deliveryStall.signedOut, undefined, 'the card said signed out while the badge says working');
+  assert.equal(stallsignin.overlay(card(), T0 + 2000).deliveryStall.signedOut, true, 'CONTROL: without the good request, "none" is signed out');
+});
+test('review 5: a Check now 401 survives an expiry-blind connected answer, as on the badge', async () => {
+  counting(STATE.CONNECTED);
+  stallsignin.overlay(card(), T0); await settle();
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, '/x/.claude-b', observed.OUTCOME.REJECTED, T0 + 1000);
+  stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.CONNECTED, T0 + 2000, { fromRow: true });   // the accounts screen repaints
+  assert.equal(stallsignin.overlay(card(), T0 + 3000).deliveryStall.signedOut, true, 'a blind connected erased the real 401');
+});
+test('review 5: the default account named by its folder is the default account', async () => {
+  counting(STATE.NONE);
+  const dflt = card({ account: { dir: '/x/.claude', isDefault: true } }, 'd');
+  stallsignin.overlay(dflt, T0); await settle();
+  assert.equal(stallsignin.overlay(dflt, T0 + 1).deliveryStall.signedOut, true);
+  stallsignin.heard({ dir: require('node:path').join(accounts.homeDir(), '.claude'), isDefault: false }, STATE.CONNECTED, T0 + 2);
+  assert.equal(stallsignin.overlay(dflt, T0 + 3).deliveryStall.signedOut, undefined, 'a connected answer for the default folder missed the default account');
 });
