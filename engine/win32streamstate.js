@@ -112,11 +112,12 @@ function stateAfterEvent(event) {
 const STEP_MAX = 80;
 /* kosmos#7368: the step clock is written in buckets this wide (see the publisher's keyOf). */
 const STEP_CLOCK_MS = 5 * 60 * 1000;
-/* kosmos#7386: the invisible characters a secret can be split by that the mask does not undo itself: C1 controls and
-   the bidi marks, embeddings, overrides and isolates (zero-width ones it removes already, secretmask ZERO_WIDTH). The
-   C0 controls and DEL are folded to a space before this, as before. */
-const STEP_INVISIBLE = /[\u0080-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
-const STEP_INVISIBLE_TEST = /[\u0080-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+/* kosmos#7386: the invisible characters a secret can be split by: every control (Cc: C0, DEL, C1), every format
+   character (Cf: the bidi marks, embeddings, overrides and isolates, the invisible operators, tag characters) and every
+   default-ignorable code point (variation selectors, Hangul fillers and the rest). By category, not by list (review 1:
+   a list of the bidi marks and C1 missed U+2061-2064, U+FE00-FE0F, the tags and more, and each let a key show). */
+const STEP_INVISIBLE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
+const STEP_INVISIBLE_TEST = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u;
 /* kosmos#7368: one tool call's step: the shell command it runs in quotes, or the tool and what it acts on. Short, one line,
    masked; never the whole input. */
 function stepOfUse(use) {
@@ -132,7 +133,7 @@ function stepOfUse(use) {
        value holding one is masked as it is, and also as BOTH copies; if either copy masks anything, the whole value is
        shown as the mask. Bounded first (review 3 of #7368), so the extra copies never cost more than the first. */
     const guarded = (v) => {
-      const t = Array.from(v).slice(0, STEP_MAX * 3).join('');   // review 3: never mask megabytes on the supervisor's loop
+      const t = Array.from(v.trim()).slice(0, STEP_MAX * 3).join('');   // review 3: never mask megabytes on the supervisor's loop
       const asIs = sm.mask(t);
       if (STEP_INVISIBLE_TEST.test(t)
           && (sm.mask(t.replace(STEP_INVISIBLE, '')).fired.length || sm.mask(t.replace(STEP_INVISIBLE, ' ')).fired.length)) return sm.MASK;
@@ -142,12 +143,21 @@ function stepOfUse(use) {
       const chars = Array.from(t);
       return chars.length > STEP_MAX ? chars.slice(0, STEP_MAX - 1).join('') + '\u2026' : t;
     };
-    let cmd = one(input.command);
-    let target = cmd ? '' : (one(input.file_path) || one(input.path) || one(input.url) || one(input.pattern) || one(input.query));
-    let name = use.name;
-    try { cmd = cmd && guarded(cmd); target = target && guarded(target); name = guarded(name); } catch { return null; }
-    if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
-    return cut('using ' + name + (target ? ' on ' + target : ''));
+    /* The name is folded like the command and the target (review 1: a newline or a C0 control in an MCP tool name split
+       a key and broke the one-line step). Only the values a step shows are masked, so a shell step adds one entry to
+       mask()'s shared cache, as before, and a tool step two (review 1: the cache is the board's). */
+    /* Guarded on the RAW value, folded after (review 2 of this card): folding a C0 control to a space first split the
+       key before the guard could see the character, so its tail showed. */
+    const shown = (v) => (one(v) ? one(guarded(v)) : '');
+    try {
+      const cmd = shown(input.command);
+      if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
+      const raw = [input.file_path, input.path, input.url, input.pattern, input.query].find((v) => one(v));
+      const target = raw === undefined ? '' : shown(raw);
+      const name = shown(use.name);
+      if (!name) return null;
+      return cut('using ' + name + (target ? ' on ' + target : ''));
+    } catch { return null; }
   } catch { return null; }
 }
 
