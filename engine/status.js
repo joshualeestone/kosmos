@@ -3334,6 +3334,30 @@ function underPromptAt(rows, i) {
    "Stop" (usage-based billing) or "Wait for limit to reset" (the spend-limit menu), all under that one title, which
    it uses only for the limit, spend-limit and trial-ended menus (review round 3). The reset gets a minute's grace:
    the printed time drops seconds (12:00:45 prints "12am"), and the clocks may differ. */
+/* kosmos#7358: when the turn whose footer is `footerRow` ended, from its "done <clock>" (Claude Code prints this machine's
+   local time with no date: "✻ Sautéed for 0s · done 10:35 PM"), read as the latest such instant at or before `atMs`; null
+   when the footer has no done time. A footer older than a day reads as a later instant than the truth, so a reset timed
+   from it is later, never earlier: a row is never retired early on it. */
+const TURN_DONE = /· done (\d{1,2}):(\d{2})(?:\s?([ap])\.?m\b\.?)?/i;
+function turnDoneAt(footerRow, atMs) {
+  const m = TURN_DONE.exec(String(footerRow == null ? '' : footerRow));
+  if (!m || !Number.isFinite(atMs)) return null;
+  let hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (minute > 59) return null;
+  if (m[3] !== undefined) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (m[3].toLowerCase() === 'p' ? 12 : 0);
+  } else if (hour > 23) return null;
+  for (const back of [0, 1]) {
+    const d = new Date(atMs);
+    d.setDate(d.getDate() - back);
+    d.setHours(hour, minute, 0, 0);
+    if (d.getTime() <= atMs) return d.getTime();
+  }
+  return null;
+}
+
 function retireResetLimits(text, nowMs, firstSeenOf) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
@@ -3366,6 +3390,15 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
       const at = first !== null && typeof first === 'object' ? first.at : first;
       if (Number.isFinite(at)) {
         resetAt = limitResetTimeOnlyAt(row, at);
+        /* kosmos#7358: a row seen late is timed from when its turn ended, when the footer says ("done <clock>"), not from
+           the board's sighting: the line printed as that turn stopped, so its reset is the first after that. This is what
+           releases a weekly limit on its last day after a restart, whose clock time always comes round again within its
+           span after the sighting (before: Rate Limit for up to a day). Without a done time, timed from the sighting. */
+        if (late) {
+          const done = turnDoneAt(rows[footer], at);
+          const fromDone = done === null ? null : limitResetTimeOnlyAt(row, done);
+          if (fromDone !== null) resetAt = fromDone;
+        }
         /* kosmos#7264: a row seen late (on screen before the board's sighting) whose clock time does not come round
            again within its span after the sighting cannot still be binding, since no limit outlasts its span: its reset
            was before the sighting, so it is retired at the sighting. Not for a row this cannot read (an unknown zone:
@@ -10160,7 +10193,7 @@ module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, split
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignedOutConfirmed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, turnDoneAt, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignedOutConfirmed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
