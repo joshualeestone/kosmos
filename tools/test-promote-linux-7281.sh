@@ -229,6 +229,25 @@ chk "e2e: a Linux write that does not take refuses at the end" [ "$(e2e "$S")" =
 chk "e2e: after latest.json was promoted" grep -q '"version": *"9.9.9"' "$S/dist/latest.json"
 chk "e2e: and /setup too (the steps after the Linux write still ran)" [ "$(cat "$S/setup")" = "INSTALLER-9.9.9 KOSMOS_READONLY_APP" ]
 chk "e2e: saying what is owed" grep -q 'REFUSED AT THE END' "$T/e2e/out.log"
+# A NAMED promote, driven: staging has moved on to a later cut, and --version takes the Linux pointer committed with
+# the named cut, not the working tree's.
+e2eaddcut() {   # <site> <version>: one more committed staging cut with its Linux pair
+  local s="$1" v="$2" art="kosmos-$2-arm64.tar.gz" sha l
+  printf 'ARTIFACT-BYTES-%s\n' "$v" > "$s/dist/$art"; ( cd "$s/dist" && shasum -a 256 "$art" > "$art.sha256" )
+  sha="$(awk '{print $1}' "$s/dist/$art.sha256")"
+  printf '{"files":[]}\n' > "$s/dist/kosmos-$v-arm64.manifest.json"
+  printf 'INSTALLER-%s KOSMOS_READONLY_APP\n' "$v" > "$s/setup-staging"; ( cd "$s" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+  KM_LJ_VERSION="$v" KM_LJ_SHA="$sha" KM_LJ_ARTIFACT="$art" KM_LJ_MANIFEST="kosmos-$v-arm64.manifest.json" \
+    KM_LJ_SETUP_SHA="$(shasum -a 256 < "$s/setup-staging" | awk '{print $1}')" node "$HERE/tools/lib/write-latest-pointer.js" "$s/dist/latest-staging.json"
+  l="$(newsite "e2eadd-$v" "$v")"; cp "$l"/dist/kosmos-"$v"-linux-x64.* "$l/dist/latest-linux-staging.json" "$s/dist/"
+  git -C "$s" add -A; git -C "$s" commit -qm "cut $v"
+}
+S="$(e2esite named 9.9.8)"; C998="$(git -C "$S" rev-parse HEAD)"; e2eaddcut "$S" 9.9.9
+git -C "$S" show "$C998:dist/latest-linux-staging.json" > "$T/e2e/ptr-998.json"
+chk "e2e named: a --version promote of an earlier cut exits 0" [ "$(e2e "$S" --version 9.9.8)" = "rc=0" ]
+chk "e2e named: latest.json names 9.9.8" grep -q '"version": *"9.9.8"' "$S/dist/latest.json"
+chk "e2e named: latest-linux.json is the pointer committed with 9.9.8, byte for byte" cmp -s "$T/e2e/ptr-998.json" "$S/dist/latest-linux.json"
+chk "e2e named: staging's Linux pointer still names 9.9.9" grep -q '"version":"9.9.9"' "$S/dist/latest-linux-staging.json"
 
 echo "test-promote-linux-7281: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

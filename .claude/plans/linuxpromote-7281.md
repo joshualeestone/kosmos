@@ -76,3 +76,17 @@ Test: 45 checks.
   trusted, and a space splits safely); the staging Linux pointer is read from the working tree uncommitted, as the Mac
   one; promote_linux_stage's failure branch has no test; no `bash -n` of the lib in test:shell (the test sources it).
 - PROCESS SLIP: I edited this worktree while its validation ran; that run is discarded and re-run on the commit.
+
+## Review 6 (04:3x 10-27, sonnet): 0 blockers, 4 warnings, 3 nits, 1 convention
+- W1 FIXED: a DRIVEN named promote (--version 9.9.8 while staging names 9.9.9, each cut committing its own Linux pair):
+  exits 0, latest.json 9.9.8, latest-linux.json equals the pointer committed with 9.9.8, staging untouched. Mutant
+  (promote-channel.sh hands prepare no commit) -> 4 red, 3 of them the driven named checks.
+- W2 DUPLICATE of review 4 W4 (the two renames are not atomic): documented in the lib header, backstopped by the deploy
+  lockstep refusal from review 5.
+- W3 FIXED (comment): the named path's comment now says what makes it safe, the working-tree files must hash to the
+  committed pointer's sha256, rather than asserting they are never replaced.
+- W4 FIXED: the deploy guard reads the Mac pointer's version as JSON (node), not with a greedy sed. 47/47.
+- DEFERRED (convention): review-round labels in comments; this repo's code carries them throughout (release-linux.sh,
+  browser-checks.sh), so they are kept for consistency.
+- NITs RECORDED: the owed e2e drives the read-back arm (the rename arm is unit-tested); field() global name; the
+  commit-both hint prints only on success (the remedy prints on failure).
