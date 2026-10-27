@@ -86,3 +86,6 @@ person who needs the room's search while composing.
    the rule applies (wider sizes show the room unchanged). (3) With the phone-pairing card stepped aside, #conn lost the
    floating notices' clearance; a rule gives it back while typing. The talk view (#d-talk-box) has the same latent gap,
    outside this card.
+4. (sonnet, 20:4x CDT) No new findings. Converged. One optional NIT declined: the shot's header read returns 0 if
+   .pjmidhead were absent, but newestAbove7196 runs first and fails on a missing room or fewer than 24 posts.
+   Next: validation and PR after #7196 merges and this branch is rebased onto main (the diff hash is taken against main).
