@@ -24,3 +24,7 @@ unchanged (size and times).
   same-device control.
 Both fail on origin/main's projects.js. Neighbouring suites (files-preview-4997, preview-sweep-5254,
 attachment-stream-6734, filebrowser-6724, win32-reveal) fail exactly the same tests by name with main's code.
+
+## Review rounds
+- Round 1: no blocker. [WARNING] ReFS / Dev Drive 64-bit serials may read at two widths (path vs handle), unmeasured (no admin) --> FIXED: on Windows the device compare uses the low 32 bits (sameDevice): equal on NTFS whatever the width, a different volume still differs unless two serials share their low 32 bits; test with controls. Still unmeasured on a real Dev Drive (stated). [NIT] stale comment above sameOpenedFile --> FIXED. [NIT] `platform` param --> kept: sameDevice uses it.
+  Note: one run of bigint-ino.win32-7229 failed its three colliding-pair tests; two reruns passed 14/14. Those tests make files until two number ids collide (disk timing); not this change.

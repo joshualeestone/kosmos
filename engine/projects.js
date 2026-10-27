@@ -2090,28 +2090,38 @@ function sameListedPath(resolved, walked, platform = process.platform) {
  * #5165: is the file a download just OPENED (`opened`, from fstat on the descriptor) the one the gates passed (resolveListedFile)
  * (`gated`, from its stat)? What stops a file swapped in between the gates and the open, so it must hold where a
  * file system reports no inode: Windows FAT and exFAT, and some network drives, answer 0.
- *   - both inodes reported: the same inode, and off Windows the same device (Windows answers the device from the
- *     volume, which a mapped drive can report differently through a path and through a handle; unmeasured);
+ *   - both inodes reported: the same inode and the same device, on every platform (#7333: measured on Windows, see
+ *     sameDevice; a mapped drive is stat'ed through its share path both ways, since realpath turns it into one);
  *   - an inode missing on either side: the same size and the same modification time, and the same creation time
  *     when both report one. Weaker than an inode (a same-size file written in the same tick passes), so the
  *     download route also resolves the name again after opening it.
  */
+/* #7333 review 1: the device compare. On Windows a volume serial can be 64-bit (ReFS, Dev Drive), and a path stat and a
+   handle stat may report it at different widths (one the full value, one its low 32 bits); unmeasured here (no admin to
+   make such a volume). So Windows compares the low 32 bits: equal on NTFS whatever the width (measured), and a different
+   volume still differs there unless two serials share their low 32 bits. Elsewhere, exact. */
+function sameDevice(a, b, platform) {
+  if (platform !== 'win32') return a === b;
+  const lo = (v) => (typeof v === 'bigint' ? Number(BigInt.asUintN(32, v)) : (Number(v) >>> 0));
+  return lo(a) === lo(b);
+}
+
 function sameOpenedFile(gated, opened, platform = process.platform) {
   if (!gated || !opened || typeof opened.isFile !== 'function' || !opened.isFile()) return false;
   /* #7229: the exact ids when both sides carry one (Windows), since two different files can share a number ino there.
      A side whose second read was not the same file carries an id no file has, so it never matches. */
   if (typeof gated.inoExact === 'bigint' && typeof opened.inoExact === 'bigint' && (gated.inoExact !== 0n || opened.inoExact !== 0n)) {
     if (gated.inoExact !== opened.inoExact || gated.inoExact === NO_FILE) return false;
-    return gated.dev === opened.dev;
+    return sameDevice(gated.dev, opened.dev, platform);
   }
   /* #7333: the device is compared on Windows too. NTFS file ids are numbered per volume, so an equal id on another
      volume is another file. Measured on Windows (node 24): st.dev is the volume serial and reads the same from
      statSync(path) and fstatSync(fd) for a drive path, a \\?\ spelling, a junction and a subst letter; libuv fills
      both from the same per-handle record (it opens a handle to stat a path), so a mount point or a share reads its own
-     volume's serial both ways too. `platform` is kept for callers and tests; no branch depends on it now. */
+     volume's serial both ways too (review 1 measured \\?\Volume{GUID}\ and an SMB share of this computer as well). */
   if (Number(gated.ino) !== 0 && Number(opened.ino) !== 0) {
     if (gated.ino !== opened.ino) return false;
-    return gated.dev === opened.dev;
+    return sameDevice(gated.dev, opened.dev, platform);
   }
   if (gated.size !== opened.size || gated.mtimeMs !== opened.mtimeMs) return false;
   if (gated.birthtimeMs && opened.birthtimeMs && gated.birthtimeMs !== opened.birthtimeMs) return false;
