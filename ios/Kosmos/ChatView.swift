@@ -26,9 +26,6 @@ struct ChatView: View {
     @State private var refusal: String?
     @State private var loop: Task<Void, Never>?
     @State private var atBottom = true
-    // kosmos#7265: whether the person has touched the thread since it opened. Until then the app keeps it at the newest
-    // message: one jump on open can land short, because rows below are only estimated until they are drawn.
-    @State private var touchedSinceOpen = false
     @State private var unseenNew = false
     // The words in the box. Kept here while the chat is open (typing redraws only the chat) and given to the client when
     // it goes, so leaving the chat never loses them.
@@ -353,27 +350,13 @@ struct ChatView: View {
                     .padding(.vertical, 12)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                // kosmos#7265: iOS 17 and later lay the thread out from its bottom, so it opens on the newest message
-                // whatever the rows' heights; older iOS gets the re-jumps below.
+                // kosmos#7265: the thread opens on its newest message whatever the rows' heights (iOS 18 and later).
                 .modifier(OpensAtBottom())
-                .simultaneousGesture(DragGesture(minimumDistance: 4).onChanged { _ in touchedSinceOpen = true })
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     proxy.scrollTo("end", anchor: .bottom)
-                    // kosmos#7265 (Josh, 10-26: a long DM opened in the middle): the first jump can land short while the
-                    // rows below it are still estimated, so it is repeated as they are drawn, until the person touches
-                    // the thread. Not gated on atBottom: that starts true and changes only when the end marker is drawn,
-                    // so a jump that lands short of it (nothing drawn there yet) still read as at the bottom (measured
-                    // 10-26: a blank thread for 10 s while every re-jump was skipped).
-                    if !Self.sampleNoFix {
-                        for at in [0.1, 0.3, 0.6, 1.0, 1.6, 2.5] {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
-                                if !touchedSinceOpen { proxy.scrollTo("end", anchor: .bottom) }
-                            }
-                        }
-                    }
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
@@ -455,9 +438,7 @@ struct ChatView: View {
     // board's convPause, #5624).
     private func follow(_ proxy: ScrollViewProxy) {
         if searching { return }
-        // kosmos#7265: not yet touched since it opened counts as at the newest message (a short first jump is not the
-        // person scrolling up).
-        if atBottom || (!touchedSinceOpen && !Self.sampleNoFix) { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
+        if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
     }
 
     // kosmos#7089: the field under the bar, styled as the composer's box. The x and Cancel both empty it and put it away.
@@ -1666,11 +1647,15 @@ extension Palette {
     static let pillStroke = pair(0xe3e1dc, 0x000000, lightAlpha: 1, darkAlpha: 0)
 }
 
-// kosmos#7265: lay the chat out from its bottom where iOS can (17 and later), so it opens on the newest message.
+/* kosmos#7265 (Josh, 10-26: a long DM opened in the middle). The one jump to "end" on open lands short in a long chat,
+   because the rows below are only estimated until drawn; scrolling again lands short the same way (measured 10-26: 0 of
+   5 with timed re-jumps alone). Starting the scroll view at its bottom opens on the newest message (5 of 5). Only the
+   INITIAL offset: the one-argument form also moves what the person is reading when a row below grows or arrives, and
+   would bottom-align a short chat, so it is the iOS 18 role-scoped form. iOS 16 and 17 open as before (a stated limit). */
 private struct OpensAtBottom: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(iOS 17.0, *), !ChatView.sampleNoFix, !ChatView.sampleNoAnchor {
-            content.defaultScrollAnchor(.bottom)
+        if #available(iOS 18.0, *), !ChatView.sampleNoFix {
+            content.defaultScrollAnchor(.bottom, for: .initialOffset)
         } else {
             content
         }
@@ -1681,10 +1666,7 @@ extension ChatView {
     // kosmos#7265, a Debug build only: KOSMOS_SAMPLE_NOFIX=1 turns the fix off, so one build shows both arms.
     #if DEBUG
     static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
-    // And KOSMOS_SAMPLE_NOANCHOR=1 keeps the re-jumps but drops iOS 17's bottom anchor, to tell the two halves apart.
-    static let sampleNoAnchor = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOANCHOR"] == "1"
     #else
     static let sampleNoFix = false
-    static let sampleNoAnchor = false
     #endif
 }
