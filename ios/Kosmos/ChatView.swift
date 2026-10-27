@@ -65,6 +65,9 @@ struct ChatView: View {
     @State private var opening = true
     // Review 3: each opening window's number, so a timer left from an earlier open cannot end a newer window early.
     @State private var openingGen = 0
+    // Review 5: whether this open is of a long thread, fixed once the thread has appeared, so a message arriving in the
+    // first seconds cannot turn a short thread's anchors on part way through (nil until then, and after a reset).
+    @State private var openedLong: Bool?
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
     // The conversation's items on screen now.
@@ -249,6 +252,7 @@ struct ChatView: View {
             // switch), so it opens again: its ScrollView's onAppear starts a new window.
             opening = true
             openingGen += 1
+            openedLong = nil
             thread = nil
             replying = nil
             retryNote = nil
@@ -362,13 +366,14 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 // kosmos#7265: the thread opens on its newest message whatever the rows' heights (iOS 18 and later).
-                .modifier(OpensAtBottom(long: OpensAtBottom.isLong(loaded), active: opening && !searchMode, stillOpening: { opening && !searchMode }, touched: { opening = false }))
+                .modifier(OpensAtBottom(long: openedLong ?? OpensAtBottom.isLong(loaded), active: opening && !searchMode, stillOpening: { opening && !searchMode }, touched: { opening = false }))
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     proxy.scrollTo("end", anchor: .bottom)
                     // kosmos#7265: the opening window (OpensAtBottom keeps a long thread at its bottom edge while it lasts).
+                    openedLong = OpensAtBottom.isLong(loaded)
                     let gen = openingGen
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { if openingGen == gen { opening = false } }
                     #if DEBUG
@@ -377,7 +382,8 @@ struct ChatView: View {
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
                         // Twice: the first reaches the top and loads a page; the second shows what landed above.
                         for at in [3.0, 6.0] {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + at) { withAnimation { proxy.scrollTo("top", anchor: .top) } }
+                            // Review 5: a person's scroll ends the opening window (a drag), so the stand-in does too.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + at) { opening = false; withAnimation { proxy.scrollTo("top", anchor: .top) } }
                         }
                     }
                     #endif
