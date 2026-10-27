@@ -3,7 +3,8 @@
  * #7262: the words a child_process call can RUN, read from the call alone (pure; no process is started). The one reader
  * both test guards use: tools/lib/schtasks-call.cjs (#7247, schtasks.exe on Windows) and test-support/tool-guard.js
  * (#4326, a real gh, vercel or cloudflared). Each guard gives its own verdict on each word; this file only says which
- * words are in command position. Moved out of schtasks-call.cjs (#7270), so the two guards cannot drift apart again.
+ * words are in command position. It began in schtasks-call.cjs (#7270), and #7262 moved it here so the two guards
+ * cannot drift apart again.
  *
  * A word is in command position when it is the program (by any path or case, with or without .exe), or when a shell or
  * a launcher in front of it starts it: cmd (/c, /k, /r), powershell or pwsh (-Command, a bare command, -EncodedCommand,
@@ -17,7 +18,11 @@
  * that does not know them ignores them.
  *
  * Without a shell, each launcher is read as it reads its arguments (callWords): cmd the line node builds, PowerShell
- * the arguments joined, a POSIX shell, env or sudo one word per argument.
+ * the arguments joined, a POSIX shell, env, sudo, nohup, time, nice or timeout one word per argument. env's -- ends its
+ * options, every word holding = is an assignment, and its -S STRING is split by env's own rules (envSplit) and read
+ * again as env's arguments, as well as as a shell line (#7299). Long options are read whole or as the unique prefix GNU
+ * accepts (--adj). A word a POSIX shell unescapes ($'gh', g\h) or cmd unescapes (sch^tasks) is returned in both
+ * spellings (#7320). eval's arguments are read as a command line; coproc is a prefix.
  *
  * Where a call can be read two ways it is read both ways and the words of both are returned, so a guard that refuses
  * on any word refuses when either reading would run its program, because refusing is the side that cannot reach the
@@ -55,8 +60,8 @@ function isLauncher(base) {
 const PS_VALUE = /^-(executionpolicy|ep|ex|windowstyle|w|version|v|inputformat|if|outputformat|of|configurationname|workingdirectory|wd|settingsfile|custompipename|psconsolefile)$/i;
 /* sudo options that take a value (-u USER, -g GROUP, -C FD, -D DIR, -p PROMPT, -h HOST, -r ROLE, -t TYPE, -U USER,
    -T TIMEOUT), and the long forms that take one. */
-const SUDO_VALUE_LETTERS = 'ugCDphrtUT';
-const SUDO_VALUE_LONG = /^--(user|group|close-from|chdir|prompt|host|role|type|other-user|command-timeout)$/;
+const SUDO_VALUE_LETTERS = 'ugCDphrtUTR';   // -R DIR (--chroot), #7320
+const SUDO_VALUE_LONG = /^--(user|group|close-from|chdir|prompt|host|role|type|other-user|command-timeout|chroot)$/;
 /* Whether a sudo option takes the NEXT word as its value. In a cluster the first value-taking letter takes the rest of
    the cluster when there is any (-uroot), and the next word only when it is the last letter (-iu root) (#7262
    review 5: reading the cluster's last letter alone took the t of -uroot for -t). */
@@ -66,9 +71,92 @@ function sudoTakesNext(opt) {
   for (let k = 1; k < opt.length; k += 1) if (SUDO_VALUE_LETTERS.includes(opt[k])) return k === opt.length - 1;
   return false;
 }
-/* Prefix words with options that take a value: nice -n N, exec -a NAME, time -f FMT and -o FILE (review 5: one shared
-   set read time -a, which takes none, as taking the next word). */
-const PREFIX_VALUE = { nice: /^(-n|--adjustment)$/, exec: /^-a$/, time: /^(-f|-o|--format|--output)$/ };
+/* Prefix words with options that take a value: nice -n N, exec -a NAME, time -f FMT and -o FILE (review 5 of #7262: one
+   shared set read time -a, which takes none, as taking the next word). A combined short switch takes the next word when
+   its valued letter comes last after that program's flag letters only (time -vo F); in getopt the first valued letter
+   takes the rest of the word, so time -oo takes "o" and the next word is the program (#7299). nice has no other short
+   flag and rejects any combination, so no reading of one can leak. Long options also by GNU's unique prefix. */
+const PREFIX_VALUE = {
+  nice: { short: /^-[a-zA-Z]*n$/, long: ['adjustment'] },
+  exec: { short: /^-[cl]*a$/, long: [] },                         // bash's exec -c -l -a NAME
+  time: { short: /^-[apqvV]*[fo]$/, long: ['format', 'output'] }, // GNU time's getopt: af:o:pqvV
+};
+
+/* Whether a word is one of these long options taking the next word as its value, whole or as the unique prefix GNU
+   getopt_long accepts (nice --adj 5, env --unse X: #7299). --name=value carries its own value. */
+function longOpt(word, names) {
+  if (!/^--[a-z]/.test(word) || word.includes('=')) return false;
+  return names.some((n) => ('--' + n).startsWith(word));
+}
+
+/* GNU env -S splits its STRING into arguments by its own rules, not a shell's: at spaces and tabs; '...' with only \'
+   and \\ escaped; "..." with backslash escapes; \_ a separator outside quotes and a space inside them; \c ends it; a word
+   starting with # is a comment to the end; ${VAR} outside '...' is expanded (read here as unset); no ; & | or
+   redirects (#7299). It accepts a superset: escapes env rejects (\q, a trailing \, an open quote) are read rather than
+   refused, which can only add words. */
+function envSplit(str) {
+  const out = [];
+  let cur = '';
+  let has = false;
+  let q = null;
+  const t = String(str == null ? '' : str);
+  for (let i = 0; i < t.length; i += 1) {
+    const ch = t[i];
+    if (q === "'") {   // inside '...', only \' and \\ are escapes
+      if (ch === '\\' && (t[i + 1] === "'" || t[i + 1] === '\\')) { cur += t[(i += 1)]; continue; }
+      if (ch === "'") q = null; else cur += ch;
+      continue;
+    }
+    if (ch === '\\' && i + 1 < t.length) {
+      const n = t[(i += 1)];
+      if (n === 'c') break;   // \c ends the string
+      if (n === '_') {
+        if (q) cur += ' ';
+        else { if (has) out.push(cur); cur = ''; has = false; }
+        continue;
+      }
+      cur += n === 't' ? '\t' : n === 'n' ? '\n' : n;
+      has = true;
+      continue;
+    }
+    if (ch === '$' && t[i + 1] === '{' && t.indexOf('}', i) > 0) { i = t.indexOf('}', i); continue; }   // ${VAR}: read as unset
+    if (q === '"') { if (ch === '"') q = null; else cur += ch; continue; }
+    if (ch === '#' && !has) break;   // a word starting with # begins a comment to the end
+    if (ch === "'" || ch === '"') { q = ch; has = true; continue; }
+    if (ch === ' ' || ch === '\t') { if (has) out.push(cur); cur = ''; has = false; continue; }
+    cur += ch;
+    has = true;
+  }
+  if (has) out.push(cur);
+  return out;
+}
+
+/* The string env -S receives depends on what the shell in front of it removed, which this cannot be sure of
+   (-S'A=1 schtasks' reaches env as -SA=1 schtasks; "a\\_b" as a\_b): every reading is tried (#7299). */
+const unshell = (x) => x.replace(/\\([\\"$`])/g, '$1');
+function readings(w) {
+  const r = w.quoted ? [w.inner] : [w.raw, w.text];
+  return [...new Set(r.concat(r.map(unshell)))];
+}
+/* -S"...", --split-string=..., --spl=...: the option and its string in one word. */
+const SPLIT_JOINED = /^(?:-[iv0]*S|--([a-z-]+)=)([\s\S]+)$/;
+/* The words env -S runs, for each candidate string followed by the words after it: the string split by envSplit and
+   read as env's own arguments, and also read as a shell line (the shell in front may have cut it differently: env -S
+   \';\schtasks, #7299). */
+function splitInto(strs, after, depth, out) {
+  for (const str of strs) {
+    walk([argWord('env')].concat(envSplit(str).map(argWord), after), 0, depth, 'posix', out);
+    lineInto([str].concat(after.map((w) => w.raw)).join(' '), depth, 'posix', out);
+  }
+}
+
+/* A word as the shell will run it, where that differs from its text: a POSIX shell unescapes g\h and $'gh' to gh, cmd
+   unescapes sch^tasks to schtasks (#7320). Both spellings are returned. */
+function unescaped(w, shell) {
+  if (shell === 'other') return w.text.replace(/\^(.)/g, '$1');
+  return w.raw.replace(/\$'((?:\\.|[^'])*)'/g, (m, c) => c.replace(/\\(.)/g, '$1'))
+    .replace(/\\(.)/g, '$1').replace(/["']/g, '');
+}
 const DEPTH = 6;   // shells inside shells, as far as anyone writes them
 
 /* The last part of a program path, without quotes. */
@@ -80,7 +168,7 @@ function baseName(p) {
    (node -e "require('x')") stays whole. Backticks start a command too, except in a line known to be cmd's or
    PowerShell's (where a backtick is text or an escape, review 1). shell is 'posix', 'other' or undefined (not known:
    exec's own shell). */
-function commands(text, shell) {
+function commands(text, shell, depth = 0) {
   const parts = [];
   let cur = '';
   let quote = null;
@@ -98,7 +186,7 @@ function commands(text, shell) {
       if (chars[i + 1] === '\n') { i += 1; continue; }
       if (chars[i + 1] === '\r' && chars[i + 2] === '\n') { i += 2; continue; }
       cur += ch + chars[i + 1];
-      prev = chars[i + 1];
+      prev = '';   // an escaped > is text, so a following & still cuts (echo \>&gh, #7320)
       i += 1;
       continue;
     }
@@ -106,10 +194,11 @@ function commands(text, shell) {
     if (!quote && shell !== 'other' && ch === '$' && chars[i + 1] === "'") { quote = 'ansi'; cur += "$'"; prev = "'"; i += 1; continue; }
     /* Inside double quotes a POSIX shell still runs $( ) and backticks (TOKEN="$(gh auth token)", #7262 review 1):
        their commands are read as well, and the quoted word itself stays whole. */
-    if (quote === '"' && shell !== 'other' && ((ch === '$' && chars[i + 1] === '(') || ch === '`')) {
+    /* Capped as lineInto is (an unclosed "$( repeated made this quadratic, #7320). */
+    if (quote === '"' && shell !== 'other' && depth < DEPTH && ((ch === '$' && chars[i + 1] === '(') || ch === '`')) {
       const end = ch === '`' ? chars.indexOf('`', i + 1) : closeParen(chars, i + 2);
       const stop = end < 0 ? chars.length : end;
-      parts.push(...commands(chars.slice(ch === '`' ? i + 1 : i + 2, stop).join(''), shell));
+      parts.push(...commands(chars.slice(ch === '`' ? i + 1 : i + 2, stop).join(''), shell, depth + 1));
       cur += chars.slice(i, stop + 1).join('');
       prev = chars[Math.min(stop, chars.length - 1)];
       i = stop;
@@ -213,6 +302,8 @@ function walk(ws, i, depth, shell, out) {
     // @schtasks: cmd's no-echo prefix. \gh: a POSIX shell's way past an alias, which still runs gh (#7262 review 4).
     const word = shell === 'other' ? w.text.replace(/^@/, '') : w.text.replace(/^@/, '').replace(/^\\(?=[^\\])/, '');
     out.push(word);
+    const plain = unescaped(w, shell).replace(/^@/, '');
+    if (plain && plain !== word) out.push(plain);
     const b = baseName(word);
     if (CMD.test(b)) {
       for (i += 1; i < ws.length && (ws[i].redirect || /^\//.test(ws[i].text)); i += 1) {
@@ -259,8 +350,15 @@ function walk(ws, i, depth, shell, out) {
       for (i += 1; i < ws.length && (ws[i].redirect || /^[-+]/.test(ws[i].text)); i += 1) {
         if (ws[i].redirect) continue;
         if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(ws[i].text)) {   // -c, -lc, -ec (not -C)
-          /* The script as one quoted word is read from its inside. */
-          const script = ws[i + 1] && ws[i + 1].quoted ? ws[i + 1].inner : rest(i + 1);
+          /* The script is the first operand after the options, not the next word (bash -c -- 'gh x', bash -c -x gh,
+             #7320). As one quoted word it is read from its inside. */
+          let k = i + 1;
+          for (; k < ws.length && (ws[k].redirect || /^[-+]/.test(ws[k].text)); k += 1) {
+            if (ws[k].redirect) continue;
+            if (ws[k].text === '--') { k += 1; break; }
+            if (/^[-+][oO]$/.test(ws[k].text)) k = valueAt(ws, k + 1);
+          }
+          const script = ws[k] && ws[k].quoted ? ws[k].inner : rest(k);
           lineInto(script, depth + 1, 'posix', out);
           return;
         }
@@ -274,14 +372,25 @@ function walk(ws, i, depth, shell, out) {
       }
       return;   // a script file: what it runs cannot be read here
     }
-    /* env NAME=value ... program: the program after the assignments is what runs. */
+    /* env [options] [NAME=value...] program: options until -- or the first word that is not one; then every word
+       holding = is an assignment, as GNU env reads it (a-b=1 too, not only NAME=); then the program (#7299). */
     if (ENV.test(b)) {
-      for (i += 1; i < ws.length && (ws[i].redirect || /^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1) {
-        if (ws[i].redirect) continue;
-        if (/^(-S|--split-string)$/.test(ws[i].text)) { lineInto(rest(i + 1), depth + 1, 'posix', out); return; }   // -S STRING is the command line
-        const joined = ws[i].text.match(/^(?:-S|--split-string=)(.+)$/);   // -S"..." and --split-string=... (review 3)
-        if (joined) { lineInto([joined[1], rest(i + 1)].join(' '), depth + 1, 'posix', out); return; }
-        if (/^(-[uCP]|--unset|--chdir|--default-path)$/.test(ws[i].text)) i = valueAt(ws, i + 1);   // -u NAME, -C DIR, -P PATH: the option's value is the next word
+      let ended = false;   // after --, a word starting with - is the program
+      const option = (t) => !ended && /^-/.test(t);
+      for (i += 1; i < ws.length && (ws[i].redirect || option(ws[i].text) || ws[i].text.includes('=')); i += 1) {
+        const t = ws[i].text;
+        if (ws[i].redirect || !option(t)) continue;   // a redirect, or an assignment
+        if (t === '--') { ended = true; continue; }
+        if (/^-[iv0]*S$/.test(t) || longOpt(t, ['split-string'])) {   // -S STRING, -iS, --split-string, --spl
+          const k = valueAt(ws, i + 1);   // env -S >x 'schtasks': the redirect is the shell's
+          splitInto(k < ws.length ? readings(ws[k]) : [''], ws.slice(k + 1), depth + 1, out);
+          return;
+        }
+        const joined = readings(ws[i]).map((x) => x.match(SPLIT_JOINED))
+          .filter((m) => m && (m[1] === undefined || '--split-string'.startsWith('--' + m[1])));
+        if (joined.length) { splitInto(joined.map((m) => m[2]), ws.slice(i + 1), depth + 1, out); return; }
+        // -u NAME, -iu NAME, -C DIR, -P PATH: the option's value is the next word
+        if (/^-[iv0]*[uCP]$/.test(t) || longOpt(t, ['unset', 'chdir', 'default-path'])) i = valueAt(ws, i + 1);
       }
       continue;
     }
@@ -295,18 +404,29 @@ function walk(ws, i, depth, shell, out) {
     /* Words that start the command after them: nohup, exec, command, time, nice, and the shell keywords a command
        follows (then, else, do, while, until, {, !) (#7270). */
     if (/^(command|builtin)$/i.test(b)) {   // command -v, command -p -v: a lookup, which runs nothing
-      for (let k = i + 1; k < ws.length && /^-/.test(ws[k].text); k += 1) if (/^-[a-zA-Z]*[vV]/.test(ws[k].text)) return;
+      for (let k = i + 1; k < ws.length && (ws[k].redirect || /^-/.test(ws[k].text)); k += 1) {
+        if (!ws[k].redirect && /^-[a-zA-Z]*[vV]/.test(ws[k].text)) return;   // command >nul -v x is a lookup too (#7299)
+      }
     }
-    if (/^(nohup|exec|command|builtin|time|nice|then|else|do|while|until|\{|!)(\.exe)?$/i.test(b)) {
+    /* eval joins its arguments and runs them as a command line (eval "gh auth", #7320). */
+    if (/^eval$/.test(b)) {
+      lineInto(ws.slice(i + 1).map((x) => (x.quoted ? x.inner : x.raw)).join(' '), depth + 1, 'posix', out);
+      return;
+    }
+    if (/^(nohup|exec|command|builtin|time|nice|coproc|then|else|do|while|until|\{|!)(\.exe)?$/i.test(b)) {
       const takes = PREFIX_VALUE[b.toLowerCase().replace(/\.exe$/, '')];
       for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
-        if (takes && takes.test(ws[i].text)) i = valueAt(ws, i + 1);
+        if (ws[i].redirect) continue;   // nice >-n 5 x: the redirect's file is not a switch (#7299)
+        if (takes && (takes.short.test(ws[i].text) || longOpt(ws[i].text, takes.long))) i = valueAt(ws, i + 1);
       }
       continue;
     }
     /* timeout DURATION command. Windows' timeout /t 5 runs nothing, and reads so: /t is taken for the duration. */
     if (/^timeout(\.exe)?$/i.test(b)) {
-      for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) if (/^(-[sk]|--signal|--kill-after)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
+      for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
+        // -k 5, -vk 5 (-v here; -f and -p only on newer coreutils), --kill 5, --sig KILL (#7299)
+        if (!ws[i].redirect && (/^-[fpv]*[sk]$/.test(ws[i].text) || longOpt(ws[i].text, ['signal', 'kill-after']))) i = valueAt(ws, i + 1);
+      }
       i = valueAt(ws, i);
       if (i < ws.length && /^\//.test(ws[i].text)) return;
       i += 1;   // the duration

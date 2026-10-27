@@ -66,6 +66,16 @@ const SHAPES = [
   ['time -a -o out.txt P', true],   // review 5: time -a takes no value
   ['echo "$(echo \')\' ; P)"', true],   // review 5: a ) inside quotes does not close the substitution
   ['"/opt/my tools/nohup" P', true],   // a quoted path to a prefix word
+  // #7320: shapes the reader missed (main's readers too)
+  ['bash -c -- "P x"', true],   // -c's script is the first operand after the options
+  ['bash -c -x "P"', true],
+  ['eval P auth', true],   // eval runs its arguments as a command line
+  ['eval "P auth"', true],
+  ['coproc P', true],
+  ['sudo -R /x P', true],   // -R DIR (--chroot) takes a value
+  ['echo \\>&P', true],   // an escaped > is text, so the & cuts and P runs
+  ['eval echo P', false],
+  ['bash -c -- "echo P"', false],
   ['echo P', false],
   ['git commit -m "fix P"', false],
   ['command -v P', false],
@@ -143,4 +153,20 @@ test('#7262: both guards give the same answer for every call shape (the readers 
     delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
     fs.rmSync(stub, { recursive: true, force: true });
   }
+});
+
+test('#7320: a word a shell unescapes is read in both spellings; an unclosed "$( repeated stays cheap', () => {
+  // POSIX: $'...' and a backslash inside a word are removed by bash, so these run schtasks
+  for (const cmd of ["$'schtasks' /Query", 'sch\\tasks /Query', "x=1 $'sch''tasks'"]) assert.equal(commandRuns(cmd), true, cmd);
+  // cmd: ^ is cmd's escape, so schtas^ks runs schtasks
+  assert.equal(callRuns('cmd.exe', ['/c', 'schtas^ks /Query']), true);
+  assert.deepEqual(lineWords("$'gh' auth").includes('gh'), true);
+  // CONTROL: the escape of another word, and a caret in an argument
+  for (const cmd of ["$'node' x.js", 'echo sch\\tasks']) assert.equal(commandRuns(cmd), false, cmd);
+  assert.equal(callRuns('cmd.exe', ['/c', 'echo schtas^ks']), false);
+  // the recursion over an unclosed "$( is capped (it was quadratic: 3000 repeats took 1.5 s)
+  const t0 = Date.now();
+  commandRuns('echo "$('.repeat(3000));
+  callRuns('bash', ['-c', 'echo "$('.repeat(3000)]);
+  assert.ok(Date.now() - t0 < 500, 'took ' + (Date.now() - t0) + ' ms');
 });
