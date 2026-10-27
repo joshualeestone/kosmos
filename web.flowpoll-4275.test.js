@@ -160,6 +160,8 @@ test('kosmos#4903 S5 review 1: a link that arrives on the SAME phase still lands
   h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?state=two' });
   assert.equal(href(), 'https://claude.com/oauth?state=two', 'a changed link kept the stale one');
   assert.equal(h.document.getElementById('acct-code').value, 'typed-so-far', 'the code field was rebuilt under the person');
+  h.page.acctFlowPaint({ phase: 'signin-completing', url: 'https://claude.com/oauth?state=two' });
+  assert.equal(row().hidden, true, 'review 2: the link stayed while Claude was finishing (a second press starts a second sign-in)');
   h.page.acctFlowPaint({ phase: 'connected', url: 'https://claude.com/oauth?state=two' });
   assert.equal(row().hidden, true, 'the link stayed after the sign-in ended');
 });

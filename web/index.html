@@ -30587,7 +30587,8 @@ function acctClaudePaintUrl(st) {
   const openA = document.getElementById('acct-claude-open');
   if (!openRow || !openA) return;
   const phase = st && st.phase;
-  const live = typeof frConnActive === 'function' ? frConnActive(phase) : true;
+  /* Review 2: closed by default, and not while Claude is finishing (a second press would start a second sign-in). */
+  const live = typeof frConnActive === 'function' && frConnActive(phase) && phase !== 'signin-completing';
   const url = live && typeof onCloudMachine === 'function' && onCloudMachine()
     && st && typeof st.url === 'string' && /^https:\/\//.test(st.url) ? st.url : '';
   if (url && openA.href !== url) openA.href = url;
@@ -84940,7 +84941,7 @@ function frMB(n) { return Math.max(0, Math.round(n / 1e6)) + 'MB'; }
 const CLOUD_SIGNIN_SAY = {
   'signin-launching': 'Getting the Claude sign-in ready.',
   'signin-browser-open': 'Open the Claude sign-in page and sign in there. Its link appears here in a moment.',
-  'signin-awaiting-code': 'Open the Claude sign-in page and sign in. Claude then shows a code: paste it here.',
+  'signin-awaiting-code': 'Open the Claude sign-in page (its link appears here) and sign in. Claude then shows a code: paste it here.',
 };
 function signinSay(table, phase) {
   return ((typeof onCloudMachine === 'function' && onCloudMachine()) && CLOUD_SIGNIN_SAY[phase]) || table[phase];
@@ -85052,7 +85053,9 @@ function frPaintConnect(st) {
         : (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Open the sign-in page (its link appears below) and sign in there. This screen will update when it is done.'
           : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
-    frConnPaintUrl(st && st.url);
+    /* kosmos#4903 S5 review 2: on a cloud machine the link is the primary button, so it is not offered while Claude
+       is finishing: a second press would start a second sign-in. (The Mac keeps its fallback link, as before.) */
+    frConnPaintUrl(phase === 'signin-completing' && (typeof onCloudMachine === 'function' && onCloudMachine()) ? null : (st && st.url));
     frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
@@ -85060,7 +85063,7 @@ function frPaintConnect(st) {
   if (phase === 'signin-awaiting-code') {
     box.innerHTML = '<div class="fr-ctitle">' + ((typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Sign in to Claude' : 'Your browser has opened') + '</div>'
       + '<div class="fr-cdetail">' + ((typeof onCloudMachine === 'function' && onCloudMachine())
-        ? 'Open the sign-in page below and sign in. Claude then shows a code: paste it here.'
+        ? 'Open the sign-in page (its link appears below) and sign in. Claude then shows a code: paste it here.'
         : 'Sign in to Claude there. This screen will notice when it is done.') + '</div>'
       + urlLine
       // The engine sets `because` when a typed code did not take; without

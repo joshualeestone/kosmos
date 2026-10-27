@@ -52,3 +52,21 @@ test('with no state dir given it reads the tunnel\'s own (AGENT_WORKFORCE_TUNNEL
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE; else process.env.AGENT_WORKFORCE_TUNNEL_STATE = prev;
   }
 });
+
+test('review 2: emptying the tunnel\'s state dir (Remove, or a fresh sign-in) keeps the latch, and only the latch of ours', () => {
+  const d = dir();
+  fs.writeFileSync(path.join(d, LATCH), '');
+  fs.writeFileSync(path.join(d, 'mac_id'), 'mac-1');
+  fs.writeFileSync(path.join(d, 'identity.key'), 'k');
+  const prev = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = d;
+  try {
+    require('./remote').clearStateDir([]);
+    assert.equal(fs.existsSync(path.join(d, LATCH)), true, 'the latch went with the identity: the box would stop being a cloud machine for good');
+    assert.equal(fs.existsSync(path.join(d, 'mac_id')), false, 'CONTROL: the identity was not cleared');
+    assert.equal(fs.existsSync(path.join(d, 'identity.key')), false, 'CONTROL: the key was not cleared');
+    assert.equal(isCloudMachine({ platform: 'linux' }), true);
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE; else process.env.AGENT_WORKFORCE_TUNNEL_STATE = prev;
+  }
+});

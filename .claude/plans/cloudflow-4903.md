@@ -49,3 +49,19 @@ session has second=false and the hosted gate refuses it), Claude Code sign-in on
 2. "Your machine is starting" and the second-factor step: both before the board is reachable, so relay-side;
    propose placement beside PigeonPete's S4 admit on the card before building.
 3. The real-box measurement (NIT 2 and the card's three questions), on a test machine torn down after.
+
+## Review 2 (2026-10-26 20:0x): no blockers
+- WARNING FIXED: engine/remote.js clearStateDir (Remove this computer, and a fresh sign-in after an unfinished one)
+  emptied the tunnel's state dir, latch included, and nothing writes the latch again: the box would stop being a
+  cloud machine for good. The latch is now kept like the trust files. Keeping it admits nobody (the gate also needs
+  the coordinator's signed claim, which a removal ends). Test with an identity-cleared control; mutant red.
+  RAISED ON THE CARD: the tunnel's own registration may also clear its state dir (Rust, PigeonPete's side).
+- WARNING ANSWERED: render-conn-url.js is NOT_WIRED (tools.browser-checks-wired.test.js: "never run"), so neither a
+  local run nor CI covers it; my first commit's "left to the PR's browser-checks job" was wrong for it. The page
+  tests drive frConnPaintUrl through frPaintConnect instead. render-accounts-openai.js runs served (this branch).
+- NIT FIXED: the code step's cloud wording no longer points at a link before it is printed.
+- NIT FIXED: while Claude is finishing (signin-completing), a cloud machine offers no link on either surface (it is
+  the primary button there; a second press would start a second sign-in). The Mac keeps its fallback.
+- NIT FIXED: the Settings updater fails closed when frConnActive is missing.
+- NIT RECORDED: engine/connect.js still has one stuck detail saying "use Terminal" (it predates this branch); a
+  cloud-machine person may read it on the stuck card. Follow-up.

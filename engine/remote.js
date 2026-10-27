@@ -417,7 +417,11 @@ const { allowWaitSentence } = require('./allowwait');
    first; removing the floor here would let a forgotten set be taken again, and removing the lock while the tunnel
    holds it would let two writers in. Best effort: whatever cannot be removed, the register writes again. */
 function clearStateDir(keep) {
-  const skip = new Set([...keep, ...trustkeys.KEEP]);
+  /* kosmos#4903 S5 (review 2): and the cloud installer's latch (engine/cloudmachine.js LATCH). It is written ONCE, at
+     install, and nothing writes it again, so a Remove or a fresh sign-in on a Kosmos cloud machine must not take it:
+     the box would stop being one for good. Keeping it admits nobody; the tunnel's gate also needs the coordinator's
+     signed claim, which a removal ends. */
+  const skip = new Set([...keep, ...trustkeys.KEEP, require('./cloudmachine').LATCH]);
   let entries = [];
   try { entries = fs.readdirSync(STATE_DIR()); } catch (e) {
     // A file where the folder should be holds no trust file: it goes, as the whole-folder wipe removed it.
