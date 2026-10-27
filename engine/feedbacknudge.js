@@ -18,8 +18,9 @@
  *  - an agent whose delivery is held (a menu, a usage limit, signed out, text in its box) or refused passes the ask to
  *    the next, in the same tick. Quiet hours and the usage cap hold for everyone, so they stop the tick and cost no try.
  *    A tick in which some were held and the rest refused costs one try, so a menu left open all evening does not keep
- *    the day alive past MAX_TRIES refusals by the others. A delivery that THREW counts as maybe reached (chat.js's own
- *    reading of a throw), so the day is recorded as asked and nobody else is typed into.
+ *    the day alive past MAX_TRIES refusals by the others. A delivery that THREW counts as maybe reached (chat.js's
+ *    "A THROW IS UNCONFIRMED", above deliverThroughChannel: a throw can follow the keystroke), so the day is recorded as
+ *    asked and nobody else is typed into.
  * When, all of:
  *  - sending is on and its setting reads (feedbacksend.read: on and ok). Switched off, or unreadable, nobody is asked, so
  *    an install that said no is never spent a turn on a report it will not send;
