@@ -253,7 +253,7 @@ test('#5167 core: a policy refusal is SAID (2026-10-27: logged-only read as noth
   const t = body('private func tellDownloadFailed(_ detail: String, title: String? = nil, refusal: Bool = false, always: Bool = false) {');
   assert.match(t, /if refusal \{\n\s+logLine\([^\n]*\)\n\s+guard refusalShouldShow\(detail, up: refusalUp, last: refusalLastSaid, now: Date\(\),\n\s+window: AppDelegate\.refusalRepeatSeconds\) else \{ return \}\n\s+\}/,
     'a refusal is no longer logged, or is said without the one-at-a-time and repeat guard');
-  assert.match(t, /if refusal \{ refusalUp = true \}/, 'refusalUp is set late, so two refusals before the next turn are both said');
+  assert.match(t, /\n\s+if refusal \{ refusalUp = true \}/, 'refusalUp is set late, so two refusals before the next turn are both said');
   assert.match(t, /alert\.runModal\(\)\n\s+if refusal \{ refusalUp = false; refusalLastSaid = \(detail, Date\(\)\) \}/,
     'the repeat window does not count from the OK');
   assert.match(t, /refusal \? "Kosmos did not save that file" : "Kosmos could not save that file"/, 'a refusal and a failure carry the same title');
