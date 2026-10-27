@@ -147,8 +147,8 @@ function stepCopies(v, bound) {
     let run;
     /* A line break or a tab inside a value counts as hidden too (a newline in a tool name split a key, and the shown text
        masked only its first half): its copies equal what is shown, so only a value whose shown text masks something is
-       masked whole, never an ordinary list of hashes (review 3). */
-    if ((run = take(RUN_SPACE)) !== null) { if (/[\t\n\v\f\r]/.test(run)) hidden = true; outs.forEach(space); }
+       masked whole, never an ordinary list of hashes (review 3). JS's other line breaks, U+2028 and U+2029, too (review 6). */
+    if ((run = take(RUN_SPACE)) !== null) { if (/[\t\n\v\f\r\u2028\u2029]/.test(run)) hidden = true; outs.forEach(space); }
     else if ((run = take(RUN_C0)) !== null) { hidden = true; space(outs[0]); space(outs[2]); }
     else if ((run = take(RUN_HIDDEN)) !== null) { hidden = true; text(outs[0], run); space(outs[2]); }
     else if ((run = take(RUN_PLAIN)) !== null) { outs.forEach((o) => text(o, run)); }
