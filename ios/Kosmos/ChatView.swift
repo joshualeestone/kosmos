@@ -305,7 +305,8 @@ struct ChatView: View {
 
     // MARK: - The conversation
 
-    // kosmos#7265: how many of the newest rows are drawn eagerly, more than a screen of short messages. Measured on the
+    // kosmos#7265: at least this many of the newest rows are drawn eagerly (40 to 59, as the cut steps by 20; all of a chat
+    // under 60), more than a screen of short messages. Measured on the
     // simulator (a 260-message chat of varied lengths, 10 opens, the newest message read at 4 s and 10 s): 20 of 20 on the
     // newest message; with every row lazy about 1 in 10 (rounds 6 to 13 of the card). 0 in the Debug no-fix arm.
     static var eagerTail: Int { sampleNoFix ? 0 : 40 }
