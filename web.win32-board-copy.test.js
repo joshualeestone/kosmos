@@ -75,6 +75,21 @@ test('the server stamps the page with ITS platform, per request, and leaves an u
   assert.ok(PAGE.indexOf('name="kosmos-platform"') < PAGE.indexOf('</head>'));
 });
 
+test('kosmos#4903 S5 review 1: the page\'s REAL onCloudMachine says yes only for a stamped "1"', () => {
+  // The page's own function, run against a document whose cloud-machine meta holds `content` (or no meta at all).
+  const read = (content) => new Function('document', page.lift(SCRIPT, 'onCloudMachine') + '\nreturn onCloudMachine();')({
+    querySelector: (q) => (q === 'meta[name="kosmos-cloud-machine"]' && content !== undefined ? { getAttribute: () => content } : null),
+  });
+  assert.equal(read('1'), true);
+  assert.equal(read('0'), false, 'a board that is not a cloud machine read as one');
+  assert.equal(read('__KOSMOS_CLOUD_MACHINE__'), false, 'the UNSTAMPED marker (file://, a harness) read as a cloud machine');
+  assert.equal(read(''), false);
+  assert.equal(read(undefined), false, 'a page with no meta read as a cloud machine');
+  assert.equal(new Function('document', page.lift(SCRIPT, 'onCloudMachine') + '\nreturn onCloudMachine();')(undefined), false, 'no document');
+  // And the page head carries the marker the server stamps.
+  assert.match(PAGE, /<meta name="kosmos-cloud-machine" content="__KOSMOS_CLOUD_MACHINE__">/);
+});
+
 test('servedPlatform: unstamped is not Windows, win32 is, and a payload\'s own platform wins', () => {
   assert.equal(runPage(undefined, [], 'onWindows()'), false, 'a file:// page read as Windows');
   assert.equal(runPage('__KOSMOS_PLATFORM__', [], 'onWindows()'), false, 'the unstamped marker read as a platform');

@@ -60,6 +60,7 @@ function harness({ start, connect, cloud = false }) {
     lift(SCRIPT, 'frConnActive'), lift(SCRIPT, 'acctFlowStop'), lift(SCRIPT, 'acctFocusAfterFlow'),
     // kosmos#4903 S5: the page's cloud-machine reader, stubbed; absent unless asked (the page then keeps the Mac words).
     cloud ? 'function onCloudMachine() { return true; }\n' + SCRIPT.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + lift(SCRIPT, 'signinSay') : '',
+    lift(SCRIPT, 'acctClaudePaintUrl'),
     lift(SCRIPT, 'acctFlowPaint'), lift(SCRIPT, 'acctFlowWatch'), lift(SCRIPT, 'acctAddStart'),
     'return { acctAddStart, acctFlowWatch, acctFlowPaint };',
   ].join('\n');
@@ -144,4 +145,21 @@ test('kosmos#4903 S5: Settings\' Claude sign-in on a cloud machine shows the sig
   const mac = harness({ start: {}, connect: {} });
   mac.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: URL });
   assert.equal(mac.document.getElementById('acct-claude-open-row').hidden, true, 'the Mac Settings flow changed');
+});
+
+test('kosmos#4903 S5 review 1: a link that arrives on the SAME phase still lands in Settings, and a changed one replaces it', () => {
+  const h = harness({ start: {}, connect: {}, cloud: true });
+  const row = () => h.document.getElementById('acct-claude-open-row');
+  const href = () => h.document.getElementById('acct-claude-open').href;
+  h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: null });
+  assert.equal(row().hidden, true, 'PRE-CONTROL: no link yet');
+  h.document.getElementById('acct-code').value = 'typed-so-far';
+  h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?state=one' });
+  assert.equal(row().hidden, false, 'the late link never appeared (the repeat check dropped it)');
+  assert.equal(href(), 'https://claude.com/oauth?state=one');
+  h.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: 'https://claude.com/oauth?state=two' });
+  assert.equal(href(), 'https://claude.com/oauth?state=two', 'a changed link kept the stale one');
+  assert.equal(h.document.getElementById('acct-code').value, 'typed-so-far', 'the code field was rebuilt under the person');
+  h.page.acctFlowPaint({ phase: 'connected', url: 'https://claude.com/oauth?state=two' });
+  assert.equal(row().hidden, true, 'the link stayed after the sign-in ended');
 });
