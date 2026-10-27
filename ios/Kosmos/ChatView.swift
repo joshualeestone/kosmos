@@ -1699,7 +1699,9 @@ private struct OpensAtBottom: ViewModifier {
    Measured on the simulator, 5 opens of a 260-message chat of varied lengths, newest message read at 4 s and 10 s:
    this form (round 10) 10 of 10 on the newest, no blank thread; without the fix 1 of 10. Without the initial-offset
    anchor (rounds 7 to 9) every open stopped at message 255, as main does; the anchor alone once drew a blank thread
-   (10-26), which the jumps here cover. A drag or an animated scroll (a status-bar tap) ends the window. */
+   (10-26), which the jumps here cover. A drag ends the window. Review 4: an animated scroll does not, because the
+   app's own animated scrolls (following a new message) report it too and would end the window early; so a status-bar
+   tap or a VoiceOver scroll in the first 3.6 s is pulled back to the newest message (a stated limit). */
 @available(iOS 18.0, *)
 private struct EdgeOpen: ViewModifier {
     let long: Bool
@@ -1713,7 +1715,7 @@ private struct EdgeOpen: ViewModifier {
         content.scrollPosition($position)
             .defaultScrollAnchor(long ? .bottom : nil, for: .initialOffset)
             .defaultScrollAnchor(long && active ? .bottom : nil, for: .sizeChanges)
-            .onScrollPhaseChange { _, phase in if phase == .interacting || phase == .animating { touched() } }
+            .onScrollPhaseChange { _, phase in if phase == .interacting { touched() } }
             .onAppear {
                 guard long else { return }   // a short thread opens exactly as on main (round 7)
                 for at in stride(from: 0.0, through: 3.3, by: 0.3) {
