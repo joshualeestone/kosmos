@@ -980,11 +980,13 @@ enum YouFace {
         }
     }
     #if DEBUG
-    // A drawn face for screenshots: a coloured disc with initials.
+    // A drawn stand-in for a person's photo in screenshots (no real face in a picture): initials on the agents' avatar
+    // cream (Palette.avatarFill / avatarLetter, light), so it reads as part of the app's palette (Mona Lisa's review).
     static let sample: Data? = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 240)).image { _ in
-        UIColor(red: 0.18, green: 0.34, blue: 0.77, alpha: 1).setFill()
+        UIColor(red: 0xec / 255.0, green: 0xe7 / 255.0, blue: 0xdd / 255.0, alpha: 1).setFill()
         UIBezierPath(rect: CGRect(x: 0, y: 0, width: 240, height: 240)).fill()
-        let words = NSAttributedString(string: "SC", attributes: [.font: UIFont.systemFont(ofSize: 96, weight: .semibold), .foregroundColor: UIColor.white])
+        let words = NSAttributedString(string: "SC", attributes: [.font: UIFont.systemFont(ofSize: 96, weight: .semibold),
+                                                                 .foregroundColor: UIColor(red: 0x4a / 255.0, green: 0x4f / 255.0, blue: 0x57 / 255.0, alpha: 1)])
         let size = words.size()
         words.draw(at: CGPoint(x: (240 - size.width) / 2, y: (240 - size.height) / 2))
     }.pngData()
