@@ -956,7 +956,7 @@ const SCREENS = [
   { name: 'agent-stall-7212', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
     await stallRoute(page, data);
     await at(page, '');
-    await page.waitForSelector('text=No message has reached this agent', { timeout: 8000 });
+    await page.waitForSelector('text=Messages stuck', { timeout: 8000 });
   } },
   { name: 'agent-stall-7212-list', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
     await stallRoute(page, data);
