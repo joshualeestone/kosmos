@@ -118,3 +118,17 @@ page cost worse, which makes the window more urgent, not less.
      bottom. Browser: the tall room reads one earlier page and keeps it, polls read only the newest page (test,
      mutation-proven: letting go of any page reds it).
    - NIT: letting go draws the newest page at once, so screen and state never disagree before the next poll.
+5. (default, 14:0x CDT) 1 BLOCKER, 2 WARNINGs, 4 NITs; the BLOCKER, both WARNINGs and NITs 1, 2 applied.
+   - (B) a reader scrolled up inside the newest page slid one message forward per new post (the window dropped rows
+     from its top under a pixel restore; reviewer measured p900 -> p921 after 20 posts, control on the base held).
+     While the reader is off the newest row the rows pushed out are kept (held for the reader), and every off-floor
+     paint anchors. Browser (revwin5-slide.js): p900 stays at y=-118 with 20 rows kept. Test, mutation-proven.
+   - (W1) a reader already on the newest row fires no scroll, so ~1 in 10 returns kept every page: loadRoom lets go
+     after its own paint when the reader is on the newest row, and paintedAt is set after the paint. Browser
+     (revwin5-guard.js): let go within two polls of a 100 ms return.
+   - (W2) letting go during a gap read left rows held for ever, growing per post: a let-go counter the gap read checks
+     after its await, and pages a room read for itself are trimmed from the front by the gap. Browser
+     (revwin5-gaplet.js): nothing held, nothing grows over 3 x 150 posts. Test, mutation-proven.
+   - N1: speech stamping skips every row older than the newest page by time (a search's rows carry no key). N2: at most
+     two self-started earlier reads in a row (PJ_WIN_SELF_READS). N3 (named scroll listener for lifted tests) and N4
+     (document guards) left; pjWinNearTop got a typeof document guard.

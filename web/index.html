@@ -75546,8 +75546,8 @@ let PJ_ROOM_GEN = 0;
    which is read before painting so nothing falls between. While the room search box has text, the room is read
    whole and filtered as before, so search still finds every message. */
 const PJ_WIN_PAGE = 200;
-const PJ_WIN = { pid: null, older: [], byReader: false, paintedAt: 0, newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0 };
-function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], byReader: false, newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1 }); pjWinOlderLine(); }
+const PJ_WIN = { pid: null, older: [], byReader: false, paintedAt: 0, letGo: 0, selfReads: 0, newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0 };
+function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1 }); pjWinOlderLine(); }
 /* The line over the room's top: "Loading earlier messages..." while a page is read; after a failed read, why, with Try
    again, which stays until the person presses it (a scroll event must not turn one failure into a stream of requests,
    as the Direct conversation's line learned, #6086). Nothing at all otherwise. */
@@ -75604,9 +75604,9 @@ async function pjWinEarlier(byReader) {
   convPause();   // old rows are not news to read aloud (as a Direct conversation's earlier page does)
   const anchor = threadAnchor(box);
   box.__lastBody = body;
-  PJ_WIN.paintedAt = Date.now();
   paintRoom(body);
   if (anchor) restoreThreadAnchor(box, anchor);
+  PJ_WIN.paintedAt = Date.now();
   // The newest page moved while this page was read: read the rows between now, not at the next poll.
   if (at !== PJ_WIN.newestOlder) loadRoom();
   else pjWinNearTop();   // still too short to scroll: the page before that one too
@@ -75624,9 +75624,16 @@ const PJ_WIN_NEAR_TOP = 300;   // px from the top of the loaded rows that asks f
    lines) never fires a scroll event, so it reads its earlier page itself, as a Direct conversation's thread does
    (review 3). A hidden box (no height) asks nothing. */
 function pjWinNearTop() {
+  if (typeof document === 'undefined') return;
   const box = document.getElementById('pj-room');
-  if (box && box.clientHeight > 0 && box.scrollTop <= PJ_WIN_NEAR_TOP) pjWinEarlier(false);
+  /* At most PJ_WIN_SELF_READS pages in a row this way after one paint (review 5: a room of folded lines would otherwise
+     read its whole history at once); the reader's own scroll reads on from there. */
+  if (box && box.clientHeight > 0 && box.scrollTop <= PJ_WIN_NEAR_TOP && (PJ_WIN.selfReads || 0) < PJ_WIN_SELF_READS) {
+    PJ_WIN.selfReads = (PJ_WIN.selfReads || 0) + 1;
+    pjWinEarlier(false);
+  }
 }
+const PJ_WIN_SELF_READS = 2;
 /* A reader back on the newest message no longer needs the earlier pages: they are let go, so a poll paints only the
    newest page again (holding thousands of rows made every poll repaint them all; review 3). Scrolling back reads them
    again. Not while a page is being read, or with a search on (a search's body is the whole room). */
@@ -75635,17 +75642,17 @@ function pjWinNearTop() {
    window is drawn again at once, so what is on screen and what is held never disagree before the next poll. */
 function pjWinLetGoOfEarlier() {
   if (!PJ_WIN.older.length || !PJ_WIN.byReader || PJ_WIN.loading || PJ_ROOM_QUERY.trim() !== '' || PJ_WIN.pid !== PJ_CURRENT) return;
-  Object.assign(PJ_WIN, { older: [], byReader: false, boundary: null, cursor: PJ_WIN.newestCursor, olderCount: PJ_WIN.newestOlder, because: null });
+  Object.assign(PJ_WIN, { older: [], byReader: false, boundary: null, cursor: PJ_WIN.newestCursor, olderCount: PJ_WIN.newestOlder, because: null, letGo: PJ_WIN.letGo + 1 });
   const box = typeof document !== 'undefined' ? document.getElementById('pj-room') : null;
   if (box && box.__lastBody && Array.isArray(PJ_WIN.newest)) {
     box.__lastBody = Object.assign({}, box.__lastBody, { rows: PJ_WIN.newest });
-    PJ_WIN.paintedAt = Date.now();
     paintRoom(box.__lastBody);
+    PJ_WIN.paintedAt = Date.now();
   }
 }
 document.getElementById('pj-room').addEventListener('scroll', (e) => {
   const box = e.currentTarget;
-  if (box.scrollTop <= PJ_WIN_NEAR_TOP) pjWinEarlier(true);
+  if (box.scrollTop <= PJ_WIN_NEAR_TOP) { PJ_WIN.selfReads = 0; pjWinEarlier(true); }
   // A scroll the page's own paint caused (a page landing, an anchor put back) is not the reader reaching the bottom.
   else if (Date.now() - (PJ_WIN.paintedAt || 0) > 500 && box.clientHeight > 0 && (box.scrollHeight - box.scrollTop - box.clientHeight) <= THREAD_BOTTOM_SLACK) pjWinLetGoOfEarlier();
 }, { passive: true });
@@ -77772,9 +77779,11 @@ function paintRoom(body) {
   /* kosmos#7365: rows from an earlier page the reader scrolled back to are history, never somebody speaking now, so they
      are not stamped (an agent whose last post was only in that page read as having just spoken; review 1). */
   // typeof: tests lift this block on its own, without the window's state (the room-scroll harness's posture).
-  const earlierKeys = typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === PJ_CURRENT && PJ_WIN.older.length ? new Set(PJ_WIN.older.map((r) => r && r.key)) : null;
+  // By time, not key: a search's whole-room rows carry no key and are just as old (review 5).
+  const newestFrom = typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === PJ_CURRENT && Array.isArray(PJ_WIN.newest) && PJ_WIN.newest[0]
+    ? Date.parse(PJ_WIN.newest[0].at) : NaN;
   for (const m of PJ_CURRENT ? allRows : []) {
-    if (earlierKeys && m && m.key && earlierKeys.has(m.key)) continue;
+    if (Number.isFinite(newestFrom) && m && Date.parse(m.at) < newestFrom) continue;
     const who = m && m.from;
     if (!who || !m.at) continue;
     /* #1397: a row Kosmos REFUSED is not the agent speaking. See
@@ -78131,7 +78140,25 @@ async function loadRoom() {
       const win = PJ_WIN.gen;
       body = await pjWinRead(PJ_CURRENT, PJ_WIN_PAGE, null);
       if (mine !== PJ_ROOM_GEN || win !== PJ_WIN.gen) return;
-      if (!PJ_WIN.older.length) {
+      const box0 = document.getElementById('pj-room');
+      const offFloor = !!box0 && box0.clientHeight > 0 && (box0.scrollHeight - box0.scrollTop - box0.clientHeight) > THREAD_BOTTOM_SLACK;
+      const grew = Number(body.olderCount) - PJ_WIN.newestOlder;
+      if (!PJ_WIN.older.length && offFloor && Array.isArray(PJ_WIN.newest) && PJ_WIN.newest.length && grew > 0) {
+        /* A reader scrolled up inside the newest page: the rows the new posts push out of it stay, held as if they had
+           scrolled back to them, so what they are reading never leaves the screen and the window only grows while they
+           read (review 5: a pixel offset slid them one message forward per new post). Held for the reader, so reaching
+           the newest row lets them go. More than a page of new posts at once: the window starts again. */
+        const keep = new Set(body.rows.map((r) => r && r.key).filter(Boolean));
+        const leaving = PJ_WIN.newest.filter((r) => r && r.key && !keep.has(r.key));
+        if (leaving.length === grew) {
+          PJ_WIN.older = leaving;
+          PJ_WIN.byReader = true;
+          PJ_WIN.boundary = Number(body.olderCount);   // cursor and olderCount still name what is before them
+        } else {
+          PJ_WIN.cursor = body.olderCursor || null;
+          PJ_WIN.olderCount = Number(body.olderCount) || 0;
+        }
+      } else if (!PJ_WIN.older.length) {
         PJ_WIN.cursor = body.olderCursor || null;
         PJ_WIN.olderCount = Number(body.olderCount) || 0;
       } else if (PJ_WIN.boundary !== null && Number(body.olderCount) > PJ_WIN.boundary) {
@@ -78140,11 +78167,23 @@ async function loadRoom() {
            reader is then on the newest page, and scrolling back reads them again). */
         const gap = Number(body.olderCount) - PJ_WIN.boundary;
         if (gap <= PJ_WIN_PAGE && body.olderCursor) {
+          const letGo = PJ_WIN.letGo;
           const between = await pjWinRead(PJ_CURRENT, gap, body.olderCursor);
           if (mine !== PJ_ROOM_GEN || win !== PJ_WIN.gen) return;
-          PJ_WIN.older = pjWinMerge(PJ_WIN.older, between.rows);
-          PJ_WIN.boundary = Number(body.olderCount);
-          gapFilled = true;   // rows landed above the newest page: anchor the reader (below)
+          // Let go while it read (the reader reached the newest row): these rows have nothing to join (review 5).
+          if (letGo === PJ_WIN.letGo) {
+            PJ_WIN.older = pjWinMerge(PJ_WIN.older, between.rows);
+            PJ_WIN.boundary = Number(body.olderCount);
+            gapFilled = true;   // rows landed above the newest page: anchor the reader (below)
+            /* Pages a room read for itself (not scrolled back to) keep their size: as many rows leave their front as
+               the gap added, or they would grow by every new post for the whole visit (review 5). */
+            if (!PJ_WIN.byReader && between.rows.length && PJ_WIN.older.length > between.rows.length) {
+              const cut = Math.min(between.rows.length, PJ_WIN.older.length - between.rows.length);
+              PJ_WIN.older = PJ_WIN.older.slice(cut);
+              PJ_WIN.olderCount += cut;
+              PJ_WIN.cursor = (PJ_WIN.older[0] && PJ_WIN.older[0].key) || PJ_WIN.cursor;
+            }
+          }
         } else {
           pjWinReset(PJ_CURRENT);
           PJ_WIN.cursor = body.olderCursor || null;
@@ -78172,12 +78211,19 @@ async function loadRoom() {
   /* Measured NOW, not read from the last repaint (__roomHeldAtBottom), which in a quiet room can be minutes old
      (review 1): a reader on the floor is pinned by the paint, and anchoring them would pull them off it. */
   const onFloorNow = roomEl.clientHeight > 0 && (roomEl.scrollHeight - roomEl.scrollTop - roomEl.clientHeight) <= THREAD_BOTTOM_SLACK;
-  const anchor = gapFilled && !onFloorNow ? threadAnchor(roomEl) : null;
+  // Every paint, not only a gap's: the window itself moves under a scrolled-up reader as new posts arrive (review 5).
+  const anchor = !onFloorNow ? threadAnchor(roomEl) : null;
   roomEl.__lastBody = body;
-  PJ_WIN.paintedAt = Date.now();
   paintRoom(body);
   if (anchor) restoreThreadAnchor(roomEl, anchor);
-  if (PJ_ROOM_QUERY.trim() === '') pjWinNearTop();   // a room too short to scroll reads its earlier page itself
+  PJ_WIN.paintedAt = Date.now();   // after the paint: a slow paint must not use up the window (review 5)
+  if (PJ_ROOM_QUERY.trim() === '') {
+    /* A reader on the newest row lets go here too, not only on a scroll event: one already sitting there fires none
+       (review 5: about one return in ten kept every page for the visit). */
+    if (onFloorNow) pjWinLetGoOfEarlier();
+    PJ_WIN.selfReads = 0;
+    pjWinNearTop();   // a room too short to scroll reads its earlier page itself
+  }
   return true;   // kosmos#7365: painted (every early return above answers undefined): a search's no-match reads this
 }
 

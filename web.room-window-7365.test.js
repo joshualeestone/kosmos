@@ -19,6 +19,7 @@ const SRC = [
   liftConst(SCRIPT, 'PJ_WIN'),
   liftConst(SCRIPT, 'THREAD_BOTTOM_SLACK'),
   liftConst(SCRIPT, 'PJ_WIN_NEAR_TOP'),
+  liftConst(SCRIPT, 'PJ_WIN_SELF_READS'),
   liftAll(SCRIPT, ['pjWinReset', 'pjWinOlderLine', 'pjWinMerge', 'pjWinNoteReactions', 'pjWinRead', 'pjWinEarlier', 'pjWinNearTop', 'pjWinLetGoOfEarlier', 'loadRoom']),
 ].join('\n');
 
@@ -155,6 +156,7 @@ test('#7365 review 1: a poll landing while the first earlier page is in flight l
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();   // newest 801 to 1000
+  h.box.scrollTop = 1000;   // the reader has scrolled back (off the newest row)
   let release; const gate = new Promise((r) => { release = r; });
   const real = room.fetch;
   room.fetch = async (u) => { if (/cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
@@ -192,7 +194,8 @@ test('#7365 review 1: a reader on the floor NOW is not anchored when a gap lands
   for (let i = 0; i < 50; i++) room.add();
   await h.api.loadRoom();   // the box is on the floor (its default)
   assert.equal(h.anchors.restored, restoredBefore, 'no anchor pulls a floor reader off the newest row');
-  assert.deepEqual(ids(h.painted.at(-1)), range(601, 1050));
+  // Review 5: a reader on the newest row lets the earlier pages go on the poll itself, so only the newest page shows.
+  assert.deepEqual(ids(h.painted.at(-1)), range(851, 1050));
 });
 
 test('#7365 review 1: a reaction made here on an earlier page\'s post is kept in the held row', async () => {
@@ -200,6 +203,7 @@ test('#7365 review 1: a reaction made here on an earlier page\'s post is kept in
   const h = harness(room);
   await h.api.loadRoom();
   await h.api.pjWinEarlier(true);   // 601 to 800 held
+  h.box.scrollTop = 1000;   // still reading back there
   h.api.pjWinNoteReactions('proj', 'p700', [{ emoji: '👍', count: 1, who: ['you'], mine: true }], null);
   await h.api.loadRoom();   // the next poll rebuilds from the held rows
   const row = h.painted.at(-1).rows.find((r) => r.id === 'p700');
@@ -268,4 +272,41 @@ test('#7365 review 4: pages a short room read for itself are not let go (the two
   for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
   assert.equal(room.calls.length, n + 1, 'a poll reads one page and nothing more: no loop');
   assert.deepEqual(ids(h.painted.at(-1)), range(1, 600));
+});
+
+test('#7365 review 5: a reader scrolled up inside the newest page keeps their rows as new posts push them out, then lets go at the newest', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  h.box.scrollTop = 1000;   // reading mid-window
+  for (let i = 0; i < 20; i++) room.add();
+  await h.api.loadRoom();
+  assert.deepEqual(ids(h.painted.at(-1)), range(801, 1020), 'the 20 rows pushed out of the newest page stay on screen');
+  assert.ok(h.anchors.restored >= 1, 'the reader is anchored on a paint while off the newest row');
+  assert.equal(h.api.PJ_WIN.byReader, true);
+  h.box.scrollTop = 9500;   // back on the newest row
+  await h.api.loadRoom();
+  assert.deepEqual(ids(h.painted.at(-1)), range(821, 1020), 'reaching the newest row lets them go, on a poll');
+  // CONTROL: a reader on the newest row the whole time follows the newest page with nothing kept.
+  for (let i = 0; i < 20; i++) room.add();
+  await h.api.loadRoom();
+  assert.deepEqual(ids(h.painted.at(-1)), range(841, 1040));
+});
+
+test('#7365 review 5: letting go while a gap read is in flight leaves nothing held', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  await h.api.pjWinEarlier(true);
+  h.box.scrollTop = 1000;
+  for (let i = 0; i < 30; i++) room.add();
+  let release; const gate = new Promise((r) => { release = r; });
+  const real = room.fetch;
+  room.fetch = async (u) => { if (/n=30&cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
+  const poll = h.api.loadRoom();   // the gap read is held back
+  await new Promise((r) => setImmediate(r));
+  h.api.pjWinLetGoOfEarlier();   // the reader reached the newest row meanwhile
+  release(); await poll;
+  room.fetch = real;
+  assert.equal(h.api.PJ_WIN.older.length, 0, 'the gap rows had nothing to join and were not kept');
 });
