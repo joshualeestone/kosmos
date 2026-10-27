@@ -431,7 +431,21 @@ final class BoardClient: ObservableObject {
     // none, or no answer (not connected included).
     func thread(for session: String) async -> Board.ThreadRead {
         #if DEBUG
-        if let sample = sampleThreads[session] { return .thread(sample) }
+        if var sample = sampleThreads[session] {
+            #if DEBUG
+            // kosmos#7265, KOSMOS_SAMPLE_GROW=1: every read of Dana's chat brings one new message and drops the oldest, as a
+            // busy chat at the Mac's 200-row window does, to check that an open chat keeps its place.
+            if session == "dana", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_GROW"] == "1", let last = sample.rows.last {
+                sampleGrown += 1
+                let at = String(format: "2026-10-23T23:%02d:%02dZ", sampleGrown / 60 % 60, sampleGrown % 60)
+                let row = Board.ChatRow(id: "grown-\(sampleGrown)", atRaw: at, at: Board.isoDate(at),
+                                        text: "New message \(sampleGrown) after the window slid.", who: last.who == .agent ? .person : .agent)
+                sample = Board.Thread(rows: Array(sample.rows.dropFirst()) + [row], olderCount: sample.olderCount + 1, choices: sample.choices)
+                sampleThreads[session] = sample
+            }
+            #endif
+            return .thread(sample)
+        }
         #endif
         guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session) else { return .noAnswer }
         let result = await env.send(request)
@@ -875,6 +889,9 @@ final class BoardClient: ObservableObject {
     // The newest row time each chat has shown, and the count of forgettings (sign-out, another account or Mac).
     private var newestSeen: [String: String] = [:]
     @Published private(set) var chatEpoch = 0
+    #if DEBUG
+    private var sampleGrown = 0   // kosmos#7265: KOSMOS_SAMPLE_GROW's new messages so far
+    #endif
 
     // A read of the conversation: the pending messages it now holds stop being shown as pending (Board.settled).
     func settle(_ thread: Board.Thread, for session: String) {

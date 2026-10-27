@@ -362,7 +362,7 @@ struct ChatView: View {
                         // An exact cut: a cut in steps of 20 (fewer rebuilds) measured short again, 0 of 10 against 10 of 10
                         // (rounds 16 and 17). So each new message moves one row from the eager stack to the lazy rows, which
                         // rebuilds it and drops any state it held (a stated limit).
-                        let tailStart = Board.eagerStart(items, from: eagerFrom, eager: Self.eagerTail)
+                        let tailStart = Board.eagerStart(items, from: Self.sampleNoKeep ? nil : eagerFrom, eager: Self.eagerTail)
                         ForEach(items[..<tailStart]) { item in row(item) }
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(items[tailStart...]) { item in row(item) }
@@ -394,6 +394,12 @@ struct ChatView: View {
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
+                    // kosmos#7265: KOSMOS_SAMPLE_SCROLLUP=<n> scrolls 3 s after opening so the n-th row from the end is at the
+                    // top, as a reader scrolled up would be, to see whether later reads move it.
+                    if let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init), up > 0, items.count > up {
+                        let target = items[items.count - up].id
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { proxy.scrollTo(target, anchor: .top) }
+                    }
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
                         // Twice: the first reaches the top and loads a page; the second shows what landed above.
                         for at in [3.0, 6.0] {
@@ -1281,7 +1287,10 @@ struct ChatView: View {
             // frame with the old set (onChange alone runs after that body).
             // kosmos#7265 (Josh 10-27): rows this read slid out of the latest window stay, so nothing above the reader
             // vanishes and the conversation does not jump (carryDropped).
-            if fresh != thread { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh); thread = fresh; recomputeHiddenHeads() }
+            if fresh != thread {
+                if !Self.sampleNoKeep { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh) }   // NOKEEP: the control
+                thread = fresh; recomputeHiddenHeads()
+            }
             fillGap(fresh)
             // A moved reset leaves the top in view with nothing loading: the next read asks again.
             loadEarlier()
@@ -1733,7 +1742,10 @@ extension ChatView {
     // both arms.
     #if DEBUG
     static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
+    // kosmos#7265 (10-27): KOSMOS_SAMPLE_NOKEEP=1 turns off only carryDropped and the kept eager start, the control for them.
+    static let sampleNoKeep = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOKEEP"] == "1"
     #else
     static let sampleNoFix = false
+    static let sampleNoKeep = false
     #endif
 }
