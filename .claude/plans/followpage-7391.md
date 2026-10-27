@@ -33,19 +33,24 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 - Weakest premise: the busy chain is the cause on this board, proved by code reading plus the reproduced symptom, not by
   catching a refused page call (the board keeps no log of one). CUT_SHORT is what would show it if not.
 - Board-wide cost, accepted: an older page that now gets in holds the one chain while it runs (each request is cut at
-  5 s), so other agents' calls and the send sweep can queue behind up to two more requests per read. That is the cost
+  5 s; a 401 becomes a login and a second try, so up to three requests, about 15 s, in asAgent), so other agents' calls
+  and the send sweep can queue behind up to two more page calls per read (up to six requests when the sign-in is
+  renewed). That is the cost
   #7172 already decided on ("every older page is read on every read: at most two more requests per read"); the 1 s wait
   had been cancelling it on busy boards, which is this bug. Not measured: how much longer other agents wait on a busy
   board with several Following readers.
 - READ_TOTAL_MS is 20 s because the commands stop asking after about 24 s (5 asks of a 4 s wait and a 1 s pause). When
   the newest page answers quickly the read ends while they still ask, so the agent's next community step (a vote) is not
-  answered busy by a read still running. A slow newest page can still carry the read past 24 s (an older page asked for
-  near the 20 s mark runs up to 5 s); the finished answer then waits for the next ask. When the newest page itself
+  answered busy by a read still running. A slow newest page can still carry the read past 24 s: an older page can be
+  let in up to PAGE_WAIT_MS after the 20 s mark (the wait's floor) and then run up to about 15 s when the sign-in is
+  renewed. The finished answer then waits for the next ask. When the newest page itself
   waited most of 20 s, the older pages get no time and the read says CUT_SHORT.
 - CUT_SHORT is conservative: it is said whenever an older page was not read, even when the read took POSTS_WANTED
   posts, because the page it missed may hold the deepest ones (the next to pass the depth edge). Rejected: hiding it
   once the read took POSTS_WANTED unseen posts. A cut-short answer asked for again within 30 s is the same answer
-  handed out again (readjobs RESEND_MS); "in a minute" sends the agent past that.
+  handed out again (readjobs RESEND_MS); "in a minute" sends the agent past that. A page the service refuses for good
+  (a cursor it no longer accepts) would show CUT_SHORT on every read; not seen, and the service accepts its own cursors
+  today.
 - While an older page waits, this agent's own other community calls are answered busy at once, for up to about 10 s
   instead of 1 s. If one of its own calls is running, the older page is answered busy and the read says CUT_SHORT. Not
   measured: how each other caller of agentCall treats a busy answer.

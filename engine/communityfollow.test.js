@@ -678,8 +678,9 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     b.st.failPage = undefined;
     assert.ok(empty.text.includes('Nothing new in the newest items Kosmos could read.') && empty.text.includes(cf.CUT_SHORT)
       && !empty.text.includes('Nothing new from the agents you follow.'), empty.text);
-    // kosmos#7391: each older page waits for the board's call chain for what is left of READ_PAGES_MS, never less than
-    // PAGE_WAIT_MS (the first page keeps the default). At 1 s a busy board refused them on every read.
+    // kosmos#7391: each older page waits for the board's call chain for what is left of READ_PAGES_MS (from the newest
+    // page's answer) and of READ_TOTAL_MS (from the read's start), whichever is less, never less than PAGE_WAIT_MS (the
+    // first page keeps the default). At 1 s a busy board refused them on every read.
     const calls = [];
     const real = cs.agentCall;
     cs.agentCall = (k, m, p, o) => { calls.push({ p, waitMs: o && o.waitMs }); return real(k, m, p, o); };
@@ -699,20 +700,30 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     cs.setTimeoutMs(1500);
     b.st.hang = (req) => req.method === 'POST' && req.url === '/agents/by-name/quill/follow';
     let holder = null;
+    let olderWaited = null;
     cs.agentCall = (k, m, p, o) => {
+      if (k === 'mara' && p.includes('&cursor=')) {
+        const asked = Date.now();
+        return real(k, m, p, o).then((a) => { olderWaited = Date.now() - asked; return a; });
+      }
       const out = real(k, m, p, o);
-      if (k === 'mara' && p.startsWith('/agents/me/following/feed') && !p.includes('&cursor=')) holder = real('juno', 'POST', '/agents/by-name/quill/follow', {});
+      if (k === 'mara' && p.startsWith('/agents/me/following/feed')) holder = real('juno', 'POST', '/agents/by-name/quill/follow', {});
       return out;
     };
     try {
       b.st.feedCalls = [];
       b.st.pages = [tens(1, '12'), [post(720, '11')]];
-      const t0 = Date.now();
+      b.st.seen.length = 0;
       const busy = await cf.readFollowing('mara');
       const held = await holder;
-      assert.ok(Date.now() - t0 > cf.PAGE_WAIT_MS, 'CONTROL: the chain was never busy for longer than PAGE_WAIT_MS, so this tests nothing (' + (Date.now() - t0) + ' ms)');
-      assert.equal(held.ok, false, 'CONTROL: the other agent\'s call was answered, so it did not hold the chain');
+      const at = (f) => b.st.seen.findIndex(f);
+      const follow = at((q) => q.method === 'POST' && q.url === '/agents/by-name/quill/follow');
+      const older = at((q) => q.method === 'GET' && q.url.includes('following/feed') && q.url.includes('cursor='));
       assert.ok(busy.text.includes('POST720') && !busy.text.includes(cf.CUT_SHORT), 'kosmos#7391: on a busy chain the post behind the newest page was not reached: ' + busy.text);
+      // The controls, so the pass above means the older page really waited behind the other agent's call.
+      assert.ok(follow >= 0 && older > follow, 'CONTROL: the other agent\'s follow did not reach the service before the older page, so it held nothing: ' + JSON.stringify(b.st.seen.map((q) => q.url)));
+      assert.equal(held.ok, false, 'CONTROL: the other agent\'s call was answered, so it did not hold the chain');
+      assert.ok(olderWaited > cf.PAGE_WAIT_MS, 'CONTROL: the older page itself waited only ' + olderWaited + ' ms, so this tests nothing');
     } finally { cs.agentCall = real; cs.setTimeoutMs(5000); b.st.hang = null; }
     // kosmos#7391 review 3: the whole read is bounded too, so it normally ends while the command is still asking.
     cf._setReadTotalMs(200);
