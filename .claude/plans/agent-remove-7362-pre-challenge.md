@@ -1,0 +1,41 @@
+---
+pre_challenge: true
+method: challenge-loop
+branch: agent-remove-7362
+diff_hash: d2d41e7bb2bd76c357aff761c42edc1f148cbfaddd69ddb4c38f83b0d35a25c9
+validation: windows 13/13 cli.agent-remove-7362; bash cases need a Mac
+subdir_audit: passed
+timestamp: 2026-10-27T18:08:17Z
+iterations: 4
+converged: true
+---
+
+# Pre-PR review proof: agent-remove-7362
+
+**Iterations:** 4
+**Converged:** Yes. The last round found no BLOCKER; anything it raised is recorded below.
+**Per-round record:** .claude/plans/agent-remove-7362.md
+
+## Rounds
+
+#### Iteration 1
+- Round 1: no blocker. [WARNING] a dropped connection after the DELETE read as "not reached" (Windows) --> FIXED: anything but a connect failure is "may", exit 3, test. [WARNING] a 500 {error, detail} (removal threw partway) read as "did not remove" --> FIXED in both CLIs: "may be partly removed", exit 3, tests. [WARNING] plan overstated the #4475 token-only guard --> FIXED: plan states it applies only to a token-only agent. [NIT] curl 18/52/56 exited 1 --> FIXED: exit 3. [NIT] "put it back" keyed on the engine's English --> ACCEPTED (the plan carries no structured field). [NIT] token-only display name refused after confirm --> ACCEPTED (see round 3).
+
+#### Iteration 2
+- Round 2: no blocker. [WARNING] bash dropped-connection line read like a timeout --> FIXED: explicit "may have been removed". [WARNING] bash outcome paths untested on this box --> FIXED: bash tests for 500 and dropped paths (run on a Mac; ENOENT on Windows). [NIT] 60 s vs 120 s removal wait --> FIXED: 120 s both. [NIT] "." and ".." --> FIXED: refused before any request, tests. [NIT] confirm case parity --> FIXED. [NIT] 5xx without detail parity --> ACCEPTED (the handler never sends one).
+
+#### Iteration 3
+- Round 3: no blocker. [WARNING] a token-only agent typing a display name is refused by the board after confirming --> ACCEPTED, decided: the plan returns the typed name, not the board name, so it cannot be checked before asking; the output is honest. [NIT] ".)." after a dry-run sentence --> FIXED. [NIT] bash prompt on stdout --> FIXED: stderr. [NIT] no token-only header test --> ACCEPTED.
+
+#### Iteration 4
+- Round 4: no blocker, no warning. [NIT] bash exits 1, Node 3, for a non-JSON 5xx from something in front of the board --> ACCEPTED (not from the removal handler; the board is on localhost).
+
+### Final Ledger
+| Round | Blockers | Warnings | Outcome |
+|---|---|---|---|
+| 1 | 0 | 3 | all fixed |
+| 2 | 0 | 2 | all fixed |
+| 3 | 0 | 1 | accepted (decided gap, honest output) |
+| 4 | 0 | 0 | converged |
+
+Open, recorded: the bash-driven tests (7) cannot run on the Windows box (ENOENT, as for every bash CLI test there); a Mac builder runs cli.agent-remove-7362.test.js on the PR. Windows: 13/13 pass.
