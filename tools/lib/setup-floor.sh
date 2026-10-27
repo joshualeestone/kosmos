@@ -107,7 +107,8 @@ kosmos_setup_floor_pointer_ok() {
   }
   # kosmos#7281: the version has no hyphen and the arch may (linux-x64), so the version is the part up to the FIRST
   # hyphen after "kosmos-"; a greedy match read kosmos-0.7.80-linux-x64.tar.gz as version 0.7.80-linux.
-  av=$(printf '%s' "$art" | LC_ALL=C sed -n 's/^kosmos-\([^-][^-]*\)-[a-z0-9_][a-z0-9_-]*\.tar\.gz$/\1/p')
+  # Review 2: the archs a release publishes, listed, so "-rc-arm64" or "-arm64-evil" cannot ride under a clean version.
+  av=$(printf '%s' "$art" | LC_ALL=C sed -En 's/^kosmos-([^-]+)-(arm64|x64|linux-x64)\.tar\.gz$/\1/p')
   if [ -z "$av" ] || [ "$av" != "$v" ]; then
     echo "setup floor (kosmos#6149): $label says version $v but names artifact $art -- refusing (the tarball is what installs)" >&2
     return 1
