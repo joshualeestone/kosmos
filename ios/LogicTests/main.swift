@@ -3764,7 +3764,7 @@ do {
     check(waited == nil && t.pending == .agents && t.pendingDoor == "new-agent", "#7266: a create on a loading page waits, with its door kept for the replay")
     // Review 1: through the tracker's own replay rule (ContentView.loaded uses it), not a hand-built door.
     check(t.replay?.tab == .agents && t.replay?.door == "new-agent", "#7266: a waiting create has a replay with its door")
-    let replay = t.replay ?? (tab: .agents, door: nil)
+    let replay = t.replay ?? (tab: .agents, door: nil, host: nil)
     let run = t.press(replay.tab, page: .ready, section: true, door: replay.door)
     check(run?.script.contains("'new-agent'") == true, "#7266: the replay presses the create, not the bare section")
     _ = t.press(.agents, page: .ready)   // the native Agents tab
@@ -3780,6 +3780,22 @@ do {
     check(AppTabs.createFallback(door: "new-agent", .opened, pageURL: mac) == nil && AppTabs.createFallback(door: "new-agent", .absent, pageURL: mac) == nil, "#7266: an opened or still-waiting create has no fallback")
     check(AppTabs.createFallback(door: "new-agent", .noDoor, pageURL: URL(string: "https://login.kosmosplus.com/")!) == nil, "#7266: on the sign-in page the create still waits")
     check(AppTabs.createFallback(door: nil, .refused, pageURL: mac) == nil, "#7266: a plain section press has no create fallback")
+}
+do {
+    // Review 5: a create meant for one computer (its board loaded for it) replays only on that computer's board.
+    var t = PressTracker()
+    _ = t.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    check(t.replay(host: "studio.kosmosplus.com") == nil, "#7266 review 5: a load on another computer does not replay the create")
+    check(t.pending == .agents && t.pendingDoor == "new-agent", "#7266 review 5: and the create keeps waiting (a sign-in hop on the way is not a drop)")
+    let back = t.replay(host: "laptop.kosmosplus.com")
+    check(back?.door == "new-agent" && back?.host == "laptop.kosmosplus.com", "#7266 review 5: the named computer's load replays it, its host carried")
+    _ = t.press(.agents, page: .ready, section: true, door: back?.door, host: back?.host)
+    check(t.pendingHost == "laptop.kosmosplus.com", "#7266 review 5: a replayed create that waits again keeps its computer")
+    t.loadingOwnPage()
+    check(t.pendingHost == nil, "#7266 review 5: a page the app loads itself clears it")
+    var any = PressTracker()
+    _ = any.press(.agents, page: .loading, section: true, door: "new-agent")
+    check(any.replay(host: "studio.kosmosplus.com")?.door == "new-agent", "#7266 review 5: CONTROL: a create with no computer named replays on any page")
 }
 
 print("")
