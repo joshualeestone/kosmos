@@ -63,7 +63,7 @@ extension Board {
         return starts(name, "^claude") ? name : "Claude " + name
     }
 
-    // The provider's mark beside the model (Board.providerMarkAsset, the board's own marks), by the runner.
+    // The provider's mark beside the model (the board's own marks, kept equal to the board's by LogicTests/room), by the runner.
     static func runnerMark(_ d: AgentDetails) -> String? {
         switch d.runner {
         case "": return "MarkClaude"

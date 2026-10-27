@@ -160,11 +160,22 @@ struct ChatView: View {
                     Image(systemName: "info.circle").font(.system(size: 22)).foregroundColor(Palette.secondary)
                 }
                 .accessibilityLabel("\(agent.name)\u{2019}s profile and AI settings")
-                .background(NavigationLink(isActive: $infoOpen, destination: {
-                    AgentInfoView(client: client, agent: agent, openOnBoard: openOnBoard)
-                }, label: { EmptyView() }).hidden())
             }
         }
+        // kosmos#7267: on the chat itself, not inside the toolbar item (a link there is outside the navigation and
+        // never pushes).
+        .background(NavigationLink(isActive: $infoOpen, destination: {
+            AgentInfoView(client: client, agent: agent, openOnBoard: openOnBoard)
+        }, label: { EmptyView() }).hidden())
+        #if DEBUG
+        // KOSMOS_SAMPLE_INFO=profile|ai with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
+        .onAppear {
+            let env = ProcessInfo.processInfo.environment
+            if env["KOSMOS_SAMPLE_AGENTS"] == "1", env["KOSMOS_SAMPLE_INFO"] != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { infoOpen = true }
+            }
+        }
+        #endif
         .onAppear {
             visible = true
             epoch = client.chatEpoch

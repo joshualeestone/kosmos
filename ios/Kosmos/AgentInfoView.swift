@@ -167,11 +167,13 @@ struct AgentInfoView: View {
         } header: { label("Runs on") }
         Section {
             HStack {
-                Text("Memory").foregroundColor(Palette.primary)
+                Text("How full").foregroundColor(Palette.primary)
                 Spacer()
                 Text(memoryWords).foregroundColor(memoryColor).monospacedDigit()
             }
             .accessibilityElement(children: .combine)
+        } header: { label("Memory") }
+        Section {
             Button { asking = .compact } label: { Text("Compact: summarise and keep going") }
                 .disabled(freshBusy)
             Button(role: .destructive) { asking = .clear } label: { Text("Clear: start over, loses what it is holding") }
@@ -276,7 +278,7 @@ struct AgentInfoView: View {
     // KOSMOS_SAMPLE_INFO=ai opens on AI Settings.
     static var sample: Bool { ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" }
     private func applySample() {
-        let d = Board.AgentDetails(session: agent.session, name: agent.name, role: agent.role, reportsTo: nil, runner: "",
+        let d = Board.AgentDetails(session: live.session, name: live.name, role: live.role, reportsTo: nil, runner: "",
                                    modelName: "Opus 5.5", plannedModelName: nil, settingModelName: nil, neverRecorded: false,
                                    accountProvider: nil, accountLabel: "Work account", running: true)
         details = d
