@@ -39,10 +39,16 @@ enum SignIn {
             // codes this person never asked for. Any other refusal (a wrong password, an account being deleted, a
             // company sign-in required) is Kosmos+'s own sentence; with none, only a 401 says the password is wrong.
             if status == 429 { return .refused(reviewTooMany) }
-            if let message { return .refused(message) }
+            if let message { return .refused(sentence(message)) }
             return .refused(status == 401 ? reviewRefused : reviewNoAnswer)
         }
         return .answered(answer)
+    }
+    /// Kosmos+'s words as a sentence on this screen (App Review reads it): a capital first letter and a closing stop.
+    static func sentence(_ s: String) -> String {
+        guard let first = s.first else { return s }
+        let capital = first.uppercased() + s.dropFirst()
+        return ".!?".contains(capital.last!) ? capital : capital + "."
     }
     /// Whether the review door is open, from a GET's status: nil when the answer says neither (asked again later).
     static func reviewDoorOpen(status: Int) -> Bool? {

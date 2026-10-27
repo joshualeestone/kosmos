@@ -400,8 +400,8 @@ final class SignInModel: ObservableObject {
         case "denied": step = .denied(asking: true)
         case "web": step = .web(reason: SignIn.webForCompany)
         // kosmos#7357: the email step with the review door open, and the password step itself.
-        case "review": reviewAsked = true; reviewDoor = true
-        case "password": reviewAsked = true; reviewDoor = true; step = .password
+        case "review": reviewDoor = true
+        case "password": reviewDoor = true; step = .password
         // kosmos#7050 slice C: the email step with passkey sign-in offered, and a passkey that was not used.
         case "passkey": passkeys = true
         case "passkeyerror": passkeys = true; error = SignIn.passkeyWords.notUsed
