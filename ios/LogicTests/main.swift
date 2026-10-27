@@ -3900,6 +3900,10 @@ do {
         check(Board.pill(needing("idle")) == .problem, "review: an idle agent whose helper gave up shows a red pill, not none")
         check(Board.pill(q(a("working")) { $0.macWord = "Messages stuck"; $0.macTone = .needsYou }) == .problem,
               "review: a word the Mac counts as needs you (Messages stuck) is red, not a green Working pill")
+        check(Board.pill(q(a("unknown")) { $0.macWord = "Can't tell"; $0.macTone = .needsYou }) == .cantTell,
+              "review: Can't tell stays grey though the Mac's tone for it is needs you")
+        check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true; $0.macWord = "Can't tell"; $0.macTone = .needsYou }) == .cantTell,
+              "review: and so does a job Kosmos cannot see, as a current Mac sends it")
         check(Board.pill(q(a("rate_limited")) { $0.macTone = .needsYou }) == .held, "CONTROL: the Mac's needs-you tone leaves a held state amber")
         check(Board.pill(q(needing("needs_you")) { $0.reportedByAgent = true }) == .asks,
               "CONTROL: an agent's question stays blue though the board counts it as needing the person")
