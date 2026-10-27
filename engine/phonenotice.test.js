@@ -119,3 +119,33 @@ test('#6487 the mask runs on the WHOLE words before they are shortened, and a ma
   // CONTROL: with no mask the cut words do carry part of the secret, so the test above can fail.
   assert.ok(pn.wordsFor('reply:' + at + ':guide', { chat }).text.includes('SECRET'));
 });
+
+test('#6487 explain says why there are no words, and idKind names only the id\'s kind', () => {
+  const at = '2026-10-22T18:28:40.123Z';
+  const selfreport = { fileFor: () => '/nonexistent/aw-6487-explain.jsonl' };
+  const chat = { DIRECT: '@you', readThread: () => ({ messages: [{ at, from: 'leo', text: 'Sent it.' }] }) };
+  const messages = { record: () => ({ rows: [] }) };
+  assert.deepEqual(pn.explain('crashloop:leo:' + at, {}), { got: null, why: 'unaskable' });
+  assert.deepEqual(pn.explain('nonsense', {}), { got: null, why: 'unaskable' });
+  for (const bad of ['report:not-a-time:leo', 'reply:' + at + ':', 'post:x42']) assert.deepEqual(pn.explain(bad, {}), { got: null, why: 'malformed-id' }, bad);
+  assert.deepEqual(pn.explain('report:' + at + ':leo', { selfreport }), { got: null, why: 'no-report-words' });
+  assert.deepEqual(pn.explain('reply:2020-01-01T00:00:00.000Z:leo', { chat }), { got: null, why: 'no-reply' });
+  assert.deepEqual(pn.explain('post:m42', { messages }), { got: null, why: 'no-post' });
+  assert.deepEqual(pn.explain('reply:' + at + ':leo', { chat, mask: () => { throw new Error('x'); } }), { got: null, why: 'mask-failed' });
+  assert.deepEqual(pn.explain('reply:' + at + ':leo', { chat, mask: () => 42 }), { got: null, why: 'mask-failed' });
+  // CONTROL: the same reply with words answers them, why null, and wordsFor is exactly its `got`.
+  assert.deepEqual(pn.explain('reply:' + at + ':leo', { chat }), { got: { kind: 'reply', session: 'leo', text: 'Sent it.' }, why: null });
+  assert.deepEqual(pn.wordsFor('reply:' + at + ':leo', { chat }), { kind: 'reply', session: 'leo', text: 'Sent it.' });
+  assert.equal(pn.idKind('stuckterminal:leo:' + at), 'stuckterminal');
+  assert.equal(pn.idKind('report:' + at + ':leo'), 'report');
+  for (const bad of ['', 'nonsense', 'Report:x', 'a b:c', null, 42, 'x'.repeat(21) + ':y']) assert.equal(pn.idKind(bad), 'unknown', String(bad));
+});
+
+test('#6487 logName blanks controls, separators, zero-width and direction marks, and keeps 80 characters', () => {
+  assert.equal(pn.logName('a\n\u009bb c‮d​e⁦f﻿g'), 'a  b c d e f g');
+  assert.equal(pn.logName('Roo Pixel'), 'Roo Pixel', 'CONTROL: a plain name is untouched');
+  assert.equal(pn.logName('z'.repeat(100)).length, 80);
+  assert.equal(pn.logName(null), '');
+  assert.equal(pn.logName('a\u061cb\u2060c'), 'a b c');
+  assert.equal(pn.logName('z'.repeat(79) + '\u{1F600}x'), 'z'.repeat(79) + '\u{1F600}', 'the 80th character is a whole emoji');
+});
