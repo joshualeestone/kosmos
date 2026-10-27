@@ -91,3 +91,5 @@ person who needs the room's search while composing.
    Next: validation and PR after #7196 merges and this branch is rebased onto main (the diff hash is taken against main).
 
 5. Rebased onto main after #7196 merged (31272c7109), 22:2x CDT. Clean; all five subjects intact. render-room-scroll 50 of 50; the 19 guard files 213 of 213; the observer mutation still reds the search-to-composer arm on the rebased tree.
+
+6. Surface gate (23:2x CDT): validation run 1 was red on tools.shell-shard-4317, which runs the browser-check surface gate. The CSS rule names ids (pj-post, askcard, conn, pj-one-view and others) that 23 annotated checks key on. Ran all 23 on this branch after the rebase: 22 exit 0, and render-subprojects-1994 is 162 passed / 94 failed, the same on clean main (it opens the page from file://). Each is excused by a per-check trailer citing its run, in the commit that records this.
