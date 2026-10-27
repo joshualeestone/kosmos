@@ -46,3 +46,6 @@ render-refreshlogin-5407 uses, and loginAdvGo reads only dir and apiKey from it.
 3. (default model, 21:3x CDT) One NIT, applied: a comment named a restoreAccounts7284 function that does not exist; it
    now points at the inline restore after the focus-return assert. Everything else checked (count, header and plan
    against the code, focus return, the restore on every path).
+4. (sonnet, 21:3x CDT) No new findings. Converged. One optional NIT declined: a page's own account read landing
+   during the arm would be overwritten by the restore, but the page reloads for the next pass and nothing reads
+   ACCOUNTS after it on that page.
