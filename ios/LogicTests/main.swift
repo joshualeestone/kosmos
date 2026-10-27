@@ -1138,6 +1138,9 @@ do {
         check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: Board.maxFiles + 1, uploading: 0, dictating: false, finishing: false) != nil, "too many files says so")
         check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: 1, uploading: 0, dictating: false, finishing: false) == nil, "CONTROL: a room post that can go has no reason")
         check(Board.roomPostBlocked(words: "", mentionOnly: false, read: false, files: 0, uploading: 0, dictating: false, finishing: false) == nil, "an empty room box says nothing")
+        check(Board.dmSendBlocked(said: long, files: 1, uploading: 1, dictating: true, finishing: true) == Board.sendWaitWords, "the last words landing comes first, before every other reason")
+        check(Board.roomPostBlocked(words: "hi", mentionOnly: true, read: false, files: 1, uploading: 1, dictating: true, finishing: true) == Board.sendWaitWords, "and in a room")
+        check(Board.roomPostBlocked(words: "hi", mentionOnly: true, read: false, files: 1, uploading: 1, dictating: true, finishing: false) == Board.sendStopDictating, "then dictating")
     }
     // kosmos#7348 (Josh 10-27): the sent text filling back into the box just after a send is caught; anything else is not.
     do {

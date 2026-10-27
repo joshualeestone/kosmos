@@ -1244,8 +1244,7 @@ struct ChatView: View {
     // to VoiceOver) until the box changes.
     private func sendOrSayWhy() {
         if canSend { send(); return }
-        if let why = Board.dmSendBlocked(said: Board.sendWords(draftText, files: attachedHere), files: attachedHere.count,
-                                         uploading: uploadingHere, dictating: dictation.busy, finishing: dictation.finishing) {
+        if let why = sendBlocked {
             composerNote = why
             blocked = (draftText, why)
         }
@@ -1253,9 +1252,12 @@ struct ChatView: View {
 
     // Words, or files with no words (their names go as the words). Not with files while another is still on its way
     // (the message would go without it); words alone go, as on the board.
-    private var canSend: Bool {
-        // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then send.
-        !dictation.busy && Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && (attachedHere.isEmpty || uploadingHere == 0)
+    // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then send. Read from the same
+    // rule that says why (dmSendBlocked), so a Send that cannot go always has a reason to show.
+    private var canSend: Bool { Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && sendBlocked == nil }
+    private var sendBlocked: String? {
+        Board.dmSendBlocked(said: Board.sendWords(draftText, files: attachedHere), files: attachedHere.count,
+                            uploading: uploadingHere, dictating: dictation.busy, finishing: dictation.finishing)
     }
 
     // The bubble appears at once (60% while it sends) and the field clears (spec, "while it sends").
