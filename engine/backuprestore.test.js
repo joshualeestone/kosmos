@@ -259,8 +259,8 @@ test('#5536 an empty chunk is refused, and a deep folder clash is found', async 
 
 test('#5536 the collision check scales linearly with path depth (a ratio, so machine load does not decide it)', async () => {
   // Every entry is listed twice, so all are refused before any fetch and the time is the path and collision checks.
-  // Measured: depth x4 costs x3.75 to x4.5 with the trie (wall time, 10-08), x13 with the quadratic check; in CPU time, as now
-  // timed, x3.58 to x3.98 (#7235, alone, 12 runs, 10-26).
+  // Measured: depth x4 costs x3.8 to x4.5 with the trie (wall time, 10-08), x13 with the quadratic check; in CPU time, as
+  // now timed, a median of x3.58 to x3.98 (#7235, alone, 12 runs, 10-26).
   // kosmos#7235: each depth's fixture is built ONCE, so no sample pays for a build (and the deep build's garbage) inside
   // its timed region; only run() is timed.
   const fixtureAt = (depth) => {
@@ -270,7 +270,9 @@ test('#5536 the collision check scales linearly with path depth (a ratio, so mac
   const shallowRun = fixtureAt(500);
   const deepRun = fixtureAt(2000);
   // kosmos#7235 round 2: CPU time (user + system), not wall time. The check is CPU work with nothing to wait on, so a
-  // stretch where another process held the core no longer counts against whichever sample it fell in.
+  // stretch where another process held the core no longer counts against whichever sample it fell in. That is all it
+  // removes: the same work still costs more CPU time on an efficiency core or with the caches contended, so a pair can
+  // still read high under load. The median below is what absorbs that.
   const timeOnce = async (run) => {
     const t0 = process.cpuUsage();
     const { r } = await run();
@@ -278,19 +280,22 @@ test('#5536 the collision check scales linearly with path depth (a ratio, so mac
     assert.equal(r.failed.length, 400);
     return user + system;
   };
-  /* kosmos#7235: alone this ratio reads about 3.8 (x3.75 to x3.88, 12 of 12), but inside a full suite it read x8 to x9
-     about one run in four. Reasoned, not reproduced inside a suite: the old test took all of one depth's samples, then
+  /* kosmos#7235: the old test (best of three per depth, wall time) read about 3.8 alone, but inside a full suite it read
+     x8 to x9 about one run in four. Reasoned, not reproduced inside a suite: the old test took all of one depth's samples, then
      all of the other's, so load that came and went could land on one side only; and under steady load the longer deep
      samples are hit more often, which skews a ratio of two minimums. So: one warm-up run of each (JIT), then five
-     adjacent pairs (shallow, deep), and the MEDIAN of the five pair ratios. Each ratio compares two samples taken
-     moments apart, and the median ignores up to two disturbed pairs in either direction, so a slow shallow sample
-     cannot hide a real regression either (as a minimum of ratios could). */
+     adjacent pairs, and the MEDIAN of the five pair ratios. Each ratio compares two samples taken moments apart, and the
+     median ignores up to two disturbed pairs in either direction, so a slow shallow sample cannot hide a real
+     regression either (as a minimum of ratios could). Round 3: the order inside a pair alternates, because a deep run's
+     garbage is often collected during the sample after it, and GC threads count as this process's CPU; always
+     shallow-after-deep would charge it to the shallow side every time, a steady pull down, the direction that hides a
+     regression. */
   await timeOnce(shallowRun);
   await timeOnce(deepRun);
   const ratios = [];
   for (let k = 0; k < 5; k++) {
-    const shallow = await timeOnce(shallowRun);
-    ratios.push((await timeOnce(deepRun)) / shallow);
+    if (k % 2 === 0) { const shallow = await timeOnce(shallowRun); ratios.push((await timeOnce(deepRun)) / shallow); }
+    else { const deep = await timeOnce(deepRun); ratios.push(deep / (await timeOnce(shallowRun))); }
   }
   ratios.sort((a, b) => a - b);
   const ratio = ratios[2];
