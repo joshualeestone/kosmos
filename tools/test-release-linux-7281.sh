@@ -165,6 +165,10 @@ chk "the site commit takes the Linux paths" wired '_site_paths="$_site_paths $(r
 chk "step 6 refuses a Linux bundle that is not V" wired 'THE LINUX BUNDLE IS NOT $V"; exit 1'
 chk "step 8 refuses an export without the Linux pair" wired 'shasum -a 256 --status -c "kosmos-$V-linux-x64.tar.gz.sha256"'
 chk "the abort trap passes the Linux pair record" wired '"$_staging_ptr_had" "$_linux_pair_had";'
+# The post-commit cleanup's line is identical to the /setup-staging one above it, so it is checked as the line after
+# its own loop head, not by text alone.
+linux_cleanup() { grep -A1 -F 'for _p in $(release_linux_site_paths "$V"); do' "$RS" | grep -qF 'ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"'; }
+chk "after the site commit, the untracked Linux paths are removed so the next pull is not refused" linux_cleanup
 
 echo "test-release-linux-7281: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
