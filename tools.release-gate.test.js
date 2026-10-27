@@ -673,6 +673,8 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_ENTRY_FILE: undefined,
       /* 0.7.25 cut: a staging cut exports KOSMOS_CUT_CHANNEL=staging, which turned on step 1f here (see sandboxEnv). */
       KOSMOS_CUT_CHANNEL: undefined,
+      /* 0.7.71 cut: the same for KOSMOS_CUT_LINUX=1 (see sandboxEnv); release.sh unsets it before step 3 as well. */
+      KOSMOS_CUT_LINUX: undefined,
       /* #6149: these arms cut 0.6.x, below the setup floor. Under KOSMOS_ALLOW_VERSION_JUMP=1 release.sh checks the cut's
          own version against the floor, so a shell that exported it (an operator's; release.sh itself unsets it before
          step 3, so a cut never passes it here) would stop every arm past step 1 at 1a-floor: measured, 17 red. The
