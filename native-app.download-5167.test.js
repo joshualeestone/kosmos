@@ -107,7 +107,7 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 210\b/);   // kosmos#5167 (2026-10-27): +5 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
+  assert.match(st, /let expected = 214\b/);   // kosmos#5167 (2026-10-27): +9 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
 });
 
 const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
@@ -251,14 +251,14 @@ test('#5167 core: the board\'s 204/205 refusal is never saved as an empty file (
 
 test('#5167 core: a policy refusal is SAID (2026-10-27: logged-only read as nothing happening), never over another or as a repeat; a real failure is one modal alert; the queueing machinery is gone', () => {
   const t = body('private func tellDownloadFailed(_ detail: String, title: String? = nil, refusal: Bool = false, always: Bool = false) {');
-  assert.match(t, /if refusal \{\n\s+logLine\([^\n]*\)\n\s+AppDelegate\.refusalRequestedForSelftest\?\(detail\)\n\s+guard refusalShouldShow\(up: refusalUp, asking: !downloadAsks\.isEmpty, lastAt: refusalLastAt, now: Date\(\),\n\s+window: AppDelegate\.refusalRepeatSeconds\) else \{ return \}\n\s+\}/,
-    'a refusal is no longer logged, or is said without the one-at-a-time, Allow-question and window guard');
+  assert.match(t, /if refusal \{\n\s+logLine\([^\n]*\)\n\s+AppDelegate\.refusalRequestedForSelftest\?\(detail\)\n\s+if refusalsShown\.commit != pageCommits \{ refusalsShown = \(pageCommits, 0\) \}\n\s+guard refusalShouldShow\(up: alertsOnScreen > 0, asking: !downloadAsks\.isEmpty, lastAt: refusalLastAt, now: Date\(\),\n\s+window: AppDelegate\.refusalRepeatSeconds,\n\s+shownThisPage: refusalsShown\.count, perPage: AppDelegate\.refusalsPerPage\) else \{ return \}\n\s+refusalsShown\.count \+= 1\n\s+\}/,
+    'a refusal is no longer logged, or is said without the alert, Allow-question, window and per-page guard');
   // Review 1: the window holds for ANY refusal, so two alternating sentences cannot put one up after every OK.
   const pure = SRC.slice(SRC.indexOf('func refusalShouldShow('), SRC.indexOf('\n}\n', SRC.indexOf('func refusalShouldShow(')));
   assert.doesNotMatch(pure, /detail/, 'the window is keyed on the sentence again: a page alternating two refusals traps the person');
-  assert.match(t, /\n\s+if refusal \{ refusalUp = true \}/, 'refusalUp is set late, so two refusals before the next turn are both said');
-  assert.match(t, /alert\.runModal\(\)\n\s+if refusal \{ refusalUp = false; refusalLastAt = Date\(\) \}/,
-    'the repeat window does not count from the OK');
+  assert.match(t, /\n\s+alertsOnScreen \+= 1   \/\//, 'the alert count is raised late (or not for every alert), so a refusal or the question can open over it');
+  assert.match(t, /alert\.runModal\(\)\n\s+alertsOnScreen -= 1\n\s+if refusal \{ refusalLastAt = Date\(\) \}/,
+    'the alert count is not lowered after the OK, or the window does not count from it');
   assert.match(t, /refusal \? "Kosmos did not save that file" : "Kosmos could not save that file"/, 'a refusal and a failure carry the same title');
   assert.match(t, /alert\.runModal\(\)/);
   assert.doesNotMatch(t, /beginSheetModal/, 'a sheet over a sheet can be dropped (#2807)');
@@ -285,8 +285,8 @@ test('#5167 core: an Allow counts only for the page that asked (a commit during 
   assert.match(b, /let commitsBefore = pageCommits\n\s+\/\/ On the next turn/, 'the commit count is not taken when the question is asked');
   assert.match(b, /\n\s+DispatchQueue\.main\.async \{ ask\(\) \}\n\s+\}$/, 'the question runs inside WebKit\'s policy callback');
   // Review 1 of the 2026-10-27 change: never over a refusal alert, where a Return meant as its OK would answer Don't Allow.
-  assert.match(b, /func ask\(\) \{\n\s+if refusalUp \{ DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ 0\.25\) \{ ask\(\) \}; return \}/,
-    'the Allow question can open over a refusal alert');
+  assert.match(b, /func ask\(\) \{\n\s+if alertsOnScreen > 0 \{ DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ 0\.25\) \{ ask\(\) \}; return \}/,
+    'the Allow question can open over a download alert (a refusal or a failure)');
   assert.match(b, /if asked, committedPageURL\?\.host\?\.lowercased\(\) != host \|\| pageCommits != commitsBefore \{/,
     'a page change voids Don\'t Allow too (a reloading page could ask again and again), or no longer voids an Allow');
   assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {'), /pageCommits \+= 1/);
@@ -296,6 +296,6 @@ test('#5167 (2026-10-27): every policy refusal is said, and a computer the perso
   assert.doesNotMatch(SRC, /quiet: true\)/, 'a refusal is logged only again: to the person that is "nothing happens"');
   assert.equal((SRC.match(/refusal: true\)/g) || []).length, 6, 'a refusal call site was added or lost; re-read each one');
   const ask = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
-  assert.match(ask, /if refusedDownloadHosts\.contains\(host\) \{\n[^\n]*logLine[^\n]*\n\s+tellDownloadFailed\("You chose Don't Allow for downloads from \\\(host\)\. Choose View > Reload to be asked again\.", refusal: true\)\n\s+then\(false\); return/,
+  assert.match(ask, /if refusedDownloadHosts\.contains\(host\) \{\n[^\n]*logLine[^\n]*\n\s+tellDownloadFailed\("Downloads from \\\(host\) are off until you choose View > Reload, which asks again\.", refusal: true\)\n\s+then\(false\); return/,
     'a download from a computer the person said Do not Allow to is refused with nothing on screen');
 });

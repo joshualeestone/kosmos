@@ -467,11 +467,14 @@ let kosmosPlusReservedLabels: Set<String> = [
 ]
 
 /// #5167 (2026-10-27): PURE, for --kosmos-app-mode-selftest. Whether a download refusal is put on screen: not while
-/// another refusal or the Allow question is up, and not within `window` seconds of the last refusal's OK, WHATEVER its
+/// any download alert or the Allow question is up; not within `window` seconds of the last refusal's OK, WHATEVER its
 /// sentence (review 1: a page alternating two refusals otherwise put one up straight after every OK, and with a modal
-/// up the menus are dead, so View > Reload and Quit were out of reach). Every refusal is logged either way.
-func refusalShouldShow(up: Bool, asking: Bool, lastAt: Date?, now: Date, window: TimeInterval) -> Bool {
-    if up || asking { return false }
+/// up the menus are dead, so View > Reload and Quit were out of reach); and at most `perPage` on one page (review 2:
+/// a page retrying on a timer otherwise put one up every window). Every refusal is logged either way. A second click
+/// inside the window, or past the page's limit, looks like nothing on screen; the log still says why.
+func refusalShouldShow(up: Bool, asking: Bool, lastAt: Date?, now: Date, window: TimeInterval,
+                       shownThisPage: Int, perPage: Int) -> Bool {
+    if up || asking || shownThisPage >= perPage { return false }
     if let lastAt = lastAt, now.timeIntervalSince(lastAt) < window { return false }
     return true
 }
@@ -3897,7 +3900,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if allowedDownloadHosts.contains(host) { then(true); return }
         if refusedDownloadHosts.contains(host) {
             logLine("#5167: downloads from \(host) were not allowed this time (the person said so; View > Reload asks again)")
-            tellDownloadFailed("You chose Don't Allow for downloads from \(host). Choose View > Reload to be asked again.", refusal: true)
+            tellDownloadFailed("Downloads from \(host) are off until you choose View > Reload, which asks again.", refusal: true)
             then(false); return
         }
         if downloadAsks[host] != nil { downloadAsks[host]!.append(then); return }   // one question at a time
@@ -3913,9 +3916,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // downloadAsks). WebKit's calls (a commit, another policy) still arrive while the question is up, which
         // is why an Allow is checked against the page and pageCommits afterwards.
         /* Review 1 (W2): never over a refusal alert, where a Return meant as its OK would answer Don't Allow unread.
-           It waits a quarter second at a time until that alert is gone (refusalUp clears when its OK is pressed). */
+           It waits a quarter second at a time until every download alert is gone (review 2: a failure alert too). */
         func ask() {
-        if refusalUp { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { ask() }; return }
+        if alertsOnScreen > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { ask() }; return }
         let alert = NSAlert()
         alert.messageText = "Allow downloads from \(host)?"
         // Cleaned as a saved name is (no direction controls or separators): the page chose this text.
@@ -3956,19 +3959,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// (`refusal: true`: not a board, not this board's origin, WebKit stopping it, a computer the person did not allow)
     /// is said too (2026-10-27, an outside report: a refusal that was only logged read as "nothing happens", which is
     /// indistinguishable from broken). So a page that repeats one cannot pile alerts up or keep one on screen, a
-    /// refusal is said only while no other refusal and no Allow question is up, and never within refusalRepeatSeconds
-    /// of the last refusal's OK; those are logged only. The selftest sets downloadAlertPresenter to read what is said,
-    /// and refusalRequestedForSelftest to read every refusal asked for, shown or not.
-    fileprivate var refusalUp = false
+    /// refusal is said only under refusalShouldShow's guard; the rest are logged only. The selftest sets
+    /// downloadAlertPresenter to read what is said, and refusalRequestedForSelftest to read every refusal asked for.
+    /// alertsOnScreen counts every alert this shows, failures too (review 2: the Allow question and a refusal must
+    /// not open over a failure alert either); a count, not a flag, so one nested alert's OK cannot clear it early.
+    fileprivate var alertsOnScreen = 0
     private var refusalLastAt: Date?
+    private var refusalsShown = (commit: -1, count: 0)   // refusals shown on the page of commit `commit`
     static let refusalRepeatSeconds: TimeInterval = 10
+    static let refusalsPerPage = 2
     static var refusalRequestedForSelftest: ((String) -> Void)?
     private func tellDownloadFailed(_ detail: String, title: String? = nil, refusal: Bool = false, always: Bool = false) {
         if refusal {
             logLine("#5167: not saved (a refusal): \(detail)")
             AppDelegate.refusalRequestedForSelftest?(detail)
-            guard refusalShouldShow(up: refusalUp, asking: !downloadAsks.isEmpty, lastAt: refusalLastAt, now: Date(),
-                                    window: AppDelegate.refusalRepeatSeconds) else { return }
+            if refusalsShown.commit != pageCommits { refusalsShown = (pageCommits, 0) }
+            guard refusalShouldShow(up: alertsOnScreen > 0, asking: !downloadAsks.isEmpty, lastAt: refusalLastAt, now: Date(),
+                                    window: AppDelegate.refusalRepeatSeconds,
+                                    shownThisPage: refusalsShown.count, perPage: AppDelegate.refusalsPerPage) else { return }
+            refusalsShown.count += 1
         }
         let title = title ?? (refusal ? "Kosmos did not save that file" : "Kosmos could not save that file")
         if let present = AppDelegate.downloadAlertPresenter {   // the selftest
@@ -3983,11 +3992,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.addButton(withTitle: "OK")
         // Modal, never a sheet: a sheet over another sheet can be dropped (#2807), and a failure must be said.
         // Shown on the next turn, so the caller answers WebKit first rather than holding its decision under it.
-        if refusal { refusalUp = true }   // set now, not on the next turn: a second refusal before then is not said
+        alertsOnScreen += 1   // now, not on the next turn: a refusal or a question before then waits too
         DispatchQueue.main.async { [self] in
             if always { NSApp.activate(ignoringOtherApps: true) }   // the one warning about a saved file is seen
             alert.runModal()
-            if refusal { refusalUp = false; refusalLastAt = Date() }   // the window counts from the OK
+            alertsOnScreen -= 1
+            if refusal { refusalLastAt = Date() }   // the window counts from the OK
         }
     }
 
@@ -6578,12 +6588,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             let refused = refusals()
             let heard = " (asked \(requested.count): \(requested.joined(separator: " | ")))"
             row(refusalAsked("This page is not a board Kosmos saves files from"), "A REFUSAL IS SAID, NOT ONLY LOGGED: the page that is not a board" + heard)
-            row(refusalAsked("You chose Don't Allow for downloads from"), "a computer the person did not allow says so and how to be asked again" + heard)
+            row(refusalAsked("are off until you choose View > Reload"), "a computer the person did not allow says so and how to be asked again" + heard)
             row(refusalAsked("came from somewhere Kosmos does not save from, so it was not saved"), "a foreign attachment says why" + heard)
             row(refusalAsked("not opened or saved"), "a foreign file the window cannot show says why" + heard)
             row(refusalAsked("pointed somewhere Kosmos does not save from") || refusalAsked("stopped before it began"), "a redirect to another origin says why (or that it stopped)" + heard)
-            row(!refused.isEmpty && refused.count <= requested.count && refused.allSatisfy { r in requested.contains { r.hasSuffix($0) } },
-                "refusals reach the screen through the guard: at least one shown, never more than were asked, each one asked (shown \(refused.count))")
+            row(!refused.isEmpty, "at least one refusal reaches the screen through its guard (shown \(refused.count))")
             row(told.allSatisfy { $0.hasPrefix("Kosmos could not save that file: ") || $0.hasPrefix("Kosmos did not save that file: ") },
                 "and each alert carries a failure or a refusal title (a 204 says nothing)")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
@@ -7499,18 +7508,23 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     siteIs("https://josh.kosmosplus.com/", false, "#5169: a computer's board address is NOT the site (so a board page stays blocked)")
     siteIs("https://checkout.stripe.com/", false, "#5169: a foreign host is not the site")
     // #5167 (2026-10-27): a download refusal is said on screen, but never over another alert or soon after the last.
-    func shows(up: Bool, asking: Bool, lastAgo: TimeInterval?, _ want: Bool, _ why: String) {
+    func shows(up: Bool, asking: Bool, lastAgo: TimeInterval?, page: Int = 0, _ want: Bool, _ why: String) {
         ran += 1
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let got = refusalShouldShow(up: up, asking: asking, lastAt: lastAgo.map { now.addingTimeInterval(-$0) }, now: now, window: 10)
+        let got = refusalShouldShow(up: up, asking: asking, lastAt: lastAgo.map { now.addingTimeInterval(-$0) }, now: now, window: 10,
+                                    shownThisPage: page, perPage: 2)
         if got != want { bad += 1 }
         print((got == want ? "PASS  " : "FAIL  ") + (got ? "shown" : "logged").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
     }
     shows(up: false, asking: false, lastAgo: nil, true, "A REFUSAL IS SAID ON SCREEN (an outside report: a logged-only refusal reads as nothing happening)")
-    shows(up: true, asking: false, lastAgo: nil, false, "not while another refusal is on screen (a repeating page cannot pile them up)")
+    shows(up: true, asking: false, lastAgo: nil, false, "not while another download alert is on screen (a repeating page cannot pile them up)")
     shows(up: false, asking: true, lastAgo: nil, false, "not while the Allow question is up (a Return meant for one must not answer the other)")
+    shows(up: true, asking: true, lastAgo: nil, false, "not while both are up")
     shows(up: false, asking: false, lastAgo: 3, false, "ANY refusal within the window after the last OK is logged only (review 1: two alternating sentences trapped the person)")
+    shows(up: true, asking: false, lastAgo: 3, false, "not while an alert is up, inside the window too")
     shows(up: false, asking: false, lastAgo: 10, true, "CONTROL: once the window has passed, a refusal is said again")
+    shows(up: false, asking: false, lastAgo: nil, page: 2, false, "AT MOST TWO ON ONE PAGE (review 2: a page retrying on a timer put one up every window)")
+    shows(up: false, asking: false, lastAgo: nil, page: 1, true, "CONTROL: the second on a page is said")
     // #5167: which downloads the app saves, and where.
     func dl(_ target: String, _ page: String?, _ want: Bool, _ why: String) {
         ran += 1
@@ -7814,7 +7828,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 210   // kosmos#5167 (2026-10-27): +5 (refusalShouldShow: shown, three logged, one control); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 214   // kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
