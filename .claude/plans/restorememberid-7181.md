@@ -8,10 +8,12 @@ Card kosmos#7181. Built on #5536 slice 4b (branch restoreworld-5536, PR #7240); 
   punctuation, reduced to one id and shared one pool of nine names a day: one member's restores could use up
   another's, and the refusal said "for this member" when it was not.
 - `worldName` and `prepareRestoreWorld` now take an optional `memberId` (the restore request's `member`, which 4c
-  has from the verified release). The name carries six hex characters of a SHA-256 of it ("Restored: Ann,
-  2026-10-26 (a1b2c3)"; a second restore that day "(a1b2c3, 2)"). Hex survives safeKey, so each member has their own
-  pool. The tag is a hash, never the id, and is only shown, never trusted.
-- The nine-a-day refusal says "for this member" only when a member id was given; otherwise "under this name".
+  has from the verified release). The name carries twelve hex characters (48 bits) of a SHA-256 of it ("Restored:
+  Ann, 2026-10-26 (a1b2c3d4e5f6)"; a second restore that day "(a1b2c3d4e5f6, 2)"). Hex survives safeKey, so each
+  member's names are their own. The tag is a hash, never the id, and is only shown, never trusted.
+- The nine-a-day refusal says "for this member" only when a member id was given; otherwise "under names that read the
+  same to Kosmos".
+- A member id given but unusable (not a non-empty string) is refused; only an absent one means "no id".
 - Without a memberId the names are as before (the control in the tests).
 
 ## Rejected
@@ -45,3 +47,14 @@ Card kosmos#7181. Built on #5536 slice 4b (branch restoreworld-5536, PR #7240); 
   is a tidiness cap, not abuse protection.
 - (5) no action (the comment already concedes a guessable id can be confirmed). (6) the collision itself is not
   testable at 48 bits; the unusable-id test covers the other gap.
+
+## Round 3 (blind, default model, 20:5x CDT)
+- No BLOCKER or WARNING. 57 of 57. The reviewer confirmed that tagged and untagged names cannot reduce to the same id:
+  the date's last hyphen sits at a fixed distance from the end in each form. The reachability and comment-deferral
+  guards are satisfied, no length limit applies, and the three tests red with the fix reverted.
+- NITs applied: (1) "The call" said six hex and the old refusal wording; updated. (2) The contract says `member` is the
+  shown name, never the release's id. (3) The tag space wording is now precise (nothing safeKey keeps). The comment
+  states that member ids are assumed unique across one board's orgs: the hash covers the id alone. (4) The comment
+  names the narrow-switcher risk and leaves the full-name title to 4c.
+- Rebased onto main after #7240 (4b) merged as 54760596fc. The duplicate 4b commits dropped and the two #7181 commits
+  applied cleanly.
