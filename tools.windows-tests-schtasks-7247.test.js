@@ -362,3 +362,27 @@ test('#7270 review 2: with windowsVerbatimArguments node passes the arguments as
   assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
   assert.equal(callRuns('cmd', ['/d', '/s', '/c', '"node x.js"'], { windowsVerbatimArguments: true }), false);
 });
+
+test('#7270 review 3: each launcher is read as it reads its arguments', () => {
+  // PowerShell joins what follows -Command (checked live on 5.1), cmd reads the line node builds
+  for (const [file, args] of [
+    ['powershell.exe', ['-NoProfile', '-Command', 'Get-Date', '; schtasks /End /TN Kosmos\\board']],
+    ['powershell.exe', ['-Command', 'Write-Output', 'a; schtasks /Query']],
+    ['cmd.exe', ['/c', 'echo', 'x"&schtasks']], ['cmd.exe', ['/c', 'echo', 'x"y & schtasks /End']],
+    ['cmd', ['/s', '/c', '""C:\\Program Files\\x\\schtasks.exe" /End"']],
+  ]) assert.equal(callRuns(file, args), true, JSON.stringify([file, args]));
+  // CONTROL: one quoted argument still only echoes; PowerShell running something else is not refused
+  assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
+  assert.equal(callRuns('powershell.exe', ['-Command', 'Write-Output', 'schtasks']), false);
+});
+
+test('#7270 review 3: a quoted path is read both as a path and as a line, and either one running schtasks is enough', () => {
+  for (const cmd of [
+    '"D:\\wt - copy\\schtasks.exe" /Query', 'cmd /c "D:\\wt - copy\\schtasks.exe"', '"C:\\a -b\\Git\\bin\\bash.exe" -c "schtasks"',
+    '>nul 2>&1 schtasks /Query', '2>&1 schtasks', 'X=1 2>&1 schtasks', 'env --split-string="schtasks /End"', 'env -S"schtasks /End"',
+  ]) assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL
+  for (const cmd of ['"D:\\wt - copy\\node.exe" x.js', '"C:\\a -b\\Git\\bin\\bash.exe" -c "echo schtasks"', 'node x.js 2>&1',
+    'command -p -v schtasks', 'env --split-string="node x.js"'])
+    assert.equal(commandRuns(cmd), false, cmd);
+});

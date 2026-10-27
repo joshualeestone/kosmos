@@ -20,16 +20,19 @@ tools/no-schtasks-preload.cjs (tools/lib/schtasks-call.cjs) missed common prefix
 - wordsRun: NAME=value and a leading @ skipped; nohup/exec/command/builtin/time/nice/then/else/do/! read past their
   options; timeout read past its duration (Windows' `timeout /t` runs nothing); cmd's if forms; env -S read as the line.
 - cmd /c: if the line starts with `""`, also read it with the outer pair dropped, as cmd does.
-- callRuns: without a shell, the launcher's words are built from its arguments (argWord): one with a space or tab and no
-  double quote is one quoted word, as node passes it; any other is bare, as node passes it.
+- callRuns: each launcher read as it reads its arguments: cmd gets the line node builds (nodeQuote, libuv rules: quote on
+  space, tab, double quote or empty; \" inside), plus the as-written line when an argument holds a double quote;
+  PowerShell gets the arguments joined, as it joins what follows -Command; a POSIX shell or env gets each argument as
+  one word. Lines known to be cmd or PowerShell are not cut at backticks.
+- A quoted word with a space is read as a line AND as a path; either one running schtasks is enough.
 
 ## Rejected
 - Skipping here-document bodies (round 0 to 1): a << in a quote, a comment or node -e switched the guard off for the
   rest of a script, and bodies fed to bash or holding $( ) do run. Refusing a body line is the side that cannot reach
   the real scheduler.
 - A real shell parser: out of proportion for a test guard; #7262 is the place for one shared reader.
-- Escaping inner quotes in asOneWord (node's MSVC `\"` rules): the tokenizer does not read `\"`, so an argument that
-  already holds a quote is left as written. That keeps cmd's `""path" args"` form readable.
+- One word per argument for every launcher (rounds 0 to 2): PowerShell joins its arguments and cmd re-reads the line
+  node builds, so that leaked (review 3).
 
 ## Weakest part
 The matcher is still a tokenizer. New shapes will exist (a function or alias defined earlier in the same line,
@@ -56,3 +59,10 @@ holds each one.
   only, named in the header. NIT X==1 schtasks refused: ACCEPTED (cmd fails that line anyway). Reviewer harness of 225
   calls rerun: every HEAD-false/main-true case is the intended one-quoted-argument read. Negative control: both new
   tests fail against round 1. 78/78 with windows-tests-1777 and win32job.
+- Round 3: 2 BLOCKERs, 2 WARNINGs, 1 NIT. BLOCKERs FIXED: PowerShell arguments after -Command are joined, as PowerShell
+  joins them (reviewer checked live); a quoted path with " -" in a folder name is read both ways. WARNINGs FIXED: node's
+  quoting rule was stated wrong (it also quotes a double quote and an empty argument); cmd now reads the exact line node
+  builds; 2>&1 before a command is not cut at the &. NIT partly FIXED: env -S"..." and --split-string=, command -p -v.
+  NIT ACCEPTED (leak on main too): echo "`schtasks`" in POSIX double quotes; a quoted path to nohup. Both reviewers'
+  harnesses rerun: every HEAD-false/main-true case is the intended one-quoted-argument read (truth: does not run).
+  Negative control: both new tests fail against round 2. 80/80 with windows-tests-1777 and win32job.

@@ -56,11 +56,14 @@ function commands(text, shell) {
   let cur = '';
   let quote = null;
   const cuts = shell === 'other' ? '&|;()\r\n' : '&|;()`\r\n';
+  let prev = '';
   for (const ch of String(text == null ? '' : text)) {
-    if (quote) { if (ch === quote) quote = null; cur += ch; continue; }
-    if (ch === '"' || ch === "'") { quote = ch; cur += ch; continue; }
-    if (cuts.includes(ch)) { parts.push(cur); cur = ''; continue; }
+    if (quote) { if (ch === quote) quote = null; cur += ch; prev = ch; continue; }
+    if (ch === '"' || ch === "'") { quote = ch; cur += ch; prev = ch; continue; }
+    if (ch === '&' && (prev === '>' || prev === '<')) { cur += ch; prev = ch; continue; }   // 2>&1: a redirect (review 3)
+    if (cuts.includes(ch)) { parts.push(cur); cur = ''; prev = ch; continue; }
     cur += ch;
+    prev = ch;
   }
   parts.push(cur);
   return parts;
@@ -97,12 +100,6 @@ function words(command) {
   return out;
 }
 
-/* Whether quoted text with a space is one program path ("C:\Program Files\Git\bin\bash.exe"), not a command line
-   that ends in one (schtasks /Query; exec /bin/bash): no separator, and no word after a space that starts a switch. */
-function isPath(text) {
-  return !/[&|;<>()`\r\n]/.test(text) && !/\s[/-]/.test(text);
-}
-
 /* PowerShell's -EncodedCommand: base64 of UTF-16LE. */
 function decodePs(value) {
   try { return Buffer.from(String(value), 'base64').toString('utf16le'); } catch { return ''; }
@@ -114,10 +111,13 @@ function wordsRun(ws, i, depth, shell) {
   const rest = (k) => ws.slice(k).map((w) => w.raw).join(' ');
   while (i < ws.length) {
     const w = ws[i];
-    /* A quoted command as one word (cmd /c "schtasks /End"): read what is inside. A quoted path is a program, schtasks
-       or a launcher read below ("C:\Program Files\Git\bin\bash.exe" -c ..., review 7). */
-    if (w.quoted && /\s/.test(w.inner) && !(isPath(w.inner) && (PROGRAM.test(baseName(w.inner)) || isLauncher(baseName(w.inner))))) {
-      return lineRuns(w.inner, depth + 1, shell);
+    /* A quoted word with a space is either a command line (cmd /c "schtasks /End") or one program path
+       ("C:\Program Files\Git\bin\bash.exe" -c ...). Both are read, and either one running schtasks is enough
+       (review 3: "D:\wt - copy\schtasks.exe" is a path that also looks like switches). A launcher's path goes on to
+       be read below as that launcher. */
+    if (w.quoted && /\s/.test(w.inner)) {
+      if (lineRuns(w.inner, depth + 1, shell) || PROGRAM.test(baseName(w.inner))) return true;
+      if (!isLauncher(baseName(w.inner))) return false;
     }
     /* NAME=value before the command sets its environment (X=1 schtasks): the command follows (#7270). */
     if (!w.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.text)) { i += 1; continue; }
@@ -159,13 +159,18 @@ function wordsRun(ws, i, depth, shell) {
     if (/^env(\.exe)?$/i.test(b)) {
       for (i += 1; i < ws.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1) {
         if (/^(-S|--split-string)$/.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1, 'posix');   // -S STRING is the command line
+        const joined = ws[i].text.match(/^(?:-S|--split-string=)(.+)$/);   // -S"..." and --split-string=... (review 3)
+        if (joined) return lineRuns([joined[1], rest(i + 1)].join(' '), depth + 1, 'posix');
         if (/^-[uC]$/.test(ws[i].text)) i += 1;   // -u NAME, -C DIR: the option's value is the next word
       }
       continue;
     }
     /* Words that start the command after them: nohup, exec, command, time, nice, and the shell keywords a command
        follows (then, else, do, !) (#7270). */
-    if (/^(command|builtin)$/.test(b) && i + 1 < ws.length && /^-[a-zA-Z]*[vV]/.test(ws[i + 1].text)) return false;   // command -v: a lookup
+    if (/^(command|builtin)$/.test(b)) {   // command -v, command -p -v: a lookup, which runs nothing
+      let k = i + 1;
+      for (; k < ws.length && /^-/.test(ws[k].text); k += 1) if (/^-[a-zA-Z]*[vV]/.test(ws[k].text)) return false;
+    }
     if (/^(nohup|exec|command|builtin|time|nice|then|else|do|!)$/i.test(b)) {
       for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^-(n|a)$/.test(ws[i].text)) i += 1;
       continue;
@@ -209,27 +214,50 @@ function commandRuns(text) {
 }
 
 /* Whether spawn/execFile(file, args, options) runs schtasks. A shell or a launcher as the program is read with its
-   arguments: through a shell as one command line, and without one as the words node hands the launcher. */
+   arguments the way that program reads them (review 3):
+   - through a shell, or with windowsVerbatimArguments, as one command line of the arguments as they are;
+   - cmd: the command line node builds (libuv's quoting), which cmd reads with its own quote rules, so cmd /c echo
+     "a & schtasks" echoes while ver&schtasks and x"&schtasks run it. An argument holding a double quote is read
+     both as node quotes it and as written, and either one running schtasks is enough (cmd's own ""path" args" form);
+   - PowerShell: the arguments joined with spaces, as PowerShell joins whatever follows -Command;
+   - a POSIX shell or env: each argument is one word, as they receive argv (MSYS bash honours node's quoting). */
 function callRuns(file, args, options) {
   const list = Array.isArray(args) ? args.map(String) : [];
   if (options && options.shell) return commandRuns([String(file)].concat(list).join(' '));
   const base = baseName(file);
   if (PROGRAM.test(base)) return true;
-  if (isLauncher(base)) {
-    /* windowsVerbatimArguments: node joins the arguments as they are, so cmd /c echo a & schtasks runs it (review 2). */
-    if (options && options.windowsVerbatimArguments) return wordsRun(words([base].concat(list).join(' ')), 0, 0);
-    return wordsRun([base].concat(list).map(argWord), 0, 0);
-  }
-  return false;
+  if (!isLauncher(base)) return false;
+  const asWritten = () => commandRuns([base].concat(list).join(' '));
+  if (options && options.windowsVerbatimArguments) return asWritten();
+  /* A line known to be PowerShell's or cmd's: a backtick in it is an escape or text, not a command (review 1). */
+  const asLine = (parts) => lineRuns([base].concat(parts).join(' '), 0, 'other');
+  if (POWERSHELL.test(base)) return asLine(list);
+  if (CMD.test(base)) return asLine(list.map(nodeQuote)) || (list.some((x) => x.includes('"')) && asLine(list));
+  return wordsRun([base].concat(list).map(argWord), 0, 0);
 }
 
-/* Without a shell each argument is one word: it is never cut at a newline, &, ; or a backtick on the way in (review 1).
-   node quotes one that holds a space or a tab, and only then, so the launcher reads it as one word (cmd /c echo
-   "a & schtasks" echoes, #7270), while one with no space reaches it bare (ver&schtasks runs schtasks). An argument
-   already holding a double quote is left as written, so cmd's own ""path" args" form still reads as cmd reads it. */
+/* How node (libuv's quote_cmd_arg) writes one argument into a Windows command line: an empty one or one with a space,
+   tab or double quote is quoted, a double quote inside becomes \", and backslashes before a quote are doubled. */
+function nodeQuote(arg) {
+  if (arg === '') return '""';
+  if (!/[ \t"]/.test(arg)) return arg;
+  if (!/["\\]/.test(arg)) return '"' + arg + '"';
+  let out = '"';
+  let slashes = 0;
+  for (const ch of arg) {
+    if (ch === '\\') { slashes += 1; continue; }
+    if (ch === '"') { out += '\\'.repeat(slashes * 2 + 1) + '"'; slashes = 0; continue; }
+    out += '\\'.repeat(slashes) + ch;
+    slashes = 0;
+  }
+  return out + '\\'.repeat(slashes * 2) + '"';
+}
+
+/* An argument handed to a POSIX shell or env is one word: never cut at a newline, &, ; or a backtick on the way in.
+   One with a space, a tab or a quote is one quoted word whose inside is the argument itself. */
 function argWord(arg) {
   const text = arg.replace(/["']/g, '');
-  if (/[ \t]/.test(arg) && !arg.includes('"')) return { raw: '"' + arg + '"', text, quoted: true, inner: arg };
+  if (/[ \t"']/.test(arg)) return { raw: '"' + arg + '"', text, quoted: true, inner: arg };
   return { raw: arg, text, quoted: false, inner: null };
 }
 
