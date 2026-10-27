@@ -22165,12 +22165,12 @@ const server = http.createServer(async (req, res) => {
            who and why, once per sender-reason-window; the room just shows it. */
         .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note' || m.kind === 'external') ? m.project === id
           : (m.kind === 'refused' && m.project === id)));
-      /* kosmos#7365 slice 3: the archived stretch is the oldest roomarchive.archivedCount rows in time order (the same
-         stable sort as `rows` below). Best-effort: an unreadable marker reads as none, so more stays live, never less. */
+      /* kosmos#7365 slice 3: the archived stretch is the first roomarchive.archivedCount rows in the room's order. Best-effort: an unreadable marker reads as none, so more stays live, never less. */
       let archiveMarker = null;
       try { archiveMarker = roomarchive.markerFor(id); } catch { archiveMarker = null; }
-      const byTime = roomRows.slice().sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
-      const archivedSrc = new Set(byTime.slice(0, roomarchive.archivedCount(byTime, archiveMarker, Date.now())));
+      // Sorted in place with the comparator `rows` uses below, so that later sort finds them already in order.
+      roomRows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
+      const archivedSrc = new Set(roomRows.slice(0, roomarchive.archivedCount(roomRows, archiveMarker, Date.now())));
       const kept = roomRows
         /* A note written for the agents (the "no brief yet" coordination note) is theirs to
            read through `kosmos room` (the text arm below keeps it), not the first thing a
@@ -22244,7 +22244,7 @@ const server = http.createServer(async (req, res) => {
       // kosmos#7365 slice 3: every row is a fresh object from the map above, so marking it touches no stored row.
       kept.forEach((m, i) => { if (archivedSrc.has(m)) rows[i].archived = true; });
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
-      // The archived rows are the start of `rows` (the same order as byTime, the audience filter only drops rows).
+      // The archived rows are the start of `rows` (kept is roomRows in order, less some rows; the sort is stable).
       let archivedCount = 0;
       while (archivedCount < rows.length && rows[archivedCount].archived === true) archivedCount += 1;
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
@@ -22304,6 +22304,9 @@ const server = http.createServer(async (req, res) => {
             const reader = senderFromAgentToken(req, null, safeRoster());
             const who = reader && reader.ok && reader.card && typeof reader.card.sessionName === 'string' ? reader.card.sessionName : null;
             const shownIds = tail.filter((m) => m && m.kind === 'post' && typeof m.id === 'string').map((m) => m.id);
+            /* kosmos#7365 slice 3: a held post that is now archived is never shown here again, so it stops being held
+               too, or its idle reminder would point at a post this view no longer has. */
+            for (let i = 0; i < archivedCount; i++) if (rows[i] && rows[i].kind === 'post' && typeof rows[i].id === 'string') shownIds.push(rows[i].id);
             if (who && shownIds.length) roomhold.dropShown(who, id, shownIds);
           } catch { /* the posts stay held */ }
         }
@@ -22391,7 +22394,10 @@ const server = http.createServer(async (req, res) => {
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
-          : (lines.length ? '' : 'Nothing has been said in this room yet.\n');
+          : (lines.length ? ''
+            // kosmos#7365 slice 3: a room whose every message is archived is not an empty room.
+            : archivedCount > 0 ? 'Everything said in this room so far is archived; nothing has been said since.\n'
+            : 'Nothing has been said in this room yet.\n');
         /* #3311: agents read this view before they post. In a shared project every
            post here leaves this computer, so it says so first, every time. */
         let shared = '';
@@ -22636,7 +22642,7 @@ const server = http.createServer(async (req, res) => {
       catch { sendJson(res, 503, { ok: false, because: 'we could not undo the archive just now; nothing changed' }); }
       return;
     }
-    readBody(req)
+    readBody(req, 4096)
       .then((buf) => {
         let body = null;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }

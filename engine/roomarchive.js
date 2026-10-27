@@ -9,8 +9,10 @@
    - the automatic rule: older than ARCHIVE_AGE_MS AND outside the newest ARCHIVE_KEEP rows (Mona's settled design,
      comment 6449440652: the age keeps a busy week-old conversation live, the count keeps the room small);
    - the person's own marker: "Archive older messages" stores a time, and every row older than it is archived.
-   Each rule picks a run from the START of the room (rows are in time order), so the two combine as the longer run and
-   the archive is always one stretch with one boundary.
+   Each rule picks a run from the START of the room's rows, in the order the room read sorts them, so the two combine as
+   the longer run and the archive is always one stretch with one boundary. The run ends at the first row the rule does
+   not pick: a row whose time does not parse, or one stored in another time format that sorts out of place, ends it
+   early, so more stays live.
 
    The marker is one small file (ROOT/roomarchive.json, { [projectId]: { before, setAt } }). Undo removes the room's
    entry; that undoes only the person's marker, because rows the automatic rule picks would be picked again on the next
@@ -59,7 +61,8 @@ function markerFor(projectId) {
 /* The person archives every row older than `before` (an ISO time, not in the future). Returns { ok, marker } or
    { ok: false, because }. A marker earlier than the room's current one is kept as asked: the person chose it. */
 function setMarker(projectId, before, now = Date.now()) {
-  const t = typeof before === 'string' && before.length <= 40 ? Date.parse(before) : NaN;
+  // An ISO time only: Date.parse alone reads '1' or 'March 7' as a date.
+  const t = typeof before === 'string' && before.length <= 40 && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(before) ? Date.parse(before) : NaN;
   if (!Number.isFinite(t)) return { ok: false, because: 'that is not a time we can read' };
   if (t > now) return { ok: false, because: 'that time has not happened yet, so nothing is older than it' };
   const marker = { before: new Date(t).toISOString(), setAt: new Date(now).toISOString() };
