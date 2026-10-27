@@ -369,12 +369,14 @@ struct ChatView: View {
                     // opening (measured 10-26: the initial-offset anchor alone left a blank thread 3 of 5 times; an anchor with jumps,
                     // round 2, 5 of 5; this bounded form is round 4).
                     // Round 7: only for a long thread, as the anchors (round 6 measured a short chat 346 px lower with the jumps on).
+                    // Round 8: every 0.3 s to 3.3 s. Without the initial-offset anchor each jump measures more of the rows below and
+                    // lands nearer, so they converge; four (round 7) stopped five messages short in 5 of 5 opens.
                     if !Self.sampleNoFix, rows.count >= OpensAtBottom.longThread {
-                        for at in [0.3, 0.8, 1.5, 2.2] {
+                        for at in stride(from: 0.3, through: 3.3, by: 0.3) {
                             DispatchQueue.main.asyncAfter(deadline: .now() + at) { if opening && !searchMode { proxy.scrollTo("end", anchor: .bottom) } }
                         }
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { opening = false }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { opening = false }
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
