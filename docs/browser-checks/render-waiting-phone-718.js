@@ -187,12 +187,19 @@ async function open(browser, opts) {
     // with /api/status stubbed and the page's own timers REAL, through tick -> settleWantAgent ->
     // openDetail -> the reveal. Present: it lands on the conversation. Missing: after the grace
     // it goes to the board home and the address loses the link.
-    const fromLink = async (agents, waitMs, extra) => {
+    // #7280 review 1: `files` makes the agent's Files list (painted above every section) arrive 600 ms late with 8 rows,
+    // the drift the landing's hold exists for.
+    const fromLink = async (agents, waitMs, extra, files) => {
       const page = await browser.newPage({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
-      await page.addInitScript((list) => {
+      await page.addInitScript(([list, files]) => {
         const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
-        window.fetch = async (u) => (String(u).indexOf('/api/status') !== -1 ? enc({ agents: list, counts: {}, checkedAt: Date.now() }) : enc({}));
-      }, agents);
+        const rows = Array.from({ length: 8 }, (_, i) => ({ name: 'notes-' + (i + 1) + '.md', modified: Date.now() - i * 60000, size: 1200 }));
+        window.fetch = async (u) => {
+          if (String(u).indexOf('/api/status') !== -1) return enc({ agents: list, counts: {}, checkedAt: Date.now() });
+          if (files && /\/api\/agent\/[^/]+\/files/.test(String(u))) { await new Promise((r) => setTimeout(r, 600)); return enc({ files: rows }); }
+          return enc({});
+        };
+      }, [agents, !!files]);
       await page.goto(PAGE + '?tab=detail&agent=' + encodeURIComponent(BASE.sessionName) + (extra || ''));
       await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.remove(); });
       await page.waitForTimeout(waitMs);
@@ -208,7 +215,9 @@ async function open(browser, opts) {
           talkShown: !!(talk && !talk.hidden),
           // #7280: AI Settings (d-sec-model) shown, and where it sits on the screen.
           modelShown: !!(document.getElementById('d-sec-model') && !document.getElementById('d-sec-model').hidden),
-          modelTop: document.getElementById('d-sec-model') ? Math.round(document.getElementById('d-sec-model').getBoundingClientRect().top) : null };
+          modelTop: document.getElementById('d-sec-model') ? Math.round(document.getElementById('d-sec-model').getBoundingClientRect().top) : null,
+          fileRows: document.querySelectorAll('#d-files-list > *').length,
+          filesShown: !!(document.getElementById('d-files') && !document.getElementById('d-files').hidden) };
       });
       await page.close();
       return r;
@@ -233,6 +242,17 @@ async function open(browser, opts) {
     chk(toModel.detailShown && toModel.current === BASE.sessionName && toModel.modelShown && !toModel.talkShown
       && toModel.modelTop !== null && toModel.modelTop >= 0 && toModel.modelTop < 667,
       '[link/phone] ?tab=detail&agent=&sec=model opens that agent\'s AI Settings, on screen', JSON.stringify(toModel));
+    // Review 1: with the Files list landing late above it, AI Settings is put back at the top (the hold), not left
+    // pushed down. The stimulus must have fired (8 rows painted) or the arm proves nothing. Measured red with the hold
+    // replaced by a one-shot scroll (the first version of this change).
+    const toModelFiles = await fromLink([BASE], 3000, '&sec=model', true);
+    if (!(toModelFiles.filesShown && toModelFiles.fileRows >= 8)) chk(false, '[link/phone] the late Files list really painted above AI Settings', JSON.stringify(toModelFiles));
+    else chk(toModelFiles.modelShown && toModelFiles.modelTop !== null && toModelFiles.modelTop >= 0 && toModelFiles.modelTop <= 667 / 4,
+      '[link/phone] &sec=model stays at the top when the Files list arrives late above it', JSON.stringify(toModelFiles));
+    for (const sec of ['remove', 'term']) {
+      const r = await fromLink([BASE], 2000, '&sec=' + sec);
+      chk(r.detailShown && r.talkShown, '[link/phone] &sec=' + sec + ' is not a section a link opens: it lands on the conversation', JSON.stringify(r));
+    }
     const toUnknown = await fromLink([BASE], 2000, '&sec=nonsense');
     chk(toUnknown.detailShown && toUnknown.current === BASE.sessionName && toUnknown.talkShown && !toUnknown.modelShown,
       '[link/phone] an unknown &sec= lands on the conversation as before', JSON.stringify(toUnknown));

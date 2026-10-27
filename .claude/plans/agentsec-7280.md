@@ -18,3 +18,11 @@ unknown, talk or swarm `sec` lands on the conversation as today. `sec` on `?tab=
 - Swarm excluded: its box exists only on a swarm's page, and detailGo would fall back to Talk without the reveal.
 - Weakest premise: that scrolling the section to the top is right on a phone. The stacked layout puts the pills above
   the section, so the person sees AI Settings first; on a wide window nothing scrolls, as for Talk.
+
+## Review 1
+- Fixed: the landing uses the same hold as the conversation (detailRevealTalkOnPhone takes the section), because the
+  Files list paints late above every section. Arm: a late 8-row Files list; control: the hold replaced by a one-shot
+  scroll must fail it.
+- Fixed: a link opens only model, memory, profile, instr, skills or files; term and remove (a destructive control) land
+  on the conversation, as talk and swarm do. Arm for each.
+- Known, not changed: on a wide window a folded name opens its group at the top, as its pill does.
