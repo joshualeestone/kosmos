@@ -6750,7 +6750,8 @@ const server = http.createServer(async (req, res) => {
      sensitive-route check above; carries no keys or remote ids. */
   if (pathname === '/api/community/mine' && (req.method === 'GET' || req.method === 'HEAD')) {
     // #4801: and the comments they published on community posts, each with its own Delete.
-    try { sendJson(res, 200, { posts: communitymine.mine(), comments: communitymine.mineComments() }); }
+    // #7211: and the summary Settings shows in their place (counts, and each agent's community page), the list itself folded.
+    try { sendJson(res, 200, communitymine.mineAll()); }
     catch (e) { console.error('FAIL /api/community/mine: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load your community posts and comments' }); }
     return;
   }

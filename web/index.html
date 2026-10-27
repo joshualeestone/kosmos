@@ -9534,6 +9534,18 @@ svg { display: block; }
 .danger-btn:hover { background: var(--warn-bg); }
 /* #4313: the Community box's list of your agents' posts, one row each, Delete on the right. */
 .community-mine { list-style: none; margin: 4px 0 0; padding: 0; }
+/* #7211: links in these hint lines take the hint's own colour (set for light and dark), not the browser's default blue,
+   which read almost black on the dark theme in the design shots. The comment row's post link had the same gap. */
+.community-mine-agent, .community-mine-post { color: inherit; text-decoration: underline; font-weight: 600; }
+/* #7211: the fold that holds the rows, drawn as the agent rows below it are (same chevron, turned while open). */
+.community-mine-fold { margin-top: 6px; }
+.community-mine-fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: .875rem; font-weight: 600; color: var(--label-2); }
+.community-mine-fold > summary::-webkit-details-marker { display: none; }
+.community-mine-fold > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.community-mine-fold .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
+.community-mine-fold[open] .community-ready-chev { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .community-mine-fold .community-ready-chev { transition: none; } }
+.community-mine-fold > .community-mine { margin-top: 10px; }   /* the gap the section's headings keep (design review) */
 .community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
@@ -19349,7 +19361,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4885: a picture saved before Kosmos fitted pictures can be too big, or not a still picture, to go. -->
       <p class="dhint" id="community-picture-unsendable" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them under “View all of them here, to delete one” below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -19364,8 +19376,17 @@ window.kosmosMeasureScrollbarWidth();
            it is out (or about to go). Delete asks central with the agent's own key (#4287), so
            this board can only take down its own posts. #4801: their comments too, in the same list. -->
       <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts and comments in the community</h4>
+      <!-- #7211 (Josh, 10-26): a count and each agent's own community page, not every row (about 1,850 lines on his
+           board). The rows, with Delete, stay one click away in the closed fold below until the community site has a
+           page of its own for them. -->
+      <p class="dhint" id="community-mine-summary" style="margin:0;" hidden></p>
+      <p class="dhint" id="community-mine-links" style="margin:4px 0 0;" hidden></p>
+      <details class="community-mine-fold" id="community-mine-all" hidden>
+        <!-- Design review (Mona Lisa, 10-26): the rows' own fold, chevron and all, and words that say it is open. -->
+        <summary id="community-mine-all-sum"><svg class="community-ready-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="community-mine-all-words">View all of them here, to delete one</span></summary>
+        <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
+      </details>
       <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts or comments have gone to the community yet.</p>
-      <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
       <!-- #4801 review 2: the board could not read its comment records, so it does not know which comments went out;
            this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
       <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
@@ -36917,6 +36938,54 @@ async function refreshCommunityReady() {
     if (mine === COMMUNITY_READY_EPOCH) { COMMUNITY_READY_PAINTED = null; communityReadyPaint(null); }
   }
 }
+/* #7211: the count and each agent's own community page, in place of every row. `summary` is the board's
+   (engine/communitymine.js summary): counts of what is in the community now, and per agent its name ON the community
+   (null: no registration, so no link). The fold holding the rows shows only when there are rows. */
+function communityMineFoldWords() {
+  const fold = document.getElementById('community-mine-all');
+  const words = document.getElementById('community-mine-all-words');
+  if (fold && words) words.textContent = fold.open ? 'Hide them' : 'View all of them here, to delete one';
+}
+document.getElementById('community-mine-all')?.addEventListener('toggle', communityMineFoldWords);
+function communityMineSummaryPaint(summary, rowCount) {
+  const line = document.getElementById('community-mine-summary');
+  const links = document.getElementById('community-mine-links');
+  const fold = document.getElementById('community-mine-all');
+  fold.hidden = !(rowCount > 0);
+  communityMineFoldWords();
+  const n = (k, one, many) => k.toLocaleString() + ' ' + (k === 1 ? one : many);
+  if (!summary || !Number.isFinite(summary.posts)) { line.hidden = true; links.hidden = true; return; }
+  /* Rows can all be ones that are not out there (held back, taken down, being deleted): then the count says none,
+     rather than "0 posts and 0 comments". */
+  const none = summary.posts === 0 && summary.comments === 0;   // unread comments (null) are never "none"
+  /* Design review: "no comments", not "0 comments"; and when the fold lists rows that are not out there (held, not sent,
+     coming down), the line says so, so the count and what the fold shows never seem to disagree. */
+  const some = (k, one, many) => (k === 0 ? 'no ' + many : n(k, one, many));
+  const outside = Number.isFinite(summary.comments) ? rowCount - summary.posts - summary.comments : 0;
+  line.textContent = (none ? 'None of your agents’ posts or comments are in the community now.'
+    : 'Your agents have ' + some(summary.posts, 'post', 'posts')
+      + (Number.isFinite(summary.comments) ? ' and ' + some(summary.comments, 'comment', 'comments') : '')
+      + ' in the community.')
+    + (outside > 0 && !none ? ' The list below also has ' + outside.toLocaleString() + ' that ' + (outside === 1 ? 'is' : 'are') + ' not in the community.' : '');
+  line.hidden = !(rowCount > 0);
+  const agents = Array.isArray(summary.agents) ? summary.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
+  links.replaceChildren();
+  if (!agents.length || !(rowCount > 0)) { links.hidden = true; return; }
+  links.append('See them on each agent’s community page: ');
+  agents.forEach((a, i) => {
+    if (i) links.append(', ');
+    const link = document.createElement('a');
+    link.href = COMMUNITY_SITE + '/agent/' + encodeURIComponent(a.name);
+    link.className = 'community-mine-agent';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = a.agent || a.name;
+    link.setAttribute('aria-label', (a.agent || a.name) + '’s page on the Kosmos+ community (opens in a new tab)');
+    links.append(link);
+  });
+  links.append('.');
+  links.hidden = false;
+}
 async function refreshCommunityMine() {
   const mine = ++COMMUNITY_MINE_EPOCH;
   try {
@@ -36929,9 +36998,12 @@ async function refreshCommunityMine() {
       ? body.posts.concat(commentsUnread ? [] : body.comments)
         .sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')))
       : null;
-    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(rows, commentsUnread);
+    if (mine === COMMUNITY_MINE_EPOCH) {
+      communityMinePaint(rows, commentsUnread);
+      communityMineSummaryPaint(body && body.summary, rows ? rows.length : 0);
+    }
   } catch {
-    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(null);
+    if (mine === COMMUNITY_MINE_EPOCH) { communityMinePaint(null); communityMineSummaryPaint(null, 0); }
   }
 }
 /* Delete asks first, inside the row rather than a dialog: the history dialog's rules (both

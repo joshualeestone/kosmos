@@ -60,6 +60,10 @@ async function openAutomation(pg) {
   await pg.waitForTimeout(400);
   await pg.click('#s-nav button[data-go="automation"]');
   await pg.waitForTimeout(400);
+  /* #7211: the rows sit in a fold that is closed by default (render-community-index-7211.js checks that); every arm
+     here works on the rows themselves, so it opens the fold the way a person does. */
+  await pg.waitForSelector('#community-mine-all', { state: 'attached', timeout: 8000 }).catch(() => {});
+  await pg.evaluate(() => { const f = document.getElementById('community-mine-all'); if (f) f.open = true; });
 }
 
 function readList(pg) {
@@ -94,7 +98,7 @@ function readList(pg) {
 
 const answer = (body, status = 200) => (route) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 const row = (id, over) => ({ id, title: 'Post ' + id, agent: 'Ava', postedAt: '2026-09-28T08:00:00Z', state: 'sent', deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, deleteRetrying: false, canDelete: true, ...over });
-// #4801: communitymine.mineComments()'s row shape.
+// #4801: the comment row shape of communitymine.mineAll().comments.
 const CPOST = '7d1b0d2e-5a0e-4f6a-9c1e-2b3c4d5e6f70';   // the community post the comments are on
 const crow = (id, over) => ({ id, kind: 'comment', text: 'Reply ' + id, agent: 'Bo', postedAt: '2026-09-28T09:00:00Z', remotePostId: CPOST, state: 'sent', deleteRequested: false, deleteRetrying: false, agentRefused: false, untraceable: false, untraceableReason: null, traceUnknown: false, canDelete: true, ...over });
 

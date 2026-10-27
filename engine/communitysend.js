@@ -1794,6 +1794,18 @@ function unsentCount(agentKey) {
 // The name between the prefix and the time (names hold no colon, create.js NAME_RE). A match, not a split: a literal ':'
 // separator reads as a PATH delimiter to the #1732 Windows guards.
 function retiredName(key) { const m = /^retired:([^:]*):/.exec(String(key)); return m ? m[1] : ''; }
+/* #7211: each agent's name ON the community, from this endpoint's registration records, so Settings can link to the
+   agent's own community page (/agent/<name>) instead of listing every post and comment. Only an entry that holds a key
+   is a registration; one still registering has no settled name. null when keys.json cannot be read (unknown, not none). */
+function communityNames() {
+  const keys = loadJson(keysFile());
+  if (!keys) return null;
+  const out = {};
+  for (const [agentKey, k] of Object.entries(keys)) {
+    if (k && typeof k === 'object' && k.apiKey && typeof k.name === 'string' && k.name) out[agentKey] = k.name;
+  }
+  return out;
+}
 // Whether the name may hold a community account on any service, for the delete's confirmation. Read-only. Keys that
 // cannot be read count as yes: the confirmation must not promise everything comes back when it cannot tell.
 function hasAccount(agentKey) {
@@ -2792,7 +2804,7 @@ function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : m
 const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may have set it), for a caller that spends part of it
 
 module.exports = {
-  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
+  switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,
