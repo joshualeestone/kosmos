@@ -3875,6 +3875,21 @@ do {
               "unknown, and a state the phone does not know, are hollow")
         let parsed = Board.parseAgents(Data(#"{"agents":[{"sessionName":"f","state":"needs_you","disruption":{"failed":true}}]}"#.utf8))
         check(parsed?.first?.restartFailed == true, "kosmos#7341: disruption.failed is read from /api/status")
+        // kosmos#7342: a pill only when there is something to see; its colour follows the state the word comes from.
+        func q(_ x: Board.Agent, _ f: (inout Board.Agent) -> Void) -> Board.Agent { var y = x; f(&y); return y }
+        check(Board.pill(a("idle")) == nil, "kosmos#7342: Idle shows no pill (Josh: no pill means all is well)")
+        check(Board.pill(a("working")) == .working, "working is the green pill with the Sweep")
+        check(Board.pill(q(a("needs_you")) { $0.reportedByAgent = true }) == .asks, "an agent's question is blue")
+        check(Board.pill(q(a("needs_you")) { $0.awaitingApproval = true }) == .asks, "a permission waiting is blue")
+        check(Board.pill(a("needs_you")) == .problem, "CONTROL: a plain needs_you (the board's Issue) is a real problem, red")
+        check(Board.pill(a("idle", running: false, trust: true)) == .asks, "a trust prompt is the person's to answer: blue")
+        check(Board.pill(a("rate_limited")) == .held && Board.pill(a("blocked")) == .held && Board.pill(a("restarting", running: false)) == .held,
+              "rate limited, waiting and restarting are amber: held by something outside the agent")
+        check(Board.pill(a("idle", running: false)) == .problem && Board.pill(a("stopped")) == .problem, "not running is red")
+        check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
+        check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
+        check(Board.pill(a("unknown")) == .cantTell && Board.pill(a("something_new")) == .cantTell, "unknown and unrecognised states are grey")
+        check(abs(Board.sweepOpacity(0.24) - 1) < 0.001 && abs(Board.sweepOpacity(1.0) - 0.25) < 0.001, "the Sweep peaks at 20% of 1.2 s and rests after 70%")
     }
 }
 
