@@ -12,7 +12,7 @@
 # KOSMOS_CUT_LINUX=1. After the first Linux cut on a channel, skipping is refused (lockstep above).
 #
 #   release_linux_decide <site> <cut-channel>          sets CUT_LINUX (yes|no) and LINUX_POINTER_FILE, or refuses
-#   release_linux_check_manifest <manifest> <commit>   refuses a manifest a release must not publish
+#   release_linux_check_manifest <manifest> <commit> <version>   refuses a manifest a release must not publish
 #   release_linux_publish <dist> <site> <version> <setup-sha> <key>   the versioned files and the channel pointer
 #   release_linux_site_paths <version>                 the paths the site commit takes (prints them)
 
@@ -29,6 +29,12 @@ release_linux_decide() {
   local site="$1" channel="$2"
   LINUX_POINTER_FILE="$(release_linux_pointer_file "$channel")" || { echo "release-linux: no Linux pointer for channel '$channel'" >&2; return 1; }
   if [ "${KOSMOS_CUT_LINUX:-}" = 1 ]; then
+    # Review 1 (W4): prod only once promote-channel.sh moves the Linux pointer with the Mac one (slice C2). Until then a
+    # prod Linux pointer would stay put while the next promote moved latest.json alone: the state lockstep forbids.
+    if [ "$channel" = prod ] && [ "${RELEASE_LINUX_PROMOTE_LOCKSTEP:-}" != 1 ]; then
+      echo "release-linux: the Linux family is cut on the staging channel only until promote-channel.sh moves its pointer with the Mac one (kosmos#7281 slice C2)" >&2
+      return 1
+    fi
     CUT_LINUX=yes
     return 0
   fi
@@ -46,18 +52,20 @@ release_linux_decide() {
 # A manifest the release must not publish: a test-only build (an unchecked node, a dirty tree, another glibc floor),
 # another platform, or a connector other than the one this cut's currency check accepted.
 release_linux_check_manifest() {
-  local manifest="$1" commit="$2" why
+  local manifest="$1" commit="$2" version="$3" why
   why="$(node -e '
     const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
     const want = process.argv[2];
     const bad = [];
+    // Review 1 (W6): a manifest left in dist/ by another build would otherwise be signed and published under this name.
+    if (m.version !== process.argv[3]) bad.push("it is for version " + JSON.stringify(m.version) + ", not " + process.argv[3]);
     if (m.platform !== "linux") bad.push("it is not a Linux manifest (platform " + JSON.stringify(m.platform) + ")");
     if (!m.node || typeof m.node.download_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(m.node.download_sha256)) bad.push("its node is not checked against nodejs.org (" + JSON.stringify(m.node && m.node.download_sha256) + ")");
     if (!m.app || m.app.dirty !== false) bad.push("it was built from a dirty tree");
     if (!m.connector || m.connector.glibc_floor !== "2.35") bad.push("its glibc floor is " + JSON.stringify(m.connector && m.connector.glibc_floor) + ", not 2.35");
     if (!m.connector || m.connector.commit !== want) bad.push("its connector is from " + JSON.stringify(m.connector && m.connector.commit) + ", not the checked " + want);
     process.stdout.write(bad.join("; "));
-  ' "$manifest" "$commit" 2>&1)" || { echo "release-linux: could not read $manifest: $why" >&2; return 1; }
+  ' "$manifest" "$commit" "$version" 2>&1)" || { echo "release-linux: could not read $manifest: $why" >&2; return 1; }
   [ -z "$why" ] || { echo "release-linux: the Linux manifest cannot be released: $why" >&2; return 1; }
   return 0
 }
@@ -71,6 +79,10 @@ release_linux_publish() {
   # The versioned name is a promise of immutability, as for the Mac tarball: never republish $v with other bytes.
   if [ -f "$site/dist/kosmos-$v-linux-x64.tar.gz" ] && ! cmp -s "$dist/kosmos-linux-x64.tar.gz" "$site/dist/kosmos-$v-linux-x64.tar.gz"; then
     echo "release-linux: refusing to republish $v's Linux tarball with different bytes (the versioned name is cache-immutable); bump the version" >&2; return 1
+  fi
+  # Review 1 (nit): the manifest's versioned name is as immutable as the tarball's.
+  if [ -f "$site/dist/kosmos-$v-linux-x64.manifest.json" ] && ! cmp -s "$dist/kosmos-linux-x64.manifest.json" "$site/dist/kosmos-$v-linux-x64.manifest.json"; then
+    echo "release-linux: refusing to republish $v's Linux manifest with different bytes; bump the version" >&2; return 1
   fi
   cp "$dist/kosmos-linux-x64.manifest.json" "$site/dist/kosmos-$v-linux-x64.manifest.json" || return 1
   node "$tools/manifest-sign.js" sign "$key" "$site/dist/kosmos-$v-linux-x64.manifest.json" "$site/dist/kosmos-$v-linux-x64.manifest.json.sig" \
