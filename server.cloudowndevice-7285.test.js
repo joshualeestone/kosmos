@@ -78,19 +78,22 @@ test('#7285 CONTROLS: another device, not a cloud machine, a local request, and 
   assert.deepEqual(calls, [['remove', 'k1.lost-phone'], ['remove', 'k1.mine'], ['remove', 'k1.mine'], ['deny', 'k1.mine']]);
 });
 
-test('#7285 follow-up (PigeonPete): a row held by the requesting session\'s KEY is refused too, even when its id is not the session\'s device', async () => {
+test('#7285 follow-up (PigeonPete): a row held by the requesting session\'s KEYS is refused too, even when its id is not the session\'s device', async () => {
   cm.isCloudMachine = () => true;
   calls.length = 0;
   LIST = { ok: true, data: { devices: [
-    { device_id: 'd-sibling', key: 'k1.mine' },     // another id held by the same key: removing it locks this browser out
-    { device_id: 'd-other', key: 'k1.someone' },    // a different key
-    { device_id: 'd-nokey', key: null },            // no key recorded
+    { device_id: 'd-sibling', keys: ['k1.mine'] },                // another id held by the same key: removing it locks this browser out
+    { device_id: 'd-shared', keys: ['k1.someone', 'k1.mine'] },   // held by several keys, this browser's NOT first
+    { device_id: 'd-other', keys: ['k1.someone'] },              // a different key
+    { device_id: 'd-nokey', keys: [] },                          // no key holds it
   ] } };
   for (const verb of ['remove', 'deny']) {
     const got = await post(verb, 'd-sibling', { ...VIA_PLUS, ...SESSION });
     assert.equal(got.status, 409, verb + ' sibling');
     assert.equal(got.body.code, 'own_device_cloud');
   }
+  // Removing an id deletes EVERY key holding it, so a row whose second key is this browser's is refused too.
+  assert.equal((await post('remove', 'd-shared', { ...VIA_PLUS, ...SESSION })).status, 409, 'a row this key holds, not first');
   // This browser's own id dropped off its key's list (a key holds at most 16): the session's device header names an id
   // no row has, and the row the person picks is still held by the session's key.
   assert.equal((await post('remove', 'd-sibling', { ...VIA_PLUS, 'x-kosmos-session-key': 'k1.mine', 'x-kosmos-session-device': 'd-gone' })).status, 409);
@@ -100,7 +103,7 @@ test('#7285 follow-up (PigeonPete): a row held by the requesting session\'s KEY 
 test('#7285 follow-up CONTROLS: a different key, a row with no key, and no key header go through; the list is read only with a key header', async () => {
   cm.isCloudMachine = () => true;
   calls.length = 0;
-  LIST = { ok: true, data: { devices: [{ device_id: 'd-sibling', key: 'k1.mine' }, { device_id: 'd-other', key: 'k1.someone' }, { device_id: 'd-nokey', key: null }] } };
+  LIST = { ok: true, data: { devices: [{ device_id: 'd-sibling', keys: ['k1.mine'] }, { device_id: 'd-other', keys: ['k1.someone'] }, { device_id: 'd-nokey', keys: [] }] } };
   assert.equal((await post('remove', 'd-other', { ...VIA_PLUS, ...SESSION })).status, 200, 'a row held by another key');
   assert.equal((await post('remove', 'd-nokey', { ...VIA_PLUS, ...SESSION })).status, 200, 'a row with no key');
   assert.equal((await post('remove', 'd-unlisted', { ...VIA_PLUS, ...SESSION })).status, 200, 'an id the list does not have');

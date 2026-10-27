@@ -2691,10 +2691,11 @@ async function devicesList() {
          the allow it was noted for (removed elsewhere and allowed again by hand, its allowed_at moves on). Ten
          minutes of slack: allowed_at is the coordinator's clock, the note's this computer's. */
       on_this_computer: vouchedFor(vouched, d),
-      /* kosmos#7285 (PigeonPete's sessdevice-7285): the device key holding this id, null when none. A key records at
-         most 16 ids, so a browser's own id can drop off its key's list while its session lives on by the key; the
-         cloud machine's own-device guard compares this with x-kosmos-session-key. */
-      key: typeof d.key === 'string' && d.key ? d.key : null,
+      /* kosmos#7285 (PigeonPete's sessdevice-7285): EVERY device key holding this id ([] when none; the tunnel leaves
+         `keys` out then). One id can be held by several keys, and removing the id deletes every key that holds it
+         (devices.rs). A key records at most 16 ids, so a browser's own id can drop off its key's list while its session
+         lives on by the key; the cloud machine's own-device guard compares these with x-kosmos-session-key. */
+      keys: Array.isArray(d.keys) ? d.keys.filter((k) => typeof k === 'string' && k) : [],
     })) } };
 }
 function vouchedFor(vouched, d) {

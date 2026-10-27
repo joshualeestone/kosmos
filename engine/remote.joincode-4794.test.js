@@ -331,14 +331,14 @@ test('#6315: the allowed list keeps a computer: id, so it can be removed', async
   assert.deepEqual(got.data.devices.map((d) => d.device_id), [MINTED]);
 });
 
-test('#7285 follow-up: the allowed list carries the key holding each id (null when none), for the cloud own-device guard', async () => {
+test('#7285 follow-up: the allowed list carries every key holding each id ([] when none), for the cloud own-device guard', async () => {
   enrol();
   const other = 'computer:' + 'b'.repeat(32);
   process.env.FAKE_LIST = JSON.stringify({ devices: [
-    { device_id: MINTED, name: 'computer tmnt', allowed_at: 1792168200, last_seen: 0, key: 'k1.holder' },
+    { device_id: MINTED, name: 'computer tmnt', allowed_at: 1792168200, last_seen: 0, keys: ['k1.first', 'k1.second'] },
     { device_id: other, name: 'computer two', allowed_at: 1792168200, last_seen: 0 },
   ] });
   const got = await remote.devicesList();
   assert.equal(got.ok, true, got.because);
-  assert.deepEqual(got.data.devices.map((d) => [d.device_id, d.key]), [[MINTED, 'k1.holder'], [other, null]]);
+  assert.deepEqual(got.data.devices.map((d) => [d.device_id, d.keys]), [[MINTED, ['k1.first', 'k1.second']], [other, []]]);
 });
