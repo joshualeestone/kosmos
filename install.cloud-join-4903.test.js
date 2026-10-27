@@ -24,7 +24,7 @@ const TOKEN = 'tok_' + 'A'.repeat(39);
 
 /* One box: a KOSMOS_HOME with stand-ins, a state dir, a HOME holding provision.env, and a PATH whose uname answers
    `os`. `tunnelRc` is the stand-in tunnel's exit code; `setOnFails` makes remote.setOn refuse. */
-function box({ os: osName = 'Linux', tunnelRc = 0, setOnFails = false } = {}) {
+function box({ os: osName = 'Linux', tunnelRc = 0, setOnFails = false, failTimes = 0 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cloudjoin-4903-'));
   const home = path.join(root, 'kosmos');
   const user = path.join(root, 'user');
@@ -42,10 +42,14 @@ exports.setOn = (on) => {
 };
 `);
   const tunnel = path.join(home, 'app', 'bin', 'kosmos-tunnel');
+  const tries = path.join(root, 'tunnel-tries');
   fs.writeFileSync(tunnel, `#!/bin/sh
 printf '%s\\n' "$@" > ${JSON.stringify(path.join(root, 'tunnel-args'))}
 cat > ${JSON.stringify(path.join(root, 'tunnel-stdin'))}
+printf 'x' >> ${JSON.stringify(tries)}
 [ "$1 $2 $3" = "setup cloud --state-dir" ] || exit 9
+n=$(wc -c < ${JSON.stringify(tries)} | tr -d ' ')
+[ "$n" -le ${failTimes} ] && exit 7
 [ ${tunnelRc} -eq 0 ] && printf 'mac-1\\n' > "$4/mac_id"
 exit ${tunnelRc}
 `, { mode: 0o755 });
@@ -60,7 +64,7 @@ function join(b, extraEnv = {}) {
   return spawnSync('/bin/sh', ['-c', script], {
     encoding: 'utf8',
     env: { PATH: `${b.bin}:/usr/bin:/bin`, HOME: b.user, KOSMOS_HOME: b.home, KOSMOS_CLOUD: '1',
-      KOSMOS_PROVISIONING_TOKEN: TOKEN, ...extraEnv },
+      KOSMOS_PROVISIONING_TOKEN: TOKEN, KOSMOS_CLOUD_JOIN_RETRY_SECS: '0', ...extraEnv },
   });
 }
 const rcOf = (r) => (r.stdout.match(/rc=(\d+)\s*$/) || [])[1];
@@ -113,10 +117,20 @@ test('#4903 anywhere but a Linux cloud box, the block does nothing', () => {
   }
 });
 
+test('#4903 a lost answer is retried: one failure then success joins, with the same token each time', () => {
+  const b = box({ failTimes: 1 });
+  const r = join(b);
+  assert.equal(rcOf(r), '0', r.stdout + r.stderr);
+  assert.equal(read(path.join(b.root, 'tunnel-tries')), 'xx', 'expected exactly two tries');
+  assert.equal(read(path.join(b.root, 'tunnel-stdin')), TOKEN, 'the retry did not carry the token on stdin');
+  assert.ok(fs.existsSync(path.join(b.state, 'hosted')));
+});
+
 test('#4903 a failed join writes no latch, leaves remote off, and says where to look', () => {
   const b = box({ tunnelRc: 3 });
   const r = join(b);
   assert.equal(rcOf(r), '1', r.stdout);
+  assert.equal(read(path.join(b.root, 'tunnel-tries')), 'xxx', 'a join that always fails stops after three tries');
   assert.match(r.stdout, /could not join its Kosmos\+ account.*cloud-join\.log/);
   assert.ok(!fs.existsSync(path.join(b.state, 'hosted')), 'a latch after a failed join');
   assert.equal(read(path.join(b.root, 'seton')), null, 'remote switched on after a failed join');
