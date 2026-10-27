@@ -37,6 +37,7 @@ const { start, server, boardAuthState } = require('./server');
 const projects = require('./engine/projects');
 const store = require('./engine/store');
 const roomarchive = require('./engine/roomarchive');
+const sendertoken = require('./engine/sendertoken');
 
 const DAY = 24 * 60 * 60 * 1000;
 const TOK = 'BOARDTOKEN_test_0123456789abcdef';
@@ -227,6 +228,13 @@ test('AUTH: an enforcing board refuses a no-token archive and undo (403) and adm
     assert.equal((await post(room.routes, '', { before: when })).code, 403);
     assert.equal((await post(room.routes, '/undo')).code, 403);
     assert.equal(roomarchive.markerFor(room.routes), null, 'a refused archive wrote a marker');
+    // An agent's own token alone does not reach these writes (they are not agent-token routes).
+    const agentOnly = { 'content-type': 'application/json', 'x-kosmos-agent-token': sendertoken.mint('alpha').token };
+    for (const suffix of ['', '/undo']) {
+      const r = await fetch(`${base}/api/project/${encodeURIComponent(room.routes)}/room/archive${suffix}`, { method: 'POST', headers: agentOnly, body: JSON.stringify({ before: when }) });
+      assert.equal(r.status, 403, 'an agent token alone reached ' + suffix + ': ' + await r.text());
+    }
+    assert.equal(roomarchive.markerFor(room.routes), null, 'an agent token wrote a marker');
     const ok = await post(room.routes, '', { before: when }, { token: TOK });
     assert.equal(ok.code, 200, ok.text);
     assert.equal((await post(room.routes, '/undo', undefined, { token: TOK })).code, 200);

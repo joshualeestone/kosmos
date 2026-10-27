@@ -29,9 +29,12 @@ about what is current. This branch is the server half; the page and the iPhone (
 
 ## Weakest premise
 That the 1,000 counts every row the room shows (posts and Kosmos lines alike), not posts alone.
+Second: that a post the person archives stops being held for an agent (its idle reminder goes when the agent next
+reads the room), even one that asked the agent something. That follows Mona's confirm copy ("They leave this room and
+what agents read here"); if an archived ask should still reach its agent, the read keeps addressed ids instead.
 
 ## Proof
-`server.room-archive-7365.test.js`, 7 tests, real rows through the real route. Mutation-proven: dropping the live-only
+`server.room-archive-7365.test.js` (10 tests) and one in `server.roomread-seen-4926.test.js`, real rows through the real route. Mutation-proven: dropping the live-only
 text walk, the live paging, the archive paging, the row marking, the count rule, the age rule and the future-time
 refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read rooms or route lists): 1,058/1,058.
 
@@ -58,3 +61,10 @@ refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read roo
      while a live row exists (the cap is at least 1).
    - (N) A time must carry Z or an offset; up to a minute ahead is read as now; a comment that the text view ignores
      ?archive. Not done: the O(archived) held-post loop on an agent's read (a Set lookup per archived post).
+3. (opus, 15:5x CDT) 0 BLOCKERs, 1 WARNING, 4 NITs.
+   - (W, deferred) An agent's read drops every archived post from its held list, so a person archiving right after a
+     post cancels that agent's reminder of it. Deferred as designed: Mona's confirm copy says archived messages leave
+     what agents read here. Named as the second weakest premise above, with the one-line change if that is wrong.
+   - (N) An agent-token-only POST to both archive routes is refused (403), mutation-proven by adding the route to the
+     agent-token patterns; a comment that each view counts its own archived rows; the plan's test count; the comment
+     on malformed entries being dropped by the next write.
