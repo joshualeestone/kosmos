@@ -315,3 +315,14 @@ test('logs: a held day once, a failed record once, and tries 1 and MAX_TRIES but
   assert.deepEqual(counts, [1, 0, 1]);
   assert.match(lines[lines.length - 1].because, /today is left alone/);
 });
+
+test('the Project Manager role and the board ask agree that the report is sent, and name the same opt-out', () => {
+  // Review 4: the role said only "saved here, on this computer" while the ask said it is sent.
+  const pm = roles.byKey('pm').instructions.replace(/\s+/g, ' ');
+  const ask = nudge.nudgeText();
+  for (const text of [pm, ask]) {
+    assert.match(text, /sent to the Kosmos team \(scrubbed\)/);
+    assert.match(text, /Settings, Automation/);
+  }
+  assert.doesNotMatch(pm, /It is saved here, on this computer\.(?! *and)/);
+});
