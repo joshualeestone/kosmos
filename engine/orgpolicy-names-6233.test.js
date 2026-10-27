@@ -22,6 +22,7 @@ const SCREEN = {
   xai: 'xAI Grok',
   meta: 'Meta Muse',
   alibaba: 'Alibaba Qwen',
+  deepseek: 'DeepSeek',   // #7206: the create menu's row (web/index.html)
 };
 
 /* A policy that allows another provider than `id` (the provider-not-allowed sentence). */
@@ -76,6 +77,8 @@ test('#6233: every provider the board accepts for a new agent has a name (a new 
   const block = src.slice(at, src.indexOf('{', src.indexOf(')) {', at)));
   const ids = [...new Set([...block.matchAll(/provider [!=]== '([a-z0-9-]+)'/g)].map((m) => m[1]))];
   assert.ok(ids.length >= 7, 'CONTROL: only ' + ids.length + ' provider ids read from the accept test: ' + ids.join(', '));
+  // #7206: a vendor is accepted through its table (anthropiccompat VENDORS), not a literal in the test above.
+  for (const v of Object.keys(require('./anthropiccompat').VENDORS)) if (!ids.includes(v)) ids.push(v);
   for (const id of ids) {
     assert.notEqual(orgpolicy.providerName(id), 'this provider', id + ' is accepted for a new agent but its policy refusal would say "this provider"');
     assert.equal(orgpolicy.providerName(id), SCREEN[id], id + ': the name differs from the one this test checks against the menus');

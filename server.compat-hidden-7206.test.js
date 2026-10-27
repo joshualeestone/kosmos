@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 process.env.AGENT_WORKFORCE_WORKERS = mkTemp('aw-compat-hidden-workers-');
 process.env.AGENT_WORKFORCE_PROJECTS = mkTemp('aw-compat-hidden-projects-');
 process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-compat-hidden-launch-');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');   // never the operator's own ~/.claude.json
 process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(SANDBOX, '.gemini');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');

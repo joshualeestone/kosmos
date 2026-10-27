@@ -224,6 +224,7 @@ const PROVIDER_NAMES = Object.freeze({
   xai: 'xAI Grok',
   meta: 'Meta Muse',
   alibaba: 'Alibaba Qwen',
+  deepseek: 'DeepSeek',   // #7206: a vendor on the claude runner (engine/anthropiccompat.js VENDORS)
 });
 function providerName(provider) {
   return Object.prototype.hasOwnProperty.call(PROVIDER_NAMES, provider) ? PROVIDER_NAMES[provider] : 'this provider';

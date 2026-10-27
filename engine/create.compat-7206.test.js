@@ -215,17 +215,31 @@ test('1b review 1: an account move keeps the provider: DeepSeek between DeepSeek
   assert.equal(off.because, 'DeepSeek is not available in Kosmos yet', 'a move between DeepSeek accounts with the switch off');
 });
 
+/* Real cards from the board's own snapshot (fixture-discipline: no card is built by hand), for the agents above,
+   whose launch jobs are real; the pane source is test-support/fleet's. */
+function cardsFor(states) {
+  const fleet = require('../test-support/fleet');
+  const board = fleet.install(Object.entries(states).map(([sn, [state, displayName]]) => fleet.agent(sn, { state, runner: 'claude', displayName })));
+  try {
+    const agents = require('./status').snapshot().agents;
+    return Object.fromEntries(Object.keys(states).map((sn) => [sn, agents.find((c) => c && c.sessionName === sn)]));
+  } finally { board.restore(); }
+}
+
 test('a DeepSeek agent\'s problems name DeepSeek and its key, never a Claude sign-in; a Claude agent is unchanged', () => {
   const { accountProblemOf } = require('./accountproblem');
-  const auth = accountProblemOf({ runner: 'claude', sessionName: DS, name: 'Dee', state: 'auth_failed' });
+  const failing = cardsFor({ [DS]: ['auth_failed', 'Dee'], [CL]: ['auth_failed', 'Cee'] });
+  const limited = cardsFor({ [DS]: ['rate_limited', 'Dee'] });
+  assert.ok(failing[DS] && failing[CL] && limited[DS], 'PRE-CONTROL: the board gave no card for the agents');
+  const auth = accountProblemOf(failing[DS]);
   assert.equal(auth.provider, 'DeepSeek');
   assert.match(auth.text, /Dee's DeepSeek key is no longer accepted/);
   assert.doesNotMatch(auth.text, /Claude|Sign in again/);
-  const limit = accountProblemOf({ runner: 'claude', sessionName: DS, name: 'Dee', state: 'rate_limited' });
+  const limit = accountProblemOf(limited[DS]);
   assert.match(limit.text, /DeepSeek usage limit/);
   assert.doesNotMatch(limit.summary, /Claude/);
   // CONTROL: a Claude agent still reads as Claude.
-  const claudeAuth = accountProblemOf({ runner: 'claude', sessionName: CL, name: 'Cee', state: 'auth_failed' });
+  const claudeAuth = accountProblemOf(failing[CL]);
   assert.equal(claudeAuth.provider, 'Claude');
   assert.match(claudeAuth.text, /Claude sign-in has stopped working/);
 });
