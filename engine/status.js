@@ -5208,7 +5208,11 @@ function classify(pane, paneText) {
       const underlying = authTok[2] === 'busy'
         ? { state: STATE.WORKING, because: 'it is working' }
         : { state: STATE.IDLE, because: 'it is idle at its prompt' };
-      return { state: STATE.AUTH_FAILED, confidence: CONFIDENCE.SCRAPED, because: 'its Claude sign-in is not working', evidence: line, underlying };
+      /* Review 2: the record stands until the agent's next good turn, which may be long after the person signed in again.
+         Once the account check has read this refusal (by its own `since`) as stale, it stays cleared, so the idle card
+         does not flicker back to "Sign-in Issue" each time the 30 s check is re-asked. A NEW refusal has a new since. */
+      if (WIN32_AUTH_CLEARED.has(authTok[1])) return { ...underlying, confidence: CONFIDENCE.SCRAPED };
+      return { state: STATE.AUTH_FAILED, confidence: CONFIDENCE.SCRAPED, because: 'its Claude sign-in is not working', evidence: line, underlying, authSince: authTok[1] };
     }
     /* The two tokens are win32streamstate's, the one vocabulary win32capture holds by too (#5949). */
     const { BUSY: WIN32_BUSY, IDLE: WIN32_IDLE } = require('./win32streamstate');
@@ -8102,6 +8106,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        still cannot recurse. */
     const under = scraped.underlying && typeof scraped.underlying === 'object' && typeof scraped.underlying.state === 'string'
       && scraped.underlying.state !== STATE.AUTH_FAILED ? scraped.underlying : null;
+    if (under && typeof scraped.authSince === 'string') noteWin32AuthCleared(scraped.authSince);   // review 2: stays cleared
     const reentry = under
       ? { state: under.state, confidence: CONFIDENCE.SCRAPED, because: under.because }
       : { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE };
@@ -8877,6 +8882,14 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
    reconcileReport). The SAME guards as liveAuthForAuthFailed (it is asked, with a verdict that only says "asked"), so
    the two can never disagree: no job, a Qwen home or a vendor home is not checkable. chat.signinHeldVerdict holds a
    Claude agent only when this is true, because a hold nothing can release would keep its messages for a day. */
+/* #7369 review 2: the Windows sign-in refusals (by the `since` win32streamstate stamped) the account check has read as
+   stale. Bounded: refusals are rare, and the oldest are dropped past 200. */
+const WIN32_AUTH_CLEARED = new Set();
+function noteWin32AuthCleared(since) {
+  WIN32_AUTH_CLEARED.add(since);
+  if (WIN32_AUTH_CLEARED.size > 200) WIN32_AUTH_CLEARED.delete(WIN32_AUTH_CLEARED.values().next().value);
+}
+
 const PROBE_ASKED = Symbol('probe-asked');
 function claudeSignInCheckable(name) {
   try {

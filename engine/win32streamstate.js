@@ -511,12 +511,13 @@ function publisher(name, opts) {
       }
       /* #7369: a turn Claude Code ended on a sign-in error is kept as the agent's `auth`, and a later turn that reached
          the model and ended without an error clears it (the limit's own rule above, and for the same reason: a local
-         command's result made no API request, so it says nothing about the sign-in). The first refusal's time is
-         kept while the refusals repeat, so the card says since when. */
+         command's result made no API request, so it says nothing about the sign-in). Review 2: each refusal is stamped
+         with its own time: status keeps a refusal the account check has read as stale cleared by that stamp, so a NEW
+         refusal (signed out again before any good turn) must not carry an old, cleared one. */
       const signIn = signInAfterEvent(e);
       let authChanged = false;
       if (signIn) {
-        current.auth = { since: current.auth ? current.auth.since : new Date().toISOString(), ...(signIn.line ? { line: signIn.line } : {}) };
+        current.auth = { since: new Date().toISOString(), ...(signIn.line ? { line: signIn.line } : {}) };
         authChanged = true;
       } else if (current.auth && e && e.type === 'result' && e.is_error !== true && !e.api_error && current.reachedModel === true) {
         current.auth = null;

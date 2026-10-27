@@ -224,3 +224,25 @@ test('#7369 review 1 CONTROLS: an agent QUOTING a sign-in error in its reply, an
     assert.equal(b.card().state, status.STATE.AUTH_FAILED, 'CONTROL: the same box does read a real sign-out');
   } finally { b.done(); acct.restore(); }
 });
+
+test('#7369 review 2: once cleared, the same refusal does not flicker back while the check is re-asked; a NEW refusal shows', async () => {
+  const acct = account(subscription.STATE.NONE);
+  const b = box('winflap', 'sid-b1', 8101);
+  try {
+    b.pub.started(8101, 'sid-b1');
+    signedOutTurn(b.pub, NOT_LOGGED_IN);
+    b.roster();
+    await settle();
+    assert.equal(b.card().state, status.STATE.AUTH_FAILED, 'CONTROL: signed out');
+    acct.set(subscription.STATE.CONNECTED);
+    b.roster();
+    await settle();
+    assert.equal(b.card().state, status.STATE.IDLE, 'CONTROL: signed in again, idle');
+    authprobe.resetForTest();
+    authprobe.setChecker(() => new Promise(() => {}));   // the 30 s re-check, not answered yet: UNCHECKED
+    assert.equal(b.card().state, status.STATE.IDLE, 'no flicker back to Sign-in Issue while the check is re-asked');
+    await new Promise((r) => setTimeout(r, 5));
+    signedOutTurn(b.pub, NOT_LOGGED_IN);   // a new refusal, a new since
+    assert.equal(b.card().state, status.STATE.AUTH_FAILED, 'CONTROL: a new refusal still shows');
+  } finally { b.done(); acct.restore(); }
+});

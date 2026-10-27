@@ -46,3 +46,11 @@ behaviour unchanged); release when the probe reads HEALTHY (control: still held 
 - Residual, as before #7369: `claude auth status` reads healthy while `claude -p` keeps refusing (a revoked token it
   still calls logged in). The card may read idle and messages go to a dead session. That is #7212 slice 3's live check
   (PigeonPete), not this card.
+
+## Review 2 (decided)
+- A Windows refusal the account check has read as stale stays cleared (status keeps it by the refusal's own `since`),
+  so an idle card does not flicker back to "Sign-in Issue" each time the 30 s check is re-asked. Each refusal is now
+  stamped with its own time, so a NEW refusal after a clear still shows.
+- Declined: giving the underlying idle reading `liveToken`. #5949 withholds it from Windows Claude idle on purpose (that
+  idle cannot prove no turn is running), and this reading follows the same rule as the plain Claude idle token.
+- Kept: status.claudeSignInCheckable (tests assert the guard set through it; claudeSignedOutConfirmed shares it).
