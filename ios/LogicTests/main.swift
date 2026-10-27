@@ -2280,9 +2280,29 @@ section("native board loop: connecting")
         }
         check(Board.classifySession(status: 409, body: Data(#"{"because":"no"}"#.utf8), waiting: false) == .refused(because: "no"),
               "CONTROL: a 409 without retry is still a refusal")
-        // Review 2: a session 429 stays a refusal, as before (and as gate.html, which keeps the token on it).
-        check(Board.classifySession(status: 429, body: Data(#"{"because":"too many waiting"}"#.utf8), waiting: false) == .refused(because: "too many waiting"),
-              "a session 429 is still a refusal")
+        // Review 3: a session 429, and a 403 paused or keep, are the gate page's "not taking new sign-ins now" (gate.html):
+        // held, with the gate's sentence, never a refusal that asks for fresh handoffs.
+        check(Board.classifySession(status: 429, body: Data(#"{"because":"too many waiting"}"#.utf8), waiting: false) == .held(because: "too many waiting"),
+              "review 3: a session 429 is held, not refused")
+        check(Board.classifySession(status: 403, body: Data(#"{"because":"this computer cannot check sign-ins right now","keep":true}"#.utf8), waiting: false)
+              == .held(because: "this computer cannot check sign-ins right now"), "a 403 keep is held (the gate's own body)")
+        check(Board.classifySession(status: 403, body: Data(#"{"paused":true}"#.utf8), waiting: false) == .held(because: nil), "a 403 paused is held")
+        check(Board.classifySession(status: 403, body: Data(#"{"because":"no"}"#.utf8), waiting: false) == .refused(because: "no"),
+              "CONTROL: a plain 403 is still a refusal")
+        check(Board.gateSentence("too many waiting") == "Too many waiting." && Board.gateSentence("Done.") == "Done.", "the gate's words read as a sentence")
+        check(Board.sessionRequest(mac: URL(string: "https://studio.kosmosplus.com")!, handoffToken: "t").value(forHTTPHeaderField: "User-Agent")?.contains("iPhone") == true
+              && Board.nonceRequest(mac: URL(string: "https://studio.kosmosplus.com")!).value(forHTTPHeaderField: "User-Agent")?.contains("iPhone") == true,
+              "review 3: the session and nonce requests say iPhone, so the Mac's Allow card names it (gatev2 ua_class)")
+        // A held answer ends the connect at once: no fresh handoffs.
+        do {
+            let (c6, w6, _, _) = make("kst1")
+            w6.sessionAnswer = (429, #"{"because":"too many waiting"}"#)
+            c6.start()
+            let held = await settle { if case .macHeld = c6.phase { return true } else { return false } }
+            check(held, "a 429 at the session ends at held (phase \(c6.phase))")
+            check(w6.handoffBodies.count == 1 && w6.sessionBodies.count == 1, "held asks for no fresh handoff and posts once (\(w6.handoffBodies.count) handoffs, \(w6.sessionBodies.count) posts)")
+            c6.stop()
+        }
         // Review 2: a nonce route an older gate refuses with 401 is no nonce route: the token alone, and still let in.
         let (c5, w5, _, _) = make("kst1")
         w5.deviceKey = .software(k)

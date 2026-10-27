@@ -353,9 +353,16 @@ struct BoardStates<Empty: View>: View {
             message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, log out under Settings, Kosmos+, and sign in again.", retry: true)
         case .signInAgain(let mac):
             // kosmos#4903: the remedy the macRefused line already names, for a cloud machine that takes only a recent
-            // sign-in (nobody can press Allow on it).
+            // sign-in (nobody can press Allow on it). No Sign in button: openBoard opens the board's Today, which keeps
+            // the same (not recent) sign-in; a one-tap way needs a log out wired here (recorded on kosmos#7337).
             message("Sign in again to open \(mac).",
                     detail: "Your cloud machine takes only a recent sign-in. Log out under Settings, Kosmos+, sign in again, then come back here.",
+                    retry: true)
+        case .macHeld(let mac, let because):
+            // Review 3: the gate page's own answer to a computer not taking new sign-ins now: its sentence, and the sign-in
+            // is kept, so trying again later needs nothing else.
+            message("\(mac) is not taking new sign-ins right now.",
+                    detail: because.map(Board.gateSentence) ?? "Nothing is wrong with your sign-in. Try again in a moment.",
                     retry: true)
         case .kosmosPlusRefused:
             // kosmos#7030 review 2: Today is native now, so "on the Today tab" no longer leads to a sign-in; the button does.
