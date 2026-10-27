@@ -63,6 +63,8 @@ struct ChatView: View {
     // kept at its newest message as it grows (OpensAtBottom, the jumps below). The person scrolling (iOS 18), a search or a
     // page of older messages ends it early, and nothing after it moves the thread for the person.
     @State private var opening = true
+    // Review 3: each opening window's number, so a timer left from an earlier open cannot end a newer window early.
+    @State private var openingGen = 0
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
     // The conversation's items on screen now.
@@ -154,7 +156,7 @@ struct ChatView: View {
                     searchOpen = true
                     DispatchQueue.main.async {
                         searchFocused = true
-                        if opening && openedAtNewest { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+                        if firstOpen && openedAtNewest { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
                     }
                 } label: {
                     Image(systemName: "magnifyingglass").font(.system(size: 20)).foregroundColor(Palette.secondary)
@@ -246,6 +248,7 @@ struct ChatView: View {
             // kosmos#7265 review 2: the thread is rebuilt (a chat opened from a room stays open through an account or Mac
             // switch), so it opens again: its ScrollView's onAppear starts a new window.
             opening = true
+            openingGen += 1
             thread = nil
             replying = nil
             retryNote = nil
@@ -359,14 +362,15 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 // kosmos#7265: the thread opens on its newest message whatever the rows' heights (iOS 18 and later).
-                .modifier(OpensAtBottom(long: rows.count >= OpensAtBottom.longThread, active: opening && !searchMode, stillOpening: { opening && !searchMode }, touched: { opening = false }))
+                .modifier(OpensAtBottom(long: OpensAtBottom.isLong(loaded), active: opening && !searchMode, stillOpening: { opening && !searchMode }, touched: { opening = false }))
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     proxy.scrollTo("end", anchor: .bottom)
                     // kosmos#7265: the opening window (OpensAtBottom keeps a long thread at its bottom edge while it lasts).
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { opening = false }
+                    let gen = openingGen
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { if openingGen == gen { opening = false } }
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
@@ -1665,10 +1669,14 @@ extension Palette {
    anchor is off, so a row growing or arriving never moves what the person is reading, and a short chat is not
    bottom-aligned. iOS 18's role-scoped forms; iOS 16 and 17 open as before (a stated limit). */
 private struct OpensAtBottom: ViewModifier {
-    // Review 3: only a long thread lands short (its rows below are estimated); a short one is drawn whole and the one jump
-    // to "end" on open already lands, as on main. The anchors on a short thread put its first line 346 px lower than main
-    // (measured 10-26, and the alignment role did not undo it), so a short thread is left exactly as main has it.
+    // A thread that fits on the screen opens as on main: the anchors put a short chat's first line 346 px lower than main
+    // (measured 10-26 and in round 6), so it is left exactly as main has it. Review 3 (round 3): the bug follows height,
+    // not count, so a thread is long by its rows OR by its text (15 multi-paragraph replies do not fit a phone screen).
     static let longThread = 30
+    static let longText = 3000
+    static func isLong(_ rows: [Board.ChatRow]) -> Bool {
+        rows.count >= longThread || rows.reduce(0) { $0 + $1.text.count } >= longText
+    }
     let long: Bool
     let active: Bool
     // Read when a jump fires, not when the view was built (the window can end in between).
@@ -1686,10 +1694,12 @@ private struct OpensAtBottom: ViewModifier {
     }
 }
 
-/* kosmos#7265 round 9. Jumps to the "end" row land where that row is estimated to be, so in a thread of tall, not yet
-   measured messages they stop inside an earlier one (round 8: message 255 of 260 in 5 of 5 opens, the same as main).
-   ScrollPosition.scrollTo(edge: .bottom) goes to the content's bottom edge instead. No initial-offset anchor: it left a
-   blank thread (3 of 5 alone on 10-26, 1 of 5 in round 6). */
+/* kosmos#7265. A long thread opens with the initial-offset anchor at its bottom; while the opening window lasts the
+   size-change anchor and jumps to the bottom edge (ScrollPosition.scrollTo(edge:)) keep it there as rows are measured.
+   Measured on the simulator, 5 opens of a 260-message chat of varied lengths, newest message read at 4 s and 10 s:
+   this form (round 10) 10 of 10 on the newest, no blank thread; without the fix 1 of 10. Without the initial-offset
+   anchor (rounds 7 to 9) every open stopped at message 255, as main does; the anchor alone once drew a blank thread
+   (10-26), which the jumps here cover. A drag or an animated scroll (a status-bar tap) ends the window. */
 @available(iOS 18.0, *)
 private struct EdgeOpen: ViewModifier {
     let long: Bool
@@ -1703,7 +1713,7 @@ private struct EdgeOpen: ViewModifier {
         content.scrollPosition($position)
             .defaultScrollAnchor(long ? .bottom : nil, for: .initialOffset)
             .defaultScrollAnchor(long && active ? .bottom : nil, for: .sizeChanges)
-            .onScrollPhaseChange { _, phase in if phase == .interacting { touched() } }
+            .onScrollPhaseChange { _, phase in if phase == .interacting || phase == .animating { touched() } }
             .onAppear {
                 guard long else { return }   // a short thread opens exactly as on main (round 7)
                 for at in stride(from: 0.0, through: 3.3, by: 0.3) {
