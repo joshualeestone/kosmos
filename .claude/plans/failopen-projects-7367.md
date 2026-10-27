@@ -11,7 +11,10 @@ agent talking, where before 0.7.70 it only broke the Projects page.
 
 ## Change
 - projectborn: when the file exists but cannot be read or parsed, `ok` is false and `earlier()` is false for every row
-  (fails open, the pre-#7185 behaviour). The unreadable answer is cached against the file's stat like a good one.
+  (fails open, the pre-#7185 behaviour). The unreadable answer is cached against the file's stat for 5 s only
+  (UNREADABLE_KEEP_MS), so a passing read error on a good file is retried rather than kept until the file changes.
+- messages.sweepUnanswered does nothing while the stamps are unknown: it ACTS on rows (types a nudge, writes a row),
+  and would otherwise nudge about a deleted project's never-answered ask.
 - messages.record(): `ok` reflects the LOG only; `stampsUnknown` still reports the projects file. The three refusals
   go. lastPostAt no longer answers undefined for unknown stamps.
 - receipt: still never keeps a receipt from a read made with unknown stamps (unchanged code, comment updated).
@@ -19,7 +22,9 @@ agent talking, where before 0.7.70 it only broke the Projects page.
 
 ## Accepted cost
 While the projects file is damaged, a re-made project's predecessor rows show again. Showing a room is better than
-silencing every room; the Projects page reports the damaged file.
+silencing every room; the Projects page reports the damaged file. Also accepted (pre-#7185 behaviour, narrow): the
+"which room did you mean" check and the room valve count a deleted project's posts from the last hour while the file is
+damaged, so a project deleted and re-made within the hour of the damage can see one extra hold.
 
 ## Tests
 messages.test.js: for an all-NUL file and a truncated file, a room post is PLACED and the room reads whole, with a

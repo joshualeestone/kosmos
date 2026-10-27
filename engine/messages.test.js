@@ -2778,6 +2778,37 @@ test('#185: the nudge fires once per message, is recorded, and never repeats', (
   });
 });
 
+test('#7367: with the projects file damaged the unanswered sweep nudges nobody; repaired, it nudges as before', () => {
+  const projects = require('./projects');
+  const pid = projects.create({ name: 'Sweep Damage Room' }).id;
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    const tmux = arm([]);
+    messages.setUnansweredAfterForTests(0);
+    const f = projects.file();
+    const good = fs.readFileSync(f);
+    try {
+      const sent = messages.sendPost({ operator: true, project: pid, projectName: 'Sweep Damage Room', text: '@mara are we set?' }, board.agents, MEMBERS);
+      assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+      fs.writeFileSync(f, Buffer.alloc(good.length + 7, 0));
+      let damaged;
+      try {
+        assert.equal(messages.record().stampsUnknown, true, 'CONTROL: the stamps are unknown');
+        damaged = messages.sweepUnanswered(board.agents);
+      } finally {
+        fs.writeFileSync(f, good);
+      }
+      assert.deepEqual(damaged.nudged, [], 'damaged: nobody nudged');
+      assert.equal(messages.record().rows.filter((m) => m.kind === 'nudge').length, 0, 'damaged: no nudge row written');
+      assert.equal(tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('has not seen an answer')).length, 0, 'damaged: nothing typed');
+      const repaired = messages.sweepUnanswered(board.agents);
+      assert.deepEqual(repaired.nudged.map((n) => n.to), ['mara'], 'CONTROL: repaired, the same ask is nudged, so the sweep would have acted');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+    }
+  });
+});
+
 // #2442: the room-nudge sweep is a pane write into agents (#185), so it must also
 // respect removal. A removed agent gets no room traffic, not even a nudge for an
 // ask that predates its removal.

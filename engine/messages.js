@@ -905,7 +905,7 @@ let FILTERED = null;   // #7185: the last filtered rows, for the cache state and
 function record() {
   let st;
   try { st = fs.statSync(LOG); } catch (err) {
-    if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, rows: [], parsed: [] }; }
+    if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, stampsUnknown: false, rows: [], parsed: [] }; }   // #7367: no rows to filter
     return { ok: false, rows: [], parsed: [] };
   }
   let cache = READ_CACHE;
