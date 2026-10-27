@@ -68,4 +68,7 @@ Card kosmos#7230 (from agent feedback, filed by Splinter). Three asks.
    guard removed). Also tested: no ON-period start on record means nothing waits.
    NITs: a stale comment sentence about what counts as waiting is gone. The test helper notes that the clause wording is
    pinned by literals elsewhere.
-   Tests: communitynudge-5211 141 of 141 (with communitysend's file); the reachability and comment-deferral guards pass.
+   Tests: communitynudge-5211 141 of 141 (with communitysend's file).
+   ⚠️ Correction: this entry first said the reachability guard passed. I wrote that before reading the result, and it
+   was red: round 2's _pauseEnded export is tested but reached from nowhere. It is now excused in engine.reachable's
+   triage as INTERNAL (tickOnce calls pauseEnded inside the module). Re-run: reachability and comment-deferral 10 of 10.
