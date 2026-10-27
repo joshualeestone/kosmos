@@ -260,10 +260,10 @@ enum Board {
     }
 
     // kosmos#7354 (Josh 10-27, Mona Lisa's design): the red count on an agent's avatar: one when it needs the person, plus
-    // its unread replies (the guide's replies are not counted). This is the Mac's waitingTotal (engine/status.js) agent by
+    // its unread replies; nothing for the guide, which the Mac leaves out of both. This is the Mac's waitingTotal (engine/status.js) agent by
     // agent, so the rows add up to the tab's number less the rooms' unread, which the Projects tab shows.
     static func noticeCount(_ a: Agent) -> Int {
-        (a.needsYou ? 1 : 0) + (a.isGuide ? 0 : max(0, a.dmUnread))
+        a.isGuide ? 0 : (a.needsYou ? 1 : 0) + max(0, a.dmUnread)   // the Mac counts nothing of the guide's (server.js countAgents)
     }
     // The count to VoiceOver, which does not see the badge.
     static func noticeWords(_ n: Int) -> String? { n > 0 ? "\(n) waiting" : nil }
@@ -401,6 +401,17 @@ enum Board {
         return state == "needs_you" || state == "needs_trust"
             || (state == "connection_lost" && ((row["reconnect"] as? [String: Any])?["phase"] as? String) == "gave_up")
             || flag("crashLoop", "looping") || flag("stuckError", "stuck") || flag("ownBound", "raised")
+            || jsTruthy(row["deliveryStall"])   // kosmos#7354 review: #7212's stalled delivery, as engine/status.js needsPerson
+    }
+
+    // A value as JavaScript's Boolean() reads it: absent, null, false, 0 and "" are false; anything else is true.
+    static func jsTruthy(_ v: Any?) -> Bool {
+        switch v {
+        case nil, is NSNull: return false
+        case let n as NSNumber: return n.doubleValue != 0
+        case let s as String: return !s.isEmpty
+        default: return true
+        }
     }
 
     // Mona Lisa's slice 1 spec (kosmos#6838): each status word has a tone, which sets the dot and the word's colour.

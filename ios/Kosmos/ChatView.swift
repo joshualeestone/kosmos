@@ -47,6 +47,8 @@ struct ChatView: View {
     @State private var readShown = 0
     // Shown on screen (not just alive in a hidden tab), and the client's forgetting count this chat was opened under.
     @State private var visible = false
+    // kosmos#7354: a mark-read request is out, so the next read of the list does not send a second one.
+    @State private var seenInFlight = false
     @State private var epoch = 0
     @State private var lastPendingCount = 0
     @State private var keepNewestInView = true
@@ -239,8 +241,9 @@ struct ChatView: View {
             startReading()
             markDmSeen()
         }
-        // kosmos#7354: replies landing while the chat is open are read here, so its count on the Agents list stays clear.
-        .onChange(of: unreadHere) { n in if visible && n > 0 { markDmSeen() } }
+        // kosmos#7354: on every read of the list while the chat is open, unread replies are marked read again, as the board's
+        // paintTalk does on each poll; so one that failed is sent again, and replies landing while it is open are read.
+        .onReceive(client.$agents) { _ in markDmSeen() }
         .onDisappear {
             visible = false
             if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }   // review 3: by session on purpose: a computer switch while open must never leave a stale value hiding banners; the cost is an extra banner
@@ -617,17 +620,23 @@ struct ChatView: View {
         #endif
     }
 
+    // kosmos#7354: this agent's unread replies as the last read of the list has them. While the chat is open and any are
+    // unread, the board's own read cursor is moved (server.js dmSeen), so the count on its avatar clears everywhere; only
+    // then, as the board sends it only when dmUnread is above 0.
+    private var unreadHere: Int { client.agents.first { $0.session == agent.session }?.dmUnread ?? 0 }
+    private func markDmSeen() {
+        guard visible, unreadHere > 0, !seenInFlight else { return }
+        seenInFlight = true
+        let session = agent.session
+        Task {
+            _ = await client.throughMac { Board.dmSeenRequest(mac: $0, session: session) }
+            seenInFlight = false
+        }
+    }
+
     // New messages come in at the bottom; if the person has scrolled up, the view stays and the capsule offers a jump.
     // Not while searching: the person is reading what matched, and a new message may not even be among it (the
     // board's convPause, #5624).
-    // kosmos#7354: this agent's unread replies as the last read of the list has them, and the board's own read cursor
-    // moved on opening the chat (server.js dmSeen), so the count on its avatar clears as on the board.
-    private var unreadHere: Int { client.agents.first { $0.session == agent.session }?.dmUnread ?? 0 }
-    private func markDmSeen() {
-        let session = agent.session
-        Task { _ = await client.throughMac { Board.dmSeenRequest(mac: $0, session: session) } }
-    }
-
     private func follow(_ proxy: ScrollViewProxy) {
         if searching { return }
         if atBottom { goNewest(proxy, animated: true) } else { unseenNew = true }
