@@ -1083,8 +1083,9 @@ final class BoardClient: ObservableObject {
             case .unknown: break
             }
         } else if named?.1.statusCode == 404 {
-            // Review 5: an older board without the route has no name to give, as the picture read already treats it.
-            // Review 6: counted as learned (no 30 s retry) but the name shown is kept, in case something else answered 404.
+            // Review 5: an older board without the route has no name to give (the picture read reads its 404 as none).
+            // Review 6: counted as learned (no 30 s retry), but unlike the picture the name shown is kept, in case something
+            // else answered 404 (a computer or account switch clears it anyway).
             learned = true
         }
         // Review 4: nothing learned, so the next read comes after youRetry rather than youEvery.
