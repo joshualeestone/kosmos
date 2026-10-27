@@ -75536,13 +75536,17 @@ async function pjWinEarlier() {
   if (PJ_WIN.loading || PJ_ROOM_QUERY.trim() !== '' || !PJ_CURRENT || PJ_WIN.pid !== PJ_CURRENT) return;
   if (!PJ_WIN.cursor || !(PJ_WIN.olderCount > 0) || !Array.isArray(PJ_WIN.newest) || !box || !box.__lastBody) return;
   const pid = PJ_CURRENT, win = PJ_WIN.gen;
+  /* Where the newest page started WHEN this read was asked for. A poll that answers while it is in flight moves
+     newestOlder on, and taking the boundary from that later value would claim the rows between as held when no read
+     ever brought them (review 1: 30 rows lost for good). */
+  const at = PJ_WIN.newestOlder;
   PJ_WIN.loading = true;
   let page;
   try { page = await pjWinRead(pid, PJ_WIN_PAGE, PJ_WIN.cursor); }
   catch { page = null; }   // the reader stays where they are; the next time they reach the top asks again
   finally { if (win === PJ_WIN.gen) PJ_WIN.loading = false; }
   if (!page || win !== PJ_WIN.gen || pid !== PJ_CURRENT || PJ_ROOM_QUERY.trim() !== '') return;
-  if (PJ_WIN.boundary === null) PJ_WIN.boundary = PJ_WIN.newestOlder;
+  if (PJ_WIN.boundary === null) PJ_WIN.boundary = at;
   PJ_WIN.older = pjWinMerge(page.rows, PJ_WIN.older);
   PJ_WIN.cursor = page.olderCursor || null;
   PJ_WIN.olderCount = Number(page.olderCount) || 0;
@@ -75551,6 +75555,8 @@ async function pjWinEarlier() {
   box.__lastBody = body;
   paintRoom(body);
   if (anchor) restoreThreadAnchor(box, anchor);
+  // The newest page moved while this page was read: read the rows between now, not at the next poll.
+  if (at !== PJ_WIN.newestOlder) loadRoom();
 }
 const PJ_WIN_NEAR_TOP = 300;   // px from the top of the loaded rows that asks for the page before
 document.getElementById('pj-room').addEventListener('scroll', (e) => {
