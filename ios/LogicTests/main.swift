@@ -1094,6 +1094,36 @@ do {
 section("native chat: what follows a new message down")
 do {
     func r(_ id: String, _ at: String?) -> Board.ChatRow { Board.ChatRow(id: id, atRaw: at, at: Board.isoDate(at), text: id, who: .agent) }
+    // kosmos#7265 (Josh 10-27): an open chat keeps the rows a read slides out of the latest window (carryDropped), and its
+    // eager stack starts where it started at opening (eagerStart), so nothing above the reader moves.
+    do {
+        func rows(_ ids: ClosedRange<Int>) -> [Board.ChatRow] { ids.map { r("m\($0)", nil) } }
+        let before = Board.Thread(rows: rows(10...14), olderCount: 10)   // m10..m14 at positions 10..14
+        let slid = Board.Thread(rows: rows(12...16), olderCount: 12)     // two new messages pushed m10, m11 out
+        let kept = Board.carryDropped(Board.Earlier(), previous: before, fresh: slid)
+        check(kept.open && kept.rows.map(\.id) == ["m10", "m11"] && kept.before == 10 && kept.end == 12,
+              "kosmos#7265: rows a read slid out are kept above the window (\(kept.rows.map(\.id)), \(kept.before)..<\(kept.end))")
+        check(Board.shownRows(kept, thread: slid).map(\.id) == (10...16).map { "m\($0)" }, "and the chat still shows every row it showed, in order")
+        check(!Board.hasGap(end: kept.end, olderCount: slid.olderCount), "with no gap left for a page to fetch")
+        // Open already (a page loaded up to the window): only the new part is added, never a duplicate.
+        var open = Board.Earlier(); open.open = true; open.rows = rows(5...9); open.before = 5; open.end = 10
+        let more = Board.carryDropped(open, previous: before, fresh: slid)
+        check(more.rows.map(\.id) == (5...11).map { "m\($0)" } && more.end == 12, "an open chat appends only what left: \(more.rows.map(\.id))")
+        // CONTROLS: reads that do not overlap by id, a window that did not slide, and a page in flight change nothing.
+        let other = Board.Thread(rows: [r("x1", nil), r("x2", nil)], olderCount: 12)
+        check(Board.carryDropped(Board.Earlier(), previous: before, fresh: other) == Board.Earlier(), "CONTROL: reads that do not overlap carry nothing")
+        check(Board.carryDropped(Board.Earlier(), previous: before, fresh: before) == Board.Earlier(), "CONTROL: an unchanged window carries nothing")
+        var loading = Board.Earlier(); loading.loading = true
+        check(Board.carryDropped(loading, previous: before, fresh: slid) == loading, "CONTROL: nothing is carried while a page is loading")
+        check(Board.carryDropped(Board.Earlier(), previous: nil, fresh: slid) == Board.Earlier(), "CONTROL: nothing before the first read")
+        // The eager stack keeps its first row as messages arrive: no row moves back to the lazy rows above the reader.
+        let items = Board.chatItems(rows(1...50), now: Date(), calendar: .current)
+        let from = items[Board.eagerStart(items, from: nil, eager: 40)].id
+        let grown = Board.chatItems(rows(1...53), now: Date(), calendar: .current)
+        check(grown[Board.eagerStart(grown, from: from, eager: 40)].id == from, "kosmos#7265: new messages leave the eager stack's first row where it was")
+        check(grown[Board.eagerStart(grown, from: nil, eager: 40)].id != from, "CONTROL: without the kept start the boundary moves with each new message")
+        check(Board.eagerStart(grown, from: "gone", eager: 40) == grown.count - 40, "a start no longer shown falls back to the last 40")
+    }
     let before = Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)
     let shifted = Board.Thread(rows: [r("b", "T2"), r("c", "T3")], olderCount: 6)
     check(Board.followKey(before) != Board.followKey(shifted), "at the Mac's 200-row cap the count stays the same, and the key still moves")
