@@ -147,6 +147,16 @@ test('#7266: a create waits behind a box or a covered board, as a section press 
   assert.deepEqual(run('new-agent', { backdrop: true }).calls, []);
 });
 
+test('#7266 review 2: the app reads a covered create with the door\'s own box test, so it waits instead of falling back', () => {
+  // The door's guard line, as the board has it, must appear inside the app's create script word for word: if either side
+  // gains a kind of box the other does not know, this goes red rather than the app reloading the page under that box.
+  const swift = fs.readFileSync(nodePath.join(__dirname, 'ios', 'Kosmos', 'ShellLogic.swift'), 'utf8');
+  const door = PAGE.match(/document\.querySelector\('(\.rm-back[^']*)'\)\) return false;/);
+  assert.ok(door, 'the board door has its backdrop guard');
+  assert.ok(swift.includes("document.querySelector('" + door[1] + "')) return 'absent'"), 'the app create script uses the same backdrop test');
+  assert.ok(swift.includes("t.closest('[inert]')"), 'and the same inert-bar test');
+});
+
 test('#7266: the open phone menu closes before a create, as before a section press', () => {
   assert.deepEqual(run('new-agent', { menuOpen: true }).calls, ['pnavClose true', 'press agents', 'make new-agent']);
 });

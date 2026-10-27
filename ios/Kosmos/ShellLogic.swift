@@ -346,7 +346,11 @@ enum AppTabs {
     // The door call for any name it takes: a section, or a create (kosmos#7266). An older board that does not know a
     // create name refuses it, and the press ends with the page on its own section.
     static func pressScript(door name: String) -> String {
-        return "(function () { if (typeof window.kosmosAppTab !== 'function') return 'absent'; try { return window.kosmosAppTab('\(name)') === true ? 'opened' : 'refused'; } catch (e) { return 'refused'; } })()"
+        // kosmos#7266 review 2: a create (the + buttons) refused while a box is up or the bar is inert is not an older
+        // board's "unknown name": it answers absent, so the press waits for the next load like any covered press and is
+        // never sent to a fallback (which would reload the page under the box). The board door's own guards, read here.
+        let covered = Create(rawValue: name) == nil ? "" : "var t = document.getElementById('tabs'); if (!t || t.closest('[inert]') || document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return 'absent'; "
+        return "(function () { if (typeof window.kosmosAppTab !== 'function') return 'absent'; try { if (window.kosmosAppTab('\(name)') === true) return 'opened'; \(covered)return 'refused'; } catch (e) { return 'refused'; } })()"
     }
 
     enum DoorAnswer: Equatable {

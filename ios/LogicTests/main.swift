@@ -3679,6 +3679,7 @@ for sel in AppTabs.visible(tasksTab: true) {
 
 check(AppTabs.pressScript(door: "new-agent").contains("window.kosmosAppTab('new-agent')"), "#7266: the create name goes to the door")
 check(AppTabs.pressScript(.agents) == nil && AppTabs.pressScript(.projects) == AppTabs.pressScript(door: "projects"), "#7266: a section press is unchanged")
+check(AppTabs.pressScript(door: "new-agent").contains("return 'absent'; return 'refused'") && !AppTabs.pressScript(door: "projects").contains(".rm-back"), "#7266 review 2: only a create reads a covered board as absent (it waits); a section press is unchanged")
 do {
     var t = PressTracker()
     let waited = t.press(.agents, page: .loading, section: true, door: AppTabs.Create.agent.rawValue)
