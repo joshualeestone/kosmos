@@ -65,6 +65,17 @@ for name in ["ChatView", "RoomView"] {
 // Review 3: the room keeps its draft on every change of the box, so a stop there ended dictation after one word.
 let keep = body(of: "private func keepDraft() {", in: code("RoomView"))
 check(!keep.isEmpty && !keep.contains("dictation.stop") && !keep.contains("dictation.reset"), "RoomView: keeping the draft (on every keystroke) never stops dictation")
+// Review 4: the other wiring sites, each pinned.
+for name in ["ChatView", "RoomView"] {
+    let src = code(name)
+    check(src.contains("dictation.reset(); emojiOpen = false }"), "\(name): leaving resets dictation and closes the panel")
+    check(src.components(separatedBy: "dictation.reset(); emojiOpen = false").count - 1 >= 2, "\(name): another account resets them too")
+    check(src.contains("!dictation.busy &&"), "\(name): Send waits while dictating or finishing")
+}
+// The few lines before the draft is saved on leaving must stop dictation first.
+let chat = code("ChatView")
+let beforeSave = chat.components(separatedBy: "client.drafts[agent.session] = draftText").first.map { String($0.suffix(400)) } ?? ""
+check(chat.contains("client.drafts[agent.session] = draftText") && beforeSave.contains("dictation.stop()"), "ChatView: dictation stops before the draft is saved on leaving")
 
 section("the reasons iOS shows the first time")
 let pbx = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos.xcodeproj/project.pbxproj"), encoding: .utf8)) ?? ""

@@ -85,6 +85,10 @@ extension ComposerExtras {
     private var tapInstalled = false
     // Results are written while this is set: through listening, and after a stop by hand until the last words arrive.
     private var live = false
+    // After a stop by hand, while the last words are still on their way (review 4: Send waits for them, a press ends it).
+    @Published private(set) var finishing = false
+    // Listening, starting or finishing: Send waits, so a message never goes without its last words (review 4).
+    var busy: Bool { active || finishing }
     // A generation, so a second press, a stop or a leave during the awaits cancels a start, and an old recognition task
     // can never write for or stop a newer one (review 1).
     private var generation = 0
@@ -96,12 +100,14 @@ extension ComposerExtras {
     private var observers: [NSObjectProtocol] = []
 
     init() {
-        // A phone call, Siri, the app going to the background (review 2), headphones in or out, or the media services
-        // resetting (review 3) end the microphone: stop and say so, never a red button over a dead microphone.
+        // A phone call, Siri, the app going to the background (review 2), the engine's input changing or the media
+        // services resetting (review 3), or the audio route changing, as headphones in or out (review 4), end the
+        // microphone: stop and say so, never a red button over a dead microphone. A stop while idle does nothing.
         let nc = NotificationCenter.default
         let watch: [(Notification.Name, Any?)] = [
             (AVAudioSession.interruptionNotification, nil), (UIApplication.didEnterBackgroundNotification, nil),
             (AVAudioSession.mediaServicesWereResetNotification, nil), (.AVAudioEngineConfigurationChange, engine),
+            (AVAudioSession.routeChangeNotification, nil),   // review 4: headphones in or out, said plainly
         ]
         for (name, object) in watch {
             observers.append(nc.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
@@ -115,7 +121,7 @@ extension ComposerExtras {
 
     // `current` reads the box as it is now, so a result never writes over something typed since (review 3).
     func toggle(base: String, current: @escaping () -> String, onText: @escaping (String) -> Void) {
-        if starting { stop(); return }
+        if starting || finishing { stop(); return }   // review 4: a press while finishing ends it, never a new start
         if state == .listening { finish(); return }
         generation += 1
         let mine = generation
@@ -139,8 +145,6 @@ extension ComposerExtras {
     }
 
     private func start(base: String, current: @escaping () -> String, onText: @escaping (String) -> Void, generation mine: Int) async {
-        lastWritten = base
-        heard = false
         let speech = await withCheckedContinuation { c in SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) } }
         guard mine == generation else { return }
         switch speech {
@@ -167,6 +171,12 @@ extension ComposerExtras {
             let req = SFSpeechAudioBufferRecognitionRequest()
             req.shouldReportPartialResults = true
             if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+            req.addsPunctuation = true   // review 4: on-device text otherwise arrives as one run-on sentence
+            // Review 4: anything left from an earlier session goes first, and this session's fields are set only now,
+            // after every await has passed its generation check.
+            task?.cancel(); request?.endAudio(); task = nil; request = nil
+            lastWritten = base
+            heard = false
             input.removeTap(onBus: 0)
             input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in req.append(buffer) }
             tapInstalled = true
@@ -185,6 +195,8 @@ extension ComposerExtras {
                 let words = result?.bestTranscription.formattedString
                 let final = result?.isFinal ?? false
                 let failed = error != nil
+                // Review 4: Speech's "no speech detected" (kAFAssistantErrorDomain 1110) is not a refusal: nothing said.
+                let silent = (error as NSError?).map { $0.domain == "kAFAssistantErrorDomain" && $0.code == 1110 } ?? false
                 Task { @MainActor in
                     guard let self, self.generation == mine, self.live else { return }
                     if let words, !words.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -197,9 +209,9 @@ extension ComposerExtras {
                         self.lastWritten = text
                         self.onText?(text)
                     }
-                    if failed && !self.heard {
-                        // Review 3: an error with nothing heard (Siri and Dictation off, no network, no model yet) is a
-                        // refusal, said, not a microphone that switched itself off.
+                    if failed && !self.heard && !silent && self.state == .listening {
+                        // Review 3: an error with nothing heard while listening (Siri and Dictation off, no network, no
+                        // model yet) is a refusal, said. Review 4: never after a stop by hand, nor for "no speech".
                         self.stop()
                         self.refuse(.unavailable)
                     } else if final || failed {
@@ -217,6 +229,7 @@ extension ComposerExtras {
     // still land. The final result (or an error) ends it; two seconds is the most it waits.
     private func finish() {
         let mine = generation
+        finishing = true
         state = .ready
         UIAccessibility.post(notification: .announcement, argument: "Stopped dictating")
         if engine.isRunning { engine.stop() }
@@ -235,6 +248,7 @@ extension ComposerExtras {
     func stop(say: Bool = false) {
         generation += 1
         starting = false
+        finishing = false
         live = false
         task?.cancel()
         request?.endAudio()
@@ -311,7 +325,7 @@ private struct CursorField18: View {
                 guard focus.wrappedValue else { return }
                 if case .selection(let r)? = sel?.indices, r.lowerBound >= text.startIndex, r.upperBound <= text.endIndex {
                     caret = text.distance(from: text.startIndex, to: r.lowerBound)..<text.distance(from: text.startIndex, to: r.upperBound)
-                } else { caret = nil }
+                } else if caretText != text { caret = nil }   // review 4: a nil on blur keeps the last good caret
                 caretText = text
             }
             .onChange(of: insert) { pick in

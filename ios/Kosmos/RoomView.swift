@@ -866,7 +866,8 @@ struct RoomView: View {
     private var postWords: String { Board.roomPostWords(draft, files: attachedHere, replyMention: replyMention) }
     private var canPost: Bool {
         // Not before the room's first read: with nothing read, an older post with the same words could settle it.
-        store.rows[project.id] != nil && !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then post.
+        !dictation.busy && store.rows[project.id] != nil && !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !Board.isOnlyMention(postWords, mention: replyMention) && (attachedHere.isEmpty || uploadingHere == 0)
             && attachedHere.count <= Board.maxFiles
     }
