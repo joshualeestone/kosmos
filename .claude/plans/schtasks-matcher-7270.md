@@ -94,3 +94,7 @@ holds each one.
   loop skips redirects; nice --adjustment and time -f/-o/--format/--output take values. Test added with controls.
   Harness NIT noted: load the preload by absolute forward-slash path, as windows-tests.js does. Fuzz rerun: same 2
   redirect-target cases only. Negative control: the new test fails against round 6. 84/84.
+- Round 8 (last; the fleet rule stops a loop at 8 rounds unless a BLOCKER is open): no BLOCKER. 1.09M-call fuzz vs
+  main and round 6: the 3 new main-true/HEAD-false calls checked by hand, none runs schtasks; every valueAt site takes
+  the right slot; no loop or index error; no dead code; header matches behaviour. 1 WARNING (command >nul -v schtasks
+  refused) and 4 NITs DEFERRED to #7299 rather than shipping unreviewed changes. Converged: no (stopped by the cap).
