@@ -39,6 +39,8 @@ prep() { ( promote_linux_prepare "$@" >/dev/null 2>&1; echo "rc=$? linux=$PROMOT
 S="$(newsite ok 1.4.0)"
 chk "CONTROL: a staging Linux pointer at V is taken" [ "$(prep "$S" 1.4.0)" = "rc=0 linux=yes" ]
 chk "a staging Linux pointer at another version refuses (lockstep)" [ "$(prep "$S" 1.4.1)" = "rc=1 linux=no" ]
+S2="$(newsite vfield 1.4.0)"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="1.4.9";require("fs").writeFileSync(f,JSON.stringify(p))' "$S2/dist/latest-linux-staging.json"
+chk "a pointer whose version field alone disagrees refuses (the names still say 1.4.0)" [ "$(prep "$S2" 1.4.0)" = "rc=1 linux=no" ]
 chk "a named promote refuses while staging has a Linux pointer" [ "$(prep "$S" 1.4.0 1.4.0)" = "rc=1 linux=no" ]
 E="$T/site-empty"; mkdir -p "$E/dist"
 chk "CONTROL: no Linux pointers at all: the Mac promote goes ahead alone" [ "$(prep "$E" 1.4.0)" = "rc=0 linux=no" ]
