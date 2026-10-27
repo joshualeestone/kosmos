@@ -1104,10 +1104,17 @@ test('kosmos#4903 S5 design: a cloud machine says "below" once the link is there
   const late = connectHarness({ phase: 'signin-awaiting-code', url: null }, { cloud: true });
   late.paint({ phase: 'signin-awaiting-code', url: URL });
   assert.match(late.els['fr-conn-cloudsay-code'].textContent, /sign-in page below/, 'a late link left the sentence saying it is coming');
+  // Review 2 (W1): the hidden live region says the same as the screen, link or no link.
+  for (const phase of ['signin-browser-open', 'signin-awaiting-code']) {
+    assert.match(connectHarness({ phase, url: URL }, { cloud: true }).els['fr-conn-say'].textContent, /sign-in page below/, phase + ': the spoken line says the link is coming while it is there');
+    assert.match(connectHarness({ phase, url: null }, { cloud: true }).els['fr-conn-say'].textContent, /in a moment/, phase + ': the spoken line points at a link that is not there');
+  }
   // Note 3: on a cloud machine the code field has a placeholder and no second "paste the code" label.
   const code = connectHarness({ phase: 'signin-awaiting-code', url: URL }, { cloud: true }).els['fr-sub'].innerHTML;
   assert.doesNotMatch(code, /If Claude gives you a code to paste/, 'the code step still asks twice');
   assert.match(code, /<input id="fr-conn-code"[^>]*placeholder="Paste the code from Claude"/);
+  assert.match(code, /<input id="fr-conn-code"[^>]*aria-describedby="fr-conn-cloudsay-code"/, 'the code field lost its description');
+  assert.match(code, /<span id="fr-conn-cloudsay-code">/, 'the field is described by an element that is not there');
   // CONTROL: the Mac keeps its label (a code is the exception there) and has no placeholder, and its words are unchanged.
   const mac = connectHarness({ phase: 'signin-awaiting-code', url: URL }).els['fr-sub'].innerHTML;
   assert.match(mac, /If Claude gives you a code to paste, put it here:/);
@@ -1117,6 +1124,7 @@ test('kosmos#4903 S5 design: a cloud machine says "below" once the link is there
 
 test('kosmos#4903 S5 design: on a cloud machine the sign-in link is the gold primary, which #firstrun .btn would otherwise paint white', () => {
   // `#firstrun .btn` (1,1,0) outranks `.btn.uprime` (0,2,0), so the link needs its own scoped rule (as the confirm has).
+  assert.match(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'), /#acct-claude-open \{ text-decoration: none; \}/, 'Settings\' cloud link is underlined again');
   assert.match(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'),
     /#firstrun #fr-conn-url \.btn\.uprime \{ background: var\(--gold-bright\);[^}]*text-decoration: none; \}/);
 });
