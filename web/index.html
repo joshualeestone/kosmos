@@ -22325,7 +22325,7 @@ function stateReason(a, opts) {
     const step = typeof a.deliveryStall.step === 'string' && a.deliveryStall.step ? ': ' + a.deliveryStall.step : '';
     const n = Number.isInteger(a.deliveryStall.count) && a.deliveryStall.count > 0 ? a.deliveryStall.count : 1;
     const waiting = n === 1 ? '1 message is waiting behind it' : n + ' messages are waiting behind it';
-    const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Restart it to free it, then send them again';
+    const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Restart it to free it (the waiting messages will need sending again), or wait if it is a long job';
     return who + ' has been on one step for ' + when + step + '. ' + waiting + '. ' + next + '.';
   }
   /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause (engine/deliverystreak.js).

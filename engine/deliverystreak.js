@@ -39,6 +39,7 @@ const streaks = new Map();
    `queued`, kept in its state file), and a step with no sign of activity for TURN_STUCK_MS while something is queued is
    said here, with the step it is on. */
 const TURN_STUCK_MS = 60 * 60 * 1000;
+const STEP_BUCKET_MS = 5 * 60 * 1000;   // win32streamstate.STEP_CLOCK_MS, kept here so this module needs nothing from it
 
 /* What one verdict was held or refused for, in a word the card and the log can key on. */
 function whyOf(v) {
@@ -93,7 +94,9 @@ function turnStuckOf(name, turn, { now = Date.now() } = {}) {
   try {
     if (!turn || typeof turn.since !== 'string') return null;
     const since = Date.parse(turn.since);
-    if (!Number.isFinite(since) || now - since < TURN_STUCK_MS) return null;
+    /* The clock on disk can trail the last activity by up to one bucket (win32streamstate writes it in 5-minute steps), so
+       the bucket is added: "over an hour" is then always true (review 5 N1). */
+    if (!Number.isFinite(since) || now - since < TURN_STUCK_MS + STEP_BUCKET_MS) return null;
     const count = Number.isInteger(turn.queued) ? turn.queued : 0;
     if (count < 1) return null;
     /* Masked again here (review 2 W4): the supervisor masks by shape only; the board also knows the person's own secrets.
@@ -104,9 +107,11 @@ function turnStuckOf(name, turn, { now = Date.now() } = {}) {
   } catch { return null; }
 }
 /* The way out, worded for how many wait (review 1: "them" for one message). */
+function turnNextWords(count) { return turnNext(count); }
 function turnNext(count) {
-  return (count === 1 ? 'Restart it to free it, then send that message again' : 'Restart it to free it, then send them again')
-    + ', or wait if it is a long job';   // review 3: an out for an agent that is simply busy (Josh's voice: give the reader an out)
+  /* Review 5 W2: who sent them is not known (Kosmos's own posts are written in too), so the words do not assume the
+     person did. Review 3: an out for an agent that is simply busy (Josh's voice: give the reader an out). */
+  return 'Restart it to free it (' + (count === 1 ? 'the waiting message' : 'the waiting messages') + ' will need sending again), or wait if it is a long job';
 }
 
 /* True when a card shows a usage limit itself (its limit reset, a limitFrom reading, or an Antigravity quota or pool
@@ -160,7 +165,7 @@ const NEXT_WORDS = {
   quota: 'Kosmos sends them once the shared quota resets',
   /* kosmos#7368: a restart ends the process, and what it had queued goes with it, so they must be sent again
      (turnNext words it for one message). */
-  turn: 'Restart it to free it, then send them again, or wait if it is a long job',
+  turn: turnNextWords(2),
 };
 /* The board log's line for one stall. */
 function stallLine(s) {

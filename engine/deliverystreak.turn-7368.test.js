@@ -112,12 +112,15 @@ test('#7368 review 3 W2: a subagent\'s tool result is not a boundary for the per
   r.pub.started(4242, 'sid-1');
   r.pub.wrote(); r.pub.event(init);
   r.pub.event(toolUse('Task', { description: 'research' }));
+  const taskId = lastId;
   r.pub.wrote();
+  // The subagent's own call (review 5 W1): it must not join the main agent's open calls.
+  r.pub.event({ type: 'assistant', parent_tool_use_id: taskId, message: { content: [{ type: 'tool_use', id: 'sub_call', name: 'Bash', input: { command: 'sub' } }] } });
   const sub = { type: 'user', parent_tool_use_id: 'toolu_x', message: { content: [{ type: 'tool_result', content: 'sub step' }] } };
   r.pub.event(sub);
   assert.equal(r.last().queued, 1, 'the subagent\'s own tool result leaves the person\'s message waiting');
-  r.pub.event(toolResult());
-  assert.equal(r.last().queued, undefined, 'CONTROL: the main agent\'s tool result takes it');
+  r.pub.event(toolResult(taskId));
+  assert.equal(r.last().queued, undefined, 'CONTROL: the main agent\'s tool result takes it (the subagent\'s call never held it open)');
 });
 
 test('#7368 review 3 W3: while a message waits, the card names the step that is running, never one that finished', () => {
@@ -184,8 +187,12 @@ test('#7368: an hour with no activity AND a message queued is a stall that names
   assert.equal(ds.turnStuckOf('ada', { since: new Date(now - 59 * MIN).toISOString(), step: null, queued: 3 }, { now }), null, 'CONTROL: under an hour of quiet is not stuck');
   const st = ds.turnStuckOf('ada', { since: old, step: 'running "npm install"', queued: 2 }, { now });
   assert.deepEqual({ lastWhy: st.lastWhy, count: st.count, step: st.step, since: st.since }, { lastWhy: 'turn', count: 2, step: 'running "npm install"', since: old });
-  assert.match(st.next, /Restart it to free it, then send them again/);
-  assert.match(ds.turnStuckOf('ada', { since: old, step: null, queued: 1 }, { now }).next, /send that message again/, 'one message is "that message", not "them"');
+  assert.match(st.next, /Restart it to free it \(the waiting messages will need sending again\)/);
+  assert.match(ds.turnStuckOf('ada', { since: old, step: null, queued: 1 }, { now }).next, /the waiting message will need/, 'one message is singular');
+  assert.doesNotMatch(st.next, /send them again|you sent/, 'review 5 W2: the words never assume the person sent them');
+  // Review 5 N1: the clock on disk can trail by a bucket, so the hour is counted past it.
+  assert.equal(ds.turnStuckOf('ada', { since: new Date(now - 63 * MIN).toISOString(), step: null, queued: 1 }, { now }), null, '63 minutes is not yet over an hour once the bucket is allowed for');
+  assert.ok(ds.turnStuckOf('ada', { since: new Date(now - 66 * MIN).toISOString(), step: null, queued: 1 }, { now }), '66 minutes is');
   assert.equal(ds.turnStuckOf('ada', null, { now }), null);
 });
 
@@ -223,9 +230,9 @@ test('#7368: the page says it in its own sentence, naming the step and how many 
   const card = (mins, count, step) => ({ name: 'Ada', state: 'working', deliveryStall: { since: new Date(Date.now() - mins * MIN).toISOString(), count,
     lastWhy: 'turn', step, words: ds.WHY_WORDS.turn, next: ds.turnNext(count) } });
   assert.equal(stateReason(card(125, 3, 'running "npm install"')),
-    'Ada has been on one step for about 2 hours: running "npm install". 3 messages are waiting behind it. Restart it to free it, then send them again, or wait if it is a long job.');
+    'Ada has been on one step for about 2 hours: running "npm install". 3 messages are waiting behind it. Restart it to free it (the waiting messages will need sending again), or wait if it is a long job.');
   assert.equal(stateReason(card(70, 1, null)),
-    'Ada has been on one step for about 70 minutes. 1 message is waiting behind it. Restart it to free it, then send that message again, or wait if it is a long job.');
+    'Ada has been on one step for about 70 minutes. 1 message is waiting behind it. Restart it to free it (the waiting message will need sending again), or wait if it is a long job.');
   assert.match(stateReason({ name: 'Ada', state: 'idle', deliveryStall: { since: new Date(Date.now() - 45 * MIN).toISOString(), count: 4, lastWhy: 'menu', words: ds.WHY_WORDS.menu } }),
     /^No message has reached Ada/, 'CONTROL: the #7212 stall keeps its own sentence');
 });
@@ -246,6 +253,7 @@ test('#7368 review 4 B1 (measured): two calls in one message run one after the o
   ] } });
   r.pub.wrote();                                   // written while both are open
   assert.equal(r.last().queued, 1);
+  assert.equal(r.last().step, 'running "quick"', 'review 5 N2: the step is the FIRST call still open');
   r.pub.event(toolResult('call_a'));               // the first returns (18.68 s in the measured run)
   assert.equal(r.last().queued, 1, 'still waiting: the model is not called again until the second returns');
   assert.equal(r.last().step, 'running "hangs"', 'and the card names the call still running');
