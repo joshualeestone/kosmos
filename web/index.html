@@ -45047,10 +45047,7 @@ function settleWantAgent() {
     WANT_AGENT_DONE = true;
     /* #7280: a link that named a section (the iPhone's "Open on your computer's board" asks for AI Settings) lands
        there, at the top on a phone; otherwise the conversation, as before. */
-    if (WANT_AGENT_SEC) {
-      const sec = detailSection(WANT_AGENT_SEC);
-      if (sec && window.matchMedia && window.matchMedia(DETAIL_STACK_MQ).matches) { try { sec.scrollIntoView({ block: 'start' }); } catch (_e) { /* stay put */ } }
-    } else detailRevealTalkOnPhone();
+    detailRevealTalkOnPhone(WANT_AGENT_SEC || 'talk');
     return;
   }
   // The grace is judged only on a read, and a read that finds the agent has already opened it
@@ -45067,9 +45064,11 @@ let REVEAL_HOLD = null;
    makes the browser scroll it above the on-screen keyboard (the Answer path focuses it); the
    hold must never pull it back under. */
 const REVEAL_HOLD_STOPS = ['touchstart', 'wheel', 'keydown', 'mousedown', 'focusin'];
-function detailRevealTalkOnPhone() {
+/* #7280 review 1: the section to land on is a parameter (an agent link may name AI Settings), with the same hold, since
+   the Files list paints late above every section, not only above the conversation. */
+function detailRevealTalkOnPhone(key) {
   if (!(window.matchMedia && window.matchMedia(DETAIL_STACK_MQ).matches)) return;
-  const talk = detailSection('talk');
+  const talk = detailSection(key || 'talk');
   if (!talk || talk.hidden) return;
   try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { /* old engines: stay put */ }
   /* Content above the conversation (the Files list, painted from its own fetch) can still
@@ -90235,12 +90234,15 @@ const RAW_TAB = PARAMS.get('tab') || 'agents';
 const KNOWN_TABS = ['agents', 'projects', 'tasks', 'settings', 'detail', 'create'];
 const BOOT_TAB = RAW_TAB === 'joint' ? 'projects'
   : (KNOWN_TABS.includes(RAW_TAB) ? RAW_TAB : 'agents');
-/* #7280: an agent link (?tab=detail&agent=<name>) may name the section to open, `&sec=model` (AI Settings) or
-   `profile` and the rest of DETAIL_SECTIONS. Talk, Swarm Settings (only on a swarm's page) and an unknown name land on
-   the conversation as before. On ?tab=settings, `sec` is Settings' own (settingsOpen, below). */
+/* #7280: an agent link (?tab=detail&agent=<name>) may name the section to open: `&sec=model` (AI Settings, what the
+   iPhone's agent page asks for), memory, profile, instr, skills or files. Anything else (talk, an unknown name, swarm,
+   which exists only on a swarm's page, and term and remove, which a link should not open straight onto) lands on the
+   conversation as before. On ?tab=settings, `sec` is Settings' own (settingsOpen, below). Known: on a wide window a
+   folded name (memory, skills) opens its group at the top, as a click on its pill does. */
+const WANT_AGENT_LINK_SECTIONS = ['model', 'memory', 'profile', 'instr', 'skills', 'files'];
 const WANT_AGENT_SEC = (() => {
   const s = PARAMS.get('sec');
-  return BOOT_TAB === 'detail' && s && DETAIL_SECTIONS.includes(s) && s !== 'talk' && s !== 'swarm' ? s : null;
+  return BOOT_TAB === 'detail' && WANT_AGENT_LINK_SECTIONS.includes(s) ? s : null;
 })();
 showTab(BOOT_TAB);
 /* #725: a refresh on a Settings sub-tab comes back to that sub-tab. The
