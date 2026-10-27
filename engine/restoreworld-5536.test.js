@@ -110,7 +110,7 @@ test('a second restore of the same member on the same day gets "(2)"; a hidden K
 test('#7181: with the member\'s id, each member has names of their own, however their names reduce', (t) => {
   const base = fresh(t);
   const tag = (id) => rw.memberTag(id);
-  assert.match(tag('m-1'), /^[0-9a-f]{6}$/);
+  assert.match(tag('m-1'), /^[0-9a-f]{12}$/);
   assert.notEqual(tag('m-1'), tag('m-2'));
   assert.equal(tag(''), '', 'no id, no tag');
   // Two names that reduce to the same id (non-Latin only), same day: each is the member's first, under its own id.
@@ -127,6 +127,17 @@ test('#7181: with the member\'s id, each member has names of their own, however 
   const base2 = fresh(t);
   rw.prepareRestoreWorld(base2, { member: '\u674e', now: NOW });
   assert.equal(rw.prepareRestoreWorld(base2, { member: '\u738b', now: NOW }).world.name, `Restored: \u738b, ${DAY} (2)`);
+});
+
+test('#7181: a member id that is given but unusable is refused, never treated as no id', (t) => {
+  const base = fresh(t);
+  for (const bad of [null, '', 123, {}, ['m-1']]) {
+    const r = rw.prepareRestoreWorld(base, { member: '\u674e', memberId: bad, now: NOW });
+    assert.equal(r.ok, false, 'took ' + JSON.stringify(bad) + ' as no id: ' + (r.world && r.world.name));
+    assert.match(r.because, /member id Kosmos could not use/);
+  }
+  // CONTROL: no memberId at all is still the untagged name.
+  assert.equal(rw.prepareRestoreWorld(base, { member: '\u674e', now: NOW }).world.name, `Restored: \u674e, ${DAY}`);
 });
 
 test('#7181: one member using all nine names does not block another; the refusal names the member only when it is one', (t) => {
