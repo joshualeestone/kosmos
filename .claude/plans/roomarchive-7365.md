@@ -14,7 +14,7 @@ A user has a project room with 5,500+ messages that is "almost unusable" (Josh 1
 - Order: the speed fixes ship first, with no archive in them.
 
 ## Slices
-1. DONE (3f8aca64ef): the room read groups reaction rows once (398 -> 31 ms at 5,500 posts).
+1. DONE (this branch's first commit; its PR number goes here): the room read groups reaction rows once (398 -> 31 ms at 5,500 posts).
 2. The page draws only the newest 200 rows; earlier pages load on scroll to the top.
    - Poll: GET /api/project/:id/room?n=200 (the paged arm, #7032), not the whole room.
    - Scroll back: reaching the top of the loaded rows asks for ?n=200&cursor=<oldest loaded key>, prepends it, and keeps
@@ -34,3 +34,13 @@ The fixture's row shapes are a guess at a typical room. Heavier real rows (attac
 page cost worse, which makes the window more urgent, not less.
 
 ## Review rounds
+1. (slice 1, default, 12:5x CDT) 0 BLOCKERs, 2 WARNINGs, 3 NITs. The reviewer's side-by-side probe (old and new route
+   on one fixture with interleaved reactions, released and re-taken claims, a non-member claimant, a shared post id
+   across rooms, numeric ids) gave byte-identical output.
+   - (W) The test never reached claimOf: a 🙋 claim on every fifth post now makes the read ask it, and the test checks
+     what claimOf is given and the claims against a whole-log replay with the route's members (mutation-proven: the
+     whole log reds it with 183 rows).
+   - (W, not in this slice) `unanswered` is O(asks x room) per read: 37 to 58 ms at 1,834 open asks in a 5,500-post
+     room, the worst case. Noted on the card; not worth this slice.
+   - NITs: the comment names rowShaped as why String() keys alike and why grouping is not by project; the docblock now
+     matches the test; the plan no longer names a hash a rebase merge would orphan.

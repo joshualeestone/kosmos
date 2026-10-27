@@ -55,6 +55,8 @@ test.before(async () => {
     lines.push({ kind: 'reaction', project: pid, of: id, at: at(t++), emoji: '👍', op: 'add', from: 'beta' });
     lines.push({ kind: 'reaction', project: pid, of: id, at: at(t++), emoji: '👍', op: 'remove', from: 'beta' });
     if (i % 3 === 0) lines.push({ kind: 'reaction', project: pid, of: id, at: at(t++), emoji: '🔥', op: 'add', operator: true });
+    // A 🙋 claim (claim: true) on every fifth post, so the read also asks claimOf about it.
+    if (i % 5 === 0) lines.push({ kind: 'reaction', project: pid, of: id, at: at(t++), emoji: '\u{1F64B}', op: 'add', from: 'gamma', claim: true });
   }
   lines.push({ kind: 'post', id: 'o7365-1', project: other, from: 'gamma', to: [], text: 'elsewhere', at: at(t++), outcomes: {} });
   lines.push({ kind: 'reaction', project: other, of: 'o7365-1', at: at(t++), emoji: '🎉', op: 'add', from: 'gamma' });
@@ -64,24 +66,38 @@ test.after(() => { try { server.closeAllConnections(); server.close(); } catch {
 
 test('#7365: each post\'s reactionsFor call is given only that post\'s reaction rows, and the pills are unchanged', async () => {
   const real = messages.reactionsFor;
+  const realClaim = messages.claimOf;
   const calls = [];
+  const claimCalls = [];
   messages.reactionsFor = (of, rows, you) => { calls.push({ of: String(of), rows }); return real(of, rows, you); };
+  messages.claimOf = (of, rows, members) => { claimCalls.push({ of: String(of), rows }); return realClaim(of, rows, members); };
   let json;
   try {
     const res = await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`);
     assert.equal(res.status, 200);
     json = await res.json();
-  } finally { messages.reactionsFor = real; }
+  } finally { messages.reactionsFor = real; messages.claimOf = realClaim; }
   const posts = json.rows.filter((r) => r.kind === 'post');
   assert.equal(posts.length, POSTS);
   assert.equal(calls.length, POSTS, 'one reactionsFor call per post');
   for (const c of calls) {
-    assert.ok(c.rows.length >= 3 && c.rows.length <= 4, `post ${c.of} was given ${c.rows.length} rows, not its own 3 or 4`);
+    assert.ok(c.rows.length >= 3 && c.rows.length <= 5, `post ${c.of} was given ${c.rows.length} rows, not its own 3 to 5`);
     assert.ok(c.rows.every((m) => m.kind === 'reaction' && String(m.of) === c.of), `post ${c.of} was given another row`);
+  }
+  // The same for claimOf, asked only about the posts carrying a 🙋 (every fifth).
+  assert.equal(claimCalls.length, POSTS / 5, 'claimOf was asked about each post with a 🙋, and only those');
+  for (const c of claimCalls) {
+    assert.ok(c.rows.length <= 5 && c.rows.every((m) => m.kind === 'reaction' && String(m.of) === c.of), `claimOf for ${c.of} was given another row (${c.rows.length})`);
   }
   // CONTROL, the pills themselves: replayed against the WHOLE log, as before, they come out the same.
   const all = messages.record().rows;
   for (const p of posts) assert.deepEqual(p.reactions, real(p.id, all, 'you'), `post ${p.id}'s pills changed`);
+  // Claims against the WHOLE log with the members the route uses (this room has none, so gamma's 🙋 holds nothing).
+  const members = messages.claimMembers((projects.readAll().find((q) => q.id === pid) || {}).agents);
+  for (const p of posts) {
+    const want = realClaim(p.id, all, members);
+    assert.equal(p.claim ? p.claim.by : null, want ? want.by : null, `post ${p.id}'s claim changed`);
+  }
   const third = posts.find((p) => p.id === 'p7365-3');
   assert.deepEqual(third.reactions, [{ emoji: '👍', count: 1, who: ['alpha'], mine: false }, { emoji: '🔥', count: 1, who: ['you'], mine: true }]);
   const first = posts.find((p) => p.id === 'p7365-1');
