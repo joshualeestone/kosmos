@@ -55,7 +55,7 @@ function fakeRoom(n) {
 function harness(room, project = 'proj') {
   // On the floor unless a test scrolls it up (the live position loadRoom measures before anchoring a gap).
   const box = { __lastBody: undefined, clientHeight: 500, scrollHeight: 10000, scrollTop: 9500 };
-  const msg = { textContent: '' };
+  const msg = { textContent: '' };   // #pj-room-msg
   const painted = [];
   const anchors = { taken: 0, restored: 0 };
   const ctx = {
@@ -71,7 +71,7 @@ function harness(room, project = 'proj') {
   vm.createContext(ctx);
   vm.runInContext('var PJ_CURRENT = ' + JSON.stringify(project) + '; var PJ_ROOM_GEN = 0; var PJ_ROOM_QUERY = "";\n' + SRC
     + '\nthis.api = { loadRoom, pjWinEarlier, pjWinMerge, pjWinReset, pjWinNoteReactions, pjWinLetGoOfEarlier, PJ_WIN, set query(q) { PJ_ROOM_QUERY = q; }, set current(p) { PJ_CURRENT = p; } };', ctx);
-  return { api: ctx.api, box, painted, anchors };
+  return { api: ctx.api, box, painted, anchors, msg };
 }
 const ids = (body) => JSON.parse(JSON.stringify(body.rows.map((r) => r.id)));   // out of the vm realm
 const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => 'p' + (a + i));
@@ -391,4 +391,39 @@ test('#7365 review 7: past PJ_WIN_HOLD_MAX arrived rows a reader off the newest 
   h.api.pjWinLetGoOfEarlier();
   for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
   assert.deepEqual(ids(h.painted.at(-1)), range(2101, 2300), 'back on the newest row: the newest page, read at once');   // 1,000 + 8 x 150 + 100
+});
+
+test('#7365 review 8: a "could not read" line goes as soon as a read works, even when nothing is repainted', async () => {
+  const room = fakeRoom(3000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  h.box.scrollTop = 1000;
+  await h.api.pjWinEarlier(true);
+  await h.api.pjWinEarlier(true);
+  await h.api.loadRoom();   // the stamp is set: the next unchanged poll paints nothing
+  const real = room.fetch;
+  room.fetch = async () => ({ ok: false, json: async () => ({ error: 'down' }) });
+  await h.api.loadRoom();
+  assert.match(h.msg.textContent, /cannot read this room/);
+  room.fetch = real;
+  const painted = h.painted.length;
+  await h.api.loadRoom();
+  assert.equal(h.painted.length, painted, 'nothing changed, so nothing is repainted');
+  assert.equal(h.msg.textContent, '', 'but the failure line is gone');
+});
+
+test('#7365 review 8: a hidden room box neither keeps rows nor lets go of held pages', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  h.box.scrollTop = 1000;
+  await h.api.pjWinEarlier(true);
+  Object.assign(h.box, { clientHeight: 0, scrollHeight: 0, scrollTop: 0 });   // the room is hidden
+  await h.api.loadRoom();
+  assert.equal(h.api.PJ_WIN.older.length, 200, 'held pages stay while the room is not shown');
+  const h2 = harness(fakeRoom(1000));
+  await h2.api.loadRoom();
+  Object.assign(h2.box, { clientHeight: 0, scrollHeight: 0, scrollTop: 0 });
+  await h2.api.loadRoom();
+  assert.equal(h2.api.PJ_WIN.older.length, 0, 'a hidden room keeps no rows pushed out of the newest page');
 });
