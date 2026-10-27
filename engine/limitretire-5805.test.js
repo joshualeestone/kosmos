@@ -313,13 +313,29 @@ test('kosmos#7264: a dateless row the board saw late (on its first capture after
   read(bound + 60e3, screen, 'idle', (card) => assert.equal(card.state, status.STATE.IDLE, 'the late row was not retired at its reset'));
 });
 
-test('kosmos#7264: the bound never retires a late row early: the retire time is no earlier than the reset of a row that appeared before the sighting', () => {
-  const row = `You've hit your session limit · resets 6pm ${Z}`;
+test('kosmos#7264: the late rules, as retireResetLimits reads them: never early, and gone once the reset is past', () => {
+  const row = `You've hit your session limit · resets 6pm ${Z}`;   // 23:00Z on 10-26
   const screen = '❯ hello\n' + `  ⎿  ${row}\n` + FOOTER + STATUS_LINE;
-  const sighting = Date.parse('2026-10-26T22:40:00Z');   // 17:40 CDT, before 6pm: the true reset is that day's 6pm
-  // CONTROL: timed from the sighting, the row is still capped at 17:59 CDT and retired after 18:01.
-  assert.ok(status.retireResetLimits(screen, Date.parse('2026-10-26T22:59:00Z'), () => sighting).includes('session limit'), 'retired before its reset');
-  assert.ok(!status.retireResetLimits(screen, Date.parse('2026-10-26T23:02:00Z'), () => sighting).includes('session limit'), 'CONTROL: not retired after its reset');
-  // And with no first sighting at all (none recorded), kept, as before.
-  assert.ok(status.retireResetLimits(screen, Date.parse('2026-10-28T00:00:00Z'), () => null).includes('session limit'), 'a row with no sighting was retired');
+  const kept = (now, first) => status.retireResetLimits(screen, now, () => first).includes('session limit');
+  // Seen late at 17:40 CDT, before 6pm: the reset is still ahead, so capped until it (never early), gone after it.
+  const s1740 = Date.parse('2026-10-26T22:40:00Z');
+  assert.ok(kept(Date.parse('2026-10-26T22:59:00Z'), { at: s1740, late: true, count: 1 }), 'a late row was retired before its reset');
+  assert.ok(!kept(Date.parse('2026-10-26T23:02:00Z'), { at: s1740, late: true, count: 1 }), 'CONTROL: and not after it');
+  // Seen late long after the reset (03:00 CDT, more than a session span later): gone at once.
+  const s0300 = Date.parse('2026-10-27T08:00:00Z');
+  assert.ok(!kept(s0300, { at: s0300, late: true, count: 1 }), 'a late row seen more than a span after its reset was kept');
+  // The same sighting NOT late (seen arriving) keeps it: a row timed from its arrival is never read as already past.
+  assert.ok(kept(s0300, { at: s0300, late: false, count: 1 }), 'CONTROL: a row seen arriving was retired at once');
+  // Two rows sharing the record (a new limit with the same reset beside a stale one): kept, so a binding one is not lifted.
+  assert.ok(kept(s0300, { at: s0300, late: true, count: 2 }), 'a row sharing its record with another was retired');
+  // A row this cannot read (an unknown zone): kept, as before.
+  const odd = screen.replace('(America/Chicago)', '(Nowhere/Atlantis)');
+  assert.ok(status.retireResetLimits(odd, s0300, () => ({ at: s0300, late: true, count: 1 })).includes('session limit'), 'an unreadable row was retired');
+  // A daily wording seen late within its day: retired at its next reset, never sooner.
+  const weekly = `You've hit your weekly limit · resets 6pm ${Z}`;
+  const wscreen = '❯ hello\n' + `  ⎿  ${weekly}\n` + FOOTER + STATUS_LINE;
+  assert.ok(status.retireResetLimits(wscreen, Date.parse('2026-10-27T22:59:00Z'), () => ({ at: s0300, late: true, count: 1 })).includes('weekly limit'), 'a late daily row was retired before its next reset');
+  assert.ok(!status.retireResetLimits(wscreen, Date.parse('2026-10-27T23:02:00Z'), () => ({ at: s0300, late: true, count: 1 })).includes('weekly limit'), 'CONTROL: and kept after it');
+  // And with no sighting at all, kept, as before.
+  assert.ok(kept(Date.parse('2026-10-28T00:00:00Z'), null), 'a row with no sighting was retired');
 });
