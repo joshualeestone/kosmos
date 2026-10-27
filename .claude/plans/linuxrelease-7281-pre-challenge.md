@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: linuxrelease-7281
-diff_hash: c5953168848b76d874b344350866c03cfae29936304e7676c250b6ec08d06d07
+diff_hash: f54703ee7e5c3594a411ccab5694f2b9b603ab1734c02ea1d2c58646fa570a80
 validation: focused-passed (tools/test-release-linux-7281.sh 67/67); every test that reads tools/release.sh (43 files) rc 0, plus the 12 tests of the other touched files; the rebase onto main changed none of those files; full suite via PR CI
 subdir_audit: passed
 timestamp: 2026-10-27T06:28:10Z
@@ -61,3 +61,5 @@ No blockers.
 
 ### Final ledger
 Converged at iteration 3. Plan: .claude/plans/linuxrelease-7281.md.
+
+Rebase onto main e40f95e4d (after C3 #7307 merged), 2026-10-27 02:3x CDT: package.json test:shell conflict only, resolved by keeping main's test-deploy-linux-7281.sh and appending test-release-linux-7281.sh. No code change. Rerun: test-release-linux-7281 67/0, test-deploy-linux-7281 44/0, every-test-runs + all-node-tests-considered 6/6. diff_hash re-stamped.
