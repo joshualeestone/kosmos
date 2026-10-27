@@ -201,6 +201,8 @@ enum Board {
         case retry
         // kosmos#7337: 409 retry. The nonce was spent, or a hosted box has just allowed this key: sign again, at once.
         case resign
+        // kosmos#7337: 503 retry or 429: counted as a session that got no answer.
+        case busy
         case refused(because: String?)
     }
 
@@ -215,6 +217,10 @@ enum Board {
         }
         if waiting && status == 400 { return .retry }
         if status == 409, obj?["retry"] as? Bool == true { return .resign }
+        // kosmos#7337: a gate too busy to take the sign-in now (503 retry, 429): the gate page's miss, never a new
+        // handoff. A 403 paused or keep is left as it was (a refusal), out of this change.
+        if status == 503, obj?["retry"] as? Bool == true { return .busy }
+        if status == 429 { return .busy }
         return .refused(because: obj?["because"] as? String)
     }
 
