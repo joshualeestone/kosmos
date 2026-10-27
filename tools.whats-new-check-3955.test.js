@@ -66,7 +66,8 @@ test('#5224: per-platform counts; a cut for a platform with no highlight of its 
 test('#5224: the Mac cut and the Windows build each name their platform to the check', () => {
   const rel = fs.readFileSync(path.join(__dirname, 'tools', 'release.sh'), 'utf8');
   const win = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-windows.sh'), 'utf8');
-  const calls = (s) => s.split('\n').filter((l) => /^\s*node .*whats-new-check\.js/.test(l));
+  // kosmos#7349: a call can sit inside a one-line function (release.sh's _whats_new_check), so not only at the line start.
+  const calls = (s) => s.split('\n').filter((l) => /^[^#]*\bnode .*whats-new-check\.js/.test(l));
   assert.equal(calls(rel).length, 3);
   for (const l of calls(rel)) assert.match(l, /--platform=mac\b/, l);
   assert.equal(calls(win).length, 1);
@@ -89,14 +90,17 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
   /* kosmos#7349: 1b-ii runs the check through whats_new_gate, the function the cut also runs before it marks itself. */
   assert.match(block, /whats_new_gate note \|\| exit 1/, 'a refusal does not stop the cut');
   const gate = sh.slice(at('whats_new_gate() {'), sh.indexOf('\n}\n', at('whats_new_gate() {')));
-  assert.match(gate, /node "\$REPO\/tools\/whats-new-check\.js" "\$V" "\$REPO\/web\/whats-new\.json" --platform=mac \|\| return 1/, 'whats_new_gate does not refuse on the check');
+  assert.match(sh, /_whats_new_check\(\) \{ node "\$REPO\/tools\/whats-new-check\.js" "\$V" "\$REPO\/web\/whats-new\.json" --platform=mac; \}/, 'the check whats_new_gate runs is not the highlights check for $V');
+  assert.match(gate, /^\s*_whats_new_check \|\| return 1$/m, 'whats_new_gate (note) does not refuse on the check');
+  assert.match(gate, /err="\$\(_whats_new_check 2>&1 >\/dev\/null\)" \|\| \{ printf '%s\\n' "\$err" >&2; return 1; \}/, 'whats_new_gate (quiet) does not refuse on the check');
   assert.equal((sh.match(/^[^#\n]*whats_new_gate (quiet|note)/gm) || []).length, 2, 'whats_new_gate runs some other number of times than twice (before the marker, and at 1b-ii)');
   assert.ok(at('whats_new_gate quiet') < at('kosmos_mark_run cut'), 'the early run is not before the cut marks itself');
   assert.match(block, /if \[ "\$\{KOSMOS_CUT_NO_WHATS_NEW:-\}" = "1" \]; then/, 'no hotfix opt-out');
   /* Twice (round 6): at 1b-ii before the bump, and at 2b-ii on the frozen tree (the shared checkout can
      move between them). Counted over the whole file, so a respelled third call cannot slip in. Round 11
      adds one call that only informs (the opt-out's message says whether the window will show). */
-  assert.equal((sh.match(/whats-new-check\.js[^\n]*\|\| (exit|return) 1/g) || []).length, 2, 'the cut checks the highlights some other number of times than twice');
+  /* kosmos#7349: the 1b-ii refusal is whats_new_gate's (pinned above); the frozen tree's is the one inline refusal. */
+  assert.equal((sh.match(/whats-new-check\.js[^\n]*\|\| exit 1/g) || []).length, 1, 'the frozen-tree refusal is not the one inline call to the check');
   assert.equal((sh.match(/whats-new-check\.js/g) || []).length, 3, 'a call to the check appeared or went that is neither the two refusals nor the opt-out message');
   // The opt-out's one call informs and never refuses, and is said at both steps (round 12).
   assert.match(sh, /node "\$1\/tools\/whats-new-check\.js" "\$V" "\$1\/web\/whats-new\.json" --platform=mac >\/dev\/null 2>&1 \|\| rc=\$\?/, 'the opt-out message call can refuse');
