@@ -249,7 +249,7 @@ const cloudMachine = require('./engine/cloudmachine');   // kosmos#4903 S5
    from the same describe() firstrun.state() and connect's publicView report. An
    unstamped page (file://, a harness) reads as "not Windows", so the Mac page is the
    default everywhere nothing says otherwise. */
-const PAGE_PLATFORM_MARKER = '__KOSMOS_PLATFORM__';
+const PAGE_PLATFORM_MARKER = '__KOSMOS_PLATFORM__';   // its kosmos#4903 sibling, PAGE_CLOUD_MARKER, lives inside stampServedPlatform
 /* kosmos#4903 S5: beside it, whether this board is a Kosmos cloud machine (engine/cloudmachine.js: the installer's
    latch, Linux only), stamped the same way so the page's first paint already speaks to a person with only a browser.
    Words and flow only; who may open the board is the tunnel's decision. */
