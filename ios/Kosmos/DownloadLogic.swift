@@ -115,7 +115,7 @@ enum Download {
         let raw = clean.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: "\\", with: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var name = String(raw.drop(while: { $0 == "." }))
-        if name.count > 120 { name = String(name.suffix(120)) }
+        if name.count > 120 { name = String(String(name.suffix(120)).drop(while: { $0 == "." })) }   // the cut must not start on a dot
         return name.isEmpty ? "download" : name
     }
 
