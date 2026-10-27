@@ -11,12 +11,14 @@
  * three connections tests use: those point the doors at nothing; this catches any OTHER test.
  *
  * "Real" means the tool's name appears as a command and does NOT resolve inside this repo or the
- * OS temp dir, where a test's own fakes live. Checked:
- *   - spawn / spawnSync / execFile / execFileSync: the file, resolved against the call's `cwd`;
- *     with `shell: true`, or a shell given a script (`sh`/`bash`/`zsh`/`dash`/`ksh`/`fish` with a
- *     short-flag cluster containing `c` such as `-c` or `-lc`; `cmd /c`; `powershell`/`pwsh
- *     -Command`), the command word of each segment of the script.
- *   - exec / execSync: the command word of each segment of the command string.
+ * OS temp dir, where a test's own fakes live. Which words a call runs as commands is read by
+ * tools/lib/command-words.cjs (#7262), the one reader this guard shares with the Windows
+ * scheduler guard (tools/lib/schtasks-call.cjs), so the two cannot drift apart: the file of a
+ * spawn / spawnSync / execFile / execFileSync (resolved against the call's `cwd`), what a shell
+ * or launcher given as that file starts (`sh -c`, `bash -lc`, `cmd /c`, `powershell -Command`
+ * and `-EncodedCommand`, `env`, `sudo`), every command of a `shell: true` or exec / execSync
+ * string, and the prefixes in front of a command (NAME=value, nohup, exec, time, timeout, if,
+ * `!` and others; command-words.cjs lists them, and what it does not see).
  * Command position only, so a tool named in an ARGUMENT (a commit message) is not refused.
  * A refused call throws (so nothing runs) and writes one line saying what to do. It ALSO throws
  * again on the next tick, uncaught, so the FILE fails whatever the test caught: the connections
@@ -26,10 +28,9 @@
  * cloudflared is listed although nothing in the repo spawns it today (the Cloudflare door checks
  * its token over HTTP): #4326 asked for it, and a future door that shells out is covered first.
  *
- * NOT SEEN (measured in review, accepted): a tool behind a launcher the guard does not parse,
- * given as a FILE (`/usr/bin/env vercel`, `npx vercel`, `timeout 5 vercel`, `node .../vercel`)
- * or in a script after a keyword it does not skip (`if gh ...; then`, `! vercel`,
- * `xargs vercel`); any shell script FILE (`bash x.sh`: the file is never read); a tool reached
+ * NOT SEEN (measured in review, accepted): a tool behind a launcher the reader does not know
+ * (`npx vercel`, `xargs vercel`, `node .../vercel`); any shell script FILE (`bash x.sh`: the
+ * file is never read); a tool reached
  * through another interpreter's process API (python, a node child); a shell function named
  * like a tool (`gh() {...}; gh`, refused though it runs no CLI); and spawns made by child
  * processes (like launch-guard.js, it guards only this process). A bare name is judged by the
@@ -48,27 +49,8 @@ const TOOLS = {
   vercel: 'Point AGENT_WORKFORCE_VERCEL_BIN at a fake (tools/run-tests.sh exports test-support/fake-cli-signed-out.sh).',
   cloudflared: 'No test should run cloudflared; stub the call instead.',
 };
-// A shell and the flag that hands it a script. POSIX shells take it in any short-flag cluster
-// (`-c`, `-lc`, `-ic`: the login-shell form is the common way to get a CLI on PATH); cmd.exe and
-// PowerShell have their own. (Round 2 of the #4326 review measured `bash -lc` and `fish -c`
-// getting past a literal '-c' check.)
-const POSIX_SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
-function scriptArgOf(command, argv) {
-  const shell = path.basename(String(command)).toLowerCase().replace(/\.exe$/, '');
-  if (POSIX_SHELLS.has(shell)) {
-    const i = argv.findIndex((a) => typeof a === 'string' && /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
-    return i >= 0 ? argv[i + 1] : null;
-  }
-  if (shell === 'cmd') {
-    const i = argv.findIndex((a) => typeof a === 'string' && /^\/[ck]$/i.test(a));
-    return i >= 0 ? argv.slice(i + 1).join(' ') : null;
-  }
-  if (shell === 'powershell' || shell === 'pwsh') {
-    const i = argv.findIndex((a) => typeof a === 'string' && /^-(c|command)$/i.test(a));
-    return i >= 0 ? argv.slice(i + 1).join(' ') : null;
-  }
-  return null;
-}
+// #7262: the words a call runs as commands, shared with the Windows scheduler guard.
+const { callWords, lineWords } = require(path.join(__dirname, '..', 'tools', 'lib', 'command-words.cjs'));
 const REPO = path.resolve(__dirname, '..');
 const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
 const ALLOWED_ROOTS = [real(REPO), real(os.tmpdir()), path.resolve(os.tmpdir())];
@@ -111,38 +93,19 @@ function onPath(name, pathVar) {
   }
   return null;
 }
-// A shell script: the COMMAND word of each segment (split on ; && || | newlines, backticks and
-// $( ), skipping VAR=value assignments and env/exec/command/nohup/time prefixes. Only command
-// position counts, so `git commit -m "fix the gh door"` is not refused for its argument.
-const PREFIXES = new Set(['env', 'exec', 'command', 'nohup', 'time', 'sudo']);
-// Split on ; && || | newline ` and $( OUTSIDE quotes only, so a separator inside a quoted
-// argument (git commit -m "fix; gh door") does not start a new command.
-function segments(script) {
-  const out = [];
-  let cur = '';
-  let q = null;
-  for (let i = 0; i < script.length; i += 1) {
-    const c = script[i];
-    if (q) { if (c === q) q = null; cur += c; continue; }
-    if (c === '"' || c === "'") { q = c; cur += c; continue; }
-    const two = script.slice(i, i + 2);
-    if (two === '&&' || two === '||' || two === '$(') { out.push(cur); cur = ''; i += 1; continue; }
-    if (c === ';' || c === '|' || c === '\n' || c === '`') { out.push(cur); cur = ''; continue; }
-    cur += c;
-  }
-  out.push(cur);
-  return out;
-}
-function realToolInScript(script, cwd, env) {
-  if (typeof script !== 'string') return null;
-  for (const seg of segments(script)) {
-    const words = seg.trim().replace(/^[({\s]+/, '').split(/\s+/).filter(Boolean);
-    let i = 0;
-    while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]) || PREFIXES.has(words[i]))) i += 1;
-    const hit = realToolIn(words[i], cwd, env);
+// The first real tool among a list of command words, or null.
+function realToolInWords(list, cwd, env) {
+  for (const word of list) {
+    const hit = realToolIn(word, cwd, env);
     if (hit) return hit;
   }
   return null;
+}
+// A shell script: every word in command position (command-words.cjs), so
+// `git commit -m "fix the gh door"` is not refused for its argument.
+function realToolInScript(script, cwd, env) {
+  if (typeof script !== 'string') return null;
+  return realToolInWords(lineWords(script), cwd, env);
 }
 // The single-command check, exported for the test.
 function refusedTool(command, cwd) { return realToolIn(command, cwd); }
@@ -185,14 +148,10 @@ function wrap(fn, check) {
 // file + argv callers
 const fileCheck = (command, rest) => {
   const opts = optsOf(rest);
-  const argv = argvOf(rest);
-  let hit = realToolIn(command, opts.cwd, opts.env);
-  if (!hit && opts.shell) hit = realToolInScript([command].concat(argv).join(' '), opts.cwd, opts.env);
-  if (!hit) {
-    const script = scriptArgOf(command, argv);
-    if (script) hit = realToolInScript(script, opts.cwd, opts.env);
-  }
-  return hit;
+  // The file itself, as given: callWords reads a shell: true call as one command line, whose
+  // first word is the file cut at its spaces.
+  return realToolIn(command, opts.cwd, opts.env)
+    || realToolInWords(callWords(command, argvOf(rest), opts), opts.cwd, opts.env);
 };
 for (const fn of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) wrap(fn, fileCheck);
 
@@ -200,4 +159,7 @@ for (const fn of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) wrap(fn, fi
 const stringCheck = (command, rest) => realToolInScript(command, optsOf(rest).cwd, optsOf(rest).env);
 for (const fn of ['exec', 'execSync']) wrap(fn, stringCheck);
 
-module.exports = { refusedTool, realToolInScript };
+// The spawn / execFile check without the wrapping, for the guard's own tests (#7262).
+const refusedCall = (file, args, options) => fileCheck(file, [args, options].filter((x) => x !== undefined));
+
+module.exports = { refusedTool, realToolInScript, refusedCall };
