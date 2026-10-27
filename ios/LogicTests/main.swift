@@ -2140,6 +2140,34 @@ section("native board loop: connecting")
         c.stop()
     }
     do {
+        // Review 4: a first read that learns nothing (the Mac's startup sign-in window) is tried again after youRetry, not
+        // after 5 minutes; the elapsed fake time is checked so a 5-minute re-read cannot pass this.
+        let (c, w, _, _) = make("kst1")
+        let face = Data([0x89, 0x50, 0x4e, 0x47, 4, 5])
+        w.youAnswer = (200, "<html>sign in</html>")
+        w.youPictureAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        c.start()
+        _ = await settle { w.count("/api/you/avatar") > 0 }
+        check(c.youName == nil && c.youPicture == nil, "a first read that is the sign-in page shows nothing yet")
+        let from = w.clock
+        w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
+        w.youPictureAnswer = (200, "image/png", face)
+        let got = await settle { c.youName == "Sam Carter" && c.youPicture == face }
+        check(got && w.clock.timeIntervalSince(from) < Board.youEvery, "both are read again within a minute, not 5 minutes later (\(w.clock.timeIntervalSince(from)) s)")
+        // The picture alone: a name read that worked, then a picture read that learned nothing, retries the picture by itself.
+        let names = w.count("/api/you"), pics = w.count("/api/you/avatar")
+        w.youPictureAnswer = (500, "text/plain", Data())
+        w.clock += Board.youPictureEvery + 1
+        await c.refreshNow()
+        _ = await settle { w.count("/api/you/avatar") > pics }
+        let mid = w.clock, namesMid = w.count("/api/you")
+        w.youPictureAnswer = (200, "image/png", Data([0x89, 0x50, 0x4e, 0x47, 6]))
+        let again = await settle { c.youPicture == Data([0x89, 0x50, 0x4e, 0x47, 6]) }
+        check(again && w.clock.timeIntervalSince(mid) < Board.youEvery, "a picture read that failed is retried on its own within a minute (\(w.clock.timeIntervalSince(mid)) s)")
+        check(w.count("/api/you") == namesMid && namesMid > names, "and the name is not read again with it")
+        c.stop()
+    }
+    do {
         // Review 1: a sign-out forgets the person too, not only a switch.
         let (c, w, sessions, _) = make("kst1")
         w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
