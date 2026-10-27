@@ -33,3 +33,11 @@ release-gate: 104/104.
 - NITs RECORDED: rank 11 shares a number with a shown item (harmless: shown items are never chosen); .ai/.dev bare
   addresses stay plain (too fine for one line); the pending "Taken-back posts" wording should point at the fold if it
   ever resurfaces.
+
+## Review 2 (05:5x, sonnet): 0 blockers, 1 warning, 5 nits
+- W1 FIXED by DELETION: review 1's "long names and codes in it wrap" overstated #7236 (only long code spans wrap), and
+  it was this loop's own wording, so the clause is gone rather than reworded: the line now says only that the table
+  fits inside its message.
+- NITs RECORDED: the links line is broader than the .ai/.dev edge (kept, the example is right); the community item
+  (rank 12.6, not in the window) must be tightened before it is ever shown (moderator-removed comments still count; an
+  unregistered agent has no link); #7254 landed after the 0.7.70 freeze (checked: it descends from c8e01322c8).

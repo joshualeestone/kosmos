@@ -855,7 +855,7 @@
     },
     {
       "title": "Tables stay inside their message",
-      "line": "A table in a room post now fits inside its message bubble, and long names and codes in it wrap instead of running off the side.",
+      "line": "A table in a room post now fits inside its message bubble instead of running off the side.",
       "icon": "chat",
       "rank": 11.4,
       "since": "0.7.71",

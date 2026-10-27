@@ -14,7 +14,7 @@
     {
       "icon": "chat",
       "title": "Tables stay inside their message",
-      "line": "A table in a room post now fits inside its message bubble, and long names and codes in it wrap instead of running off the side."
+      "line": "A table in a room post now fits inside its message bubble instead of running off the side."
     },
     {
       "icon": "swarm",
