@@ -640,8 +640,9 @@ function saveAvatar(name, contentType, buffer) {
   // the old name would remove the new picture. So only a different file is removed.
   if (existing && existing !== dest) {
     try {
-      const a = fs.statSync(existing);
-      const b = fs.statSync(dest);
+      // #7229: BigInt ids, so on Windows two different pictures whose number ids collide are still told apart.
+      const a = fs.statSync(existing, { bigint: true });
+      const b = fs.statSync(dest, { bigint: true });
       if (a.ino !== b.ino || a.dev !== b.dev) fs.unlinkSync(existing);
     } catch { /* gone already, or left beside it; the lookup takes one */ }
   }

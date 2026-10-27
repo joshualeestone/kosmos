@@ -181,13 +181,15 @@ function readBoardLog(logPath, outFd, max, why) {
   let fd = null;
   try {
     try { fd = fs.openSync(logPath, 'r'); } catch (e) { return said(e && e.code === 'ENOENT' ? 'missing' : 'unreadable'); }
-    const file = fs.fstatSync(fd);
+    // #7229: BigInt ids, so on Windows another file whose number id collides with board.log's is not taken for it.
+    const file = fs.fstatSync(fd, { bigint: true });
     // Every stream named must go to this file (stdout and stderr both: a board whose stderr goes elsewhere would lose its
     // failures from a file read only from board.log).
-    const outs = (Array.isArray(outFd) ? outFd : [outFd]).map((o) => fs.fstatSync(o));
+    const outs = (Array.isArray(outFd) ? outFd : [outFd]).map((o) => fs.fstatSync(o, { bigint: true }));
     if (!file.isFile() || outs.some((o) => file.dev !== o.dev || file.ino !== o.ino)) return said('not this board\'s output');
-    const start = Math.max(0, file.size - READ_TAIL_BYTES);
-    const buf = Buffer.alloc(file.size - start);
+    const size = Number(file.size);
+    const start = Math.max(0, size - READ_TAIL_BYTES);
+    const buf = Buffer.alloc(size - start);
     const got = fs.readSync(fd, buf, 0, buf.length, start);
     const lines = buf.subarray(0, got).toString('utf8').split('\n');
     if (start > 0) lines.shift();   // the first line read is cut at the window's edge

@@ -82,6 +82,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const filehash = require('./filehash');   // #6761: a Files row's sha256, hashed in the background
 const win32explorer = require('./win32explorer');
+const winpath = require('./winpath');   // #7229: which Windows spellings a project folder may have
 const store = require('./store');
 const instructions = require('./instructions');
 // ⚠️ ONE rule for who answers, and it lives with the thread rather than being
@@ -557,10 +558,35 @@ function tmpFolderRefused(folder, storeRoot) {
 let fsWorldForTests = null;
 function setFsWorldForTests(world) { fsWorldForTests = world || null; }
 function realpathOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.realpath ? fsWorldForTests.realpath(p) : resolveReal(p); }
-function statOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.stat ? fsWorldForTests.stat(p) : fs.statSync(p); }
+/* #7229: on Windows an NTFS file id is 64-bit and a number stat keeps 53 bits, so two different files can share a
+   st.ino (measured: 19 pairs among 2000 fresh files). A path's stat there also carries its exact id, as a hidden
+   inoExact (rows and JSON never see it), read with a BigInt stat of the same path; when that second read is not the same
+   file as the first (its number id or size differs), inoExact is a value no file has, so sameOpenedFile refuses it. */
+const EXACT_IDS = process.platform === 'win32';
+const NO_FILE = -1n;
+function withExactIno(st, ino) {
+  if (st && ino !== undefined) Object.defineProperty(st, 'inoExact', { value: ino, enumerable: false, configurable: true });
+  return st;
+}
+function exactPathStat(st, p, lstat) {
+  if (!EXACT_IDS || !st) return st;
+  let big;
+  try { big = lstat ? fs.lstatSync(p, { bigint: true }) : fs.statSync(p, { bigint: true }); } catch { return withExactIno(st, NO_FILE); }
+  return withExactIno(st, Number(big.ino) === st.ino && Number(big.size) === st.size ? big.ino : NO_FILE);
+}
+/* The exact id of an OPENED file, from a BigInt stat of the same descriptor (no second path read, so no race). */
+function exactOpenedStat(st, fd) {
+  if (!EXACT_IDS || !st) return st;
+  try { return withExactIno(st, fs.fstatSync(fd, { bigint: true }).ino); } catch { return withExactIno(st, NO_FILE); }
+}
+async function exactOpenedStatAsync(st, fh) {
+  if (!EXACT_IDS || !st) return st;
+  try { return withExactIno(st, (await fh.stat({ bigint: true })).ino); } catch { return withExactIno(st, NO_FILE); }
+}
+function statOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.stat ? fsWorldForTests.stat(p) : exactPathStat(fs.statSync(p), p, false); }
 /* #4997: the listed walk's lstat, through the same world (a world without one reads its stat: a fake folder has no links). */
 function lstatOfFolderPath(p) {
-  if (!fsWorldForTests) return fs.lstatSync(p);
+  if (!fsWorldForTests) return exactPathStat(fs.lstatSync(p), p, true);
   const st = (fsWorldForTests.lstat || fsWorldForTests.stat || fs.lstatSync)(p);
   if (typeof st.isSymbolicLink === 'function') return st;
   return { isFile: () => st.isFile(), isDirectory: () => st.isDirectory(), isSymbolicLink: () => false,
@@ -2062,6 +2088,12 @@ function sameListedPath(resolved, walked, platform = process.platform) {
  */
 function sameOpenedFile(gated, opened, platform = process.platform) {
   if (!gated || !opened || typeof opened.isFile !== 'function' || !opened.isFile()) return false;
+  /* #7229: the exact ids when both sides carry one (Windows), since two different files can share a number ino there.
+     A side whose second read was not the same file carries an id no file has, so it never matches. */
+  if (typeof gated.inoExact === 'bigint' && typeof opened.inoExact === 'bigint' && (gated.inoExact !== 0n || opened.inoExact !== 0n)) {
+    if (gated.inoExact !== opened.inoExact || gated.inoExact === NO_FILE) return false;
+    return platform === 'win32' || gated.dev === opened.dev;
+  }
   if (Number(gated.ino) !== 0 && Number(opened.ino) !== 0) {
     if (gated.ino !== opened.ino) return false;
     return platform === 'win32' || gated.dev === opened.dev;
@@ -2159,7 +2191,8 @@ function listDir(folder, rel, where, opts) {
   /* Iteration 1: opendir follows a link, so a folder swapped for one after the gate would list an outside folder's names.
      The folder's identity is read before and after the read, and an answer from a folder that changed is dropped. */
   let before;
-  try { before = fs.lstatSync(got.real); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
+  // #7229: BigInt ids, so a folder swapped for another whose number id is the same is still seen as changed.
+  try { before = fs.lstatSync(got.real, { bigint: true }); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
   if (!before.isDirectory()) return { ok: false, because: 'that is not a folder in ' + where };
   let dir;
   try { dir = fs.opendirSync(got.real); } catch { return { ok: false, because: 'we could not read what is in that folder' }; }
@@ -2181,7 +2214,7 @@ function listDir(folder, rel, where, opts) {
     try { dir.closeSync(); } catch { /* already closed */ }
   }
   let after = null;
-  try { after = fs.lstatSync(got.real); } catch { after = null; }
+  try { after = fs.lstatSync(got.real, { bigint: true }); } catch { after = null; }
   if (!after || !after.isDirectory() || after.ino !== before.ino || after.dev !== before.dev) {
     return { ok: false, because: 'that folder changed while it was being read' };
   }
@@ -2534,6 +2567,17 @@ function trueChildName(parent, name) {
  *   which is still fully supported and is the only way to reach work that lives
  *   somewhere else.
  */
+/* #7229: on Windows a project folder is a drive path (C:\work, also written \\?\C:\work) or a share (\\host\share, in
+   any of its spellings). A folder in another namespace (\\.\pipe\x, \\?\GLOBALROOT\..., a volume named with no drive
+   letter) cannot be placed beside other projects, so while such a project exists #7221's attach refuses other agents'
+   files rather than guess. It is refused at create, before the folder is resolved. An allow-list: any spelling not read
+   as a drive or a share is refused. */
+const WINDOWS_FOLDER_REFUSED = 'on Windows a project folder needs to be on a drive (like C:\\work) or a network share (like \\\\server\\share)';
+function windowsProjectFolderOk(folder, platform = process.platform) {
+  if (platform !== 'win32') return true;
+  return winpath.driveOf(folder) !== null || winpath.shareOf(folder) !== null;
+}
+
 function create({ name, folder, agents, roster, description, made, parent, done, seedDoneOnly } = {}) {
   const asked = String(folder == null ? '' : folder).trim();
   // ⚠️ On the default path the FOLDER-NAME refusal comes first, because it
@@ -2582,6 +2626,7 @@ function create({ name, folder, agents, roster, description, made, parent, done,
   // parked spot, not a leak.
   const given = asked || makeFolder(title);
   if (!path.isAbsolute(given)) throw new Error('that needs to be the full path to a folder');
+  if (!windowsProjectFolderOk(given)) throw new Error(WINDOWS_FOLDER_REFUSED);
 
   // ⚠️ Checked at creation AND on every read, and neither one is redundant.
   // This one stops a typo becoming a project pointing at nothing; the read-time
@@ -4170,7 +4215,7 @@ function toldOverride(verdict, sessionName, known) {
   } catch { return verdict; }
 }
 
-module.exports = {
+module.exports = { exactPathStat, windowsProjectFolderOk, exactOpenedStat, exactOpenedStatAsync,
   NOTIFY_LEVELS, notifyLevel,
   changedFileTimes,
   offWriteIsQuiet, WROTE_WHY,
