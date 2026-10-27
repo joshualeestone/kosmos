@@ -67,3 +67,7 @@ the safe side for a guard against real CLIs.
   were not gated to Windows, so POSIX behaviour changed (a URL cwd no longer threw; a TMPDIR of / allowed everything);
   both are now WIN-only, so POSIX is unchanged. NITs: plan line on the 4326 file corrected (12 fail at main, 2 here);
   a fake reached as \<drive path> counts as real (existing missing-path policy, accepted). 61/61, 10/10 runs.
+- Round 5: no BLOCKER, no WARNING, 1 NIT (realDirs computed before the lookup; no side effect; left). POSIX proven
+  identical to origin/main: both versions loaded with process.platform forced to linux, 526,500 inputs each, twice
+  (once with execute bits patched in so the bare-name lookup runs), byte-identical output; a negative control without
+  the force differs on 132,330 lines. Windows: the real gh.exe refused in every ordinary shape. Converged.
