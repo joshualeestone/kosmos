@@ -17456,6 +17456,9 @@ window.kosmosMeasureScrollbarWidth();
            never render as sent. -->
       <p class="vh" id="pj-fed-own-said" role="status" aria-live="polite"></p><!-- kosmos#4658: what a press did, heard once -->
       <p class="ownseal-phone" id="pj-fed-own-phone" hidden>This room is sealed on this computer. The code to compare is under Members.</p>
+      <!-- kosmos#7365: the room's earlier pages load as the reader scrolls back, as a Direct conversation's do (#6086):
+           this line floats over the top while one loads, and a failed load takes a row of its own with Try again. -->
+      <div class="dm-earlier-wrap"><p class="dm-earlier" id="pj-room-older" role="status" aria-live="polite" hidden><span id="pj-room-older-text"></span> <button type="button" class="btn-quiet" id="pj-room-older-show" hidden>Try again</button></p></div>
       <div class="thread" id="pj-room"></div>
       <!-- ⚠️ THE ROOM'S HALF OF THE SAME SIGNAL (#176), mounted where the agent
            page mounts its own: between the thread and the composer, so it sits
@@ -75540,8 +75543,25 @@ let PJ_ROOM_GEN = 0;
    which is read before painting so nothing falls between. While the room search box has text, the room is read
    whole and filtered as before, so search still finds every message. */
 const PJ_WIN_PAGE = 200;
-const PJ_WIN = { pid: null, older: [], newest: null, newestOlder: 0, cursor: null, olderCount: 0, boundary: null, loading: false, gen: 0 };
-function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], newest: null, newestOlder: 0, cursor: null, olderCount: 0, boundary: null, loading: false, gen: PJ_WIN.gen + 1 }); }
+const PJ_WIN = { pid: null, older: [], newest: null, newestOlder: 0, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0 };
+function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], newest: null, newestOlder: 0, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1 }); pjWinOlderLine(); }
+/* The line over the room's top: "Loading earlier messages..." while a page is read; after a failed read, why, with Try
+   again, which stays until the person presses it (a scroll event must not turn one failure into a stream of requests,
+   as the Direct conversation's line learned, #6086). Nothing at all otherwise. */
+function pjWinOlderLine() {
+  if (typeof document === 'undefined') return;
+  const line = document.getElementById('pj-room-older');
+  const textEl = document.getElementById('pj-room-older-text');
+  const retry = document.getElementById('pj-room-older-show');
+  if (!line || !textEl || !retry) return;
+  const mine = PJ_WIN.pid === PJ_CURRENT;
+  const failed = mine && Boolean(PJ_WIN.because) && !PJ_WIN.loading;
+  const text = !mine ? '' : failed ? PJ_WIN.because : PJ_WIN.loading ? 'Loading earlier messages\u2026' : '';
+  if (textEl.textContent !== text) textEl.textContent = text;
+  retry.hidden = !failed;
+  if (line.parentNode) line.parentNode.classList.toggle('dm-earlier-failed', failed);
+  line.hidden = !text;
+}
 /* Rows from the earlier pages, then the newest page; a row on both (the room changed between reads) is kept once,
    from the newer read. Rows carry `key`, their exact place in the room ("<at>|<k>"), on every paged read. */
 function pjWinMerge(older, page) {
@@ -75553,7 +75573,7 @@ function pjWinMerge(older, page) {
    so the message they are on is anchored here and put back where it was (the thread's #1926 anchor, by data-mid). */
 async function pjWinEarlier() {
   const box = document.getElementById('pj-room');
-  if (PJ_WIN.loading || PJ_ROOM_QUERY.trim() !== '' || !PJ_CURRENT || PJ_WIN.pid !== PJ_CURRENT) return;
+  if (PJ_WIN.loading || PJ_WIN.because || PJ_ROOM_QUERY.trim() !== '' || !PJ_CURRENT || PJ_WIN.pid !== PJ_CURRENT) return;
   if (!PJ_WIN.cursor || !(PJ_WIN.olderCount > 0) || !Array.isArray(PJ_WIN.newest) || !box || !box.__lastBody) return;
   const pid = PJ_CURRENT, win = PJ_WIN.gen;
   /* Where the newest page started WHEN this read was asked for. A poll that answers while it is in flight moves
@@ -75561,11 +75581,17 @@ async function pjWinEarlier() {
      ever brought them (review 1: 30 rows lost for good). */
   const at = PJ_WIN.newestOlder;
   PJ_WIN.loading = true;
+  pjWinOlderLine();
   let page;
   try { page = await pjWinRead(pid, PJ_WIN_PAGE, PJ_WIN.cursor); }
-  catch { page = null; }   // the reader stays where they are; the next time they reach the top asks again
-  finally { if (win === PJ_WIN.gen) PJ_WIN.loading = false; }
-  if (!page || win !== PJ_WIN.gen || pid !== PJ_CURRENT || PJ_ROOM_QUERY.trim() !== '') return;
+  catch { page = null; }
+  if (win !== PJ_WIN.gen) return;   // another room, or this one opened again: its own line is already drawn
+  PJ_WIN.loading = false;
+  /* A failed read (the board unreachable, or a place in the room it no longer has) stops here until Try again: the
+     reader stays where they are and is told, instead of each scroll asking again. */
+  if (!page) PJ_WIN.because = 'We could not read the earlier messages.';
+  pjWinOlderLine();
+  if (!page || pid !== PJ_CURRENT || PJ_ROOM_QUERY.trim() !== '') return;
   if (PJ_WIN.boundary === null) PJ_WIN.boundary = at;
   PJ_WIN.older = pjWinMerge(page.rows, PJ_WIN.older);
   PJ_WIN.cursor = page.olderCursor || null;
@@ -75578,6 +75604,11 @@ async function pjWinEarlier() {
   // The newest page moved while this page was read: read the rows between now, not at the next poll.
   if (at !== PJ_WIN.newestOlder) loadRoom();
 }
+document.getElementById('pj-room-older-show').addEventListener('click', () => {
+  if (PJ_WIN.pid !== PJ_CURRENT || PJ_WIN.loading) return;
+  PJ_WIN.because = null;
+  pjWinEarlier();   // Try again: asked for by the person
+});
 const PJ_WIN_NEAR_TOP = 300;   // px from the top of the loaded rows that asks for the page before
 document.getElementById('pj-room').addEventListener('scroll', (e) => {
   if (e.currentTarget.scrollTop <= PJ_WIN_NEAR_TOP) pjWinEarlier();
