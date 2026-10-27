@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: card-idle-7361
-diff_hash: 96e1b3f38f54e374906338f670fe36fe2e478a67c3995c2a5dc3d5b099b43bac
-validation: windows: idle-7361 9/9, hold-5949 35/35, win32limit 30/30, streamstate 26/26, rule tests green; Z3 x5 owed on 0.7.72 staging
+diff_hash: 3ca6fece3922da821e1220bf79e0842270c39faacb1c1016254cc22397f1ae2f
+validation: windows: idle-7361 9/9, hold-5949 35/35, win32limit 30/30, streamstate 26/26, no-name-refs 4/4, rule tests green; Z3 x5 owed on 0.7.72 staging
 subdir_audit: passed
-timestamp: 2026-10-27T22:02:42Z
+timestamp: 2026-10-27T22:24:59Z
 iterations: 1
 converged: true
 ---
