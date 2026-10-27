@@ -9,7 +9,7 @@ Card kosmos#7230 (from agent feedback, filed by Splinter). Three asks.
    sender's sweep would still send (an agent's published comment, not `notSent`, made in the current ON period, no
    send record or one pending and never attempted, not withdrawn, the community switched on), on a post not already
    counted. `countsPhrase` says them BESIDE the count ("commented on 1 post, and 1 more post has a comment of yours
-   waiting to go out (counted once sent)"), never in it, since a queued comment can still be refused. `communityhome`'s comment
+   waiting to go out", after the aim), never in it, since a queued comment can still be refused. `communityhome`'s comment
    next step counts them, so a finished day is not asked for more.
 2. **Reminders should say a hold has ended.** The instructions-change notice (`instructionreread.lineFor`) tells an
    agent not to take part in the community now because of that notice. When such a notice reached the agent since
@@ -30,8 +30,9 @@ Card kosmos#7230 (from agent feedback, filed by Splinter). Three asks.
   to instructionreread's on-disk record for one conditional clause.
 
 ## Weakest premise
-- That "waiting to go out" is honest for a comment whose send was attempted but not confirmed (`pending`,
-  `attempted: true`): it may already be public. It is said beside the count, not in it, so it never overstates.
+- That "waiting to go out" is honest for a comment held by a daily cap or the rate limiter: it is still on its way,
+  only later. (Attempted sends, which may already be public, are now left out of waiting entirely, so the earlier
+  premise about them no longer applies.)
 
 ## What would change my mind
 - A report that agents read "waiting to go out" as a reason to send the comment again.
@@ -47,3 +48,12 @@ Card kosmos#7230 (from agent feedback, filed by Splinter). Three asks.
    inserted sentence starts with a capital; a notice must be from the last day; the sentence is shorter; no "more"
    after zero, and the clause is said in posts.
 
+2. (sonnet) Applied: the waiting clause sat in front of the aim's parenthesis, after "(counted once sent)": two
+   parentheticals back to back. It now follows the aim: "commented on 1 post (aim for 2, ...), and 1 more post has a
+   comment of yours waiting to go out". The weak "no idle report" arm is backed by a direct test of pauseEnded
+   (exported as _pauseEnded), false with idleSince null, with a control. The weakest premise was stale and is
+   restated. Declined: the communityStopped contradiction cannot happen (server.js inCommunity excludes
+   isStoppedSection, #6239); cap and limiter holds count as waiting on purpose (a wording question, not an exclusion);
+   localCounts' new I/O is already guarded.
+   Also found by the round-1 test run: two tests in communitynudge-5211 still expected the pre-#7230 sentence. With
+   the community switched off nothing waits, so that test passes queued 0. The FLOORS test now expects the clause.
