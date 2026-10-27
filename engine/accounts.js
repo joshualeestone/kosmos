@@ -315,7 +315,7 @@ function list() {
  * /api/accounts` route -- opened deliberately (Settings > Accounts), never
  * ticked -- where paying a real check's cost is the entire point. (#7212 slice
  * 3: checkRowLive below also serves engine/stallsignin.js's one check of a
- * stuck agent's account, at most once per stall and hour, never on the tick.)
+ * stuck agent's account, at most once per account and hour, never on the tick.)
  *
  * Parallel, not serial: one account's live check taking the full timeout
  * must not make every other account's row wait behind it.
@@ -372,7 +372,7 @@ async function checkRowLive(row) {
       connection = await subscription.checkLive({ configDir: row.dir });
     }
     /* #7212 slice 3: a connected answer clears a stuck agent's "signed out" on this account at once (stallsignin). */
-    try { require('./stallsignin').heard(row, connection && connection.state); } catch { /* the next check clears it */ }
+    try { require('./stallsignin').heard(row, connection && connection.state, undefined, { fromRow: true }); } catch { /* the next check clears it */ }
     return { ...row, connection };
   } catch {
     // ⚠️ ONE ACCOUNT'S CHECK FAILING NEVER SINKS THE WHOLE LIST. `unknown`,

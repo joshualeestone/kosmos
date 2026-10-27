@@ -54,3 +54,20 @@ checked and the card says what slice 2 says, which is the safe direction.
 - NIT fixed: the answer handler cannot throw out of the chain.
 - Mutants red: the stale-answer guard removed. The sweep forgets accounts no stuck card read for an hour, never one
   whose check is running.
+
+## Review round 3 (opus): 0 blocker, 1 major, 3 minor, 2 nit
+- MAJOR fixed: `claude auth status` is expiry-blind (#874): it says logged in while Anthropic refuses every request,
+  which is the very case of the report. "Signed out" is now decided as the AI Models badge decides it
+  (observed.verdict): the live check plus the freshest real request Kosmos saw for the agent or a Check now on its
+  folder. A fresh 401 is signed out whatever auth status says; a fresh good request is not. No extra live call (the
+  observations are in memory). Mutant (live check alone) red.
+- MINOR fixed: a stored key's "refused" is cleared only by accounts.checkRowLive (which tries the key), never by
+  `claude auth status` on that folder.
+- MINOR fixed: the subscription.checkLive and checkRowLive hand-offs are tested by behaviour (a stubbed runner; each
+  clears only the account it checked, the default included), not by reading source.
+- Found by that test: a "none" and a "connected" in the same millisecond is a tie, and a tie never claims signed out.
+- MINOR/NIT fixed: comments say "per account and hour"; the unused signedOut export is gone.
+- NIT stated: a default agent launched with CLAUDE_CONFIG_DIR=<HOME>/.claude would be checked as the bare default;
+  Kosmos does not launch the default account that way.
+- Weakest premise now: that the 401s observed.js records reach it for a stuck agent (they come from its own requests
+  or a Check now). With neither, the live check alone decides, and it can say logged in for a revoked account.
