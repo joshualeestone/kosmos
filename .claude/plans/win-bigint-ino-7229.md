@@ -90,3 +90,7 @@ zip size) it can only be a regular file at the same listed name inside the folde
   "not there any more" (wording, left). Test gap found: the collision tests depend on this disk having ids past 2^53;
   on four later runs none collided and those tests SKIPPED (stated reason). A helper that recycles records to raise
   sequence numbers (as the reviewer did) would make them run every time: follow-up.
+- After round 5: the collision helper now recycles a pool of 64 files (made and deleted up to 48 times) when the disk
+  has no ids past 2^53 yet, since a record's sequence rises on each reuse and ids pass 2^53 at sequence 32; neighbouring
+  records then round alike. The collision tests now run every time: 11/11, 0 skipped, three runs, about 4 s each; with
+  main's diagnostics.js and filehash.js the board-log collision test fails on the real pair.

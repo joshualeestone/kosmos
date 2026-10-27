@@ -24,14 +24,35 @@ test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 function collidingFiles(where) {
   fs.mkdirSync(where, { recursive: true });
   const byNumber = new Map();
-  for (let i = 0; i < 4000; i++) {
-    const file = path.join(where, 'f' + i + '.txt');
-    fs.writeFileSync(file, 'same size\n');
+  const look = (file) => {
     const big = fs.statSync(file, { bigint: true });
     const key = Number(big.dev) + ':' + Number(big.ino);
     const prior = byNumber.get(key);
-    if (prior && prior.ino !== big.ino) return [prior.file, file];
+    if (prior && prior.ino !== big.ino && fs.existsSync(prior.file)) return [prior.file, file];
     byNumber.set(key, { file, ino: big.ino });
+    return null;
+  };
+  for (let i = 0; i < 4000; i++) {
+    const file = path.join(where, 'f' + i + '.txt');
+    fs.writeFileSync(file, 'same size\n');
+    const hit = look(file);
+    if (hit) return hit;
+  }
+  /* None on this disk yet: an NTFS id is (sequence << 48) | record, and a record's sequence rises each time it is
+     reused, so ids pass 2^53 once a record has been reused 32 times; from there a number keeps only even values, and two
+     neighbouring records at the same sequence round alike. So a small pool of files is made and deleted until their
+     records are past that, then made once more and compared. */
+  const pool = path.join(where, 'pool');
+  fs.mkdirSync(pool, { recursive: true });
+  for (let round = 0; round < 48; round++) {
+    const made = [];
+    for (let i = 0; i < 64; i++) { const file = path.join(pool, 'r' + round + '-' + i + '.txt'); fs.writeFileSync(file, 'same size\n'); made.push(file); }
+    const ids = made.map((m) => fs.statSync(m, { bigint: true }).ino);
+    if (ids.some((x) => BigInt.asUintN(64, x) > 9007199254740992n)) {
+      byNumber.clear();
+      for (const m of made) { const hit = look(m); if (hit) return hit; }
+    }
+    for (const m of made) fs.unlinkSync(m);
   }
   return null;
 }
