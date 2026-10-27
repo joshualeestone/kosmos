@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: linuxrelease-7281
-diff_hash: 86167a1fd6b17996c98b7555df71344a3f84edd4f14ff3c195ea96b9076321dc
+diff_hash: a2141c647167147ccc15462ea261cbbbe3a754729872eef876a0fac17aebe2c9
 validation: focused-passed (tools/test-release-linux-7281.sh 67/67); every test that reads tools/release.sh (43 files) rc 0, plus the 12 tests of the other touched files; the rebase onto main changed none of those files; full suite via PR CI
 subdir_audit: passed
-timestamp: 2026-10-27T04:29:23Z
+timestamp: 2026-10-27T06:13:30Z
 iterations: 3
 converged: true
 ---
@@ -27,6 +27,9 @@ Validation, stated as it happened:
   wrong, the marker test back to a mention grep.
 - Not run: tools/release.sh itself (it cuts a real release). The first real Linux cut is a staging cut with
   KOSMOS_CUT_LINUX=1 once kosmos-relay's tools/build-tunnel-release-linux.sh exists on relay main.
+
+After PR CI (01:12): the node suite's tools.every-test-runs.test.js refused the new tools/test-release-linux-7281.sh
+because test:shell did not name it; added (the guard and tools.shell-shard-4317 pass: 27/27).
 
 The per-round findings and decisions are in .claude/plans/linuxrelease-7281.md.
 
