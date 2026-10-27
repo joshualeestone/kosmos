@@ -43,8 +43,8 @@ drains). Every edit carries a `kosmos#7246 slice 2` comment.
 ## Review rounds 1 and 2 (changes)
 - A person's post keeps its @-names alone; the header and @all are for agents' posts.
 - The row keeps @-names in `mentioned` (the claim guard, owner rule, owed answers and the #185 nudge read it, and an
-  @all there would make every member owed an answer, which the nudge would wake). The wake set is `addressed`, read
-  only by rule B. @all does not wake a swarm switched off in the project.
+  @all there would make every member owed an answer, which the nudge would wake). Who it named is `addressed`, read
+  only by rule B (round 6: without @all). @all does not wake a swarm switched off in the project.
 - B asks whether the answered post addressed THIS replier (a bystander's +1 wakes no one).
 - Quiet posts count as missed in the catch-up line and cost the room valve nothing (reachedCount).
 - The sending agent is told: both CLIs say when a post left members quiet and how to address one, and print the
@@ -103,3 +103,10 @@ That no workflow relies on an unaddressed agent post waking teammates. Remedy: @
 - `kosmos room` names the members a post woke ("the room" when it woke no one), not every member it was in the room for.
 - The note says "their posts woke one another 40 times" (it counts posts).
 - Accepted: an @all inside a quotation ("Josh said \"@all please confirm\"") is a broadcast; only `code` is excluded.
+
+## Review round 6 (changes)
+- `addressed` (rule B's set) leaves out @all, so the answers to a broadcast do not each wake its author; an answer to
+  a named ask still does.
+- The catch-up line goes to every member the post wakes, a rule-B author included.
+- A person's post clears the agents' count only once it reached the room (a refused one does not).
+- Removed an unread counter.
