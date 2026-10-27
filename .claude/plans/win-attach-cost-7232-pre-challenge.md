@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-attach-cost-7232
-diff_hash: 506ddd2902d4e2e1dd8146e928796a9621aef5776ba8e8d1f87a62dfa5814f92
-validation: windows: replyfile.win32-7221 94/94 (+1 CI-only skip), reachable 8/8, windows-tests-1777 23/23, separator-guard 4/4, coupling 8/8; real dead-drive check pending Josh
+diff_hash: 8122f9a5ca3d07c690f909e825e86be765fe1c22192b5a474b0f666d51e180a0
+validation: windows: replyfile.win32-7221 93 pass (+2 skips: CI-only arm, no colliding folder ids on this disk), fixture-discipline 20/20, reachable 8/8, windows-tests-1777 23/23, separator-guard 4/4, coupling 8/8; real dead-drive check pending Josh
 subdir_audit: passed
-timestamp: 2026-10-27T20:58:32Z
+timestamp: 2026-10-27T21:18:50Z
 iterations: 5
 converged: true
 ---
