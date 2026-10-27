@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: linuxsetup-7281
-diff_hash: 3d5dbb4e8e56ea8e0d0fb7b2b299504ed28ebe1a1fee0e15addf7272ac31e84c
-validation: focused-passed; every setup.sh-reading test file passed (64 files, 1476 tests: 1464 pass, 12 skipped, 0 fail); full suite via PR CI
+diff_hash: a0e581a815ed57684637216a0c3bbc818d718c730940508696daa8ed9d6eb656
+validation: focused-passed; every setup.sh-reading test file passed (64 node files, 1476 tests: 1464 pass, 12 skipped, 0 fail); all 38 tools/test-*.sh naming setup.sh run (35 pass; test-data-root-1511 fails the same 4 on main, test-install and test-install-gate-control need a built bundle); full suite via PR CI
 subdir_audit: passed
-timestamp: 2026-10-27T03:19:46Z
+timestamp: 2026-10-27T04:10:52Z
 iterations: 3
 converged: true
 ---
@@ -25,6 +25,11 @@ Validation, stated as it happened:
 - Not measured here: install_kosmos's four gates run behaviourally (they are pinned by source regexes, each removal
   red); the manifest name and the verifier's acceptance of a Linux manifest are proved by slice E's end-to-end run on
   a stock ubuntu:24.04.
+
+After PR CI (22:30): shard 2/2 failed on tools/test-staging-wire-2036.sh, which pins the source-channel line this
+branch changed (iteration 2's suffix match) by exact text, and carries its own copy of the logic. Both updated
+(39/39). My sweep had covered only the node tests that read setup.sh; the 38 shell tests that name it were then run
+one by one with their own exit codes (results above). Rebased onto main (no change to setup.sh there).
 
 The per-round findings and decisions are in .claude/plans/linuxsetup-7281.md.
 
