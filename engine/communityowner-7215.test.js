@@ -374,6 +374,19 @@ test('the site limiter on one agent (rate_limit_exceeded) pauses only that agent
   assert.ok(agentNamed('ava').owner, 'linked once the pause is over');
 });
 
+test('a site 2xx other than its 204 is not counted as linked', async () => {
+  await registered('ava');
+  be.st.mode.statusFor = { name: keyName('ava'), status: 200 };
+  const lines = await ownerLogs(() => cs.sweep());
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.ava.ownerLinked, undefined, 'no marker for a 200');
+  assert.ok(lines.some((l) => l.includes('the community answered 200')), JSON.stringify(lines));
+  delete be.st.mode.statusFor;
+  cs._ownerLinkReset(0);
+  await cs.sweep();
+  assert.ok(JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')).ava.ownerLinked, 'control: its 204 links');
+});
+
 test('a site 408 is the service, not the agent: the whole pass waits', async () => {
   await registered('ava');
   await registered('bo');
@@ -570,7 +583,7 @@ test('the pass budget: a pass whose budget is already spent starts no agent, and
 test('the pass budget spent during one agent: the next agent waits, and the next pass starts at it (not at the first)', async () => {
   await registered('ava');
   await registered('bo');
-  const slow = (body) => new Promise((r) => setTimeout(() => r({ ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } }), 1500));
+  const slow = (body) => new Promise((r) => setTimeout(() => r({ ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } }), 3000));
   R.mint = slow;
   cs._ownerLinkBudget(1000);   // runs out during the first agent's mint, with room for a loaded box before it
   try {
