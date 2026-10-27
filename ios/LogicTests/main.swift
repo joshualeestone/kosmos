@@ -3889,6 +3889,12 @@ do {
         check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
         check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
         check(Board.pill(a("unknown")) == .cantTell && Board.pill(a("something_new")) == .cantTell, "unknown and unrecognised states are grey")
+        // kosmos#7343: the Agents list's order, as the computer sends it or by name (ties keep the computer's order).
+        let ord = [Board.Agent(session: "b", name: "bea", role: nil, state: "idle", task: nil, needsYou: false),
+                   Board.Agent(session: "a", name: "Al", role: nil, state: "idle", task: nil, needsYou: false),
+                   Board.Agent(session: "c", name: "al", role: nil, state: "idle", task: nil, needsYou: false)]
+        check(Board.agentOrder(ord, byName: false).map(\.session) == ["b", "a", "c"], "kosmos#7343: Needs you first keeps the computer's order")
+        check(Board.agentOrder(ord, byName: true).map(\.session) == ["a", "c", "b"], "Name sorts without case, ties in the computer's order")
         check(abs(Board.sweepOpacity(0.24) - 1) < 0.001 && abs(Board.sweepOpacity(1.0) - 0.25) < 0.001, "the Sweep peaks at 20% of 1.2 s and rests after 70%")
     }
 }

@@ -338,6 +338,17 @@ enum Board {
         return 0.25
     }
 
+    // kosmos#7343: the Agents list's order: as the computer sends it (the board's order), or by name.
+    enum AgentSort: String, CaseIterable { case board, name }
+    static func agentSortLabel(_ s: AgentSort) -> String { s == .board ? "Needs you first" : "Name" }
+    static func agentOrder(_ list: [Agent], byName: Bool) -> [Agent] {
+        guard byName else { return list }
+        return list.enumerated().sorted { l, r in
+            let c = l.element.name.localizedCaseInsensitiveCompare(r.element.name)
+            return c == .orderedSame ? l.offset < r.offset : c == .orderedAscending
+        }.map(\.element)
+    }
+
     static func statusWord(_ agent: Agent) -> String {
         if let word = agent.macWord { return word }
         if !agent.running && agent.state != "restarting" {
