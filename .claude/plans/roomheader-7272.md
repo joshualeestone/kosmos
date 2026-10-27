@@ -11,9 +11,10 @@ shot tool (room-keyboard-7196, both engines).
 ## The call
 CSS in the phone room block (max-width: 30rem, not consolidated), mirroring the agent talk view's rule (#d-talk-box):
 while focus is in the room composer's text box, Post, the mic or the emoji button (not add-a-file, as there), AND
-html.kosmos-keyboard-up, hide #askcard and #conn (body children), #pj-one-view > .pj-crumbrow (Back and the crumb) and
-#pj-one-view .pjmidhead (title row and search). They return when either condition ends. Kosmos's top bar stays, as in
-the talk view.
+html.kosmos-keyboard-up, hide #askcard (a body child), #pj-one-view > .pj-crumbrow (Back and the crumb) and
+#pj-one-view .pjmidhead (title row and search; with it the Read aloud button and the paused, goal and pause-result
+lines). They return when either condition ends. Kept, as in the talk view: Kosmos's top bar and the connection notice
+(#conn). Kept also while the room search holds a query.
 
 ## Rejected
 - Only when the visible height cannot fit header + newest post (the card's literal wording): a height test in JS for
@@ -44,3 +45,15 @@ A real iPhone showing the header flash back mid-tap (the talk view's rule exclud
 person who needs the room's search while composing.
 
 ## Review rounds
+1. (default model, 20:0x CDT) No BLOCKER. Applied:
+   W: #conn was hidden too, which the talk view never does, and the comment said it matched the talk view. #conn is the
+   one line saying the subscription is unreachable, and as a live region it is not announced while hidden. It is now
+   kept. Arm: the notice stays on screen while typing (red with #conn hidden again).
+   W: the 393x852 arm and the 4c comments described a focus re-fit that had been removed, and the arm passed without
+   this change. Deleted; the comments were corrected.
+   W: a room search holding a query was hidden while typing, so a filtered room looked unfiltered. The header now stays
+   while the search has a query. Arm: red with that clause removed.
+   NITs: the first arm no longer calls pjFitRoomPhone itself (only the forced control does), so it reads what the page
+   did. With #conn kept it still fits: 255 against the composer's 259. "#d-talk-box above" is now "below". "short phone"
+   is now "phone". The comment lists what goes with the title row.
+   Check 49 of 49. Mutations: the .pjmidhead hide (red), the search clause (red), #conn hidden again (red).

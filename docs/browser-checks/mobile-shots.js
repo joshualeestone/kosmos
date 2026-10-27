@@ -1113,7 +1113,7 @@ const SCREENS = [
     await throwawayProjectGone(page, BUSY_7196);
   } },
   /* kosmos#7272 (Renet): the room with the keyboard up WHILE TYPING, focus in the composer first, as on a phone. On a
-     short phone the room's header steps aside, so the newest post shows above the composer. */
+     phone the room's header steps aside, so the newest post shows above the composer. */
   { name: 'room-typing-7272', owner: 'Renet Tilley', phoneOnly: true, go: async (page, data) => {
     const id = await busyProject7196(page, data.chatAgent);
     await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });

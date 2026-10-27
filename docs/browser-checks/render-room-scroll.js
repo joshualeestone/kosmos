@@ -637,8 +637,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     /* ---- 4c. kosmos#7272: ON A SHORT PHONE WITH THE KEYBOARD UP, THE HEADER GIVES WAY WHILE THE PERSON TYPES. An iPhone
        SE (375x667) with a 336px keyboard leaves about 331px; Back and the room's title and search row took all of it, so no
        post showed above the composer and the composer half-covered the search field. Focus goes in the composer first,
-       then the keyboard rises, as on a phone. Measured: the newest row above the composer, no header control under it,
-       and the header back when focus leaves with the keyboard still up (the thread re-fitted under it). */
+       then the keyboard rises, as on a phone. Measured: the newest row above the composer and no header control under it,
+       with no fit call of the check's own; the connection notice kept; a room search holding a query keeps the header;
+       and the header back when focus leaves. */
     {
       const ph = await b.newPage({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
       ph.on('pageerror', (e) => errs.push('phone SE: ' + String(e)));
@@ -656,11 +657,14 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           // Held on window, not by an id: the selectors guard requires every id a check names to be in web/index.html.
           if (force && !window.__t7272pin) { const pin = document.createElement('style'); pin.textContent = '#pj-one-view .pjmidhead { display: flex !important; } #pj-one-view > .pj-crumbrow { display: flex !important; }'; document.head.appendChild(pin); window.__t7272pin = pin; }
           if (!force && window.__t7272pin) { window.__t7272pin.remove(); window.__t7272pin = null; }
-          pjFitRoomPhone();
+          // Only the CONTROL fits by hand (its header is forced back with no event the page sees); otherwise the read
+          // is of what the page itself did.
+          if (force) pjFitRoomPhone();
           const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer');
           room.scrollTop = room.scrollHeight;
           await new Promise((r) => setTimeout(r, 300));
-          pjFitRoomPhone(); room.scrollTop = room.scrollHeight;
+          if (force) pjFitRoomPhone();
+          room.scrollTop = room.scrollHeight;
           await new Promise((r) => requestAnimationFrame(() => r()));
           const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
           const last = rows[rows.length - 1];
@@ -669,8 +673,8 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           const covered = [...document.querySelectorAll('#pj-one-view .pjmidhead input, #pj-one-view .pjmidhead button, #pj-one-view > .pj-crumbrow button')]
             .filter((e) => { const r = e.getBoundingClientRect(); return r.height > 0 && r.bottom > cTop && r.top < comp.getBoundingClientRect().bottom; })
             .map((e) => e.id || e.className);
-          const head = document.querySelector('#pj-one-view .pjmidhead');
-          return { lastBottom: Math.round(last ? last.getBoundingClientRect().bottom : 0), composerTop: Math.round(cTop),
+          const head = document.querySelector('#pj-one-view .pjmidhead'), conn = document.getElementById('conn');
+          return { connShown: !!conn && !conn.hidden && conn.getBoundingClientRect().height > 0, lastBottom: Math.round(last ? last.getBoundingClientRect().bottom : 0), composerTop: Math.round(cTop),
             covered, headShown: !!head && head.getBoundingClientRect().height > 0,
             kbUp: document.documentElement.classList.contains('kosmos-keyboard-up'), focusIn: !!document.activeElement && document.activeElement.id === 'pj-post',
             phoneTab: !document.body.classList.contains('consolidated') && matchMedia('(max-width: 30rem)').matches };
@@ -689,6 +693,31 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         if (forced.covered.length > 0 || forced.lastBottom > forced.composerTop) ok('#7272 CONTROL: with the header shown, the read sees it collide with the composer');
         else bad('#7272 CONTROL: with the header shown, the read sees it collide with the composer', 'it cannot fail: ' + JSON.stringify(forced));
         await look(false);
+        // The connection notice (the throwaway board has no subscription, so it shows) is kept while typing, as in the
+        // talk view: it is the one line saying an @-request cannot be answered.
+        if (kb.connShown) ok('#7272 the connection notice stays on screen while typing');
+        else bad('#7272 the connection notice stays on screen while typing', JSON.stringify(kb));
+        // A room search holding a query keeps the header while typing, so a filtered room never looks unfiltered.
+        await ph.evaluate(() => { document.activeElement.blur(); });
+        await ph.setViewportSize({ width: 375, height: 667 });
+        await ph.waitForTimeout(400);
+        await ph.fill('#pj-room-search', 'post');
+        await ph.focus('#pj-post');
+        await ph.setViewportSize({ width: 375, height: 667 - 336 });
+        await ph.waitForTimeout(500);
+        const searching = await ph.evaluate(() => { const h = document.querySelector('#pj-one-view .pjmidhead');
+          return { headShown: !!h && h.getBoundingClientRect().height > 0, kbUp: document.documentElement.classList.contains('kosmos-keyboard-up'),
+            focusIn: document.activeElement && document.activeElement.id === 'pj-post' }; });
+        if (!searching.kbUp || !searching.focusIn) bad('#7272 the search arm has the keyboard up and focus in the composer', JSON.stringify(searching));
+        else if (searching.headShown) ok('#7272 with a search query in the room, the header (and the query) stays while typing');
+        else bad('#7272 with a search query in the room, the header (and the query) stays while typing', JSON.stringify(searching));
+        await ph.evaluate(() => { document.activeElement.blur(); });
+        await ph.setViewportSize({ width: 375, height: 667 });
+        await ph.waitForTimeout(300);
+        await ph.fill('#pj-room-search', '');
+        await ph.focus('#pj-post');
+        await ph.setViewportSize({ width: 375, height: 667 - 336 });
+        await ph.waitForTimeout(500);
         // Focus leaves (a tap on the thread): the header comes back, keyed on the focus alone. Then the keyboard closes, as
         // it does on a phone when the box loses focus, and the thread re-fits under the returned header: the newest row
         // above the composer. (With the header back AND the keyboard up, an SE has no room for a thread at all; that is
@@ -701,29 +730,6 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         const closed = await look(false);
         if (back && closed.headShown && closed.lastBottom <= closed.composerTop && closed.covered.length === 0) ok('#7272 focus leaving brings the header back, and with the keyboard closed the newest row sits above the composer');
         else bad('#7272 focus leaving brings the header back, and with the keyboard closed the newest row sits above the composer', JSON.stringify({ back, closed }));
-        // On a taller phone (393x852) the keyboard can stay up with the header back and still leave a thread. Focus leaves
-        // with the keyboard up: the header's return moves the thread's top with NO resize, so only the focus listener's
-        // re-fit keeps the newest row above the composer. Read with no pjFitRoomPhone call of our own.
-        await ph.setViewportSize({ width: 393, height: 852 });
-        await ph.waitForTimeout(400);
-        await ph.focus('#pj-post');
-        await ph.setViewportSize({ width: 393, height: 852 - 336 });
-        await ph.waitForTimeout(500);
-        await ph.evaluate(() => { const r = document.getElementById('pj-room'); r.scrollTop = r.scrollHeight; });
-        await ph.evaluate(() => document.activeElement.blur());
-        await ph.waitForTimeout(400);
-        const tall = await ph.evaluate(async () => {
-          const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer');
-          room.scrollTop = room.scrollHeight;
-          await new Promise((r) => setTimeout(r, 200));
-          const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
-          const last = rows[rows.length - 1], head = document.querySelector('#pj-one-view .pjmidhead');
-          return { kbUp: document.documentElement.classList.contains('kosmos-keyboard-up'), headShown: !!head && head.getBoundingClientRect().height > 0,
-            lastBottom: Math.round(last ? last.getBoundingClientRect().bottom : 0), composerTop: Math.round(comp.getBoundingClientRect().top) };
-        });
-        if (!tall.kbUp || !tall.headShown) bad('#7272 the tall-phone arm has the keyboard up and the header back', JSON.stringify(tall));
-        else if (tall.lastBottom <= tall.composerTop) ok('#7272 on a taller phone, focus leaving with the keyboard up re-fits the thread under the returned header');
-        else bad('#7272 on a taller phone, focus leaving with the keyboard up re-fits the thread under the returned header', JSON.stringify(tall));
       } catch (e) {
         bad('#7272 the SE keyboard arm ran', String((e && e.message) || e));
       } finally {
