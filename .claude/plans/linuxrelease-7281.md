@@ -76,3 +76,17 @@ in a temp copy (no seam in shipped code), plus structural checks that release.sh
 - Reviewer checked: _linux_pair_had is defined before the full trap on every path (set -u safe), recorded before any
   Linux write to the site; step 8 cannot pass on another version's tarball; the cleanup precedes the ff-merge and
   removes exactly what would block it. Existing tests for every touched file: 12 files, all rc 0.
+
+## C1 review 3 (22:5x): 0 blockers, 1 warning, 3 nits, all fixed. CONVERGED.
+- WARNING FIXED: the prod guard grepped promote-channel.sh for any mention of latest-linux.json, so a comment would
+  lift it. It now needs one exact line, `PROMOTE_MOVES_LINUX=1` (grep -x), which C2 adds beside the code that moves
+  the Linux pointer. Tested: a comment naming the file keeps prod refused; the marker lifts it; the shipped file has
+  none (mutant back to the mention grep: red).
+- NIT FIXED: step 8's check moved into the lib as release_linux_export_ok and is tested on behaviour (pass; pointer
+  naming other bytes; missing pointer; missing tarball; tarball not matching its .sha256). Mutants: the tie off, the
+  wrong JSON field: red.
+- NIT FIXED: publish-staging-pointer's origin/main arm is tested (mutant red).
+- NIT RECORDED: the guard reads the checkout's promote-channel.sh, not the frozen tree's. Behind main it refuses
+  (safe); AHEAD of main (C2 local, unmerged) it would lift while the frozen cut lacks C2. release.sh step 1 requires
+  the checkout to carry what ships, and C2 is one PR; accepted.
+Test: 67 checks.
