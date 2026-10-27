@@ -126,6 +126,13 @@ jobs:
           ios/LogicTests/run-agentinfo.sh | tee "$RUNNER_TEMP/agentinfo.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/agentinfo.log"
 
+      # kosmos#7268: the composer's emoji button and dictation, its own suite like the others.
+      - name: Composer extras logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-composer.sh | tee "$RUNNER_TEMP/composer.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/composer.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

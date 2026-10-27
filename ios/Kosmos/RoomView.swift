@@ -54,6 +54,11 @@ struct RoomView: View {
     @State private var olderShowing = false
     @State private var pendingCount = 0
     @FocusState private var typing: Bool
+    // kosmos#7268: the emoji panel (in the keyboard's place while open), the glyph waiting to go in at the cursor, and
+    // dictation into the box.
+    @State private var emojiOpen = false
+    @State private var emojiInsert: String?
+    @StateObject private var dictation = Dictation()
     // kosmos#7096: the room's search, as the chat's (#7089, Mona Lisa's design): the magnifier opens the row, it stays
     // while it holds words, and its x or Cancel empties it and puts it away.
     @State private var query = ""
@@ -965,12 +970,22 @@ struct RoomView: View {
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }
             HStack(alignment: .bottom, spacing: 8) {
                 addButton
-                TextField("Write something or @name to message someone…", text: $draft, axis: .vertical)
-                    .lineLimit(1...5)
-                    .focused($typing)
-                    .accessibilityFocused($composerFocused)
-                    .accessibilityLabel("Post to everyone on this project")
-                    .padding(.vertical, 10).padding(.horizontal, 14)
+                // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end (the board's
+                // .emojibtn sits inside its input); the box's text runs up to them.
+                HStack(alignment: .bottom, spacing: 0) {
+                    CursorField(placeholder: "Write something or @name to message someone…", text: $draft, focus: $typing, insert: $emojiInsert)
+                        .lineLimit(1...5)
+                        .accessibilityFocused($composerFocused)
+                        .accessibilityLabel("Post to everyone on this project")
+                        .padding(.vertical, 10).padding(.leading, 14)
+                    ComposerEmojiButton(open: emojiOpen) {
+                        if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
+                    }
+                    ComposerMicButton(dictation: dictation) {
+                        dictation.toggle(base: draft) { draft = $0 }
+                    }
+                    .padding(.trailing, 2)
+                }
                     .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator))
                     .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
@@ -989,8 +1004,23 @@ struct RoomView: View {
                 .accessibilityLabel("Post")
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
+            if let line = ComposerExtras.micLine(dictation.state) {
+                Text(line).font(.footnote).foregroundColor(Palette.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 6)
+            }
+            // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it.
+            if emojiOpen { EmojiPanel { emojiInsert = $0 } }
         }
         .background(Palette.ground)
+        .onChange(of: typing) { focused in if focused { emojiOpen = false } }
+        // The panel stands in for the keyboard, which covers the tab bar; so does the panel, or its last rows sit
+        // under the bar.
+        .toolbar(emojiOpen ? .hidden : .automatic, for: .tabBar)
+        #if DEBUG
+        // KOSMOS_SAMPLE_EMOJI=open (with the room samples): the panel open, for the design shots.
+        .onAppear { if RoomStore.sample, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
+        #endif
+        .onDisappear { dictation.stop() }   // leaving the room lets go of the microphone
         // Each picker on a host of its own, as the chat's (two presentations on one view can leave one that never opens).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
                                              maxSelectionCount: max(1, Board.maxFiles - countedFiles),

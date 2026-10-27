@@ -130,3 +130,51 @@ struct EmojiPanel: View {
         if state == .listening { state = .ready }
     }
 }
+
+// The message box's text field, able to put an emoji in at the cursor: on iOS 18, where SwiftUI says where the cursor
+// is (TextSelection), the glyph goes there and the cursor lands after it; before iOS 18 it goes at the end. A parent sets
+// `insert` to a glyph; the field puts it in and clears it. ComposerExtras.insert (tested) does the placing.
+struct CursorField: View {
+    let placeholder: String
+    @Binding var text: String
+    var focus: FocusState<Bool>.Binding
+    @Binding var insert: String?
+    var body: some View {
+        if #available(iOS 18.0, *) {
+            CursorField18(placeholder: placeholder, text: $text, focus: focus, insert: $insert)
+        } else {
+            TextField(placeholder, text: $text, axis: .vertical)
+                .focused(focus)
+                .onChange(of: insert) { glyph in
+                    guard let glyph else { return }
+                    text = ComposerExtras.insert(glyph, into: text, selection: nil).text
+                    insert = nil
+                }
+        }
+    }
+}
+
+@available(iOS 18.0, *)
+private struct CursorField18: View {
+    let placeholder: String
+    @Binding var text: String
+    var focus: FocusState<Bool>.Binding
+    @Binding var insert: String?
+    @State private var selection: TextSelection?
+    var body: some View {
+        TextField(placeholder, text: $text, selection: $selection, axis: .vertical)
+            .focused(focus)
+            .onChange(of: insert) { glyph in
+                guard let glyph else { return }
+                var range: Range<Int>?
+                // Only a single selection whose ends are still inside today's text counts; anything else: at the end.
+                if case .selection(let r)? = selection?.indices, r.lowerBound >= text.startIndex, r.upperBound <= text.endIndex {
+                    range = text.distance(from: text.startIndex, to: r.lowerBound)..<text.distance(from: text.startIndex, to: r.upperBound)
+                }
+                let out = ComposerExtras.insert(glyph, into: text, selection: range)
+                text = out.text
+                selection = TextSelection(insertionPoint: text.index(text.startIndex, offsetBy: min(out.caret, text.count)))
+                insert = nil
+            }
+    }
+}
