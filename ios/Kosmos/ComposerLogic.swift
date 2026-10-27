@@ -17,6 +17,20 @@ enum ComposerExtras {
     // The board's pjEmojiInsert: the glyph replaces the selection (or goes in at the cursor), and the cursor lands
     // after it. `selection` is in Characters of `text`; nil (no cursor known: older iOS, or the box not focused) puts
     // it at the end. Returns the new text and the cursor's place in Characters.
+    // kosmos#7346 (Josh 10-27): no send arrow; the keyboard's Send key sends. The box is a multi-line field, so the key
+    // arrives as one new line typed into the text: that one character, and nothing else changed, is a send, and this is
+    // the text without it. Pasted text (more than the one character) keeps its line breaks, and is nil here.
+    static func typedReturn(was: String, now: String) -> String? {
+        let a = Array(was), b = Array(now)
+        guard b.count == a.count + 1 else { return nil }
+        var i = 0
+        while i < a.count && a[i] == b[i] { i += 1 }
+        let newLine: Set<Character> = ["\n", "\r\n"]
+        guard newLine.contains(b[i]) else { return nil }
+        let after: [Character] = Array(b[(i + 1)...]), rest: [Character] = Array(a[i...])
+        return after == rest ? was : nil
+    }
+
     static func insert(_ glyph: String, into text: String, selection: Range<Int>?) -> (text: String, caret: Int) {
         let count = text.count
         let lo = min(max(selection?.lowerBound ?? count, 0), count)
