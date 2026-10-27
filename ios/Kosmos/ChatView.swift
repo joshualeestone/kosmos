@@ -59,6 +59,10 @@ struct ChatView: View {
     @State private var earlier = Board.Earlier()
     @State private var topVisible = false
     @State private var settledAtEnd = false
+    // kosmos#7265: the first moments after the chat opens, while its rows load and are measured. Only then is the thread
+    // kept at its newest message as it grows (OpensAtBottom, the jumps below); a search or a page of older messages ends
+    // it early, and nothing after it moves the thread for the person.
+    @State private var opening = true
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
     // The conversation's items on screen now.
@@ -351,12 +355,21 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 // kosmos#7265: the thread opens on its newest message whatever the rows' heights (iOS 18 and later).
-                .modifier(OpensAtBottom())
+                .modifier(OpensAtBottom(active: opening && !searchMode))
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     proxy.scrollTo("end", anchor: .bottom)
+                    // kosmos#7265: while the rows below are still estimated a jump lands short, so a few more, only while
+                    // opening (measured 10-26: the initial-offset anchor alone left a blank thread 3 of 5 times; an anchor with jumps,
+                    // round 2, 5 of 5; this bounded form is round 4).
+                    if !Self.sampleNoFix {
+                        for at in [0.3, 0.8, 1.5, 2.2] {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + at) { if opening && !searchMode { proxy.scrollTo("end", anchor: .bottom) } }
+                        }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { opening = false }
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
@@ -634,6 +647,7 @@ struct ChatView: View {
         guard !searchMode, let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
         else { return }
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
+        opening = false   // kosmos#7265: a reader at the top has left the newest message
         earlier = start
         let opened = epoch
         Task {
@@ -1648,14 +1662,16 @@ extension Palette {
 }
 
 /* kosmos#7265 (Josh, 10-26: a long DM opened in the middle). The one jump to "end" on open lands short in a long chat,
-   because the rows below are only estimated until drawn; scrolling again lands short the same way (measured 10-26: 0 of
-   5 with timed re-jumps alone). Starting the scroll view at its bottom opens on the newest message (5 of 5). Only the
-   INITIAL offset: the one-argument form also moves what the person is reading when a row below grows or arrives, and
-   would bottom-align a short chat, so it is the iOS 18 role-scoped form. iOS 16 and 17 open as before (a stated limit). */
+   because the rows below are only estimated until drawn (measured 10-26 on the simulator, 5 opens each: jumps alone 0 of
+   5; the initial-offset anchor alone a blank thread 3 of 5, since the rows arrive after the first layout). The thread
+   starts at its bottom and, only while opening, stays there as its rows load and size. After that the size-change
+   anchor is off, so a row growing or arriving never moves what the person is reading, and a short chat is not
+   bottom-aligned. iOS 18's role-scoped forms; iOS 16 and 17 open as before (a stated limit). */
 private struct OpensAtBottom: ViewModifier {
+    let active: Bool
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *), !ChatView.sampleNoFix {
-            content.defaultScrollAnchor(.bottom, for: .initialOffset)
+            content.defaultScrollAnchor(.bottom, for: .initialOffset).defaultScrollAnchor(active ? .bottom : nil, for: .sizeChanges)
         } else {
             content
         }
