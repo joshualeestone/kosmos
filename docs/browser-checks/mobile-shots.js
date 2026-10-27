@@ -680,6 +680,27 @@ async function ownremoveScreen(page, data) {
     OWNREMOVE_ALLOWED, '#pj-fed-own [data-own-act="remove"]');
 }
 
+/* kosmos#7212 slice 2: stand the chat agent in as idle with a delivery stall 2 hours old, in the shape
+   engine/deliverystreak.js stallOf gives the card. */
+async function stallRoute(page, data) {
+  await page.route('**/api/status*', async (r) => {
+    try {
+      if (r.request().method() !== 'GET') { await r.continue(); return; }
+      const res = await r.fetch();
+      let body = null;
+      try { body = await res.json(); } catch { body = null; }
+      if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
+      for (const a of body.agents) {
+        if (a && a.sessionName === data.chatAgent) {
+          a.state = 'idle';
+          a.deliveryStall = { since: new Date(Date.now() - 2 * 3600e3).toISOString(), count: 9, lastWhy: 'menu',
+            words: 'its screen was waiting on a question or a menu' };
+        }
+      }
+      await r.fulfill({ response: res, body: JSON.stringify(body) });
+    } catch { /* the page closed at teardown (#6022) */ }
+  });
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -928,6 +949,19 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
     await page.waitForSelector('#d-dmthread .delivery.held', { state: 'visible', timeout: 5000 });
+  } },
+  /* kosmos#7212 slice 2: an agent no message has reached for half an hour (engine/deliverystreak.js). The board's
+     /api/status answer is stood in on the way to the page: the chat agent reads idle with a deliveryStall, so its card
+     says so and it counts as an Issue. Nothing is written to the board. */
+  { name: 'agent-stall-7212', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await stallRoute(page, data);
+    await at(page, '');
+    await page.waitForSelector('text=No message has reached this agent', { timeout: 8000 });
+  } },
+  { name: 'agent-stall-7212-page', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await stallRoute(page, data);
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
   } },
   /* kosmos#7248 (Mona Lisa): the note for files of Kosmos's own that a crash left damaged, one with a good copy to put
      back and one without. The board's answer is stood in on the way to the page; nothing is written to the board. */
