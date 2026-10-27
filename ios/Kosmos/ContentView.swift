@@ -434,6 +434,11 @@ struct ContentView: View {
             if let failure = shell.failure {
                 LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac)
             }
+            // kosmos#7389 (Mona Lisa): a file that takes more than a second says so, with Cancel, so a big file never looks like
+            // a tap that did nothing.
+            if let d = shell.downloading {
+                VStack { Spacer(); DownloadLine(name: d.name, cancel: d.cancel) }
+            }
         }
     }
 
@@ -842,7 +847,7 @@ struct WebView: UIViewRepresentable {
 
     // The WebView's navigation and window delegate. The decisions live in
     // ShellLogic.swift (tested); this only carries them out.
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
         // The holder, told when a page finishes (a press that waited, the Tasks flag).
         weak var web: BoardWeb?
         // The id of the last tap handed to the WebView.
@@ -896,6 +901,18 @@ struct WebView: UIViewRepresentable {
             #if KOSMOS_STORE_SHOTS
             if KosmosConfig.isShotsBoard(url) { decisionHandler(.allow); return }
             #endif
+            // kosmos#7389: a download the page asked for (`<a download>`) is saved only from a board's own origin
+            // (Download.decideAction); anything else is refused and said, never loaded in the window instead.
+            if navigationAction.shouldPerformDownload {
+                switch Download.decideAction(target: url, page: pageURL, coordinator: KosmosConfig.coordinatorOrigin) {
+                case .save: decisionHandler(.download)
+                case .refuse(let sentence):
+                    NSLog("[Download] refused a download the page asked for")
+                    if frame.isMainFrame { say(sentence) }
+                    decisionHandler(.cancel)
+                }
+                return
+            }
             // A frame inside the page: https and about: only.
             guard frame.isMainFrame else {
                 decisionHandler(Shell.allowsSubframe(url) ? .allow : .cancel)
@@ -926,6 +943,147 @@ struct WebView: UIViewRepresentable {
             case .block: break
             }
             return nil
+        }
+
+        // MARK: kosmos#7389, a board download (the Mac's #5167 rules, Mona Lisa's design)
+
+        // The page on screen as of its last main-frame commit: what a download is judged against (webView.url moves to
+        // the new address while a navigation is still provisional).
+        var pageURL: URL?
+        // A refusal on screen, when the last one was said, and how often each sentence was said on this page.
+        private var refusalUp = false
+        private var refusalLastAt: Date?
+        private var refusalsShown: (page: URL?, by: [String: Int]) = (nil, [:])
+        // Each download's own folder, and the one-second timer before "Getting <name>" shows.
+        private var downloadFolders: [ObjectIdentifier: URL] = [:]
+        private var downloadNames: [ObjectIdentifier: String] = [:]
+        private var lineTimers: [ObjectIdentifier: DispatchWorkItem] = [:]
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            pageURL = webView.url
+        }
+
+        // A main-frame answer: shown, saved, or refused (Download.decideResponse). A frame inside the page cannot save a
+        // file just by loading.
+        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                     decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            guard navigationResponse.isForMainFrame else {
+                decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
+                return
+            }
+            let http = navigationResponse.response as? HTTPURLResponse
+            let disposition = http?.value(forHTTPHeaderField: "Content-Disposition") ?? ""
+            let attachment = String(disposition[..<(disposition.firstIndex(of: ";") ?? disposition.endIndex)])
+                .trimmingCharacters(in: .whitespaces).lowercased() == "attachment"
+            switch Download.decideResponse(status: http?.statusCode ?? 200, attachment: attachment,
+                                           canShow: navigationResponse.canShowMIMEType, target: navigationResponse.response.url,
+                                           page: pageURL, coordinator: KosmosConfig.coordinatorOrigin,
+                                           signInPage: attachment && Download.looksLikeSignInPage(mimeType: navigationResponse.response.mimeType)) {
+            case .show: decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
+            case .save: decisionHandler(.download)
+            case .refuse(let sentence):
+                NSLog("[Download] refused a response the window would have saved")
+                if let sentence { say(sentence) }
+                decisionHandler(.cancel)
+            }
+        }
+
+        func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+            download.delegate = self
+        }
+
+        func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+            download.delegate = self
+        }
+
+        func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String,
+                      completionHandler: @escaping (URL?) -> Void) {
+            // A 2xx only: an error or a sign-in page that reached here is never kept as the file.
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                say(Download.couldNotGet)
+                completionHandler(nil)
+                return
+            }
+            let id = ObjectIdentifier(download)
+            let name = Download.fileName(suggestedFilename)
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-" + UUID().uuidString, isDirectory: true)
+            do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) } catch {
+                say(Download.failed(error.localizedDescription))
+                completionHandler(nil)
+                return
+            }
+            downloadFolders[id] = folder
+            downloadNames[id] = name
+            // "Getting <name>" only for a file that takes more than a second (Mona Lisa).
+            let show = DispatchWorkItem { [weak self, weak download] in
+                guard let self, let download else { return }
+                self.shell?.downloading = ShellState.Downloading(name: name, cancel: { download.cancel { _ in } })
+            }
+            lineTimers[id] = show
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: show)
+            completionHandler(folder.appendingPathComponent(name))
+        }
+
+        func downloadDidFinish(_ download: WKDownload) {
+            let id = ObjectIdentifier(download)
+            endLine(id)
+            guard let folder = downloadFolders.removeValue(forKey: id), let name = downloadNames.removeValue(forKey: id) else { return }
+            share(folder.appendingPathComponent(name), folder: folder)
+        }
+
+        func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+            let id = ObjectIdentifier(download)
+            endLine(id)
+            downloadNames.removeValue(forKey: id)
+            if let folder = downloadFolders.removeValue(forKey: id) { try? FileManager.default.removeItem(at: folder) }
+            // The person's own Cancel says nothing; anything else says why.
+            let e = error as NSError
+            if e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled { return }
+            say(Download.failed(e.localizedDescription))
+        }
+
+        private func endLine(_ id: ObjectIdentifier) {
+            lineTimers.removeValue(forKey: id)?.cancel()
+            shell?.downloading = nil
+        }
+
+        // The share sheet with the file (Save to Files, AirDrop, send on): the sheet is the consent, so nothing is asked
+        // first; closing it keeps nothing and says nothing. The file goes when the sheet does.
+        private func share(_ file: URL, folder: URL) {
+            guard let top = Self.topController() else { try? FileManager.default.removeItem(at: folder); return }
+            let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+            sheet.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: folder) }
+            // An iPad shows it as a popover, which needs somewhere to point.
+            sheet.popoverPresentationController?.sourceView = top.view
+            sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.maxY - 40, width: 1, height: 1)
+            top.present(sheet, animated: true)
+        }
+
+        // A refusal or a failure, said once in an alert, as far as the Mac's guard allows (Download.shouldSay).
+        func say(_ sentence: String) {
+            if refusalsShown.page != pageURL { refusalsShown = (pageURL, [:]) }
+            guard Download.shouldSay(up: refusalUp, lastAt: refusalLastAt, now: Date(),
+                                     shownThisPage: refusalsShown.by[sentence, default: 0]),
+                  let top = Self.topController() else { return }
+            refusalsShown.by[sentence, default: 0] += 1
+            refusalUp = true
+            // The Mac's two titles: a refusal (a rule said no) and a failure (the file did not arrive).
+            let failure = Download.isFailure(sentence)
+            let alert = UIAlertController(title: failure ? "Kosmos could not save that file" : "Kosmos did not save that file",
+                                          message: sentence, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+                self?.refusalUp = false
+                self?.refusalLastAt = Date()
+            })
+            top.present(alert, animated: true)
+        }
+
+        private static func topController() -> UIViewController? {
+            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            var top = scene?.windows.first { $0.isKeyWindow }?.rootViewController
+            while let next = top?.presentedViewController { top = next }
+            return top
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

@@ -4406,6 +4406,8 @@ do {
     check(!Download.shouldSay(up: false, lastAt: nil, now: t0, shownThisPage: 2), "at most twice for one sentence on one page")
     check(Download.getting("report.pdf") == "Getting report.pdf" && Download.failed("The network connection was lost.") == "The file could not be downloaded (The network connection was lost.).",
           "Mona Lisa's words")
+    check(Download.isFailure(Download.couldNotGet) && Download.isFailure(Download.failed("x")) && !Download.isFailure(Download.notFromThisBoard) && !Download.isFailure(Download.notABoard),
+          "a failure and a refusal are told apart, for the Mac's two titles")
 }
 
 print("")

@@ -16,6 +16,9 @@ final class ShellState: ObservableObject {
     @Published var retrying = false
     // Bumped to ask the WebView to leave the failed page.
     @Published var backCount = 0
+    // kosmos#7389: a file on its way from the board (shown after a second), and how to stop it.
+    struct Downloading { let name: String; let cancel: () -> Void }
+    @Published var downloading: Downloading?
     // Whether this failure has already had its one immediate automatic retry.
     private var autoRetried = false
 
@@ -158,5 +161,24 @@ struct LoadFailureView: View {
             .padding(.horizontal, 32)
             .frame(maxWidth: 420)
         }
+    }
+}
+
+// kosmos#7389 (Mona Lisa's design): "Getting report.pdf" with Cancel at the bottom while a board file arrives.
+struct DownloadLine: View {
+    let name: String
+    let cancel: () -> Void
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+            Text(Download.getting(name)).font(.subheadline).lineLimit(1).truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Cancel", action: cancel).font(.subheadline.weight(.semibold))
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 12).padding(.bottom, 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
