@@ -12,9 +12,10 @@ touch it.
   suite, a load burst during one block lands on one side of the ratio only.
 
 ## The call
-- Test-only, as it stands after round 2: build each depth's fixture once (untimed), warm both once, then five adjacent
-  (shallow, deep) pairs timed in CPU time (process.cpuUsage, user + system), and the MEDIAN of the five pair ratios
-  against the unchanged bound of 7.5. The failure message lists all five pair ratios.
+- Test-only, as it stands after round 5: build each depth's fixture once (untimed), warm up deep then shallow, then five
+  adjacent pairs with the order alternating inside them, timed in CPU time (process.cpuUsage, user + system), and the
+  MEDIAN of the five pair ratios against the unchanged bound of 7.5. The failure message lists the pairs in the order
+  taken.
 - First version (min of each side, wall time), alone: 3.70 to 3.85, 12 of 12. Superseded by rounds 1 and 2 below.
 
 ## Rejected
@@ -67,3 +68,8 @@ touch it.
   (2) the failure message lists the pairs in the order taken, not sorted.
   (3) the comment cites the round-3 range (3.54 to 3.98 at load 38).
   (4) review-round narration was trimmed from the code.
+- Round 5 (blind, default model, 19:5x CDT): no BLOCKER or WARNING. NITs applied:
+  (1) "The call" described round 2's order; it now describes the code as it stands.
+  (2) The comment's range was measured before round 4's warm-up change. Re-measured with the final order, 12 runs at
+  load 13 to 22: median 3.22 to 4.12, 12 of 12 under 7.5, single pairs as high as 6.0 (the median absorbed them). Whole
+  file 24 of 24. The comment cites this run.
