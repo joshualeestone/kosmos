@@ -174,7 +174,7 @@ test('#7365: the archive route sets the marker, refuses a bad or future time, an
   assert.equal((await post(pid, '/undo')).code, 200);
 });
 
-test('#7365: a marker file that will not parse is moved aside, bytes kept, and Archive and Undo still work', async () => {
+test('#7365: a marker file that will not parse is copied aside, and Archive and Undo still work', async () => {
   const file = roomarchive.fileFor();
   const dir = path.dirname(file);
   const broken = () => fs.readdirSync(dir).filter((f) => f.startsWith('roomarchive.json.broken-'));
@@ -184,7 +184,7 @@ test('#7365: a marker file that will not parse is moved aside, bytes kept, and A
   try {
     // The read side keeps more live: the small room's marker is unreadable, so nothing is archived there.
     assert.equal((await get(room.small)).json.archivedCount, 0);
-    assert.deepEqual(broken(), [], 'a read moved the file aside');
+    assert.deepEqual(broken(), [], 'a read copied the file aside');
     const when = new Date(Date.now() - DAY).toISOString();
     const r = await post(room.routes, '', { before: when });
     assert.equal(r.code, 200, r.text);
@@ -217,7 +217,7 @@ test('#7365: a marker file that cannot be READ refuses the write and changes not
     assert.equal((await post(room.routes, '/undo')).code, 503);
   } finally { fs.chmodSync(file, 0o600); }
   assert.equal(fs.readFileSync(file, 'utf8'), before, 'a refused write changed the file');
-  assert.equal(fs.readdirSync(path.dirname(file)).some((f) => f.startsWith('roomarchive.json.broken-')), false, 'an unreadable file was moved aside');
+  assert.equal(fs.readdirSync(path.dirname(file)).some((f) => f.startsWith('roomarchive.json.broken-')), false, 'an unreadable file was copied aside');
 });
 
 test('#7365: Undo clears the person\'s marker only; what the automatic rule archives stays archived', async () => {

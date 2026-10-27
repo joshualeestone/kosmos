@@ -31,9 +31,9 @@ const SET_ASIDE = Symbol('setAside');
 /* Null-prototype, so a project id such as "__proto__" is an own key like any other. A file that cannot be read or
    parsed reads as no markers: the room then shows only what the automatic rule archives, the safe direction (more
    live, never less). With { strict: true } (the writers): a file that cannot be READ throws, so the write is refused
-   and nothing changes; a file that reads but does not PARSE is moved aside to roomarchive.json.broken-<time>, bytes
-   kept, and the write replaces it with a fresh table, so Undo and Archive still work. It is copied aside, not moved, so
-   a write that then fails leaves the file where it was. An
+   and nothing changes; a file that reads but does not PARSE is copied to roomarchive.json.broken-<time>, and the
+   write replaces it with a fresh table, so Undo and Archive still work. A write that then fails leaves the file where
+   it was. An
    entry that parses but carries no readable `before` archives nothing, is left out here, and so is dropped by the next
    write. */
 function readAll({ strict = false, now = Date.now() } = {}) {
