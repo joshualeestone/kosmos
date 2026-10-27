@@ -2956,16 +2956,17 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .astar svg path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
 .astar:hover { color: var(--k-ink); background: rgba(120,120,128,.12); }
 /* #7339 (Josh, 2026-10-27: "the brightest gold that we have", the old one read "dingy"): the starred star is FILLED
-   with --gold-bright in both themes. Its EDGE is currentColor: on light, #9c741b (the value .chk.ok .chk-m uses, 3.4
-   to 3.9:1 as a colour on the light tile and row grounds, #6719 review 13), because --gold-bright alone is about 1.9:1
-   on white, and the edge is what keeps the star's shape legible there. Stroke widths are in the SVG's 24-unit grid:
-   1.6 units (about 1.2px on the 18px star) on a 1x screen, where a thinner line blends into the fill and no drawn pixel
-   reaches 3:1 (#7339 review 1, measured); 1 unit on a sharper screen, where the thin line still holds and the bright
-   fill reads as bright. On dark the edge is --gold-bright too, which clears 3:1 on the dark tiles by itself. */
+   with --gold-bright in both themes. Its EDGE is currentColor, and it is what keeps the shape at 3:1 where the fill
+   alone is not (--gold-bright is about 1.9:1 on white). On light the edge is #9c741b (3.7 to 4.3:1 on the tile and
+   row grounds), darker on hover so the hover tint costs no contrast; on dark it is --gold-bright, which clears 3:1
+   by itself. The edge is drawn in SCREEN pixels (non-scaling-stroke), so the 15px rail star gets the same line as
+   the 18px tile star: 1.5px, and .75px (1.5 device pixels) on a 2x screen, where the thin line holds and the fill
+   reads brighter. A line in the icon's own units was too thin on the rail and at 1x (#7339 reviews 1 and 2). */
 .astar.on { color: #9c741b; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .astar.on { color: var(--gold-bright); } }
-.astar.on svg path { fill: var(--gold-bright); }
-@media (min-resolution: 1.5dppx) { .astar.on svg path { stroke-width: 1; } }
+.astar.on:hover { color: #7d5c13; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .astar.on, :root:not([data-theme="light"]) .astar.on:hover { color: var(--gold-bright); } }
+.astar.on svg path { fill: var(--gold-bright); vector-effect: non-scaling-stroke; stroke-width: 1.5px; }
+@media (min-resolution: 2dppx) { .astar.on svg path { stroke-width: .75px; } }
 /* High contrast: a literal fill is not overridden by the system, so the starred star takes the system colour, as before. */
 @media (forced-colors: active) { .astar.on svg path { fill: currentColor; } }
 .astar:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -11699,7 +11700,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .astate.st-question { border-color: rgba(140,175,230,.58); }
 :root[data-theme="dark"] .acard.question { border-color: rgba(140,175,230,.42); }
 
-:root[data-theme="dark"] .astar.on { color: var(--gold-bright); }
+:root[data-theme="dark"] .astar.on, :root[data-theme="dark"] .astar.on:hover { color: var(--gold-bright); }
 
 :root[data-theme="dark"] .chk.ok .chk-m { color: var(--gold-deep); }
 :root[data-theme="dark"] .chk.att .chk-m { background: rgba(255,140,130,.13); border-color: rgba(255,140,130,.5); color: #ff8c82; }
