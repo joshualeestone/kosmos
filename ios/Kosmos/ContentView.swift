@@ -1029,6 +1029,7 @@ struct WebView: UIViewRepresentable {
                 return
             case .keep: break
             }
+            Self.sweepOnce()
             let id = ObjectIdentifier(download)
             let name = Download.fileName(suggestedFilename)
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-" + UUID().uuidString, isDirectory: true)
@@ -1082,6 +1083,21 @@ struct WebView: UIViewRepresentable {
             say(Download.failed(e.localizedDescription), refusal: false)
         }
 
+        // Folders a download left behind when the app was stopped mid-way (killed with a sheet up): gone the first time a
+        // download starts in this launch, if older than a day, so nothing of the board's stays in the app's tmp for long.
+        private static var swept = false
+        private static func sweepOnce() {
+            guard !swept else { return }
+            swept = true
+            let tmp = FileManager.default.temporaryDirectory
+            let old = Date().addingTimeInterval(-86_400)
+            for url in (try? FileManager.default.contentsOfDirectory(at: tmp, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+            where url.lastPathComponent.hasPrefix("kosmos-download-") {
+                let at = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                if at < old { try? FileManager.default.removeItem(at: url) }
+            }
+        }
+
         // A download that ended without a file: its line, its folder and its name go. Safe to run twice (Cancel runs it,
         // and so does the failure that may follow).
         private func cleanUp(_ id: ObjectIdentifier) {
@@ -1102,6 +1118,11 @@ struct WebView: UIViewRepresentable {
         private enum Shown { case message(String, refusal: Bool), sheet(URL, folder: URL) }
         private var waiting: [Shown] = []
         private var showing = false
+        // What is on screen now, and its file's folder when it is a sheet: if it goes without reporting back (a scene torn
+        // down, a dismiss from elsewhere), the queue notices and moves on, and the folder goes.
+        private weak var current: UIViewController?
+        private var currentFolder: URL?
+        private var retries = 0
 
         // The share sheet with the file (Save to Files, AirDrop, send on): the sheet is the consent, so nothing is asked
         // first; closing it keeps nothing and says nothing. The file goes when the sheet does.
@@ -1127,10 +1148,15 @@ struct WebView: UIViewRepresentable {
         // Shows the next thing waiting, once nothing else is on screen. A presentation that does not happen (another is
         // still animating in or out) is tried again shortly, never lost.
         private func showNext() {
+            if showing, current == nil || (current?.presentingViewController == nil && current?.isBeingPresented == false) {
+                if let folder = currentFolder { try? FileManager.default.removeItem(at: folder) }
+                shownEnded(); return
+            }
             guard !showing, let next = waiting.first else { return }
             guard let top = Self.topController(), !top.isBeingDismissed, !top.isBeingPresented else { retryShowing(); return }
             waiting.removeFirst()
             showing = true
+            retries = 0
             let shown: UIViewController
             switch next {
             case .message(let sentence, let refusal):
@@ -1145,13 +1171,16 @@ struct WebView: UIViewRepresentable {
                 let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
                 sheet.completionWithItemsHandler = { [weak self] _, _, _, _ in
                     try? FileManager.default.removeItem(at: folder)
+                    self?.currentFolder = nil
                     self?.shownEnded()
                 }
+                currentFolder = folder
                 // An iPad shows it as a popover, which needs somewhere to point.
                 sheet.popoverPresentationController?.sourceView = top.view
                 sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.maxY - 40, width: 1, height: 1)
                 shown = sheet
             }
+            current = shown
             top.present(shown, animated: true)
             DispatchQueue.main.async { [weak self, weak shown] in
                 guard let self, shown?.presentingViewController == nil else { return }
@@ -1164,12 +1193,24 @@ struct WebView: UIViewRepresentable {
 
         private func shownEnded() {
             showing = false
+            current = nil
+            currentFolder = nil
             showNext()
         }
 
         private var retryScheduled = false
         private func retryShowing() {
             guard !retryScheduled else { return }
+            // Bounded: after about ten seconds of nowhere to show it (no scene in front), what waits is given up, and a
+            // sheet's file with it, rather than tried for ever.
+            retries += 1
+            if retries > 20 {
+                retries = 0
+                for item in waiting { if case .sheet(_, let folder) = item { try? FileManager.default.removeItem(at: folder) } }
+                waiting.removeAll()
+                NSLog("[Download] nowhere to show the waiting files and messages; given up")
+                return
+            }
             retryScheduled = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.retryScheduled = false
