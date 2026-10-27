@@ -1128,12 +1128,15 @@ do {
     do {
         let t0 = Date(timeIntervalSince1970: 1_000_000)
         let sent = "Let's add a little margin inside the bubbles"
-        check(Board.refilledWithSent(sent, sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348: the sent text back in the box a second later is caught")
-        check(Board.refilledWithSent(sent + " ", sent: sent, sentAt: t0, now: t0.addingTimeInterval(4)), "and with a trailing space, as dictation leaves it")
-        check(!Board.refilledWithSent(sent, sent: sent, sentAt: t0, now: t0.addingTimeInterval(6)), "CONTROL: after the window it is the person typing it again")
-        check(!Board.refilledWithSent("Let's add a little", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: different words are the person's")
-        check(!Board.refilledWithSent("", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: an empty box is not a refill")
-        check(!Board.refilledWithSent(sent, sent: nil, sentAt: nil, now: t0), "CONTROL: nothing sent, nothing to catch")
+        check(Board.refilledWithSent(sent, was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348: the sent text back in the box a second later is caught")
+        check(Board.refilledWithSent(sent + " ", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(4)), "and with a trailing space, as dictation leaves it")
+        check(!Board.refilledWithSent(sent, was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(6)), "CONTROL: after the window it is the person typing it again")
+        check(!Board.refilledWithSent("Let's add a little", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: different words are the person's")
+        check(!Board.refilledWithSent("", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: an empty box is not a refill")
+        check(!Board.refilledWithSent(sent, was: "", sent: nil, sentAt: nil, now: t0), "CONTROL: nothing sent, nothing to catch")
+        // Review: typing a longer word that begins with the sent text passes through it one letter at a time.
+        check(!Board.refilledWithSent("ok", was: "o", sent: "ok", sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348 review: typing through the sent text is not a refill")
+        check(Board.refilledWithSent("ok", was: "", sent: "ok", sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: the same text from an empty box in one change is")
     }
     let before = Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)
     let shifted = Board.Thread(rows: [r("b", "T2"), r("c", "T3")], olderCount: 6)

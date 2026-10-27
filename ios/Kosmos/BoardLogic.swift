@@ -1714,7 +1714,10 @@ enum Board {
     // kosmos#7348 (Josh 10-27): the box filled back with exactly the text just sent, within a few seconds of the send (the
     // keyboard's dictation or Writing Tools finishing after the box was cleared): one more tap would post it twice.
     static let sentRefillWindow: TimeInterval = 5
-    static func refilledWithSent(_ box: String, sent: String?, sentAt: Date?, now: Date) -> Bool {
+    // Only a jump from an empty box straight to the whole text (review: typing "okay" after sending "ok" passes through
+    // "ok" one letter at a time and must not be wiped).
+    static func refilledWithSent(_ box: String, was: String, sent: String?, sentAt: Date?, now: Date) -> Bool {
+        guard was.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard let sent, let sentAt, now.timeIntervalSince(sentAt) <= sentRefillWindow else { return false }
         let b = box.trimmingCharacters(in: .whitespacesAndNewlines)
         return !b.isEmpty && b == sent.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -1098,10 +1098,10 @@ struct ChatView: View {
         // Leaving the conversation lets go of the microphone and closes the panel (the board's: the panel belongs to the
         // composer being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
-        .onChange(of: draftText) { now in
+        .onChange(of: draftText) { [was = draftText] now in
             // kosmos#7348: the sent text came back into the box (the keyboard's dictation or Writing Tools finishing late).
             // Kept for the whole window, so a keyboard that puts it back twice is cleared twice (review).
-            if Board.refilledWithSent(now, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { draftText = ""; return }
+            if Board.refilledWithSent(now, was: was, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { draftText = ""; return }
             dictation.boxChanged(to: now)
         }
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
@@ -1280,7 +1280,9 @@ struct ChatView: View {
                 // Once the Mac records it, a message that does not match the search drops out of sight (the board's too).
                 if searching { sentWhileSearching = true }
             } else {
-                lastSent = nil   // kosmos#7348: a failed send puts its words back on purpose
+                // kosmos#7348: a failed send puts its words back on purpose. Only this send's guard goes: a later send's
+                // stays (review).
+                if lastSent?.text == text { lastSent = nil }
                 if draftText.isEmpty { draftText = text; if replying == nil { replying = answering } }
                 if uploadingHere > 0 { composerNote = Board.stillAddingLine }
             }
