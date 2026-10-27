@@ -30,10 +30,9 @@
  *
  * NOT SEEN (measured in review, accepted): a tool behind a launcher the reader does not know
  * (`npx vercel`, `xargs vercel`, `node .../vercel`); any shell script FILE (`bash x.sh`: the
- * file is never read); a tool reached
- * through another interpreter's process API (python, a node child); a shell function named
- * like a tool (`gh() {...}; gh`, refused though it runs no CLI); and spawns made by child
- * processes (like launch-guard.js, it guards only this process). A bare name is judged by the
+ * file is never read); a tool reached through another interpreter's process API (python, a node
+ * child); a shell function named like a tool (`gh() {...}; gh`, refused though it runs no CLI);
+ * and spawns made by child processes (like launch-guard.js, it guards only this process). A bare name is judged by the
  * CALL's PATH: refused only when that PATH finds a real install. execFile and exec keep
  * their util.promisify.custom, so a promisify caller still gets { stdout, stderr }.
  */

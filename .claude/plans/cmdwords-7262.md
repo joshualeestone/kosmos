@@ -50,3 +50,6 @@ CLIs, and refusing is its safe side; the full suite is the measurement.
    fileCheck checks the file twice; harmless, and the shell: true case needs the separate check. For the PR body:
    (N) an out-of-tree copy of no-schtasks-preload.cjs now needs lib/command-words.cjs beside lib/schtasks-call.cjs.
    Mutations M4 (the quoted-substitution read off) and M5 (no sudo clusters) each red, restored.
+2. (sonnet, 01:4x CDT) No BLOCKERs, WARNINGs or CONVENTIONs; 3 NITs. Applied: (N) the NOT SEEN comment in
+   tool-guard.js was left broken mid-sentence by my line edit; reflowed. Deferred: (N) keyword words (if, then, {) are
+   returned, documented in the header and ignored by both guards; (N) the double file check (as round 1). Converged.
