@@ -79,3 +79,13 @@ engine/windows-tests-1777.test.js requires that entry: measured, removing it red
    (commands escape off), M7 and M8 (no backslash strip) each red, restored. Deferred: (N) a lone apostrophe in a
    POSIX line (a real shell refuses an unterminated quote, so nothing runs); (C) #7318 cannot be checked from the
    tree (it is the card filed this round); (N) a further negative PATH arm (the table covers it).
+5. (default, 03:0x CDT) 2 WARNINGs, 6 NITs. (W) my round-1 sudo cluster rule read the LAST letter of an attached value
+   (-uroot's t, -ujosh's h) as a value-taking option and skipped the program; now a cluster's first value-taking
+   letter takes the rest of the cluster, and the next word only when it is the last letter. (W) a regression for
+   tool-guard: `pwsh -Exec Bypass -Command gh` (an unlisted switch) was refused by the old scriptArgOf and not by
+   the walker; -Command and -EncodedCommand are now also looked for anywhere after the program, as well as the walk.
+   Applied NITs: fish -C takes a value and runs it (bash -C does not); time/nice/exec each have their own value
+   options (time -a takes none); a ) inside quotes or escaped does not close $( ); the test header's account of what
+   each reader missed. Deferred: the double file check (rounds 1-3); one red the reviewer saw once and could not name,
+   green on two reruns, during a full validation on this machine (watch the validation). Mutations M9 to M13 each red
+   on exactly their row, restored.

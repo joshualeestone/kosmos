@@ -3,10 +3,10 @@
  * #7262: one reader (tools/lib/command-words.cjs) says which words a child_process call runs, and both test guards
  * use it: the Windows scheduler guard (tools/lib/schtasks-call.cjs) and the real-CLI guard (test-support/tool-guard.js).
  * The agreement table is the drift check: one call shape, with the program slot filled by schtasks for one guard and
- * by a stand-in real gh for the other, must get the same answer from both. Before #7262 tool-guard missed env,
- * -EncodedCommand, timeout, if, ! and a redirect in front; schtasks-call missed sudo; tool-guard read a bare sudo but
- * took an option's value (sudo -u root) for the command; and both missed a prefix word (nohup, timeout) given as the
- * file.
+ * by a stand-in real gh for the other, must get the same answer from both. Before #7262 tool-guard missed env given
+ * as the file, -EncodedCommand, timeout, if, ! and a redirect in front; schtasks-call missed sudo; tool-guard read a
+ * bare sudo but took the option itself (sudo -u root) for the command; and both missed a prefix word (nohup, timeout)
+ * given as the file.
  * Pure: nothing is spawned.
  */
 const test = require('node:test');
@@ -61,6 +61,10 @@ const SHAPES = [
   ['echo "$(echo P)"', false],
   ['echo "a (P) b"', false],   // parentheses inside double quotes are text
   ['sudo -iu root P', true],   // review 1: a cluster ending in a value-taking letter
+  ['sudo -uroot P', true],   // review 5: an attached value (the t of root is not -t)
+  ['sudo -ujosh P', true],
+  ['time -a -o out.txt P', true],   // review 5: time -a takes no value
+  ['echo "$(echo \')\' ; P)"', true],   // review 5: a ) inside quotes does not close the substitution
   ['"/opt/my tools/nohup" P', true],   // a quoted path to a prefix word
   ['echo P', false],
   ['git commit -m "fix P"', false],
@@ -76,6 +80,10 @@ const SHAPES = [
   [['cmd.exe', ['/c', 'echo', 'a & P']], false],
   [['pwsh', ['-Command', 'P x']], true],
   [['pwsh', ['-EncodedCommand', 'ENC(P x)']], true],
+  [['pwsh', ['-Exec', 'Bypass', '-Command', 'P x']], true],   // review 5: a switch not listed, then -Command
+  [['fish', ['-C', 'x', '-c', 'P']], true],   // review 5: fish -C takes a value
+  [['fish', ['-C', 'P y', '-c', 'echo']], true],   // ...and runs it
+  [['/bin/bash', ['-C', '-c', 'P']], true],   // bash -C takes none
   [['/bin/bash', ['-lc', 'nohup P x']], true],
   [['/bin/sh', ['-c', 'echo P']], false],
   [['/bin/sh', ['-c', 'bash -c "echo \\" x; P"']], true],   // review 4: POSIX only (no second reading), so words() must honour the escape

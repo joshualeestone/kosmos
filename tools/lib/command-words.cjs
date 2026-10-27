@@ -53,9 +53,22 @@ function isLauncher(base) {
 }
 /* PowerShell switches whose value is the next word, so the value is not taken for the command. */
 const PS_VALUE = /^-(executionpolicy|ep|ex|windowstyle|w|version|v|inputformat|if|outputformat|of|configurationname|workingdirectory|wd|settingsfile|custompipename|psconsolefile)$/i;
-/* sudo options whose value is the next word (-u USER, -g GROUP, -C FD, -D DIR, -p PROMPT, -h HOST, -r ROLE, -t TYPE,
-   -U USER, -T TIMEOUT), also as the last letter of a cluster (-iu root), and the long forms that take one. */
-const SUDO_VALUE = /^(-[a-zA-Z]*[ugCDphrtUT]|--(user|group|close-from|chdir|prompt|host|role|type|other-user|command-timeout))$/;
+/* sudo options that take a value (-u USER, -g GROUP, -C FD, -D DIR, -p PROMPT, -h HOST, -r ROLE, -t TYPE, -U USER,
+   -T TIMEOUT), and the long forms that take one. */
+const SUDO_VALUE_LETTERS = 'ugCDphrtUT';
+const SUDO_VALUE_LONG = /^--(user|group|close-from|chdir|prompt|host|role|type|other-user|command-timeout)$/;
+/* Whether a sudo option takes the NEXT word as its value. In a cluster the first value-taking letter takes the rest of
+   the cluster when there is any (-uroot), and the next word only when it is the last letter (-iu root) (#7262
+   review 5: reading the cluster's last letter alone took the t of -uroot for -t). */
+function sudoTakesNext(opt) {
+  if (SUDO_VALUE_LONG.test(opt)) return true;
+  if (!/^-[^-]/.test(opt)) return false;
+  for (let k = 1; k < opt.length; k += 1) if (SUDO_VALUE_LETTERS.includes(opt[k])) return k === opt.length - 1;
+  return false;
+}
+/* Prefix words with options that take a value: nice -n N, exec -a NAME, time -f FMT and -o FILE (review 5: one shared
+   set read time -a, which takes none, as taking the next word). */
+const PREFIX_VALUE = { nice: /^(-n|--adjustment)$/, exec: /^-a$/, time: /^(-f|-o|--format|--output)$/ };
 const DEPTH = 6;   // shells inside shells, as far as anyone writes them
 
 /* The last part of a program path, without quotes. */
@@ -110,9 +123,15 @@ function commands(text, shell) {
 /* The index of the ) that closes a $( whose inside starts at from, counting nested parentheses; -1 if none. */
 function closeParen(chars, from) {
   let depth = 1;
+  let q = null;
   for (let k = from; k < chars.length; k += 1) {
-    if (chars[k] === '(') depth += 1;
-    else if (chars[k] === ')' && --depth === 0) return k;
+    const c = chars[k];
+    // A ) inside quotes, or escaped, does not close it (echo "$(echo ')' ; gh)", review 5).
+    if (q) { if (c === '\\' && q === '"') k += 1; else if (c === q) q = null; continue; }
+    if (c === '\\') { k += 1; continue; }
+    if (c === '"' || c === "'") { q = c; continue; }
+    if (c === '(') depth += 1;
+    else if (c === ')' && --depth === 0) return k;
   }
   return -1;
 }
@@ -204,6 +223,17 @@ function walk(ws, i, depth, shell, out) {
       continue;   // cmd with no /c: what follows is read as the command
     }
     if (POWERSHELL.test(b)) {
+      /* A switch this does not list may take a value, which the walk below then reads as the command
+         (pwsh -Exec Bypass -Command gh, review 5). So -Command and -EncodedCommand are also looked for anywhere after
+         the program, and read as well as the walk. */
+      for (let k = i + 1; k < ws.length; k += 1) {
+        if (/^-(command|c)$/i.test(ws[k].text)) { lineInto(rest(k + 1), depth + 1, 'other', out); break; }
+        if (/^-(encodedcommand|enc|e|ec)$/i.test(ws[k].text)) {
+          const v = valueAt(ws, k + 1);
+          if (v < ws.length) lineInto(decodePs(ws[v].text), depth + 1, 'other', out);
+          break;
+        }
+      }
       for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
         if (ws[i].redirect) continue;
         const s = ws[i].text;
@@ -229,6 +259,11 @@ function walk(ws, i, depth, shell, out) {
         }
         if (/^[-+][oO]$/.test(ws[i].text)) i = valueAt(ws, i + 1);   // -o pipefail, +o errexit, -O extglob: the option's name is its value
         else if (/^--(rcfile|init-file)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
+        else if (/^fish(\.exe)?$/i.test(b) && /^(-C|--init-command)$/.test(ws[i].text)) {
+          // fish -C CMD runs CMD before the script (review 5), so its value is read as a command line too.
+          i = valueAt(ws, i + 1);
+          if (i < ws.length) lineInto(ws[i].quoted ? ws[i].inner : ws[i].text, depth + 1, 'posix', out);
+        }
       }
       return;   // a script file: what it runs cannot be read here
     }
@@ -246,7 +281,7 @@ function walk(ws, i, depth, shell, out) {
     /* sudo [options] [NAME=value ...] program (#7262). */
     if (SUDO.test(b)) {
       for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
-        if (SUDO_VALUE.test(ws[i].text)) i = valueAt(ws, i + 1);
+        if (sudoTakesNext(ws[i].text)) i = valueAt(ws, i + 1);
       }
       continue;
     }
@@ -256,9 +291,9 @@ function walk(ws, i, depth, shell, out) {
       for (let k = i + 1; k < ws.length && /^-/.test(ws[k].text); k += 1) if (/^-[a-zA-Z]*[vV]/.test(ws[k].text)) return;
     }
     if (/^(nohup|exec|command|builtin|time|nice|then|else|do|while|until|\{|!)(\.exe)?$/i.test(b)) {
+      const takes = PREFIX_VALUE[b.toLowerCase().replace(/\.exe$/, '')];
       for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
-        // nice -n N / --adjustment N, exec -a NAME, time -f FMT / -o FILE / --format / --output
-        if (/^(-[nafo]|--adjustment|--format|--output)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
+        if (takes && takes.test(ws[i].text)) i = valueAt(ws, i + 1);
       }
       continue;
     }
