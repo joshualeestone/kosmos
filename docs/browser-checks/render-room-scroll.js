@@ -563,24 +563,38 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         /* Review 4: the "Replying to" bar sits between the thread and the composer, through the page's own painter. The
            newest row and the bar must both stay above the composer. CONTROL: the fit the code wrote before review 4 (the
            bar's height not taken off) must put one of them under it. */
+        /* Review 5: room repaints counted (paintRoom re-fits on every 5 s poll), so an arm that must prove the watchers re-fit
+           is retried when a repaint landed inside it, rather than passing on the poll's re-fit. */
+        await ph.evaluate(() => {
+          if (window.__pjPaints !== undefined) return;
+          window.__pjPaints = 0;
+          const orig = paintRoom;
+          paintRoom = function (...a) { window.__pjPaints++; return orig.apply(this, a); };
+        });
         const replyArm = (old) => ph.evaluate(async (old) => {
           const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer'), bar = document.getElementById('pj-reply');
+          const paints0 = window.__pjPaints;
           PJ_REPLY.scrollrepro = { id: 'r7196', from: 'scrollrepro-agent', who: 'Repro' };
           pjReplyPaint('scrollrepro');
+          // Review 5: no explicit re-fit for the arm itself: the bar showing must re-fit the room through its observer.
           await new Promise((r) => setTimeout(r, 300));
-          pjFitRoomPhone();
-          if (old) { const cs = getComputedStyle(bar); room.style.setProperty('--pj-room-fit', (parseFloat(room.style.getPropertyValue('--pj-room-fit')) + bar.getBoundingClientRect().height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0)) + 'px'); }
+          const lift = () => { const cs = getComputedStyle(bar); room.style.setProperty('--pj-room-fit', (parseFloat(room.style.getPropertyValue('--pj-room-fit')) + bar.getBoundingClientRect().height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0)) + 'px'); };
+          if (old) { pjFitRoomPhone(); lift(); }
           room.scrollTop = room.scrollHeight;
           await new Promise((r) => setTimeout(r, 100));
+          // The control's lift written again after the wait (review 5 nit: a poll could re-fit over it, as in floor()).
+          if (old) { pjFitRoomPhone(); lift(); room.scrollTop = room.scrollHeight; }
           const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
-          const out = { shown: !bar.hidden, barH: Math.round(bar.getBoundingClientRect().height), barBottom: Math.round(bar.getBoundingClientRect().bottom),
+          const out = { repainted: window.__pjPaints !== paints0, shown: !bar.hidden, barH: Math.round(bar.getBoundingClientRect().height), barBottom: Math.round(bar.getBoundingClientRect().bottom),
             lastBottom: Math.round(rows[rows.length - 1].getBoundingClientRect().bottom), composerTop: Math.round(comp.getBoundingClientRect().top) };
           delete PJ_REPLY.scrollrepro;
           pjReplyPaint('scrollrepro');
           pjFitRoomPhone();
           return out;
         }, !!old);
-        const rep = await replyArm(false);
+        let rep = await replyArm(false);
+        for (let i = 0; i < 3 && rep.repainted; i++) rep = await replyArm(false);
+        if (rep.repainted) bad('#7196 the reply arm ran without a room repaint inside it (three tries)', JSON.stringify(rep));
         if (!rep.shown || rep.barH < 10) bad('#7196 the reply arm shows the Replying to bar', JSON.stringify(rep));
         else if (rep.lastBottom <= rep.composerTop && rep.barBottom <= rep.composerTop) ok('#7196 with Replying to open, the newest row and the bar sit above the composer');
         else bad('#7196 with Replying to open, the newest row and the bar sit above the composer', JSON.stringify(rep));
@@ -588,9 +602,13 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         if (repOld.lastBottom > repOld.composerTop || repOld.barBottom > repOld.composerTop) ok('#7196 CONTROL: the fit before review 4 hides the bar or the newest row');
         else bad('#7196 CONTROL: the fit before review 4 hides the bar or the newest row', 'it cannot fail: ' + JSON.stringify(repOld));
         // Review 4: the space already left under the newest row, so the typing arm's growth is checked against it.
-        const preType = await floor();
+        // Review 5: and retried when a room repaint landed inside it, so only the composer's observer can have re-fit.
+        let preType, typed, afterType, typedPaints;
+        for (let i = 0; i < 4; i++) {
+        const p0 = await ph.evaluate(() => window.__pjPaints);
+        preType = await floor();
         // Review 1: typing a long message grows the composer with no repaint or resize; the thread must give way.
-        const typed = await ph.evaluate(async () => {
+        typed = await ph.evaluate(async () => {
           const box = document.getElementById('pj-post'), comp = document.querySelector('.pjmid .composer');
           const h0 = comp.getBoundingClientRect().height;
           box.value = 'line one\nline two\nline three\nline four\nline five'; box.dispatchEvent(new Event('input', { bubbles: true }));
@@ -598,7 +616,12 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           await new Promise((r) => setTimeout(r, 400));
           return { grew: comp.getBoundingClientRect().height - h0 };
         });
-        const afterType = await floor();
+        afterType = await floor();
+        typedPaints = (await ph.evaluate(() => window.__pjPaints)) - p0;
+        if (typedPaints === 0) break;
+        await ph.evaluate(() => { const box = document.getElementById('pj-post'); box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); if (typeof pjGrowComposer === 'function') pjGrowComposer(box); pjFitRoomPhone(); });
+        }
+        if (typedPaints !== 0) bad('#7196 the typing arm ran without a room repaint inside it (four tries)', JSON.stringify({ typedPaints }));
         const slack = preType.composerTop - preType.lastBottom;
         if (typed.grew <= slack + 4) bad('#7196 CONTROL: typing grew the composer by more than the space under the newest row', JSON.stringify({ typed, slack }));
         else if (afterType.lastBottom <= afterType.composerTop) ok('#7196 typing a long message (composer +' + Math.round(typed.grew) + 'px) leaves the newest row above it');
