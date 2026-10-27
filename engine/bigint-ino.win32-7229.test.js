@@ -223,3 +223,55 @@ test('#7229 review 4: listFiles and listDir share one fingerprint on Windows (no
   assert.deepEqual(seen.slice(2), [[want, want], [want, want], [want, want]], 'both lists keep the sha: ' + JSON.stringify(seen));
   assert.equal(hashed, 1, 'the file is hashed once, not once per poll');
 });
+
+test('#7333: exact ids that match on two different volumes are two files (the device is compared on Windows too)', () => {
+  const exact = (id, dev) => { const s = { isFile: () => true, ino: 1, dev, size: 1, mtimeMs: 1 }; Object.defineProperty(s, 'inoExact', { value: id }); return s; };
+  assert.equal(projects.sameOpenedFile(exact(15481123720534727n, 111), exact(15481123720534727n, 222), 'win32'), false, 'same exact id, another volume, passed');
+  assert.equal(projects.sameOpenedFile(exact(15481123720534727n, 111), exact(15481123720534727n, 111), 'win32'), true, 'CONTROL: same exact id, same volume');
+});
+
+test('#7333: a real file read by path and by handle has the same device on this computer (what the compare relies on)', () => {
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev7333-'));
+  const f = path.join(dir, 'f.txt');
+  fs.writeFileSync(f, 'x');
+  const fd = fs.openSync(f, 'r');
+  try {
+    assert.equal(fs.statSync(f).dev, fs.fstatSync(fd).dev, 'stat by path and by handle disagree on the device');
+    assert.equal(projects.sameOpenedFile(fs.statSync(f), fs.fstatSync(fd)), true, 'the real file, by path and by handle, is the same file');
+  } finally { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#7333 review 1: a 64-bit volume serial read at two widths (full and low 32 bits) is one volume on Windows; other volumes still differ', () => {
+  const st = (dev) => ({ isFile: () => true, ino: 5, dev, size: 1, mtimeMs: 1 });
+  const full = 0x1a2b3c4d5n;   // a serial wider than 32 bits (ReFS / Dev Drive)
+  const low = Number(BigInt.asUintN(32, full));
+  assert.equal(projects.sameOpenedFile(st(Number(full)), st(low), 'win32'), true, 'the same volume read at two widths was refused');
+  assert.equal(projects.sameOpenedFile(st(low), st(low + 1), 'win32'), false, 'CONTROL: another volume still differs');
+  assert.equal(projects.sameOpenedFile(st(Number(full)), st(low), 'darwin'), false, 'CONTROL: off Windows the device is compared exactly');
+});
+
+test('#7333 review 2: a 64-bit serial above 2^53 (lossy as a number) still reads as one volume through its exact value', () => {
+  const full = 0x9a2b3c4d5e6f7a81n;
+  const low = BigInt.asUintN(32, full);
+  // As production builds them: a number dev (lossy above 2^53) and the exact serial beside it.
+  const st = (devBig) => { const s = { isFile: () => true, ino: 5, dev: Number(devBig), size: 1, mtimeMs: 1 }; Object.defineProperty(s, 'devExact', { value: devBig }); return s; };
+  assert.notEqual(Number(full) >>> 0, Number(low), 'premise: the number dev has lost the low bits');
+  assert.equal(projects.sameOpenedFile(st(full), st(low), 'win32'), true, 'the same volume read at two widths was refused');
+  assert.equal(projects.sameOpenedFile(st(full), st(low + 1n), 'win32'), false, 'CONTROL: another volume still differs');
+});
+
+test('#7333 review 2: a real stat by path and by handle carries the exact serial, equal both ways', winOnly, () => {
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devx7333-'));
+  const f = path.join(dir, 'f.txt');
+  fs.writeFileSync(f, 'x');
+  const fd = fs.openSync(f, 'r');
+  try {
+    const gated = projects.exactPathStat(fs.statSync(f), f, false);
+    const opened = projects.exactOpenedStat(fs.fstatSync(fd), fd);
+    assert.equal(typeof gated.devExact, 'bigint', 'the path stat carries the exact serial');
+    assert.equal(gated.devExact, opened.devExact, 'by path and by handle disagree on the exact serial');
+    assert.equal(projects.sameOpenedFile(gated, opened, 'win32'), true);
+  } finally { fs.closeSync(fd); fs.rmSync(dir, { recursive: true, force: true }); }
+});

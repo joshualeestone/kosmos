@@ -33,6 +33,14 @@ const SPEAKS_FOR_ITSELF = new Set(['stopped', 'restarting', 'needs_you', 'needs_
 /* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string> } */
 const streaks = new Map();
 
+/* kosmos#7368: on Windows a message is written into the agent's input and counts as PLACED even while a turn is
+   running, so the agent queues it behind that turn, and a turn that never ends holds every later message. The streak
+   above cannot see that (each one landed). The agent's own supervisor counts what it queued (win32streamstate's
+   `queued`, kept in its state file), and a step with no sign of activity for TURN_STUCK_MS while something is queued is
+   said here, with the step it is on. */
+const TURN_STUCK_MS = 60 * 60 * 1000;
+const STEP_BUCKET_MS = 5 * 60 * 1000;   // win32streamstate.STEP_CLOCK_MS, kept here so this module needs nothing from it
+
 /* What one verdict was held or refused for, in a word the card and the log can key on. */
 function whyOf(v) {
   if (!v || typeof v !== 'object') return 'unknown';
@@ -78,6 +86,34 @@ function stallOf(name, { now = Date.now(), limitShown = false } = {}) {
   return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy, words: WHY_WORDS[why], next: NEXT_WORDS[why] };
 }
 
+/* kosmos#7368: the card's deliveryStall for a step that never ends, { since (ISO, its last sign of activity), count
+   (messages queued behind it), lastWhy: 'turn', step, words, next }, once `turn` ({ since, step, queued }, from
+   win32streamstate.turnFor) has shown no activity for TURN_STUCK_MS AND has at least one message queued behind it; else
+   null. A long step nothing waits behind harms nobody and is not said. */
+function turnStuckOf(name, turn, { now = Date.now() } = {}) {
+  try {
+    if (!turn || typeof turn.since !== 'string') return null;
+    const since = Date.parse(turn.since);
+    /* The clock on disk can trail the last activity by up to one bucket (win32streamstate writes it in 5-minute steps), so
+       the bucket is added: "over an hour" is then always true (review 5 N1). */
+    if (!Number.isFinite(since) || now - since < TURN_STUCK_MS + STEP_BUCKET_MS) return null;
+    const count = Number.isInteger(turn.queued) ? turn.queued : 0;
+    if (count < 1) return null;
+    /* Masked again here (review 2 W4): the supervisor masks by shape only; the board also knows the person's own secrets.
+       A mask that fails drops the step rather than show it. */
+    let step = typeof turn.step === 'string' && turn.step ? turn.step : null;
+    if (step) { try { step = require('./secretmask').mask(step).text || null; } catch { step = null; } }
+    return { since: new Date(since).toISOString(), count, lastWhy: 'turn', step, words: WHY_WORDS.turn, next: turnNext(count) };
+  } catch { return null; }
+}
+/* The way out, worded for how many wait (review 1: "them" for one message). */
+function turnNextWords(count) { return turnNext(count); }
+function turnNext(count) {
+  /* Review 5 W2: who sent them is not known (Kosmos's own posts are written in too), so the words do not assume the
+     person did. Review 3: an out for an agent that is simply busy (Josh's voice: give the reader an out). */
+  return 'Restart it to free it (' + (count === 1 ? 'the waiting message' : 'the waiting messages') + ' will need sending again), or wait if it is a long job';
+}
+
 /* True when a card shows a usage limit itself (its limit reset, a limitFrom reading, or an Antigravity quota or pool
    pause): the one rule both the card field and the board log use. Never throws. */
 function limitShownOn(card) {
@@ -119,6 +155,9 @@ const WHY_WORDS = {
   /* #7212 slice 3: not a delivery verdict; engine/stallsignin.js sets it when a live check found the account signed out. */
   signedout: 'Its Claude account is signed out',
   keyrefused: 'Its Claude key no longer works',   // review 1: an api-key account is not signed in to; its key was refused
+  /* kosmos#7368: the short reason for this case; the agent page words it on its own (the messages did arrive, they wait
+     behind one step). */
+  turn: 'It has been on one step for over an hour, and the messages wait behind it',
 };
 /* What the person can do, the card's last sentence (round 3: a restart does not help a sign-in, a limit or a quota). */
 const LOOK = 'Open it to see what it shows, or restart it';
@@ -129,11 +168,43 @@ const NEXT_WORDS = {
   quota: 'Kosmos sends them once the shared quota resets',
   signedout: 'Sign in again in Settings, AI Models',   // #7212 slice 3
   keyrefused: 'Replace its key in Settings, AI Models',
+  /* kosmos#7368: a restart ends the process, and what it had queued goes with it, so they must be sent again
+     (turnNext words it for one message). */
+  turn: turnNextWords(2),
 };
 /* The board log's line for one stall. */
 function stallLine(s) {
   return 'delivery-stall: no message has been seen to reach ' + s.name + ' since ' + s.since + ' (' + s.count
     + ' tries). ' + s.words + '.\n';
+}
+
+/* kosmos#7368: the board log's line for one step that never ends, said once per stuck step. */
+function turnLine(name, s) {
+  return 'turn-stuck: ' + name + ' has been on one step since ' + s.since + (s.step ? ' (' + s.step + ')' : '')
+    + ', with ' + s.count + ' message' + (s.count === 1 ? '' : 's') + ' waiting behind it.\n';
+}
+
+/* kosmos#7368 (review 4 W1): which stuck steps the board log says now, each ONCE per step (its clock and step are the
+   key). `cards` is the board's roster ({ sessionName, deliveryStall }); `said` a Map the caller keeps. A name keeps its
+   key while it is still on the board, so one read that missed the stall does not say it again; a name gone from the
+   board is forgotten. Returns the lines to write. Never throws. */
+function turnsToSay(cards, said) {
+  const out = [];
+  try {
+    const present = new Set();
+    for (const c of cards || []) {
+      if (!c || typeof c.sessionName !== 'string') continue;
+      present.add(c.sessionName);
+      const st = c.deliveryStall;
+      if (!st || st.lastWhy !== 'turn') continue;
+      const key = st.since + '\u0000' + (st.step || '');
+      if (said.get(c.sessionName) === key) continue;
+      said.set(c.sessionName, key);
+      out.push(turnLine(c.sessionName, st));
+    }
+    for (const n of [...said.keys()]) if (!present.has(n)) said.delete(n);
+  } catch { /* said next minute */ }
+  return out;
 }
 
 /* Start `name`'s streak over: a card reading stopped or restarting (lines refused while it was down are not a stall of
@@ -154,4 +225,4 @@ function sweep(names) {
 
 function resetForTests() { streaks.clear(); }
 
-module.exports = { reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, WHY_WORDS };
+module.exports = { turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

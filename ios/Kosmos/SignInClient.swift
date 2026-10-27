@@ -200,6 +200,18 @@ final class SignInClient {
         return SignIn.answer(status: status, json: json)
     }
 
+    // kosmos#7357: whether the review door is open (a GET: 405 open, 404 closed), and the password sign-in through it.
+    func reviewDoorOpen() async -> Bool? {
+        let request = URLRequest(url: coordinator.appendingPathComponent(SignIn.reviewPath))
+        guard let (_, response) = try? await http.data(for: request), let answer = response as? HTTPURLResponse else { return nil }
+        return SignIn.reviewDoorOpen(status: answer.statusCode)
+    }
+
+    func reviewSignIn(email: String, password: String) async throws -> SignIn.ReviewAnswer {
+        let (status, json) = try await post(SignIn.reviewPath, SignIn.reviewBody(email: email, password: password, deviceName: deviceName))
+        return SignIn.reviewAnswer(status: status, json: json)
+    }
+
     func second(challenge: String, code: String) async throws -> SignIn.Answer {
         let (status, json) = try await post(SignIn.secondPath, SignIn.secondBody(challenge: challenge, code: code))
         return SignIn.answer(status: status, json: json)

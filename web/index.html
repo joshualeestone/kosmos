@@ -20902,6 +20902,13 @@ function hostMachineCap(platform) {   // the same words opening a sentence
    is a browser, "this computer" is the laptop in front of them, so there it is "your cloud machine". */
 function thisMachine() { return (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'your cloud machine' : 'this computer'; }
 function ThisMachine() { return (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Your cloud machine' : 'This computer'; }
+/* kosmos#4903 seam H, the engine's half: the engine runs on the cloud machine, so "this computer" in a sentence it sends
+   (a presence reason, a Files or made-agent step, a refusal) always means that machine. Said as "your cloud machine" at
+   display, never in the engine, whose sentences are also matching keys (projects.js groupBecause, the page's regexes). */
+function cloudWords(s) {
+  if (typeof s !== 'string' || !(typeof onCloudMachine === 'function' && onCloudMachine())) return s;
+  return s.replace(/\bthis computer\b/g, 'your cloud machine').replace(/\bThis computer\b/g, 'Your cloud machine');
+}
 /* The restart and Start at login notices are hidden on a cloud machine: there is no login there for the person to start
    anything at. Right only while the box brings every agent back by itself after a restart (Baron confirms on a test
    box, #4903 seam H); if it does not, set this false and the notices come back. */
@@ -22315,6 +22322,19 @@ function stateReason(a, opts) {
     const mins = Number.isFinite(since) ? Math.max(3, Math.round((Date.now() - since) / 60000)) : 3;
     return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.';
   }
+  /* kosmos#7368 (Mona Lisa's design): a Windows agent on one step for over an hour with messages waiting behind it. The
+     messages did arrive, so this is not "no message has reached it": it names the step and how many wait. */
+  if (a && a.deliveryStall && a.deliveryStall.lastWhy === 'turn' && typeof a.deliveryStall.since === 'string') {
+    const since = Date.parse(a.deliveryStall.since);
+    const mins = Number.isFinite(since) ? Math.max(60, Math.round((Date.now() - since) / 60000)) : 60;
+    const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + mins + ' minutes';
+    const who = (typeof a.name === 'string' && a.name) ? a.name : 'This agent';
+    const step = typeof a.deliveryStall.step === 'string' && a.deliveryStall.step ? ': ' + a.deliveryStall.step : '';
+    const n = Number.isInteger(a.deliveryStall.count) && a.deliveryStall.count > 0 ? a.deliveryStall.count : 1;
+    const waiting = n === 1 ? '1 message is waiting behind it' : n + ' messages are waiting behind it';
+    const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Restart it to free it (the waiting messages will need sending again), or wait if it is a long job';
+    return who + ' has been on one step for ' + when + step + '. ' + waiting + '. ' + next + '.';
+  }
   /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause (engine/deliverystreak.js).
      The card only carries it while it reads idle or working, the states that look fine. The reason is the engine's
      words (one copy). After the unsent-text sentence above, which names the sharper cause when it is the box. */
@@ -22469,7 +22489,7 @@ function saidLine(a) {
  * is the wrong way round: the better answer looked worse.
  */
 function asSentence(s) {
-  const t = typeof s === 'string' ? s.trim() : '';
+  const t = typeof s === 'string' ? (typeof cloudWords === 'function' ? cloudWords : (x) => x)(s).trim() : '';
   if (!t) return '';
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
 }
@@ -48994,13 +49014,13 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
     // to write its own version, which is the drift the block below forbids --
     // and it said an agent with no startup job would be "stopped from starting
     // again", describing work that does not happen.
-    hint.textContent = ask.hint || '';
+    hint.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(ask.hint || '');
     document.getElementById('d-remove-start').hidden = false;
     setForceOffered(false);   // #2651: a tied agent removes normally; no override
   } else {
     // Says WHY rather than simply not being there. Somebody looking for this
     // deserves an answer.
-    hint.textContent = (ask && ask.because) || 'We cannot remove this agent right now.';
+    hint.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((ask && ask.because) || 'We cannot remove this agent right now.');
     document.getElementById('d-remove-start').hidden = true;
     /* #2651: ONLY the untied refusal (Kosmos cannot tie the running session to
        this card) is overridable, and only to CLEAR THE CARD off the board -- the
@@ -49188,7 +49208,7 @@ document.getElementById('you-file').addEventListener('change', async (e) => {
       method: 'PUT', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file,
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (out && out.error) || 'we could not save that picture'; return; }
+    if (!res.ok) { msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((out && out.error) || 'we could not save that picture'); return; }
     YOU_PIC = true;
     YOU_PIC_V += 1;
     msg.textContent = 'Saved.';
@@ -49275,7 +49295,7 @@ document.getElementById('hist-del').addEventListener('click', async () => {
       body: JSON.stringify({ confirm: 'delete' }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (out && out.error) || 'we could not delete it'; btn.disabled = false; return; }
+    if (!res.ok) { msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((out && out.error) || 'we could not delete it'); btn.disabled = false; return; }
     closeHistModal();
     await refreshHistory();
     /* ⚠️ THE OPEN CONVERSATION SURFACES ARE NOW SHOWING SOMETHING THAT NO
@@ -49323,7 +49343,7 @@ function openRemoveModal(name, ask) {
   const cols = document.getElementById('rm-cols');
   const fill = (id, items) => {
     const ul = document.getElementById(id); ul.innerHTML = '';
-    for (const t of (items || [])) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }
+    for (const t of (items || [])) { const li = document.createElement('li'); li.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(t); ul.appendChild(li); }
   };
   fill('rm-loses', ask.loses); fill('rm-keeps', ask.keeps);
   cols.hidden = !((ask.loses || []).length && (ask.keeps || []).length);
@@ -49407,7 +49427,7 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        nothing happened. */
     if (!res.ok || !done || done.outcome === 'refused') {
       if (onPanel()) {
-        msg.textContent = (done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.';
+        msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.');
         btn.disabled = false;
       }
       return;
@@ -49421,14 +49441,14 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        (rm-go), which re-enables its button on a partial for the same reason. */
     if (done.outcome === 'partial') {
       if (onPanel()) {
-        msg.textContent = done.because || 'We could not clear that card just now. Try again in a moment.';
+        msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || 'We could not clear that card just now. Try again in a moment.');
         btn.disabled = false;
       }
       return;
     }
     // REMOVED: the card is off the board. Do not re-enable a button that is now
     // gone; the message says what happened (including the session left running).
-    if (onPanel()) msg.textContent = done.because || 'Cleared from your board.';
+    if (onPanel()) msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || 'Cleared from your board.');
     /* ⚠️ REPAINT NOW, don't wait for the 5s poll. Same as the normal-remove
        handler (rm-go): a person who just cleared a card should see it leave the
        Agents roster and appear on the Removed list immediately, not sit there
@@ -49471,7 +49491,7 @@ async function loadLeftover(sessionName) {
      Remove section above already says what state the agent is in. */
   if (!plan || !plan.ok) { box.hidden = true; DEL_PLAN = null; return; }
   DEL_PLAN = plan;
-  document.getElementById('d-delete-hint').textContent = plan.hint || '';
+  document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.hint || '');
   box.hidden = false;
 }
 function openDeleteModal(plan) {
@@ -49530,7 +49550,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
     body = await res.json().catch(() => null);
   } catch { res = null; }
   if (!res || !body || (!res.ok && body.outcome !== 'partial')) {
-    msg.textContent = (body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.';
+    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.');
     go.disabled = false;
     return;
   }
@@ -49557,7 +49577,7 @@ document.addEventListener('click', async (e) => {
   btn.disabled = false;
   const rmsg = document.getElementById('removed-msg');
   if (!plan) { if (rmsg) rmsg.textContent = 'We could not reach the board just now.'; return; }
-  if (!plan.ok) { if (rmsg) rmsg.textContent = plan.because || 'We cannot delete that right now.'; return; }
+  if (!plan.ok) { if (rmsg) rmsg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.because || 'We cannot delete that right now.'); return; }
   openDeleteModal(plan);
 });
 
@@ -49645,8 +49665,8 @@ document.getElementById('rm-go').addEventListener('click', async () => {
        * where the agent may be half-removed. `loadRemoval` gets this right for
        * its own 5xx; this handler did not.
        */
-      msg.textContent = (done && (done.because || done.error))
-        || 'we could not remove it, and we cannot tell you why';
+      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((done && (done.because || done.error))
+        || 'we could not remove it, and we cannot tell you why');
       go.disabled = false;
       return;
     }
@@ -49659,7 +49679,7 @@ document.getElementById('rm-go').addEventListener('click', async () => {
      * agent gone from it while the agent is still working.
      */
     if (done.outcome === 'partial') {
-      msg.textContent = done.because;
+      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because);
       // ⚠️ Re-enabled. Some partials are a tmux or launchd call that failed
       // once; leaving the only button dead forces a dismiss-and-reopen to
       // retry, and the dismiss is the answer that keeps the agent.
@@ -49738,14 +49758,14 @@ function reportDiscarded(done, forAgent) {
     // Not scoped to CURRENT: the panel it was about is gone, and this is the
     // one surface still on screen.
     if (done.outcome === 'partial' || done.outcome === 'refused' || done.outcome === 'removed') {
-      back.textContent = done.because || done.error || '';
+      back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || done.error || '');
     }
     return;
   }
   // Same reason as the handler above: a thrown removal answers with `error`,
   // not `because`, and it is the message that says the agent may be half gone.
   if (done.error && !done.because) { 
-    if (CURRENT && CURRENT.sessionName === forAgent) back.textContent = done.error;
+    if (CURRENT && CURRENT.sessionName === forAgent) back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.error);
     return;
   }
   /**
@@ -49756,9 +49776,9 @@ function reportDiscarded(done, forAgent) {
    */
   if (!CURRENT || CURRENT.sessionName !== forAgent) return;
   if (done.outcome === 'partial' || done.outcome === 'refused') {
-    back.textContent = done.because || 'The removal did not finish.';
+    back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || 'The removal did not finish.');
   } else if (done.outcome === 'removed') {
-    back.textContent = done.because || '';
+    back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || '');
   }
 }
 
@@ -50924,7 +50944,7 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
        * mattering, which is better than getting the distinction right.
        */
       const say = document.getElementById('removed-msg');
-      if (say) say.textContent = back.because || 'The restore did not finish.';
+      if (say) say.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(back.because || 'The restore did not finish.');
       /**
        * ⚠️ THE CACHE IS LEFT ALONE, AND `tick()` IS NOT CALLED. The first
        * version of this branch did both, and between them they erased the note
@@ -51242,9 +51262,9 @@ function restartFailureLine(out) {
      while the restart did not take is a different machine problem from its
      having failed, and the person reporting it cannot tell us which unless the
      screen says. */
-  return said
+  return (typeof cloudWords === 'function' ? cloudWords : (x) => x)(said
     + (failed.length ? ' What failed: ' + failed.join(', ') + '.' : '')
-    + (done.length ? ' What worked: ' + done.join(', ') + '.' : '');
+    + (done.length ? ' What worked: ' + done.join(', ') + '.' : ''));
 }
 
 /* #3410: the "Start this agent" click. It reuses the proven restart plumbing
@@ -60987,7 +61007,7 @@ function tcPaint() {
     if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = pjSentence(m.why); row.append(why); }   // Mona's review: shown as a sentence
     /* Round 3: what create reported as not done (its non-fatal steps, a project it could not add) is said
        on the row, as the single create says it, never folded into "Running". */
-    for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = w; row.append(p); }
+    for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(w); row.append(p); }
     if (m.state === 'made' && m.seen === 'unseen' && m.made) {   // every member has a picture to set (review 27)
       const p = document.createElement('p'); p.className = 'tc-why';
       p.textContent = 'Its picture and project are set once it is seen running. Open this team again to check.';
@@ -64521,7 +64541,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
      is "not made", so it re-enables and shows its reason like any other failure; this
      one-click add has no made-screen to advance a partial to. */
-  if (!res.ok || out.outcome !== 'created') { fail(out.because || out.error || 'We could not make it, and we cannot tell you why.', out.field === 'name'); return; }
+  if (!res.ok || out.outcome !== 'created') { fail((typeof cloudWords === 'function' ? cloudWords : (x) => x)(out.because || out.error || 'We could not make it, and we cannot tell you why.'), out.field === 'name'); return; }
 
   /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
      found/scan Add rows keep, on a screen where a person is about to press several
@@ -64681,10 +64701,10 @@ function paintMade(steps, watching, projectOutcomes, revealed) {
      its turn comes; nothing is smoothed over on the way past. */
   const show = typeof revealed === 'number' ? revealed : (steps || []).length;
   const lines = (steps || []).map((s, i) => {
-    if (i >= show) return tickLine('working', s.label);
+    if (i >= show) return tickLine('working', (typeof cloudWords === 'function' ? cloudWords : (x) => x)(s.label));
     return s.undone
-      ? tickLine('undone', s.label + ' (undone)')
-      : tickLine(s.ok ? 'done' : 'fail', s.label);
+      ? tickLine('undone', (typeof cloudWords === 'function' ? cloudWords : (x) => x)(s.label) + ' (undone)')
+      : tickLine(s.ok ? 'done' : 'fail', (typeof cloudWords === 'function' ? cloudWords : (x) => x)(s.label));
   });
   /* 🛑 THE PROJECT ROWS AND THE BOARD-WATCH ROW ARE NOT DRAWN (Josh,
      2026-08-22): "I don't want to have the other steps that were put in there,
@@ -65429,7 +65449,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     if (result.field === 'name') {
       pjFieldBad('create-name', 'create-name-err', result.because || 'that name will not work');
     } else {
-      msg.textContent = result.because || 'that name will not work';
+      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(result.because || 'that name will not work');
     }
     return;
   }
@@ -65450,8 +65470,8 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // beside the field, not on the progress screen we advanced to on click.
     dropMyLoader();
     cstep('name');
-    msg.textContent = (result && (result.error || result.because))
-      || 'we could not make it, and we cannot tell you why';
+    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((result && (result.error || result.because))
+      || 'we could not make it, and we cannot tell you why');
     // The own gate's sentence is about the Role label at the top of a
     // scrolled form; put the person where the fix is (the live region has
     // already announced the words).
@@ -65505,7 +65525,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
        the CLASS at the render site rather than one string: capitalize the first
        letter only for this screen. Idempotent -- a `because` that already starts
        with a capital (a proper noun) is unchanged. */
-    const becauseSentence = (result.because || '').replace(/^([a-z])/, (c) => c.toUpperCase());
+    const becauseSentence = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(result.because || '').replace(/^([a-z])/, (c) => c.toUpperCase());
     // ⚠️ SAY IT OUT LOUD. `paintMade` only writes the live region when there is
     // a line being watched, and a partial has none -- so the single outcome
     // this screen exists to communicate was the only one that announced
@@ -72229,7 +72249,7 @@ function pjDescTooLong(text) { return Array.from(String(text || '')).length > PJ
 function pjFieldBad(inputId, errId, reason) {
   const input = document.getElementById(inputId);
   const err = document.getElementById(errId);
-  if (err) err.textContent = reason;
+  if (err) err.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(reason);   // kosmos#4903: a field refusal is often the engine's sentence
   if (input) {
     input.classList.add('bad');
     input.setAttribute('aria-invalid', 'true');
@@ -79266,7 +79286,7 @@ function pjMsg(m, name, session) {
  * of use, and leave the engine's strings alone so they still compose elsewhere.
  */
 function pjSentence(because) {
-  const said = String(because || '').trim();
+  const said = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(String(because || '')).trim();
   if (!said) return '';
   return said.charAt(0).toUpperCase() + said.slice(1) + (/[.!?]$/.test(said) ? '' : '.');
 }

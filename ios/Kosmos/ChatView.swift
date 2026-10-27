@@ -26,10 +26,22 @@ struct ChatView: View {
     @State private var refusal: String?
     @State private var loop: Task<Void, Never>?
     @State private var atBottom = true
+    // kosmos#7265 (measured on the simulator, 10-27): the end marker leaving the screen was read as the person scrolling
+    // up, but new rows push it off too, and a re-pin can land a row short, so a reader at the newest message was left
+    // behind and never followed again. On iOS 18 only the person's own scroll (scroll phase interacting or decelerating)
+    // moves atBottom; endVisible is the marker as it is, read when their scroll comes to rest.
+    @State private var endVisible = true
+    // kosmos#7265 (iOS 17+, idAnchor): the message the list is anchored on; "end" keeps the newest in view.
+    @State private var positionId: String?
+    @State private var personScrolling = false
+    // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
+    @State private var eagerFrom: String?
     @State private var unseenNew = false
     // The words in the box. Kept here while the chat is open (typing redraws only the chat) and given to the client when
     // it goes, so leaving the chat never loses them.
     @State private var draftText = ""
+    // kosmos#7348: the text of the last send and when, so the box filling back with it is cleared again.
+    @State private var lastSent: (text: String, at: Date)?
     // Reads are numbered: only one newer than the last shown is shown, so a slow earlier read never undoes a newer one.
     @State private var readsStarted = 0
     @State private var readShown = 0
@@ -49,6 +61,8 @@ struct ChatView: View {
     // The question that line is about: it goes when a read shows that question gone.
     @State private var pressLineKey: String?
     @State private var composerNote: String?
+    // kosmos#7346 review: the reason a Send could not go, and the box text it was about; any other text clears it.
+    @State private var blocked: (text: String, note: String)?
     // kosmos#7136: the refusal a Try again wrote there, so a later one that works clears only its own line (dmRetrySend).
     @State private var retryNote: String?
     // kosmos#7136: rows sent again whose answer is in but whose next read is not: still drawn "sending…", so the stale
@@ -62,7 +76,9 @@ struct ChatView: View {
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
     // kosmos#7265 review 2: a page landed while the reader was at the newest message: keep them there, without animation.
-    @State private var keepAtEnd = false
+    // A count, not a flag (measured on the simulator, 10-27): a flag set in the same update that first draws the scroll
+    // view never reached onChange, stayed true, and every later request was true to true, so nothing re-pinned.
+    @State private var keepAtEndTick = 0
     // Review 3: whether the end marker has ever shown (atBottom starts true, so it alone cannot say the reader got there).
     @State private var endSeen = false
     // The conversation's items on screen now.
@@ -130,15 +146,22 @@ struct ChatView: View {
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
                 if unseenNew && !searching { newMessagesCapsule }
             }
-            if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
-                Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil && pressLine != nil ? Palette.dangerWord : Palette.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // Mona Lisa's spec: 16 pt side margins, 6 pt above the composer.
-                    .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
-                    .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
-                    .onChange(of: line) { now in UIAccessibility.post(notification: .announcement, argument: now) }
+            // kosmos#7346 (Josh 10-27, Mona Lisa's design): the message box floats over the conversation, which runs
+            // behind it; the inset keeps the newest message above the box.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
+                        Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil && pressLine != nil ? Palette.dangerWord : Palette.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            // Mona Lisa's spec: 16 pt side margins, 6 pt above the composer.
+                            .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
+                            .background(Palette.ground.opacity(0.94))
+                            .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
+                            .onChange(of: line) { now in UIAccessibility.post(notification: .announcement, argument: now) }
+                    }
+                    composer
+                }
             }
-            composer
         }
         .background(Palette.ground.ignoresSafeArea())
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
@@ -250,6 +273,8 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
+            positionId = nil; personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
+            eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
             retryNote = nil
@@ -341,7 +366,7 @@ struct ChatView: View {
                         // earlierNearTop); the line says only that a page is loading, or that one failed, with Try again.
                         earlierFailedLine
                         Color.clear.frame(height: 1).id("top")
-                            .onAppear { topVisible = true; loadEarlier() }
+                            .onAppear { Self.trace("top appear"); topVisible = true; loadEarlier() }
                             .onDisappear {
                                 topVisible = false
                                 // The top leaving after the first layout proves the jump to the newest message
@@ -353,21 +378,15 @@ struct ChatView: View {
                             }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         else if searching && rows.isEmpty && !loaded.isEmpty { noMatch }
-                        // kosmos#7265: the newest rows are drawn as one eager stack, so their real heights are known and the
-                        // jump to "end" on open lands on the newest message. With every row lazy their heights were estimated
-                        // and a long chat of long messages opened mid-thread. Older rows stay lazy.
-                        // An exact cut: a cut in steps of 20 (fewer rebuilds) measured short again, 0 of 10 against 10 of 10
-                        // (rounds 16 and 17). So each new message moves one row from the eager stack to the lazy rows, which
-                        // rebuilds it and drops any state it held (a stated limit).
-                        let tailStart = max(0, items.count - Self.eagerTail)
-                        ForEach(items[..<tailStart]) { item in row(item) }
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(items[tailStart...]) { item in row(item) }
-                        }
+                        // kosmos#7265: on iOS 16 the newest rows are one eager stack (real heights, so the jump to "end"
+                        // lands); on iOS 17+ every row is lazy and the id anchor holds the place (see idAnchor).
+                        chatRows(items)
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
                         Color.clear.frame(height: 1).id("end")
                             .onAppear {
+                                Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
+                                endVisible = true
                                 atBottom = true; unseenNew = false; endSeen = true
                                 // The first scroll has settled when the newest message is really on screen (not after
                                 // a time): from then on, reaching the top is the person scrolling up. Checked a turn
@@ -375,24 +394,53 @@ struct ChatView: View {
                                 // short to scroll still shows its top then, and loads by itself.
                                 if !settledAtEnd { DispatchQueue.main.async { settledAtEnd = true; loadEarlier() } }
                             }
-                            .onDisappear { atBottom = false }
+                            .onDisappear {
+                                Self.trace("end disappear (personScrolling \(personScrolling))")
+                                endVisible = false
+                                if !Self.followsScrollPhase || personScrolling { atBottom = false }
+                            }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
+                    .modifier(PositionTargets(on: Self.idAnchor))
                 }
+                .modifier(PositionById(on: Self.idAnchor, id: $positionId))
                 .scrollDismissesKeyboard(.interactively)
+                .modifier(PersonScroll(scrolling: $personScrolling) {
+                    // Their scroll has come to rest: they are at the newest message exactly when the end shows.
+                    atBottom = endVisible
+                    if endVisible { unseenNew = false }
+                    Self.trace("person scroll rested, atBottom \(endVisible)")
+                })
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
-                    proxy.scrollTo("end", anchor: .bottom)
+                    // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
+                    let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
+                    if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
+                    goNewest(proxy)
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
+                    // kosmos#7265: KOSMOS_SAMPLE_SCROLLUP=<n> scrolls 3 s after opening so the n-th row from the end is at the
+                    // top, as a reader scrolled up would be, to see whether later reads move it.
+                    if let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init), up > 0, items.count > up {
+                        let target = items[items.count - up].id
+                        // Counts as the person's own scroll (nothing in the simulator can drag).
+                        // With the id anchor, a person's scroll moves the anchor; a scrollTo alone would not, so move it too.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            if Self.idAnchor { positionId = target } else { proxy.scrollTo(target, anchor: .top) }
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { atBottom = endVisible; Self.trace("debug scroll-up rested, atBottom \(endVisible)") }
+                    }
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
                         // Twice: the first reaches the top and loads a page; the second shows what landed above.
                         for at in [3.0, 6.0] {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + at) { withAnimation { proxy.scrollTo("top", anchor: .top) } }
+                            // With the id anchor a person's scroll moves the anchor, so the hook moves it too.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+                                if Self.idAnchor { positionId = "top"; atBottom = false } else { withAnimation { proxy.scrollTo("top", anchor: .top) } }
+                            }
                         }
                     }
                     #endif
@@ -400,13 +448,22 @@ struct ChatView: View {
                 // The place kept after a page lands above: the row that was first stays at the top.
                 .onChange(of: keepAnchor) { id in
                     guard let id else { return }
+                    // The id anchor already keeps the reader's message in place as a page lands above (kosmos#7265).
+                    if Self.idAnchor { keepAnchor = nil; return }
+                    Self.trace("keepAnchor scrollTo \(id)")
                     proxy.scrollTo(id, anchor: .top)
                     keepAnchor = nil
                 }
-                .onChange(of: keepAtEnd) { now in
-                    guard now else { return }
-                    proxy.scrollTo("end", anchor: .bottom)
-                    keepAtEnd = false
+                .onChange(of: keepAtEndTick) { _ in
+                    Self.trace("keepAtEnd scrollTo end")
+                    if Self.idAnchor { goNewest(proxy); return }
+                    if !Self.sampleNoKeep {
+                        // iOS 16: after the new rows have laid out, and once more a beat later (the else is the debug control).
+                        DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo("end", anchor: .bottom) }
+                    } else {
+                        proxy.scrollTo("end", anchor: .bottom)
+                    }
                 }
                 .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
                 .onChange(of: working) { now in if now { follow(proxy) } }
@@ -414,7 +471,7 @@ struct ChatView: View {
                 // While searching too, unlike the board's jumpToOwnSend: the phone keeps the sent bubble on screen below
                 // what matched, and it is the send's only feedback.
                 .onChange(of: pending.count) { n in
-                    if n > lastPendingCount { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    if n > lastPendingCount { goNewest(proxy, animated: true) }
                     lastPendingCount = n
                 }
                 // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
@@ -424,12 +481,12 @@ struct ChatView: View {
                     keepNewestInView = atBottom || (searchOpen && openedAtNewest && !searching)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    if keepNewestInView { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    if keepNewestInView { goNewest(proxy, animated: true) }
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
                     guard visible else { return }
-                    withAnimation { proxy.scrollTo("end", anchor: .bottom) }
+                    goNewest(proxy, animated: true)
                 }
             }
         } else {
@@ -467,12 +524,79 @@ struct ChatView: View {
         }
     }
 
+    // kosmos#7265 debug: KOSMOS_SAMPLE_EAGERALL=1 draws every row eagerly, to see whether estimated heights move the reader.
+    static let sampleEagerAll: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EAGERALL"] == "1"
+        #else
+        return false
+        #endif
+    }()
+    // The lazy older rows, then the newest as one eager stack where eagerStartIndex says (kosmos#7265).
+    @ViewBuilder private func chatRows(_ items: [Board.ChatItem]) -> some View {
+        let tailStart = eagerStartIndex(items)
+        ForEach(items[..<tailStart]) { item in row(item) }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(items[tailStart...]) { item in row(item) }
+        }
+    }
+
+    // kosmos#7265: to the newest message. With the id anchor (idAnchor) the anchor is the end marker, which keeps the
+    // end in view as rows land, until the person's own scroll moves the anchor; re-set through nil so a repeat is seen.
+    // Under the anchor the move is not animated (`animated` applies to the iOS 16 path only).
+    private func goNewest(_ proxy: ScrollViewProxy, animated: Bool = false) {
+        if Self.idAnchor {
+            // Through nil so a repeat is seen; put back only if nothing (the person's own scroll) moved it meanwhile.
+            if positionId == "end" { positionId = nil; DispatchQueue.main.async { if positionId == nil { positionId = "end" } } } else { positionId = "end" }
+            return
+        }
+        if animated { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { proxy.scrollTo("end", anchor: .bottom) }
+    }
+
+    // Where the eager newest rows begin: none with the id anchor (iOS 17+), all with the debug EAGERALL switch.
+    private func eagerStartIndex(_ items: [Board.ChatItem]) -> Int {
+        if Self.idAnchor { return items.count }
+        if Self.sampleEagerAll { return 0 }
+        return Board.eagerStart(items, from: Self.sampleNoKeep ? nil : eagerFrom, eager: Self.eagerTail)
+    }
+
+    // kosmos#7265 (measured on the simulator 10-27, sim7265/r12 and r13): on iOS 17 and later the chat is anchored on a
+    // message id (SwiftUI's scroll position) instead of on positions. Rows above the reader are drawn lazily with
+    // estimated heights, and every read re-estimated them, so the view wandered (226, then 256, then 238 in one run) and
+    // rows overlapped; anchored on an id, a scrolled-up reader holds still while messages arrive, and a reader at the
+    // newest message (anchored on the end marker) follows each one. iOS 16 keeps the eager newest rows instead.
+    // Debug: KOSMOS_SAMPLE_NOPOSID=1 runs the iOS 16 path, as the control.
+    static let idAnchor: Bool = {
+        guard #available(iOS 17.0, *) else { return false }
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOPOSID"] != "1"
+        #else
+        return true
+        #endif
+    }()
+
+    // kosmos#7265: iOS 18 reports the scroll phase, which tells the person's scroll from rows moving under them.
+    static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
+
+    // kosmos#7265 debug: KOSMOS_SAMPLE_TRACE=1 appends the chat's scroll state to Documents/trace.txt.
+    static func trace(_ line: @autoclosure () -> String) {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1" {
+            let text = String(format: "TRACE %.2f ", Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1000)) + line() + "\n"
+            // Appended to Documents/trace.txt, pulled out with simctl get_app_container (stderr never reached a file).
+            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("trace.txt")
+            if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(text.utf8)); try? h.close() }
+            else { try? Data(text.utf8).write(to: url) }
+        }
+        #endif
+    }
+
     // New messages come in at the bottom; if the person has scrolled up, the view stays and the capsule offers a jump.
     // Not while searching: the person is reading what matched, and a new message may not even be among it (the
     // board's convPause, #5624).
     private func follow(_ proxy: ScrollViewProxy) {
         if searching { return }
-        if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
+        if atBottom { goNewest(proxy, animated: true) } else { unseenNew = true }
     }
 
     // kosmos#7089: the field under the bar, styled as the composer's box. The x and Cancel both empty it and put it away.
@@ -683,7 +807,7 @@ struct ChatView: View {
             // a reader stopped part way inside the newest rows as a page lands may still move).
             // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
             // reader is up there) rules it out.
-            if atBottom && endSeen && !topVisible { keepAtEnd = true }
+            if atBottom && endSeen && !topVisible && !searching { keepAtEndTick += 1 }   // review: not while searching
             else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
@@ -712,8 +836,10 @@ struct ChatView: View {
                 got = Board.gapRows(rows, positions: positions, end: end) + got
                 before = start
             }
-            earlier.rows += got
-            earlier.end = t.olderCount
+            // kosmos#7265: a row carried in meanwhile (carryDropped) is not added twice, and the end never moves back.
+            let known = Set(earlier.rows.map(\.id))
+            earlier.rows += got.filter { !known.contains($0.id) }
+            earlier.end = max(earlier.end, t.olderCount)
             earlier.filling = false
         }
     }
@@ -936,24 +1062,32 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let replying { replyStrip(replying) }
-            if !attachedHere.isEmpty || uploadingHere > 0 { chips }
-            HStack(alignment: .bottom, spacing: 8) {
+            // kosmos#7346 review: over the conversation running behind, the strips get the page's ground, edge to edge.
+            if let replying { replyStrip(replying).background(Palette.ground.opacity(0.94).padding(.horizontal, -12)) }
+            if !attachedHere.isEmpty || uploadingHere > 0 { chips.background(Palette.ground.opacity(0.94).padding(.horizontal, -12)) }
+            // kosmos#7346: one floating box, + then the text then emoji and mic; no send arrow (the keyboard's Send sends).
+            // Radius 24, at least 48 pt, the card colour with a soft shadow and a hairline edge (Mona Lisa's spec).
+            HStack(alignment: .bottom, spacing: 0) {
                 addButton
                 field
-                sendButton
             }
+            .frame(minHeight: 48)
+            .background(RoundedRectangle(cornerRadius: 24).fill(Palette.card)
+                .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 3))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Palette.separator, lineWidth: 0.5))
             if let line = ComposerExtras.micLine(dictation.state) {
                 Text(line).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+                    .background(Palette.ground.opacity(0.94).padding(.horizontal, -12))
             }
             // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it. The tab bar is
             // already hidden in a conversation, so nothing sits under the panel.
-            if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) }.padding(.horizontal, -12) }
+            if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) }.padding(.horizontal, -12).background(Palette.ground) }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Palette.ground)
+        // 8 pt above the keyboard, or above the home bar when it is down.
+        .padding(.top, 6)
+        .padding(.bottom, 8)
         .onChange(of: composerFocused) { focused in if focused { emojiOpen = false } }
         // Review 8: the search field's keyboard closes the panel too, or it sits on top of it and hides the results.
         .onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }
@@ -964,8 +1098,24 @@ struct ChatView: View {
         // Leaving the conversation lets go of the microphone and closes the panel (the board's: the panel belongs to the
         // composer being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
-        .onChange(of: draftText) { dictation.boxChanged(to: $0) }
-        .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
+        .onChange(of: draftText) { [was = draftText] now in
+            // kosmos#7346: the keyboard's Send key arrives as a lone new line: take it out, and send if there is something
+            // to send (as the arrow did: not while dictation is finishing, not with a file still on its way).
+            if let without = ComposerExtras.typedReturn(was: was, now: now) {
+                draftText = without
+                sendOrSayWhy()
+                return
+            }
+            // The person changed what Send was refused for: the reason no longer applies to it.
+            if let b = blocked, now != b.text {
+                if composerNote == b.note { composerNote = nil }
+                blocked = nil
+            }
+            // kosmos#7348: the sent text came back into the box (the keyboard's dictation or Writing Tools finishing late).
+            // Kept for the whole window, so a keyboard that puts it back twice is cleared twice (review).
+            if Board.refilledWithSent(now, was: was, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { draftText = ""; return }
+            dictation.boxChanged(to: now)
+        }
         // Each picker on a host of its own: two presentations on one view can leave one that never opens (iOS 16).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
                                              maxSelectionCount: max(1, Board.maxFiles - attachedHere.count - uploadingHere),
@@ -1002,18 +1152,16 @@ struct ChatView: View {
             Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
                 .disabled(atFileLimit)
         } label: {
+            // kosmos#7346: a plain + inside the box, a 44 pt target (Apple's minimum) on its 48 pt row.
             Image(systemName: "plus")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(Palette.primary)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Palette.card))
-                .overlay(Circle().stroke(Palette.separator, lineWidth: 0.5))
+                .font(.system(size: 19, weight: .regular))
+                .foregroundColor(Palette.secondary)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
-                .padding(-5)
         }
         .accessibilityLabel("Add a photo or file")
         .accessibilityHint(atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "")
+        .padding(.leading, 4)
         .padding(.bottom, 2)
     }
 
@@ -1075,46 +1223,41 @@ struct ChatView: View {
                 .accessibilityLabel("Message \(shown.name)")
                 .font(.body)
                 .foregroundColor(Palette.primary)
-                .lineLimit(1...5)
-                .padding(.vertical, 9)
-                .padding(.leading, 14)
+                .lineLimit(1...6)
+                // kosmos#7346: the return key reads Send, and a lone new line typed into the box sends (typedReturn).
+                .submitLabel(.send)
+                // With no arrow on screen, VoiceOver gets Send as an action on the box itself.
+                .accessibilityAction(named: "Send") { sendOrSayWhy() }
+                .padding(.vertical, 13)
+                .padding(.leading, 2)
             ComposerEmojiButton(open: emojiOpen) {
                 if emojiOpen { emojiOpen = false; composerFocused = true } else { emojiOpen = true; composerFocused = false }
             }
             ComposerMicButton(dictation: dictation) {
                 dictation.toggle(base: draftText, current: { draftText }) { draftText = $0 }
             }
-            .padding(.trailing, 2)
+            .padding(.trailing, 4)
         }
-            .background(Palette.card)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
     }
 
-    private var sendButton: some View {
-        Button(action: send) {
-            Image(systemName: "arrow.up")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(Palette.sendGlyph)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Palette.sendFill))
-                .opacity(canSend ? 1 : 0.35)
-                // A 44 pt place to tap (Apple's minimum) around the 34 pt circle, laid out as the circle alone.
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-                .padding(-5)
+    // kosmos#7346 review: with no arrow to grey out, a Send that cannot go says why (the note line announces itself
+    // to VoiceOver) until the box changes.
+    private func sendOrSayWhy() {
+        if canSend { send(); return }
+        if let why = sendBlocked {
+            composerNote = why
+            blocked = (draftText, why)
         }
-        .disabled(!canSend)
-        .accessibilityLabel("Send")
-        .accessibilityHint(dictation.finishing ? "Waiting for the last words" : dictation.busy ? "Stop dictating first" : "")   // kosmos#7268 review 5: why it waits
-        .padding(.bottom, 2)
     }
 
     // Words, or files with no words (their names go as the words). Not with files while another is still on its way
     // (the message would go without it); words alone go, as on the board.
-    private var canSend: Bool {
-        // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then send.
-        !dictation.busy && Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && (attachedHere.isEmpty || uploadingHere == 0)
+    // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then send. Read from the same
+    // rule that says why (dmSendBlocked), so a Send that cannot go always has a reason to show.
+    private var canSend: Bool { Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && sendBlocked == nil }
+    private var sendBlocked: String? {
+        Board.dmSendBlocked(said: Board.sendWords(draftText, files: attachedHere), files: attachedHere.count,
+                            uploading: uploadingHere, dictating: dictation.busy, finishing: dictation.finishing)
     }
 
     // The bubble appears at once (60% while it sends) and the field clears (spec, "while it sends").
@@ -1131,6 +1274,7 @@ struct ChatView: View {
         let files = attachedHere
         let answering = replying
         draftText = ""
+        lastSent = (text, Date())
         replying = nil
         client.drafts[agent.session] = nil
         Task {
@@ -1140,6 +1284,9 @@ struct ChatView: View {
                 // Once the Mac records it, a message that does not match the search drops out of sight (the board's too).
                 if searching { sentWhileSearching = true }
             } else {
+                // kosmos#7348: a failed send puts its words back on purpose. Only this send's guard goes: a later send's
+                // stays (review).
+                if lastSent?.text == text { lastSent = nil }
                 if draftText.isEmpty { draftText = text; if replying == nil { replying = answering } }
                 if uploadingHere > 0 { composerNote = Board.stillAddingLine }
             }
@@ -1272,7 +1419,19 @@ struct ChatView: View {
         case .thread(let fresh):
             // The hidden headers in the same pass as the rows, so a pending reply's swap to its kept row never draws one
             // frame with the old set (onChange alone runs after that body).
-            if fresh != thread { thread = fresh; recomputeHiddenHeads() }
+            // kosmos#7265 (Josh 10-27): rows this read slid out of the latest window stay, so nothing above the reader
+            // vanishes and the conversation does not jump (carryDropped).
+            if fresh != thread {
+                // kosmos#7265 (Josh 10-27): whether the reader is at the newest message is read BEFORE the new rows land:
+                // a message appended under the end marker pushes it off screen, and its onDisappear cleared atBottom before
+                // follow() ran, so a reader at the bottom was left behind with "New messages" (measured on the simulator).
+                // Until the open has settled (the end not yet shown) the reader is still being taken there.
+                let pinned = !Self.sampleNoKeep && (atBottom || !endSeen) && !searching
+                if !Self.sampleNoKeep { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh) }   // NOKEEP: the control
+                thread = fresh; recomputeHiddenHeads()
+                if pinned { keepAtEndTick += 1 }
+                Self.trace("read \(mine): rows \(fresh.rows.count) older \(fresh.olderCount) pinned \(pinned) atBottom \(atBottom) endSeen \(endSeen) settled \(settledAtEnd) earlierOpen \(earlier.open) earlierRows \(earlier.rows.count) loading \(earlier.loading) filling \(earlier.filling)")
+            }
             fillGap(fresh)
             // A moved reset leaves the top in view with nothing loading: the next read asks again.
             loadEarlier()
@@ -1629,8 +1788,9 @@ struct BubbleText: View {
             .font(.body)
             .foregroundColor(Palette.primary.opacity(faded ? 0.6 : 1))
             .tint(Palette.link)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
+            // kosmos#7347 (Josh 10-27, Mona Lisa): 10 pt by 14 pt around the words, the Mac board's proportion.
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
             .background(
                 // Two shapes, each filled on its own: one path holding both would cut a hole where they overlap.
                 ZStack {
@@ -1713,8 +1873,6 @@ extension Palette {
     // The board's own chat colours (Mona Lisa's slice 3a spec: Josh 2026-09-25 and #3340 for night mode).
     static let personBubble = pair(0xe8ebf5, 0x1b1f65)
     static let agentBubble = pair(0xfbf4e4, 0x252529)
-    static let sendFill = pair(0xe3b341, 0xe3b341)
-    static let sendGlyph = pair(0x14161a, 0x14161a)
     static let link = pair(0x2457c5, 0x9db8ff)
     static let pillStroke = pair(0xe3e1dc, 0x000000, lightAlpha: 1, darkAlpha: 0)
 }
@@ -1724,7 +1882,44 @@ extension ChatView {
     // both arms.
     #if DEBUG
     static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
+    // kosmos#7265 (10-27): KOSMOS_SAMPLE_NOKEEP=1 turns off only carryDropped and the kept eager start, the control for them.
+    static let sampleNoKeep = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOKEEP"] == "1"
     #else
     static let sampleNoFix = false
+    static let sampleNoKeep = false
     #endif
+}
+
+// kosmos#7265: whether the person is scrolling the chat (iOS 18 scroll phases), and a call when their scroll comes to
+// rest. Before iOS 18 nothing is reported and the chat reads the end marker as before.
+struct PersonScroll: ViewModifier {
+    @Binding var scrolling: Bool
+    let rested: () -> Void
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollPhaseChange { _, phase in
+                let now = phase == .interacting || phase == .decelerating || phase == .tracking
+                // Every scroll that comes to rest re-reads where the reader is (review: a status-bar tap scrolls in the
+                // animating phase, which is not counted as the person's, and would otherwise leave atBottom true).
+                if now { scrolling = true } else if phase == .idle { scrolling = false; rested() }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+// kosmos#7265: rows as scroll targets, and the list anchored on one message id (iOS 17+, ChatView.idAnchor).
+struct PositionTargets: ViewModifier {
+    let on: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *), on { content.scrollTargetLayout() } else { content }
+    }
+}
+struct PositionById: ViewModifier {
+    let on: Bool
+    @Binding var id: String?
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *), on { content.scrollPosition(id: $id, anchor: .bottom) } else { content }
+    }
 }

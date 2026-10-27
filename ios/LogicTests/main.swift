@@ -1094,6 +1094,68 @@ do {
 section("native chat: what follows a new message down")
 do {
     func r(_ id: String, _ at: String?) -> Board.ChatRow { Board.ChatRow(id: id, atRaw: at, at: Board.isoDate(at), text: id, who: .agent) }
+    // kosmos#7265 (Josh 10-27): an open chat keeps the rows a read slides out of the latest window (carryDropped), and its
+    // eager stack starts where it started at opening (eagerStart), so nothing above the reader moves.
+    do {
+        func rows(_ ids: ClosedRange<Int>) -> [Board.ChatRow] { ids.map { r("m\($0)", nil) } }
+        let before = Board.Thread(rows: rows(10...14), olderCount: 10)   // m10..m14 at positions 10..14
+        let slid = Board.Thread(rows: rows(12...16), olderCount: 12)     // two new messages pushed m10, m11 out
+        let kept = Board.carryDropped(Board.Earlier(), previous: before, fresh: slid)
+        check(kept.open && kept.rows.map(\.id) == ["m10", "m11"] && kept.before == 10 && kept.end == 12,
+              "kosmos#7265: rows a read slid out are kept above the window (\(kept.rows.map(\.id)), \(kept.before)..<\(kept.end))")
+        check(Board.shownRows(kept, thread: slid).map(\.id) == (10...16).map { "m\($0)" }, "and the chat still shows every row it showed, in order")
+        check(!Board.hasGap(end: kept.end, olderCount: slid.olderCount), "with no gap left for a page to fetch")
+        // Open already (a page loaded up to the window): only the new part is added, never a duplicate.
+        var open = Board.Earlier(); open.open = true; open.rows = rows(5...9); open.before = 5; open.end = 10
+        let more = Board.carryDropped(open, previous: before, fresh: slid)
+        check(more.rows.map(\.id) == (5...11).map { "m\($0)" } && more.end == 12, "an open chat appends only what left: \(more.rows.map(\.id))")
+        // CONTROLS: reads that do not overlap by id, a window that did not slide, and a page in flight change nothing.
+        let other = Board.Thread(rows: [r("x1", nil), r("x2", nil)], olderCount: 12)
+        check(Board.carryDropped(Board.Earlier(), previous: before, fresh: other) == Board.Earlier(), "CONTROL: reads that do not overlap carry nothing")
+        check(Board.carryDropped(Board.Earlier(), previous: before, fresh: before) == Board.Earlier(), "CONTROL: an unchanged window carries nothing")
+        var loading = Board.Earlier(); loading.loading = true
+        check(Board.carryDropped(loading, previous: before, fresh: slid) == loading, "CONTROL: nothing is carried while a page is loading")
+        check(Board.carryDropped(Board.Earlier(), previous: nil, fresh: slid) == Board.Earlier(), "CONTROL: nothing before the first read")
+        // The eager stack keeps its first row as messages arrive: no row moves back to the lazy rows above the reader.
+        let items = Board.chatItems(rows(1...50), now: Date(), calendar: .current)
+        let from = items[Board.eagerStart(items, from: nil, eager: 40)].id
+        let grown = Board.chatItems(rows(1...53), now: Date(), calendar: .current)
+        check(grown[Board.eagerStart(grown, from: from, eager: 40)].id == from, "kosmos#7265: new messages leave the eager stack's first row where it was")
+        check(grown[Board.eagerStart(grown, from: nil, eager: 40)].id != from, "CONTROL: without the kept start the boundary moves with each new message")
+        check(Board.eagerStart(grown, from: "gone", eager: 40) == grown.count - 40, "a start no longer shown falls back to the last 40")
+    }
+    // kosmos#7346 review: with no send arrow, a Send that cannot go says why; nothing to send says nothing.
+    do {
+        let long = String(repeating: "word ", count: 2500)
+        check(Board.dmSendBlocked(said: long, files: 0, uploading: 0, dictating: false, finishing: false) == Board.tooLongLine, "kosmos#7346: a message over the board's limit says it is too long")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 0, dictating: false, finishing: false) == nil, "CONTROL: a message that can go has no reason")
+        check(Board.dmSendBlocked(said: "  ", files: 0, uploading: 0, dictating: false, finishing: false) == nil, "an empty box says nothing")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 0, dictating: true, finishing: false) == Board.sendStopDictating, "dictating says stop first")
+        check(Board.dmSendBlocked(said: "a.png", files: 1, uploading: 1, dictating: false, finishing: false) == Board.stillAddingLine, "a file on its way says so")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 1, dictating: false, finishing: false) == nil, "CONTROL: words alone go while another upload runs (no file of theirs waits)")
+        check(Board.roomPostBlocked(words: "@ann ", mentionOnly: true, read: true, files: 0, uploading: 0, dictating: false, finishing: false) == Board.roomOnlyMentionLine, "a room post of only the @name asks for words")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: false, files: 0, uploading: 0, dictating: false, finishing: false) == Board.roomNotReadLine, "a room not read yet says it is loading")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: Board.maxFiles + 1, uploading: 0, dictating: false, finishing: false) != nil, "too many files says so")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: 1, uploading: 0, dictating: false, finishing: false) == nil, "CONTROL: a room post that can go has no reason")
+        check(Board.roomPostBlocked(words: "", mentionOnly: false, read: false, files: 0, uploading: 0, dictating: false, finishing: false) == nil, "an empty room box says nothing")
+        check(Board.dmSendBlocked(said: long, files: 1, uploading: 1, dictating: true, finishing: true) == Board.sendWaitWords, "the last words landing comes first, before every other reason")
+        check(Board.roomPostBlocked(words: "hi", mentionOnly: true, read: false, files: 1, uploading: 1, dictating: true, finishing: true) == Board.sendWaitWords, "and in a room")
+        check(Board.roomPostBlocked(words: "hi", mentionOnly: true, read: false, files: 1, uploading: 1, dictating: true, finishing: false) == Board.sendStopDictating, "then dictating")
+    }
+    // kosmos#7348 (Josh 10-27): the sent text filling back into the box just after a send is caught; anything else is not.
+    do {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let sent = "Let's add a little margin inside the bubbles"
+        check(Board.refilledWithSent(sent, was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348: the sent text back in the box a second later is caught")
+        check(Board.refilledWithSent(sent + " ", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(4)), "and with a trailing space, as dictation leaves it")
+        check(!Board.refilledWithSent(sent, was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(6)), "CONTROL: after the window it is the person typing it again")
+        check(!Board.refilledWithSent("Let's add a little", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: different words are the person's")
+        check(!Board.refilledWithSent("", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: an empty box is not a refill")
+        check(!Board.refilledWithSent(sent, was: "", sent: nil, sentAt: nil, now: t0), "CONTROL: nothing sent, nothing to catch")
+        // Review: typing a longer word that begins with the sent text passes through it one letter at a time.
+        check(!Board.refilledWithSent("ok", was: "o", sent: "ok", sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348 review: typing through the sent text is not a refill")
+        check(Board.refilledWithSent("ok", was: "", sent: "ok", sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: the same text from an empty box in one change is")
+    }
     let before = Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)
     let shifted = Board.Thread(rows: [r("b", "T2"), r("c", "T3")], olderCount: 6)
     check(Board.followKey(before) != Board.followKey(shifted), "at the Mac's 200-row cap the count stays the same, and the key still moves")
@@ -3629,6 +3691,41 @@ do {
         check(body["email"] as? String == "Ada@Example.com" && body["code"] as? String == "123456", "the email and code go as signed")
     } else { check(false, "the verify body is built") }
     check(SignIn.startBody(email: "a@b.co", deviceID: key.id, deviceName: "n").count == 3, "start sends the email, the id and the name only")
+}
+
+section("sign-in: the App Store review door (kosmos#7357)")
+do {
+    check(SignIn.reviewDoorOpen(status: 405) == true, "open: the door takes POST only, so a GET answers 405 (kosmos-relay review.rs)")
+    check(SignIn.reviewDoorOpen(status: 404) == false, "closed: it answers like a path that does not exist")
+    check(SignIn.reviewDoorOpen(status: 200) == nil && SignIn.reviewDoorOpen(status: 429) == nil && SignIn.reviewDoorOpen(status: 503) == nil,
+          "CONTROL: any other answer is not read as open (no password sign-in on a guess)")
+    let body = SignIn.reviewBody(email: "review@example.com", password: "p", deviceName: "iPhone")
+    check(body.count == 3 && body["email"] as? String == "review@example.com" && body["password"] as? String == "p"
+          && body["device_name"] as? String == "iPhone", "the review sign-in sends the email, the password and the name only")
+    check(body["device_id"] == nil, "and no device id: the server makes its own review device")
+    check(SignIn.reviewPath == "/v1/signin/review", "the door's path")
+    // Its answer is verify's: a session that waits for the computer's Allow, and the server's device id is ignored.
+    let admitted = SignIn.answer(status: 200, json: ["token": "t", "device_status": "pending", "match_code": "K7Q2",
+                                                     "addresses": ["a"], "device_id": "review-1"] as [String: Any])
+    check(admitted == .signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "K7Q2", hasComputer: true)),
+          "an admitted review sign-in waits for the review computer's Allow, as any sign-in does")
+    // Review 1: a refusal stays on the password step (never the code step: no code was sent), a 404 is the door closed.
+    // The server's real bodies (kosmos-relay review.rs REFUSED, ratelimit::code_sends_refused).
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"]) == .refused("That email and password do not match."),
+          "a wrong password stays on the password step, in Kosmos+'s words as a sentence")
+    check(SignIn.reviewAnswer(status: 429, json: ["error": "too many codes asked for from this network; wait a moment and try again", "retry_after_secs": 20] as [String: Any]) == .refused(SignIn.reviewTooMany),
+          "review 3: the door's rate limit says wait, never the code limiter's words about codes")
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "this account is being deleted"]) == .refused("This account is being deleted."),
+          "CONTROL: a 401 that is not about the password keeps its own sentence")
+    check(SignIn.sentence("Done already.") == "Done already." && SignIn.sentence("") == "", "a sentence that already ends is left as it is")
+    check(SignIn.reviewAnswer(status: 403, json: ["error": "this account signs in through its company"]) == .refused("This account signs in through its company."),
+          "and so does any other refusal")
+    check(SignIn.reviewAnswer(status: 503, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer) && SignIn.reviewAnswer(status: 400, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer),
+          "and a server error or a bad request says try again")
+    check(SignIn.reviewAnswer(status: 401, json: [:] as [String: Any]) == .refused(SignIn.reviewRefused), "with no sentence from Kosmos+, the phone's own")
+    check(SignIn.reviewAnswer(status: 404, json: nil) == .closed, "a 404 is the door closed since the link showed")
+    check(SignIn.reviewAnswer(status: 200, json: ["token": "t", "device_status": "pending"] as [String: Any]) == .answered(.signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: nil, hasComputer: false))),
+          "an admitted sign-in goes on to the Allow")
 }
 
 section("sign-in: what was typed")

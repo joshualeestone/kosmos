@@ -643,6 +643,33 @@ enum Board {
         return !said.isEmpty && said.utf16.count <= maxMessage
     }
 
+    // kosmos#7346 review: with no send arrow to grey out, a Send key that cannot send says why. Nil when nothing stops
+    // it, or when there is nothing to send (an empty box says nothing). `said` is sendWords: the words, or the files' names.
+    static let tooLongLine = "This message is too long to send. Shorten it or send it in two."
+    static let sendWaitWords = "Waiting for the last words."
+    static let sendStopDictating = "Stop dictating first."
+    static func dmSendBlocked(said: String, files: Int, uploading: Int, dictating: Bool, finishing: Bool) -> String? {
+        guard !sameWords(said).isEmpty else { return nil }
+        if finishing { return sendWaitWords }
+        if dictating { return sendStopDictating }
+        if files > 0 && uploading > 0 { return stillAddingLine }
+        if !fitsBoard(said) { return tooLongLine }
+        return nil
+    }
+    static let roomNotReadLine = "The room is still loading. Try again in a moment."
+    static let roomOnlyMentionLine = "Add your words after the @name."
+    static func roomPostBlocked(words: String, mentionOnly: Bool, read: Bool, files: Int, uploading: Int,
+                                dictating: Bool, finishing: Bool) -> String? {
+        guard !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if finishing { return sendWaitWords }
+        if dictating { return sendStopDictating }
+        if files > 0 && uploading > 0 { return stillAddingLine }
+        if !read { return roomNotReadLine }
+        if mentionOnly { return roomOnlyMentionLine }
+        if files > maxFiles { return uploadRefusal(size: nil, waiting: maxFiles) }
+        return nil
+    }
+
     // A message's words with every run of whitespace one space and the ends trimmed: how the board compares and counts
     // (cleanMessage), and how a sent message is matched to the row the Mac kept (which keeps line breaks but tidies them).
     static func sameWords(_ s: String) -> String {
@@ -1684,6 +1711,52 @@ enum Board {
 
     // What the chat draws: the earlier rows, then the latest read's.
     static func shownRows(_ e: Earlier, thread: Thread) -> [ChatRow] { e.open ? e.rows + thread.rows : thread.rows }
+
+    // kosmos#7265 (Josh 10-27): a read that slid the latest window (a new message pushes the oldest out) took those rows
+    // off the top of an open chat, and a scroll view keeps its offset, so the conversation the person was reading jumped.
+    // The rows that left are kept in the loaded earlier rows from the previous read itself: only when the two reads
+    // overlap by id (the fresh window's first row is the previous one's row at the same position), and not while a page
+    // or a gap fill is in flight (they write the same rows). Otherwise unchanged, and fillGap fetches them as before.
+    static func carryDropped(_ e: Earlier, previous: Thread?, fresh: Thread) -> Earlier {
+        guard let previous, !e.loading, !e.filling else { return e }
+        let shift = fresh.olderCount - previous.olderCount
+        guard shift > 0, shift < previous.rows.count, let first = fresh.rows.first, previous.rows[shift].id == first.id else { return e }
+        let dropped = Array(previous.rows[..<shift])   // positions previous.olderCount ..< fresh.olderCount
+        var next = e
+        if !e.open {
+            next.open = true
+            next.rows = dropped
+            next.before = previous.olderCount
+            next.end = fresh.olderCount
+            return next
+        }
+        // Open: only what lies at or after the loaded rows' end, and only when they reach the previous window.
+        guard e.end >= previous.olderCount, e.end < fresh.olderCount else { return e }
+        let known = Set(e.rows.map(\.id))
+        next.rows = e.rows + dropped[(e.end - previous.olderCount)...].filter { !known.contains($0.id) }
+        next.end = fresh.olderCount
+        return next
+    }
+
+    // kosmos#7348 (Josh 10-27): the box filled back with exactly the text just sent, within a few seconds of the send (the
+    // keyboard's dictation or Writing Tools finishing after the box was cleared): one more tap would post it twice.
+    static let sentRefillWindow: TimeInterval = 5
+    // Only a jump from an empty box straight to the whole text (review: typing "okay" after sending "ok" passes through
+    // "ok" one letter at a time and must not be wiped).
+    static func refilledWithSent(_ box: String, was: String, sent: String?, sentAt: Date?, now: Date) -> Bool {
+        guard was.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard let sent, let sentAt, now.timeIntervalSince(sentAt) <= sentRefillWindow else { return false }
+        let b = box.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !b.isEmpty && b == sent.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // kosmos#7265: where the eager newest rows begin, kept by the row's id from the chat's opening, so a new message
+    // never moves a row from the eager stack back to the lazy rows above the reader (its height would be estimated
+    // again and the conversation jump). `from` nil, or a row no longer shown: the last `eager` rows, as at opening.
+    static func eagerStart(_ items: [ChatItem], from: String?, eager: Int) -> Int {
+        if let from, let at = items.firstIndex(where: { $0.id == from }) { return at }
+        return max(0, items.count - eager)
+    }
 
     // A read of the conversation: the conversation, the Mac's own reason it could not give one (a name it refuses, a
     // history it could not read), or no answer at all.

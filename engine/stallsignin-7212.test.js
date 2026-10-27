@@ -336,3 +336,13 @@ test('review 8: one folder is one account however its path is spelled', async ()
   stallsignin.heard({ dir: '/x/.claude-b/', isDefault: false }, STATE.CONNECTED, T0 + 2);
   assert.equal(stallsignin.overlay(card(), T0 + 3).deliveryStall.signedOut, undefined, 'a trailing slash missed the account');
 });
+
+test('merge with #7368: a stall on one endless step keeps its own words, even on a signed-out account', async () => {
+  counting(STATE.NONE);
+  stallsignin.overlay(card(), T0); await settle();
+  assert.equal(stallsignin.overlay(card(), T0 + 1).deliveryStall.signedOut, true, 'control: this account reads signed out');
+  const turn = card({ deliveryStall: { ...STALL, lastWhy: 'turn', words: ds.WHY_WORDS.turn, next: ds.NEXT_WORDS.turn } });
+  const out = stallsignin.overlay(turn, T0 + 2);
+  assert.equal(out.deliveryStall.words, ds.WHY_WORDS.turn, 'a stuck step was relabelled a sign-out');
+  assert.equal(out.deliveryStall.signedOut, undefined);
+});

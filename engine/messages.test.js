@@ -2778,6 +2778,61 @@ test('#185: the nudge fires once per message, is recorded, and never repeats', (
   });
 });
 
+test('#7367: with the projects file damaged the unanswered sweep nudges nobody; repaired, it nudges as before', () => {
+  const projects = require('./projects');
+  const pid = projects.create({ name: 'Sweep Damage Room' }).id;
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    const tmux = arm([]);
+    messages.setUnansweredAfterForTests(0);
+    const f = projects.file();
+    const good = fs.readFileSync(f);
+    try {
+      const sent = messages.sendPost({ operator: true, project: pid, projectName: 'Sweep Damage Room', text: '@mara are we set?' }, board.agents, MEMBERS);
+      assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+      fs.writeFileSync(f, Buffer.alloc(good.length + 7, 0));
+      let damaged;
+      try {
+        assert.equal(messages.record().stampsUnknown, true, 'CONTROL: the stamps are unknown');
+        damaged = messages.sweepUnanswered(board.agents);
+      } finally {
+        fs.writeFileSync(f, good);
+      }
+      assert.deepEqual(damaged.nudged, [], 'damaged: nobody nudged');
+      assert.equal(messages.record().rows.filter((m) => m.kind === 'nudge').length, 0, 'damaged: no nudge row written');
+      assert.equal(tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('has not seen an answer')).length, 0, 'damaged: nothing typed');
+      const repaired = messages.sweepUnanswered(board.agents);
+      assert.deepEqual(repaired.nudged.map((n) => n.to), ['mara'], 'CONTROL: repaired, the same ask is nudged, so the sweep would have acted');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+    }
+  });
+});
+
+test('#7367: unanswered() itself answers nothing while the stamps are unknown (the sweep\'s second read)', () => {
+  const projects = require('./projects');
+  const pid = projects.create({ name: 'Unanswered Damage Room' }).id;
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    arm([]);
+    messages.setUnansweredAfterForTests(0);
+    const f = projects.file();
+    const good = fs.readFileSync(f);
+    try {
+      const sent = messages.sendPost({ operator: true, project: pid, projectName: 'Unanswered Damage Room', text: '@mara still there?' }, board.agents, MEMBERS);
+      assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+      const much = Date.now() + 60 * 60 * 1000;
+      assert.ok(Object.keys(messages.unanswered(pid, much)).length > 0, 'CONTROL: with a good file the ask is unanswered');
+      fs.writeFileSync(f, Buffer.alloc(good.length + 7, 0));
+      let damaged;
+      try { damaged = messages.unanswered(pid, much); } finally { fs.writeFileSync(f, good); }
+      assert.deepEqual(damaged, {}, 'damaged: nothing unanswered');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+    }
+  });
+});
+
 // #2442: the room-nudge sweep is a pane write into agents (#185), so it must also
 // respect removal. A removed agent gets no room traffic, not even a nudge for an
 // ask that predates its removal.
@@ -3090,52 +3145,65 @@ test('#3564: the room valve charges only the members a post is sent to: an Off s
   } finally { projects.setSwarmOn(pid, 'april', true); }
 });
 
-test('#7185: with the projects file unreadable a room post is refused as could-not-read, never posted on an empty room', () => {
-  const projects = require('./projects');
-  const made = projects.create({ name: 'Unreadable Post Room' });
-  const pid = made.id || (made.project && made.project.id);
-  withFleet(room3(), (board) => {
-    armSender('mara-discord'); arm([]);
-    assert.ok(messages.roomNote(pid, 'a line, so the room has a log'), 'CONTROL: the room has a log to read');
+/* #7367: how a crash leaves the projects file. The NUL file is a few bytes longer than the good one, so its stat
+   differs from the good file's even on a filesystem with a coarse clock (projectborn keys its reading on the stat). */
+const DAMAGED_PROJECTS = [
+  ['all NUL', (good) => Buffer.alloc(good.length + 7, 0)],
+  ['truncated', (good) => good.subarray(0, Math.floor(good.length / 2))],
+];
+
+for (const [kind, damage] of DAMAGED_PROJECTS) {
+  test(`#7367: with the projects file ${kind}, a room post is delivered and the room reads whole (fails open)`, () => {
+    const projects = require('./projects');
+    const pid = projects.create({ name: 'Damaged Post Room ' + kind }).id;
+    withFleet(room3(), (board) => {
+      assert.ok(messages.roomNote(pid, 'an earlier line'), 'the room has a line to read');
+      armSender('mara-discord'); arm([ok(), ok()]);
+      const before = messages.sendPost({ fromPane: '%7', project: pid, text: 'with a good file' }, board.agents, MEMBERS);
+      assert.equal(before.state, chat.DELIVERY.PLACED, 'CONTROL: with a good file the post is delivered: ' + (before.because || ''));
+      const f = projects.file();
+      const good = fs.readFileSync(f);
+      fs.writeFileSync(f, damage(good));
+      let r, texts;
+      try {
+        assert.throws(() => projects.readAll(), /cannot make sense/, 'CONTROL: the projects file really is unparseable, so the Projects page says so');
+        assert.equal(messages.record().stampsUnknown, true, 'CONTROL: the stamps are unknown');
+        assert.equal(messages.record().ok, true, 'the record still reads: a damaged projects file is not an unreadable log');
+        armSender('mara-discord'); arm([ok(), ok()]);
+        r = messages.sendPost({ fromPane: '%7', project: pid, text: 'with a damaged file' }, board.agents, MEMBERS);
+        texts = messages.record().rows.filter((m) => m && m.project === pid).map((m) => m.text);
+      } finally {
+        fs.writeFileSync(f, good);
+      }
+      assert.equal(r.state, chat.DELIVERY.PLACED, 'delivered, as with a good file: ' + (r.because || ''));
+      assert.deepEqual(texts, ['an earlier line', 'with a good file', 'with a damaged file'], 'every row of the room reads');
+    });
+  });
+
+  test(`#7367: with the projects file ${kind}, a reaction and a freed claim answer as with a good file`, () => {
+    const projects = require('./projects');
+    const pid = projects.create({ name: 'Damaged React Room ' + kind }).id;
+    const id = 'm7367' + (kind === 'all NUL' ? '1' : '2');
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id, project: pid, from: 'mara', to: ['leo'], text: 'a real post', at: new Date().toISOString(), outcomes: {} }) + '\n');
+    const goodReact = messages.react({ project: pid, of: id, emoji: '\u{1F44D}', operator: true, members: ['mara', 'leo'] });
+    const goodFree = messages.freeClaim({ project: pid, of: id, by: 'leo', members: ['mara', 'leo'] });
+    assert.equal(goodReact.ok, true, 'CONTROL: with a good file the reaction lands: ' + goodReact.because);
     const f = projects.file();
     const good = fs.readFileSync(f);
-    fs.writeFileSync(f, good.toString('utf8') + ' not json');
-    let r;
+    fs.writeFileSync(f, damage(good));
+    let reacted, freed;
     try {
-      assert.throws(() => projects.readAll(), /cannot make sense/, 'CONTROL: the projects file really is unreadable');
-      assert.equal(messages.record().ok, false, 'CONTROL: the record says it could not be read');
-      r = messages.sendPost({ fromPane: '%7', project: pid, text: 'while unreadable' }, board.agents, MEMBERS);
+      assert.equal(messages.record().stampsUnknown, true, 'CONTROL: the stamps are unknown');
+      reacted = messages.react({ project: pid, of: id, emoji: '\u{1F525}', operator: true, members: ['mara', 'leo'] });
+      freed = messages.freeClaim({ project: pid, of: id, by: 'leo', members: ['mara', 'leo'] });
     } finally {
       fs.writeFileSync(f, good);
     }
-    assert.equal(r.state, chat.DELIVERY.COULD_NOT, 'refused');
-    assert.match(r.because || '', /could not read this room/, 'and says why: ' + (r.because || ''));
-    assert.ok(!messages.record().rows.some((m) => m && m.kind === 'post' && m.text === 'while unreadable'), 'nothing was posted');
+    assert.equal(reacted.ok, true, 'the reaction lands: ' + reacted.because);
+    assert.deepEqual(freed, goodFree, 'a freed claim answers as it does with a good file');
   });
-});
-
-test('#7185: with the projects file unreadable a reaction and a freed claim say could-not-read, not "no such post"', () => {
-  const projects = require('./projects');
-  const pid = projects.create({ name: 'Unreadable React Room' }).id;
-  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
-  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm718599', project: pid, from: 'mara', to: ['leo'], text: 'a real post', at: new Date().toISOString(), outcomes: {} }) + '\n');
-  assert.ok(messages.record().rows.some((m) => m && m.id === 'm718599'), 'CONTROL: the post is in the room');
-  const f = projects.file();
-  const good = fs.readFileSync(f);
-  fs.writeFileSync(f, good.toString('utf8') + ' not json');
-  let reacted, freed;
-  try {
-    assert.equal(messages.record().stampsUnknown, true, 'CONTROL: the stamps are unknown');
-    reacted = messages.react({ project: pid, of: 'm718599', emoji: '\u{1F44D}', operator: true, members: ['mara', 'leo'] });
-    freed = messages.freeClaim({ project: pid, of: 'm718599', by: 'leo', members: ['mara', 'leo'] });
-  } finally {
-    fs.writeFileSync(f, good);
-  }
-  assert.equal(reacted.ok, false);
-  assert.match(reacted.because, /could not read this room/, 'react: ' + reacted.because);
-  assert.equal(freed.ok, false);
-  assert.match(freed.because, /could not read this room/, 'freeClaim: ' + freed.because);
-});
+}
 
 test('#3564: a swarm switched OFF in a project is not woken by the room, unless the post @-names it', () => {
   const projects = require('./projects');

@@ -14,6 +14,50 @@ enum SignIn {
     static let verifyPath = "/v1/signin/verify"
     static let secondPath = "/v1/signin/second"
     static let mePath = "/v1/account/me"
+
+    // kosmos#7357: the App Store review door (kosmos-relay review.rs). ONE review account signs in with a password and
+    // no second step; its session still waits for the review computer's Allow, like any sign-in. The door is closed
+    // unless Kosmos+ is configured for a review window, and closed it answers like a path that does not exist (404);
+    // open, it takes POST only, so a GET answers 405. Its answer is verify's, plus the server's own device id, which
+    // the phone does not need (the session is the token).
+    static let reviewPath = "/v1/signin/review"
+    static func reviewBody(email: String, password: String, deviceName: String) -> [String: Any] {
+        ["email": email, "password": password, "device_name": deviceName]
+    }
+    /// What a review sign-in's answer means for the screen. A refusal stays on the password step with its sentence (it
+    /// is never a code step: no code was sent), and a 404 means the door closed since the link showed.
+    enum ReviewAnswer: Equatable { case closed, refused(String), answered(Answer) }
+    static let reviewRefused = "That email and password do not match."
+    static let reviewTooMany = "Too many tries. Wait a minute, then try again."
+    static let reviewNoAnswer = "Kosmos+ could not answer. Try again."
+    static let reviewClosed = "Password sign-in is not open now. Sign in with a code instead."
+    static func reviewAnswer(status: Int, json: Any?) -> ReviewAnswer {
+        if status == 404 { return .closed }
+        let answer = answer(status: status, json: json)
+        if case .refused(let message, _) = answer {
+            // A 429 gets this screen's own sentence: the door's 429 is the code-send limiter's, whose words are about
+            // codes this person never asked for. Any other refusal (a wrong password, an account being deleted, a
+            // company sign-in required) is Kosmos+'s own sentence; with none, only a 401 says the password is wrong.
+            if status == 429 { return .refused(reviewTooMany) }
+            if let message { return .refused(sentence(message)) }
+            return .refused(status == 401 ? reviewRefused : reviewNoAnswer)
+        }
+        return .answered(answer)
+    }
+    /// Kosmos+'s words as a sentence on this screen (App Review reads it): a capital first letter and a closing stop.
+    static func sentence(_ s: String) -> String {
+        guard let first = s.first else { return s }
+        let capital = first.uppercased() + s.dropFirst()
+        return ".!?".contains(capital.last!) ? capital : capital + "."
+    }
+    /// Whether the review door is open, from a GET's status: nil when the answer says neither (asked again later).
+    static func reviewDoorOpen(status: Int) -> Bool? {
+        switch status {
+        case 405: return true
+        case 404: return false
+        default: return nil
+        }
+    }
     /// Where the sign-in page keeps its session (kosmos-relay signin.html restore(): localStorage only; the page never
     /// sends `x-kosmos-web`, so the server's HttpOnly cookie, websession.rs, is not what it reads).
     static let pageSessionKey = "kosmos_session"
@@ -345,6 +389,8 @@ enum SignIn {
     enum Step: Equatable {
         case email
         case code(email: String)
+        /// kosmos#7357: the review account's email and password, offered only while the review door is open.
+        case password
         case second(email: String, kind: String, challenge: String, sentTo: String?)
         /// Signed in; the Mac has not answered the Allow yet (or has no computer to answer it).
         case allow(matchCode: String?, hasComputer: Bool)

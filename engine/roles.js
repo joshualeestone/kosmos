@@ -315,7 +315,10 @@ const ROLES = [
       'key or token in it first. The value is never what makes the report useful.',
       '',
       'Check first with `kosmos feedback show`: if today already has a note, leave',
-      'it. It is saved here, on this computer.',
+      /* #7374 review 4: sending is on by default (#2037/#2013), so "saved here" alone told the agent its note stays
+         private; the board's own daily ask says it is sent, and the two must agree. */
+      'it. It is saved here, on this computer, and sent to the Kosmos team',
+      '(scrubbed) unless sending is switched off in Settings, Automation.',
     ].join('\n'),
   },
   /**

@@ -778,9 +778,10 @@ function externalPost(projectId, { from, fromKind, text, member, unverified }) {
    and cuts them), which is never more than fedseats charged live (the raw words
    plus the cut name, and a refused row is charged but never stored). So a
    restart can only give back bytes that were never kept: what is stored stays
-   within the day. null when the log cannot be read, and (#7185) when the projects
-   file cannot be read (the caller then counts from zero for that day, the send
-   path's fail-open trade; its own live count still charges every post after). */
+   within the day. null when the log cannot be read (the caller then counts from
+   zero for that day, the send path's fail-open trade; its own live count still
+   charges every post after). #7367: with the projects file unreadable the count
+   keeps every row, so it can only be higher, which charges more, never less. */
 function externalKeptOn(projectId, day) {
   const r = record();
   if (!r.ok) return null;
@@ -905,7 +906,7 @@ let FILTERED = null;   // #7185: the last filtered rows, for the cache state and
 function record() {
   let st;
   try { st = fs.statSync(LOG); } catch (err) {
-    if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, rows: [], parsed: [] }; }
+    if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, stampsUnknown: false, rows: [], parsed: [] }; }   // #7367: no rows to filter
     return { ok: false, rows: [], parsed: [] };
   }
   let cache = READ_CACHE;
@@ -960,11 +961,9 @@ function record() {
   if (cache.fragment) parseLinesInto(cache.fragment, fragRows, fragParsed);
   /* #7185: a room row stamped before its project's createdAt was written by an earlier project of that name (ids come
      from names). It stays in the log, and in `parsed` so its id stays reserved, but no reader is given it. When the
-     projects file cannot be read the stamps are unknown: every project-tagged row is left out and the answer is ok:
-     false, the "could not read" every careful caller already handles (a misroute guard, an unread count). The rows are
-     then PARTIAL (direct messages, which carry no project, stay: the send path reads them unchecked for its valve and
-     dedupe); a few display-only readers use them unchecked too (reactions and claims on the page, the phone notice) and
-     show nothing for a room then rather than "unknown", which leaks nothing. The filtered
+     projects file cannot be read the stamps are unknown and every row is kept (#7367: fails open, engine/projectborn.js;
+     failing closed hid every room and refused every post, so one damaged file silenced every agent). stampsUnknown says
+     so, for a reader that keeps what it works out; the room itself reads and posts as before #7185. The filtered
      rows are kept until the log or the projects file changes, so a reader called N+1 times per sweep filters once. */
   const born = require('./projectborn').snapshot();
   const key = cache.size + ':' + cache.mtimeMs + ':' + cache.offset + ':' + cache.fragment;
@@ -972,7 +971,7 @@ function record() {
     const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at)));
     FILTERED = { cache, key, stamp: born.stamp, rows };
   }
-  return { ok: born.ok, stampsUnknown: !born.ok, stamp: born.stamp, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
+  return { ok: true, stampsUnknown: !born.ok, stamp: born.stamp, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
 }
 
 /* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms; null when
@@ -1005,8 +1004,7 @@ function lastPostAt(projectId) {
   if (t && (!best || t > best)) best = t;
   /* #7185: the map is kept over the RAW rows (scanned once), so the answer is filtered here: when the newest post is
      older than the project, every post is an earlier project's, and this room has had none. */
-  const born = require('./projectborn').snapshot();
-  if (!born.ok) return undefined;   // the stamps went unknown since record() above: could not read, not "no post"
+  const born = require('./projectborn').snapshot();   // #7367: stamps unknown, earlier() keeps every post
   if (best && born.earlier(String(projectId), new Date(best).toISOString())) best = null;
   return best;
 }
@@ -1119,8 +1117,8 @@ function rowShaped(m) {
 /* The send path keeps the old contract on purpose: an unreadable log
    fails OPEN there (the valve cannot count; ids restart only on a board that has minted none since it started) rather than
    blocking every send on a read error -- a RECORDED trade, revisit when
-   retention lands. #7185 keeps it: a room post, a reaction and a freed claim refuse only when the PROJECTS file
-   cannot be read (record()'s stampsUnknown), because then the room's own rows are hidden, not merely unread. */
+   retention lands. #7367: an unreadable PROJECTS file fails open too (every row is kept, record()'s stampsUnknown),
+   so a room post, a reaction and a freed claim go through on it, as before #7185. */
 function readLog() {
   return record().rows;
 }
@@ -2322,11 +2320,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      at the first quote. */
   /* #4580: the fold runs BEFORE the which-room ask below: a retry of a post that was already delivered must not be
      held back to ask which room it meant, which would read as "not posted". */
-  const rec = record();
-  /* #7185: with the projects file unreadable the room's rows are left out, so the fold, the reply check and the valve
-     below would all read an empty room. Say so rather than post on that. Only for that case (stampsUnknown): an
-     unreadable LOG still fails open here, the recorded trade above readLog. */
-  if (rec.stampsUnknown) return { state: chat.DELIVERY.COULD_NOT, because: 'we could not read this room right now, so nothing was posted; try again in a moment', id: null, at, outcomes: null };
+  const rec = record();   // #7367: with the projects file unreadable every row is kept, so the room reads whole here
   const log = rec.rows;
   /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
      refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
@@ -3276,6 +3270,9 @@ function unanswered(projectId, now) {
   const at = Number.isFinite(now) ? now : Date.now();
   const rec = record();
   if (!rec.ok) return {};
+  /* #7367: with the stamps unknown the rows include a deleted project's asks; the sweep acts on this answer (a nudge
+     and its at-most-once row), and checks its own read too, but the stamps can go unknown between the two reads. */
+  if (rec.stampsUnknown) return {};
   const rows = rec.rows.filter((m) => m && m.project === projectId);
   const out = {};
   for (const p of rows) {
@@ -3333,6 +3330,10 @@ function sweepUnanswered(roster, now) {
      card's own condition was the sweep pinned unchanged. */
   const rec = record();
   if (!rec.ok) return { ok: false, nudged: [] };
+  /* #7367: with the projects file unreadable every row is kept, a deleted project's never-answered asks included, and
+     this sweep ACTS on what it reads (it types a nudge and writes a row). It waits for the stamps instead; the rooms
+     themselves still read and post. */
+  if (rec.stampsUnknown) return { ok: false, nudged: [] };
   /* #2442: the nudge is a pane write into agents, so it must also respect removal
      -- a removed agent gets NO room traffic, not even a nudge for an ask that
      predates its removal. A killed removed agent is already skipped below (no
@@ -3653,9 +3654,7 @@ function freeClaim({ project, of, by, members }) {
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
   if (!postId) return { ok: false, because: 'we could not tell which post to free' };
   if (!shown) return { ok: false, because: 'we could not tell whose claim to free' };
-  const rec = record();
-  if (rec.stampsUnknown) return { ok: false, because: 'we could not read this room right now, so the claim was not changed' };   // #7185
-  const rows = rec.rows;
+  const rows = record().rows;   // #7367: with the projects file unreadable every row is kept
   const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };
   const room = claimMembers(members);
@@ -3833,8 +3832,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
       return { ok: false, because: 'you are not on that project, so this room is not yours to react in' + (members.includes(reactor) ? '' : NOT_ON_PROJECT_FIX) };
     }
   }
-  const rec = record();
-  if (rec.stampsUnknown) return { ok: false, because: 'we could not read this room right now, so the reaction was not changed' };   // #7185
+  const rec = record();   // #7367: with the projects file unreadable every row is kept
   const rows = rec.rows;
   const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };

@@ -131,3 +131,9 @@ checked and the card says what slice 2 says, which is the safe direction.
   Kosmos shows at the next check, a fresh good request, or when AI Models is opened.
 - MINOR stated (again, see round 7): the join re-reads job files on each poll while a card is stuck. A short cache
   would let the card lag the badge; it costs file reads, never a live check.
+
+## Merge with main (58 commits, 17:3x)
+- Three conflicts, all additive: deliverystreak.js words (#7368 added `turn`), engine.reachable.test.js excuses
+  (#7232's seams), server.js's minute sweep (#7368's turnsToSay). Kept both sides in each.
+- Decided: #7368's stall (lastWhy `turn`, messages arrived and wait behind one endless step) is never relabelled a
+  sign-out; its cause is already named. Test with a signed-out control; mutant red.

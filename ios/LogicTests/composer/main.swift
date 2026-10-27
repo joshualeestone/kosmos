@@ -25,6 +25,25 @@ section("a pick goes in at the cursor")
 check(ComposerExtras.insert("👍", into: "ok then", selection: 2..<2) == ("ok👍 then", 3), "at the cursor, the cursor after it")
 check(ComposerExtras.insert("👍", into: "ok then", selection: 3..<7) == ("ok 👍", 4), "a selection is replaced")
 check(ComposerExtras.insert("👍", into: "ok", selection: nil) == ("ok👍", 3), "no cursor known: at the end")
+// kosmos#7346: the keyboard's Send key arrives as one typed new line, which sends; anything else is the person's text.
+check(ComposerExtras.typedReturn(was: "Great, start it", now: "Great, start it\n") == "Great, start it", "kosmos#7346: Return at the end sends what was there")
+check(ComposerExtras.typedReturn(was: "Great start", now: "Great\n start") == "Great start", "Return in the middle sends too, without the new line")
+check(ComposerExtras.typedReturn(was: "", now: "\n") == "", "Return in an empty box gives an empty box (nothing to send)")
+check(ComposerExtras.typedReturn(was: "a", now: "a\nb\nc") == nil, "CONTROL: pasted lines keep their breaks")
+check(ComposerExtras.typedReturn(was: "ok", now: "oks") == nil, "CONTROL: a typed letter is typing")
+check(ComposerExtras.typedReturn(was: "ab", now: "ac\n") == "ac", "a letter changed before the new line reads as a correction plus Send")
+check(ComposerExtras.typedReturn(was: "ab", now: "a\nc") == nil, "review: CONTROL: a letter changed AFTER the new line is not the Send key (it goes in at the caret, after any correction)")
+check(ComposerExtras.typedReturn(was: "abc", now: "abc\nok") == nil, "review: CONTROL: a short pasted \"\\nok\" keeps its break and does not send")
+check(ComposerExtras.typedReturn(was: "helo\nworld", now: "hello\nworld\n") == "hello\nworld", "review: a correction before an earlier pasted break takes out the new Return, not the old break")
+check(ComposerExtras.typedReturn(was: "hello there\nworld", now: "hello\n there\nworld") == "hello there\nworld", "review: Send with the caret in an earlier paragraph takes out the new Return, not the break after it")
+check(ComposerExtras.typedReturn(was: "ab\ncd", now: "ab\n\ncd") == "ab\ncd", "a Return beside an old break leaves one break")
+check(ComposerExtras.typedReturn(was: "abc\nxyz", now: "abc\nok\nxyz") == nil, "review: CONTROL: a short paste mid-text, before an older break, keeps its breaks and does not send")
+check(ComposerExtras.typedReturn(was: "abc", now: "a\n") == nil, "CONTROL: text shrinking around a new line is not a Return")
+check(ComposerExtras.typedReturn(was: "see you tomorow", now: "see you tomorrow\n") == "see you tomorrow", "review: autocorrect landing with Send still sends, corrected")
+check(ComposerExtras.typedReturn(was: "im here", now: "I'm here\n") == "I'm here", "and a correction earlier in the text too")
+check(ComposerExtras.typedReturn(was: "a", now: "a\nbcdef") == nil, "CONTROL: a pasted line longer than a correction keeps its break")
+check(ComposerExtras.typedReturn(was: "a\nb", now: "a\nb\nc\n") == nil, "CONTROL: two new lines are a paste")
+check(ComposerExtras.typedReturn(was: "line\n", now: "line\n\n") == "line\n", "a Return after a pasted break still sends, keeping the paste")
 check(ComposerExtras.insert("✌️", into: "", selection: nil) == ("✌️", 1), "an empty box; a two-scalar glyph is one character")
 check(ComposerExtras.insert("👍", into: "ab", selection: 5..<9) == ("ab👍", 3), "a stale selection past the end: at the end, never a crash")
 check(ComposerExtras.insert("👍", into: "a😀b", selection: 2..<2) == ("a😀👍b", 3), "counted in characters, not bytes or code units")
@@ -70,9 +89,10 @@ for name in ["ChatView", "RoomView"] {
     let src = code(name)
     check(src.contains("dictation.reset(); emojiOpen = false }"), "\(name): leaving resets dictation and closes the panel")
     check(src.components(separatedBy: "dictation.reset(); emojiOpen = false").count - 1 >= 2, "\(name): another account resets them too")
-    // Inside the guard itself (review 5), not anywhere in the file.
-    let guardBody = src.components(separatedBy: name == "ChatView" ? "private var canSend: Bool {" : "private var canPost: Bool {").dropFirst().first.map { String($0.prefix(400)) } ?? ""
-    check(guardBody.contains("!dictation.busy"), "\(name): Send waits while dictating or finishing")
+    // Inside the guard itself (review 5), not anywhere in the file. kosmos#7346: the guard reads the shared reason rule,
+    // which takes dictation.busy right after it.
+    let guardBody = src.components(separatedBy: name == "ChatView" ? "private var canSend: Bool {" : "private var canPost: Bool {").dropFirst().first.map { String($0.prefix(600)) } ?? ""
+    check(guardBody.contains(name == "ChatView" ? "sendBlocked == nil" : "postBlocked == nil") && guardBody.contains("dictating: dictation.busy"), "\(name): Send waits while dictating or finishing")
 }
 // Review 5: dictation's own setup changes the category and the route; only headphones in or out may stop it, and an
 // interruption only when it begins.

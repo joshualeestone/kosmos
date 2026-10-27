@@ -109,6 +109,9 @@ function outBy(card, rec, now, obsFor) {
 function overlay(card, now = Date.now(), { obsFor } = {}) {
   try {
     if (!card || !card.deliveryStall || typeof card.deliveryStall.since !== 'string' || (card.runner && card.runner !== 'claude')) return card;
+    // kosmos#7368's stall (lastWhy 'turn'): the messages arrived and wait behind one step that never ends, a cause the
+    // card already names, so it is never relabelled a sign-out.
+    if (card.deliveryStall.lastWhy === 'turn') return card;
     const rec = recordFor(card.account, now);
     if (!rec || !outBy(card, rec, now, obsFor)) return card;
     const ds = require('./deliverystreak');

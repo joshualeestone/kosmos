@@ -1,0 +1,48 @@
+# bubblepad-7347: the iPhone DM fixes from Josh's 10-27 batch, one PR
+
+Cards: kosmos#7265 (open DM jumps on refresh, opens short), #7348 (sent text comes back into the box),
+#7346 (floating message box, Send key sends), #7347 (bubble padding), #7344 (keyboard hides the newest message).
+Stacked branches, shipped as one PR: dmkeep-7265 -> composer-7348 -> floatbox-7346 -> bubblepad-7347.
+
+## Finished looks like
+
+On Josh's iPhone (TestFlight build 8): an open DM at the newest message follows each new one and a reader scrolled up
+holds still while messages arrive; a long DM opens on its newest message; text just sent never reappears in the box;
+the box floats as one rounded field with no send arrow and the keyboard's Send key sends; bubbles have 10 by 14 pt
+padding; opening the keyboard at the newest message keeps it in view. Not "solved" until his phone confirms it.
+
+## Steps (all built, see each branch's commits)
+
+1. #7265 (dmkeep): iOS 17+ anchors the chat on a message id (scrollPosition(id:) + scrollTargetLayout); every jump to
+   the newest goes through goNewest (anchor "end"); the re-pin is a counter, not a flag; on iOS 18 only the person's
+   own scroll moves atBottom (PersonScroll). iOS 16 keeps the eager newest rows. Debug KOSMOS_SAMPLE_* hooks for the
+   simulator. Measured on the simulator r12 to r15 against a control (KOSMOS_SAMPLE_NOPOSID=1).
+2. #7348 (composer): the sent text filling back within 5 s is cleared again, DM and room; a failed send keeps its words.
+3. #7346 (floatbox): the floating box (Mona Lisa's design), Send key sends, pasted breaks kept, room @name first.
+4. #7347 (bubblepad): 10 by 14 pt bubble padding.
+5. #7344: no own commit. The keyboard path (keyboardWillShow reads atBottom, keyboardDidShow calls goNewest) was broken
+   only because atBottom was wrong; #7265 fixes atBottom. Weakest premise: not measured with a keyboard on the
+   simulator (it cannot type); the phone build is the check.
+
+## Decided in review (trade-offs, not defects)
+
+- The Send key arrives as a new line typed into the box, so anything else that types one new line at the caret (a
+  dictated "new line", Shift-Return on a hardware keyboard) also sends. Josh asked for the Send key to send and the
+  text cannot tell them apart. Pastes with words after their new line keep their breaks.
+- The #7348 refill guard clears the box jumping from empty to exactly the text just sent, for 5 s. A deliberate
+  re-entry of the same text in that window (the same emoji again) is cleared too; it costs a retype, and the late
+  keyboard refill Josh hit is the common case.
+- Files with no words go with the keyboard's Send (VoiceOver: the Send action). No on-screen hint after a photo pick;
+  Mona Lisa's design has no arrow. Revisit if Josh misses it on the phone.
+- iOS 16 only: the eager newest rows keep their first row while the chat stays open, so the stack grows with each
+  message until the chat is reopened. iOS 17+ has no eager stack.
+- A blocked Send's reason line stays until the box changes or the next send.
+
+## Verify
+
+LogicTests run.sh (1405), run-composer.sh (65), run-room.sh (425), typecheck for iOS 16 simulator, all green after
+the rebase onto dmkeep a934f5f2e1 and the review rounds. Each branch was blind-reviewed when built.
+
+## Review bound
+
+Challenge loop on the whole diff, two rounds then PR; anything later is a card. Beta rule (Josh 08-19): merge on green.
