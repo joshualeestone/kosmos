@@ -12,7 +12,7 @@
    Each rule picks a run from the START of the room's rows, in the order the room read sorts them, so the two combine as
    the longer run and the archive is always one stretch with one boundary. The run ends at the first row the rule does
    not pick: a row whose time does not parse, or one stored in another time format that sorts out of place, ends it
-   early, so more stays live.
+   early, so more stays live (a row with no time sorts first, so one such row keeps the whole room live).
 
    The marker is one small file (ROOT/roomarchive.json, { [projectId]: { before, setAt } }). Undo removes the room's
    entry; that undoes only the person's marker, because rows the automatic rule picks would be picked again on the next
@@ -30,7 +30,8 @@ function fileFor() { return path.join(store.ROOT, 'roomarchive.json'); }
    parsed reads as no markers: the room then shows only what the automatic rule archives, the safe direction (more
    live, never less). With { strict: true } (the writers): a file that cannot be READ throws, so the write is refused
    and nothing changes; a file that reads but does not PARSE is moved aside to roomarchive.json.broken-<time>, bytes
-   kept, and the write starts from an empty table, so Undo and Archive still work and no marker is overwritten. An
+   kept, and the write replaces it with a fresh table, so Undo and Archive still work. It is copied aside, not moved, so
+   a write that then fails leaves the file where it was. An
    entry that parses but carries no readable `before` archives nothing, is left out here, and so is dropped by the next
    write. */
 function readAll({ strict = false, now = Date.now() } = {}) {
@@ -43,7 +44,7 @@ function readAll({ strict = false, now = Date.now() } = {}) {
       got = JSON.parse(raw);
       if (!got || typeof got !== 'object' || Array.isArray(got)) throw new Error('roomarchive.json is not a table');
     } catch (err) {
-      if (strict) { fs.renameSync(fileFor(), fileFor() + '.broken-' + now); return out; }
+      if (strict) { fs.copyFileSync(fileFor(), fileFor() + '.broken-' + now); return out; }
       throw err;
     }
     for (const k of Object.keys(got)) {
@@ -70,17 +71,22 @@ function markerFor(projectId) {
 }
 
 /* The person archives every row older than `before` (an ISO time with a zone, not in the future; up to SKEW_MS ahead is
-   read as now, for a page whose clock runs a little fast). Returns { ok, marker } or { ok: false, because }. A marker
+   read as now, for a page whose clock runs a little fast). A time within the last KEEP_RECENT_MS is moved back to that
+   far, so the marker never archives the last day: a post that asks an agent something is told to it for up to
+   messages.HELD_ASKED_MAX_MS (the same day), and an agent's read drops archived posts from its held list, so a newer
+   marker could take an ask away before it was told. The marker's `before` says the time actually used. Returns
+   { ok, marker } or { ok: false, because }. A marker
    earlier than the room's current one is kept as asked: the person chose it. Throws when the file is there but cannot
    be read (the route answers 503, nothing changed). */
 const SKEW_MS = 60 * 1000;
+const KEEP_RECENT_MS = 24 * 60 * 60 * 1000;
 function setMarker(projectId, before, now = Date.now()) {
   // An ISO time with Z or an offset only: Date.parse alone reads '1' as a date, and a time with no zone as local time.
   const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
   const parsed = typeof before === 'string' && iso.test(before) ? Date.parse(before) : NaN;
   if (!Number.isFinite(parsed)) return { ok: false, because: 'that is not a time we can read' };
   if (parsed > now + SKEW_MS) return { ok: false, because: 'that time has not happened yet, so nothing is older than it' };
-  const t = Math.min(parsed, now);
+  const t = Math.min(parsed, now - KEEP_RECENT_MS);
   const marker = { before: new Date(t).toISOString(), setAt: new Date(now).toISOString() };
   // Read, change and write in one synchronous turn: only the board process writes this file, so no write can come between.
   const all = readAll({ strict: true, now });
@@ -121,4 +127,4 @@ function archivedCount(rows, marker, now = Date.now()) {
   return Math.max(byAge, byMarker);
 }
 
-module.exports = { ARCHIVE_KEEP, ARCHIVE_AGE_MS, fileFor, readAll, markerFor, setMarker, clearMarker, archivedCount };
+module.exports = { ARCHIVE_KEEP, ARCHIVE_AGE_MS, KEEP_RECENT_MS, fileFor, readAll, markerFor, setMarker, clearMarker, archivedCount };

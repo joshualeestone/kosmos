@@ -29,12 +29,14 @@ about what is current. This branch is the server half; the page and the iPhone (
 
 ## Weakest premise
 That the 1,000 counts every row the room shows (posts and Kosmos lines alike), not posts alone.
-Second: that a post the person archives stops being held for an agent (its idle reminder goes when the agent next
-reads the room), even one that asked the agent something. That follows Mona's confirm copy ("They leave this room and
-what agents read here"); if an archived ask should still reach its agent, the read keeps addressed ids instead.
+Second: the marker never archives the last day (a newer time is moved back to a day ago, and the response says the
+time used). That keeps every ask an agent is still being told about (messages.HELD_ASKED_MAX_MS, a day) live, so an
+agent's read dropping archived posts from its held list can never take one away. The cost: "everything before today"
+late in the day archives up to a day less than asked. If Mona wants the exact time, the floor goes and archived asks
+stay held instead.
 
 ## Proof
-`server.room-archive-7365.test.js` (11 tests) and one in `server.roomread-seen-4926.test.js`, real rows through the real route. Mutation-proven: dropping the live-only
+`server.room-archive-7365.test.js` (12 tests) and one in `server.roomread-seen-4926.test.js`, real rows through the real route. Mutation-proven: dropping the live-only
 text walk, the live paging, the archive paging, the row marking, the count rule, the age rule and the future-time
 refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read rooms or route lists): 1,058/1,058.
 
@@ -76,3 +78,10 @@ refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read roo
      file, and its read, change and write run in one synchronous turn.
    - (N) Comments at the code: the one-row-per-row map the marking relies on, and that the held-post drop includes asks.
      Not done: calendar-impossible dates ('2026-02-30'), which V8 rolls over to a real, harmless time.
+5. (opus, 16:0x CDT) 0 BLOCKERs, 2 WARNINGs, 4 NITs.
+   - (W) A broken marker file was moved aside before the write, so a failed write left no table: now copied aside.
+   - (W) Raised again: archiving could take away an ask its agent had not been told yet. Decided instead of deferring
+     again: the marker is held at least a day back (the life of a held ask), tested with an hour-old ask and
+     mutation-proven. See the second weakest premise.
+   - (N) The staleHeld comment in messages.js now says the read stops at the archive; the header says one undated row
+     keeps a room live; the chmod test skips as root. Not done: pruning markers of deleted projects.
