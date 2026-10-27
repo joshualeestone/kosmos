@@ -39,7 +39,8 @@ const FP_NOFOLLOW = fs.constants.O_NOFOLLOW;
 const FP_NONBLOCK = fs.constants.O_NONBLOCK;
 const OPEN_FLAGS = fs.constants.O_RDONLY | (FP_NOFOLLOW || 0) | (FP_NONBLOCK || 0);
 const READ_BUF = Buffer.allocUnsafe(1024 * 1024);   // only the bytes each read fills are hashed
-const keyOf = (st) => [st.dev, st.ino, st.size, st.mtimeMs, st.ctimeMs].join('|');   // '|', not ':' (#1732 reserves ':' for path lists)
+// #7229 review 2: with the exact id when the stat carries one (Windows), since two files can share a number ino there.
+const keyOf = (st) => [st.dev, st.ino, st.size, st.mtimeMs, st.ctimeMs].concat(st.inoExact === undefined ? [] : [String(st.inoExact)]).join('|');   // '|', not ':' (#1732 reserves ':' for path lists)
 
 /** The fingerprint already known for this file as it is now (its stat), or null. Never reads the file. */
 function known(path, st) {

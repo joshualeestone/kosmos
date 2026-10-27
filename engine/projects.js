@@ -575,7 +575,8 @@ function exactPathStat(st, p, lstat) {
   if (!EXACT_IDS || !st) return st;
   let big;
   try { big = lstat ? fs.lstatSync(p, { bigint: true }) : fs.statSync(p, { bigint: true }); } catch { return withExactIno(st, NO_FILE); }
-  // The id only: size is not identity, and a file being written to grows between the two reads (review 1).
+  // The id only: size is not identity, and a file being written to grows between the two reads (review 1). Creation
+  // time cannot help either: colliding files are often made in the same clock tick (review 2, measured: 0 ns apart).
   const ino = u64(big.ino);
   return withExactIno(st, Number(ino) === st.ino ? ino : NO_FILE);
 }
@@ -592,7 +593,8 @@ function statOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.stat ? 
 /* #4997: the listed walk's lstat, through the same world (a world without one reads its stat: a fake folder has no links). */
 function lstatOfFolderPath(p) {
   if (!fsWorldForTests) return exactPathStat(fs.lstatSync(p), p, true);
-  const st = (fsWorldForTests.lstat || fsWorldForTests.stat || fs.lstatSync)(p);
+  if (!fsWorldForTests.lstat && !fsWorldForTests.stat) return exactPathStat(fs.lstatSync(p), p, true);   // review 2: the real disk, exactly
+  const st = (fsWorldForTests.lstat || fsWorldForTests.stat)(p);
   if (typeof st.isSymbolicLink === 'function') return st;
   return { isFile: () => st.isFile(), isDirectory: () => st.isDirectory(), isSymbolicLink: () => false,
     dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, birthtimeMs: st.birthtimeMs };
@@ -3282,6 +3284,7 @@ function moveFolder(id, folder) {
   const given = folder.trim();
   if (!given) throw new Error('that needs the full path to the folder');
   if (!path.isAbsolute(given)) throw new Error('that needs to be the full path to a folder');
+  if (!windowsProjectFolderOk(given)) throw new Error(WINDOWS_FOLDER_REFUSED);   // #7229 review 2: as at create
   const state = folderState(given);
   if (state.state === FOLDER.MISSING) throw new Error('there is no folder at that path');
   if (state.state === FOLDER.NOT_A_FOLDER) throw new Error('that is a file, not a folder');

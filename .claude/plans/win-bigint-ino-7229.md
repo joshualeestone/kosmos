@@ -47,8 +47,12 @@ confirms; flag existing rows a #7243 board cannot place) are a policy change wit
 their own card rather than grown into this one.
 
 ## Weakest part
-The gated side reads the path twice (number, then BigInt); a swap between the two reads is caught only when the number
-id or size differs, which a colliding same-size file would not. That needs a collision AND a swap inside microseconds.
+The gated side reads the path twice (a number stat, then a BigInt stat for the exact id). The two reads are checked
+to be the same file by the number id only, which a colliding file satisfies; creation time cannot help (colliding files
+are often made in the same clock tick, measured 0 ns apart), and deriving the number stat from the BigInt one would
+change the float times the FAT/exFAT rule compares. So a colliding file swapped in at the same name within the
+microseconds between the two reads would carry its own id. Downstream (realpath, the folder prefix, sameListedPath, the
+zip size) it can only be a regular file at the same listed name inside the folder (review 2).
 
 ## Review rounds
 - Round 1: 3 BLOCKERs, 1 WARNING, 1 NIT. BLOCKERs FIXED: (1) the zip's first check compared the listed entry's plain
@@ -59,3 +63,9 @@ id or size differs, which a colliding same-size file would not. That needs a col
   and every such file would be refused; all three readers take BigInt.asUintN(64). WARNING FIXED: \work and /work
   (rooted, current drive) are allowed again. NIT (dev ids skipped on Windows, pre-existing): noted for a card.
   Negative control: the 4 new tests fail on round 0. 8/8; 87 win32 files 1596 tests, 0 fail.
+- Round 2: no BLOCKER (every gated stat traced to sameOpenedFile, none rebuilt; 30,090 real files never read as
+  NO_FILE; a share spelling of a local file matches its drive path). 1 WARNING, 3 NITs. WARNING FIXED: moveFolder now
+  applies the create-time Windows folder rule. NITs FIXED: the file-hash key and the PDF preview stamp include the exact
+  id when present; a test world with no lstat/stat reads the real disk exactly. NIT ACCEPTED (Weakest part): the two
+  reads of a path agree on the number id only; tried creation time, which cannot tell colliding files apart (measured
+  0 ns), so removed. 9/9.

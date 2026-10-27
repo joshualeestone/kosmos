@@ -133,7 +133,7 @@ async function preview(folder, name, where, opts) {
   /* Review 1: the stamp names THIS file (device, inode, size, both times). Review 3: the page is stored UNDER its stamp
      (one file, named by a hash of it), so a picture and the stamp it belongs to can never be paired wrongly by two
      previews racing; each render works in its own folder and is renamed into place whole. */
-  const stamp = [got.st.dev, got.st.ino, got.st.size, got.st.mtimeMs, got.st.ctimeMs].join('|');   // hashed only (#1732: not ':')
+  const stamp = [got.st.dev, got.st.ino, got.st.size, got.st.mtimeMs, got.st.ctimeMs].concat(got.st.inoExact === undefined ? [] : [String(got.st.inoExact)]).join('|');   // hashed only (#1732: not ':'); #7229: the exact id on Windows
   const out = path.join(dir, crypto.createHash('sha256').update(stamp).digest('hex').slice(0, 32) + '.png');
   if (!fs.existsSync(out)) {
     const read = readChecked(got);   // review 2: the renderer reads a private copy, never the person's path

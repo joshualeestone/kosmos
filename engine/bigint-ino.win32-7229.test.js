@@ -156,3 +156,12 @@ test('#7229 review 1: a rooted folder with no drive letter is on the current dri
   assert.equal(projects.windowsProjectFolderOk('/work', 'win32'), true);
   assert.equal(projects.windowsProjectFolderOk('\\\\.\\pipe\\x', 'win32'), false, 'CONTROL');
 });
+
+
+test('#7229 review 2: moving a project folder follows the same Windows rule as create; the file-hash key carries the exact id', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'projects.js'), 'utf8');
+  const move = src.slice(src.indexOf('function moveFolder('), src.indexOf('function moveFolder(') + 2000);
+  assert.match(move, /windowsProjectFolderOk\(given\)/, 'moveFolder checks the folder as create does');
+  const filehash = fs.readFileSync(path.join(__dirname, 'filehash.js'), 'utf8');
+  assert.match(filehash, /st\.inoExact === undefined \? \[\] : \[String\(st\.inoExact\)\]/);
+});
