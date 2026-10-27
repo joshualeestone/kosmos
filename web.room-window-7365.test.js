@@ -206,3 +206,16 @@ test('#7365 review 1: a reaction made here on an earlier page\'s post is kept in
   h.api.pjWinNoteReactions('other-project', 'p701', [{ emoji: '🔥', count: 1, who: ['you'], mine: true }], null);
   assert.equal('reactions' in h.api.PJ_WIN.older.find((r) => r.id === 'p701'), false, 'another project\'s answer touches nothing');
 });
+
+test('#7365 review 2: loadRoom answers true only when it painted (a search\'s no-match reads it), and a reaction updates the newest page too', async () => {
+  const room = fakeRoom(500);
+  const h = harness(room);
+  assert.equal(await h.api.loadRoom(), true, 'a read that painted says so');
+  const real = room.fetch;
+  room.fetch = async () => ({ ok: false, json: async () => ({ error: 'down' }) });
+  assert.notEqual(await h.api.loadRoom(), true, 'a failed read did not paint, and must not say it did');
+  room.fetch = real;
+  await h.api.loadRoom();
+  h.api.pjWinNoteReactions('proj', 'p450', [{ emoji: '🎉', count: 1, who: ['you'], mine: true }], null);
+  assert.equal(h.api.PJ_WIN.newest.find((r) => r.id === 'p450').reactions[0].emoji, '🎉');
+});
