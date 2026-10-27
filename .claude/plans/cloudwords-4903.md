@@ -18,8 +18,21 @@ board shows exactly what it shows today.
   platform describes another computer's payload).
 - `data-cloud-hide`: CSS on `html[data-kosmos-cloud]`, stamped by applyPlatformCopy when onCloudMachine().
 - `data-cloud-copy` for static markup (the rename hint).
-- The restart/survival notices are hidden behind one flag, `CLOUD_HIDES_RESTART`, pending Baron's confirmation that
-  the box brings every agent back by itself; turning it off restores them.
+- The "will not come back after a restart" / Start at login notices (and their Show again list in Settings) are hidden
+  behind one flag, `CLOUD_HIDES_RESTART`, pending Baron's confirmation that the box brings every agent back by itself;
+  turning it off restores them. The reboot note is reworded ("Your cloud machine restarted ..."), not hidden, as Mona's
+  table says.
+
+## Blind review 1 (06:43), taken
+- Seam G: every hidden provider's confirm, pick, flow and status boxes carry data-cloud-hide too, not only its row
+  (their painters run on entering the step and could show a "connected" box with no row).
+- The age line naming OpenAI or Grok is hidden on a cloud machine; a cloud-only line says Claude's rule alone
+  (`data-cloud-only`). Wording is Mona Lisa's to change.
+- The found list stays hidden (Mona Lisa's table says Hidden), and its disk scan is not run there.
+- Three nearby "this computer" sentences (pane 5's subscription line, a keyed account gone, Kosmos cannot find X
+  running) go through thisMachine.
+- The Show again list of restart notices stays empty on a cloud machine.
+- Tests: a shown Claude row is asserted present; the browser check's cloud arm is Linux plus cloud.
 
 ## Out of scope
 Engine strings (Baron's sweep); seam G handled in the same branch only if small (Claude only on the cloud Connect

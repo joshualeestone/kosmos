@@ -81,11 +81,13 @@ async function hideArm(browser, cloud) {
   await page.addInitScript(() => { window.setInterval = () => 0; });
   await page.goto('file://' + PAGE);
   const got = await page.evaluate((cloud) => {
-    if (cloud) {
-      let m = document.querySelector('meta[name="kosmos-cloud-machine"]');
-      if (!m) { m = document.createElement('meta'); m.setAttribute('name', 'kosmos-cloud-machine'); document.head.appendChild(m); }
-      m.setAttribute('content', '1');
-    }
+    // A real cloud machine is a Linux board as well (review 7), so the cloud arm is Linux plus the cloud meta.
+    const meta = (name, content) => {
+      let m = document.querySelector('meta[name="' + name + '"]');
+      if (!m) { m = document.createElement('meta'); m.setAttribute('name', name); document.head.appendChild(m); }
+      m.setAttribute('content', content);
+    };
+    if (cloud) { meta('kosmos-platform', 'linux'); meta('kosmos-cloud-machine', '1'); }
     if (typeof applyPlatformCopy !== 'function' || typeof boardEmpty !== 'function') return { error: 'applyPlatformCopy / boardEmpty missing' };
     applyPlatformCopy(document);
     const pane = document.getElementById('fr-pane-5');
@@ -95,7 +97,9 @@ async function hideArm(browser, cloud) {
     for (let n = folder; n; n = n.parentElement) n.removeAttribute('hidden');
     const hint = document.getElementById('d-rename-hint');
     return {
-      rows, folderShown: !!folder && getComputedStyle(folder).display !== 'none' && folder.getBoundingClientRect().height > 0,
+      rows,
+      ages: [...pane.querySelectorAll('p.fr-age')].filter((p) => getComputedStyle(p).display !== 'none').map((p) => p.textContent),
+      msgs: ['fr-openai-msg', 'fr-gemini-msg', 'fr-grok-msg'].map((id) => getComputedStyle(document.getElementById(id)).display !== 'none'),
       folderHidden: !!folder && !!folder.closest('[data-cloud-hide]') && getComputedStyle(folder.closest('[data-cloud-hide]')).display === 'none',
       // Over file:// the board's first read fails, which paints the cannot-read card instead: the state is set to "looked
       // and found none" first (the page's own globals), so the empty state is what is painted.
@@ -146,6 +150,10 @@ async function hideArm(browser, cloud) {
     check('CONTROL mac: No agents yet keeps "this computer"', /runs on this computer/.test(hm.empty), hm.empty.slice(0, 160));
     check('cloud: the rename hint says your cloud machine', /where they live on your cloud machine,/.test(hc.hint), hc.hint);
     check('CONTROL mac: the rename hint says this computer', /where they live on this computer,/.test(hm.hint), hm.hint);
+    check('cloud: the age line is Claude\'s alone (the OpenAI or Grok line is hidden)', JSON.stringify(hc.ages) === JSON.stringify(['Claude needs you to be 18 or over. Age rules vary by country.']), JSON.stringify(hc.ages));
+    check('CONTROL mac: the age line names the under-18 choice', hm.ages.length === 1 && /choose OpenAI or Grok/.test(hm.ages[0]), JSON.stringify(hm.ages));
+    check('cloud: the hidden providers\' status boxes are hidden too', hc.msgs.every((v) => !v), JSON.stringify(hc.msgs));
+    check('CONTROL mac: their status boxes are not hidden', hm.msgs.every((v) => v), JSON.stringify(hm.msgs));
     check('seam G/H: no page errors', hc.errors.length === 0 && hm.errors.length === 0, hc.errors.concat(hm.errors).join(' | '));
   }
   await browser.close();
