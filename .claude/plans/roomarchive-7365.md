@@ -51,3 +51,11 @@ page cost worse, which makes the window more urgent, not less.
    - NIT: a reaction written from another room on this room's post id is now in the fixture, so "not grouped by
      project" is tested (mutation-proven: filtering by project reds it).
    - NIT: one local `own` for both calls, and the comment says NO_REACTIONS is shared because neither callee mutates.
+3. (slice 1, default, 13:0x CDT) 0 BLOCKERs, 1 WARNING, 3 NITs. The reviewer's old-against-new probe was byte-identical
+   (14,489 bytes, JSON and text, claims and person's 🙋 included); 7 of 8 of its mutations red the test.
+   - (W) The eighth passed: posts with NO reaction (most of a real room) could be handed the whole log again unseen.
+     Ten such posts are now in the fixture; each must be handed no rows and carry no reactions field (mutation-proven:
+     `|| rec.rows` reds it, "given 194 rows").
+   - NITs not changed: the plan's PR placeholder is filled when the PR opens; the #6946 comment ("no second pass") is
+     still true; slice 2's poll still builds every row server-side before the page cut (O(log + posts) now, measured
+     31 ms at 5,500), to be measured there.
