@@ -160,12 +160,17 @@ test('#5948 review 2: a second message during the same sign-out is held as signe
   });
 });
 
-test('#5948 review 2: a screen-read auth_failed (no report) is not held, as before this change', async () => {
+/* #7369 changed this one's scope: a screen-read Claude auth_failed IS held now, but only when authprobe can check the
+   agent's account (it is what releases the hold, with no turn needed). This fixture has no Kosmos job (the test box
+   creates none), so nothing could check it and it stays unheld, which is what is pinned here; the held case and its
+   release are engine/signinhold-claude-7369.test.js. */
+test('#5948 review 2 (#7369): a screen-read auth_failed (no report) on an agent nothing can check is not held', async () => {
   const board = fleet.install([fleet.agent('casey', { state: 'auth_failed', runner: 'claude' })]);
   try {
     const card = caseyOf(board);
     assert.equal(card.state, status.STATE.AUTH_FAILED, 'CONTROL: the fixture is not a signed-out screen');
     assert.notEqual(card.stateReported, true);
+    assert.equal(status.claudeSignInCheckable('casey'), false, 'CONTROL: the fixture has a job the live check could ask about');
     assert.equal(chat.signinHeldVerdict('casey', board.agents), null);
   } finally { chat.resetForTests(); board.restore(); }
 });
@@ -179,7 +184,8 @@ test('#5948 review 3: the same message sent again while it is held says signed o
   });
 });
 
-test('#5948 review 4: a Claude card is never sign-in held, even reading a reported auth_failed', async () => {
+/* #7369: a Claude card can be held now, on a READ auth_failed; never on a REPORTED one, which nothing clears for Claude. */
+test('#5948 review 4: a Claude card is never sign-in held on a reported auth_failed', async () => {
   await withFleet(true, async (board) => {
     const card = caseyOf(board);
     assert.equal(card.state, status.STATE.AUTH_FAILED, 'CONTROL: not a signed-out card');

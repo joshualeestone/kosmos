@@ -2921,12 +2921,25 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
    delivered (on Windows the supervisor even drops it). heldBy stays 'limit' so every #5805 path (the queue, its minute
    sweep, Send now anyway, the room's limit record) carries it unchanged; heldFor says why, for the words. limitReset is
    now: the queue's drop clock counts a day from the send, since a sign-in has no printed reset. heldUntil is the next
-   look. Released when the card no longer reads auth_failed (signed in again, or restarted). */
+   look. Released when the card no longer reads auth_failed (signed in again, or restarted).
+   #7369: a Claude agent is held too, but ONLY on the other class of auth_failed: the one READ (the Mac's screen line,
+   Windows' stream result; stateReported false), never the reported one. Two different clearing stories decide it:
+     - reported (StopFailure's "provider api (authentication_failed)"): nothing ever writes the report that ends it for
+       Claude (plan signedout-5948.md, "Why not Claude"), so a hold would last a day. Still refused here.
+     - read: while the card reads it, status kicks authprobe (`claude auth status` for the agent's own account, async,
+       30 s cache) and drops the auth_failed once that reads HEALTHY (reconcileReport, #1930), and a Windows turn that
+       succeeds clears it at the source. So the release needs no turn, which a held queue would never give it.
+   That second story holds only for an account authprobe can check (status.claudeSignInCheckable: a Kosmos job on a
+   Claude account, not a Qwen or vendor home), so any other Claude card is not held, as before. */
 function signinHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
-  // The REPORTED state only (the seam line): a screen-read auth_failed has no clearing writer on most runners.
-  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED || card.stateReported !== true) return null;
-  if (String(card.runner || 'claude') === 'claude') return null;   // the seam's own scope (status.reconcileReport)
+  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED) return null;
+  if (String(card.runner || 'claude') === 'claude') {
+    if (card.stateReported === true) return null;   // the reported line: never cleared for Claude (above)
+    if (status.claudeSignInCheckable(card.sessionName || sessionName) !== true) return null;   // nothing could release it
+  } else if (card.stateReported !== true) {
+    return null;   // The REPORTED state only (the seam line): a screen-read auth_failed has no clearing writer on these runners.
+  }
   if (addressable(sessionName, roster).ok !== true) return null;
   const provider = require('./accountproblem').providerOf(card);
   return {
