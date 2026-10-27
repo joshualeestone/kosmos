@@ -3181,24 +3181,17 @@ function noteLimitRows(agent, text, nowMs) {
     // A row back from the gone list keeps that window (`until`), so returning again never extends it.
     const here = footers.get(key) || new Set();
     if (!seen) { limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture || limitRowGone.has(key), until: limitRowGone.get(key), footers: here }); continue; }
-    // kosmos#7264 (review 4): the previous capture did not show this key (its row had left the screen), read before
-    // `last` moves.
-    const wasAbsent = Number.isFinite(prevCapture) && seen.last < prevCapture;
     seen.last = Math.max(seen.last, now);
     const newFooter = [...here].some((f) => !seen.footers.has(f));
     for (const f of here) seen.footers.add(f);
     /* kosmos#7264 (reviews 2 and 3): a late entry is retired from its own sighting (retireResetLimits), so a NEW limit
-       printing the same words must not inherit an old sighting and read as already reset while it binds. Whenever the
-       screen shows a row that may be new (a turn footer this entry has not seen, or more rows with this key, after a
-       capture gap too) the sighting moves to now. A gap alone moves nothing: an unchanged screen printed no new limit,
-       and a laptop that slept must not re-cap yesterday's row on every wake. It only ever moves LATER and the entry stays late, so this can delay a release
-       (at most one span, on a redraw or a footer that changes in place) but never lift a binding limit, and it never
-       gives a late row a time to hold messages on (limitFirstSeenOf still ignores it). A row back on screen after the
-       previous capture lacked it moves it too (review 4), so a new limit printed after the old row scrolled off is
-       timed from its arrival. The gone-list window (`at` plus the span) moves with it, which only makes a returning
-       row late (typed, not held). Residual: a new limit whose footer text repeats an older one, in the very capture the
-       older row scrolls off, cannot be told apart. */
-    if (seen.late && (newFooter || count > seen.count || wasAbsent)) {
+       printing the same words must not inherit an old sighting and read as already reset while it binds. A new limit
+       ends a new turn, so a turn footer this entry has not seen moves the sighting to now (only ever later; the entry
+       stays late, so it never gives the row a time to hold messages on). More rows, or the row coming back after a
+       capture without it, move nothing without a new footer (challenge loop): a redraw or a scroll back reprints the
+       old block, footer and all, and moving on those re-capped a released row for up to a span. Residual: a new limit
+       whose footer text repeats one this entry has seen cannot be told apart. */
+    if (seen.late && newFooter) {
       seen.at = now;
       seen.count = count;
       continue;
@@ -3353,8 +3346,8 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
         /* kosmos#7264: a row seen late (on screen before the board's sighting) whose clock time does not come round
            again within its span after the sighting cannot still be binding, since no limit outlasts its span: its reset
            was before the sighting, so it is retired at the sighting. Not for a row this cannot read (an unknown zone:
-           kept, as before). A new limit with the same words is not this row: noteLimitRows re-times the entry when a
-           turn footer it has not seen arrives, so it is no longer late. */
+           kept, as before). A new limit with the same words is not this row: when a turn footer the entry has not seen
+           arrives, noteLimitRows moves its sighting to that capture, so the reset is read after it. */
         if (resetAt === null && late && limitTimeOnlyReadable(row)) resetAt = at - RESET_GRACE_MS;   // passed long before: no grace owed
       }
     }
