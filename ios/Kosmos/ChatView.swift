@@ -1100,7 +1100,8 @@ struct ChatView: View {
         .onDisappear { dictation.reset(); emojiOpen = false }
         .onChange(of: draftText) { now in
             // kosmos#7348: the sent text came back into the box (the keyboard's dictation or Writing Tools finishing late).
-            if Board.refilledWithSent(now, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { lastSent = nil; draftText = ""; return }
+            // Kept for the whole window, so a keyboard that puts it back twice is cleared twice (review).
+            if Board.refilledWithSent(now, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { draftText = ""; return }
             dictation.boxChanged(to: now)
         }
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
