@@ -307,10 +307,10 @@ test('#7369 review 4: an API-key account (key file in its folder) is shown signe
   const realRead = create.readJob;
   create.readJob = () => ({ configDir: dir });
   try {
-    assert.equal(status.claudeSignInCheckable('anyone'), false, 'a key account is not checkable');
+    assert.equal(status.claudeSignedOutConfirmed('anyone', undefined, () => require('./authprobe').EXPIRED), false, 'a key account is not checkable');
     assert.equal(status.claudeSignedOutConfirmed('anyone', () => ({ configDir: dir }), () => authprobe.EXPIRED), false, 'nor ever confirmed');
     fs.rmSync(require('./claudeaccounts').keyFile(dir));
-    assert.equal(status.claudeSignInCheckable('anyone'), true, 'CONTROL: the same folder without a key file is checkable');
+    assert.equal(status.claudeSignedOutConfirmed('anyone', undefined, () => require('./authprobe').EXPIRED), true, 'CONTROL: the same folder without a key file is checkable');
   } finally { create.readJob = realRead; fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

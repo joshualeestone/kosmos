@@ -53,7 +53,7 @@ behaviour unchanged); release when the probe reads HEALTHY (control: still held 
   stamped with its own time, so a NEW refusal after a clear still shows.
 - Declined: giving the underlying idle reading `liveToken`. #5949 withholds it from Windows Claude idle on purpose (that
   idle cannot prove no turn is running), and this reading follows the same rule as the plain Claude idle token.
-- Kept: status.claudeSignInCheckable (tests assert the guard set through it; claudeSignedOutConfirmed shares it).
+- Removed after CI (engine.reachable: an export only tests used): status.claudeSignInCheckable; the tests now ask claudeSignedOutConfirmed with an EXPIRED check, which is true exactly when the account is checkable.
 
 ## Review 3 (decided)
 - A Windows refusal is remembered as cleared only by a HEALTHY check that BEGAN after it (authprobe now records each

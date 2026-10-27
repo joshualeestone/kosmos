@@ -140,12 +140,12 @@ test('#7369: a screen-read Claude card the live check cannot ask about (no Kosmo
     account(subscription.STATE.NONE, job);
     await withFleet(SIGNED_OUT_SCREEN, async (board) => {
       assert.equal(caseyOf(board).state, status.STATE.AUTH_FAILED, 'CONTROL: it reads signed out');
-      assert.equal(status.claudeSignInCheckable('casey'), false, JSON.stringify(job));
+      assert.equal(status.claudeSignedOutConfirmed('casey', undefined, () => require('./authprobe').EXPIRED), false, JSON.stringify(job));
       assert.equal(chat.signinHeldVerdict('casey', board.agents), null, 'nothing could release it: ' + JSON.stringify(job));
     });
   }
   account(subscription.STATE.NONE);
-  assert.equal(status.claudeSignInCheckable('casey'), true, 'CONTROL: a job on a Claude account is checkable');
+  assert.equal(status.claudeSignedOutConfirmed('casey', undefined, () => require('./authprobe').EXPIRED), true, 'CONTROL: a job on a Claude account is checkable');
 });
 
 test('#7369: kept while the check reads signed out; released and typed once it reads signed in, with nothing typed first', async () => {

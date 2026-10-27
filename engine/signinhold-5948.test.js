@@ -170,7 +170,7 @@ test('#5948 review 2 (#7369): a screen-read auth_failed (no report) on an agent 
     const card = caseyOf(board);
     assert.equal(card.state, status.STATE.AUTH_FAILED, 'CONTROL: the fixture is not a signed-out screen');
     assert.notEqual(card.stateReported, true);
-    assert.equal(status.claudeSignInCheckable('casey'), false, 'CONTROL: the fixture has a job the live check could ask about');
+    assert.equal(status.claudeSignedOutConfirmed('casey', undefined, () => require('./authprobe').EXPIRED), false, 'CONTROL: the fixture has a job the live check could ask about');
     assert.equal(chat.signinHeldVerdict('casey', board.agents), null);
   } finally { chat.resetForTests(); board.restore(); }
 });

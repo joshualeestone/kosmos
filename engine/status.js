@@ -8906,14 +8906,6 @@ function noteWin32AuthCleared(since) {
   if (WIN32_AUTH_CLEARED.size > 200) WIN32_AUTH_CLEARED.delete(WIN32_AUTH_CLEARED.values().next().value);
 }
 
-/* A probe of the guard set, kept for the tests that pin it: the hold itself decides through claudeSignedOutConfirmed. */
-const PROBE_ASKED = Symbol('probe-asked');
-function claudeSignInCheckable(name) {
-  try {
-    return liveAuthForAuthFailed(name, (n) => require('./create').readJob(n), () => PROBE_ASKED) === PROBE_ASKED;
-  } catch { return false; }
-}
-
 /* #7369 review 1: whether this agent's own account check (the same guards as liveAuthForAuthFailed) POSITIVELY reads
    signed out right now: authprobe EXPIRED, fresh from its cache. chat.signinHeldVerdict holds a Claude agent only on this,
    never on the card's label alone: a stale HEALTHY being re-checked reads UNCHECKED for a few seconds every 30 s, and an
@@ -10134,7 +10126,7 @@ module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, split
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignInCheckable, claudeSignedOutConfirmed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignedOutConfirmed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
