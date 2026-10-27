@@ -2,45 +2,51 @@
 pre_challenge: true
 method: challenge-loop
 branch: ownerlink-7215
-diff_hash: 7a6fc89c84a481529d0bc18265c20de42ebc6bc4b2dbb7b590f7e05d9872e7e7
-validation: not-clean-locally (see Final validation; CI runs the full suite)
+diff_hash: caae585af98a484353a809bb5940908e903037b7b0b652abd4473f874676b4c5
+validation: focused and related tests passed locally; full suite left to CI (see Final validation)
 subdir_audit: passed
-timestamp: 2026-10-27T03:38:07Z
-iterations: 24
+timestamp: 2026-10-27T07:31:57Z
+iterations: 38
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 24 (reviewers alternated opus and sonnet: opus on odd iterations, sonnet on even)
-**Converged:** Yes. First at iteration 22 (read-only, on 5394e50a20, during the 0.7.70 hold); the tests then run
-after the hold led to iteration 23's fixes, and iteration 24 found no new BLOCKER/WARNING (its one CONVENTION was a
-confirmation, not a defect).
-**Total findings:** 154 new (1 BLOCKER, 54 WARNINGs, 15 CONVENTIONs, 84 NITs), plus duplicates listed per iteration
-**Fixed:** 66 | **Deferred:** 27 | **Duplicate:** 8 | **No action:** 53 | **Asked (awaiting user):** 0
-**Self-generated:** about 45 of 111 in iterations 1-16 (an estimate; rule in that section)
+**Iterations:** 38 (reviewers alternated opus and sonnet: opus on odd iterations, sonnet on even)
+**Converged:** Yes, at iteration 38 on 96fe311ca1 (zero new BLOCKER/WARNING/CONVENTION). It had converged at 22 and 24
+too. After the PR opened, CI found a guard the loop had missed (tools/test-connector-verbs.sh), and the fix reopened the
+loop for iterations 25-38, which found real defects in most rounds.
+**Total findings:** 237 new (1 BLOCKER, 81 WARNINGs, 16 CONVENTIONs, 139 NITs), counting the CI miss as a WARNING
+**Fixed:** 117 | **Deferred:** 40 | **Duplicate:** 15 | **No action:** 65 | **Asked (awaiting user):** 0
+**Self-generated:** about 45 of 111 in iterations 1-16 (an estimate; rule in that section); not counted after.
+**A correction:** iteration 21's WARNING (a coordinator 400 member_key_wrong_epoch is about this computer) rested on a
+wrong reading of the coordinator; iteration 37 found that refusal belongs to the backup member-key route only, and the
+arm and its test were removed.
+**Out of this branch:** iteration 33's WARNING (what owner view covers after a computer leaves Kosmos+) is a site and
+coordinator decision; it is tracked on kosmos-relay #602, by number only.
 
-**Tests:** `engine/communityowner-7215.test.js` 34/34 and `engine.reachable.test.js` pass at 6182e5e05e. Every
-test file that loads communitysend or phonenotify (63 files): 1321 pass, 2 skipped, 0 fail at 6182e5e05e.
+**Tests at 0e61b7047e (rebased on origin/main e40f95e4de):** engine/communityowner-7215.test.js 42/42 and engine.reachable.test.js
+pass; the 85 test files that load communitysend or phonenotify or read remote.js: 1852 pass, 15 skipped, 0 fail;
+tools/test-connector-verbs.sh 27/27. Earlier related runs in iterations 31, 36 and 37 each had one red outside this
+change (remote.test.js #3827 kill-timing x2, remote-typedallow-6590 c3, backupscan #5686 regex timing), each green
+alone; recorded per iteration below.
 
-**Negative controls, each red:** wrong epoch handled as a name 400; pre-mint retiring check removed; 429 dropped
-from the exclusion list; site 404 hour arm removed; throw handled as a per-agent skip; pass-wide log guard removed;
-per-agent log guard removed; finally save removed.
+**Negative controls, each red:** the busy check after the mint; the resume at the budget check; the limiter 429 arm;
+the limiter skip before the mint; 408 as the service; the deployment rule (both directions); the host rule against an
+exact compare and against a trailing dot; the 204-only rule; the k.refused skip after the site call; the 503 with no
+Retry-After; the test-runner guard (39 of 40 red without the seam); plus the eight from iterations 1-24 (wrong epoch,
+since removed; pre-mint retiring; 429 exclusion; site 404 hour; throw as per-agent; both log-once guards; the finally save).
 
-**Final validation (6j), stated as it is:**
-- At 5258245fa2: FAILED, all outside this diff: cli.refused-retry-6968 (red on main a2b2fe1c52 too, kosmos#7258),
-  #5536 and #6734 (green alone), an aw-filebrowser temp leak from the filebrowser-6724 tests.
-- At fac74c0e56: 24436 tests, 1 fail: engine/fedseats.test.js #5193 timing check (a 60000 character reason took
-  106 ms, load 6.2). That file passes 217/217 alone and is not in this diff.
-- Two reruns at fac74c0e56 were refused by the machine queue's time bound (18:31-20:46 and 20:47-22:33 CDT) while
-  other agents' suites held the box; neither started.
-- Then rebased onto origin/main ce6d7beaae (184 commits) to clear a one-line conflict in
-  engine/phonenotify.js (both sides added a name to module.exports; both kept). The branch's own diff is otherwise
-  byte-identical to fac74c0e56's (checked by diffing the two change sets). The focused and related runs above are at
-  the rebased head; the full suite at this head is left to CI, and a local run when the box is quiet.
+**Final validation (6j), stated as it is:** the full suite (tools/run-tests.sh) at fac74c0e56 (an older main): 24436
+tests, 1 fail outside this diff (engine/fedseats.test.js #5193 timing, 217/217 alone). Two later local runs were
+refused by the machine queue's time bound while other agents' suites and relay builds held the box. CI on PR #7294 at
+ef81b4a493: node, shell 2/2, macOS, windows, scope and linux-setup passed; shell 1/2 failed on the connector-verbs
+guard, fixed in da7ec5185f. The full suite at this head is left to CI, and a local run when the box is quiet.
+Rebased twice after the reviews (the last to clear a one-line conflict with #7308's reformatted remote.js exports);
+the branch's own diff is otherwise identical to 96fe311ca1's, checked by diffing the two change sets.
 
-**Note on commit ids:** the branch was rebased twice after the reviews; ids below are those at the time each
-ledger was written. Each change is in the current branch under the same subject.
+**Note on commit ids:** ids below are those at the time each round was written; the branch was rebased after, and each
+change is in the current branch under the same subject.
 
 ### Per-Iteration Breakdown
 
@@ -310,6 +316,136 @@ Validation helper at 5258245fa2: FAILED: cli.refused-retry-6968 (red on main a2b
 - [NIT] refused agents take mints --> DUPLICATE (21); [NIT] malformed 2xx mint logs "did not answer as expected" --> DEFERRED (fail-safe, wording fits); [NIT] any 2xx is linked --> DUPLICATE (plan decision)
 **Converged** at iteration 24 on fac74c0e56. 6j pending.
 
+#### After PR #7294 opened (ef81b4a493): CI run 40445330427
+- suite (node) PASS, shell 2/2 PASS, shell macOS PASS, windows PASS, scope PASS, test-linux-setup PASS.
+- suite (shell 1/2) FAIL: tools/test-connector-verbs.sh "the mac-request callers changed" -- communitysend.js is a new macRequest caller; the pinned list (gate-closed rule, #3626) needs a re-decision. A real miss by this loop: no reviewer and no local run covered that shell guard (the 63 related files were node tests only).
+  --> FIXED da7ec5185f: decision comment (old connector refuses "mac-request does not sign" -> ownerPassUnknown -> hour wait, nothing sent; pinned by the test at engine/communityowner-7215.test.js:195; communitysend.js line 1398 is its only macRequest, main has none), list 13 -> 14. test-connector-verbs.sh locally: 27 passed, 0 failures.
+- Iteration 25 (opus) running on da7ec5185f.
+
+#### Iteration 25 (opus) on da7ec5185f: 0 B, 1 W, 0 C, 5 N
+- [WARNING] plan:41 / communitysend.js:1405 -- a Forget pressed during the mint slips through (forget() waits on signedInFlight, so mac id and switches unchanged) --> FIXED fd0e730eae: after the mint, return on remote.busy() (exported read-only); new test (35); control red (busy check removed -> "its pass was not sent"); plan sentence rewritten
+- [NIT] communitysend.js:1422/1457 "two agents in a row" vs counted per pass --> FIXED fd0e730eae ("in one pass")
+- [NIT] communitysend.js:1450 429 log dedupes on text with the wait --> FIXED fd0e730eae (fixed reason key 'site 429')
+- [NIT] test-connector-verbs.sh:214 hour is in memory; test pins only "not the short pause" --> FIXED fd0e730eae (comment says both)
+- [NIT] production aud pass handed to a non-default AGENT_WORKFORCE_COMMUNITY_URL --> DUPLICATE of iteration 17 deferral (the same request carries the agent's own key there; operator override)
+- [NIT] untested arms (site 405; coordinator 405/429/413/401; ok without pass; site 503 Retry-After) and no log-scrub assertion --> DEFERRED: each maps to an arm already tested by class (405 with 404, 4xx/5xx through statusFor); reviewer confirmed no pass or key is logged
+Tests at fd0e730eae: 35/35 + reachable; 85 related files (communitysend/phonenotify loaders + every test reading remote.js) 1845 pass, 15 skipped, 0 fail; test-connector-verbs.sh 27/27 (at da7ec5185f; fd0e730eae changes only its comment).
+
+#### Iteration 26 (sonnet) on fd0e730eae: 0 B, 4 W, 0 C, 3 N
+- [WARNING] test:494 budget test cannot fail on resume (both agents at 0/1, default 0) --> FIXED cef10926ea: new test, budget spent during the first agent's mint, first agent relinked (new key) so the start shows in mint order; control (resume dropped at the budget check) red; old test's title/assertion no longer claims resume; plan corrected
+- [WARNING] communitysend.js:1417 coordinator 403 logged as "did not answer as expected" --> FIXED cef10926ea (own 403 sentence)
+- [WARNING] communitysend.js:1292/1304 "a removed agent is linked too" reads as a guarantee --> FIXED cef10926ea (says the pass does not read the removed list); the plan already states the decision and that it is untested
+- [WARNING] communitysend.js:1357 lock hold ~50-65 s worst case --> DUPLICATE of iterations 17/20/23 (soft budget documented in the constant's comment and plan:87)
+- [NIT] assert ownerLinked undefined on refused paths --> DEFERRED (refused keys skip before any mint; covered by the refused-key tests' mint counts)
+- [NIT] test-connector-verbs.sh long comment line --> FIXED cef10926ea
+- [NIT] mints++ before notSent --> DUPLICATE of iteration 20
+Tests at cef10926ea: 36/36 + reachable (44); 85 related files 1846 pass, 15 skipped, 0 fail; test-connector-verbs.sh 27/27.
+
+#### Iteration 27 (opus) on cef10926ea: 0 B, 1 W, 0 C, 4 N
+- [WARNING] communitysend.js:1449 site 429 pass-wide although the #4953 limiter is per agent; owner call ignores limiterPauseUntil --> FIXED 1f4910bd1e: rate_limit_exceeded pauses only that agent (shared limiter pause); a paused agent is skipped before the mint; other 429s stay pass-wide; new test (37); controls red (arm removed; pre-mint skip removed)
+- [NIT] retiring(agentKey) after the mint ends the whole pass --> FIXED 1f4910bd1e (continue for that agent)
+- [NIT] pass-wide log drops minted.because --> FIXED 1f4910bd1e (reason appended, cut to 200 chars; it is tunnel/remote text, no pass or key)
+- [NIT] 429 cap/floor untested --> DEFERRED, listed under "Not tested" in the plan
+- [NIT] untested arms (405s, ok-without-pass, 2xx-not-204, retire list unreadable mid-mint, coordinator 429) --> DEFERRED, listed under "Not tested" in the plan
+Tests at 1f4910bd1e: 37/37 + reachable (45); 85 related files 1847 pass, 15 skipped, 0 fail; test-connector-verbs.sh 27/27.
+
+#### Iteration 28 (sonnet) on 1f4910bd1e: 0 B, 3 W, 0 C, 4 N
+- [WARNING] lock hold ~65 s vs an agentCall's 20 s wait (AGENT_WAIT_MS) --> FIXED 6696997a74 as a recorded decision: plan states the figure and the consequence (an agent call is answered busy, try again, which #4774 treats as safe; queued posts go next pass) and why the mint stays inside the lock. New angle on the iteration 17/20/23 duplicate (the 20 s comparison)
+- [WARNING] 408/413 (and a proxy 403) counted as about one agent --> FIXED 6696997a74: 408 and 413 pass-wide like a 5xx; a site 403 stays per-agent (the site contract's refused pass), recorded in the plan; test (38) with a red control
+- [WARNING] coord400/siteRefused reset per sweep, so a systemic refusal never trips pass-wide --> NO ACTION, checked: after the first refusal the loop goes on to the next agent in the same sweep, whose refusal trips the pass-wide pause; with one unlinked agent the per-agent wait costs the same as a pass-wide one (tests: "two bad names" and "second site refusal" in one sweep)
+- [NIT] notSent comment names only register/Forget --> FIXED 6696997a74 (all causes; the not-connected one is ruled out first by ownerLinkLive)
+- [NIT] log carries minted.because --> NO ACTION: added at iteration 27's request; it is remote's own one-line reason, never a pass or key (iterations 27 and 28 both confirmed), cut to 200 chars
+- [NIT] keyName('ava') control cannot fail --> NO ACTION, checked: a finished retire removes ava from keys.json, and keyName then throws, so the line fails exactly when the retire was not pending
+- [NIT] 403 and 429 pause lengths unpinned --> DEFERRED (429 listed under Not tested; the 403 shares the generic pass-wide arm whose length the 503 test pins)
+- [NIT] resume index shifts with key order --> FIXED 6696997a74 (comment clause)
+Tests at 6696997a74: 38/38 + reachable (46); 85 related files 1848 pass, 15 skipped, 0 fail.
+
+#### Iteration 29 (opus) on 6696997a74: 0 B, 2 W, 0 C, 6 N
+- [WARNING] route-missing arms (site 404/405, coordinator unknown) do not stopHere: an agent-specific 404 on the first agent starves the rest --> FIXED 1da08b2356 (stopHere in both); NOT TESTED (the reset seam clears the walk), recorded in the plan
+- [WARNING] production pass posted to any configured community endpoint; a third party could present it at the real site under a name it registers --> FIXED 1da08b2356: link only when community and coordinator are both defaults or both overridden (staging still works); logged once; test (39) + control red; plan decision. (Earlier raised at 17 and 25 and deferred; this round gave the replay path, which the deferral's reasoning did not cover.)
+- [NIT] no NODE_TEST_CONTEXT guard on the real macRequest --> DEFERRED: every communitysend test sandboxes AGENT_WORKFORCE_DATA, and the new deployment rule also stops a loopback test community reaching the default coordinator
+- [NIT] header names one 429 arm --> FIXED
+- [NIT] #4953 comment out of date --> FIXED
+- [NIT] post-mint retiring skip throws away a pass-wide mint failure --> FIXED (skip only on an ok mint)
+- [NIT] beforeEach does not reset limiterPauseUntil --> FIXED (cs.resetPauses())
+- [NIT] 429 test cannot tell the 429 arm from the generic one --> FIXED (asserts its log line)
+Tests at 1da08b2356: 39/39 + reachable (47); 85 related files 1849 pass, 15 skipped, 0 fail; test-connector-verbs.sh 27/27.
+
+#### Iteration 30 (sonnet) on 1da08b2356: 0 B, 1 W, 0 C, 4 N
+- [WARNING] plan says "never linked to the account just forgotten", but a Forget during the site call (~15 s) still lands --> FIXED (plan): window named and accepted with the switch-off/delete windows; no code can unsend a pass
+- [NIT] deployment rule's reverse arm untested --> DEFERRED, listed under Not tested (a test cannot point the sweep at the real community)
+- [NIT] marker lacks the deployment --> DEFERRED, recorded in the plan (staging only)
+- [NIT] ownerLinkAgentAt keyed by agent not marker --> DEFERRED (one 15-minute pause after a re-registration)
+- [NIT] exact-string default coordinator vs SAME_SERVICE aliasing --> FIXED (plan states the exact terms)
+Plan-only change; code identical to 1da08b2356.
+
+#### Iteration 31 (opus) on f795c519fc: 0 B, 1 W, 0 C, 4 N
+- [WARNING] deployment rule compares the coordinator as an exact string: the production coordinator spelled differently + another community = "both overridden" -> leak --> FIXED d6d254a9fd: production judged by host (unreadable counts as production); test over three spellings; control (exact compare) red; plan corrected
+- [NIT] stubbed remote functions could vanish from the product unnoticed --> FIXED (assert typeof at file top)
+- [NIT] coordinator failure log keyed by text incl. because --> FIXED (stable key per kind)
+- [NIT] 413 not in Not tested --> FIXED (plan)
+- [NIT] "pauses are per endpoint" vs per-agent limiter --> FIXED (comment)
+Tests at d6d254a9fd: 40/40 + reachable (48). Related 85 files: 1848 pass, 2 fail, 15 skipped -- both fails engine/remote.test.js #3827 kill-timing fixtures ("the kill landed before the half identity was written (a loaded box: #6140)", 87 s and 43 s, load 24); remote.test.js alone right after: 242/242. Committed before reading the rc (a process slip: the commit was chained after the run); the content stands. test-connector-verbs.sh 27/27.
+
+#### Iteration 32 (sonnet) on d6d254a9fd: 0 B, 4 W, 0 C, 3 N
+- [WARNING] "not the same deployment" overclaims; two unrelated overrides pass --> FIXED (log, header comment and plan say production-with-production only; two non-production ones are not checked: staging account only)
+- [WARNING] latest-pass-wins rests on a contract not in this repo --> FIXED (plan cites kosmos-relay #602 by number and says nothing here checks it; live end-to-end after the site ships)
+- [WARNING] the agent tripping the second-refusal rule gets no own wait --> NO ACTION, checked: its own wait would be the same 15 min as the pass's and end with it; the walk already resumes after it (stopHere), so healthy agents go first
+- [WARNING] retiring-test control cannot fail --> DUPLICATE of iteration 28 (no action: a finished retire removes the key and keyName throws); message now says so
+- [NIT] require('./remote') repeated --> FIXED (one reference)
+- [NIT] 429 cap untested --> DUPLICATE (listed under Not tested)
+- [NIT] closures recreated per iteration; stale ownerLinkFrom after a full pass --> NO ACTION (harmless, reviewer's words)
+Tests at the new head: 40/40 + reachable (48); 85 related files 1850 pass, 15 skipped, 0 fail (read before committing).
+
+#### Iteration 33 (opus) on a5d74ba05a: 0 B, 1 W, 0 C, 3 N
+- [WARNING] a computer leaving Kosmos+ without rejoining leaves every agent linked to the forgotten account, which keeps owner view and Delete over later posts --> a gap in how the site ties agents to a person, so per Liu Kang m6428 it went on the private card: comment on kosmos-relay #602 (ruling asked of Sub-Zero/Liu Kang; the board cannot unlink: no site route, no identity after Forget). Plan cites #602 by number only.
+- [NIT] plan says the other deployment arm "cannot" be tested --> FIXED (reworded as a judgement)
+- [NIT] 503 note "15 min is longer" stated as always --> FIXED (the site's own 30 s; a longer one is asked once more, accepted)
+- [NIT] spelling test has no in-test control --> FIXED (links once overridden again)
+Focused tests: 40/40 + reachable (48).
+
+#### Iteration 34 (sonnet) on 8f9a963cfa: 0 B, 2 W, 0 C, 4 N
+- [WARNING] re-check busy()/mac right before asAgent --> NO ACTION, checked: the post-mint checks already run synchronously right before asAgent (nothing awaits between); the in-call window is the iteration-30 accepted one (DUPLICATE)
+- [WARNING] owner link's limiter 429 sets the shared pause that blocks posts --> NO ACTION, checked: the site counts the agent's requests in one bucket, so its posts would be refused in that window anyway; the link adds at most one request per 15 min
+- [NIT] test comment "an hour-long pause would not be touched" false --> FIXED (comment; notes which sweep discriminates)
+- [NIT] generic site-failure log keyed by its sentence --> FIXED (stable key per kind)
+- [NIT] silent returns (mismatch logged; retire list unreadable not) --> NO ACTION (the retire module logs an unreadable list itself)
+- [NIT] no NODE_TEST_CONTEXT guard on the mint (second time, after iteration 29) --> FIXED: guard as mac-standing.js; the 7215 tests set AGENT_WORKFORCE_TUNNEL_BIN to a sandbox path never run; control without it: 39/40 red
+Tests: 40/40 + reachable (48); 85 related files 1850 pass, 15 skipped, 0 fail; test-connector-verbs.sh 27/27.
+
+#### Iteration 35 (opus) on 579d61e097: 0 B, 1 W, 0 C, 3 N
+- [WARNING] trailing-dot (and IP) spelling of the production coordinator reads as non-production --> FIXED: trailing dots stripped; IP noted (cannot reach: the certificate names the host); spelling added to the test; control red
+- [NIT] refused-key test does not pin the post-call k.refused skip --> FIXED (asserts no pass-wide 401 line; control removing the skip red)
+- [NIT] budget test 50 ms can flake on a loaded box --> FIXED (1000 ms budget, 1500 ms mint)
+- [NIT] duplicate R.on toggles around registered() --> NO ACTION (cosmetic; harmless)
+Tests: 40/40 + reachable (48); 85 related files 1850 pass, 15 skipped, 0 fail.
+
+#### Iteration 36 (sonnet) on 515bb55ff1: 0 B, 2 W, 0 C, 4 N
+- [WARNING] limiter 429 sets the shared pause that holds posts --> DUPLICATE of iteration 34 (no action: shared site bucket); the coupling is now stated in the comment
+- [WARNING] any 2xx records the permanent marker --> FIXED: only 204 (the site route's own status_code=204, checked in kosmos-community-ownerpass-7215 app/routers/agents.py:261); other 2xx = service failure, logged; test (41) + control red; plan updated (was a plan decision at 19/24, reversed with the site's code in hand)
+- [NIT] host rule vs remote.js exact compare disagree --> FIXED (comment says why)
+- [NIT] site 404 for one agent stalls the pass an hour --> NO ACTION, checked: the site answers an unknown agent 401 (get_current_agent), not 404; recorded in the plan
+- [NIT] budget test race --> FIXED (3 s mint vs 1 s budget)
+- [NIT] early returns leave ownerLinkFrom --> FIXED (plan says so and why)
+Tests: 41/41 + reachable (49). Related 85 files: 1850 pass, 1 fail, 15 skipped: engine/remote-typedallow-6590.test.js c3 "a leaked S was kept" (load 9.9 falling); alone twice: 21/21, 21/21. Not in this diff's reach (remote.js changed by one export).
+
+#### Iteration 37 (opus) on 916ff23bf2: 0 B, 3 W, 1 C, 2 N
+- [WARNING] member_key_wrong_epoch arm describes a refusal this route never sends (memberkey.rs only; checked: coordinator/src/memberkey.rs:83, the only with_code) --> FIXED: arm, docblock line, plan bullet and test removed. Iteration 21's WARNING rested on a wrong understanding of the coordinator; this is the correction, recorded in the plan.
+- [WARNING] site 503 "not set up" carries no Retry-After and lasts until configured (checked: kosmos-community app/routers/agents.py:283) --> FIXED: a 503 with no positive Retry-After waits the hour (note: a missing header reads as 0 via Number(null), first try used == null and the test caught it); test (42) + control red
+- [WARNING] the dangerous direction (real community + stand-in coordinator) untested; "cannot" reason false --> FIXED: test through a sender that answers only the default address from the loopback site and throws for anything else; control (gate removed) red; both directions in docblock and plan
+- [CONVENTION] duplicate WRONG_EPOCH_CODE literal --> FIXED by removing the arm
+- [NIT] pass-level retire-list check has no test of its own --> recorded under Not tested
+- [NIT] "96 mints and site calls" for a coordinator 400 --> FIXED (wording)
+Tests: 42/42 + reachable (50). Related 85 files: 1850 pass, 1 fail, 16 skipped: engine/backupscan.test.js #5686 review 7 regex timing (1.77 s, load 12); not touched by this branch; alone twice 44/44. test-connector-verbs.sh 27/27.
+
+#### Iteration 38 (sonnet) on 96fe311ca1: 0 B, 0 W, 0 C, 5 N
+- [NIT] a 503 with Retry-After 0, or an infrastructure 503 without the header, also waits the hour --> NO ACTION: accepted (an hour's delay to a link; the header-absent and 0 cases both mean "no time given")
+- [NIT] host rule ignores scheme and port on the production host --> NO ACTION: stated design (iteration 31/35); a listener on the production host name needs the operator's own override
+- [NIT] untested: unparseable address as production, the NODE_TEST guard's own branch, ownerLinkWait formatting --> DEFERRED (the guard was controlled by hand at iteration 34: 39/40 red without the seam)
+- [NIT] tests restore defaults with literals --> DEFERRED (test-only)
+- [NIT] plan's test count is prose that drifts --> NO ACTION (kept current each round)
+**Converged** at iteration 38 on 96fe311ca1 (zero new BLOCKER/WARNING/CONVENTION).
+
 ### Totals, iterations 17 to 24
 
 | Category | Count | FIXED | DEFERRED | DUPLICATE | No action |
@@ -320,12 +456,22 @@ Validation helper at 5258245fa2: FAILED: cli.refused-retry-6968 (red on main a2b
 | NIT | 29 | 9 | 10 | 5 | 5 |
 | **All** | **43** | **15** | **13** | **7** | **8** |
 
+### Totals, iterations 25 to 38 (and the CI miss)
+
+| Category | Count | FIXED | DEFERRED | DUPLICATE | No action |
+|---|---|---|---|---|---|
+| BLOCKER | 0 | 0 | 0 | 0 | 0 |
+| WARNING | 27 | 19 | 1 | 4 | 3 |
+| CONVENTION | 1 | 1 | 0 | 0 | 0 |
+| NIT | 55 | 31 | 12 | 3 | 9 |
+| **All** | **83** | **51** | **13** | **7** | **12** |
+
 ### Final Ledger
 
 | Category | Count | FIXED | DEFERRED | DUPLICATE | No action |
 |---|---|---|---|---|---|
 | BLOCKER | 1 | 1 | 0 | 0 | 0 |
-| WARNING | 54 | 34 | 17 | 3 | 0 |
-| CONVENTION | 15 | 4 | 0 | 0 | 11 |
-| NIT | 84 | 27 | 10 | 5 | 42 |
-| **All** | **154** | **66** | **27** | **8** | **53** |
+| WARNING | 81 | 53 | 18 | 7 | 3 |
+| CONVENTION | 16 | 5 | 0 | 0 | 11 |
+| NIT | 139 | 58 | 22 | 8 | 51 |
+| **All** | **237** | **117** | **40** | **15** | **65** |
