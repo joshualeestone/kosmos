@@ -500,9 +500,17 @@ struct PressTracker {
     private(set) var pending: AppTabs.Tab?
     // kosmos#7266: the door name a waiting press uses instead of its tab's section (a create), replayed with it.
     private(set) var pendingDoor: String?
+    // kosmos#7266 review 5: the computer a waiting create was meant for (its board was loaded for it), or nil for any page.
+    // A load on another host does not replay it, so a create can never land on a computer the switcher did not name.
+    private(set) var pendingHost: String?
     // kosmos#7266 review 1: what a finished load replays, the tab and its create name together (ContentView.loaded), so
     // the replay rule is one the tests can reach.
-    var replay: (tab: AppTabs.Tab, door: String?)? { pending.map { ($0, pendingDoor) } }
+    var replay: (tab: AppTabs.Tab, door: String?, host: String?)? { pending.map { ($0, pendingDoor, pendingHost) } }
+    // Review 5: what a load on `host` replays: nothing while the waiting press is for another computer (it keeps waiting).
+    func replay(host: String?) -> (tab: AppTabs.Tab, door: String?, host: String?)? {
+        guard pendingHost == nil || pendingHost == host else { return nil }
+        return replay
+    }
     // Whether the latest press's script is running (sent, no answer yet). Only then does the bar not follow the page:
     // a press waiting for a load does not hold the bar, since the page can move many times before that load.
     private(set) var running = false
@@ -535,12 +543,13 @@ struct PressTracker {
     // (the native tab, which also ends a waiting press; or a page not ready, when the press waits for its load).
     // `section`: press the board's own section for a native tab on purpose (#7010, the Settings tab's row to the
     // board's Settings); the bar is on Today by then.
-    mutating func press(_ tab: AppTabs.Tab, page: Page, section: Bool = false, door: String? = nil) -> (script: String, serial: Int)? {
+    mutating func press(_ tab: AppTabs.Tab, page: Page, section: Bool = false, door: String? = nil, host: String? = nil) -> (script: String, serial: Int)? {
         serial += 1
         guard section || !AppTabs.isNative(tab), let script = door.map({ AppTabs.pressScript(door: $0) }) ?? AppTabs.pressScript(tab)
-        else { pending = nil; pendingDoor = nil; running = false; return nil }
+        else { pending = nil; pendingDoor = nil; pendingHost = nil; running = false; return nil }
         pending = tab
         pendingDoor = door
+        pendingHost = host
         running = page == .ready
         return running ? (script, serial) : nil
     }
@@ -553,7 +562,7 @@ struct PressTracker {
         running = false
         let pressed = pending
         let next = AppTabs.afterAnswer(answer, pageURL: pageURL)
-        if next.over { pending = nil; pendingDoor = nil }
+        if next.over { pending = nil; pendingDoor = nil; pendingHost = nil }
         return answer == .opened ? pressed : next.barTo
     }
 
@@ -564,6 +573,7 @@ struct PressTracker {
         running = false
         pending = nil
         pendingDoor = nil
+        pendingHost = nil
     }
 
     // A launch's reads: every 2 s for 20 s from the load, ending at the first answer (on a fresh install the board
@@ -614,6 +624,7 @@ struct PressTracker {
         generation += 1
         pending = AppTabs.isNative(selected) || AppTabs.pressScript(selected) == nil ? nil : selected
         pendingDoor = nil   // review 1 nit: a dropped page drops a waiting create too
+        pendingHost = nil
         readThisLaunch = false
         launchAnswered = false
         launchHost = nil

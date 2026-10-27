@@ -560,10 +560,10 @@ final class BoardWeb: ObservableObject {
     }
 
     // `ready` is given by a finished load (didFinish says the page is ready, whatever isLoading still reads).
-    func press(_ tab: AppTabs.Tab, ready: Bool = false, section: Bool = false, door: String? = nil) {
+    func press(_ tab: AppTabs.Tab, ready: Bool = false, section: Bool = false, door: String? = nil, host: String? = nil) {
         // The tracker decides from what the page is (PressTracker.Page); a press with no web view yet waits.
         let page: PressTracker.Page = webView.map { ready || !$0.isLoading ? .ready : .loading } ?? .noView
-        guard let run = tracker.press(tab, page: page, section: section, door: door), let webView = webView else { return }
+        guard let run = tracker.press(tab, page: page, section: section, door: door, host: host), let webView = webView else { return }
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
@@ -590,7 +590,7 @@ final class BoardWeb: ObservableObject {
         // kosmos#7266 review 3: a press meant for another computer's board loads that board first and waits for it.
         if let webView = webView, let target = AppTabs.createTarget(pageURL: webView.url, shown: computer) {
             webView.load(URLRequest(url: target))
-            _ = tracker.press(tab, page: .loading, section: true, door: door)
+            _ = tracker.press(tab, page: .loading, section: true, door: door, host: target.host)
             return
         }
         if let webView = webView, webView.url?.host == AppTabs.signInHost {
@@ -607,7 +607,8 @@ final class BoardWeb: ObservableObject {
     func loaded() {
         // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
         // replays as a section press.
-        if let replay = tracker.replay { press(replay.tab, ready: true, section: true, door: replay.door) }
+        // kosmos#7266 review 5: a create meant for another computer replays only once that computer's board has loaded.
+        if let replay = tracker.replay(host: webView?.url?.host) { press(replay.tab, ready: true, section: true, door: replay.door, host: replay.host) }
         if let round = tracker.loaded(host: webView?.url?.host) { schedule(round, at: PressTracker.launchReads) }
     }
 
