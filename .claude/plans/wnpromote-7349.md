@@ -35,3 +35,11 @@ The hold itself is sent by a person before release.sh runs, so (2) moves the dis
 waits, not before the hold. The docs line and the promote hint are what reach the person; nothing enforces them.
 
 ## Review rounds
+1. (default, 10:0x CDT) 1 BLOCKER, 1 WARNING, 3 NITs, all applied.
+   - (B) tools.cut-home-2724.test.js also runs a copied release.sh with no What's New tools: 8 of 11 red. It now sets
+     KOSMOS_CUT_NO_WHATS_NEW=1 (mutation-proven: without it, 8 fail). My own sweep had found only test-pointer-freeze.sh
+     because I searched shell tests for a sandboxed release.sh and not the node tests.
+   - (W) A direct prod cut moves prod too and never named the build; it now does, in its final prod block (pinned).
+   - NITs: the early quiet run keeps prod-check's reason for a 4 to itself (a 3's reason still shows; both arms
+     mutation-proven); the refusal says to fast-forward when the build is already on origin/main; the docs say where
+     the check runs (not "at its very start") and what every prod-check exit means.
