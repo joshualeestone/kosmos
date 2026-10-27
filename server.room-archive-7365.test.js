@@ -162,8 +162,29 @@ test('#7365: the archive route sets the marker, refuses a bad or future time, an
   assert.equal(undo.code, 200, undo.text);
   assert.equal(undo.json.cleared, true);
   assert.equal(roomarchive.markerFor(pid), null, 'Undo left the marker');
-  // Undo only clears the person's marker: the small room's automatic split is unaffected by another room's undo.
-  assert.equal((await get(room.small)).json.archivedCount, 20);
+  // Loose strings Date.parse would read as a date are refused: only an ISO time is a time here.
+  for (const before of ['1', 'March 7', '2024-01-01']) assert.equal((await post(pid, '', { before })).code, 400, before);
+});
+
+test('#7365: Undo clears the person\'s marker only; what the automatic rule archives stays archived', async () => {
+  // The big room: the automatic rule archives b0..b49; a marker past b99 archives b0..b99.
+  const ok = await post(room.big, '', { before: new Date(Date.parse('2024-01-01T00:00:00.000Z') + 100 * 1000).toISOString() });
+  assert.equal(ok.code, 200, ok.text);
+  assert.equal((await get(room.big)).json.archivedCount, 100, 'the marker archives more than the rule');
+  assert.equal((await post(room.big, '/undo')).code, 200);
+  assert.equal((await get(room.big)).json.archivedCount, 50, 'after Undo the read is back to what the rule archives');
+});
+
+test('#7365: a room whose every message is archived does not tell agents nothing was said', async () => {
+  const pid = projects.create({ name: 'Archive all' }).id;
+  projects.writeAll(projects.readAll().map((q) => (q.id === pid ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q)));
+  fs.appendFileSync(path.join(store.ROOT, 'messages.jsonl'), JSON.stringify({ kind: 'post', id: 'all1', project: pid, from: 'alpha', to: [], text: 'only post', at: new Date(Date.now() - DAY).toISOString(), outcomes: {} }) + '\n');
+  // CONTROL: before the archive, the post is shown.
+  assert.match((await get(pid, '?as=text')).text, /\[all1\]/);
+  assert.equal(roomarchive.setMarker(pid, new Date().toISOString()).ok, true);
+  const r = await get(pid, '?as=text');
+  assert.doesNotMatch(r.text, /Nothing has been said/, r.text);
+  assert.match(r.text, /archived; nothing has been said since/, r.text);
 });
 
 test('#7365: archivedCount stops at a row with no readable time, so a row Kosmos cannot date stays live', () => {

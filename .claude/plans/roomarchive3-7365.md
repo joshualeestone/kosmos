@@ -36,3 +36,14 @@ text walk, the live paging, the archive paging, the row marking, the count rule,
 refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read rooms or route lists): 1,058/1,058.
 
 ## Review rounds
+1. (opus, 15:4x CDT) 0 BLOCKERs, 4 WARNINGs, 5 NITs.
+   - (W) A room whose every row was archived told agents "Nothing has been said in this room yet": it now says
+     everything so far is archived. Test, mutation-proven.
+   - (W) A held post that got archived could never be cleared by an agent's read (#4926), since the read no longer
+     shows it: archived posts are now dropped from the reader's held list too. Test in server.roomread-seen-4926, with a
+     token-less control.
+   - (W) The module comment claimed rows are in time order; they are in the read's string order. Comment now says what
+     the run does (it ends at the first row not picked, so an odd time format keeps more live).
+   - (W) No test for Undo leaving the automatic rule's rows archived: added (100 by marker, 50 after Undo).
+   - (N) 4 KB body limit on the archive route; ISO times only (Date.parse reads '1' as 2001); one sort per read instead
+     of two. Not done: pruning markers of deleted projects (a few bytes each).
