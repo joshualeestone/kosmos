@@ -27,8 +27,9 @@
  * on screen (currently unused: no case makes room since #7196, #7312); their other steps are printed as MEASURE
  * lines, not judged (this card does not own them). And only a
  * step whose card would otherwise go flat may scroll the page (the project tip: the Conversation step, or none).
- * #7312: the make-room step itself is tested by a FORCED case, the room's pre-#7196 layout (room fit off), where the
- * page must make room and every step then points; its control (the tour's scroll not done) leaves the card flat.
+ * #7312: the make-room step itself is tested by a FORCED case, the room with its #7196 height fit switched off, where
+ * the page must make room and every step then points; its control (the tour's scroll not done) leaves the card flat.
+ * The gate runs Chromium only; the WebKit arms run by hand with ENGINES=chromium,webkit (both pass, measured 10-27).
  *
  *   node docs/browser-checks/render-chatbox-phone-4108.js            # headed
  *   HEADED=0 node docs/browser-checks/render-chatbox-phone-4108.js   # headless
@@ -300,37 +301,50 @@ function heightOf(page, sel) {
           } finally { await ctx.close(); }
         }
         /* #7312: the tour's make-room step is a safety net no walked size needs since #7196 (measured on #7312), so it is
-           tested with a FORCED case: the room's pre-#7196 layout, by switching off the room fit (pjFitRoomPhone and the
-           --pj-room-fit it writes). There the Conversation step has no room and the page MUST make it, and then every step
+           tested with a FORCED case: the room with its #7196 height fit switched off. The fit is switched off at the one
+           input every caller reads (PJ_ROOM_PHONE.matches), not at the function's name, because two resize listeners hold
+           the original function (review 1); the fit then clears --pj-room-fit on every call, and the walk asserts it stayed
+           clear. There the Conversation step has no room and the page MUST make it, only for that step, and then every step
            points fully on screen. Control: the same case with the tour's scroll recorded but not done leaves the
-           Conversation card flat, so the forced case really needs the make-room step and can go red without it. */
+           Conversation card flat, so the forced case really needs the make-room step and can go red without it.
+           The squeeze is small (measured 10-27: the card is 6px short, scrollY 25), so a copy or font change can give the
+           card room on its own; the control then reds with words that say so, and the MEASURE line shows the margin. */
         for (const noScroll of [false, true]) {
           const tag = `[${engine} ${PHONE[0]}x${PHONE[1]} room fit off${noScroll ? ', tour scroll off (control)' : ''}]`;
           const ctx = await browser.newContext({ viewport: { width: PHONE[0], height: PHONE[1] }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
+          const errs = [];
+          page.on('pageerror', (e) => errs.push(String(e.message || e).split('\n')[0]));
           try {
             await open(page, base, 'room', pid);
             const off = await page.evaluate(() => {
-              if (typeof pjFitRoomPhone !== 'function') return false;
-              window.pjFitRoomPhone = () => {};
-              const room = document.getElementById('pj-room'); if (room) room.style.removeProperty('--pj-room-fit');
-              return true;
+              if (typeof PJ_ROOM_PHONE === 'undefined' || typeof pjFitRoomPhone !== 'function') return false;
+              Object.defineProperty(PJ_ROOM_PHONE, 'matches', { get: () => false, configurable: true });
+              pjFitRoomPhone();   // the real fit, now taking its not-a-phone branch: it clears --pj-room-fit
+              const room = document.getElementById('pj-room');
+              return !!room && room.style.getPropertyValue('--pj-room-fit') === '';
             });
             chk(off, `${tag} setup: the room fit could be switched off`);
             if (!off) continue;
             await page.waitForTimeout(250);
             const w = await walkTip(page, 'project', { noScroll });
             if (w.error) { chk(false, `${tag} the project tip opens`, w.error); continue; }
+            const held = await page.evaluate(() => { const room = document.getElementById('pj-room'); return { fit: room ? room.style.getPropertyValue('--pj-room-fit') : '?', scrollY: Math.round(window.scrollY) }; });
+            chk(held.fit === '', `${tag} the forced layout held through the walk (the room was not fitted again)`, JSON.stringify(held));
+            console.log(`MEASURE  ${tag} forced case: scrolled ${JSON.stringify(w.scrolled)}, scrollY after the walk ${held.scrollY}`);
+            chk(w.steps.length === 4, `${tag} the project tip walked all four steps`, String(w.steps.length));
             const conv = w.steps.find((s) => s.title === 'Conversation');
             chk(w.scrolled.includes('Conversation'), `${tag} the tour asks to make room for the Conversation step`, JSON.stringify(w.scrolled));
+            chk(w.scrolled.every((x) => x === 'Conversation'), `${tag} the tour scrolls only for the Conversation step (a pointing card is never moved)`, JSON.stringify(w.scrolled));
             if (!noScroll) {
               for (const st of w.steps) {
                 chk(!st.error && st.pointing && st.cardOnScreen && st.areaInView,
                   `${tag} the project tip's ${st.title || '?'} step points at its area, fully on screen`, JSON.stringify(st));
               }
             } else {
-              chk(!!conv && !conv.pointing, `${tag} without the scroll the Conversation card is flat (the case needs the make-room step)`, JSON.stringify(conv));
+              chk(!!conv && !conv.pointing, `${tag} without the scroll the Conversation card is flat (if not: the forced layout no longer squeezes the card, re-tune this case; it is not a make-room regression)`, JSON.stringify(conv));
             }
+            chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
           } catch (e) {
             chk(false, `${tag} the forced case ran`, String(e.message || e).split('\n')[0]);
           } finally { await ctx.close(); }
