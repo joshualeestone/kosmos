@@ -89,3 +89,11 @@ engine/windows-tests-1777.test.js requires that entry: measured, removing it red
    each reader missed. Deferred: the double file check (rounds 1-3); one red the reviewer saw once and could not name,
    green on two reruns, during a full validation on this machine (watch the validation). Mutations M9 to M13 each red
    on exactly their row, restored.
+6. (sonnet, 03:1x CDT) 1 BLOCKER, 2 WARNINGs, 1 CONVENTION, 1 NIT. (B) a regression I made in round 4: reading a
+   POSIX backslash as an escape kept `\<newline>` inside a word, so `bash -c 'a && \<newline>gh x'` hid the gh, which
+   main's tool-guard refused (it split on every newline). Now commands() removes a backslash before a line end (and
+   CR LF), as bash does. A first version also did so in words(); mutations showed each copy covering the other (both
+   green), so words()'s copy is gone and the commands() one is mutation-proven. (W) $'...' is a quote in which a
+   backslash escapes. (W) env -P / --default-path take a value. (C) rows for each, through bash -c (POSIX only, read
+   once). Deferred: (N) a quoted path pushed whole into the words (no false positive found). Mutations M14, M16, M17
+   red, restored.

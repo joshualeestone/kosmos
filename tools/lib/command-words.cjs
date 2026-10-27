@@ -93,11 +93,17 @@ function commands(text, shell) {
        review 4). Both characters are kept, so a path reads the same. Not inside single quotes, and not in a cmd or
        PowerShell line, where a backslash is a path separator (an exec line is read both ways, so C:\x is still seen). */
     if (ch === '\\' && shell !== 'other' && quote !== "'" && i + 1 < chars.length) {
+      /* A backslash before a line end joins the two lines and is removed (a && \<newline>gh, #7262 review 6): reading
+         it as an escaped newline hid the command on the next line. */
+      if (chars[i + 1] === '\n') { i += 1; continue; }
+      if (chars[i + 1] === '\r' && chars[i + 2] === '\n') { i += 2; continue; }
       cur += ch + chars[i + 1];
       prev = chars[i + 1];
       i += 1;
       continue;
     }
+    /* $'...' (ANSI-C quoting) is a quote in which a backslash escapes, so $'it\'s' closes where bash closes it. */
+    if (!quote && shell !== 'other' && ch === '$' && chars[i + 1] === "'") { quote = 'ansi'; cur += "$'"; prev = "'"; i += 1; continue; }
     /* Inside double quotes a POSIX shell still runs $( ) and backticks (TOKEN="$(gh auth token)", #7262 review 1):
        their commands are read as well, and the quoted word itself stays whole. */
     if (quote === '"' && shell !== 'other' && ((ch === '$' && chars[i + 1] === '(') || ch === '`')) {
@@ -109,7 +115,7 @@ function commands(text, shell) {
       i = stop;
       continue;
     }
-    if (quote) { if (ch === quote) quote = null; cur += ch; prev = ch; continue; }
+    if (quote) { if (ch === (quote === 'ansi' ? "'" : quote)) quote = null; cur += ch; prev = ch; continue; }
     if (ch === '"' || ch === "'") { quote = ch; cur += ch; prev = ch; continue; }
     if (ch === '&' && (prev === '>' || prev === '<')) { cur += ch; prev = ch; continue; }   // 2>&1: a redirect (review 3)
     if (cuts.includes(ch)) { parts.push(cur); cur = ''; prev = ch; continue; }
@@ -156,9 +162,10 @@ function words(command, shell) {
   const chars = Array.from(String(command));
   for (let i = 0; i < chars.length; i += 1) {
     const ch = chars[i];
-    // A POSIX backslash takes the next character as text, as in commands().
+    // A POSIX backslash takes the next character as text, as in commands() (which has already joined continued lines).
     if (ch === '\\' && shell !== 'other' && quote !== "'" && i + 1 < chars.length) { raw += ch + chars[i + 1]; i += 1; continue; }
-    if (quote) { if (ch === quote) quote = null; raw += ch; continue; }
+    if (!quote && shell !== 'other' && ch === '$' && chars[i + 1] === "'") { quote = 'ansi'; raw += "$'"; i += 1; continue; }
+    if (quote) { if (ch === (quote === 'ansi' ? "'" : quote)) quote = null; raw += ch; continue; }
     if (ch === '"' || ch === "'") { quote = ch; raw += ch; continue; }
     if (ch === '<' || ch === '>') {
       if (op && !raw) { op += ch; continue; }   // >>
@@ -274,7 +281,7 @@ function walk(ws, i, depth, shell, out) {
         if (/^(-S|--split-string)$/.test(ws[i].text)) { lineInto(rest(i + 1), depth + 1, 'posix', out); return; }   // -S STRING is the command line
         const joined = ws[i].text.match(/^(?:-S|--split-string=)(.+)$/);   // -S"..." and --split-string=... (review 3)
         if (joined) { lineInto([joined[1], rest(i + 1)].join(' '), depth + 1, 'posix', out); return; }
-        if (/^(-[uC]|--unset|--chdir)$/.test(ws[i].text)) i = valueAt(ws, i + 1);   // -u NAME, -C DIR: the option's value is the next word
+        if (/^(-[uCP]|--unset|--chdir|--default-path)$/.test(ws[i].text)) i = valueAt(ws, i + 1);   // -u NAME, -C DIR, -P PATH: the option's value is the next word
       }
       continue;
     }
