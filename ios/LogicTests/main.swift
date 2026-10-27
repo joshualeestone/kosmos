@@ -2028,6 +2028,16 @@ section("native board loop: connecting")
 
     section("the Kosmos switcher (kosmos#7266 slice C)")
     do {
+        // Review 2 (a blocker): the common launch restores the kept session and never ran chooseMac, so the list was empty.
+        let (c, w, _, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100}]}"#
+        c.start()
+        let listed = await settle { isLive(c) && c.macs.count == 2 }
+        check(listed, "a launch from the kept session still lists the account's computers for the switcher")
+        check(w.count("/v1/account/handoff") == 0 && w.count("/_kosmos/session") == 0, "without a new sign-in to the Mac")
+        c.stop()
+    }
+    do {
         let (c, w, sessions, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
         w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100,"not_connected":true}]}"#
         w.starsAnswer = (200, #"{"stars":["dana"]}"#)

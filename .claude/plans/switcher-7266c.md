@@ -31,3 +31,9 @@ offline one, which then says it is not answering under its own name. With one co
 - Weakest premise: that the choice should persist across launches. It does through the existing remembered-Mac key,
   but pickMac still prefers a connected Mac over a remembered offline one at launch. Kept: on launch a working list
   beats a not-answering screen.
+
+## Review 2 (a blocker)
+- Fixed: the common launch restores the kept session and never ran chooseMac, so the switcher had no list (name only,
+  no menu). The run now reads the Macs in the background while the list is empty, without touching the session. Test:
+  a launch from the kept session lists both computers with no new sign-in; removing the read fails it.
+- Known: online and offline in the menu are as of the last read (a switch, a Try again that asks afresh, a new launch).
