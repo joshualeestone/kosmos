@@ -1104,6 +1104,7 @@ test('kosmos#4903 S5 design: a cloud machine says "below" once the link is there
   const late = connectHarness({ phase: 'signin-awaiting-code', url: null }, { cloud: true });
   late.paint({ phase: 'signin-awaiting-code', url: URL });
   assert.match(late.els['fr-conn-cloudsay-code'].textContent, /sign-in page below/, 'a late link left the sentence saying it is coming');
+  assert.match(late.els['fr-conn-say'].textContent, /sign-in page below/, 'review 3: a late link left the SPOKEN line saying it is coming');
   // Review 2 (W1): the hidden live region says the same as the screen, link or no link.
   for (const phase of ['signin-browser-open', 'signin-awaiting-code']) {
     assert.match(connectHarness({ phase, url: URL }, { cloud: true }).els['fr-conn-say'].textContent, /sign-in page below/, phase + ': the spoken line says the link is coming while it is there');
