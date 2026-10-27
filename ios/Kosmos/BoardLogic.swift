@@ -424,6 +424,9 @@ enum Board {
     // answers { state, you: { name, ... } } (engine/you.js read); GET /api/you/avatar answers 200 with the picture, or
     // 204 when there is none.
     static let youEvery: TimeInterval = 300
+    // Review 1: the picture is the big read (up to 5 MB, served no-store, with no version), so it is read on the first list
+    // and then every 30 minutes, not with every name read.
+    static let youPictureEvery: TimeInterval = 1800
     static func youRequest(mac: URL) -> URLRequest {
         var r = URLRequest(url: URL(string: "/api/you", relativeTo: mac)!.absoluteURL)
         r.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -445,12 +448,20 @@ enum Board {
 
     // The saved name, trimmed; nil when the board has none (absent, unreadable, or blank).
     static func parseYouName(_ data: Data) -> String? {
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              obj["state"] as? String == "saved",
-              let you = obj["you"] as? [String: Any],
-              let name = (you["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty
-        else { return nil }
-        return name
+        if case .name(let n) = youName(data) { return n }
+        return nil
+    }
+    // Review 1: what the name read means. Only the board saying there is no record (absent) or a saved blank name
+    // clears it; an answer that is not the record (the gate's sign-in page at 200, the board's own "unknown" while the
+    // file is mid-write) learns nothing and keeps what was shown, as the picture read does.
+    enum YouName: Equatable { case name(String), none, unknown }
+    static func youName(_ data: Data) -> YouName {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let state = obj["state"] as? String
+        else { return .unknown }
+        if state == "absent" { return .none }
+        guard state == "saved", let you = obj["you"] as? [String: Any] else { return .unknown }
+        let name = (you["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? .none : .name(name)
     }
 
     // What the picture read means: a picture, none (204, or a 404 from an older board without the route), or nothing

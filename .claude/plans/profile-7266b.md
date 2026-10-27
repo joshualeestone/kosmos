@@ -24,3 +24,15 @@ two mutation controls, the other six runners, the repo iOS route tests, a full i
   tab and on the profile page. Josh asked for the picture "instead of a settings cog", so a gear for everyone without a
   photo would bring the cog back. The gear (tab) and person symbol (page) show only while the name is not known yet.
 - The screenshot stand-in for a photo is drawn in the cream too (Debug only).
+
+## Review 1 (blind)
+- Fixed: a stop or restart with the read in the air no longer holds the next read off for 5 minutes (stop drops it as
+  not done); only the newest read clears its handle.
+- Fixed: the name keeps what was shown on an answer that is not the record (the gate's page at 200, the board's
+  "unknown" mid-write); only "absent" or a saved blank name clears it, as the picture read does.
+- Fixed: the tab's picture circle is drawn once per picture, not on every 5 s redraw (a picture can be 5 MB).
+- Fixed: the picture is read on the first list and then every 30 minutes (the name every 5): it is served no-store with
+  no version, so every 5 minutes was about 60 MB an hour on a big picture. A changed picture shows within 30 minutes,
+  or at once on a switch, a sign-in or a new launch.
+- Tests: the name's three states, the two cadences, sign-out forgetting the person; controls (the old name rule, no
+  picture gate) each fail one. Not tested: a read in the air across stop() (the fake answers at once).
