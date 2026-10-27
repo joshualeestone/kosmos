@@ -80,3 +80,9 @@ holds each one.
   read as one (no backtick cuts). NITs FIXED: Command -v in any case; nohup.exe and the other prefix words with .exe; the
   header rewritten to say what is read both ways and what is not seen; an invalid-shell test case replaced by if [ ]; then.
   All four earlier harnesses rerun: 0 leak regressions. Negative control: the new test fails against round 4. 82/82.
+- Round 6: no BLOCKER (1.2M-call fuzz vs main: only redirect-target cases differ, where main refused a file name). 2
+  WARNINGs, 2 NITs. FIXED: while, until and { read past (leak main shares); --chdir, --unset, --signal, --kill-after
+  take the next word; a redirect among cmd, PowerShell or POSIX switches does not end them. ACCEPTED and named in the
+  header: a redirect an outer shell already took is kept in the cmd line (refusal only; node passes it through when cmd
+  is the program). Fuzz rerun on the fix: same 2 redirect-target cases only. Negative control: the new test fails
+  against round 5. 83/83.

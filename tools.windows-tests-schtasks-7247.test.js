@@ -413,3 +413,14 @@ test('#7270 review 5: a redirect stays in the cmd line, a lone backtick does not
   // a backtick in a verbatim PowerShell line is its escape, not a command
   assert.equal(callRuns('powershell', ['-Command', 'Write-Output', '`schtasks'], { windowsVerbatimArguments: true }), false);
 });
+
+test('#7270 review 6: loops and groups, long options that take a value, and a redirect among a launcher\'s switches', () => {
+  for (const cmd of ['while schtasks /Query; do sleep 1; done', 'until schtasks /Query; do sleep 1; done', '{ schtasks /Query; }',
+    'env --chdir x schtasks', 'env --unset X schtasks', 'timeout --kill-after 5 10 schtasks', 'cmd 2>nul /c schtasks',
+    'bash 2>/dev/null -c "schtasks /Query"', 'powershell >nul -Command schtasks'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: the same forms running something else
+  for (const cmd of ['while true; do node x.js; done', '{ echo schtasks; }', 'env --chdir schtasks node x.js',
+    'cmd 2>nul /c echo schtasks', 'bash 2>/dev/null -c "echo schtasks"'])
+    assert.equal(commandRuns(cmd), false, cmd);
+});

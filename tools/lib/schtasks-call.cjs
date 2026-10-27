@@ -21,7 +21,8 @@
  * argument holding a double quote passed to cmd, and an exec line whose shell is not known (with backtick cuts, and
  * without). So these are refused though they run nothing: a here-document line that starts with schtasks (telling a
  * body from commands needs a real shell parser, and a reader that tried leaked, review 2 of #7270), echo `schtasks`
- * under cmd, and "echo (schtasks)".
+ * under cmd, "echo (schtasks)", and a redirect an outer shell already took (cmd /c "echo a b" > "x & schtasks"; it is
+ * kept in the cmd line because node passes it through when cmd is the program).
  *
  * It reads command lines with a small tokenizer, not a full shell parser. What it does not see: a command built at run
  * time inside the shell (a variable, a script file run by powershell -File or cmd /c script.cmd), a PowerShell script
@@ -134,8 +135,8 @@ function wordsRun(ws, i, depth, shell) {
     const b = baseName(w.text.replace(/^@/, ''));   // @schtasks: cmd's no-echo prefix
     if (PROGRAM.test(b)) return true;
     if (CMD.test(b)) {
-      for (i += 1; i < ws.length && /^\//.test(ws[i].text); i += 1) {
-        if (/^\/[ckr]$/i.test(ws[i].text)) {
+      for (i += 1; i < ws.length && (ws[i].redirect || /^\//.test(ws[i].text)); i += 1) {
+        if (!ws[i].redirect && /^\/[ckr]$/i.test(ws[i].text)) {
           const line = rest(i + 1).trim();
           /* A line after /c that starts with a quote: unless it is exactly one quoted program, cmd drops that quote and
              the LAST quote on the line, which can move an & out of quotes (cmd /c "a b" "x & schtasks"; review 4, seen
@@ -148,7 +149,8 @@ function wordsRun(ws, i, depth, shell) {
       continue;   // cmd with no /c: what follows is read as the command
     }
     if (POWERSHELL.test(b)) {
-      for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) {
+      for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
+        if (ws[i].redirect) continue;
         const s = ws[i].text;
         if (/^-(command|c)$/i.test(s)) return lineRuns(rest(i + 1), depth + 1, 'other');
         if (/^-(encodedcommand|enc|e|ec)$/i.test(s)) return i + 1 < ws.length && lineRuns(decodePs(ws[i + 1].text), depth + 1, 'other');
@@ -158,7 +160,8 @@ function wordsRun(ws, i, depth, shell) {
       continue;   // powershell with a bare command: the next word starts it
     }
     if (POSIX_SHELL.test(b)) {
-      for (i += 1; i < ws.length && /^[-+]/.test(ws[i].text); i += 1) {
+      for (i += 1; i < ws.length && (ws[i].redirect || /^[-+]/.test(ws[i].text)); i += 1) {
+        if (ws[i].redirect) continue;
         if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(ws[i].text)) {   // -c, -lc, -ec (not -C)
           /* The script as one quoted word is read from its inside. */
           const script = ws[i + 1] && ws[i + 1].quoted ? ws[i + 1].inner : rest(i + 1);
@@ -175,23 +178,23 @@ function wordsRun(ws, i, depth, shell) {
         if (/^(-S|--split-string)$/.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1, 'posix');   // -S STRING is the command line
         const joined = ws[i].text.match(/^(?:-S|--split-string=)(.+)$/);   // -S"..." and --split-string=... (review 3)
         if (joined) return lineRuns([joined[1], rest(i + 1)].join(' '), depth + 1, 'posix');
-        if (/^-[uC]$/.test(ws[i].text)) i += 1;   // -u NAME, -C DIR: the option's value is the next word
+        if (/^(-[uC]|--unset|--chdir)$/.test(ws[i].text)) i += 1;   // -u NAME, -C DIR: the option's value is the next word
       }
       continue;
     }
     /* Words that start the command after them: nohup, exec, command, time, nice, and the shell keywords a command
-       follows (then, else, do, !) (#7270). */
+       follows (then, else, do, while, until, {, !) (#7270). */
     if (/^(command|builtin)$/i.test(b)) {   // command -v, command -p -v: a lookup, which runs nothing
       let k = i + 1;
       for (; k < ws.length && /^-/.test(ws[k].text); k += 1) if (/^-[a-zA-Z]*[vV]/.test(ws[k].text)) return false;
     }
-    if (/^(nohup|exec|command|builtin|time|nice|then|else|do|!)(\.exe)?$/i.test(b)) {
+    if (/^(nohup|exec|command|builtin|time|nice|then|else|do|while|until|\{|!)(\.exe)?$/i.test(b)) {
       for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^-(n|a)$/.test(ws[i].text)) i += 1;
       continue;
     }
     /* timeout DURATION command. Windows' timeout /t 5 runs nothing, and reads so: /t is taken for the duration. */
     if (/^timeout(\.exe)?$/i.test(b)) {
-      for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^-(s|k)$/.test(ws[i].text)) i += 1;
+      for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^(-[sk]|--signal|--kill-after)$/.test(ws[i].text)) i += 1;
       if (i < ws.length && /^\//.test(ws[i].text)) return false;
       i += 1;   // the duration
       continue;
