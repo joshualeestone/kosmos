@@ -261,7 +261,7 @@ test('#7333 review 2: a 64-bit serial above 2^53 (lossy as a number) still reads
   assert.equal(projects.sameOpenedFile(st(full), st(low + 1n), 'win32'), false, 'CONTROL: another volume still differs');
 });
 
-test('#7333 review 2: a real stat by path and by handle carries the exact serial, equal both ways', () => {
+test('#7333 review 2: a real stat by path and by handle carries the exact serial, equal both ways', winOnly, () => {
   const os = require('node:os');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devx7333-'));
   const f = path.join(dir, 'f.txt');
