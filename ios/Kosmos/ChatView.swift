@@ -144,15 +144,22 @@ struct ChatView: View {
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
                 if unseenNew && !searching { newMessagesCapsule }
             }
-            if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
-                Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil && pressLine != nil ? Palette.dangerWord : Palette.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // Mona Lisa's spec: 16 pt side margins, 6 pt above the composer.
-                    .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
-                    .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
-                    .onChange(of: line) { now in UIAccessibility.post(notification: .announcement, argument: now) }
+            // kosmos#7346 (Josh 10-27, Mona Lisa's design): the message box floats over the conversation, which runs
+            // behind it; the inset keeps the newest message above the box.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
+                        Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil && pressLine != nil ? Palette.dangerWord : Palette.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            // Mona Lisa's spec: 16 pt side margins, 6 pt above the composer.
+                            .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
+                            .background(Palette.ground.opacity(0.94))
+                            .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
+                            .onChange(of: line) { now in UIAccessibility.post(notification: .announcement, argument: now) }
+                    }
+                    composer
+                }
             }
-            composer
         }
         .background(Palette.ground.ignoresSafeArea())
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
@@ -1072,22 +1079,28 @@ struct ChatView: View {
         VStack(alignment: .leading, spacing: 6) {
             if let replying { replyStrip(replying) }
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }
-            HStack(alignment: .bottom, spacing: 8) {
+            // kosmos#7346: one floating box, + then the text then emoji and mic; no send arrow (the keyboard's Send sends).
+            // Radius 24, at least 48 pt, the card colour with a soft shadow and a hairline edge (Mona Lisa's spec).
+            HStack(alignment: .bottom, spacing: 0) {
                 addButton
                 field
-                sendButton
             }
+            .frame(minHeight: 48)
+            .background(RoundedRectangle(cornerRadius: 24).fill(Palette.card)
+                .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 3))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Palette.separator, lineWidth: 0.5))
             if let line = ComposerExtras.micLine(dictation.state) {
                 Text(line).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
             }
             // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it. The tab bar is
             // already hidden in a conversation, so nothing sits under the panel.
-            if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) }.padding(.horizontal, -12) }
+            if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) }.padding(.horizontal, -12).background(Palette.ground) }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Palette.ground)
+        // 8 pt above the keyboard, or above the home bar when it is down.
+        .padding(.top, 6)
+        .padding(.bottom, 8)
         .onChange(of: composerFocused) { focused in if focused { emojiOpen = false } }
         // Review 8: the search field's keyboard closes the panel too, or it sits on top of it and hides the results.
         .onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }
@@ -1099,12 +1112,18 @@ struct ChatView: View {
         // composer being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
         .onChange(of: draftText) { [was = draftText] now in
+            // kosmos#7346: the keyboard's Send key arrives as a lone new line: take it out, and send if there is something
+            // to send (as the arrow did: not while dictation is finishing, not with a file still on its way).
+            if let without = ComposerExtras.typedReturn(was: was, now: now) {
+                draftText = without
+                if canSend { send() }
+                return
+            }
             // kosmos#7348: the sent text came back into the box (the keyboard's dictation or Writing Tools finishing late).
             // Kept for the whole window, so a keyboard that puts it back twice is cleared twice (review).
             if Board.refilledWithSent(now, was: was, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { draftText = ""; return }
             dictation.boxChanged(to: now)
         }
-        .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
         // Each picker on a host of its own: two presentations on one view can leave one that never opens (iOS 16).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
                                              maxSelectionCount: max(1, Board.maxFiles - attachedHere.count - uploadingHere),
@@ -1141,18 +1160,16 @@ struct ChatView: View {
             Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
                 .disabled(atFileLimit)
         } label: {
+            // kosmos#7346: a plain + inside the box, a 44 pt target (Apple's minimum) on its 48 pt row.
             Image(systemName: "plus")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(Palette.primary)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Palette.card))
-                .overlay(Circle().stroke(Palette.separator, lineWidth: 0.5))
+                .font(.system(size: 19, weight: .regular))
+                .foregroundColor(Palette.secondary)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
-                .padding(-5)
         }
         .accessibilityLabel("Add a photo or file")
         .accessibilityHint(atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "")
+        .padding(.leading, 4)
         .padding(.bottom, 2)
     }
 
@@ -1214,39 +1231,21 @@ struct ChatView: View {
                 .accessibilityLabel("Message \(shown.name)")
                 .font(.body)
                 .foregroundColor(Palette.primary)
-                .lineLimit(1...5)
-                .padding(.vertical, 9)
-                .padding(.leading, 14)
+                .lineLimit(1...6)
+                // kosmos#7346: the return key reads Send, and a lone new line typed into the box sends (typedReturn).
+                .submitLabel(.send)
+                // With no arrow on screen, VoiceOver gets Send as an action on the box itself.
+                .accessibilityAction(named: "Send") { if canSend { send() } }
+                .padding(.vertical, 13)
+                .padding(.leading, 2)
             ComposerEmojiButton(open: emojiOpen) {
                 if emojiOpen { emojiOpen = false; composerFocused = true } else { emojiOpen = true; composerFocused = false }
             }
             ComposerMicButton(dictation: dictation) {
                 dictation.toggle(base: draftText, current: { draftText }) { draftText = $0 }
             }
-            .padding(.trailing, 2)
+            .padding(.trailing, 4)
         }
-            .background(Palette.card)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
-    }
-
-    private var sendButton: some View {
-        Button(action: send) {
-            Image(systemName: "arrow.up")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(Palette.sendGlyph)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Palette.sendFill))
-                .opacity(canSend ? 1 : 0.35)
-                // A 44 pt place to tap (Apple's minimum) around the 34 pt circle, laid out as the circle alone.
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-                .padding(-5)
-        }
-        .disabled(!canSend)
-        .accessibilityLabel("Send")
-        .accessibilityHint(dictation.finishing ? "Waiting for the last words" : dictation.busy ? "Stop dictating first" : "")   // kosmos#7268 review 5: why it waits
-        .padding(.bottom, 2)
     }
 
     // Words, or files with no words (their names go as the words). Not with files while another is still on its way

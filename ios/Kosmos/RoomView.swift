@@ -895,12 +895,10 @@ struct RoomView: View {
             Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
                 .disabled(atFileLimit)
         } label: {
+            // kosmos#7346: a plain + inside the box, a 44 pt target.
             Image(systemName: "plus")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(Palette.primary)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Palette.card))
-                .overlay(Circle().stroke(Palette.separator, lineWidth: 0.5))
+                .font(.system(size: 19, weight: .regular))
+                .foregroundColor(Palette.secondary)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
@@ -973,26 +971,29 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
             }
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }
-            HStack(alignment: .bottom, spacing: 8) {
+            // kosmos#7346 (Josh 10-27, Mona Lisa's design): one floating box, + then the text then emoji and mic, and no
+            // Post arrow: the keyboard's Send key posts (typedReturn). The chat's box, in the room's own column.
+            HStack(alignment: .bottom, spacing: 0) {
                 addButton
                 // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end (the board's
                 // .emojibtn sits inside its input); the box's text runs up to them.
                 HStack(alignment: .bottom, spacing: 0) {
-                    CursorField(placeholder: "Write something or @name to message someone…", text: $draft, focus: $typing, insert: $emojiInsert)
-                        .lineLimit(1...5)
+                    CursorField(placeholder: "Message \(project.name)", text: $draft, focus: $typing, insert: $emojiInsert)
+                        .lineLimit(1...6)
+                        .submitLabel(.send)
                         .accessibilityFocused($composerFocused)
                         .accessibilityLabel("Post to everyone on this project")
-                        .padding(.vertical, 10).padding(.leading, 14)
+                        // With no Post arrow on screen, VoiceOver gets Post as an action on the box itself.
+                        .accessibilityAction(named: "Post") { if canPost { send() } }
+                        .padding(.vertical, 13).padding(.leading, 2)
                     ComposerEmojiButton(open: emojiOpen) {
                         if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
                     }
                     ComposerMicButton(dictation: dictation) {
                         dictation.toggle(base: draft, current: { draft }) { draft = $0 }
                     }
-                    .padding(.trailing, 2)
+                    .padding(.trailing, 4)
                 }
-                    .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
-                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator))
                     .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
                     // VoiceOver hears the list open, once, not on every letter (the board's aria-activedescendant has
                     // no iOS form; review 1), queued behind the key echo (review 2).
@@ -1000,16 +1001,12 @@ struct RoomView: View {
                         if closed { mentionRowsHeight = 0 }   // each open starts from its own estimate (review 3)
                         if !closed, let n = mentionOptions?.count { Self.say(Board.mentionOpened(n)) }
                     }
-                Button { send() } label: {
-                    Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundColor(Palette.sendGlyph)
-                        .frame(width: 44, height: 44).background(Circle().fill(Palette.sendFill))
-                }
-                .disabled(!canPost)
-                .opacity(canPost ? 1 : 0.5)
-                .accessibilityLabel("Post")
-                .accessibilityHint(dictation.finishing ? "Waiting for the last words" : dictation.busy ? "Stop dictating first" : "")   // kosmos#7268 review 5: why it waits
             }
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(minHeight: 48)
+            .background(RoundedRectangle(cornerRadius: 24).fill(Palette.card)
+                .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 3))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Palette.separator, lineWidth: 0.5))
+            .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
             if let line = ComposerExtras.micLine(dictation.state) {
                 Text(line).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 6)
@@ -1032,6 +1029,16 @@ struct RoomView: View {
         // being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
         .onChange(of: draft) { [was = draft] now in
+            // kosmos#7346: the keyboard's Send key arrives as a lone new line: take it out, and post if there is something
+            // to post (canPost: as the arrow was, not while dictation finishes or a file is on its way).
+            if let without = ComposerExtras.typedReturn(was: was, now: now) {
+                draft = without
+                // With the @name list open, Send picks its first name, as Enter does on the board, rather than posting a
+                // half-typed name.
+                if let first = mentionOptions?.first, let text = Board.mentionPick(draft, key: first.session) { draft = text; return }
+                if canPost { send() }
+                return
+            }
             // kosmos#7348: the posted text came back into the box (the keyboard's dictation or Writing Tools finishing late).
             if Board.refilledWithSent(now, was: was, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) {
                 draft = ""
