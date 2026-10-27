@@ -64,6 +64,12 @@ test('#7368: the step names the shell command in quotes, or the tool and what it
   assert.equal(stepVia('Bash', { command: 'npm install' }), 'running "npm install"');
   assert.equal(stepVia('Read', { file_path: 'C:\\work\\notes.md' }), 'using Read on C:\\work\\notes.md');
   assert.equal(stepVia('WebFetch', {}), 'using WebFetch');
+  // An MCP call reads as the tool and where it comes from, not the internal name (measured: a hung one stays open).
+  assert.equal(stepVia('mcp__github__create_issue', { title: 'x' }), 'using create issue from github');
+  assert.equal(stepVia('mcp__claude_ai_Claude_Docs__read', {}), 'using read from Claude Docs');
+  assert.equal(stepVia('mcp__plugin_discord_discord__reply', {}), 'using reply from discord');
+  assert.equal(stepVia('mcp__notes__search', { query: 'invoices' }), 'using search from notes on invoices');
+  assert.equal(stepVia('mcp__bad__', {}), 'using mcp__bad__', 'CONTROL: a name with no tool part is shown as it is');
   assert.equal(stepVia('Bash', { command: 'a\n\t\u0007 b' }), 'running "a b"', 'control characters and runs of space fold to one space');
   const long = stepVia('Bash', { command: '\u{1F600}'.repeat(200) });
   assert.equal(Array.from(long).length, 80, 'cut to 80 characters');
@@ -295,4 +301,26 @@ test('#7368 review 4 N2/N3: a system event is activity, and moves the clock on d
   r.clock.t += ss.STEP_CLOCK_MS + 1000;
   r.pub.event({ type: 'system', subtype: 'status' });
   assert.notEqual(r.last().stepSince, first, 'a system event in a later bucket is written as activity');
+});
+
+test('#7368 seam: a hung MCP call, as Claude Code 2.1.312 streams it, stays the step and its progress is not activity', () => {
+  // Measured 10-27 against a stdio MCP server that never answers tools/call: after the call, the stream carries only
+  // tool_progress every 30 s, with tool_use_id and parent_tool_use_id both set to the hung call's own id.
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.event(init);
+  r.pub.event(toolUse('mcp__hang__wait', {}));
+  const id = lastId;
+  r.pub.wrote();
+  const since = r.last().stepSince;
+  for (let s = 30; s <= 3660; s += 30) {
+    r.clock.t += 30 * 1000;
+    r.pub.event({ type: 'tool_progress', tool_use_id: id, parent_tool_use_id: id, tool_name: 'mcp__hang__wait', elapsed_time_seconds: s });
+  }
+  r.pub.wrote();
+  assert.equal(r.last().step, 'using wait from hang');
+  assert.equal(r.last().queued, 2, 'both messages still waiting: progress closes nothing');
+  assert.equal(r.last().stepSince, since, 'an hour of progress lines did not move the clock');
+  r.pub.event(toolResult(id));
+  assert.equal(r.last().queued, undefined, 'CONTROL: the call returning does take them');
 });

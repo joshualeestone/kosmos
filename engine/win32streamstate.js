@@ -106,6 +106,19 @@ const STEP_MAX = 80;
 const STEP_CLOCK_MS = 5 * 60 * 1000;
 /* kosmos#7368: one tool call's step: the shell command it runs in quotes, or the tool and what it acts on. Short, one line,
    masked; never the whole input. */
+/* kosmos#7368 (measured, Claude Code 2.1.312): a hung MCP call stays open on the card like any other, and its name is
+   mcp__<server>__<tool>, which a person should not have to read. Shown as "<tool> from <server>", underscores as spaces,
+   without the claude_ai_ and plugin_<name>_ prefixes Claude Code adds. Any other name is shown as it is. */
+function toolWords(name) {
+  const m = /^mcp__(.+?)__(.+)$/.exec(name);
+  if (!m) return name;
+  const words = (v) => v.replace(/_+/g, ' ').trim();
+  const server = words(m[1].replace(/^claude_ai_/, '').replace(/^plugin_[^_]+_/, ''));
+  const tool = words(m[2]);
+  if (!tool) return name;
+  return server ? tool + ' from ' + server : tool;
+}
+
 function stepOfUse(use) {
   try {
     if (!use || typeof use.name !== 'string' || !use.name) return null;
@@ -122,7 +135,7 @@ function stepOfUse(use) {
     const cmd = one(input.command);
     if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
     const target = one(input.file_path) || one(input.path) || one(input.url) || one(input.pattern) || one(input.query);
-    return cut('using ' + use.name + (target ? ' on ' + target : ''));
+    return cut('using ' + toolWords(use.name) + (target ? ' on ' + target : ''));
   } catch { return null; }
 }
 
