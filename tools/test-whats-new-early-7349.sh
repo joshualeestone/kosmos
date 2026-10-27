@@ -56,7 +56,8 @@ STOP="stopped before marking the cut or claiming the machine (kosmos#7349)"
 
 # prod is newer than the pool records (prod-check exits 3): stopped early, nothing marked, no cut home.
 run 0 3
-{ [ "$RC" != 0 ] && has "$OUT" "$STOP" && has "$OUT" "whats-new-pool.js build $NEXTV" && has "$LOG" "whats-new-pool prod-check markers=0" \
+{ [ "$RC" != 0 ] && has "$OUT" "$STOP" && has "$OUT" "whats-new-pool.js build $NEXTV" && has "$OUT" "whats-new-pool stand-in refuses (3)" \
+  && has "$LOG" "whats-new-pool prod-check markers=0" \
   && ! marked && ! home_made; } \
   && pass "a pool behind prod stops the cut before it marks itself: no marker, no claim, no cut home" \
   || bad "pool behind prod (rc=$RC): log=[$LOG] marked=$(marked && echo y || echo n) out=$(printf '%s' "$OUT" | tail -3)"
@@ -82,8 +83,8 @@ has "$OUT" "highlight(s) passing line" && bad "the early check printed the tools
 
 # prod could not be read (exit 4): goes on, as at 1b-ii, and the early run does not print 1b-ii's NOTE.
 run 0 4
-{ ! has "$OUT" "$STOP" && home_made && ! has "$OUT" "could not read what prod serves"; } \
-  && pass "prod unreadable (exit 4): the cut goes on, the NOTE left to step 1b-ii" \
+{ ! has "$OUT" "$STOP" && home_made && ! has "$OUT" "could not read what prod serves" && ! has "$OUT" "stand-in refuses (4)"; } \
+  && pass "prod unreadable (exit 4): the cut goes on, its reason and the NOTE left to step 1b-ii" \
   || bad "prod unreadable (rc=$RC): out=$(printf '%s' "$OUT" | tail -3)"
 
 # the hotfix opt-out skips it, as it skips 1b-ii: neither tool is run.
@@ -99,5 +100,9 @@ awk '/step "== 1b-ii\. the What/{s=1} /step "== 1c\./{exit} s&&/whats_new_gate n
 # tools/test-staging-channel-2036.sh): inside the non-Windows branch, after the PROMOTED line.
 awk '/promote-channel: PROMOTED \$V to prod/{p=1} p&&/whats-new-pool\.js build/{print "hint"; exit} p&&/^fi$/{exit}' "$HERE/promote-channel.sh" | grep -q hint \
   && pass "promote-channel.sh names the pool build after a Mac prod promote" || bad "promote-channel.sh: the pool-build hint is missing from the Mac branch"
+
+# A prod cut moves prod as a promote does, so it names the build too: inside its final prod block.
+awk '/^if \[ "\$CUT_CHANNEL" = prod \]; then$/{p=1; h=0} p&&/whats-new-pool\.js build/{h=1} p&&/bash "\$MAIN_REPO\/tools\/post-release-notes\.sh"/{if(h)print "hint"; exit}' "$HERE/release.sh" | grep -q hint \
+  && pass "a prod cut names the pool build at its end, before the release notes" || bad "release.sh: the prod cut's pool-build hint is missing"
 
 if [ "$fail" = 0 ]; then echo "test-whats-new-early-7349: ALL PASS"; else echo "test-whats-new-early-7349: FAILURES above"; exit 1; fi
