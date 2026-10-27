@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: linuxdeploy-7281
-diff_hash: 1e623d389c19a8c31d2860e7e7e9062595919511f4a3fdd4e11431901efc7eeb
+diff_hash: d7f4f29785bd701b02677146489a400e7468f4dc2a75fa0e8a435418151b1fbd
 validation: focused-passed (tools/test-deploy-linux-7281.sh 44/44); every deploy-site and setup-floor shell test on the committed head 15/15 rc 0 (sweep 3), then every setup-floor-using test after review 3's fix 9/9 rc 0; main has not touched these files since the base; full suite via PR CI
 subdir_audit: passed
-timestamp: 2026-10-27T06:14:14Z
+timestamp: 2026-10-27T06:29:37Z
 iterations: 3
 converged: true
 ---
@@ -29,6 +29,9 @@ Validation, stated as it happened:
 
 After C1's PR CI showed it (01:12): tools.every-test-runs.test.js requires a new tools/test-*.sh in test:shell;
 tools/test-deploy-linux-7281.sh added before this PR's node suite could fail on it (guard 27/27).
+
+After PR CI (01:28): the Linux shard has GNU stat, and `stat -f %Lp` (BSD) failed the mode check; the test reads
+the mode through node now (44/44).
 
 The per-round findings and decisions are in .claude/plans/linuxdeploy-7281.md.
 
