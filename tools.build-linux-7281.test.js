@@ -251,6 +251,7 @@ test('CONTROL: with an ELF connector it packs the bundle, and its manifest lists
   assert.equal(sidecar[1], 'kosmos-linux-x64.tar.gz');
   assert.equal(m.sha256, sidecar[0], 'the manifest and the sidecar disagree about the tarball');
   // kosmos#7281 rehearsal: under macOS /bin/bash 3.2 the VERSION line was a syntax error's leftovers, with exit 0.
+  // These two can fail only where `bash` on PATH is 3.2; the source check in the next test covers everywhere else.
   assert.doesNotMatch(r.stderr, /syntax error/, 'the builder printed a syntax error and still exited 0');
   const version = spawnSync('tar', ['-xzOf', tarball, 'VERSION'], { encoding: 'utf8' }).stdout;
   const nodeLine = version.split('\n').find((l) => l.startsWith('node:'));
