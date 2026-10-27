@@ -229,6 +229,7 @@ test('#7320 review 4: the env -S memo tells apart word lists that join to the sa
   assert.equal(callRuns('env', ['-S', 'env -S -u', 'x" "schtasks']), true);
   // CONTROL: the one-argument form alone runs nothing
   assert.equal(callRuns('env', ['-S', '-u', 'x" "schtasks']), false);
+});
 
 test('#7318: tool-guard reads Windows names, paths and PATH lookup on Windows, and only there', () => {
   const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-7318-'));

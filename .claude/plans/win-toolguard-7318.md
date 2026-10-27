@@ -71,3 +71,7 @@ the safe side for a guard against real CLIs.
   identical to origin/main: both versions loaded with process.platform forced to linux, 526,500 inputs each, twice
   (once with execute bits patched in so the bare-name lookup runs), byte-identical output; a negative control without
   the force differs on 132,330 lines. Windows: the real gh.exe refused in every ordinary shape. Converged.
+- Rebased onto main after #7325 (fill fix, mine dropped) and #7326 (#7299+#7320 reader): both append tests to
+  tools.command-words-7262.test.js; resolving the join lost #7320 review 4's closing brace, caught by the file failing
+  to load, restored; all 9 of main's tests plus 4 of this branch's present. 73/73, 0 skipped, 0 of 10 runs fail; 87
+  win32 files with both preloads (this guard on #7326's reader): 1588 tests, 0 fail, 0 refusals.
