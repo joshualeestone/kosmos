@@ -330,6 +330,37 @@ test('a site 429 pauses the pass', async () => {
   assert.equal(agentNamed('ava').owner, null);
 });
 
+test('a site 503 with no Retry-After (not set up for Kosmos+ yet) waits the hour; with one, the short pause', async () => {
+  await registered('ava');
+  cs._ownerLinkReset(0);   // every short pause is zero, so only the hour keeps a second sweep from asking
+  be.st.mode.status = 503;
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(ownerCalls().length, 1, 'not set up: asked once, then the hour');
+  cs._ownerLinkReset(0);
+  be.st.mode.headers = { 'retry-after': '30' };
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(ownerCalls().length, 3, 'a moment-long 503: the short pause, so each sweep asks');
+});
+
+test('the real community with an overridden coordinator links nothing (a stand-in coordinator could vouch for anyone)', async () => {
+  const site = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  const real = 'https://community.kosmosplus.com/';
+  // The default address is answered by this test's loopback site; any other address fails, so nothing leaves.
+  cs.setSender((url, init) => {
+    if (!String(url).startsWith(real)) throw new Error('unexpected address ' + url);
+    return fetch(site + String(url).slice(real.length), init);
+  });
+  delete process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  try {
+    await registered('ava');
+    const lines = await ownerLogs(() => cs.sweep());
+    assert.equal(R.mints.length, 0, 'no pass asked for while the coordinator is not the real one');
+    assert.ok(lines.some((l) => l.includes('is production and the other is not')), JSON.stringify(lines));
+  } finally { process.env.AGENT_WORKFORCE_COMMUNITY_URL = site; }
+});
+
 test('production passes only to the production site: a loopback community with the default coordinator links nothing', async () => {
   await registered('ava');
   const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
@@ -602,15 +633,6 @@ test('the pass budget spent during one agent: the next agent waits, and the next
   R.mint = null;
   await cs.sweep();
   assert.deepEqual(R.mints.slice(1).map((m) => m.body.agent), [second, first], 'the next pass starts at the agent the budget left, then wraps to the first');
-});
-
-test('a coordinator 400 about this computer\'s key (wrong epoch) pauses the whole pass at once', async () => {
-  for (const a of ['a1', 'a2', 'a3']) await registered(a);
-  R.mint = () => ({ ok: false, because: 'coordinator answered 400', refusal: { status: 400, code: 'member_key_wrong_epoch', currentEpoch: 3 } });
-  await cs.sweep();
-  assert.equal(R.mints.length, 1, 'not charged to the name: the first refusal stops the pass (a name 400 asks two)');
-  await cs.sweep();
-  assert.equal(R.mints.length, 1, 'and the pass waits');
 });
 
 test('a coordinator 400 for a second agent in one pass is about the request: the whole pass waits', async () => {

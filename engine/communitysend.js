@@ -1484,22 +1484,25 @@ async function sweepInstallGroup(keys, on) {
  *   a refusal about one agent (the coordinator's 400, or a site 4xx other than 401, 404, 405, 408, 413 and 429): that
  *   agent waits 15 minutes and the pass goes on. After a pass-wide pause the next pass starts just after the
  *   agent it stopped on. An agent refused for good is asked again every 15 minutes until the refusal ends (a
- *   board restart only resets the wait): at most 96 small mints and site calls a day per such agent, accepted;
- *   a coordinator 403 (this computer is not allowed, or the account lapsed), its 400 about this computer's key
- *   (member_key_wrong_epoch), a coordinator 400 for a second agent
+ *   board restart only resets the wait): at most 96 small mints a day per such agent (and site calls, when the
+ *   site is the one refusing), accepted;
+ *   a coordinator 403 (this computer is not allowed, or the account lapsed), a coordinator 400 for a second agent
  *   in one pass (the request, not a name), or a second site refusal in one pass: the pass pauses 15 minutes;
  *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
  *   a site 429 from its request limiter (rate_limit_exceeded): that agent alone waits the #4953 limiter pause; any
  *   other site 429: the pass waits Retry-After, capped like #4940's register wait;
+ *   a site 503 with no Retry-After (the site says Kosmos+ is not set up on it yet, which lasts until someone sets
+ *   it up): an hour, as for a missing route;
  *   anything else (no answer, a 5xx, a 401 logging in again did not clear): the pass pauses 15 minutes (a 503's
- *   Retry-After is not honoured: the site's own not-ready answer asks 30 s, so 15 minutes is longer; a 503 asking
+ *   Retry-After is not honoured: the site's own moment-long 503 asks 30 s, so 15 minutes is longer; a 503 asking
  *   more than 15 minutes is asked once more after 15, one small request, accepted);
  *   a mint refused on this computer before it was sent (a register or a Forget is out): no pause.
  * The owner-link pauses are per endpoint, in memory; the #4953 limiter pause is per agent, as for posts.
  * Production passes go only to the production site: nothing is linked unless the community service and the Kosmos+
  * coordinator are both production or both not (it does not check that two non-production ones belong together) (a board pointed at another community while signed in to the
  * real Kosmos+ would hand that service a live pass for the person's account, which it could present at the real site
- * under a name it registers there).
+ * under a name it registers there; and the real community with a stand-in coordinator would let that coordinator vouch
+ * the person's agents to any account).
  */
 const OWNER_PASS_ROUTE = '/v1/mac/community-owner-pass';
 let OWNER_LINK_RETRY_MS = 15 * 60 * 1000;   // a pause after a failure of the service or of one agent (tests set it)
@@ -1619,23 +1622,20 @@ async function sweepOwnerLink(keys, on) {
       if (minted.ok && retiring(agentKey)) continue;
       if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string' || !minted.data.pass) {
         const st = minted.refusal ? minted.refusal.status : 0;
-        // The coordinator's only refusal about one agent is its 400 (the name); its 403s are about this computer (not
-        // allowed on the account, or the account lapsed), and so is a 400 saying this computer's key is from an old
-        // epoch (remote.js, #5744), so those pause the whole pass below.
+        // The coordinator's only refusal about one agent is its 400 (the body or the name); its 403s are about this
+        // computer (not allowed on the account, or the account lapsed), so those pause the whole pass below.
         // A second agent refused the same way in one pass means the request, not the name: the whole pass waits.
-        const epoch = st === 400 && minted.refusal.code === 'member_key_wrong_epoch';
-        if (st === 400 && !epoch) coord400 += 1;
-        if (st === 400 && !epoch && coord400 < 2) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
+        if (st === 400) coord400 += 1;
+        if (st === 400 && coord400 < 2) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
         const unknown = !minted.ok && ownerPassUnknown(minted);
         ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
         stopHere();   // even for a missing route: the same for every agent then, and an agent's own 404 cannot hold the walk
         const what = unknown ? 'Kosmos+ cannot vouch for agents yet'
-          : epoch ? 'Kosmos+ refused this computer\'s key as out of date (400)'
           : st === 400 ? 'Kosmos+ refused the request for two agents in one pass (400), so the request itself is likely wrong'
           : st === 403 ? 'Kosmos+ does not let this computer vouch for agents (403: not allowed on the account, or it lapsed)'
             : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '') + (minted.because ? `: ${String(minted.because).slice(0, 200)}` : '');
         // Said once per kind of failure: the reason's own words can differ from one call to the next.
-        const said = unknown ? 'unknown route' : epoch ? 'wrong epoch' : 'coordinator ' + st;
+        const said = unknown ? 'unknown route' : 'coordinator ' + st;
         ownerLinkPassLog(ep, `${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`, said);
         break;
       }
@@ -1674,11 +1674,14 @@ async function sweepOwnerLink(keys, on) {
         break;
       }
       // No answer, a 5xx (the site's 503 while it is not ready), a 401 logging in again could not clear, or a second
-      // site refusal: the service.
-      ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
+      // site refusal: the service. A 503 with no Retry-After is the site saying Kosmos+ is not set up on it yet, which
+      // lasts until someone sets it up: an hour, as for a missing route (each ask spends a single-use pass).
+      const notSetUp = r.status === 503 && !r.retryAfter;   // a missing header reads as 0 here (Number(null))
+      const wait = notSetUp ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS;
+      ownerLinkPassAt.set(ep, Date.now() + wait);
       stopHere();
-      ownerLinkPassLog(ep, siteRefusal ? `the community refused the passes of two agents in one pass (${r.status}), so it likely no longer takes them; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`
-        : `the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`,
+      ownerLinkPassLog(ep, siteRefusal ? `the community refused the passes of two agents in one pass (${r.status}), so it likely no longer takes them; the pass waits ${ownerLinkWait(wait)}`
+        : `the community answered ${r.status || 'nothing'}${notSetUp ? ' (not set up for Kosmos+ yet)' : ''}; the pass waits ${notSetUp ? 'an hour' : ownerLinkWait(wait)}`,
         siteRefusal ? 'site refusals' : 'site ' + (r.status >= 500 ? '5xx' : r.status || 'none'));   // said once per kind
       break;
     }
