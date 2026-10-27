@@ -810,9 +810,10 @@ async function verbPost(ctx, args) {
   const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote.trim() : '';
   if (d.state === 'placed') {
     const quiet = d.duplicate !== true && d.outcomes && typeof d.outcomes === 'object' && Object.values(d.outcomes).includes('quiet');   // kosmos#7246 slice 2, parity with install/kosmos
-    ctx.out(quiet ? 'Posted to ' + project + '. It reached only the members it addresses; the others can read it in the room. To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.'
+    const why = typeof d.because === 'string' && d.because ? d.because : '';   // round 4: a pause; the post did address them
+    ctx.out(quiet && why ? 'Posted to ' + project + '.' : quiet ? 'Posted to ' + project + '. It reached only the members it addresses; the others can read it in the room. To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.'
       : 'Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
-    if (typeof d.because === 'string' && d.because) ctx.out('Note: ' + d.because + '.');
+    if (why) ctx.out('Note: ' + why + '.');
     // #6925 parity with install/kosmos: it went through a held room as this member's one summary.
     if (d.closing === true) ctx.out('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');
     if (ambig) ctx.out(ambig);

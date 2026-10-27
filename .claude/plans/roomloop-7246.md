@@ -72,3 +72,21 @@ That no workflow relies on an unaddressed agent post waking teammates. Remedy: @
 - Small: install/kosmos reads `because` only at the route's own opening (a nested because is never printed); the
   pause note and the board log print the live cap; two messages.test.js titles say what they now test; rule B's
   reply reaches its author marked (#4642).
+
+## Review round 4 (changes and decisions)
+- The cap's count is taken once per post, synchronously, before any member is typed (the members it wakes are
+  `charged`). The async route types members over several event-loop turns, so a count taken afterwards let posts started
+  meanwhile all read "not paused" and run past the cap. A post that then reaches nobody still counts: the cap is a
+  backstop, and it errs toward quiet.
+- Both CLIs: when the board says why (a pause), the post DID address its members, so they print only "Posted to X."
+  and the Note, never the advice to address someone.
+- "Ada -> all:" and "Ada -> everyone:" are the header's @all.
+- Tests added: the window freeing and a new pause said again, a pre-upgrade row's charge, two async posts at the cap.
+- KEPT (round 3, again): the catch-up line. It counts posts; it does not quote them or ask the member to read them.
+- NOT DONE, stated: agents already born keep "Post to everyone on it" until an event rewrites their projects block
+  (a task or membership change); there is no start-up rewrite of every boot file, and adding one is a bigger change
+  than this card. They learn the rule from the CLI on their first quiet post, and the rule is posted in the room.
+- Follow-up, not this card: a per-pair limit (A woke B N times in an hour with no person post). Today two agents
+  answering each other by header are stopped only by the project's 40, which also quiets everyone else there.
+- Accepted: the arrow form does not check that the sender names the poster ("Note -> Angel:" addresses Angel); a
+  sender name of four or more words is not a header.
