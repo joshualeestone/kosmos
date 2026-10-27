@@ -42,8 +42,10 @@ function recording() {
   const pub = ss.publisher('agent-a', { write: (rec) => { wrote.push(rec); return { ok: true }; }, clear: () => {}, setTimer: () => {}, now: () => clock.t });
   return { pub, last: () => wrote[wrote.length - 1], wrote, clock };
 }
-const toolResult = { type: 'user', message: { content: [{ type: 'tool_result', content: 'done' }] } };
-const toolUse = (name, input) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } });
+const toolResult = (id) => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id || lastId, content: 'done' }] } });
+let nextId = 0; let lastId = null;
+/* A main-agent tool call with its own id, and the result for the latest one (or a given id). */
+const toolUse = (name, input) => { lastId = 'toolu_' + (++nextId); return { type: 'assistant', message: { content: [{ type: 'tool_use', id: lastId, name, input }] } }; };
 const init = { type: 'system', subtype: 'init' };
 const result = { type: 'result', is_error: false };
 
@@ -83,7 +85,7 @@ test('#7368 review 2 (measured on Claude Code 2.1.311): messages written during 
   r.pub.event(toolUse('Bash', { command: 'sleep 30' }));     // a step runs
   r.pub.wrote(); r.pub.wrote();                              // B and C written while it runs
   assert.equal(r.last().queued, 2, 'two wait behind the running step');
-  r.pub.event(toolResult);                                   // the step ends: the agent takes B and C in this same turn
+  r.pub.event(toolResult());                                   // the step ends: the agent takes B and C in this same turn
   assert.equal(r.last().queued, undefined, 'taken at the boundary: nothing waits');
   r.pub.event({ type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } });
   r.pub.event(result);                                       // one result for all three: no second turn ever starts
@@ -114,7 +116,7 @@ test('#7368 review 3 W2: a subagent\'s tool result is not a boundary for the per
   const sub = { type: 'user', parent_tool_use_id: 'toolu_x', message: { content: [{ type: 'tool_result', content: 'sub step' }] } };
   r.pub.event(sub);
   assert.equal(r.last().queued, 1, 'the subagent\'s own tool result leaves the person\'s message waiting');
-  r.pub.event(toolResult);
+  r.pub.event(toolResult());
   assert.equal(r.last().queued, undefined, 'CONTROL: the main agent\'s tool result takes it');
 });
 
@@ -123,7 +125,7 @@ test('#7368 review 3 W3: while a message waits, the card names the step that is 
   r.pub.started(4242, 'sid-1');
   r.pub.wrote(); r.pub.event(init);
   r.pub.event(toolUse('Bash', { command: 'first' }));
-  r.pub.event(toolResult);                               // first ends
+  r.pub.event(toolResult());                               // first ends
   r.pub.wrote();                                         // a message arrives between steps
   assert.equal(r.last().step, undefined, 'no step is named between steps');
   r.pub.event(toolUse('Bash', { command: 'second' }));   // the step that hangs
@@ -136,7 +138,7 @@ test('#7368 review 2 W2: the step clock moves on activity, in buckets, so a busy
   r.pub.wrote();
   const first = r.last().stepSince;
   const before = r.wrote.length;
-  for (let i = 0; i < 50; i++) { r.pub.event(toolUse('Bash', { command: 'step ' + i })); r.pub.event(toolResult); }
+  for (let i = 0; i < 50; i++) { r.pub.event(toolUse('Bash', { command: 'step ' + i })); r.pub.event(toolResult()); }
   assert.ok(r.wrote.length - before <= 1, 'fifty named tools inside one bucket cost at most one write, not fifty: ' + (r.wrote.length - before));
   r.clock.t += ss.STEP_CLOCK_MS + 1000;
   r.pub.event(toolUse('Bash', { command: 'later' }));
@@ -232,4 +234,45 @@ test('#7368: the board log says a stuck step once, in its own words', () => {
   const st = { since: '2026-10-27T12:00:00.000Z', count: 3, step: 'running "x"' };
   assert.equal(ds.turnLine('ada', st), 'turn-stuck: ada has been on one step since 2026-10-27T12:00:00.000Z (running "x"), with 3 messages waiting behind it.\n');
   assert.match(ds.turnLine('ada', { ...st, count: 1, step: null }), /since 2026-10-27T12:00:00\.000Z, with 1 message waiting/);
+});
+
+test('#7368 review 4 B1 (measured): two calls in one message run one after the other; the person\'s message waits for the second', () => {
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.wrote(); r.pub.event(init);
+  r.pub.event({ type: 'assistant', message: { content: [
+    { type: 'tool_use', id: 'call_a', name: 'Bash', input: { command: 'quick' } },
+    { type: 'tool_use', id: 'call_b', name: 'Bash', input: { command: 'hangs' } },
+  ] } });
+  r.pub.wrote();                                   // written while both are open
+  assert.equal(r.last().queued, 1);
+  r.pub.event(toolResult('call_a'));               // the first returns (18.68 s in the measured run)
+  assert.equal(r.last().queued, 1, 'still waiting: the model is not called again until the second returns');
+  assert.equal(r.last().step, 'running "hangs"', 'and the card names the call still running');
+  r.pub.event(toolResult('call_b'));
+  assert.equal(r.last().queued, undefined, 'taken once the last call returns');
+});
+
+test('#7368 review 4 W1: the board log says each stuck step once, again for a new step, and forgets an agent gone from the board', () => {
+  const said = new Map();
+  const st = { since: '2026-10-27T12:00:00.000Z', count: 2, lastWhy: 'turn', step: 'running "x"' };
+  const card = (stall) => ({ sessionName: 'ada', deliveryStall: stall });
+  assert.equal(ds.turnsToSay([card(st)], said).length, 1, 'said the first time');
+  assert.equal(ds.turnsToSay([card(st)], said).length, 0, 'not again the next minute');
+  assert.equal(ds.turnsToSay([card(null)], said).length, 0, 'a read without it says nothing');
+  assert.equal(ds.turnsToSay([card(st)], said).length, 0, 'and one flicker does not say it again');
+  assert.equal(ds.turnsToSay([card({ ...st, step: 'running "y"' })], said).length, 1, 'a new stuck step is said');
+  ds.turnsToSay([], said);
+  assert.equal(said.size, 0, 'an agent gone from the board is forgotten');
+  assert.equal(ds.turnsToSay([card({ ...st, lastWhy: 'menu' })], said).length, 0, 'CONTROL: a #7212 streak is not this line');
+});
+
+test('#7368 review 4 N2/N3: a system event is activity, and moves the clock on disk in a later bucket', () => {
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.wrote();
+  const first = r.last().stepSince;
+  r.clock.t += ss.STEP_CLOCK_MS + 1000;
+  r.pub.event({ type: 'system', subtype: 'status' });
+  assert.notEqual(r.last().stepSince, first, 'a system event in a later bucket is written as activity');
 });

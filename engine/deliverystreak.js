@@ -174,6 +174,29 @@ function turnLine(name, s) {
     + ', with ' + s.count + ' message' + (s.count === 1 ? '' : 's') + ' waiting behind it.\n';
 }
 
+/* kosmos#7368 (review 4 W1): which stuck steps the board log says now, each ONCE per step (its clock and step are the
+   key). `cards` is the board's roster ({ sessionName, deliveryStall }); `said` a Map the caller keeps. A name keeps its
+   key while it is still on the board, so one read that missed the stall does not say it again; a name gone from the
+   board is forgotten. Returns the lines to write. Never throws. */
+function turnsToSay(cards, said) {
+  const out = [];
+  try {
+    const present = new Set();
+    for (const c of cards || []) {
+      if (!c || typeof c.sessionName !== 'string') continue;
+      present.add(c.sessionName);
+      const st = c.deliveryStall;
+      if (!st || st.lastWhy !== 'turn') continue;
+      const key = st.since + '\u0000' + (st.step || '');
+      if (said.get(c.sessionName) === key) continue;
+      said.set(c.sessionName, key);
+      out.push(turnLine(c.sessionName, st));
+    }
+    for (const n of [...said.keys()]) if (!present.has(n)) said.delete(n);
+  } catch { /* said next minute */ }
+  return out;
+}
+
 /* Start `name`'s streak over: a card reading stopped or restarting (lines refused while it was down are not a stall of
    the agent that comes back). */
 function reset(name) { streaks.delete(name); }
@@ -192,4 +215,4 @@ function sweep(names) {
 
 function resetForTests() { streaks.clear(); }
 
-module.exports = { turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

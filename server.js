@@ -26182,17 +26182,9 @@ function start(port = PORT) {
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
           const shown = names.filter((n) => { const c = byName.get(n); return !!(c && c.deliveryStall); });
-          /* kosmos#7368: a stuck step is said once (its step and the clock are the key, not a passing read: a name keeps its
-             key while it is off the list, so one read that missed it does not say it again); the streak lines keep theirs. */
+          /* kosmos#7368: each stuck step is said once (deliverystreak.turnsToSay); the streak lines keep their own rule. */
           const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
-          for (const n of [...turnSaid.keys()]) if (!byName.has(n)) turnSaid.delete(n);
-          for (const n of shown.filter(isTurn)) {
-            const st = byName.get(n).deliveryStall;
-            const key = st.since + '\u0000' + (st.step || '');
-            if (turnSaid.get(n) === key) continue;
-            turnSaid.set(n, key);
-            process.stdout.write(ds.turnLine(n, st));
-          }
+          for (const line of ds.turnsToSay(r, turnSaid)) process.stdout.write(line);
           for (const st of ds.stallsToSay(shown.filter((n) => !isTurn(n)), stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
         } catch { /* said next minute */ }
       };

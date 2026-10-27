@@ -101,7 +101,13 @@ function stepOfEvent(event) {
     if (!content) return null;
     let use = null;
     for (const c of content) if (c && c.type === 'tool_use' && typeof c.name === 'string' && c.name) use = c;
-    if (!use) return null;
+    return use ? stepOfUse(use) : null;
+  } catch { return null; }
+}
+/* kosmos#7368: one tool call's step, the words stepOfEvent gives for it. */
+function stepOfUse(use) {
+  try {
+    if (!use || typeof use.name !== 'string' || !use.name) return null;
     const input = use.input && typeof use.input === 'object' ? use.input : {};
     /* Masked BEFORE it is cut (review 1 W2): a command can carry a token, and this text reaches the card and the board
        log. Control characters go; the cut is by character, never inside one. */
@@ -406,8 +412,8 @@ function liveIdentity(name) {
 /**
  * The supervisor's side: keep `name`'s state file in step with its agent.
  *
- * Writes only on a TRANSITION, so a turn of a hundred events costs two writes, plus (kosmos#7368) one when its step or
- * queue changes and at most one per STEP_CLOCK_MS for its activity clock.
+ * Writes only on a TRANSITION, so a turn of a hundred events costs two writes, plus (kosmos#7368) one when its queue
+ * changes, one when its step changes while something is queued, and at most one per STEP_CLOCK_MS for its activity clock.
  * `write`, `clear`, `setTimer` and `onProblem` are injectable for tests;
  * `onProblem` gets a sentence for the task log whenever a state could not be
  * recorded.
@@ -450,7 +456,7 @@ function publisher(name, opts) {
   }
   function setState(next) {
     if (next === BUSY && current.state !== BUSY) { current.step = null; current.stepSince = new Date(nowMs()).toISOString(); }
-    if (next === IDLE) { current.step = null; current.stepSince = null; }
+    if (next === IDLE) { current.step = null; current.stepSince = null; current.open.clear(); }
     current.state = next;
   }
   function flush() {
@@ -493,7 +499,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, state: IDLE, limit: null, reachedModel: false, step: null, stepSince: null, queued: 0 };
+      current = { pid, sessionId, state: IDLE, limit: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map() };
       flush();
     },
     /** One parsed stream event. */
@@ -510,21 +516,26 @@ function publisher(name, opts) {
       const before = keyOf(current);
       const next = stateAfterEvent(e);
       if (next) setState(next);
-      /* kosmos#7368 (review 2, measured on Claude Code 2.1.311): a message written in while a step runs is taken at the
-         agent's next boundary (a tool result, a new turn, or the turn's result), inside the same turn. So the queue is the
-         writes since the last such point: it can never drift, and it is exactly what a step that never ends holds. */
-      /* Review 3 (measured): only the MAIN agent's tool result is a boundary (a subagent's carries parent_tool_use_id and
-         does not take the person's messages), and a turn's start is not one (a second message sent while idle waits for
-         the first tool result too; every later start follows a result, which already emptied it). */
-      const mainToolResult = e && e.type === 'user' && !e.parent_tool_use_id && e.message && Array.isArray(e.message.content)
-        && e.message.content.some((c) => c && c.type === 'tool_result');
-      if (mainToolResult || (e && e.type === 'result')) { current.queued = 0; current.step = null; }
+      /* kosmos#7368, measured on Claude Code 2.1.311 (reviews 2 to 4): a message written in while the main agent's tool
+         calls run is taken when the model is next called, which is when ALL of that message's calls have returned (two
+         calls run one after the other: the person's message waits for the second). So the main agent's open calls are
+         kept by id; the queue empties when the last one returns, or at the turn's result. A turn's start is not a
+         boundary, and a subagent's own calls (parent_tool_use_id) are not the main agent's. The step is the first call
+         still open: the one actually running. */
+      const content = e && e.message && Array.isArray(e.message.content) ? e.message.content : [];
+      if (e && !e.parent_tool_use_id && e.type === 'assistant') {
+        for (const c of content) if (c && c.type === 'tool_use' && typeof c.id === 'string') current.open.set(c.id, stepOfUse(c));
+      }
+      if (e && !e.parent_tool_use_id && e.type === 'user') {
+        let closed = false;
+        for (const c of content) if (c && c.type === 'tool_result' && current.open.delete(c.tool_use_id)) closed = true;
+        if (closed && current.open.size === 0) current.queued = 0;
+      }
+      if (e && e.type === 'result') { current.open.clear(); current.queued = 0; }
       /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
          turn's start: an agent calling a new tool every minute is never on one step for an hour. */
       if (current.state === BUSY && e && (e.type === 'assistant' || e.type === 'user' || e.type === 'system')) current.stepSince = new Date(nowMs()).toISOString();
-      /* The step is the MAIN agent's latest call (a subagent's own calls are inside the step that started it). */
-      const step = e && e.parent_tool_use_id ? null : stepOfEvent(e);
-      if (step !== null && current.state === BUSY) current.step = step;
+      current.step = current.state === BUSY && current.open.size ? (current.open.values().next().value || null) : null;
       const stepChanged = before !== keyOf(current);
       /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
       /* Review 9: a refused request's own error message (is_api_error_message, in Claude Code's stream-json schema) did
