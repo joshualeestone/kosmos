@@ -43,7 +43,9 @@ holds each one.
 
 ## Verification
 - tools.windows-tests-schtasks-7247.test.js + engine/windows-tests-1777.test.js + engine/win32job.test.js under the
-  guard: 75/75.
+  guard: 84/84 (round 7).
+- All 87 engine/*win32*.test.js under the guard with KOSMOS_SCHTASKS_BLOCK_LOG set: 1588 tests, 0 fail, 11 skipped, 0
+  refusals logged (control: a deliberate schtasks call is logged).
 - Negative control: the test file against origin/main's schtasks-call.cjs: the 3 new tests fail, the 19 old ones pass.
 
 ## Review rounds
@@ -86,3 +88,9 @@ holds each one.
   header: a redirect an outer shell already took is kept in the cmd line (refusal only; node passes it through when cmd
   is the program). Fuzz rerun on the fix: same 2 redirect-target cases only. Negative control: the new test fails
   against round 5. 83/83.
+- Round 7: no BLOCKER (87 win32 test files, 1588 tests, 0 refusals; spot reverts show the new tests bite). 2 WARNINGs,
+  2 NITs, all shared with main or harness-only. FIXED: valueAt skips a redirect in the slot of a switch's value
+  (powershell -ExecutionPolicy >nul Bypass, -EncodedCommand >nul, bash -o, env -u, timeout -k, start /d); env's option
+  loop skips redirects; nice --adjustment and time -f/-o/--format/--output take values. Test added with controls.
+  Harness NIT noted: load the preload by absolute forward-slash path, as windows-tests.js does. Fuzz rerun: same 2
+  redirect-target cases only. Negative control: the new test fails against round 6. 84/84.

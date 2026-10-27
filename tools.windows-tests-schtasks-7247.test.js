@@ -424,3 +424,15 @@ test('#7270 review 6: loops and groups, long options that take a value, and a re
     'cmd 2>nul /c echo schtasks', 'bash 2>/dev/null -c "echo schtasks"'])
     assert.equal(commandRuns(cmd), false, cmd);
 });
+
+test('#7270 review 7: a redirect in the slot of a switch\'s value is skipped, and nice and time take their long values', () => {
+  const enc = Buffer.from('schtasks /Query', 'utf16le').toString('base64');
+  for (const cmd of ['powershell -ExecutionPolicy >nul Bypass -Command schtasks', 'bash -o >x pipefail -c schtasks',
+    'env -u >x A schtasks', 'powershell -EncodedCommand >nul ' + enc, 'nice --adjustment 5 schtasks', 'time -f %e schtasks',
+    'time -o t.txt schtasks', 'timeout -k >x 1 5 schtasks'])
+    assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL
+  for (const cmd of ['powershell -ExecutionPolicy >nul Bypass -Command node x.js', 'nice --adjustment 5 node x.js',
+    'time -o schtasks.txt node x.js', 'powershell -EncodedCommand >nul ' + Buffer.from('Write-Output schtasks', 'utf16le').toString('base64')])
+    assert.equal(commandRuns(cmd), false, cmd);
+});

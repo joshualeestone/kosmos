@@ -115,6 +115,13 @@ function decodePs(value) {
   try { return Buffer.from(String(value), 'base64').toString('utf16le'); } catch { return ''; }
 }
 
+/* The index of the value a switch takes, from k: a redirect in its slot is the outer shell's, not the value
+   (powershell -ExecutionPolicy >nul Bypass -Command ..., review 7 of #7270). */
+function valueAt(ws, k) {
+  while (k < ws.length && ws[k].redirect) k += 1;
+  return k;
+}
+
 /* Whether the words, from index i, start schtasks: walking past any shell or launcher in front of it. */
 function wordsRun(ws, i, depth, shell) {
   if (depth > DEPTH) return false;
@@ -153,9 +160,12 @@ function wordsRun(ws, i, depth, shell) {
         if (ws[i].redirect) continue;
         const s = ws[i].text;
         if (/^-(command|c)$/i.test(s)) return lineRuns(rest(i + 1), depth + 1, 'other');
-        if (/^-(encodedcommand|enc|e|ec)$/i.test(s)) return i + 1 < ws.length && lineRuns(decodePs(ws[i + 1].text), depth + 1, 'other');
+        if (/^-(encodedcommand|enc|e|ec)$/i.test(s)) {
+          const v = valueAt(ws, i + 1);
+          return v < ws.length && lineRuns(decodePs(ws[v].text), depth + 1, 'other');
+        }
         if (/^-(file|f)$/i.test(s)) return false;   // a script file: what it runs cannot be read here
-        if (PS_VALUE.test(s)) i += 1;
+        if (PS_VALUE.test(s)) i = valueAt(ws, i + 1);
       }
       continue;   // powershell with a bare command: the next word starts it
     }
@@ -167,18 +177,19 @@ function wordsRun(ws, i, depth, shell) {
           const script = ws[i + 1] && ws[i + 1].quoted ? ws[i + 1].inner : rest(i + 1);
           return lineRuns(script, depth + 1, 'posix');
         }
-        if (/^[-+][oO]$/.test(ws[i].text)) i += 1;   // -o pipefail, +o errexit, -O extglob: the option's name is its value
-        else if (/^--(rcfile|init-file)$/.test(ws[i].text)) i += 1;
+        if (/^[-+][oO]$/.test(ws[i].text)) i = valueAt(ws, i + 1);   // -o pipefail, +o errexit, -O extglob: the option's name is its value
+        else if (/^--(rcfile|init-file)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
       }
       return false;   // a script file: what it runs cannot be read here
     }
     /* env NAME=value ... program: the program after the assignments is what runs. */
     if (/^env(\.exe)?$/i.test(b)) {
-      for (i += 1; i < ws.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1) {
+      for (i += 1; i < ws.length && (ws[i].redirect || /^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1) {
+        if (ws[i].redirect) continue;
         if (/^(-S|--split-string)$/.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1, 'posix');   // -S STRING is the command line
         const joined = ws[i].text.match(/^(?:-S|--split-string=)(.+)$/);   // -S"..." and --split-string=... (review 3)
         if (joined) return lineRuns([joined[1], rest(i + 1)].join(' '), depth + 1, 'posix');
-        if (/^(-[uC]|--unset|--chdir)$/.test(ws[i].text)) i += 1;   // -u NAME, -C DIR: the option's value is the next word
+        if (/^(-[uC]|--unset|--chdir)$/.test(ws[i].text)) i = valueAt(ws, i + 1);   // -u NAME, -C DIR: the option's value is the next word
       }
       continue;
     }
@@ -189,12 +200,16 @@ function wordsRun(ws, i, depth, shell) {
       for (; k < ws.length && /^-/.test(ws[k].text); k += 1) if (/^-[a-zA-Z]*[vV]/.test(ws[k].text)) return false;
     }
     if (/^(nohup|exec|command|builtin|time|nice|then|else|do|while|until|\{|!)(\.exe)?$/i.test(b)) {
-      for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^-(n|a)$/.test(ws[i].text)) i += 1;
+      for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) {
+        // nice -n N / --adjustment N, exec -a NAME, time -f FMT / -o FILE / --format / --output
+        if (/^(-[nafo]|--adjustment|--format|--output)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
+      }
       continue;
     }
     /* timeout DURATION command. Windows' timeout /t 5 runs nothing, and reads so: /t is taken for the duration. */
     if (/^timeout(\.exe)?$/i.test(b)) {
-      for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^(-[sk]|--signal|--kill-after)$/.test(ws[i].text)) i += 1;
+      for (i += 1; i < ws.length && (ws[i].redirect || /^-/.test(ws[i].text)); i += 1) if (/^(-[sk]|--signal|--kill-after)$/.test(ws[i].text)) i = valueAt(ws, i + 1);
+      i = valueAt(ws, i);
       if (i < ws.length && /^\//.test(ws[i].text)) return false;
       i += 1;   // the duration
       continue;
@@ -215,7 +230,7 @@ function wordsRun(ws, i, depth, shell) {
       let title = false;
       for (i += 1; i < ws.length && (/^\//.test(ws[i].text) || (!title && ws[i].quoted)); i += 1) {
         if (ws[i].quoted) title = true;
-        else if (/^\/d$/i.test(ws[i].text)) i += 1;
+        else if (/^\/d$/i.test(ws[i].text)) i = valueAt(ws, i + 1);
       }
       continue;
     }
