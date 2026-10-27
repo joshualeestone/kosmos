@@ -33,3 +33,15 @@ Card kosmos#7181. Built on #5536 slice 4b (branch restoreworld-5536, PR #7240); 
    does not exist). Nits taken: the comment no longer overpromises (six hex of a hash can confirm a guessed member id;
    the name is already in the title); the module header shows the new name shape; the WIP commit is folded into one.
    Not taken: the tag on every name, even Latin ones (deliberate, uniform, reversible). Mutation arms: 3 of 3 red.
+
+## Round 2 (blind, sonnet, 19:0x CDT 10-26)
+- (1) WARNING applied: the tag was 6 hex (24 bits) and every member whose name has no Latin letters shares one tag space,
+  so two of them collided at about 580 such members (1%). Now 12 hex (48 bits); the comment states the residual.
+- (2) WARNING applied: a memberId given but unusable (null, '', a number, an object) silently fell back to the untagged,
+  shared names, behind wording that still read right. prepareRestoreWorld now refuses it; only an absent memberId is
+  "no id". Test with all five shapes plus the absent control.
+- (3) NIT applied: the comment says the id is hashed byte for byte, so 4c passes one canonical form.
+- (4) NIT applied: the pool is per (reduced name, tag); the comment and the refusal comment say so, and that nine a day
+  is a tidiness cap, not abuse protection.
+- (5) no action (the comment already concedes a guessable id can be confirmed). (6) the collision itself is not
+  testable at 48 bits; the unusable-id test covers the other gap.

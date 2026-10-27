@@ -98,12 +98,18 @@ function dayOf(now) {
    names reduce to the same id (a name only in a non-Latin script, or two that differ only in punctuation) shared one
    pool of nine names a day, so one member's restores could use up another's. With the member's id (the restore
    request's `member`, which 4c has from the verified release) the name carries a short tag of it, hex, which safeKey
-   keeps, so each member has a pool of their own. The tag is six hex of a hash, not the id; it is
-   only shown, never trusted, and a guessable member id can be confirmed from it (the member's name is in the title
-   already, so this adds little). */
+   keeps, so each member's names are their own. The pool is per (name as reduced, tag): the same member under a
+   changed name starts a new nine, which is fine for a tidiness cap and is not abuse protection. The tag is twelve hex
+   (48 bits) of a hash, not the id: members whose names all reduce alike (every name with no Latin letters does) share
+   one tag space, and at 48 bits two of them colliding needs millions of such members on one board (six hex, 24 bits,
+   reached 1% at about 580). The id is hashed byte for byte, so 4c passes it in one canonical form: another spelling of
+   the same id is a new tag, a new pool (earlier worlds are not orphaned; nothing looks them up by name). The tag is
+   only shown, never trusted, and a guessable member id can be confirmed from it (the prefix is public; the member's
+   name is in the title already, so this adds little). */
+const MEMBER_TAG_HEX = 12;
 function memberTag(memberId) {
   if (typeof memberId !== 'string' || !memberId) return '';
-  return crypto.createHash('sha256').update('kosmos-restored-world:' + memberId).digest('hex').slice(0, 6);
+  return crypto.createHash('sha256').update('kosmos-restored-world:' + memberId).digest('hex').slice(0, MEMBER_TAG_HEX);
 }
 function worldName(member, now, attempt = 1, memberId) {
   const base = `Restored: ${cleanMember(member)}, ${dayOf(now)}`;
@@ -133,6 +139,9 @@ function prepareRestoreWorld(base, opts = {}) {
   const create = opts.createWorld || worlds.createWorld;
   const hide = opts.hideWorld || worlds.hideWorld;
   if (typeof base !== 'string' || !path.isAbsolute(base)) return { ok: false, because: 'the restore was asked without a place for its Kosmos' };
+  // kosmos#7181: an id given but not a usable one is a caller's mistake, not "no id". Falling back to the shared,
+  // untagged names would hide it behind wording that still reads right.
+  if (opts.memberId !== undefined && (typeof opts.memberId !== 'string' || !opts.memberId)) return { ok: false, because: 'the restore was asked with a member id Kosmos could not use' };
   let world = null, leftovers = 0;
   for (let n = 1; n <= MAX_NAME_TRIES && !world; n++) {
     const name = worldName(opts.member, opts.now, n, opts.memberId);
@@ -154,7 +163,8 @@ function prepareRestoreWorld(base, opts = {}) {
     }
   }
   if (!world && leftovers) return { ok: false, because: `Kosmos folders already on this computer took ${leftovers} of the ${MAX_NAME_TRIES} names tried, so no restored Kosmos could be made today` };
-  // Only "for this member" when the names are this member's own (kosmos#7181); without the id they are shared by name.
+  // Only "for this member" when the names are this member's own under this name (kosmos#7181); without the id they are
+  // shared by name.
   if (!world) return { ok: false, because: `there are already ${MAX_NAME_TRIES} restored Kosmoses ${memberTag(opts.memberId) ? 'for this member' : 'under names that read the same to Kosmos'} today; hide one and try again` };
   const dir = worlds.worldBaseDir(base, world);
   const restoreDir = path.join(dir, RESTORE_DIR);
