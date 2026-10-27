@@ -27,7 +27,8 @@ on:
 permissions:
   contents: read
 
-# kosmos#6742 / #5519: this board must not count as an install, nor send feedback or community traffic.
+# kosmos#6742 / #5519: this board must not count as an install. Only AGENT_WORKFORCE_CREATED_URL reaches a board systemd
+# runs (engine/linuxboard.js puts it in the unit; asserted below); the other two cover anything started from a step.
 env:
   AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
   AGENT_WORKFORCE_FEEDBACK_URL: http://127.0.0.1:9/api/feedback
@@ -47,7 +48,7 @@ jobs:
           echo "PTR=$P" >> "$GITHUB_ENV"; echo "SETUP=$S" >> "$GITHUB_ENV"
           body="$(curl -fsS -m 30 "${{ inputs.site }}/dist/$P")" || { echo "no $P is served: the Linux family has not been cut on this channel yet (KOSMOS_CUT_LINUX=1)" >&2; exit 1; }
           echo "$body"
-          V="$(printf '%s' "$body" | sed -n 's/.*"version":[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p')"
+          V="$(printf '%s' "$body" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' | head -1)"   # setup.sh's own read
           test -n "$V"
           echo "WANT_VERSION=$V" >> "$GITHUB_ENV"
 
@@ -62,12 +63,15 @@ jobs:
         run: |
           sudo loginctl enable-linger "$USER" || true
           sudo systemctl start user@"$(id -u)".service || true
+          mkdir -p "/run/user/$(id -u)"
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
 
       - name: Install from the served installer, as a person does
         # sh, not bash: on Ubuntu sh is dash, the shell `curl ... | sh` really meets.
         run: |
           if [ "${{ inputs.channel }}" = staging ]; then export KOSMOS_UPDATE_CHANNEL=staging; fi
+          # Review 1: the bytes come from the same site as the pointer checked above (setup.sh defaults to installkosmos.com).
+          export KOSMOS_RELEASE_BASE="${{ inputs.site }}/dist"
           curl -fsSL "${{ inputs.site }}/$SETUP" | sh
 
       - name: It installed the Linux family, and runs on its own pieces
@@ -87,17 +91,24 @@ jobs:
           echo "installed $got, pointer $WANT_VERSION"
           test "$got" = "$WANT_VERSION"
           # The installer stamped the channel it was given (#7281 review 2 of slice B fixed a staging install stamped prod).
-          find "$HOME" -path '*Kosmos/source-channel' -exec cat {} \; | grep -qx "${{ inputs.channel }}"
+          grep -qx "${{ inputs.channel }}" "$HOME/Library/Application Support/Kosmos/source-channel"
 
       - name: The board serves
         run: |
           K="$HOME/.local/share/kosmos"
-          "$K/bin/kosmos" status
-          for i in $(seq 1 30); do curl -fsS -m 5 "http://127.0.0.1:$KOSMOS_PORT/" >/dev/null && exit 0; sleep 2; done
-          echo "FAIL: the board did not answer on $KOSMOS_PORT" >&2
-          systemctl --user status kosmos-board.service || true
-          exit 1
+          ok=""; for i in $(seq 1 30); do curl -fsS -m 5 "http://127.0.0.1:$KOSMOS_PORT/" >/dev/null && { ok=1; break; }; sleep 2; done
+          "$K/bin/kosmos" status || true
+          if [ -z "$ok" ]; then echo "FAIL: the board did not answer on $KOSMOS_PORT" >&2; systemctl --user status kosmos-board.service || true; exit 1; fi
+          # Review 1: systemd runs it (not a loose board setup.sh started itself), as test-linux-setup-4920.yml asserts.
+          test "$(systemctl --user is-active kosmos-board.service)" = active
+          # And this install does not count: the unit, and the board systemd runs, carry the dead beacon address.
+          UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT_FILE"
+          BPID="$(systemctl --user show -p MainPID --value kosmos-board.service)"
+          if [ -z "$BPID" ] || [ "$BPID" = 0 ]; then echo "FAIL: systemd reports no running board" >&2; exit 1; fi
+          BENV="$(tr '\0' '\n' < "/proc/$BPID/environ")"
+          grep -qxF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" <<< "$BENV"
 
       - name: Put the system node back (the runner is discarded, but say so plainly)
         if: always()
-        run: for f in $(ls /usr/local/bin/*.hidden-7281 /usr/bin/*.hidden-7281 2>/dev/null); do sudo mv "$f" "${f%.hidden-7281}"; done
+        run: for f in $(echo "$PATH:/usr/local/bin:/usr/bin" | tr ':' '\n' | sort -u | while read -r d; do ls "$d"/*.hidden-7281 2>/dev/null; done); do sudo mv "$f" "${f%.hidden-7281}"; done
