@@ -40,3 +40,9 @@ Test: 41 checks.
   origin with no list refuses. Mutants: read the working tree, skip the fetch: both red.
 - NITs FIXED: the read-back failure is tested (owed, no temp, the real file kept); its message says to commit.
 Test: 45 checks.
+
+## Rebased onto main after C1 merged (2026-10-27 03:4x, Baron)
+- `git rebase --onto origin/main 3fc9ccc55c`: 10 commits, clean. test:shell gains tools/test-promote-linux-7281.sh
+  (688d036392). Rerun: promote 45/0, release 67/0, deploy 44/0, every-test-runs + all-node-tests-considered 6/6.
+- NOT YET CONVERGED by the loop's own rule: review 3 still fixed a WARNING, so a 4th blind pass on the rebased diff is
+  owed before the proof file. Queued behind buildver-7281's loop (one reviewer at a time).
