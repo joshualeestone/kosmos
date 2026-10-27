@@ -12,6 +12,8 @@ struct ChatView: View {
     @ObservedObject var client: BoardClient
     let agent: Board.Agent
     let openOnBoard: () -> Void
+    // kosmos#7267: the info button opens the agent's own page (Profile | AI Settings), not the board's copy of this chat.
+    @State private var infoOpen = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var thread: Board.Thread?
@@ -154,10 +156,13 @@ struct ChatView: View {
                 .accessibilityLabel("Search this conversation")
             }
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: openOnBoard) {
+                Button { infoOpen = true } label: {
                     Image(systemName: "info.circle").font(.system(size: 22)).foregroundColor(Palette.secondary)
                 }
-                .accessibilityLabel("Open on your computer's board")
+                .accessibilityLabel("\(agent.name)\u{2019}s profile and AI settings")
+                .background(NavigationLink(isActive: $infoOpen, destination: {
+                    AgentInfoView(client: client, agent: agent, openOnBoard: openOnBoard)
+                }, label: { EmptyView() }).hidden())
             }
         }
         .onAppear {
