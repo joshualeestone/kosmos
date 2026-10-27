@@ -40,3 +40,9 @@ touching rate limits; full suite before the PR.
 ## Review bound
 
 Challenge loop to convergence. Merge on green (beta rule).
+
+## Review 1
+- The night the clocks go back, a done time in the repeated hour is read as the later instant (setHours takes the
+  earlier, which released a weekly limit about a day early); as limitResetTimeOnlyAt already reads a reset.
+- A done clock with seconds is not read at all (it read as 12 hours off); a reading it cannot be sure of keeps the
+  sighting's timing, so it errs toward staying capped.

@@ -3329,9 +3329,11 @@ function underPromptAt(rows, i) {
    the printed time drops seconds (12:00:45 prints "12am"), and the clocks may differ. */
 /* kosmos#7358: when the turn whose footer is `footerRow` ended, from its "done <clock>" (Claude Code prints this machine's
    local time with no date: "✻ Sautéed for 0s · done 10:35 PM"), read as the latest such instant at or before `atMs`; null
-   when the footer has no done time. A footer older than a day reads as a later instant than the truth, so a reset timed
-   from it is later, never earlier: a row is never retired early on it. */
-const TURN_DONE = /· done (\d{1,2}):(\d{2})(?:\s?([ap])\.?m\b\.?)?/i;
+   when the footer has no done time or one this cannot read for sure. Why a reset timed from it is never early: the limit
+   row printed as that turn stopped, so the true done time is at or after it, and every reading here errs later: the
+   latest day (a footer older than a day reads later), and the later of the two instants of a clock time the night the
+   clocks go back (as limitResetTimeOnlyAt). It rests on Claude Code printing the time in the zone this board runs in. */
+const TURN_DONE = /· done (\d{1,2}):(\d{2})(?![:\d])(?:\s?([ap])\.?m\b\.?)?/i;   // a clock with seconds is not read: null
 function turnDoneAt(footerRow, atMs) {
   const m = TURN_DONE.exec(String(footerRow == null ? '' : footerRow));
   if (!m || !Number.isFinite(atMs)) return null;
@@ -3346,7 +3348,11 @@ function turnDoneAt(footerRow, atMs) {
     const d = new Date(atMs);
     d.setDate(d.getDate() - back);
     d.setHours(hour, minute, 0, 0);
-    if (d.getTime() <= atMs) return d.getTime();
+    let t = d.getTime();
+    // The repeated hour the night the clocks go back: setHours takes the first; the later one, if it is also that clock.
+    const later = new Date(t + 3600000);
+    if (later.getHours() === hour && later.getMinutes() === minute && later.getTime() <= atMs) t = later.getTime();
+    if (t <= atMs) return t;
   }
   return null;
 }
