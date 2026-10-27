@@ -315,6 +315,17 @@ struct ChatView: View {
 
     // MARK: - The conversation
 
+    // kosmos#7265 round 14: how many of the newest rows are drawn eagerly (more than a screen of short messages).
+    static let eagerTail = 40
+
+    // One row of the conversation, with what the thread needs to know about it.
+    private func row(_ item: Board.ChatItem) -> some View {
+        itemView(item).id(item.id)
+            // Which rows are on screen, so a page landing above keeps the one the reader is on.
+            .onAppear { onScreen.insert(item.id) }
+            .onDisappear { onScreen.remove(item.id) }
+    }
+
     @ViewBuilder private var conversation: some View {
         if let thread {
             // Day lines run across loaded pages, so a page that ends mid-day does not repeat that day's line.
@@ -342,11 +353,14 @@ struct ChatView: View {
                             }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         else if searching && rows.isEmpty && !loaded.isEmpty { noMatch }
-                        ForEach(items) { item in
-                            itemView(item).id(item.id)
-                                // Which rows are on screen, so a page landing above keeps the one the reader is on.
-                                .onAppear { onScreen.insert(item.id) }
-                                .onDisappear { onScreen.remove(item.id) }
+                        // kosmos#7265 round 14: the newest rows are drawn as one eager stack, so their real heights are known
+                        // and a jump to "end" lands on the newest message; with every row lazy those heights were estimated
+                        // and the jump stopped short (rounds 7 to 9), and the anchor that made up for it drew a blank chat
+                        // (2 of 5 in round 13). Older rows stay lazy.
+                        let tailStart = max(0, items.count - Self.eagerTail)
+                        ForEach(items[..<tailStart]) { item in row(item) }
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(items[tailStart...]) { item in row(item) }
                         }
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
@@ -1716,10 +1730,9 @@ private struct EdgeOpen: ViewModifier {
     let touched: () -> Void
     @State private var position = ScrollPosition()
     func body(content: Content) -> some View {
-        // Round 10: the initial-offset anchor back, for a long thread only. Rounds 7 to 9 without it never reached the newest
-        // message (5 of 5 opens each stopped at message 255 of 260, as main does); round 6 with it reached it in 8 of 10.
+        // Round 14: no initial-offset anchor (it drew a blank chat in 2 of 5 opens, round 13); the eager tail lets the
+        // jumps land instead.
         content.scrollPosition($position)
-            .defaultScrollAnchor(long ? .bottom : nil, for: .initialOffset)
             .defaultScrollAnchor(long && active ? .bottom : nil, for: .sizeChanges)
             .onScrollPhaseChange { _, phase in if phase == .interacting { touched() } }
             .onAppear {
