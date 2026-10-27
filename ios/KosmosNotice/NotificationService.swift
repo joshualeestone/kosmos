@@ -87,7 +87,7 @@ final class NotificationService: UNNotificationServiceExtension {
         return copy
     }
 
-    // kosmos#7345: a notice with no words to ask for, shown as it came, with its agent's picture.
+    // kosmos#7345: a notice with no words to ask for, shown as it came, with its agent's picture attached.
     static func pictureOnlyContent(original: UNNotificationContent, picture: URLRequest, info: [AnyHashable: Any]) async -> UNNotificationContent? {
         guard let session = info["session"] as? String,
               let (pd, ph) = await fetch(picture, within: 20, maxBytes: PhoneNotice.maxPictureBytes),
@@ -96,13 +96,10 @@ final class NotificationService: UNNotificationServiceExtension {
               !Task.isCancelled,
               let content = original.mutableCopy() as? UNMutableNotificationContent
         else { return nil }
-        let agent = (info["agent"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? session
-        // Message style shows the agent's name as the title, so what the notice said ("Dana has work ready for you", and
-        // "in Spring catalogue") becomes its line, never lost to the name.
-        if Bundle.main.object(forInfoDictionaryKey: PhoneNotice.messageStyleKey) as? Bool == true {
-            content.body = original.body.isEmpty ? original.title : "\(original.title), \(original.body)"
-        }
-        return await decorated(content, picture: shown, agent: agent, session: session, conversation: session)
+        // Review 1: the push names the session but not the agent's shown name (kosmos-relay apns.rs sends kind, id, address and
+        // session), and message style would title the notice with the session. So the picture rides as an attachment and
+        // the notice keeps its own words, which already name the agent ("Irma has work ready for you").
+        return await decorated(content, picture: shown, agent: session, session: session, conversation: session, messageStyle: false)
     }
 
     // The app's kept session for its computer (SessionKeychain.macSession), from the keychain group the two share.
@@ -187,8 +184,8 @@ final class NotificationService: UNNotificationServiceExtension {
     // The agent's picture on a notice: as an attachment, or (message style) as a message from the agent, the way a chat
     // app's notices look. Shared by a notice with words and one without (kosmos#7345).
     static func decorated(_ content: UNMutableNotificationContent, picture shown: (Data, String)?, agent: String, session: String,
-                          conversation: String) async -> UNNotificationContent {
-        guard Bundle.main.object(forInfoDictionaryKey: PhoneNotice.messageStyleKey) as? Bool == true else {
+                          conversation: String, messageStyle: Bool = true) async -> UNNotificationContent {
+        guard messageStyle, Bundle.main.object(forInfoDictionaryKey: PhoneNotice.messageStyleKey) as? Bool == true else {
             // Message style off: the picture rides as the notice's attachment.
             if let (bytes, ext) = shown {
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)

@@ -21,6 +21,14 @@ function cafSamples(buf) {
   while (at + 12 <= buf.length) {
     const type = buf.toString('ascii', at, at + 4);
     const size = Number(buf.readBigUInt64BE(at + 4));
+    if (type === 'desc') {
+      // The format: 44.1 kHz, linear PCM, one channel, 16 bits, little-endian (format flags: integer and little-endian).
+      assert.equal(buf.readDoubleBE(at + 12), pop.RATE, 'the sample rate');
+      assert.equal(buf.toString('ascii', at + 20, at + 24), 'lpcm', 'linear PCM');
+      assert.equal(buf.readUInt32BE(at + 36), 1, 'one channel');
+      assert.equal(buf.readUInt32BE(at + 40), 16, '16 bits');
+      assert.equal(buf.readUInt32BE(at + 24) & 2, 2, 'little-endian');
+    }
     if (type === 'data') {
       const body = buf.subarray(at + 12 + 4, at + 12 + size);   // after the 4-byte edit count
       const out = new Int16Array(body.length / 2);
@@ -41,6 +49,11 @@ test('kosmos#7345: the generator plays the board\'s own voice (frequencies, life
   assert.match(body, /setValueAtTime\(400, now\)/, 'the board starts at 400 Hz');
   assert.match(body, /linearRampToValueAtTime\(900, now \+ dur \* 0\.9\)/, 'and glides to 900 Hz over 0.9 of the life');
   assert.match(body, /now \+ 0\.004\)/, 'with a 4 ms attack');
+  assert.match(body, /osc\.type = 'sine';/, 'a sine');
+  assert.match(body, /gain\.gain\.setValueAtTime\(0\.0001, now\)/, 'rising from 0.0001');
+  assert.match(body, /exponentialRampToValueAtTime\(0\.0001, now \+ dur\)/, 'falling exponentially to 0.0001 at the end of its life');
+  assert.match(body, /osc\.stop\(now \+ dur \+ 0\.02\)/, 'stopped 20 ms after');
+  assert.equal(pop.STOP, pop.DUR + 0.02);
   assert.equal(pop.DUR, 0.13);
   assert.equal(pop.freqAt(0), 400);
   assert.equal(pop.freqAt(pop.DUR), 900);

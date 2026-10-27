@@ -31,3 +31,9 @@ server.ios-routes-6838.test.js, the privacy manifest test. A real phone hears it
 ## Review bound
 
 Challenge loop to convergence. Merge on green (beta rule).
+
+## Review 1
+- The push names the session but not the agent's shown name (kosmos-relay apns.rs: kind, id, address, session), so
+  a ready notice's picture rides as an attachment and the notice keeps its own words, which name the agent. Message
+  style there would have titled it with the session. Test fixtures are shaped as the relay sends.
+- The sound test pins every value the generator copies from the board (waveform, decay, stop) and the file's format.
