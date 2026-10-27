@@ -22315,9 +22315,6 @@ function stateReason(a, opts) {
     const mins = Number.isFinite(since) ? Math.max(3, Math.round((Date.now() - since) / 60000)) : 3;
     return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.';
   }
-  /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause (engine/deliverystreak.js).
-     The card only carries it while it reads idle or working, the states that look fine. The reason is the engine's
-     words (one copy). After the unsent-text sentence above, which names the sharper cause when it is the box. */
   /* kosmos#7368 (Mona Lisa's design): a Windows agent on one step for over an hour with messages waiting behind it. The
      messages did arrive, so this is not "no message has reached it": it names the step and how many wait. */
   if (a && a.deliveryStall && a.deliveryStall.lastWhy === 'turn' && typeof a.deliveryStall.since === 'string') {
@@ -22331,6 +22328,9 @@ function stateReason(a, opts) {
     const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Restart it to free it, then send them again';
     return who + ' has been on one step for ' + when + step + '. ' + waiting + '. ' + next + '.';
   }
+  /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause (engine/deliverystreak.js).
+     The card only carries it while it reads idle or working, the states that look fine. The reason is the engine's
+     words (one copy). After the unsent-text sentence above, which names the sharper cause when it is the box. */
   if (a && a.deliveryStall && typeof a.deliveryStall.since === 'string' && typeof a.deliveryStall.words === 'string') {
     const since = Date.parse(a.deliveryStall.since);
     const mins = Number.isFinite(since) ? Math.max(30, Math.round((Date.now() - since) / 60000)) : 30;

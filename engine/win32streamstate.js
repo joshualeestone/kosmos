@@ -118,6 +118,11 @@ function stepOfEvent(event) {
   } catch { return null; }
 }
 
+/* Whether a process id names a running process. EPERM means it runs under another user, which is still alive. */
+function processAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
+}
+
 /** kosmos#7368: a busy agent's step, { since (ISO, its last sign of activity, to within STEP_CLOCK_MS), step|null,
     queued (messages written in while it was busy, not yet taken) }, from its state file, or null when it is not busy or
     the file says nothing about a step. The caller has already seen the agent working (its card reads Working). */
@@ -126,6 +131,8 @@ function turnFor(name) {
   try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
   if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION || rec.state !== BUSY) return null;
   if (typeof rec.stepSince !== 'string' || !Number.isFinite(Date.parse(rec.stepSince))) return null;
+  /* Review 2 W5: a file its process outlived (a crash the supervisor did not clear) describes no agent running now. */
+  if (!Number.isInteger(rec.pid) || !processAlive(rec.pid)) return null;
   const queued = Number.isInteger(rec.queued) && rec.queued > 0 ? rec.queued : 0;
   return { since: rec.stepSince, step: typeof rec.step === 'string' && rec.step ? rec.step : null, queued };
 }
@@ -409,6 +416,7 @@ function publisher(name, opts) {
   const write = o.write || ((rec) => writeState(name, rec));
   const clear = o.clear || ((ownerPid) => clearState(name, ownerPid));
   const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
+  const nowMs = typeof o.now === 'function' ? o.now : Date.now;   // kosmos#7368: the step clock's, injectable for tests
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
   /* kosmos#6570: the agent's Claude account folder (claudeAccountDirFor), where each rate_limit_event's readings are
      recorded the way the status line records them; none, and nothing is. `recordUsage` is injectable for tests. */
@@ -430,21 +438,15 @@ function publisher(name, opts) {
      the retry below -- or any transition that comes first -- is the second
      attempt, and a second failure in a row is what clears. */
   /* #5805: a refusal can arrive while the state token does not change, so a transition is the token AND the limit. */
-  /* kosmos#7368: the step and the queue are part of what is on disk; the step's clock only in STEP_CLOCK_MS buckets, so
-     an agent that is busy and producing events writes at most once per bucket for it, not once per event. */
+  /* kosmos#7368: the queue is part of what is on disk, and the step's clock only in STEP_CLOCK_MS buckets. The step
+     itself rides along with those writes but never forces one (review 2 W3): a busy agent calling many tools writes about
+     once per bucket, not once per tool. */
   function keyOf(c) {
     const clock = c.stepSince ? Math.floor(Date.parse(c.stepSince) / STEP_CLOCK_MS) : '';
-    return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + (c.step || '') + '\u0000' + clock + '\u0000' + (c.queued || 0);
+    return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + clock + '\u0000' + (c.queued || 0);
   }
-  /* kosmos#7368 (review 1): a turn that the agent starts BY ITSELF (an event, not a write) is it taking the next message
-     it had queued, so the queue shrinks by one. A turn started by a write took that message at once and queued nothing.
-     Going idle clears the step, never the queue: what is still queued is still waiting. */
-  function setState(next, byWrite) {
-    if (next === BUSY && current.state !== BUSY) {
-      if (!byWrite) current.queued = Math.max(0, (current.queued || 0) - 1);
-      current.step = null;
-      current.stepSince = new Date().toISOString();
-    }
+  function setState(next) {
+    if (next === BUSY && current.state !== BUSY) { current.step = null; current.stepSince = new Date(nowMs()).toISOString(); }
     if (next === IDLE) { current.step = null; current.stepSince = null; }
     current.state = next;
   }
@@ -502,15 +504,19 @@ function publisher(name, opts) {
           if (u && typeof dir === 'string' && dir) recordUsage(dir, u);
         } catch { /* the next event tries again */ }
       }
+      const before = keyOf(current);
       const next = stateAfterEvent(e);
-      if (next) setState(next, false);
+      if (next) setState(next);
+      /* kosmos#7368 (review 2, measured on Claude Code 2.1.311): a message written in while a step runs is taken at the
+         agent's next boundary (a tool result, a new turn, or the turn's result), inside the same turn. So the queue is the
+         writes since the last such point: it can never drift, and it is exactly what a step that never ends holds. */
+      if (e && (e.type === 'user' || e.type === 'result' || (e.type === 'system' && e.subtype === 'init'))) current.queued = 0;
       /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
          turn's start: an agent calling a new tool every minute is never on one step for an hour. */
-      const before = current.stepSince ? keyOf(current) : null;
-      if (current.state === BUSY && e && (e.type === 'assistant' || e.type === 'user' || e.type === 'system')) current.stepSince = new Date().toISOString();
+      if (current.state === BUSY && e && (e.type === 'assistant' || e.type === 'user' || e.type === 'system')) current.stepSince = new Date(nowMs()).toISOString();
       const step = stepOfEvent(e);
       if (step !== null && current.state === BUSY) current.step = step;
-      const stepChanged = current.state === BUSY && before !== keyOf(current);
+      const stepChanged = before !== keyOf(current);
       /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
       /* Review 9: a refused request's own error message (is_api_error_message, in Claude Code's stream-json schema) did
          not reach the model, so it does not count; then even a result without is_error cannot clear the limit. */
@@ -541,9 +547,9 @@ function publisher(name, opts) {
     /** A message reached the agent's stdin. */
     wrote() {
       if (!current) return;
-      /* kosmos#7368: written into a busy agent, it waits behind the turn; into an idle one, it starts the turn. */
+      /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
       if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
-      else setState(BUSY, true);
+      else setState(BUSY);
       current.reachedModel = false;
       flush();
     },

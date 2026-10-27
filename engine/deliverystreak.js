@@ -96,7 +96,10 @@ function turnStuckOf(name, turn, { now = Date.now() } = {}) {
     if (!Number.isFinite(since) || now - since < TURN_STUCK_MS) return null;
     const count = Number.isInteger(turn.queued) ? turn.queued : 0;
     if (count < 1) return null;
-    const step = typeof turn.step === 'string' && turn.step ? turn.step : null;
+    /* Masked again here (review 2 W4): the supervisor masks by shape only; the board also knows the person's own secrets.
+       A mask that fails drops the step rather than show it. */
+    let step = typeof turn.step === 'string' && turn.step ? turn.step : null;
+    if (step) { try { step = require('./secretmask').mask(step).text || null; } catch { step = null; } }
     return { since: new Date(since).toISOString(), count, lastWhy: 'turn', step, words: WHY_WORDS.turn, next: turnNext(count) };
   } catch { return null; }
 }

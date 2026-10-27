@@ -35,12 +35,14 @@ assertSandboxedDataRoot(SANDBOX, [store.ROOT]);
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
 
-/* A publisher that records every write instead of touching disk. */
+/* A publisher that records every write instead of touching disk, on a clock the test moves. */
 function recording() {
   const wrote = [];
-  const pub = ss.publisher('agent-a', { write: (rec) => { wrote.push(rec); return { ok: true }; }, clear: () => {}, setTimer: () => {} });
-  return { pub, last: () => wrote[wrote.length - 1], wrote };
+  const clock = { t: Date.parse('2026-10-27T12:00:00Z') };
+  const pub = ss.publisher('agent-a', { write: (rec) => { wrote.push(rec); return { ok: true }; }, clear: () => {}, setTimer: () => {}, now: () => clock.t });
+  return { pub, last: () => wrote[wrote.length - 1], wrote, clock };
 }
+const toolResult = { type: 'user', message: { content: [{ type: 'tool_result', content: 'done' }] } };
 const toolUse = (name, input) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } });
 const init = { type: 'system', subtype: 'init' };
 const result = { type: 'result', is_error: false };
@@ -73,18 +75,36 @@ test('#7368 review 1 B1: the message that STARTS a turn is not waiting behind it
   assert.equal(r.last().queued, 2);
 });
 
-test('#7368 review 1 W1: the queue shrinks only as the agent takes the next message itself, and survives the turn ending', () => {
+test('#7368 review 2 (measured on Claude Code 2.1.311): messages written during a step are taken at its next boundary, so the queue empties there and cannot drift', () => {
   const r = recording();
   r.pub.started(4242, 'sid-1');
-  r.pub.wrote(); r.pub.wrote(); r.pub.wrote();   // A starts the turn; B and C queue behind it
-  assert.equal(r.last().queued, 2);
-  r.pub.event(result);                            // A's turn ends
-  assert.equal(r.last().state, ss.IDLE);
-  assert.equal(r.last().queued, 2, 'going idle does not empty what is still queued');
-  r.pub.event(init);                              // the agent takes B by itself
-  assert.equal(r.last().queued, 1, 'C still waits behind B: the case review 1 W1 says was missed');
-  r.pub.event(result); r.pub.event(init);         // B ends, C is taken
-  assert.equal(r.last().queued, undefined, 'nothing left queued');
+  r.pub.wrote();                                             // A starts the turn
+  r.pub.event(init);
+  r.pub.event(toolUse('Bash', { command: 'sleep 30' }));     // a step runs
+  r.pub.wrote(); r.pub.wrote();                              // B and C written while it runs
+  assert.equal(r.last().queued, 2, 'two wait behind the running step');
+  r.pub.event(toolResult);                                   // the step ends: the agent takes B and C in this same turn
+  assert.equal(r.last().queued, undefined, 'taken at the boundary: nothing waits');
+  r.pub.event({ type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } });
+  r.pub.event(result);                                       // one result for all three: no second turn ever starts
+  for (let i = 0; i < 10; i++) { r.pub.wrote(); r.pub.event(init); r.pub.event(result); }
+  assert.equal(r.last().queued, undefined, 'ten more ordinary turns later, still nothing counted: it cannot drift (review 2 BLOCKER)');
+  r.pub.wrote(); r.pub.event(toolUse('Bash', { command: 'forever' })); r.pub.wrote();
+  assert.equal(r.last().queued, 1, 'CONTROL: a message behind a step that has not ended is still counted');
+});
+
+test('#7368 review 2 W2: the step clock moves on activity, in buckets, so a busy agent writes about once per bucket, not per tool', () => {
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.wrote();
+  const first = r.last().stepSince;
+  const before = r.wrote.length;
+  for (let i = 0; i < 50; i++) { r.pub.event(toolUse('Bash', { command: 'step ' + i })); r.pub.event(toolResult); }
+  assert.ok(r.wrote.length - before <= 1, 'fifty named tools inside one bucket cost at most one write, not fifty: ' + (r.wrote.length - before));
+  r.clock.t += ss.STEP_CLOCK_MS + 1000;
+  r.pub.event(toolUse('Bash', { command: 'later' }));
+  assert.notEqual(r.last().stepSince, first, 'activity in a later bucket moves the clock on disk');
+  assert.equal(r.last().step, 'running "later"', 'and the current step rides with that write');
 });
 
 test('#7368 review 1 B2: the clock is the last sign of activity, not the turn\'s start; a quiet step keeps its clock', () => {
@@ -94,8 +114,8 @@ test('#7368 review 1 B2: the clock is the last sign of activity, not the turn\'s
   const first = r.last().stepSince;
   assert.ok(Number.isFinite(Date.parse(first)), 'a busy agent has a step clock');
   r.pub.event(toolUse('Bash', { command: 'sleep forever' }));
+  r.pub.wrote();   // a message arriving is not activity of the agent's; its write carries the step (review 2 W3)
   assert.equal(r.last().step, 'running "sleep forever"');
-  r.pub.wrote();   // a message arriving is not activity of the agent's
   assert.equal(r.last().stepSince, first, 'a queued message does not move the clock');
   r.pub.event(result);
   assert.equal(r.last().stepSince, undefined, 'an idle agent has no step');
@@ -107,8 +127,11 @@ test('#7368: turnFor reads a busy agent\'s step and queue from its state file, a
   fs.mkdirSync(dir, { recursive: true });
   const at = (n) => path.join(dir, store.safeKey(n) + '.json');
   const since = new Date(Date.now() - 2 * HOUR).toISOString();
-  fs.writeFileSync(at('ada'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: 1, at: since, stepSince: since, step: 'running "npm install"', queued: 3 }));
+  fs.writeFileSync(at('ada'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: process.pid, at: since, stepSince: since, step: 'running "npm install"', queued: 3 }));
   assert.deepEqual(ss.turnFor('ada'), { since, step: 'running "npm install"', queued: 3 });
+  const dead = require('node:child_process').spawnSync(process.execPath, ['-e', '0']).pid;
+  fs.writeFileSync(at('dan'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: dead, at: since, stepSince: since, queued: 3 }));
+  assert.equal(ss.turnFor('dan'), null, 'review 2 W5: a file whose process is gone describes no agent running now');
   fs.writeFileSync(at('bea'), JSON.stringify({ v: 1, state: 'idle', sessionId: 's', pid: 1, at: since, queued: 2 }));
   assert.equal(ss.turnFor('bea'), null, 'CONTROL: an idle agent is not on a step');
   fs.writeFileSync(at('cal'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: 1, at: since }));
@@ -131,7 +154,7 @@ test('#7368: the card carries it for a Windows Claude agent reading Working, ahe
   const dir = path.join(store.ROOT, 'win32-state');
   fs.mkdirSync(dir, { recursive: true });
   const since = new Date(Date.now() - 2 * HOUR).toISOString();
-  fs.writeFileSync(path.join(dir, store.safeKey('dee') + '.json'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: 1, at: since, stepSince: since, step: 'running "x"', queued: 2 }));
+  fs.writeFileSync(path.join(dir, store.safeKey('dee') + '.json'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: process.pid, at: since, stepSince: since, step: 'running "x"', queued: 2 }));
   const win = { name: 'dee', command: 'claude.exe', runner: 'claude' };
   assert.equal(status.deliveryStallOf(win, { state: 'working' }).lastWhy, 'turn', 'a Windows Claude card reading Working carries the stuck step');
   assert.equal(status.deliveryStallOf(win, { state: 'idle' }), null, 'CONTROL: an idle card is not on a step');
