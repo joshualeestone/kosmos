@@ -16,6 +16,8 @@ struct RoomView: View {
     let openPage: (URL) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
+    // kosmos#7348: the box's text at the last post and when, so the box filling back with it is cleared again (as the chat).
+    @State private var lastSent: (text: String, at: Date)?
     @State private var replying: Board.RoomRow?
     // The @name the last Reply put at the front of the box, so the next Reply swaps it and Post refuses it alone.
     @State private var replyMention: String?
@@ -304,6 +306,7 @@ struct RoomView: View {
     private func takeReturned() {
         guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, replying == nil,
               let back = store.takeReturned(project.id) else { return }
+        lastSent = nil   // kosmos#7348: a refused post's words come back on purpose
         draft = back.text
         replying = back.replyTo
     }
@@ -1028,7 +1031,11 @@ struct RoomView: View {
         // Leaving the room lets go of the microphone and closes the panel (the board's: the panel belongs to the composer
         // being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
-        .onChange(of: draft) { dictation.boxChanged(to: $0) }
+        .onChange(of: draft) { now in
+            // kosmos#7348: the posted text came back into the box (the keyboard's dictation or Writing Tools finishing late).
+            if Board.refilledWithSent(now, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { draft = ""; return }
+            dictation.boxChanged(to: now)
+        }
         // Each picker on a host of its own, as the chat's (two presentations on one view can leave one that never opens).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
                                              maxSelectionCount: max(1, Board.maxFiles - countedFiles),
@@ -1122,6 +1129,7 @@ struct RoomView: View {
         let reply = replying
         let files = attachedHere
         client.attachLine[attachKey] = nil
+        lastSent = (draft, Date())
         draft = ""; replying = nil; replyMention = nil
         if searching { sentWhileSearching = true }
         hiddenBySearch = false   // the post is the newest thing to say
