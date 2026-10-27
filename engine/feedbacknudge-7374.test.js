@@ -33,6 +33,17 @@ const worked = (c, at = workedAt) => ({ ...c, lastWorked: { at, why: null } });
 function roster(specs) {
   return fleet.install(specs.map(([name, opts]) => fleet.agent(name, opts || {}))).agents;
 }
+/* A role as the REAL role template states it on its first line ("You are **{{NAME}}**, a project manager." gives
+   "a project manager"), so the fixture's instruction file carries the template's own words (review 1: a fixture
+   spelled "Project Manager" passed while no real card ever matched). */
+const roles = require('./roles');
+function templateRole(key) {
+  const first = roles.byKey(key).instructions.split('\n')[0];
+  const m = first.match(/^You are \*\*\{\{NAME\}\}\*\*, (.+)\.$/);
+  assert.ok(m, 'the template first line changed shape: ' + first);
+  return m[1];
+}
+const noGuide = () => false;
 /* The roster comes back in the board's order, not the order given, so a card is found by its name. */
 const by = (cards, name) => cards.find((c) => c.sessionName.startsWith(name)).sessionName;
 /* An asked-record that lives in memory, so tests do not share the sandbox file unless they mean to. */
@@ -46,7 +57,7 @@ function run(cards, extra = {}) {
   const out = nudge.sweepOnce({
     roster: cards, book: extra.book || new Map(), now: extra.now || EVENING,
     send: extra.send || (() => ({ on: true, ok: true })), hasReport: extra.hasReport || (() => false),
-    asked: extra.asked || memAsked(), deliver: extra.deliver || ((s, t) => { sent.push([s, t]); return { state: DELIVERY.PLACED }; }),
+    asked: extra.asked || memAsked(), isGuide: extra.isGuide || noGuide, deliver: extra.deliver || ((s, t) => { sent.push([s, t]); return { state: DELIVERY.PLACED }; }),
     DELIVERY, log: extra.log,
   });
   return { out, sent };
@@ -64,19 +75,22 @@ test('asks one idle agent when today has no report, and says what it costs and h
 });
 
 test('a Project Manager or Director is asked before the first agent on the roster', () => {
-  const cards = roster([['abe'], ['pia', { displayName: 'Pia', role: 'Project Manager' }]]).map((c) => worked(c));
-  assert.equal(cards.find((c) => c.sessionName.startsWith('pia')).role, 'Project Manager', 'the real instruction file gave the role');
+  const cards = roster([['abe'], ['pia', { displayName: 'Pia', role: templateRole('pm') }]]).map((c) => worked(c));
+  assert.equal(cards.find((c) => c.sessionName.startsWith('pia')).role, 'project manager', 'the card reads the role as the board does');
   const { sent } = run(cards);
   assert.equal(sent[0][0], by(cards, 'pia'));
-  const dir = roster([['abe'], ['dot', { displayName: 'Dot', role: 'Project Director' }]]).map((c) => worked(c));
+  const dir = roster([['abe'], ['dot', { displayName: 'Dot', role: templateRole('director') }]]).map((c) => worked(c));
   assert.equal(run(dir).sent[0][0], by(dir, 'dot'));
+  // A Project Manager before a Project Director, wherever each sits.
+  const both = roster([['dot', { displayName: 'Dot', role: templateRole('director') }], ['pia', { displayName: 'Pia', role: templateRole('pm') }]]).map((c) => worked(c));
+  assert.equal(run(both).sent[0][0], by(both, 'pia'));
   // Control: with no such role, the first idle card on the roster.
   const plain = roster([['zed'], ['bo']]).map((c) => worked(c));
   assert.equal(run(plain).sent[0][0], plain[0].sessionName);
 });
 
 test('a working agent is never interrupted; the idle one is asked instead, or nobody', () => {
-  const cards = roster([['pia', { displayName: 'Pia', role: 'Project Manager', state: 'working' }], ['bo']]).map((c) => worked(c));
+  const cards = roster([['pia', { displayName: 'Pia', role: templateRole('pm'), state: 'working' }], ['bo']]).map((c) => worked(c));
   assert.equal(run(cards).sent[0][0], by(cards, 'bo'));
   const busy = roster([['pia', { state: 'working' }]]).map((c) => worked(c));
   const r = run(busy);
@@ -162,6 +176,32 @@ test('the tick is inert without live execution and under the operator brake', ()
   assert.equal(sent, 1, 'control: allowed and no brake, it asks');
 });
 
-test('the role labels asked first are the real Project Manager and Director labels', () => {
-  assert.deepEqual(nudge.firstLabels(), ['Project Manager', 'Project Director']);
+test('the roles asked first are the real Project Manager and Director, compared as words', () => {
+  assert.deepEqual(nudge.firstLabels(), ['project manager', 'project director']);
+  assert.equal(nudge.roleWords('a project manager.'), 'project manager');
+  assert.equal(nudge.roleWords('Project Manager'), 'project manager');
+  assert.equal(nudge.roleWords('An Editor'), 'editor');
+  assert.equal(nudge.roleWords(null), '');
+});
+
+test('a held agent passes the ask to the next candidate in the same tick', () => {
+  const cards = roster([['pia', { displayName: 'Pia', role: templateRole('pm') }], ['bo']]).map((c) => worked(c));
+  const tried = [];
+  const asked = memAsked();
+  const deliver = (s) => { tried.push(s); return s === by(cards, 'pia') ? { state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit' } : { state: DELIVERY.PLACED }; };
+  const { out } = run(cards, { deliver, asked });
+  assert.deepEqual(tried, [by(cards, 'pia'), by(cards, 'bo')]);
+  assert.equal(out.result.act, 'nudge');
+  assert.equal(out.result.session, by(cards, 'bo'));
+  assert.deepEqual(asked.sets, [[TODAY, by(cards, 'bo')]]);
+});
+
+test('the setup guide is never the agent asked', () => {
+  const cards = roster([['abe'], ['bo']]).map((c) => worked(c));
+  const guide = by(cards, 'abe');
+  assert.equal(run(cards, { isGuide: (s) => s === guide }).sent[0][0], by(cards, 'bo'));
+  const only = roster([['abe']]).map((c) => worked(c));
+  assert.equal(run(only, { isGuide: () => true }).sent.length, 0);
+  // A guide check that throws leaves that card out, rather than ask a guide.
+  assert.equal(run(only, { isGuide: () => { throw new Error('x'); } }).sent.length, 0);
 });

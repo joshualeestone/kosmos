@@ -11,15 +11,19 @@
  * Who is asked, one agent a day:
  *  - an idle card of ours that is not a switched-off swarm (the Assigner's idleCard, as engine/agentnudge.js uses), so a
  *    working agent is never interrupted;
- *  - a Project Manager or Project Director first (the two roles whose instructions already carry the four questions),
- *    else the first such card on the roster.
+ *  - not the setup guide (it runs hands-off instructions, and its thread is masked on the page);
+ *  - a Project Manager first (its instructions already carry the four questions), then a Project Director (it holds the
+ *    picture across projects), else roster order. A card's role is the one its instruction file states ("You are
+ *    **X**, a project manager."), so the match ignores case and a leading article;
+ *  - an agent whose delivery is held (a menu, a usage limit, signed out, text in its box) passes the ask to the next.
  * When, all of:
  *  - sending is on and its setting reads (feedbacksend.read: on and ok). Switched off, or unreadable, nobody is asked, so
  *    an install that said no is never spent a turn on a report it will not send;
  *  - today (the person's local day, feedback.today) has no report yet, from any writer;
  *  - it is NUDGE_HOUR or later on this computer's clock, so the report can cover the day;
  *  - some agent of ours was seen working today (lastWorked), or its provider gives Kosmos no way to see that
- *    (no_source): an install nobody used today is not billed a turn to describe nothing.
+ *    (no_source): an install nobody used today is not billed a turn to describe nothing. Accepted cost: an install
+ *    with an Antigravity or Muse agent is asked every evening, used or not, since Kosmos cannot see their work.
  * How often: once a day, kept on disk (askedFile), so a restart or an update does not ask again. A delivery that reached
  * nothing is retried on later ticks, up to MAX_TRIES (that count is in memory, so a restart allows three more).
  *
@@ -36,7 +40,7 @@ const path = require('node:path');
 const MAX_TRIES = 3;
 /* The local hour from which the day's ask may go out. */
 const NUDGE_HOUR = 17;
-/* The role keys asked first: the two whose instructions already carry the four questions (engine/roles.js). */
+/* The role keys asked first, in order (engine/roles.js). */
 const FIRST_ROLES = ['pm', 'director'];
 
 /* The day last asked: { date: 'YYYY-MM-DD', session }. Under the data root, so a sandboxed test never reads the live one.
@@ -64,10 +68,21 @@ function fileAsked() {
   };
 }
 
-/* The role labels asked first, as a card carries them (its profile's `role`, the label chosen at creation). */
+/* A role as words to compare: lower case, no leading article, no closing stop ("a project manager." -> "project manager"). */
+function roleWords(v) {
+  return String(v || '').trim().toLowerCase().replace(/[.\s]+$/, '').replace(/^(a|an|the)\s+/, '');
+}
+/* The roles asked first, in order, as roleWords of their labels ("project manager", "project director"). */
 function firstLabels() {
   const roles = require('./roles');
-  return FIRST_ROLES.map((k) => roles.byKey(k)).filter(Boolean).map((r) => r.label);
+  return FIRST_ROLES.map((k) => roles.byKey(k)).filter(Boolean).map((r) => roleWords(r.label));
+}
+/* The rank of a card's role in firstLabels (lower is asked first), or the list's length for any other role. The role is
+   the one its instruction file states (card.role), which is where a built-in role's words live; a label the person typed
+   at creation is their own role, not one of these. */
+function rankOf(card, labels) {
+  const i = labels.indexOf(roleWords(card.role));
+  return i < 0 ? labels.length : i;
 }
 
 /* The line typed into the agent. The four questions and the rules about names and secrets are the Project Manager's own
@@ -99,15 +114,20 @@ function workedToday(roster, today, dateKey) {
   });
 }
 
-/* The card to ask: an idle card of ours, a first role before any other, else roster order. Null when none. */
-function pick(roster, labels) {
-  const idle = roster.filter((c) => require('./assigner').idleCard(c));
-  return idle.find((c) => labels.includes(c.role)) || idle[0] || null;
+function guideDefault(session) { return require('./setup-assistant').isGuideFolder(session); }
+/* The cards that may be asked, in the order to ask them: idle cards of ours, not the guide, the first roles first, then
+   roster order (the sort is stable). Empty when none. */
+function candidates(roster, labels, isGuide = guideDefault) {
+  const idle = roster.filter((c) => {
+    if (!require('./assigner').idleCard(c)) return false;
+    try { return !isGuide(c.sessionName); } catch { return false; }
+  });
+  return idle.map((c, i) => ({ c, i, r: rankOf(c, labels) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.c);
 }
 
 /*
- * The day's decision. o = { roster, send ({ on, ok }), today, hour, hasReport, askedDate, entry, labels, dateKey }.
- * Returns { act: 'none' | 'nudge', because, card? }.
+ * The day's decision. o = { roster, send ({ on, ok }), today, hour, hasReport, askedDate, entry, labels, dateKey, isGuide }.
+ * Returns { act: 'none' | 'nudge', because, cards? } (cards: who to ask, in order).
  */
 function plan(o) {
   if (!o.send || o.send.ok !== true) return { act: 'none', because: 'the feedback-sending setting could not be read' };
@@ -119,9 +139,9 @@ function plan(o) {
   if (o.hasReport) return { act: 'none', because: 'today already has a report' };
   if (!(o.hour >= NUDGE_HOUR)) return { act: 'none', because: 'before ' + NUDGE_HOUR + ':00' };
   if (!workedToday(o.roster, o.today, o.dateKey)) return { act: 'none', because: 'no agent worked today' };
-  const card = pick(o.roster, o.labels);
-  if (!card) return { act: 'none', because: 'no idle agent to ask' };
-  return { act: 'nudge', card, because: 'today has no report' };
+  const cards = candidates(o.roster, o.labels, o.isGuide);
+  if (!cards.length) return { act: 'none', because: 'no idle agent to ask' };
+  return { act: 'nudge', cards, because: 'today has no report' };
 }
 
 /*
@@ -147,19 +167,28 @@ function sweepOnce(o) {
     const entry = book.get('day');
     const p = plan({
       roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey,
-      labels: Array.isArray(o.labels) ? o.labels : firstLabels(),
+      labels: Array.isArray(o.labels) ? o.labels : firstLabels(), isGuide: typeof o.isGuide === 'function' ? o.isGuide : undefined,
     });
     if (p.act !== 'nudge') return { result: { act: 'none', because: p.because } };
-    const session = p.card.sessionName;
-    const name = p.card.name || session;
-    let state = null;
-    let held = false;
-    let heldBy = null;
-    try { const r = o.deliver(session, nudgeText(), o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = (r && r.heldBy) || null; }
-    catch (err) { state = 'threw: ' + String((err && err.message) || err); }
     /* Held (deliverAutomatic's holds: a menu, a usage limit, a signed-out account, text in its box): nothing typed and
-       no try spent; a later tick asks again. */
-    if (held) return { result: { act: 'held', session, name, heldBy, delivery: state, because: p.because + '; held' + (heldBy ? ' (' + heldBy + ')' : '') } };
+       no try spent, and the next candidate is asked; when every one is held, a later tick asks again. */
+    const heldOnes = [];
+    let session = null;
+    let name = null;
+    let state = null;
+    for (const card of p.cards) {
+      session = card.sessionName;
+      name = card.name || session;
+      let held = false;
+      let heldBy = null;
+      state = null;
+      try { const r = o.deliver(session, nudgeText(), o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = (r && r.heldBy) || null; }
+      catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+      if (!held) break;
+      heldOnes.push(name + (heldBy ? ' (' + heldBy + ')' : ''));
+      session = null;
+    }
+    if (session === null) return { result: { act: 'held', delivery: state, because: p.because + '; every agent that could be asked is held: ' + heldOnes.join(', ') } };
     const D = o.DELIVERY || {};
     const delivered = D.PLACED != null && state === D.PLACED;
     const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
@@ -191,10 +220,10 @@ function makeTick(deps) {
       if (!Array.isArray(roster)) return null;
       return sweepOnce({
         roster, book: deps.book, now: deps.now ? deps.now() : new Date(), send: deps.send, hasReport: deps.hasReport,
-        asked: deps.asked, labels: deps.labels, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
+        asked: deps.asked, labels: deps.labels, isGuide: deps.isGuide, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
       });
     } catch { return null; }
   };
 }
 
-module.exports = { plan, pick, workedToday, nudgeText, sweepOnce, makeTick, nudgeEnabled, askedFile, firstLabels, MAX_TRIES, NUDGE_HOUR, FIRST_ROLES };
+module.exports = { plan, candidates, rankOf, roleWords, workedToday, nudgeText, sweepOnce, makeTick, nudgeEnabled, askedFile, firstLabels, MAX_TRIES, NUDGE_HOUR, FIRST_ROLES };
