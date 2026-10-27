@@ -64,3 +64,15 @@ in a temp copy (no seam in shipped code), plus structural checks that release.sh
 - W6 FIXED: the manifest's version must equal V (mutant red).
 - NITs FIXED: manifest immutability (mutant red); a note when KOSMOS_ALLOW_STALE_TUNNEL also covers the Linux
   connector; the signer-refusal test has its control.
+
+## C1 review 2 (22:4x): 0 blockers, 2 warnings, 1 nit, all fixed
+- W1 FIXED: the prod guard was an environment variable an operator could set by hand before C2. It is now read from
+  promote-channel.sh itself (`release_linux_promote_in_lockstep`: does it name latest-linux.json?), so it cannot be
+  bypassed and C2 lifts it by landing. Tested: refused today, a variable does not lift it, a promote-channel.sh that
+  names the Linux pointer does; the shipped one does not yet (mutant red).
+- W2 FIXED: tools/publish-staging-pointer.sh re-pointed latest-staging.json alone. It now refuses while the staging
+  channel publishes the Linux family (pointer on disk or on origin/main): a cut moves both (tested with a control).
+- NIT FIXED: step 8 also requires the committed Linux pointer's sha256 to equal the exported tarball's .sha256.
+- Reviewer checked: _linux_pair_had is defined before the full trap on every path (set -u safe), recorded before any
+  Linux write to the site; step 8 cannot pass on another version's tarball; the cleanup precedes the ff-merge and
+  removes exactly what would block it. Existing tests for every touched file: 12 files, all rc 0.
