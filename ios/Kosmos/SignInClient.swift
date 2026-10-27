@@ -207,9 +207,9 @@ final class SignInClient {
         return SignIn.reviewDoorOpen(status: answer.statusCode)
     }
 
-    func reviewSignIn(email: String, password: String) async throws -> SignIn.Answer {
+    func reviewSignIn(email: String, password: String) async throws -> SignIn.ReviewAnswer {
         let (status, json) = try await post(SignIn.reviewPath, SignIn.reviewBody(email: email, password: password, deviceName: deviceName))
-        return SignIn.answer(status: status, json: json)
+        return SignIn.reviewAnswer(status: status, json: json)
     }
 
     func second(challenge: String, code: String) async throws -> SignIn.Answer {
