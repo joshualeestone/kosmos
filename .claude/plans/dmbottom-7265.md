@@ -16,8 +16,9 @@ almost every open).
 
 ## Steps
 
-1. ChatView: draw the newest rows as one eager VStack inside the LazyVStack (at least 40, the cut moving in steps of
-   20 so a row crosses to the lazy part once per 20 new messages). Their real heights are known when the jump runs.
+1. ChatView: draw the newest 40 rows as one eager VStack inside the LazyVStack, with an exact cut. Their real heights
+   are known when the jump runs. (A cut in steps of 20, to rebuild rows less often, measured 0 of 10 on the newest
+   message against 10 of 10 for the exact cut, rounds 16 and 17, so it was dropped.)
 2. The eager rows count as on screen together, so when an older page lands and the reader is at the newest message
    (the end marker has shown, it is showing, the top is not), keep them there without animation instead of anchoring
    to the eager stack's first row.
@@ -31,6 +32,7 @@ almost every open).
 - Rejected after measuring (rounds 6 to 13 on the card): bottom scroll anchors, repeated jumps, and iOS 18's
   ScrollPosition jumps to the bottom edge. The jumps never converged (they land on the same estimate), and the
   first-layout anchor that did land also drew a blank chat in 1 to 2 opens in 5.
-- Stated limit: a reader stopped part way inside the newest rows as an older page lands may still move.
+- Stated limits: a reader stopped part way inside the newest rows as an older page lands may still move; each new
+  message moves one row from the eager stack to the lazy rows, rebuilding it (any state it held is dropped).
 - Weakest premise: that the simulator's sample chat reproduces what Josh saw on his phone. The symptom matches (a long
   chat opening mid-thread); the mechanism is the one measured here.

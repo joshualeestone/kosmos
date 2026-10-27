@@ -305,10 +305,9 @@ struct ChatView: View {
 
     // MARK: - The conversation
 
-    // kosmos#7265: at least this many of the newest rows are drawn eagerly (40 to 59, as the cut steps by 20; all of a chat
-    // under 60), more than a screen of short messages. Measured on the
-    // simulator (a 260-message chat of varied lengths, 10 opens, the newest message read at 4 s and 10 s): 20 of 20 on the
-    // newest message; with every row lazy about 1 in 10 (rounds 6 to 13 of the card). 0 in the Debug no-fix arm.
+    // kosmos#7265: how many of the newest rows are drawn eagerly, more than a screen of short messages. Measured on the
+    // simulator (a 260-message chat of varied lengths, the newest message read at 4 s and 10 s): 10 of 10 on the newest
+    // message (rounds 14, 16, 17); with every row lazy about 1 in 10. 0 in the Debug no-fix arm.
     static var eagerTail: Int { sampleNoFix ? 0 : 40 }
 
     // One row of the conversation, with what the thread needs to know about it.
@@ -350,10 +349,10 @@ struct ChatView: View {
                         // kosmos#7265: the newest rows are drawn as one eager stack, so their real heights are known and the
                         // jump to "end" on open lands on the newest message. With every row lazy their heights were estimated
                         // and a long chat of long messages opened mid-thread. Older rows stay lazy.
-                        // The cut moves in steps of 20, so a row crosses from the eager stack to the lazy rows (and is
-                        // rebuilt, losing any state it held) once per 20 new messages, not on every one (review).
-                        let tailStart = Self.eagerTail == 0 ? items.count
-                            : Self.sampleExactCut ? max(0, items.count - Self.eagerTail) : max(0, items.count - Self.eagerTail) / 20 * 20
+                        // An exact cut: a cut in steps of 20 (fewer rebuilds) measured short again, 0 of 10 against 10 of 10
+                        // (rounds 16 and 17). So each new message moves one row from the eager stack to the lazy rows, which
+                        // rebuilds it and drops any state it held (a stated limit).
+                        let tailStart = max(0, items.count - Self.eagerTail)
                         ForEach(items[..<tailStart]) { item in row(item) }
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(items[tailStart...]) { item in row(item) }
@@ -677,7 +676,7 @@ struct ChatView: View {
             // a reader stopped part way inside the newest rows as a page lands may still move).
             // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
             // reader is up there) rules it out.
-            if !Self.sampleNoKeep, atBottom && endSeen && !topVisible { keepAtEnd = true }
+            if atBottom && endSeen && !topVisible { keepAtEnd = true }
             else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
@@ -1686,12 +1685,7 @@ extension ChatView {
     // both arms.
     #if DEBUG
     static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
-    // Diagnosis only (round 16: round 14's form landed 10 of 10, the current one short): each review change alone.
-    static let sampleExactCut = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EXACTCUT"] == "1"
-    static let sampleNoKeep = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOKEEP"] == "1"
     #else
     static let sampleNoFix = false
-    static let sampleExactCut = false
-    static let sampleNoKeep = false
     #endif
 }
