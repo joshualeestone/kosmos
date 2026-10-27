@@ -73,9 +73,22 @@ function reportNote(session, at, { selfreport = require('./selfreport'), tailByt
     if (!lines[i].trim()) continue;
     let row;
     try { row = JSON.parse(lines[i]); } catch { continue; }
-    if (row && row.at === at && row.state === 'needs_you') return typeof row.because === 'string' && row.because.trim() ? row.because : null;
+    if (row && row.at === at && row.state === 'needs_you') return reportWords(row);
   }
   return null;
+}
+
+/** kosmos#6487: a needs_you report may carry no reason when it was made with only `--on` (what it waits on) or only
+ *  `--owner` (who must act); an older row may carry nothing (before the #2001 rule). With no words the phone shows the
+ *  bare push, so a recorded report answers something true: its reason, else what it waits on, else who must act, else
+ *  that it waits for an answer. (A permission hook's report always carries a reason, so it is not this case.) */
+function reportWords(row) {
+  const said = (v) => typeof v === 'string' && v.trim() ? v.trim().replace(/[.\s]+$/, '') : '';
+  if (typeof row.because === 'string' && row.because.trim()) return row.because;
+  const end = (v) => 'Waiting on ' + v + (/[?!]$/.test(v) ? '' : '.');   // no full stop after a question (review 2)
+  if (said(row.on)) return end(said(row.on));
+  if (said(row.owner)) return end(said(row.owner));
+  return 'Waiting for your answer.';
 }
 
 /** The text of the direct reply an agent sent at exactly `at`, or null. Only the agent's own message counts. */
