@@ -78100,7 +78100,10 @@ async function loadRoom() {
   const roomEl = document.getElementById('pj-room');
   /* kosmos#7365: rows read into the gap land above the newest page, so a reader scrolled up into it keeps their message
      (a reader following the newest message is pinned to it by the paint, so nothing is restored for them). */
-  const anchor = gapFilled && roomEl.__roomHeldAtBottom === false ? threadAnchor(roomEl) : null;
+  /* Measured NOW, not read from the last repaint (__roomHeldAtBottom), which in a quiet room can be minutes old
+     (review 1): a reader on the floor is pinned by the paint, and anchoring them would pull them off it. */
+  const onFloorNow = roomEl.clientHeight > 0 && (roomEl.scrollHeight - roomEl.scrollTop - roomEl.clientHeight) <= THREAD_BOTTOM_SLACK;
+  const anchor = gapFilled && !onFloorNow ? threadAnchor(roomEl) : null;
   roomEl.__lastBody = body;
   paintRoom(body);
   if (anchor) restoreThreadAnchor(roomEl, anchor);
