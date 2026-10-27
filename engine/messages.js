@@ -778,9 +778,10 @@ function externalPost(projectId, { from, fromKind, text, member, unverified }) {
    and cuts them), which is never more than fedseats charged live (the raw words
    plus the cut name, and a refused row is charged but never stored). So a
    restart can only give back bytes that were never kept: what is stored stays
-   within the day. null when the log cannot be read, and (#7185) when the projects
-   file cannot be read (the caller then counts from zero for that day, the send
-   path's fail-open trade; its own live count still charges every post after). */
+   within the day. null when the log cannot be read (the caller then counts from
+   zero for that day, the send path's fail-open trade; its own live count still
+   charges every post after). #7367: with the projects file unreadable the count
+   keeps every row, so it can only be higher, which charges more, never less. */
 function externalKeptOn(projectId, day) {
   const r = record();
   if (!r.ok) return null;
@@ -3269,6 +3270,9 @@ function unanswered(projectId, now) {
   const at = Number.isFinite(now) ? now : Date.now();
   const rec = record();
   if (!rec.ok) return {};
+  /* #7367: with the stamps unknown the rows include a deleted project's asks; the sweep acts on this answer (a nudge
+     and its at-most-once row), and checks its own read too, but the stamps can go unknown between the two reads. */
+  if (rec.stampsUnknown) return {};
   const rows = rec.rows.filter((m) => m && m.project === projectId);
   const out = {};
   for (const p of rows) {

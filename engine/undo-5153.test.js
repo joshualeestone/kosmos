@@ -299,3 +299,26 @@ test('a stored copy that no longer matches what was kept is never restored', () 
   assert.equal(fs.readFileSync(f, 'utf8'), 'AGENT');
   fs.writeFileSync(path.join(blobs, want), 'ORIGINAL');
 });
+
+test('#7367: with the projects file damaged no undo is planned or applied (task conversations then keep a deleted task\'s rows)', () => {
+  undo.setOn(true, ms('08:00'));
+  const project = 'p' + (++pn);
+  const dee = worker('dee');
+  const f = path.join(dee, 'plan.md');
+  original(f, 'ORIGINAL');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'dee' }, { at: '11:00', kind: 'closed' }]);
+  edit(f, 'EDITED', '10:10', dee);
+  const pf = require('./projects').file();
+  fs.mkdirSync(path.dirname(pf), { recursive: true });
+  fs.writeFileSync(pf, '[]');
+  assert.equal(undo.plan(project, task()).ready, true, 'CONTROL: with a good projects file the undo is planned');
+  fs.writeFileSync(pf, Buffer.alloc(16, 0));
+  try {
+    assert.deepEqual(undo.plan(project, task()), { ready: false, because: 'stamps-unknown', files: [] }, 'damaged: nothing planned');
+    assert.equal(undo.apply(project, task(), [f], { now: ms('12:00') }).because, 'stamps-unknown', 'damaged: nothing applied');
+    assert.equal(fs.readFileSync(f, 'utf8'), 'EDITED', 'damaged: the file is untouched');
+  } finally {
+    fs.writeFileSync(pf, '[]');
+  }
+  assert.equal(undo.plan(project, task()).ready, true, 'repaired: planned again');
+});
