@@ -1384,10 +1384,6 @@ function staleHeld(projectId, ids, log, now, member) {
   return out;
 }
 
-/* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
-   (or nobody to deliver to) is placed; anything else is unconfirmed.
-   #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
-   the folded retry of one (it reports the first copy's outcomes). */
 /* kosmos#7246 slice 2: the arrivals a post charged against the room's valve: its `to`, less the members it left quiet
    (in the room, never typed). A post that woke no one costs the valve nothing. */
 function reachedCount(m) {
@@ -1395,6 +1391,10 @@ function reachedCount(m) {
   const oc = m.outcomes && typeof m.outcomes === 'object' ? m.outcomes : null;
   return oc ? m.to.filter((n) => oc[n] !== roomhold.QUIET).length : m.to.length;
 }
+/* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
+   (or nobody to deliver to) is placed; anything else is unconfirmed.
+   #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
+   the folded retry of one (it reports the first copy's outcomes). */
 function aggregateState(outcomes) {
   const states = Object.values(outcomes || {});
   // kosmos#7246 slice 2: a quiet member (the post did not address it) is placed too: the post is in the room.
@@ -2146,7 +2146,7 @@ function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = tr
     const text = String(cleaned || '');
     const list = Array.isArray(recipients) ? recipients : [];
     // Round 1: an @all inside `code` is quoted, not a broadcast.
-    if (all && /(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_])/i.test(text.replace(/`[^`]*`/g, ' '))) {
+    if (all && /(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_-])/i.test(text.replace(/`[^`]*`/g, ' '))) {   // round 2: @all-hands is a word, not a broadcast
       for (const m of list) if (m !== from) out.add(m);
     }
     // The sender is a name of at most three words ("PigeonPete", "Ice Cream Kitty"), so a sentence that mentions an arrow is not a header.
@@ -2844,7 +2844,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* B: a reply wakes its author only when the post it answers asked someone something (a person's post, or a post that
      addressed at least one member), so an acknowledgement of a post that asked nothing wakes no one. */
   /* Round 1: asked THIS replier (the person's post, or one that addressed the sender), so a bystander's +1 wakes no one. */
-  const answeredAsked = Boolean(answered && (answered.operator === true || (Array.isArray(answered.mentioned) && answered.mentioned.includes(from))));
+  const answeredAddressed = answered && Array.isArray(answered.addressed) ? answered.addressed : (answered && Array.isArray(answered.mentioned) ? answered.mentioned : []);   // rows before slice 2 have no `addressed`
+  const answeredAsked = Boolean(answered && (answered.operator === true || answeredAddressed.includes(from)));
   /* C, decided once per post (round 1): the whole post is quiet or none of it, so an @all never stops partway. */
   const loopPaused = operator !== true && require('./roomloop').paused(projectId);
   let wokeSomeone = false;
@@ -3127,7 +3128,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          The unanswered state keys on WHO WAS ASKED, and re-deriving that at
          render time would be a second tokenizer that can drift from this
          one. */
-      ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
+      /* kosmos#7246 slice 2 (round 2): the row keeps its @-names in `mentioned`, as before, for every reader of it (the
+         claim guard, the owner rule, owed answers and the #185 nudge, which would otherwise wake every member owed an
+         answer for an @all). Who the post addressed for waking is its own field, `addressed`, read by rule B. */
+      ...(atNamed.mentioned.size ? { mentioned: [...atNamed.mentioned] } : {}),
+      ...(operator !== true && mentioned.size ? { addressed: [...mentioned] } : {}),
       /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
       ...(ambiguousWords.size ? { ambiguousMentions: [...ambiguousWords] } : {}),
       ...(operator === true ? { operator: true } : {}),

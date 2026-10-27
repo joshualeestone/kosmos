@@ -203,3 +203,20 @@ test('round 1: an @all inside `code` is quoted, not a broadcast', () => {
   assert.deepEqual([...messages.addressedMembers('@all heads up', MEMBERS, [], new Set(), 'angel')].sort(), ['monalisa', 'pigeonpete']);
   assert.deepEqual([...messages.addressedMembers('@all heads up', MEMBERS, [], new Set(), 'angel', { all: false })], [], 'the swarm-off check reads named members only');
 });
+
+test('round 2: the row keeps @-names in `mentioned` (claims, owed answers, the #185 nudge) and the wake set in `addressed`', () => {
+  withFleet(room(), (board) => {
+    const p = post(board, 'angel', 'Angel -> Mona Lisa: @all the cut is on staging');
+    const row = messages.record().rows.find((x) => x.id === p.sent.id);
+    assert.ok(!row.mentioned, 'a header or @all became an owed answer: ' + JSON.stringify(row.mentioned));
+    assert.deepEqual([...row.addressed].sort(), ['monalisa', 'pigeonpete']);
+    const at = post(board, 'angel', '@pigeonpete one question');
+    assert.deepEqual(messages.record().rows.find((x) => x.id === at.sent.id).mentioned, ['pigeonpete'], 'CONTROL: an @-name is still an owed answer');
+  });
+});
+
+test('round 2: @all-hands and @everyone-else are words, not broadcasts', () => {
+  assert.deepEqual([...messages.addressedMembers('see the @all-hands notes', MEMBERS, [], new Set(), 'angel')], []);
+  assert.deepEqual([...messages.addressedMembers('thanks @everyone-else', MEMBERS, [], new Set(), 'angel')], []);
+  assert.deepEqual([...messages.addressedMembers('thanks @all.', MEMBERS, [], new Set(), 'angel')].sort(), ['monalisa', 'pigeonpete'], 'CONTROL: @all at a sentence end');
+});

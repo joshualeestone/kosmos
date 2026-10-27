@@ -15,7 +15,8 @@ post; rooms of 8 or fewer keep the per-post turn-end flush.
   not held, in the room to read. A person's posts are unchanged.
 - **B.** A reply wakes its author only when the post it answers asked someone something: a person's post, or a post
   that addressed at least one member.
-- **C.** Per project, at most LOOP_CAP (20) agent-woken deliveries in any rolling hour (engine/roomloop.js). Past it,
+- **C.** Per project, at most LOOP_CAP (40) agent posts that woke anyone in any rolling hour (engine/roomloop.js), decided
+  once per post. 40 is about three times the busiest agent hour measured in this fleet's room (13); a guess with that basis. Past it,
   agent-to-agent delivery in that project is quiet until the window has room, the room gets one Kosmos note saying so
   (roomNote, the person sees it), and the board log says it. A person's posts are never capped.
 - **Old holds, decided:** left as they are. Under A no post creates a plain held id any more, so the flushes of plain ids
@@ -38,6 +39,17 @@ drains). Every edit carries a `kosmos#7246 slice 2` comment.
 ## Now unreachable from a post (stated)
 - The agy cap's mark on a room post (`heldBy === 'cap' ? cappedId`) applied only to an unaddressed member, who is quiet
   now. The flush and retry of cap-marked ids still work for holds made before the upgrade.
+
+## Review rounds 1 and 2 (changes)
+- A person's post keeps its @-names alone; the header and @all are for agents' posts.
+- The row keeps @-names in `mentioned` (the claim guard, owner rule, owed answers and the #185 nudge read it, and an
+  @all there would make every member owed an answer, which the nudge would wake). The wake set is `addressed`, read
+  only by rule B. @all does not wake a swarm switched off in the project.
+- B asks whether the answered post addressed THIS replier (a bystander's +1 wakes no one).
+- Quiet posts count as missed in the catch-up line and cost the room valve nothing (reachedCount).
+- The sending agent is told: both CLIs say when a post left members quiet and how to address one, and print the
+  pause's `because`.
+- @all inside a code span, @all-hands and @everyone-else are not broadcasts.
 
 ## Weakest premise
 That no workflow relies on an unaddressed agent post waking teammates. Remedy: @-name them or use the header.

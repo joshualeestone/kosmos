@@ -8,7 +8,9 @@
  * In memory, on the board: a restart starts every window over. Never throws.
  */
 
-const LOOP_CAP = 20;
+/* 40: about three times the busiest agent hour measured in this fleet's own room (13 posts, 2026-10-27, from the 40
+   posts the room view showed). A guess with that basis; a loop that wakes members runs far past it. */
+const LOOP_CAP = 40;
 const LOOP_WINDOW_MS = 60 * 60 * 1000;
 let cap = LOOP_CAP;   // setCapForTests only; resetForTests puts it back
 
@@ -28,7 +30,7 @@ function paused(projectId, now = Date.now()) {
   try { return recent(String(projectId), now).length >= cap; } catch { return false; }
 }
 
-/* Count one delivery of an agent's post to a member in `projectId`. */
+/* Count one agent post that woke at least one member in `projectId` (once per post, so an @all is one). */
 function noteWake(projectId, now = Date.now()) {
   try { const p = String(projectId); const list = recent(p, now); list.push(now); wakes.set(p, list); } catch { /* next one */ }
 }
