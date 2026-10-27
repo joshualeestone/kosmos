@@ -211,6 +211,7 @@ struct ChatView: View {
             searchOpen = false
             openedAtNewest = false
             sentWhileSearching = false
+            dictation.stop()   // kosmos#7268 review 2: before the draft is saved, so no late result is lost from it
             // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
             if epoch == client.chatEpoch { client.drafts[agent.session] = draftText }
             loop?.cancel()

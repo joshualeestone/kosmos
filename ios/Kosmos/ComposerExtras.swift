@@ -27,7 +27,7 @@ struct ComposerMicButton: View {
     @ObservedObject var dictation: Dictation
     let action: () -> Void
     var body: some View {
-        let on = dictation.state == .listening
+        let on = dictation.active   // review 2: starting shows the stop look too (a press cancels it)
         Button(action: action) {
             Image(systemName: on ? "stop.circle.fill" : "mic")
                 .font(.system(size: 20))
@@ -66,21 +66,35 @@ struct EmojiPanel: View {
 // Asks for speech recognition and the microphone the first time, with the reasons in Info.plist. On this iPhone when it
 // can (requiresOnDeviceRecognition), so what is said stays on the phone where the phone allows it.
 @MainActor final class Dictation: ObservableObject {
-    @Published private(set) var state: ComposerExtras.Mic = .ready {
-        didSet { if state != oldValue { announce() } }
-    }
+    @Published private(set) var state: ComposerExtras.Mic = .ready
+    // A start in progress (awaiting permission or setup): the button already shows its stop look, and a press cancels.
+    @Published private(set) var starting = false
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var base = ""
     private var lastWritten = ""
     private var onText: ((String) -> Void)?
-    // Review 1: a start in progress (awaiting permission or setup), and a generation, so a second press, a stop or a
-    // leave during the awaits cancels it, and an old recognition task can never stop or write for a newer one.
-    private var starting = false
+    private var tapInstalled = false
+    // A generation, so a second press, a stop or a leave during the awaits cancels a start, and an old recognition task
+    // can never write for or stop a newer one (review 1).
     private var generation = 0
-    // Review 1: the app's audio session as it was, put back when dictation stops (a video played later must be heard).
+    // The app's audio session as it was before dictation, put back whenever dictation lets go (review 1 and 2: a video
+    // played later must be heard, including after a failed start). Kept only once, never overwritten by our own.
     private var savedSession: (AVAudioSession.Category, AVAudioSession.Mode, AVAudioSession.CategoryOptions)?
+    private var observers: [NSObjectProtocol] = []
+
+    init() {
+        // Review 2: a phone call, Siri or the app going to the background ends the microphone; say so instead of
+        // leaving a red stop button over a dead microphone.
+        let nc = NotificationCenter.default
+        for name in [AVAudioSession.interruptionNotification, UIApplication.didEnterBackgroundNotification] {
+            observers.append(nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.stop() }
+            })
+        }
+    }
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
     var active: Bool { starting || state == .listening }
 
@@ -92,10 +106,18 @@ struct EmojiPanel: View {
         Task { await start(base: base, onText: onText, generation: mine) }
     }
 
-    // Review 1: the box changed by someone else (Send cleared it, typing, an emoji): stop, so the next result cannot
-    // rewrite the box from the old snapshot. The composers call this from onChange of their text.
+    // The box changed by someone else (Send cleared it, typing, an emoji): stop, so the next result cannot rewrite the
+    // box from the old snapshot. The composers call this from onChange of their text (review 1).
     func boxChanged(to text: String) {
         if active, ComposerExtras.dictationOverridden(current: text, lastWritten: lastWritten) { stop() }
+    }
+
+    // A refusal is said every time, not only when the state changes (review 2: a second press after a refusal was
+    // silent and read as a dead button).
+    private func refuse(_ m: ComposerExtras.Mic) {
+        starting = false
+        state = m
+        if let line = ComposerExtras.micLine(m) { UIAccessibility.post(notification: .announcement, argument: line) }
     }
 
     private func start(base: String, onText: @escaping (String) -> Void, generation mine: Int) async {
@@ -104,31 +126,38 @@ struct EmojiPanel: View {
         guard mine == generation else { return }
         switch speech {
         case .authorized: break
-        case .restricted: starting = false; state = .restricted; return
-        default: starting = false; state = .denied; return
+        case .restricted: refuse(.restricted); return
+        default: refuse(.denied); return
         }
         let mic = await withCheckedContinuation { c in AVAudioSession.sharedInstance().requestRecordPermission { c.resume(returning: $0) } }
         guard mine == generation else { return }
-        guard mic else { starting = false; state = .denied; return }
-        guard let recognizer = SFSpeechRecognizer() else { starting = false; state = .unsupported; return }
-        guard recognizer.isAvailable else { starting = false; state = .unavailable; return }
+        guard mic else { refuse(.denied); return }
+        guard let recognizer = SFSpeechRecognizer() else { refuse(.unsupported); return }
+        guard recognizer.isAvailable else { refuse(.unavailable); return }
         do {
             let session = AVAudioSession.sharedInstance()
-            savedSession = (session.category, session.mode, session.categoryOptions)
+            if savedSession == nil { savedSession = (session.category, session.mode, session.categoryOptions) }
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
+            let input = engine.inputNode
+            let format = input.outputFormat(forBus: 0)
+            // Review 2: no input (a simulator with none, an unavailable route) has a 0-channel format, and installTap
+            // with it is an exception do/catch cannot catch: say unavailable instead.
+            guard format.channelCount > 0, format.sampleRate > 0 else { releaseAudio(); refuse(.unavailable); return }
             let req = SFSpeechAudioBufferRecognitionRequest()
             req.shouldReportPartialResults = true
             if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-            let input = engine.inputNode
             input.removeTap(onBus: 0)
-            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in req.append(buffer) }
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in req.append(buffer) }
+            tapInstalled = true
             engine.prepare()
             try engine.start()
             self.base = base
             self.onText = onText
             request = req
             starting = false
+            // No spoken "Listening" (review 2): VoiceOver through the speaker would be heard by the open microphone and
+            // typed into the box. The button's own label changes to "Stop dictating", which VoiceOver reads.
             state = .listening
             task = recognizer.recognitionTask(with: req) { [weak self] result, error in
                 let words = result?.bestTranscription.formattedString
@@ -144,49 +173,44 @@ struct EmojiPanel: View {
                 }
             }
         } catch {
-            stop()
-            state = .unavailable
+            stop()   // releases whatever was taken, the session included (review 2)
+            refuse(.unavailable)
         }
     }
 
     // Stops listening and lets go of the microphone. What was heard stays in the box. A start still awaiting is
-    // cancelled (the generation moves on). Nothing to do when dictation never started (review 1: no audio work then).
+    // cancelled (the generation moves on).
     func stop() {
         generation += 1
         starting = false
-        guard request != nil || task != nil || engine.isRunning else {
-            if state == .listening { state = .ready }
-            return
-        }
-        if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
-        request?.endAudio()
         task?.cancel()
-        request = nil
+        request?.endAudio()
         task = nil
+        request = nil
         onText = nil
+        releaseAudio()
+        if state == .listening {
+            state = .ready
+            UIAccessibility.post(notification: .announcement, argument: "Stopped dictating")
+        }
+    }
+
+    // The audio half, always safe to call: the tap, the engine, and the session put back as it was (review 2: also after
+    // a failed start, where nothing else was running yet).
+    private func releaseAudio() {
+        if engine.isRunning { engine.stop() }
+        if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
+        guard let (category, mode, options) = savedSession else { return }
         let session = AVAudioSession.sharedInstance()
         try? session.setActive(false, options: .notifyOthersOnDeactivation)
-        if let (category, mode, options) = savedSession { try? session.setCategory(category, mode: mode, options: options) }
+        try? session.setCategory(category, mode: mode, options: options)
         savedSession = nil
-        if state == .listening { state = .ready }
     }
 
     // Leaving the composer: stop, and drop a refusal line so it is asked afresh next time (review 1: it was sticky).
     func reset() {
         stop()
         if state != .ready { state = .ready }
-    }
-
-    // Review 1: VoiceOver hears a refusal, and listening starting and stopping.
-    private func announce() {
-        let words: String?
-        switch state {
-        case .listening: words = "Listening"
-        case .ready: words = nil
-        default: words = ComposerExtras.micLine(state)
-        }
-        if let words { UIAccessibility.post(notification: .announcement, argument: words) }
     }
 }
 
@@ -222,14 +246,18 @@ private struct CursorField18: View {
     @Binding var insert: String?
     var prompt: Text?
     @State private var selection: TextSelection?
+    // Review 2: the text the selection was taken in. Dictation or Send can rewrite the text without moving the
+    // selection; indices from another string are never used, the glyph then goes at the end.
+    @State private var selectionText = ""
     var body: some View {
         TextField(placeholder, text: $text, selection: $selection, prompt: prompt, axis: .vertical)
             .focused(focus)
+            .onChange(of: selection) { _ in selectionText = text }
             .onChange(of: insert) { glyph in
                 guard let glyph else { return }
                 var range: Range<Int>?
-                // Only a single selection whose ends are still inside today's text counts; anything else: at the end.
-                if case .selection(let r)? = selection?.indices, r.lowerBound >= text.startIndex, r.upperBound <= text.endIndex {
+                // Only a single selection taken in today's text, with its ends inside it, counts; anything else: the end.
+                if selectionText == text, case .selection(let r)? = selection?.indices, r.lowerBound >= text.startIndex, r.upperBound <= text.endIndex {
                     range = text.distance(from: text.startIndex, to: r.lowerBound)..<text.distance(from: text.startIndex, to: r.upperBound)
                 }
                 let out = ComposerExtras.insert(glyph, into: text, selection: range)

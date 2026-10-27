@@ -295,6 +295,7 @@ struct RoomView: View {
     }
 
     private func keepDraft() {
+        dictation.stop()   // kosmos#7268 review 2: before the draft is kept, so no late result is lost from it
         if draft.isEmpty && replying == nil { store.drafts[project.id] = nil }
         else { store.drafts[project.id] = RoomStore.Draft(text: draft, replyTo: replying, mention: replyMention) }
     }

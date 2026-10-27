@@ -43,6 +43,16 @@ check(ComposerExtras.dictationOverridden(current: "", lastWritten: "ship it"), "
 check(ComposerExtras.dictationOverridden(current: "ship it 👍", lastWritten: "ship it"), "an emoji or typing: dictation stops")
 check(ComposerExtras.micLabel(listening: true) == "Stop dictating" && ComposerExtras.micLabel(listening: false) == "Dictate a message", "VoiceOver's words")
 
+section("the composers' wiring (review 2: a refactor that drops either line is caught)")
+for name in ["ChatView", "RoomView"] {
+    let src = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/\(name).swift"), encoding: .utf8)) ?? ""
+    let body = src.components(separatedBy: "private func send() {").dropFirst().first ?? ""
+    let stopAt = body.range(of: "dictation.stop()")?.lowerBound
+    let clearAt = body.range(of: name == "ChatView" ? "draftText = \"\"" : "draft = \"\"")?.lowerBound
+    check(stopAt != nil && clearAt != nil && stopAt! < clearAt!, "\(name): send() stops dictation before it clears the box")
+    check(src.contains("dictation.boxChanged(to:"), "\(name): the box's changes reach dictation")
+}
+
 section("the reasons iOS shows the first time")
 let pbx = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos.xcodeproj/project.pbxproj"), encoding: .utf8)) ?? ""
 check(pbx.components(separatedBy: "INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = ").count - 1 == 2, "speech recognition has a reason, in both builds")
