@@ -260,6 +260,8 @@ test('CONTROL: with an ELF connector it packs the bundle, and its manifest lists
 
 test('no case inside $( ) with a bare pattern: macOS /bin/bash 3.2 ends the substitution at its ")" (kosmos#7281 rehearsal)', () => {
   // Linux CI runs bash 5, which parses it, so only this source check can see it there. "(pattern)" is the safe form.
-  const bad = LINUX.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => /\$\(\s*case\b.*?\bin\s+[^(\s]/.test(l));
-  assert.deepEqual(bad, [], 'a bare-pattern case inside $( ): ' + JSON.stringify(bad));
+  // The whole file, not line by line: a case split across lines inside $( ) is the same defect. [^)] keeps a match
+  // inside one substitution.
+  const bad = [...LINUX.matchAll(/\$\(\s*case\b[^)]*?\bin\s+[^(\s]/g)].map((m) => LINUX.slice(0, m.index).split('\n').length);
+  assert.deepEqual(bad, [], 'a bare-pattern case inside $( ) at line(s) ' + JSON.stringify(bad));
 });
