@@ -338,6 +338,15 @@ test('the site limiter on one agent (rate_limit_exceeded) pauses only that agent
   assert.ok(agentNamed('ava').owner, 'linked once the pause is over');
 });
 
+test('a site 408 is the service, not the agent: the whole pass waits', async () => {
+  await registered('ava');
+  await registered('bo');
+  const first = Object.keys(JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')))[0];
+  be.st.mode.statusFor = { name: keyName(first), status: 408 };
+  await cs.sweep();
+  assert.equal(ownerCalls().length, 1, 'the next agent is not asked in the same pass');
+});
+
 test("a deleted agent's old account (retired:) is never linked", async () => {
   await registered('ava');
   await cs.sweep();

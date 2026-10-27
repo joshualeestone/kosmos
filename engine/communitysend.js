@@ -1480,7 +1480,7 @@ async function sweepInstallGroup(keys, on) {
  * agent's old account and a name being retired are not (#4994), and nothing is linked while the retire list is
  * unreadable.
  * What a failure does:
- *   a refusal about one agent (the coordinator's 400, or a site 4xx other than 401, 404, 405 and 429): that
+ *   a refusal about one agent (the coordinator's 400, or a site 4xx other than 401, 404, 405, 408, 413 and 429): that
  *   agent waits 15 minutes and the pass goes on. After a pass-wide pause the next pass starts just after the
  *   agent it stopped on. An agent refused for good is asked again every 15 minutes until the refusal ends (a
  *   board restart only resets the wait): at most 96 small mints and site calls a day per such agent, accepted;
@@ -1552,7 +1552,8 @@ async function sweepOwnerLink(keys, on) {
   let siteRefused = 0;
   try {
     // Each pass starts just after the agent a pass-wide failure last stopped on, so no one agent's failure keeps the
-    // agents after it from ever being reached (as the install-group pass, #4922 review 8).
+    // agents after it from ever being reached (as the install-group pass, #4922 review 8). The index is a position in
+    // the keys, so a register or retire in between shifts it by one: every agent is still visited, a little later.
     const order = Object.keys(keys);
     const start = (ownerLinkFrom.get(ep) || 0) % Math.max(order.length, 1);
     for (let idx = 0; idx < order.length; idx++) {
@@ -1575,8 +1576,9 @@ async function sweepOwnerLink(keys, on) {
       let minted;
       try { minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name }); }
       catch { minted = { ok: false, because: 'the request to Kosmos+ failed' }; }   // treated as no answer: the pass waits
-      // Refused on this computer before anything was sent (a register or a Forget is out): nothing was asked, so
-      // nothing pauses; the next sweep tries again.
+      // Refused on this computer before anything was sent (remote.macRequest: a register or a Forget is out, or this
+      // computer is not connected to Kosmos+, which ownerLinkLive rules out first): nothing was asked, so nothing
+      // pauses; the next sweep tries again.
       if (minted.notSent) return;
       // A Forget (or a sign-in) pressed during the mint: remote.forget() waits for this very request before it forgets,
       // so the identity has not changed yet and the check below cannot see it. Not sent; the next sweep looks again.
@@ -1619,7 +1621,8 @@ async function sweepOwnerLink(keys, on) {
       }
       // A second agent refused by the site in one pass means the site no longer takes these passes at all, not two
       // bad agents: the whole pass waits (as for the coordinator's 400).
-      const siteRefusal = r.status >= 400 && r.status < 500 && ![401, 404, 405, 429].includes(r.status);
+      // 408 and 413 are the service or what sits in front of it (the body is one short pass), so they are its failures.
+      const siteRefusal = r.status >= 400 && r.status < 500 && ![401, 404, 405, 408, 413, 429].includes(r.status);
       if (siteRefusal) siteRefused += 1;
       if (siteRefusal && siteRefused < 2) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
       if (r.status === 404 || r.status === 405) {   // no stopHere: the missing route is the same for every agent
