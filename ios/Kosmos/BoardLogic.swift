@@ -1685,6 +1685,40 @@ enum Board {
     // What the chat draws: the earlier rows, then the latest read's.
     static func shownRows(_ e: Earlier, thread: Thread) -> [ChatRow] { e.open ? e.rows + thread.rows : thread.rows }
 
+    // kosmos#7265 (Josh 10-27): a read that slid the latest window (a new message pushes the oldest out) took those rows
+    // off the top of an open chat, and a scroll view keeps its offset, so the conversation the person was reading jumped.
+    // The rows that left are kept in the loaded earlier rows from the previous read itself: only when the two reads
+    // overlap by id (the fresh window's first row is the previous one's row at the same position), and not while a page
+    // or a gap fill is in flight (they write the same rows). Otherwise unchanged, and fillGap fetches them as before.
+    static func carryDropped(_ e: Earlier, previous: Thread?, fresh: Thread) -> Earlier {
+        guard let previous, !e.loading, !e.filling else { return e }
+        let shift = fresh.olderCount - previous.olderCount
+        guard shift > 0, shift < previous.rows.count, let first = fresh.rows.first, previous.rows[shift].id == first.id else { return e }
+        let dropped = Array(previous.rows[..<shift])   // positions previous.olderCount ..< fresh.olderCount
+        var next = e
+        if !e.open {
+            next.open = true
+            next.rows = dropped
+            next.before = previous.olderCount
+            next.end = fresh.olderCount
+            return next
+        }
+        // Open: only what lies at or after the loaded rows' end, and only when they reach the previous window.
+        guard e.end >= previous.olderCount, e.end < fresh.olderCount else { return e }
+        let known = Set(e.rows.map(\.id))
+        next.rows = e.rows + dropped[(e.end - previous.olderCount)...].filter { !known.contains($0.id) }
+        next.end = fresh.olderCount
+        return next
+    }
+
+    // kosmos#7265: where the eager newest rows begin, kept by the row's id from the chat's opening, so a new message
+    // never moves a row from the eager stack back to the lazy rows above the reader (its height would be estimated
+    // again and the conversation jump). `from` nil, or a row no longer shown: the last `eager` rows, as at opening.
+    static func eagerStart(_ items: [ChatItem], from: String?, eager: Int) -> Int {
+        if let from, let at = items.firstIndex(where: { $0.id == from }) { return at }
+        return max(0, items.count - eager)
+    }
+
     // A read of the conversation: the conversation, the Mac's own reason it could not give one (a name it refuses, a
     // history it could not read), or no answer at all.
     enum ThreadRead: Equatable { case thread(Thread), refused(String), noAnswer }

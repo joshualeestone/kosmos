@@ -26,6 +26,8 @@ struct ChatView: View {
     @State private var refusal: String?
     @State private var loop: Task<Void, Never>?
     @State private var atBottom = true
+    // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
+    @State private var eagerFrom: String?
     @State private var unseenNew = false
     // The words in the box. Kept here while the chat is open (typing redraws only the chat) and given to the client when
     // it goes, so leaving the chat never loses them.
@@ -250,6 +252,7 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
+            eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
             retryNote = nil
@@ -359,7 +362,7 @@ struct ChatView: View {
                         // An exact cut: a cut in steps of 20 (fewer rebuilds) measured short again, 0 of 10 against 10 of 10
                         // (rounds 16 and 17). So each new message moves one row from the eager stack to the lazy rows, which
                         // rebuilds it and drops any state it held (a stated limit).
-                        let tailStart = max(0, items.count - Self.eagerTail)
+                        let tailStart = Board.eagerStart(items, from: eagerFrom, eager: Self.eagerTail)
                         ForEach(items[..<tailStart]) { item in row(item) }
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(items[tailStart...]) { item in row(item) }
@@ -385,6 +388,8 @@ struct ChatView: View {
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
+                    // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
+                    if eagerFrom == nil, !items.isEmpty { eagerFrom = items[max(0, items.count - Self.eagerTail)].id }
                     proxy.scrollTo("end", anchor: .bottom)
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
@@ -712,8 +717,10 @@ struct ChatView: View {
                 got = Board.gapRows(rows, positions: positions, end: end) + got
                 before = start
             }
-            earlier.rows += got
-            earlier.end = t.olderCount
+            // kosmos#7265: a row carried in meanwhile (carryDropped) is not added twice, and the end never moves back.
+            let known = Set(earlier.rows.map(\.id))
+            earlier.rows += got.filter { !known.contains($0.id) }
+            earlier.end = max(earlier.end, t.olderCount)
             earlier.filling = false
         }
     }
@@ -1272,7 +1279,9 @@ struct ChatView: View {
         case .thread(let fresh):
             // The hidden headers in the same pass as the rows, so a pending reply's swap to its kept row never draws one
             // frame with the old set (onChange alone runs after that body).
-            if fresh != thread { thread = fresh; recomputeHiddenHeads() }
+            // kosmos#7265 (Josh 10-27): rows this read slid out of the latest window stay, so nothing above the reader
+            // vanishes and the conversation does not jump (carryDropped).
+            if fresh != thread { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh); thread = fresh; recomputeHiddenHeads() }
             fillGap(fresh)
             // A moved reset leaves the top in view with nothing loading: the next read asks again.
             loadEarlier()
