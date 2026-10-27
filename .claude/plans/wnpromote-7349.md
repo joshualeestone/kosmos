@@ -84,3 +84,12 @@ waits, not before the hold. The docs line and the promote hint are what reach th
    - NIT applied: the two 1b-ii pins skip a commented-out call (mutation-proven: commenting it out reds both).
    - NIT not changed: the promote hint has only a structural pin; the promote fixtures never print that line. Said here
      so nobody reads the pin as a behaviour test.
+6. (sonnet, 11:3x CDT) 0 BLOCKERs, 0 WARNINGs, 4 NITs. Second round in a row with only NITs: the loop stops here.
+   - NIT applied: the promote hint now has a behaviour test too (test-promote-named-7005.sh's rollback fixture: the
+     forward promote prints it, the --allow-older one does not; mutation-proven, the unguarded line reds the rollback
+     arm).
+   - NIT not changed: the hint is skipped on any --allow-older, also a forward promote that passes it needlessly. Rare,
+     and it errs toward silence; keying it on the comparison would need _cmp defaulted under set -u.
+   - NIT not changed: the early check now runs before the live-cut refusal, so a second cut attempt reads the prod
+     pointer first (capped at 20 s). Harmless, a slower refusal when offline.
+   - NIT not changed: the shell test's control relies on its sandbox dying at step 1 (noted in round 4).
