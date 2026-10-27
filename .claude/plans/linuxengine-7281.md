@@ -65,3 +65,15 @@ pointer instead, readManifest's linux arm reads `{version}` only, and the arch c
   call site is one line beside the key and version arguments.
 - NIT FIXED: cache.family was written and never read; dropped. NIT LEFT: pointerUrl() in the boot log names the
   Linux pointer even when the fallback answered (log text only).
+
+## Review 2 (2026-10-26 22:2x): 0 blockers, 1 warning, 2 nits
+- WARNING FIXED: `linuxNamesVersion` trimmed the version, so " 1.2.3" named a version for the board and none for
+  setup.sh's sed (board: no offer; setup.sh: portable at the Mac version). It now tests the raw string, as the sed
+  does; a padded-version case is in the review-1 test; re-adding the trim is red.
+- NIT FIXED: one own-node rule. update.js's linuxFamilyInstalled now calls manifest-verify's exported ownsLinuxNode.
+- NIT RECORDED (weakest premise): a Linux pointer setup.sh's sed can read but JSON.parse cannot (a nested or duplicate
+  "version" key, invalid JSON) sends the board to the Mac pointer while setup.sh takes the Linux family: offer X,
+  install Y. Needs a malformed pointer; write-latest-pointer.js writes valid JSON, and slice C's lockstep makes X = Y
+  anyway when both pointers move together.
+- Reviewer measured: all suites pass plainly and under a linux/x64 preload (56/56 after this round); the portable ->
+  family transition verifies (a portable copy's node is a symlink, so ownLinux is false and "linux" passes).
