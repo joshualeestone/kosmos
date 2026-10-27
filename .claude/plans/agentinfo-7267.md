@@ -55,3 +55,5 @@ and dark, and never the conversation again.
 - #7280 (Angel built the board half, agentsec-7280): the row now opens ?tab=detail&agent=<n>&sec=model, the board's
   AI Settings (an older board ignores sec). BoardClient.chatURL appends it only while AgentInfoView's one call sets
   boardSectionOnce; Board.withBoardSection is tested.
+- Round 6 (agentinfo-7267-review6.md): 0 blockers, 0 warnings, 3 nits. CONVERGED. Fixed: the footer promises AI
+  Settings only for an agent the link can name; a failed first read says so under Name; shots retaken.

@@ -109,7 +109,12 @@ struct AgentInfoView: View {
                 .textInputAutocapitalization(.words)
                 .foregroundColor(Palette.primary)
         } header: { label("Name") } footer: {
-            Text("What you call them here, and what their own instructions will say.")
+            // Review 6: the fields stay locked until the first read; when it failed, say so here, where they are.
+            if details == nil && readFailed {
+                Text("We cannot read this agent\u{2019}s details right now. Pull down to try again.")
+            } else {
+                Text("What you call them here, and what their own instructions will say.")
+            }
         }
         Section {
             TextField("Executive Assistant, Bookkeeper, Researcher…", text: $roleText)
@@ -231,7 +236,10 @@ struct AgentInfoView: View {
             // Not "open its Terminal": from a phone the board refuses that (it opens on the computer itself; review 3).
             // #7280: the row opens the board on this agent's AI Settings (an older board ignores sec and opens the
             // conversation, with AI Settings beside it).
-            Text("Its AI Settings there change the model or the account it runs on, restart it, or remove it.")
+            // Review 6: only for an agent the link can name; otherwise it opens the board's home, so promise nothing.
+            if Board.isAgentSession(agent.session) {
+                Text("Its AI Settings there change the model or the account it runs on, restart it, or remove it.")
+            }
         }
     }
 
