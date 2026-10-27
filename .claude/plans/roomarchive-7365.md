@@ -97,3 +97,17 @@ page cost worse, which makes the window more urgent, not less.
      now answers true only when it painted, and only then does the search speak (test).
    - (W3, low) a reaction updated only the earlier pages' rows: the newest page's too (test).
    - N2: pjRoomRow's PJ_WIN read is typeof-guarded like paintRoom's. N1 (the >200 reset) left, as recorded.
+3. (default, 13:4x CDT) 0 BLOCKERs, 3 WARNINGs, 5 NITs; all WARNINGs and NITs 1, 3, 4 applied.
+   - (W1) a room too short to scroll (a folded run of refusals; reviewer measured 500 posts behind one band) never read
+     its earlier pages: pjWinNearTop runs after every paint, as the DM thread does; a hidden box asks nothing (test,
+     mutation-proven, with the hidden-box control).
+   - (W2) Try again by keyboard dropped focus to the body: focus moves to #pj-post first, as the DM's does.
+   - (W3) a reader who scrolled far back kept every held row repainting each poll (600 ms at 5,500 held): back on the
+     newest message the earlier pages are let go (pjWinLetGoOfEarlier), and scrolling back reads them again from the
+     newest page's own cursor (test, mutation-proven: the stale cursor reds it).
+   - N1: a search started before the room's first read still reads. N3: my insert had split rxnFreeClaim's if/else
+     (the button stayed disabled on a refusal): restored, the note after it. N4: the earlier-pages line hides while a
+     search is on. N5 (a cleared search briefly shows the pre-search window, then rereads) and N2 (a 503 page read draws
+     nothing where the whole read drew an ok:false body) left as recorded.
+   - Untested by a lifted test, browser-checked instead: the search handler's ticket sequence (revwin2-race-b.js),
+     the line and Try again, the "further back" header (revwin1-probe.js).
