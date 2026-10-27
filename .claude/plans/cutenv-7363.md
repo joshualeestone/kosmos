@@ -64,3 +64,7 @@ validation run will show it; a test that did would have been reading the operato
    - NIT 1: the region's START marker names the two helpers it calls. NIT 2: the test checks cut_suite_unset is
      defined before the rerun. NIT 3 (step 4b's test-install.sh inherits KOSMOS_CUT_*, but reads only test seams a cut
      never sets) recorded, outside step 3.
+4. (sonnet, 15:3x CDT) 0 BLOCKERs, 0 WARNINGs, 3 NITs: CONVERGED. NIT 1 applied: every non-comment line that runs
+   `yarn test` must go through cut_suite_env, whatever its redirect (mutation-proven: an added `yarn test | tee` line
+   reds it). NITs 2 (the 5-line lower bound; the definition greps catch a hollow block) and 3 (a changed marker makes the
+   lift refuse, which is fail-closed) left. The reviewer confirmed no test in the suite reads an inherited KOSMOS_CUT_*.
