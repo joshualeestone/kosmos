@@ -583,21 +583,6 @@ extension Board {
         let agentsUnreadable: Bool
     }
 
-    // kosmos#7114: the board's provider table (web/index.html PJ_TALLY: the engine's family name, its pick, its word) and
-    // its marks. kosmos#7269 took the tally off the phone's project row (Josh: "remove the model indicators"); the table
-    // and marks stay, kept equal to the board's by LogicTests, for the agent page's AI Settings (#7267).
-    static let providerTallyOrder: [(provider: String, pick: String, word: String)] = [
-        ("Claude", "claude", "Claude"), ("OpenAI", "openai", "GPT"), ("Gemini", "google", "Gemini"),
-        ("Gemini (Google subscription)", "antigravity", "Gemini"), ("Grok", "xai", "Grok"), ("Meta Muse", "meta", "Meta"),
-        ("Qwen", "alibaba", "Qwen"),
-    ]
-    // The board's PROVIDER_MARK_KEY, from the tally's pick to the first-run screen's mark, for the marks the phone
-    // carries. An unknown provider is picked by its lowercased name, as on the board; "anthropic" wears Claude's mark
-    // there too. Marks the phone does not carry (Mistral, Kimi and the like) are the board's initial chip here.
-    static let providerMarkAsset: [String: String] = [
-        "claude": "MarkClaude", "anthropic": "MarkClaude", "openai": "MarkOpenAI", "google": "MarkGemini",
-        "antigravity": "MarkGemini", "xai": "MarkGrok", "meta": "MarkMeta", "alibaba": "MarkQwen",
-    ]
 
     // kosmos#7106: the room's needs-you notice (the board's pjNeedsNotice, PJ_NEEDS_WHY): one row per member the route
     // counts here, with the board's reason and action words, and the key Dismiss sends.

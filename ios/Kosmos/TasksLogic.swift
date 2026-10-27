@@ -151,7 +151,8 @@ enum Tasks {
         let rows = scoped(read.tasks, project: project)
         func n(_ state: String) -> Int { rows.filter { $0.state == state }.count }
         return [
-            Tile(key: "open", label: "Open", count: rows.filter { $0.state != "closed" }.count),
+            // Only the states the list draws a group for, so the tile and the list below it never disagree (review 1).
+            Tile(key: "open", label: "Open", count: rows.filter { r in r.state != "closed" && groups.contains { $0.key == r.state } }.count),
             Tile(key: "decision", label: "Needs you", count: read.rosterUnknown ? nil : n("decision")),
             Tile(key: "working", label: "Working", count: n("working")),
             Tile(key: "closed", label: "Done", count: n("closed")),

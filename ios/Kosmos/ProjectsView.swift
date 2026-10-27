@@ -571,7 +571,8 @@ struct ProjectsView: View {
                         Section {
                             ForEach(tree) { row in
                                 Button { openProject = row.project } label: {
-                                    ProjectRowView(project: row.project, depth: row.depth, lastKid: row.lastKid, hasKids: row.hasKids, through: row.through, unreadable: list.agentsUnreadable, store: store)
+                                    ProjectRowView(project: row.project, depth: row.depth, lastKid: row.lastKid, hasKids: row.hasKids, through: row.through,
+                                                   parentName: row.depth > 0 ? list.projects.first { $0.id == row.project.parent }?.name : nil, unreadable: list.agentsUnreadable, store: store)
                                 }
                                 .buttonStyle(.plain)
                                 // kosmos#7269: the row draws its own top and bottom space, so its connector line reaches
@@ -619,6 +620,7 @@ struct ProjectRowView: View {
     var lastKid = false
     var hasKids = false
     var through: [Int] = []
+    var parentName: String? = nil
     let unreadable: Bool
     @ObservedObject var store: RoomStore
 
@@ -641,9 +643,13 @@ struct ProjectRowView: View {
             }
         }
         .padding(.vertical, 10)   // the list's own row inset, drawn by the row (kosmos#7269: see listRowInsets)
-        .padding(.leading, CGFloat(depth) * Self.indent)
-        .frame(minHeight: 64)   // the spec's row: slice 1 geometry
+        .padding(.leading, CGFloat(depth) * indent)
+        // Top-aligned (review 1: centred, a short row's name sat below the elbow drawn at the name's height).
+        .frame(minHeight: 64, alignment: .topLeading)   // the spec's row: slice 1 geometry
         .background(alignment: .topLeading) { connector }
+        // Every separator starts at the card's text edge, so the one that closes a family is not indented with its
+        // last child (review 1).
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
@@ -656,34 +662,37 @@ struct ProjectRowView: View {
     // under its parent's first face, down from the top of its row, and an elbow across to its own name; the last sub-project's
     // line stops at its elbow. Unlike the board (one line at the row's own level), a deeper row also carries the lines of
     // ancestors that run on past it (`through`), so a line never breaks where a sub-project has sub-projects of its own.
-    static let indent: CGFloat = 28
+    // Scaled with the faces (review 1: a fixed indent let the scaled line run through a sub-project's name at the
+    // largest text sizes).
+    @ScaledMetric(relativeTo: .footnote) private var indent: CGFloat = 28
     // The middle of the name's line (the row's 10pt top space plus half a callout line), scaled with the text.
     @ScaledMetric(relativeTo: .callout) private var nameMid: CGFloat = 10.5
     private static let rail = Palette.pair(0xbdb8ae, 0x4a4e55)
     @ViewBuilder private var connector: some View {
-        if depth > 0 || !through.isEmpty || (hasKids && !project.members.isEmpty && project.folderProblem == nil) {
+        if depth > 0 || !through.isEmpty || (hasKids && project.folderProblem == nil) {
             GeometryReader { g in
                 Path { path in
-                    // A parent: the line's start, from under its faces (its last line here) down to its row's bottom.
-                    if hasKids && !project.members.isEmpty && project.folderProblem == nil {
-                        let px = CGFloat(depth) * Self.indent + face / 2 + 1.5
+                    // A parent: the line's start, from under its last line (its faces, or its name when it has none) down
+                    // to its row's bottom.
+                    if hasKids && project.folderProblem == nil {
+                        let px = CGFloat(depth) * indent + face / 2 + 1.5
                         path.move(to: CGPoint(x: px, y: g.size.height - 10 + 2))
                         path.addLine(to: CGPoint(x: px, y: g.size.height))
                     }
                     // An ancestor's line passing this row on to that ancestor's later sibling: the whole row's height.
                     for level in through {
-                        let ax = CGFloat(level - 1) * Self.indent + face / 2 + 1.5
+                        let ax = CGFloat(level - 1) * indent + face / 2 + 1.5
                         path.move(to: CGPoint(x: ax, y: 0))
                         path.addLine(to: CGPoint(x: ax, y: g.size.height))
                     }
                     guard depth > 0 else { return }
                     // Under the centre of the parent's first face (its ring included), at the parent's own indent.
-                    let x = CGFloat(depth - 1) * Self.indent + face / 2 + 1.5
+                    let x = CGFloat(depth - 1) * indent + face / 2 + 1.5
                     let mid = 10 + nameMid
                     path.move(to: CGPoint(x: x, y: 0))
                     path.addLine(to: CGPoint(x: x, y: lastKid ? mid : g.size.height))
                     path.move(to: CGPoint(x: x, y: mid))
-                    path.addLine(to: CGPoint(x: CGFloat(depth) * Self.indent - 4, y: mid))
+                    path.addLine(to: CGPoint(x: CGFloat(depth) * indent - 4, y: mid))
                 }
                 .stroke(Self.rail, style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [3, 3]))
             }
@@ -740,6 +749,7 @@ struct ProjectRowView: View {
 
     private var spoken: String {
         var parts = [project.name]
+        if let parentName { parts.append("in " + parentName) }   // kosmos#7269 review 1: the nesting, said
         if let word { parts.append(Board.projectWordText(word)) }
         if let u = project.unread, u > 0 { parts.append("\(u) unread") }
         if !project.description.isEmpty { parts.append(project.description) }

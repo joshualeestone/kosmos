@@ -100,7 +100,7 @@ func tileCounts(_ r: Board.TasksRead, _ project: String? = nil) -> [String] {
         return t.label + "=" + n
     }
 }
-check(tileCounts(mixed) == ["Open=8", "Needs you=1", "Working=1", "Done=1"], "Josh's order; Open is every task not completed, an unknown state included: \(tileCounts(mixed))")
+check(tileCounts(mixed) == ["Open=7", "Needs you=1", "Working=1", "Done=1"], "Josh's order; Open is every task not completed that the list draws (not the unknown state): \(tileCounts(mixed))")
 check(tileCounts(blind) == ["Open=1", "Needs you=?", "Working=1", "Done=0"], "agents unread: Needs you cannot tell, never 0")
 check(tileCounts(Board.TasksRead(tasks: [], rosterUnknown: false)) == ["Open=0", "Needs you=0", "Working=0", "Done=0"], "nothing yet: every tile 0")
 let twoProjects = Board.TasksRead(tasks: [row(1, "working", project: "p1"), row(2, "decision", project: "p2"), row(3, "closed", project: "p2")], rosterUnknown: false)

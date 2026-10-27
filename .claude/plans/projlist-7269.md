@@ -24,3 +24,11 @@ projects of 3, 12 and 15 members with nesting, and the tiles.
 - Four tiles in Josh's order, not the desktop's eight: a phone row holds four.
 - Unlike the desktop, a deeper row carries its ancestors' lines (the desktop's one-level rail broke visibly here).
 - Weakest premise: that ten faces fit at default text on the smallest phone (measured on iPhone SE 3rd gen: they do).
+
+## Review
+- Round 1 (projlist-7269-review1.md): 0 blockers, 2 warnings, 6 nits. Fixed: the indent scales with the faces (the
+  line no longer runs through a name at accessibility sizes; shot at accessibility-large on both phones); rows are
+  top-aligned so the elbow meets the name, and a parent with no members still starts its line; every separator starts
+  at the card's text edge; Open counts only states the list draws; VoiceOver says "in <parent>"; a four-level ladder
+  test; the provider table and mark map (no reader left) removed, the marks' SVG-equals-board check kept (#7267 draws
+  them). KEPT: the tiles' words are Josh's (Open, Needs you, Working, Done), not the group headings'.

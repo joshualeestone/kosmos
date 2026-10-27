@@ -236,6 +236,12 @@ let k3 = proj(name: "Kid zed", parent: "rt", id: "k3")
 let ladder = Board.projectTree([solo, gk, k2, rt, k1, k3], sort: .az)
 check(ladder.map { "\($0.project.name):\($0.through)" } == ["Root:[]", "Kid one:[]", "Kid two:[]", "Grandkid:[1]", "Kid zed:[]", "Solo:[]"],
       "a grandchild carries its grandparent's line on to Kid zed: \(ladder.map { "\($0.project.name):\($0.through)" })")
+// Four levels: A > B (then a later sibling B2) > C (then C2) > D. D carries level 1 (B's line to B2) and level 2 (C's line to C2).
+let la = proj(name: "A", id: "la"), lb = proj(name: "B", parent: "la", id: "lb"), lb2 = proj(name: "B2", parent: "la", id: "lb2")
+let lc = proj(name: "C", parent: "lb", id: "lc"), lc2 = proj(name: "C2", parent: "lb", id: "lc2"), ld = proj(name: "D", parent: "lc", id: "ld")
+let deep = Board.projectTree([ld, lc2, lc, lb2, lb, la], sort: .az)
+check(deep.map { "\($0.project.name):\($0.through)" } == ["A:[]", "B:[]", "C:[1]", "D:[1, 2]", "C2:[1]", "B2:[]"],
+      "every ancestor line that runs on is carried, at every depth: \(deep.map { "\($0.project.name):\($0.through)" })")
 check(Board.projectTree([orphan, underArchived, archivedParent], sort: .az).allSatisfy { !$0.lastKid && !$0.hasKids },
       "a child lifted to the top level (parent gone or archived) draws no line and its old parent starts none")
 check(Board.projectTree([x, y], sort: .az).allSatisfy { !$0.lastKid }, "a cycle's rows, both at the top, draw no line")
@@ -691,34 +697,7 @@ for phrase in ["'\">Add ' + esc(nameR)\n        + ' to this project</button>", "
     check(boardPage.contains(phrase), "the board's Add still says: \(phrase.prefix(60))")
 }
 
-section("the provider marks the phone carries (kosmos#7114; the row's tally itself went in #7269)")
-// The phone's pick-to-mark pairs are the board's PROVIDER_MARK_KEY (review 4).
-let markKeyName = ["MarkClaude": "claude", "MarkOpenAI": "openai", "MarkGemini": "gemini", "MarkGrok": "xai", "MarkMeta": "meta", "MarkQwen": "qwen"]
-let keyBlock = boardPage.range(of: "const PROVIDER_MARK_KEY = {").flatMap { s in boardPage.range(of: "};", range: s.upperBound..<boardPage.endIndex).map { String(boardPage[s.upperBound..<$0.lowerBound]) } } ?? ""
-// And the other way: every board key whose mark the phone carries is mapped on the phone too.
-let boardKeyPairs = keyBlock.components(separatedBy: CharacterSet(charactersIn: ",\n")).compactMap { part -> (String, String)? in
-    let bits = part.components(separatedBy: ":").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " '")) }
-    guard bits.count == 2, !bits[0].isEmpty, !bits[0].contains("/"), !bits[0].contains("*") else { return nil }
-    return (bits[0], bits[1])
-}
-let carried = Set(markKeyName.values)
-check(boardKeyPairs.filter { carried.contains($0.1) }.count == 8, "premise: the board's keys for the phone's marks were read (8)")
-for (key, mark) in boardKeyPairs where carried.contains(mark) {
-    check(markKeyName[Board.providerMarkAsset[key] ?? ""] == mark, "the board's \(key) -> \(mark) is on the phone too")
-}
-for (pick, asset) in Board.providerMarkAsset.sorted(by: { $0.key < $1.key }) {
-    check(keyBlock.contains("\(pick): '\(markKeyName[asset] ?? "?")'"), "the board's PROVIDER_MARK_KEY maps \(pick) to \(markKeyName[asset] ?? "?")")
-}
-// The phone's table written as the board's PJ_TALLY rows, so any field of any row drifting fails (review 1).
-let tallyRows = Board.providerTallyOrder.map { "['\($0.provider)', '\($0.pick)', '\($0.word)']" }
-check(boardPage.contains(tallyRows[0...2].joined(separator: ", ") + ",") && boardPage.contains(tallyRows[3...6].joined(separator: ", ") + ","),
-      "the board's PJ_TALLY is the phone's order, picks and words")
-// The board's whole table, row for row (review 2: a row added to it could not fail the substring checks).
-if let start = boardPage.range(of: "const PJ_TALLY = ["), let end = boardPage.range(of: "];", range: start.upperBound..<boardPage.endIndex) {
-    let block = boardPage[start.upperBound..<end.lowerBound].replacingOccurrences(of: "\n", with: " ")
-    let boardRows = block.components(separatedBy: "[").dropFirst().map { "[" + ($0.components(separatedBy: "]").first ?? "") + "]" }
-    check(boardRows == tallyRows, "the board's PJ_TALLY, row for row: \(boardRows.count) rows")
-} else { check(false, "the board's PJ_TALLY was not found") }
+section("the provider marks the phone carries are the board's own (kosmos#7114; the agent page draws them, #7267)")
 // Each mark is the board's own first-run mark (the template ones drawn in the text colour, so currentColor is black).
 let markKeys = ["MarkClaude": "claude", "MarkOpenAI": "openai", "MarkGemini": "gemini", "MarkGrok": "xai", "MarkMeta": "meta", "MarkQwen": "qwen"]
 for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {
@@ -730,7 +709,6 @@ for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {
     check(!ours.isEmpty && ours == theirs.replacingOccurrences(of: "currentColor", with: "#000000"),
           "\(asset) is the board's \(key) mark")
 }
-check(Set(Board.providerMarkAsset.values) == Set(markKeys.keys), "every mark the tally names is in the asset catalog")
 
 section("the room's needs-you notice (kosmos#7106)")
 // projects-needs.json is a REAL projects answer, captured from a sandboxed engine and then trimmed to the fields the phone
