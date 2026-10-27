@@ -256,9 +256,13 @@ SMOKE_PID=""   # review 2 (N1): the trap must not kill this id again once anothe
 rm -f "$SMOKE_LOG"; rm -rf "$SMOKE_ROOTS"
 echo "    boots, answers, and serves its own page"
 
+# Outside the substitution: macOS /bin/bash 3.2 ends a $( ) at a bare case pattern's ")", so a case inside one printed
+# a syntax error, still exited 0, and wrote that text into every bundle's VERSION (the 0.7.71 rehearsal, kosmos#7281).
+_node_note=""
+case "$NODE_SHA" in unchecked:*) _node_note=' UNCHECKED (test build)' ;; esac
 {
   echo "app:    $_app_commit$( [ "$_app_dirty" = yes ] && echo ' (dirty)') (package.json $_ver)"
-  echo "node:   v$NODE_VERSION (linux-$NARCH)$(case "$NODE_SHA" in unchecked:*) echo ' UNCHECKED (test build)';; esac)"
+  echo "node:   v$NODE_VERSION (linux-$NARCH)$_node_note"
   echo "built:  $(date -u +%Y-%m-%dT%H:%M:%SZ) for linux-$NARCH on $(uname -s)"
 } > "$STAGE/VERSION"
 
