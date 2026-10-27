@@ -92,7 +92,7 @@ final class SignInModel: ObservableObject {
                 let answer = try await client.reviewSignIn(email: typed, password: secret)
                 guard mine == attempt else { return }
                 switch answer {
-                case .closed: reviewDoor = false; password = ""; step = .email; error = SignIn.reviewClosed
+                case .closed: reviewDoor = false; reviewAsked = false; password = ""; step = .email; error = SignIn.reviewClosed
                 case .refused(let sentence): error = sentence   // stays here: no code was sent
                 case .answered(let signedIn): password = ""; take(signedIn, email: typed)
                 }
@@ -399,10 +399,10 @@ final class SignInModel: ObservableObject {
         case "nomac": step = .allow(matchCode: nil, hasComputer: false)
         case "denied": step = .denied(asking: true)
         case "web": step = .web(reason: SignIn.webForCompany)
-        // kosmos#7050 slice C: the email step with passkey sign-in offered, and a passkey that was not used.
         // kosmos#7357: the email step with the review door open, and the password step itself.
         case "review": reviewAsked = true; reviewDoor = true
         case "password": reviewAsked = true; reviewDoor = true; step = .password
+        // kosmos#7050 slice C: the email step with passkey sign-in offered, and a passkey that was not used.
         case "passkey": passkeys = true
         case "passkeyerror": passkeys = true; error = SignIn.passkeyWords.notUsed
         case "error": step = .code(email: email); code = "48291"; error = "That code is not right or has expired."
