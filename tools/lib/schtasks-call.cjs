@@ -5,7 +5,10 @@
  *
  * A call runs schtasks when schtasks is the program (by any path or case, with or without .exe), or when a shell or a
  * launcher in front of it does: cmd (/c, /k, /r), powershell or pwsh (-Command, a bare command, -EncodedCommand, which
- * is decoded), call and start, nested or quoted (cmd /c "schtasks /End"). A call through a shell (exec, execSync,
+ * is decoded), call and start, nested or quoted (cmd /c "schtasks /End"). The prefixes a command can carry are read
+ * past too (#7270): NAME=value, cmd's @, cmd's if (exist, errorlevel, defined, a==b), nohup, exec, command, time,
+ * nice, timeout with its duration, and a redirect with or without a space (schtasks>out.txt); backticks start a
+ * command, and a here-document's body is not read as commands. A call through a shell (exec, execSync,
  * shell: true) is read as a command line, every command in it. A word "schtasks" anywhere else (a git grep pattern, a
  * commit message, a script's source, echo schtasks) is not a call: refusing those would change results the guard has
  * no business changing (review 1 of #7247).
@@ -40,16 +43,33 @@ function baseName(p) {
   return String(p == null ? '' : p).trim().replace(/^["']+|["']+$/g, '').split(/[\\/]/).pop();
 }
 
-/* A command line cut into its commands at &, |, ;, parentheses and line ends outside quotes, so a quoted argument
-   (node -e "require('x')") stays whole. */
+/* A here-document's body is text the shell feeds to a command, not commands (bash -c "cat <<'END' ... END"; #7270).
+   Its lines are dropped, up to the line that ends it. A here-string (<<<) is not a here-document. */
+function dropHeredocs(text) {
+  const out = [];
+  const ends = [];
+  for (const line of String(text == null ? '' : text).split(/\r?\n/)) {
+    if (ends.length) {
+      const end = ends[0];
+      if ((end.tabs ? line.replace(/^\t+/, '') : line) === end.word) ends.shift();
+      continue;
+    }
+    out.push(line);
+    for (const m of line.matchAll(/(?<!<)<<(?!<)(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/g)) ends.push({ word: m[3], tabs: !!m[1] });
+  }
+  return out.join('\n');
+}
+
+/* A command line cut into its commands at &, |, ;, parentheses, backticks and line ends outside quotes, so a quoted
+   argument (node -e "require('x')") stays whole. */
 function commands(text) {
   const parts = [];
   let cur = '';
   let quote = null;
-  for (const ch of String(text == null ? '' : text)) {
+  for (const ch of dropHeredocs(text)) {
     if (quote) { if (ch === quote) quote = null; cur += ch; continue; }
     if (ch === '"' || ch === "'") { quote = ch; cur += ch; continue; }
-    if ('&|;()\r\n'.includes(ch)) { parts.push(cur); cur = ''; continue; }
+    if ('&|;()`\r\n'.includes(ch)) { parts.push(cur); cur = ''; continue; }
     cur += ch;
   }
   parts.push(cur);
@@ -57,20 +77,29 @@ function commands(text) {
 }
 
 /* One command cut into words at spaces outside quotes. Each word keeps its raw spelling, its text without quotes, and
-   whether it was one quoted string. */
+   whether it was one quoted string. A redirect (>, >>, <, 2>) ends a word with or without a space (schtasks>out.txt),
+   and its target is not a word: it names a file, not the command (#7270). */
 function words(command) {
   const out = [];
   let raw = '';
   let quote = null;
+  let target = false;   // the next word is a redirect's file
   const push = () => {
     if (!raw) return;
     const q = raw.match(/^"([\s\S]*)"$/) || raw.match(/^'([\s\S]*)'$/);
-    out.push({ raw, text: raw.replace(/["']/g, ''), quoted: !!q, inner: q ? q[1] : null });
+    if (target) target = false;
+    else out.push({ raw, text: raw.replace(/["']/g, ''), quoted: !!q, inner: q ? q[1] : null });
     raw = '';
   };
   for (const ch of String(command)) {
     if (quote) { if (ch === quote) quote = null; raw += ch; continue; }
     if (ch === '"' || ch === "'") { quote = ch; raw += ch; continue; }
+    if (ch === '<' || ch === '>') {
+      if (/^\d$/.test(raw) && !target) raw = '';   // the 2 of 2> names a stream, not a word
+      push();
+      target = true;
+      continue;
+    }
     if (/\s/.test(ch)) { push(); continue; }
     raw += ch;
   }
@@ -94,11 +123,17 @@ function wordsRun(ws, i, depth) {
     if (w.quoted && /\s/.test(w.inner) && !PROGRAM.test(baseName(w.inner)) && !isLauncher(baseName(w.inner))) {
       return lineRuns(w.inner, depth + 1);
     }
-    const b = baseName(w.text);
+    /* NAME=value before the command sets its environment (X=1 schtasks): the command follows (#7270). */
+    if (!w.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.text)) { i += 1; continue; }
+    const b = baseName(w.text.replace(/^@/, ''));   // @schtasks: cmd's no-echo prefix
     if (PROGRAM.test(b)) return true;
     if (CMD.test(b)) {
       for (i += 1; i < ws.length && /^\//.test(ws[i].text); i += 1) {
-        if (/^\/[ckr]$/i.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1);
+        if (/^\/[ckr]$/i.test(ws[i].text)) {
+          const line = rest(i + 1);
+          /* cmd /c ""C:\Program Files\x\schtasks.exe" /End": cmd drops the first and last quote (#7270). */
+          return lineRuns(line, depth + 1) || (/^""/.test(line) && /"$/.test(line) && lineRuns(line.slice(1, -1), depth + 1));
+        }
       }
       continue;   // cmd with no /c: what follows is read as the command
     }
@@ -123,8 +158,33 @@ function wordsRun(ws, i, depth) {
     /* env NAME=value ... program: the program after the assignments is what runs. */
     if (/^env(\.exe)?$/i.test(b)) {
       for (i += 1; i < ws.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1) {
-        if (/^-[uCS]$/.test(ws[i].text)) i += 1;   // -u NAME, -C DIR, -S STRING: the option's value is the next word
+        if (/^(-S|--split-string)$/.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1);   // -S STRING is the command line
+        if (/^-[uC]$/.test(ws[i].text)) i += 1;   // -u NAME, -C DIR: the option's value is the next word
       }
+      continue;
+    }
+    /* Words that start the command after them: nohup, exec, command, time, nice, and the shell keywords a command
+       follows (then, else, do, !) (#7270). */
+    if (/^(nohup|exec|command|builtin|time|nice|then|else|do|!)$/i.test(b)) {
+      for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^-(n|a)$/.test(ws[i].text)) i += 1;
+      continue;
+    }
+    /* timeout DURATION command. Windows' timeout /t 5 runs nothing, and reads so: /t is taken for the duration. */
+    if (/^timeout(\.exe)?$/i.test(b)) {
+      for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^-(s|k)$/.test(ws[i].text)) i += 1;
+      if (i < ws.length && /^\//.test(ws[i].text)) return false;
+      i += 1;   // the duration
+      continue;
+    }
+    /* cmd's if: [/i] [not] exist PATH, errorlevel N, defined NAME, or a==b, then the command. bash's if and elif are
+       followed by the command itself. */
+    if (/^(if|elif)$/i.test(b)) {
+      i += 1;
+      if (i < ws.length && /^\/i$/i.test(ws[i].text)) i += 1;
+      if (i < ws.length && /^not$/i.test(ws[i].text)) i += 1;
+      if (i < ws.length && /^(exist|errorlevel|defined)$/i.test(ws[i].text)) i += 2;
+      else if (i < ws.length && ws[i].raw.includes('==')) i += 1;
+      else if (i + 2 < ws.length && /^(==|equ|neq|lss|leq|gtr|geq)$/i.test(ws[i + 1].text)) i += 3;
       continue;
     }
     if (/^call$/i.test(b)) { i += 1; continue; }
@@ -154,8 +214,15 @@ function callRuns(file, args, options) {
   if (options && options.shell) return commandRuns([String(file)].concat(list).join(' '));
   const base = baseName(file);
   if (PROGRAM.test(base)) return true;
-  if (isLauncher(base)) return commandRuns([base].concat(list).join(' '));
+  if (isLauncher(base)) return commandRuns([base].concat(list.map(asOneWord)).join(' '));
   return false;
+}
+
+/* Without a shell each argument reaches the launcher as one word (node quotes one with a space), so it is read as one:
+   cmd /c echo "a & schtasks" echoes (#7270). An argument already holding a quote is left as written, so cmd's own
+   ""path" args" form still reads as cmd reads it. */
+function asOneWord(arg) {
+  return /["']/.test(arg) || !/[\s&|;()<>`]/.test(arg) ? arg : '"' + arg + '"';
 }
 
 module.exports = { callRuns, commandRuns };
