@@ -65,6 +65,13 @@ test('the org rollup sends a DeepSeek agent as deepseek, never as anthropic or a
   assert.equal(src.providerOf('claude', CL), 'anthropic', 'CONTROL: a Claude agent beside it');
 });
 
+test('a DeepSeek model id reads DeepSeek, not Deepseek (status.modelDisplayName)', () => {
+  const status = require('./status');
+  assert.equal(status.modelDisplayName('deepseek-chat'), 'DeepSeek Chat');
+  assert.equal(status.modelDisplayName('deepseek-reasoner'), 'DeepSeek Reasoner');
+  assert.match(String(status.modelDisplayName('qwen-coder')), /^Qwen /, 'CONTROL: the same table names Qwen');
+});
+
 test('the org rollup sends a stopped DeepSeek agent whose job was lost as deepseek, from its profile', () => {
   const rollup = require('./orgrollup');
   const src = rollup.defaultSources();

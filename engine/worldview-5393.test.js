@@ -103,6 +103,18 @@ test('#5393 providersFrom groups the cards by runner; paused only from rate_limi
   for (const r of rows) assert.ok(!('quota' in r) && !('remaining' in r) && !('untimed' in r), 'no quota figure, and no internal field (untimed), is ever reported');
 });
 
+test('#7206: a card the route tags with a provider word has that word\'s row, never its runner\'s (any vendor, not a list)', () => {
+  const rows = worldview.providersFrom([
+    { runner: 'claude', state: 'rate_limited', providerWord: 'deepseek' },
+    { runner: 'claude', state: 'rate_limited', providerWord: 'acme' },   // a vendor added later: no code here names it
+    { runner: 'claude', state: 'idle' },
+  ]);
+  const by = Object.fromEntries(rows.map((r) => [r.provider, [r.agents, r.paused]]));
+  assert.deepEqual(by.deepseek, [1, 1]);
+  assert.deepEqual(by.acme, [1, 1], 'a second vendor would be counted under Claude');
+  assert.deepEqual(by.claude, [1, 0], 'CONTROL: the untagged claude card keeps Claude\'s row, unpaused');
+});
+
 test('#5393 overview: the running world has providers, the others say why not; a bad world never stops the rest', () => {
   const worlds = require('./worlds');
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-worldview-base-'));
