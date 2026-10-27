@@ -111,3 +111,10 @@ page cost worse, which makes the window more urgent, not less.
      nothing where the whole read drew an ok:false body) left as recorded.
    - Untested by a lifted test, browser-checked instead: the search handler's ticket sequence (revwin2-race-b.js),
      the line and Try again, the "further back" header (revwin1-probe.js).
+4. (sonnet, 13:5x CDT) 0 BLOCKERs, 1 WARNING, 1 NIT; both applied.
+   - (W) on a room the newest page alone cannot fill, pjWinNearTop read an earlier page, the paint's own scroll event
+     let it go, and that repeated every poll (reviewer measured, revwin4-tall.js). Now only pages the READER scrolled
+     back to (byReader) are let go, and a scroll within 500 ms of the page's own paint is not the reader reaching the
+     bottom. Browser: the tall room reads one earlier page and keeps it, polls read only the newest page (test,
+     mutation-proven: letting go of any page reds it).
+   - NIT: letting go draws the newest page at once, so screen and state never disagree before the next poll.
