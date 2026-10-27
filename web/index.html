@@ -10458,6 +10458,8 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
    on Windows (win32) and, since #5865, on Linux (linux); on a Mac it stamps nothing, so neither rule matches. */
 html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 html[data-kosmos-platform="linux"] [data-linux-hide] { display: none !important; }   /* #5865 */
+/* kosmos#4903 seam H: on a cloud machine, anything asking for a path on it, a login to it or a terminal on it. */
+html[data-kosmos-cloud] [data-cloud-hide] { display: none !important; }
 /* #6724: viewed from another computer (Kosmos+), a button that opens a window on the board's computer (Finder, a folder) is
    hidden: that window would open on the far Mac, where nobody sees it. kplusRemote() stamps data-kplus-remote on <html>. */
 html[data-kplus-remote] [data-remote-hide] { display: none !important; }
@@ -13791,7 +13793,7 @@ window.kosmosMeasureScrollbarWidth();
          reading it now would not know the agent itself is told. The
          disclaimers stay, because both are still true and both are things
          people worry about. -->
-    <div class="fhint" id="d-rename-hint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
+    <div class="fhint" id="d-rename-hint">What you call them here, and what their own instructions will say. It does not change where they live on <span data-cloud-copy="thisMachine">this computer</span>, or the name other agents use to reach them.</div>
     <div class="frow">
       <input type="text" id="d-rename" maxlength="80" placeholder="What you call them">
     </div>
@@ -15822,7 +15824,7 @@ window.kosmosMeasureScrollbarWidth();
                      previously sat BETWEEN the only two providers that work, so the eye
                      hit a dead row on the way to the second live one. Both working rows
                      now come first. Move this only if a provider changes state. -->
-                <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
+                <div data-cloud-hide class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
                   <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-confirm fr-openai-pick" aria-label="Connect OpenAI">Connect</button></div>
                 <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
                      Claude, so it gets its own small reveal instead of reusing
@@ -15950,7 +15952,7 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-gemini-confirm fr-gemini-pick" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div data-cloud-hide class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-gemini-confirm fr-gemini-pick" aria-label="Connect Gemini">Connect</button></div>
                 <!-- #3731 (Josh, 0.6.94): Google Gemini connects EXACTLY like GPT, directly under its own row: install
                      first (Confirm / Not now), then the choice, then the sign-in or the key. Same classes, same
                      copy with the name swapped, no command-line talk. The driver is frKeyed* below. -->
@@ -16016,7 +16018,7 @@ window.kosmosMeasureScrollbarWidth();
                      docs/provider-marks/manifest.md), and each subtitle says what works today:
                      each names how it connects: Grok by subscription (#3391) or key, Gemini by key only
                      (its subscription path, #3568, is not live). -->
-                <div class="llm on"><span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436" fill="currentColor"/><path d="M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341" fill="currentColor"/></svg></span><div class="llm-w"><b>Grok</b><small>xAI &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-grok-confirm fr-grok-pick" aria-label="Connect Grok">Connect</button></div>
+                <div data-cloud-hide class="llm on"><span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436" fill="currentColor"/><path d="M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341" fill="currentColor"/></svg></span><div class="llm-w"><b>Grok</b><small>xAI &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-grok-confirm fr-grok-pick" aria-label="Connect Grok">Connect</button></div>
                 <!-- #3731 (Josh, 0.6.94): xAI Grok connects EXACTLY like GPT, directly under its own row: install
                      first (Confirm / Not now), then the choice, then the sign-in or the key. Same classes, same
                      copy with the name swapped, no command-line talk. The driver is frKeyed* below. -->
@@ -16059,7 +16061,7 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div class="dhint" id="fr-grok-msg" role="status" aria-live="polite"></div>
-                <div class="llm off" id="fr-meta-row"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon" id="fr-meta-soon">Coming soon</span><button class="connect-b" type="button" id="fr-meta-connect" aria-expanded="false" aria-controls="fr-muse-flow" aria-label="Connect Meta Muse" hidden>Connect</button></div>
+                <div data-cloud-hide class="llm off" id="fr-meta-row"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon" id="fr-meta-soon">Coming soon</span><button class="connect-b" type="button" id="fr-meta-connect" aria-expanded="false" aria-controls="fr-muse-flow" aria-label="Connect Meta Muse" hidden>Connect</button></div>
                 <!-- #3939 3c-4: Meta Muse on this step, only where Muse is switched on (GET /api/muse says enabled); otherwise the
                      row above stays "Coming soon" and none of this shows. The same sign-in controller as Add a provider
                      (museSigninFlow) with the fr-muse- prefix; #6004: Kosmos installs Muse Code on this step, so a computer without it is told. -->
@@ -16075,12 +16077,12 @@ window.kosmosMeasureScrollbarWidth();
                   <p class="dhint" id="fr-muse-say" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
                 </div>
                 <div class="dhint" id="fr-muse-msg" role="status" aria-live="polite"></div>
-                <div class="llm fr-qwen"><span class="llm-m pmark live" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="currentColor" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="currentColor" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="currentColor" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon" data-win-hide>Add in Settings</span><span class="soon" data-win-only hidden>Coming to Windows</span></div>
-                <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
-                <div class="llm off"><span class="llm-m pmark dim" data-pmark="deepseek" role="img" aria-label="DeepSeek"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 1.5 27 20.1" fill="currentColor"><path d="M26.5174 3.39471C26.235 3.2567 26.1137 3.52006 25.9487 3.65346C25.8923 3.69659 25.8446 3.75294 25.7969 3.80469C25.3846 4.24516 24.9027 4.53439 24.2737 4.49989C23.3536 4.44814 22.5682 4.73737 21.8735 5.44119C21.7258 4.57349 21.2353 4.0554 20.4889 3.72304C20.0985 3.55054 19.7034 3.37746 19.4297 3.00197C19.2388 2.73459 19.1865 2.43673 19.091 2.14289C19.0301 1.96579 18.9697 1.78466 18.7656 1.75418C18.5442 1.71968 18.4574 1.90541 18.3705 2.06067C18.0232 2.69549 17.8887 3.39471 17.9019 4.10313C17.9324 5.6965 18.6051 6.96556 19.9421 7.86834C20.0939 7.97184 20.133 8.07535 20.0852 8.22658C19.9938 8.53766 19.8857 8.83955 19.7903 9.15063C19.7293 9.34901 19.6384 9.39271 19.4257 9.30588C18.692 8.9994 18.0583 8.54571 17.4982 7.99772C16.5477 7.07827 15.6881 6.06336 14.6162 5.26869C14.3644 5.08296 14.1125 4.91045 13.8521 4.746C12.7584 3.68394 13.9952 2.81164 14.2816 2.70814C14.5812 2.60003 14.3857 2.22857 13.4179 2.23317C12.4502 2.2372 11.5646 2.56151 10.4359 2.99335C10.2708 3.05832 10.0972 3.10547 9.91951 3.14457C8.8954 2.95022 7.83162 2.90709 6.72069 3.03245C4.62877 3.26533 2.95777 4.25436 1.72954 5.94261C0.254043 7.97184 -0.0932678 10.2777 0.33167 12.6824C0.778458 15.2171 2.07225 17.3153 4.06008 18.9558C6.12152 20.6567 8.49577 21.4905 11.2047 21.3306C12.8498 21.2358 14.6812 21.0155 16.7473 19.2669C17.2682 19.5262 17.8151 19.6297 18.7219 19.7074C19.4205 19.7723 20.0933 19.6729 20.6143 19.5648C21.4302 19.3923 21.3739 18.6367 21.0789 18.4981C18.6874 17.3843 19.2124 17.8374 18.7351 17.4706C19.9501 16.033 21.8063 13.4776 22.379 9.99821C22.4353 9.61409 22.5072 9.073 22.4986 8.76192C22.494 8.57216 22.5377 8.49856 22.7545 8.47671C23.3536 8.40771 23.935 8.24383 24.4692 7.94999C26.0188 7.10357 26.6439 5.71318 26.7911 4.04678C26.8129 3.79204 26.7865 3.52869 26.5174 3.39471ZM13.0143 18.3946C10.6964 16.5724 9.5722 15.9726 9.10816 15.9985C8.67402 16.0244 8.75222 16.5212 8.84768 16.8449C8.94773 17.1646 9.07768 17.3849 9.25996 17.6655C9.38589 17.8512 9.47272 18.1272 9.13404 18.3348C8.38766 18.7965 7.08985 18.1796 7.0289 18.1491C5.51833 17.2595 4.25559 16.0853 3.36546 14.4793C2.50581 12.9337 2.0067 11.2753 1.92447 9.50542C1.90262 9.07818 2.02855 8.92695 2.45406 8.84932C3.01413 8.74582 3.59144 8.72397 4.15093 8.80619C6.51656 9.15178 8.53027 10.2092 10.2185 11.8848C11.1822 12.8388 11.9114 13.979 12.6623 15.0929C13.461 16.2757 14.3201 17.4027 15.4144 18.3268C15.8008 18.6505 16.109 18.8966 16.404 19.0783C15.5144 19.1778 14.0297 19.1991 13.0143 18.3958V18.3946ZM14.1252 11.2489C14.1252 11.0591 14.277 10.9079 14.4679 10.9079C14.511 10.9079 14.5501 10.9165 14.5852 10.9292C14.6329 10.9464 14.6766 10.9723 14.7111 11.0114C14.7721 11.0718 14.8066 11.158 14.8066 11.2489C14.8066 11.4386 14.6548 11.5899 14.4639 11.5899C14.273 11.5899 14.1252 11.4386 14.1252 11.2489ZM17.5759 13.0188C17.3545 13.1096 17.1331 13.1873 16.9203 13.1959C16.5903 13.2131 16.2303 13.0791 16.0348 12.9153C15.7312 12.6605 15.5139 12.5179 15.423 12.0734C15.3839 11.8837 15.4057 11.5899 15.4402 11.4214C15.5185 11.0585 15.4316 10.8257 15.1757 10.614C14.9676 10.4415 14.7025 10.3938 14.4115 10.3938C14.3029 10.3938 14.2034 10.3461 14.1292 10.3076C14.0079 10.2472 13.9078 10.096 14.0033 9.91023C14.0338 9.84985 14.1815 9.70322 14.216 9.67734C14.6111 9.45251 15.0665 9.52612 15.488 9.6946C15.8784 9.85445 16.174 10.1477 16.5989 10.5623C17.033 11.0631 17.1112 11.2011 17.3585 11.5772C17.554 11.871 17.7317 12.1729 17.8536 12.5185C17.9272 12.7341 17.8317 12.9107 17.5759 13.0188Z"/></svg></span><div class="llm-w"><b>DeepSeek</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
-                <div class="llm off"><span class="llm-m pmark dim" data-pmark="glm" role="img" aria-label="GLM"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 31.85 27" fill="currentColor"><path d="M16.7889 0L14.5697 3.17647C14.3977 3.42466 14.1676 3.62682 13.8995 3.76526C13.6315 3.9037 13.3337 3.9742 13.0321 3.97059H0.9375V0H16.7889Z"/><path d="M31.8478 0L12.8261 27H0.14502L19.1667 0H31.8478Z"/><path d="M15.2041 26.9999L17.4391 23.8234C17.6135 23.5777 17.8441 23.3773 18.1116 23.2392C18.3791 23.101 18.6758 23.029 18.9767 23.0293H31.0555V26.9999H15.2041Z"/></svg></span><div class="llm-w"><b>GLM</b><small>Z.ai</small></div><span class="soon">Coming soon</span></div>
-                <div class="llm off"><span class="llm-m pmark dim" data-pmark="kimi" role="img" aria-label="Kimi"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0.94 23.95 23.25"><path d="M9.39 13.9501L17.82 5.59012C17.98 5.43012 17.89 5.12012 17.68 5.12012H13.14C13.14 5.12012 13.04 5.14012 13 5.18012L3.92 14.1901C3.78 14.3301 3.57 14.2101 3.57 13.9801V5.39012C3.57 5.24012 3.47 5.12012 3.35 5.12012H0.219999C0.0999993 5.12012 0 5.24012 0 5.39012V23.9201C0 24.0701 0.0999993 24.1901 0.219999 24.1901H3.35C3.47 24.1901 3.57 24.0701 3.57 23.9201V20.1401C3.57 20.0601 3.6 19.9801 3.65 19.9301L6.47 17.1401C6.54 17.0701 6.63 17.0601 6.71 17.1101L14.24 22.6501C15.47 23.4801 16.85 23.9901 18.25 24.1401C18.37 24.1501 18.48 24.0301 18.48 23.8701V20.3101C18.48 20.1701 18.4 20.0601 18.29 20.0501C17.47 19.9201 16.66 19.6001 15.94 19.1101L9.42 14.3901C9.28 14.3001 9.27 14.0701 9.39 13.9501Z" fill="currentColor"/><path d="M21.7202 0.939941C22.9502 0.939941 23.9502 1.93994 23.9502 3.16994C23.9502 4.39994 22.9502 5.39994 21.7202 5.39994H19.7502C19.6002 5.39994 19.4902 5.27994 19.4902 5.13994V3.16994C19.4902 1.93994 20.4902 0.939941 21.7202 0.939941Z" fill="#1783FF"/></svg></span><div class="llm-w"><b>Kimi</b><small>Moonshot</small></div><span class="soon">Coming soon</span></div>
-                <div class="llm off"><span class="llm-m pmark dim" data-pmark="minimax" role="img" aria-label="MiniMax"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490.16 411.7"><defs><linearGradient id="pmark-minimax-g" y1="205.85" x2="490.16" y2="205.85" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e4177f"/><stop offset="0.5" stop-color="#e73562"/><stop offset="1" stop-color="#e94e4a"/></linearGradient></defs><path fill="url(#pmark-minimax-g)" d="M233.45,40.81a17.55,17.55,0,1,0-35.1,0V331.56a40.82,40.82,0,0,1-81.63,0V145a17.55,17.55,0,1,0-35.09,0v79.06a40.82,40.82,0,0,1-81.63,0V195.42a11.63,11.63,0,0,1,23.26,0v28.66a17.55,17.55,0,0,0,35.1,0V145A40.82,40.82,0,0,1,140,145V331.56a17.55,17.55,0,0,0,35.1,0V217.5h0V40.81a40.81,40.81,0,1,1,81.62,0V281.56a11.63,11.63,0,1,1-23.26,0Zm215.9,63.4A40.86,40.86,0,0,0,408.53,145V300.85a17.55,17.55,0,0,1-35.09,0v-260a40.82,40.82,0,0,0-81.63,0V370.89a17.55,17.55,0,0,1-35.1,0V330a11.63,11.63,0,1,0-23.26,0v40.86a40.81,40.81,0,0,0,81.62,0V40.81a17.55,17.55,0,0,1,35.1,0v260a40.82,40.82,0,0,0,81.63,0V145a17.55,17.55,0,1,1,35.1,0V281.56a11.63,11.63,0,0,0,23.26,0V145A40.85,40.85,0,0,0,449.35,104.21Z"/></svg></span><div class="llm-w"><b>MiniMax</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
+                <div data-cloud-hide class="llm fr-qwen"><span class="llm-m pmark live" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="currentColor" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="currentColor" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="currentColor" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon" data-win-hide>Add in Settings</span><span class="soon" data-win-only hidden>Coming to Windows</span></div>
+                <div data-cloud-hide class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
+                <div data-cloud-hide class="llm off"><span class="llm-m pmark dim" data-pmark="deepseek" role="img" aria-label="DeepSeek"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 1.5 27 20.1" fill="currentColor"><path d="M26.5174 3.39471C26.235 3.2567 26.1137 3.52006 25.9487 3.65346C25.8923 3.69659 25.8446 3.75294 25.7969 3.80469C25.3846 4.24516 24.9027 4.53439 24.2737 4.49989C23.3536 4.44814 22.5682 4.73737 21.8735 5.44119C21.7258 4.57349 21.2353 4.0554 20.4889 3.72304C20.0985 3.55054 19.7034 3.37746 19.4297 3.00197C19.2388 2.73459 19.1865 2.43673 19.091 2.14289C19.0301 1.96579 18.9697 1.78466 18.7656 1.75418C18.5442 1.71968 18.4574 1.90541 18.3705 2.06067C18.0232 2.69549 17.8887 3.39471 17.9019 4.10313C17.9324 5.6965 18.6051 6.96556 19.9421 7.86834C20.0939 7.97184 20.133 8.07535 20.0852 8.22658C19.9938 8.53766 19.8857 8.83955 19.7903 9.15063C19.7293 9.34901 19.6384 9.39271 19.4257 9.30588C18.692 8.9994 18.0583 8.54571 17.4982 7.99772C16.5477 7.07827 15.6881 6.06336 14.6162 5.26869C14.3644 5.08296 14.1125 4.91045 13.8521 4.746C12.7584 3.68394 13.9952 2.81164 14.2816 2.70814C14.5812 2.60003 14.3857 2.22857 13.4179 2.23317C12.4502 2.2372 11.5646 2.56151 10.4359 2.99335C10.2708 3.05832 10.0972 3.10547 9.91951 3.14457C8.8954 2.95022 7.83162 2.90709 6.72069 3.03245C4.62877 3.26533 2.95777 4.25436 1.72954 5.94261C0.254043 7.97184 -0.0932678 10.2777 0.33167 12.6824C0.778458 15.2171 2.07225 17.3153 4.06008 18.9558C6.12152 20.6567 8.49577 21.4905 11.2047 21.3306C12.8498 21.2358 14.6812 21.0155 16.7473 19.2669C17.2682 19.5262 17.8151 19.6297 18.7219 19.7074C19.4205 19.7723 20.0933 19.6729 20.6143 19.5648C21.4302 19.3923 21.3739 18.6367 21.0789 18.4981C18.6874 17.3843 19.2124 17.8374 18.7351 17.4706C19.9501 16.033 21.8063 13.4776 22.379 9.99821C22.4353 9.61409 22.5072 9.073 22.4986 8.76192C22.494 8.57216 22.5377 8.49856 22.7545 8.47671C23.3536 8.40771 23.935 8.24383 24.4692 7.94999C26.0188 7.10357 26.6439 5.71318 26.7911 4.04678C26.8129 3.79204 26.7865 3.52869 26.5174 3.39471ZM13.0143 18.3946C10.6964 16.5724 9.5722 15.9726 9.10816 15.9985C8.67402 16.0244 8.75222 16.5212 8.84768 16.8449C8.94773 17.1646 9.07768 17.3849 9.25996 17.6655C9.38589 17.8512 9.47272 18.1272 9.13404 18.3348C8.38766 18.7965 7.08985 18.1796 7.0289 18.1491C5.51833 17.2595 4.25559 16.0853 3.36546 14.4793C2.50581 12.9337 2.0067 11.2753 1.92447 9.50542C1.90262 9.07818 2.02855 8.92695 2.45406 8.84932C3.01413 8.74582 3.59144 8.72397 4.15093 8.80619C6.51656 9.15178 8.53027 10.2092 10.2185 11.8848C11.1822 12.8388 11.9114 13.979 12.6623 15.0929C13.461 16.2757 14.3201 17.4027 15.4144 18.3268C15.8008 18.6505 16.109 18.8966 16.404 19.0783C15.5144 19.1778 14.0297 19.1991 13.0143 18.3958V18.3946ZM14.1252 11.2489C14.1252 11.0591 14.277 10.9079 14.4679 10.9079C14.511 10.9079 14.5501 10.9165 14.5852 10.9292C14.6329 10.9464 14.6766 10.9723 14.7111 11.0114C14.7721 11.0718 14.8066 11.158 14.8066 11.2489C14.8066 11.4386 14.6548 11.5899 14.4639 11.5899C14.273 11.5899 14.1252 11.4386 14.1252 11.2489ZM17.5759 13.0188C17.3545 13.1096 17.1331 13.1873 16.9203 13.1959C16.5903 13.2131 16.2303 13.0791 16.0348 12.9153C15.7312 12.6605 15.5139 12.5179 15.423 12.0734C15.3839 11.8837 15.4057 11.5899 15.4402 11.4214C15.5185 11.0585 15.4316 10.8257 15.1757 10.614C14.9676 10.4415 14.7025 10.3938 14.4115 10.3938C14.3029 10.3938 14.2034 10.3461 14.1292 10.3076C14.0079 10.2472 13.9078 10.096 14.0033 9.91023C14.0338 9.84985 14.1815 9.70322 14.216 9.67734C14.6111 9.45251 15.0665 9.52612 15.488 9.6946C15.8784 9.85445 16.174 10.1477 16.5989 10.5623C17.033 11.0631 17.1112 11.2011 17.3585 11.5772C17.554 11.871 17.7317 12.1729 17.8536 12.5185C17.9272 12.7341 17.8317 12.9107 17.5759 13.0188Z"/></svg></span><div class="llm-w"><b>DeepSeek</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
+                <div data-cloud-hide class="llm off"><span class="llm-m pmark dim" data-pmark="glm" role="img" aria-label="GLM"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 31.85 27" fill="currentColor"><path d="M16.7889 0L14.5697 3.17647C14.3977 3.42466 14.1676 3.62682 13.8995 3.76526C13.6315 3.9037 13.3337 3.9742 13.0321 3.97059H0.9375V0H16.7889Z"/><path d="M31.8478 0L12.8261 27H0.14502L19.1667 0H31.8478Z"/><path d="M15.2041 26.9999L17.4391 23.8234C17.6135 23.5777 17.8441 23.3773 18.1116 23.2392C18.3791 23.101 18.6758 23.029 18.9767 23.0293H31.0555V26.9999H15.2041Z"/></svg></span><div class="llm-w"><b>GLM</b><small>Z.ai</small></div><span class="soon">Coming soon</span></div>
+                <div data-cloud-hide class="llm off"><span class="llm-m pmark dim" data-pmark="kimi" role="img" aria-label="Kimi"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0.94 23.95 23.25"><path d="M9.39 13.9501L17.82 5.59012C17.98 5.43012 17.89 5.12012 17.68 5.12012H13.14C13.14 5.12012 13.04 5.14012 13 5.18012L3.92 14.1901C3.78 14.3301 3.57 14.2101 3.57 13.9801V5.39012C3.57 5.24012 3.47 5.12012 3.35 5.12012H0.219999C0.0999993 5.12012 0 5.24012 0 5.39012V23.9201C0 24.0701 0.0999993 24.1901 0.219999 24.1901H3.35C3.47 24.1901 3.57 24.0701 3.57 23.9201V20.1401C3.57 20.0601 3.6 19.9801 3.65 19.9301L6.47 17.1401C6.54 17.0701 6.63 17.0601 6.71 17.1101L14.24 22.6501C15.47 23.4801 16.85 23.9901 18.25 24.1401C18.37 24.1501 18.48 24.0301 18.48 23.8701V20.3101C18.48 20.1701 18.4 20.0601 18.29 20.0501C17.47 19.9201 16.66 19.6001 15.94 19.1101L9.42 14.3901C9.28 14.3001 9.27 14.0701 9.39 13.9501Z" fill="currentColor"/><path d="M21.7202 0.939941C22.9502 0.939941 23.9502 1.93994 23.9502 3.16994C23.9502 4.39994 22.9502 5.39994 21.7202 5.39994H19.7502C19.6002 5.39994 19.4902 5.27994 19.4902 5.13994V3.16994C19.4902 1.93994 20.4902 0.939941 21.7202 0.939941Z" fill="#1783FF"/></svg></span><div class="llm-w"><b>Kimi</b><small>Moonshot</small></div><span class="soon">Coming soon</span></div>
+                <div data-cloud-hide class="llm off"><span class="llm-m pmark dim" data-pmark="minimax" role="img" aria-label="MiniMax"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490.16 411.7"><defs><linearGradient id="pmark-minimax-g" y1="205.85" x2="490.16" y2="205.85" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e4177f"/><stop offset="0.5" stop-color="#e73562"/><stop offset="1" stop-color="#e94e4a"/></linearGradient></defs><path fill="url(#pmark-minimax-g)" d="M233.45,40.81a17.55,17.55,0,1,0-35.1,0V331.56a40.82,40.82,0,0,1-81.63,0V145a17.55,17.55,0,1,0-35.09,0v79.06a40.82,40.82,0,0,1-81.63,0V195.42a11.63,11.63,0,0,1,23.26,0v28.66a17.55,17.55,0,0,0,35.1,0V145A40.82,40.82,0,0,1,140,145V331.56a17.55,17.55,0,0,0,35.1,0V217.5h0V40.81a40.81,40.81,0,1,1,81.62,0V281.56a11.63,11.63,0,1,1-23.26,0Zm215.9,63.4A40.86,40.86,0,0,0,408.53,145V300.85a17.55,17.55,0,0,1-35.09,0v-260a40.82,40.82,0,0,0-81.63,0V370.89a17.55,17.55,0,0,1-35.1,0V330a11.63,11.63,0,1,0-23.26,0v40.86a40.81,40.81,0,0,0,81.62,0V40.81a17.55,17.55,0,0,1,35.1,0v260a40.82,40.82,0,0,0,81.63,0V145a17.55,17.55,0,1,1,35.1,0V281.56a11.63,11.63,0,0,0,23.26,0V145A40.85,40.85,0,0,0,449.35,104.21Z"/></svg></span><div class="llm-w"><b>MiniMax</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
       </div>
 
       <!-- S6 Self improving. Two switches: fr-s6-feedback and fr-s6-community (#4820). -->
@@ -16488,17 +16490,21 @@ window.kosmosMeasureScrollbarWidth();
              (an orchestrator run from a shared dir, an agent in a non-standard
              place). Point at its folder; we load its CLAUDE.md into the box
              above, then "Bring it in" reviews and adds it like any other import. -->
+        <!-- kosmos#4903 seam H: hidden on a cloud machine: nothing on the person's own device loads this way, and they
+             cannot know a path on the machine. -->
+        <div data-cloud-hide>
         <label class="flabel" for="import-folder">Or add from a folder</label>
         <div class="importrow">
           <input type="text" id="import-folder" class="import-folder-in" placeholder="/full/path/to/the/agent/folder" autocomplete="off" autocapitalize="off" spellcheck="false">
           <button class="btn" type="button" id="import-folder-btn">Load folder</button>
         </div>
         <p class="rolehelp">Point at an agent’s folder on this computer and we will load its CLAUDE.md above.</p>
+        </div>
         <p class="rolelimit" id="import-msg" role="status" aria-live="polite" hidden></p>
         <!-- #1652 PR2: the "or choose one below" list -- agent files this computer already
              holds, found by the disk scan and offered for one-click import. Hidden until
              the scan finds any; the paste/choose controls above work regardless. -->
-        <div class="import-found" id="import-found" hidden></div>
+        <div class="import-found" id="import-found" data-cloud-hide hidden></div>
       </div>
       </fieldset>
     </div>
@@ -20872,12 +20878,25 @@ function onCloudMachine() {
 }
 /* #5865: what the person calls the machine Kosmos runs on, in words shown from elsewhere (a phone through Kosmos+).
    A Linux board is often a headless server, and a Windows board is a PC, so neither is "your Mac". */
+/* kosmos#4903 seam H (Mona Lisa): a cloud machine is "your cloud machine", the words S1 and S6 use. Only with no explicit
+   platform: an explicit one describes another computer's payload, not this board. */
 function hostMachine(platform) {
+  if (!platform && onCloudMachine()) return 'your cloud machine';
   return onLinux(platform) ? 'the computer running Kosmos' : onWindows(platform) ? 'your PC' : 'your Mac';
 }
 function hostMachineCap(platform) {   // the same words opening a sentence
+  if (!platform && onCloudMachine()) return 'Your cloud machine';
   return onLinux(platform) ? 'The computer running Kosmos' : onWindows(platform) ? 'Your PC' : 'Your Mac';
 }
+/* kosmos#4903 seam H: "this computer" in the page's own sentences. To a person whose only window onto a cloud machine
+   is a browser, "this computer" is the laptop in front of them, so there it is "your cloud machine". */
+function thisMachine() { return onCloudMachine() ? 'your cloud machine' : 'this computer'; }
+function ThisMachine() { return onCloudMachine() ? 'Your cloud machine' : 'This computer'; }
+/* The restart and Start at login notices are hidden on a cloud machine: there is no login there for the person to start
+   anything at. Right only while the box brings every agent back by itself after a restart (Baron confirms on a test
+   box, #4903 seam H); if it does not, set this false and the notices come back. */
+const CLOUD_HIDES_RESTART = true;
+function cloudHidesRestart() { return CLOUD_HIDES_RESTART && onCloudMachine(); }
 function linuxCopyTable() {
   return {
     terminalBoxTitle: 'Start-up and restart',   // its Terminal button is hidden on Linux, as on Windows
@@ -21036,6 +21055,14 @@ function platformHides(el) {
   return (onWindows() && Boolean(el.closest('[data-win-hide]'))) || (onLinux() && Boolean(el.closest('[data-linux-hide]')));   // #5865
 }
 function applyPlatformCopy(root) {
+  /* kosmos#4903 seam H: a cloud machine (always Linux) first, so its words win over the Linux ones: data-cloud-hide (CSS
+     keyed on this stamp) and data-cloud-copy. The Linux pass below still runs. */
+  if (onCloudMachine() && root && typeof root.querySelectorAll === 'function') {
+    document.documentElement.setAttribute('data-kosmos-cloud', '1');
+    root.querySelectorAll('[data-cloud-copy]').forEach((el) => {
+      if (el.getAttribute('data-cloud-copy') === 'thisMachine') el.textContent = thisMachine();
+    });
+  }
   if (onLinux() && root && typeof root.querySelectorAll === 'function') {
     /* #5865: the Linux twin of the Windows pass below: data-linux-hide (CSS keyed on this stamp) and data-linux-copy.
        It returns before the Windows pass on purpose: data-win-only stays hidden and data-win-aria-label is not applied. */
@@ -24008,7 +24035,7 @@ function paintRebootNote(note) {
   const up = note && rebootWhen(note.upAt);
   const held = slot.contains(document.activeElement);   // a re-check that removes or repaints it must not drop focus to the page
   if (!down || !up) { slot.innerHTML = ''; delete slot.dataset.shown; if (held) rebootFocusAway(); return; }
-  const head = 'This computer restarted ' + down;
+  const head = ThisMachine() + ' restarted ' + down;   // kosmos#4903 seam H
   const line = 'Kosmos was running and started again by itself ' + up + '.';
   /* The ten-minute re-check repaints only when the WORDS change (a new note, or "at 11:30 PM" becoming "yesterday at
      11:30 PM" after midnight): repainting the same words would take focus off Dismiss and re-announce the status. */
@@ -25422,10 +25449,13 @@ function paintOfflineNote(down, deviceIsOffline) {
     let at = '';
     try { if (location && location.host) at = ' Nothing answered at ' + esc(location.host) + '.'; }
     catch { /* no location: the sentence stands on its own */ }
+    /* kosmos#4903 seam H: a cloud machine cannot be turned on or reached by a terminal from a browser, and its address
+       means nothing to the person, so the remedy is to wait or look from the sign-in page. */
+    const cloud = onCloudMachine();
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt"><b>' + hostMachineCap() + ' is not answering</b>'
-      + '<small>' + MAC_ASLEEP_SENTENCE + at + '</small>'
+      + '<small>' + (cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at) + '</small>'
       + '</div></div>';
     return;
   }
@@ -28168,7 +28198,7 @@ function paintAgyOption(sel, current) {
   const on = (AGY_OFFERED !== false && AGY_INSTALLED === true) || current === 'antigravity';
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
-  else opt.dataset.off = AGY_OFFERED === false ? 'Not on this computer'
+  else opt.dataset.off = AGY_OFFERED === false ? 'Not on ' + thisMachine()
     : AGY_INSTALLED === false ? 'Set up in Settings, AI Models' : 'Checking Antigravity';
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // #3946: a Swarm keeps its non-Claude providers greyed (typeof: these painters also run alone in tests)
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
@@ -40505,6 +40535,10 @@ function deviceOffline() {
    load from the served platform meta, which is in <head> before this script runs. The sentences here that call the
    platform helpers (onLinux, hostMachine, hostMachineCap) need page.PLATFORM_COPY_FNS in a test that lifts one
    (OFFLINE_SENTENCE no longer calls one, #6537). */
+// kosmos#4903 seam H (Mona Lisa's words): the not-answering remedy on a cloud machine.
+const CLOUD_ASLEEP_SENTENCE = 'It may be restarting, and this page asks again by itself. If it does not come back in a few '
+  + 'minutes, sign in at login.kosmosplus.com to see how it is. If other sites are not loading either, check this '
+  + 'device\'s own connection.';
 const MAC_ASLEEP_SENTENCE = onLinux()   // per platform since #5865, the name kept for its callers
   ? 'It may be turned off, or Kosmos may have stopped on it. Make sure it is on, then run kosmos restart in a terminal on it, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
   : 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If ' + hostMachine() + ' is on, check this phone or computer\'s own connection.';
@@ -40543,6 +40577,15 @@ function boardSigninHtml() {
   /* Through Kosmos+ (a phone, another computer, or a connect computer's app window) there is no terminal here and no
      app sign-in for this board: Kosmos+ signs in from the computer Kosmos runs on, so that is where the remedy is.
      First, before any platform: Kosmos.exe, kosmos open and the Applications folder are all on that other computer. */
+  /* kosmos#4903 seam H: a cloud machine is not reached through Kosmos+ and has no computer to open Kosmos on; its way back
+     in is its own sign-in page. */
+  if (onCloudMachine()) {
+    return '<div class="pj-empty boardfail">'
+      + '<p><b>This page is signed out.</b><br>Press Reload. If it stays signed out, sign in at '
+      + '<b>login.kosmosplus.com</b> and press Open my Kosmos.</p>'
+      + '<button class="btn" type="button" data-board-retry>Reload</button>'
+      + '</div>';
+  }
   if (typeof kplusRemote === 'function' && kplusRemote()) {
     return '<div class="pj-empty boardfail">'
       + '<p><b>This board is not signed in.</b><br>'
@@ -40667,8 +40710,9 @@ function boardEmpty() {
      screen where somebody meets the word. */
   return '<div class="pj-empty">'
     + '<p><b>No agents yet.</b><br>An agent is a worker you put on a job. It '
-    + 'runs on this computer and keeps going while you get on with something '
-    + 'else.</p>'
+    + (onCloudMachine()   // kosmos#4903 seam H: and the point of a cloud machine is that it keeps going with yours off
+      ? 'runs on your cloud machine and keeps going while you are away, even with your own computer off.</p>'
+      : 'runs on this computer and keeps going while you get on with something else.</p>')
     /* 🔑 `.btn.uprime.big` IS the pack's `.btn-gold`, measured rather than
        assumed: same font-size (1.0625rem), same padding (.9em 1.75em), same
        radius (10px), same colour (#e3b341). Two names for one button, which is
@@ -43285,7 +43329,7 @@ async function paintTalk(sessionName, agentName) {
         + (!events.length && !h.source ? ' Its screen does not name them or say what they run.'
           : (!h.command ? ' Its screen does not say what they run.' : ''))
         + (/^Project config\b/i.test(String(h.source || '')) ? ' Codex says this one is in a project\u2019s own settings, which the agent can write to, so the agent could have written it.' : '')
-        + ' Trusting covers every hook Codex lists, for every Codex agent on this account, and trusted hooks can act freely on this computer. If you are not sure, continue without them.';
+        + ' Trusting covers every hook Codex lists, for every Codex agent on this account, and trusted hooks can act freely on ' + thisMachine() + '. If you are not sure, continue without them.';
     }
     qCodex.hidden = false;
   } else {
@@ -44223,7 +44267,7 @@ async function paintAgentFilesAll(sessionName) {
   if (more) more.hidden = true;
   if (!ok) {
     msg.textContent = status === 404 && !dir
-      ? 'This agent has no folder of its own on this computer, so there is no Files list.'
+      ? 'This agent has no folder of its own on ' + thisMachine() + ', so there is no Files list.'
       : asSentence((body && body.because) || 'We could not read this agent’s files just now.');
     return;
   }
@@ -44303,7 +44347,7 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
     const b = await res.json().catch(() => ({}));
     // A 404 is an agent with no folder of its own here: the same sentence as the list, never the
     // route's "no agent by that name" about the agent the person is looking at.
-    if (res.status === 404) failed = 'This agent has no folder of its own on this computer, so there is no Files folder to open.';
+    if (res.status === 404) failed = 'This agent has no folder of its own on ' + thisMachine() + ', so there is no Files folder to open.';
     else if (!res.ok) failed = asSentence(b.because || 'The folder did not open.');
   } catch {
     failed = 'We could not reach Kosmos to open the folder.';
@@ -50088,6 +50132,9 @@ function survivalNotice(cls, head, line, acts, hideFor, hideLabel) {
 async function paintSurvival() {
   const slot = document.getElementById('survival-slot');
   if (!slot) return;
+  /* kosmos#4903 seam H: no "will not come back after a restart" and no Start at login on a cloud machine (there is no
+     login there for the person), and not even the look: nothing on this path is theirs to act on. */
+  if (typeof cloudHidesRestart === 'function' && cloudHidesRestart()) { slot.innerHTML = ''; delete slot.dataset.v; return; }
   /* ⚠️ NEVER OVER AN IN-FLIGHT REPAIR: the poll would re-offer a button for work that is running. */
   if (SURVIVAL_BUSY) return;
   let body = null;
@@ -58027,13 +58074,13 @@ async function paintAccountPicker(a) {
   const onDefaultDoor = !!keyedWord && !(acct && acct.dir) && !acctLive && !ACCOUNTS_UNREADABLE;
   const namedGone = !!keyedWord && !!(acct && acct.dir) && !acctLive && !ACCOUNTS_UNREADABLE;
   if (msg && !msg.textContent && !ours && onDefaultDoor) {
-    msg.textContent = 'It runs on this computer\'s own ' + keyedWord + ' key. To move it to a '
+    msg.textContent = 'It runs on ' + thisMachine() + '\'s own ' + keyedWord + ' key. To move it to a '
       + keyedWord + ' account, add one in Settings, AI Models.';
   } else if (msg && !msg.textContent && namedGone) {
     msg.textContent = 'The ' + keyedWord + ' account this agent runs on is no longer on this computer, so it cannot run. '
       + (ours ? 'Pick an account above and press Move.' : 'Add one in Settings, AI Models, then move it here.');
   } else if (msg && !msg.textContent && ours && onDefaultDoor) {
-    msg.textContent = 'It runs on this computer\'s own ' + keyedWord + ' key. Pick an account above and press Move to put it on one of yours.';
+    msg.textContent = 'It runs on ' + thisMachine() + '\'s own ' + keyedWord + ' key. Pick an account above and press Move to put it on one of yours.';
   } else if (msg && !msg.textContent && !ours && !(world.isKeyed && acctLive)) {
     /* #2338: a codex agent IS movable now -- `acctMoveWorld` gives it the OpenAI
        accounts and `setCodexAccount` performs the swap -- so the old "This is a
@@ -59837,7 +59884,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
               const on = switchAcctShown();
               if (on) return 'and it will run on ' + on + '.';
               if (switchAcctSending()) return 'and it runs on the ' + label + ' account shown above.';
-              return 'and with no ' + label + ' account shown above it runs on this computer\'s own ' + label + ' key, if one is set up.';
+              return 'and with no ' + label + ' account shown above it runs on ' + thisMachine() + '\'s own ' + label + ' key, if one is set up.';
             })())
         /* #5091: a switch to Claude can carry a picked account now, so the main-account sentence is said only when
            the picker is not sending one. */
@@ -60109,8 +60156,8 @@ function fillCreateAccounts(given) {
   asel.innerHTML = usable.length
     ? usable.map((x) =>
       `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${labelOf(x)}</option>`).join('')
-    : (openai ? '<option value="">The OpenAI sign-in on this computer</option>'
-      : keyed ? '<option value="">This computer\'s own ' + esc(switchKeyedWord(want)) + ' key, if one is set up</option>'
+    : (openai ? '<option value="">The OpenAI sign-in on ' + thisMachine() + '</option>'
+      : keyed ? '<option value="">' + ThisMachine() + '\'s own ' + esc(switchKeyedWord(want)) + ' key, if one is set up</option>'
       : '<option value="">Your Claude account</option>');
   /* #2097 (Josh re-rule 2026-09-04, supersedes the earlier "shown even at one"):
      HIDE the account row unless there are two or more accounts to choose from. A
@@ -62704,7 +62751,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   const n = ORGCHART_PARSED.length;
   if (n > ORGCHART_TEAM_DEFAULT && !ORGCHART_MANY_OK) {
     document.getElementById('orgchart-many-say').textContent = 'This starts ' + n + ' agents at once. Each one runs on your AI '
-      + 'subscription and uses this computer\'s memory. Start all ' + n + '?';
+      + 'subscription and uses ' + thisMachine() + '\'s memory. Start all ' + n + '?';
     document.getElementById('orgchart-many-go').textContent = 'Start all ' + n;
     document.getElementById('orgchart-many').hidden = false;
     document.getElementById('orgchart-create').disabled = true;
@@ -65967,7 +66014,9 @@ async function watchForAgentNow(name, result, attempt) {
     // with AGENT_WORKFORCE_WORKERS set -- pointing a stuck person at a folder that
     // does not exist.
     warn.innerHTML = '<b>It was set up, but nothing is running under that name yet.</b> '
-      + (result.folder
+      + (onCloudMachine()   // kosmos#4903 seam H: no login on a cloud machine, and its path means nothing to the person
+        ? 'It keeps trying each time your cloud machine starts. If it appears under Agents, you can remove it there.'
+        : result.folder
         ? 'It keeps trying at every login. Its folder is <code>' + esc(result.folder)
           + '</code>; if it appears under Agents, you can remove it there.'
         : 'It keeps trying at every login. If it appears under Agents, you can remove it there.');
@@ -66370,7 +66419,7 @@ const PJ_NOTICE = [
     (name) => 'Start ' + name + ', then try again.'],
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
     (name) => 'Restart ' + name + ' from Kosmos, then try again.'],
-  [/^it has no folder of its own on this computer yet$|^there is no agent by that name to write to$|^that is not a folder$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on this computer, so it has nowhere to write.'],
+  [/^it has no folder of its own on this computer yet$|^there is no agent by that name to write to$|^that is not a folder$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on ' + thisMachine() + ', so it has nowhere to write.'],
   [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder |^there is already a file there that this editor cannot safely replace/, 'explain', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions live somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.'],
   // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
   // pressing again reads the same file the same way, so no button.
