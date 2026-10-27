@@ -158,3 +158,48 @@ test('addressedMembers: the header only at the start, names that are not members
   assert.deepEqual([...messages.addressedMembers('Angel -> Nobody: x', r, [], new Set(), 'angel')], []);
   assert.deepEqual([...messages.addressedMembers('email me at a@all.example', r, [], new Set(), 'angel')], [], '@all inside a word is not a broadcast');
 });
+
+test('round 1: a person\'s @all or arrow header keeps the person\'s old meaning (@-names only; no owed answers)', () => {
+  withFleet(room(), (board) => {
+    const tmux = arm();
+    const sent = messages.sendPost({ operator: true, project: PROJECT, text: 'Josh -> Angel: @all how is it going' }, board.agents, MEMBERS);
+    for (const m of MEMBERS) assert.equal(typedTo(tmux, m).length, 1, m + ' did not get the person\'s post');
+    const row = messages.record().rows.find((x) => x.id === sent.id);
+    assert.ok(!row.mentioned || row.mentioned.length === 0, 'a person\'s header or @all became owed answers: ' + JSON.stringify(row.mentioned));
+  });
+});
+
+test('round 1: the cap counts posts, not members, so an @all post is never cut partway', () => {
+  withFleet(room(), (board) => {
+    for (let i = 0; i < roomloop.LOOP_CAP - 1; i += 1) post(board, 'angel', '@monalisa ping ' + i);
+    const all = post(board, 'pigeonpete', '@all the twentieth post');
+    assert.deepEqual(all.woke.sort(), ['angel', 'monalisa'], 'the post that fills the cap must still reach every member it addresses');
+    const over = post(board, 'pigeonpete', '@all one too many');
+    assert.deepEqual(over.woke, []);
+    assert.match(String(over.sent.because), /woke no one: Kosmos has paused agents waking each other/, 'the sender must be told why its post woke no one');
+  });
+});
+
+test('round 1: a bystander\'s reply to a question asked of someone else wakes no one', () => {
+  withFleet(room(), (board) => {
+    const ask = post(board, 'monalisa', 'Mona Lisa -> Angel: can you build #7346?');
+    const plusOne = post(board, 'pigeonpete', '+1, me too', { replyTo: ask.sent.id });
+    assert.deepEqual(plusOne.woke, [], 'a bystander\'s +1 woke the asker');
+  });
+});
+
+test('round 1: quiet posts count as missed when a member is next woken, and cost the valve nothing', () => {
+  withFleet(room(), (board) => {
+    post(board, 'angel', 'an fyi nobody is asked about');
+    const ask = post(board, 'angel', '@monalisa one question');
+    assert.match(typedTo(ask.tmux, 'monalisa').join(''), /This room has been talking without you: 1 earlier post/, 'a quiet post was not counted as missed');
+    const row = messages.record().rows.find((x) => x.kind === 'post' && /fyi nobody/.test(x.text));
+    assert.equal(messages.reachedCount(row), 0, 'a post that woke no one was charged to the valve');
+  });
+});
+
+test('round 1: an @all inside `code` is quoted, not a broadcast', () => {
+  assert.deepEqual([...messages.addressedMembers('use `@all` to reach everyone', MEMBERS, [], new Set(), 'angel')], []);
+  assert.deepEqual([...messages.addressedMembers('@all heads up', MEMBERS, [], new Set(), 'angel')].sort(), ['monalisa', 'pigeonpete']);
+  assert.deepEqual([...messages.addressedMembers('@all heads up', MEMBERS, [], new Set(), 'angel', { all: false })], [], 'the swarm-off check reads named members only');
+});
