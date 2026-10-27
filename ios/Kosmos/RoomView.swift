@@ -1016,6 +1016,8 @@ struct RoomView: View {
         }
         .background(Palette.ground)
         .onChange(of: typing) { focused in if focused { emojiOpen = false } }
+        // Review 8: the search field's keyboard closes the panel too, or it sits on top of it and hides the results.
+        .onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }
         // The panel stands in for the keyboard, which covers the tab bar; so does the panel, or its last rows sit
         // under the bar.
         .toolbar(emojiOpen ? .hidden : .automatic, for: .tabBar)

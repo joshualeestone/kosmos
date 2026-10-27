@@ -955,6 +955,8 @@ struct ChatView: View {
         .padding(.vertical, 8)
         .background(Palette.ground)
         .onChange(of: composerFocused) { focused in if focused { emojiOpen = false } }
+        // Review 8: the search field's keyboard closes the panel too, or it sits on top of it and hides the results.
+        .onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }
         #if DEBUG
         // KOSMOS_SAMPLE_EMOJI=open (with the agent samples): the panel open, for the design shots.
         .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }

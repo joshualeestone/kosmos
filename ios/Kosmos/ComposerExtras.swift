@@ -63,7 +63,7 @@ struct EmojiPanel: View {
             .padding(8)
         }
         .frame(height: 216)
-        .background(Palette.card)
+        .background(Palette.card.ignoresSafeArea(edges: .bottom))   // review 8: down under the home indicator
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pick an emoji")   // the board's aria-label
     }
@@ -159,7 +159,8 @@ extension ComposerExtras {
     private func handle(_ why: Ended) {
         switch why {
         case .ignore: return
-        case .background, .interruptionBegan: if busy { stop(say: true) }
+        case .interruptionBegan: if busy { stop(say: true) }
+        case .background: if active { stop(say: true) }   // review 8: locking the phone leaves finishing to complete
         case .mediaReset, .headphones: if active { stop(say: true) }   // review 7: finishing is left to complete
         // The engine stops itself when its input really changed; a notice while it still runs is our own setup.
         case .engineChanged: if live && state == .listening && !engine.isRunning { stop(say: true) }   // not while finishing (review 6)
@@ -191,7 +192,11 @@ extension ComposerExtras {
     // from the old snapshot (review 1). The composers call this from onChange of their text; each result also checks
     // the box itself before writing, for a change onChange has not delivered yet (review 3).
     func boxChanged(to text: String) {
-        if active || live, ComposerExtras.dictationOverridden(current: text, lastWritten: lastWritten) { stop(say: true) }   // review 7: said
+        guard active || live, ComposerExtras.dictationOverridden(current: text, lastWritten: lastWritten) else { return }
+        let wasStarting = starting
+        stop(say: true)   // review 7: said
+        // Review 8: a stop while still starting changes the button too; say it then as well.
+        if wasStarting { UIAccessibility.post(notification: .announcement, argument: "Stopped dictating") }
     }
 
     // A refusal is said every time, not only when the state changes (review 2).
