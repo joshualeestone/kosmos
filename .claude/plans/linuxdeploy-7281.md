@@ -39,3 +39,18 @@ here: a LATER deploy from a checkout without the Linux tarball would serve a Lin
 - NITs FIXED: the served .sha256 is compared before the large download; files are written through a temp, mode 644.
 Test: 37 checks, 4 more mutants red. NB: I edited the branch while its deploy-site sweep ran; that sweep is
 discarded and re-run on the committed head (log linuxdeploy-tests2.log).
+
+## Review 2 (23:5x): 0 blockers, 2 warnings, 2 nits
+- W1 FIXED: `|| code="${code:-000}"` kept the status curl had already printed, so a transfer cut off after its 200
+  read as 200: the backwards check skipped silently and a corrupt tarball refused with 1 instead of 75. Now
+  `|| code=000` (deploy-site.sh's own form), tested with a stand-in curl that prints 200 and exits 18. And a live
+  pointer that answers 200 with no readable version returns 75 instead of passing the backwards check by default.
+- W2 FIXED: review 1's non-greedy floor parse ACCEPTED kosmos-0.7.80-rc-arm64 and kosmos-0.7.80-arm64-evil under
+  version 0.7.80 (the greedy one refused them). The floor now lists the archs a release publishes (arm64, x64,
+  linux-x64); refusal tests for -rc-, -evil and an unknown arch (mutant: loosen the list -> 3 red).
+- Found by the full sweep, not the review: tools/test-deploy-site-exit-trap-6826.sh requires every exit in
+  deploy-site.sh to be a literal code (#6826); my `exit "$_dlc"` broke it. Now
+  `|| { [ $? = 75 ] && exit 75; exit 1; }`.
+- NITs RECORDED: the live pointers were already read for LIVE_PTRS_BEFORE (reuse them later); the 75 branches of the
+  .sha256 and tarball fetches are untested (the live-pointer branch is).
+Sweep 3 on the committed head 3e5e56ccc7 (every deploy-site and setup-floor shell test): 15/15 rc 0.
