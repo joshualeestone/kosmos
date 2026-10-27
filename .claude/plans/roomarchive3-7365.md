@@ -47,3 +47,14 @@ refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read roo
    - (W) No test for Undo leaving the automatic rule's rows archived: added (100 by marker, 50 after Undo).
    - (N) 4 KB body limit on the archive route; ISO times only (Date.parse reads '1' as 2001); one sort per read instead
      of two. Not done: pruning markers of deleted projects (a few bytes each).
+2. (sonnet, 15:5x CDT) 0 BLOCKERs, 2 WARNINGs, 4 NITs.
+   - (W) A marker file that was there but would not parse read as empty, and the next write replaced every other
+     room's marker with that empty table. Writers now read strictly and refuse (503, nothing changed). Test with a
+     cut-off file and a control. Lost updates between two writers cannot happen in one process: read, change and
+     write run synchronously in one turn.
+   - (W, deferred) "archivedCount can differ between the text and JSON reads": both split at the same boundary, worked
+     out once over every row before the audience filter; each count is of the rows that view shows, and the JSON
+     view leaves out agent-only notes. The all-archived line keys on there being no live line, which cannot happen
+     while a live row exists (the cap is at least 1).
+   - (N) A time must carry Z or an offset; up to a minute ahead is read as now; a comment that the text view ignores
+     ?archive. Not done: the O(archived) held-post loop on an agent's read (a Set lookup per archived post).
