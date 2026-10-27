@@ -3889,6 +3889,9 @@ do {
         check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
         check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
         check(Board.pill(a("unknown")) == .cantTell && Board.pill(a("something_new")) == .cantTell, "unknown and unrecognised states are grey")
+        check(Board.presenceWords(.off, word: "Issue") == "not running", "review: a grey dot beside another word is spoken")
+        check(Board.presenceWords(.off, word: "Not running") == nil, "CONTROL: not said twice when the word says it")
+        check(Board.presenceWords(.unsure, word: "Idle") != nil && Board.presenceWords(.on, word: "Idle") == nil, "a hollow dot is spoken; a green one adds nothing")
         // Review: the pill is never calmer than what the board counts as needing the person.
         func needing(_ s: String) -> Board.Agent { Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: true) }
         check(Board.pill(needing("connection_lost")) == .problem, "review: a reconnect that gave up is red, not amber")

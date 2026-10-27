@@ -350,7 +350,8 @@ struct AgentRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         // A list shown as not current says so to VoiceOver too, not only by colour.
-        .accessibilityLabel(([agent.name, agent.role, word, Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
+        .accessibilityLabel(([agent.name, agent.role, word, stale ? nil : Board.presenceWords(Board.presence(agent), word: word),
+                              Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
                              + (stale ? ["not updating"] : [])).compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the chat")

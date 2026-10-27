@@ -406,6 +406,14 @@ enum Board {
         if a.state == "needs_you" && a.restartFailed { return .off }   // the board's CARD_ST_FAILED_RESTART
         return presenceOf[a.state] ?? .unsure
     }
+    // Review: the dot is colour (and fill) only, so VoiceOver hears what it says when the status word does not already.
+    static func presenceWords(_ p: Presence, word: String) -> String? {
+        switch p {
+        case .on: return nil
+        case .off: return word == "Not running" ? nil : "not running"
+        case .unsure: return word == "Can't tell" ? nil : "Kosmos can't tell if it is running"
+        }
+    }
 
     // The Mac's cardTone (engine/cardlabel.js toneOf). A name the phone does not know is nil, and the phone's own rule
     // decides, so a tone the Mac adds later never shows as something it is not.
