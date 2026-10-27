@@ -41,6 +41,10 @@ if (args[0] === 'devices' && args[1] === 'allow') {
   console.log(JSON.stringify({ allowed: true }));
   process.exit(0);
 }
+if (args[0] === 'devices' && args[1] === 'list' && process.env.FAKE_LIST === 'FAIL') {   // #7285: an allow list it cannot read
+  process.stderr.write('Error: the allow list could not be read\\n');
+  process.exit(1);
+}
 if (args[0] === 'devices' && args[1] === 'list' && process.env.FAKE_LIST) {   // #6315: the allowed list
   console.log(process.env.FAKE_LIST);
   process.exit(0);
@@ -348,4 +352,17 @@ test('#7285 follow-up: the allowed list carries every key holding each id ([] wh
   ] });
   const junk = await remote.devicesList();
   assert.deepEqual(junk.data.devices.map((d) => d.keys), [['k1.ok'], []]);
+});
+
+test('#7285 (PigeonPete, sessdevice-7285 d5e19f510): a list the tunnel cannot read is NOT an empty list', async () => {
+  enrol();
+  process.env.FAKE_LIST = 'FAIL';
+  const got = await remote.devicesList();
+  assert.equal(got.ok, false, 'a failed list read as ' + JSON.stringify(got));
+  assert.equal(got.data, undefined, 'a failed list carried devices');
+  // CONTROL: the same fake with a readable empty list answers ok with no devices.
+  process.env.FAKE_LIST = JSON.stringify({ devices: [] });
+  const empty = await remote.devicesList();
+  assert.equal(empty.ok, true, empty.because);
+  assert.deepEqual(empty.data.devices, []);
 });
