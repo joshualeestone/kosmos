@@ -94,7 +94,13 @@ final class SignInModel: ObservableObject {
                 switch answer {
                 case .closed: reviewDoor = false; reviewAsked = false; password = ""; step = .email; error = SignIn.reviewClosed
                 case .refused(let sentence): error = sentence   // stays here: no code was sent
-                case .answered(let signedIn): password = ""; take(signedIn, email: typed)
+                case .answered(let signedIn):
+                    password = ""
+                    // Review door (Ice Cream Kitty, m733): its session is a device the server makes (review-*), not this phone's
+                    // key. A key kept by an earlier code sign-in must not be proved under it at a computer's gate (#7337), so it
+                    // goes; a later code sign-in makes a new one, allowed once.
+                    if SignIn.reviewDropsKey(signedIn) { client.forgetDeviceKey() }
+                    take(signedIn, email: typed)
                 }
             } catch { if mine == attempt { fail(error) } }
         }

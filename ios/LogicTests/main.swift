@@ -3724,6 +3724,9 @@ do {
           "and a server error or a bad request says try again")
     check(SignIn.reviewAnswer(status: 401, json: [:] as [String: Any]) == .refused(SignIn.reviewRefused), "with no sentence from Kosmos+, the phone's own")
     check(SignIn.reviewAnswer(status: 404, json: nil) == .closed, "a 404 is the door closed since the link showed")
+    check(SignIn.reviewDropsKey(.signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: nil, hasComputer: true))),
+          "m733: an admitted review sign-in drops a key kept by an earlier code sign-in (its device is the server's review-*)")
+    check(!SignIn.reviewDropsKey(.refused(message: "x", proofRefused: false)) && !SignIn.reviewDropsKey(.unknown), "CONTROL: nothing is dropped when nobody was signed in")
     check(SignIn.reviewAnswer(status: 200, json: ["token": "t", "device_status": "pending"] as [String: Any]) == .answered(.signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: nil, hasComputer: false))),
           "an admitted sign-in goes on to the Allow")
 }
