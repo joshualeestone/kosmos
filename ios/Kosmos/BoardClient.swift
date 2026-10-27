@@ -1403,6 +1403,10 @@ final class BoardClient: ObservableObject {
             case .held(let because):
                 set(.macHeld(mac: mac.name, because: because), gen); return false
             case .refused:
+                // Review 4: a cloud machine refuses a sign-in that proved no key (relay gate.rs NO_KEY), and no fresh
+                // handoff cures that: only signing in here again, natively, which keeps a key. Said at once, not after
+                // six more handoffs.
+                if mac.hosted && proof == nil { set(.signInAgain(mac: mac.name), gen); return false }
                 // Refused handoffs are retried a few times: one expires during a long wait for Allow, and a Mac that
                 // has just started refuses until it knows its account again (gate.rs ACCOUNT_NOT_KNOWN_YET).
                 guard fresh < Self.freshHandoffs else {
@@ -1425,7 +1429,7 @@ final class BoardClient: ObservableObject {
     // kosmos#7337: what one session request carries. `unproven` sends the token alone, as before: no key, a key that
     // cannot sign, or a gate that has no nonce route (an older tunnel: a 404, or a 200 page that is not a nonce).
     // `miss` is the gate page's miss: no answer, or a gate that would not give a nonce now (busy, full, starting).
-    enum ProofOutcome { case proof(Board.GateProof), unproven, miss }
+    private enum ProofOutcome { case proof(Board.GateProof), unproven, miss }
 
     private func gateProof(url: URL, token: String, key: SignIn.DeviceKey?) async -> ProofOutcome {
         guard let key, let host = url.host?.lowercased() else { return .unproven }   // the gate signs location.hostname
@@ -1433,7 +1437,7 @@ final class BoardClient: ObservableObject {
         // A gate that would give a nonce but not now (refused for now, too many waiting, busy) is a miss, as gate.html;
         // any other refusal of the route (404, or an older gate's 401 or 405) means it has none: the token alone.
         let status = answer.statusCode
-        if status == 403 || status == 429 || status >= 500 { return .miss }
+        if status == 400 || status == 403 || status == 429 || status >= 500 { return .miss }   // review 4: 400 (no client address) too
         guard (200...299).contains(status) else { return .unproven }
         guard let nonce = Board.parseNonce(data) else { return .unproven }
         return Board.gateProof(host: host, nonce: nonce, token: token, key: key).map { .proof($0) } ?? .unproven

@@ -48,8 +48,9 @@ final class SignInClient {
         return made.key
     }
 
-    /// kosmos#7337: the key a native sign-in already kept, for proving it at a computer's gate. Never makes one: a phone
-    /// signed in on the web page has none, and a key unknown to Kosmos+ proves nothing a computer should rely on.
+    /// kosmos#7337: the key a native sign-in kept, for proving it at a computer's gate. Never makes one, so a phone only
+    /// ever signed in on the web page has none. It is whatever key the keychain holds, from the last native sign-in,
+    /// even when the current session came from the web page (the gate then records that sign-in under this key).
     nonisolated static func keptDeviceKey(_ store: SessionStore = deviceKeyStore) -> SignIn.DeviceKey? {
         store.load().flatMap(read)
     }
