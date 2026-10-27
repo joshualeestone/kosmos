@@ -44,8 +44,11 @@ ok "extracted the gated-steps region from release.sh ($region_lines lines, by ma
 # kosmos#7363: the region runs its suite through cut_suite_env and its isolation rerun after cut_suite_unset, both defined
 # earlier in release.sh (outside the markers). Lifted verbatim too, not stubbed, so the wrap runs here as it does in a cut.
 HELPERS="$WORK/helpers.sh"
-awk '/^cut_suite_env\(\) \{$/,/^\}$/' "$REPO_ROOT/tools/release.sh" > "$HELPERS"
-awk '/^cut_suite_unset\(\) \{$/,/^\}$/' "$REPO_ROOT/tools/release.sh" >> "$HELPERS"
+sed -n '/^# kosmos#7363 cut_suite helpers START/,/^# kosmos#7363 cut_suite helpers END$/p' "$REPO_ROOT/tools/release.sh" > "$HELPERS"
+_hl="$(wc -l < "$HELPERS" | tr -d ' ')"
+if [ "${_hl:-0}" -lt 5 ] || [ "$_hl" -gt 40 ] || ! grep -q '^# kosmos#7363 cut_suite helpers END$' "$HELPERS"; then
+  bad "the cut_suite helpers block in release.sh is missing or unbounded (${_hl:-0} lines): the region calls them"; echo "FAILS: $fails"; exit 1
+fi
 if grep -q '^cut_suite_env() {$' "$HELPERS" && grep -q '^cut_suite_unset() {$' "$HELPERS"; then
   ok "lifted cut_suite_env and cut_suite_unset from release.sh (kosmos#7363)"
 else

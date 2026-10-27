@@ -12,10 +12,14 @@ bad() { echo "FAIL  $1"; fail=1; }
 T="$(mktemp -d "${TMPDIR:-/tmp}/test-cut-suite-env-7363.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
-# The function as release.sh defines it: from its first line to the first line that is just "}".
-awk '/^cut_suite_env\(\) \{$/{f=1} f{print} f&&/^\}$/{exit}' "$RS" > "$T/fn.sh"
-awk '/^cut_suite_unset\(\) \{$/{f=1} f{print} f&&/^\}$/{exit}' "$RS" >> "$T/fn.sh"
-grep -q '^cut_suite_env() {$' "$T/fn.sh" && grep -q '^}$' "$T/fn.sh" && pass "cut_suite_env is defined in release.sh" || { bad "cut_suite_env is not in release.sh"; exit 1; }
+# The two helpers as release.sh defines them, between their markers (bounded: a block that is empty, has no END marker
+# or runs past 40 lines refuses, so a changed closing line can never lift the rest of release.sh; review 3).
+sed -n '/^# kosmos#7363 cut_suite helpers START/,/^# kosmos#7363 cut_suite helpers END$/p' "$RS" > "$T/fn.sh"
+_hl="$(wc -l < "$T/fn.sh" | tr -d ' ')"
+if [ "${_hl:-0}" -lt 5 ] || [ "$_hl" -gt 40 ] || ! grep -q '^# kosmos#7363 cut_suite helpers END$' "$T/fn.sh"; then
+  bad "the cut_suite helpers block in release.sh is missing or unbounded (${_hl:-0} lines)"; exit 1
+fi
+{ grep -q '^cut_suite_env() {$' "$T/fn.sh" && grep -q '^cut_suite_unset() {$' "$T/fn.sh"; } && pass "cut_suite_env and cut_suite_unset are defined in release.sh, between their markers (${_hl} lines)" || { bad "a helper is missing from the block"; exit 1; }
 
 cat > "$T/run.sh" <<EOF
 set -u
@@ -59,5 +63,7 @@ out="$(env KOSMOS_CUT_SENTINEL_7363=leak /bin/bash "$T/run-unset.sh" 2>&1)"
 # ...and the helper is defined before the first of them.
 def="$(grep -n '^cut_suite_env() {$' "$RS" | cut -d: -f1)"; first="$(printf '%s\n' "$calls" | head -1 | cut -d: -f1)"
 [ -n "$def" ] && [ -n "$first" ] && [ "$def" -lt "$first" ] && pass "defined before the first call" || bad "cut_suite_env defined at line ${def:-?}, first call at ${first:-?}"
+udef="$(grep -n '^cut_suite_unset() {$' "$RS" | cut -d: -f1)"; rrl="$(printf '%s\n' "$rr" | head -1 | cut -d: -f1)"
+[ -n "$udef" ] && [ -n "$rrl" ] && [ "$udef" -lt "$rrl" ] && pass "cut_suite_unset is defined before the isolation rerun" || bad "cut_suite_unset defined at line ${udef:-?}, the rerun at ${rrl:-?}"
 
 if [ "$fail" = 0 ]; then echo "test-cut-suite-env-7363: ALL PASS"; else echo "test-cut-suite-env-7363: FAILURES above"; exit 1; fi
