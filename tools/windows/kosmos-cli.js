@@ -1974,7 +1974,7 @@ async function agentRemove(ctx, args) {
   // A removal that threw partway answers 500 {error, detail} (server.js): not "did not remove".
   if (r.status >= 500 && !j.outcome) return maybe(ctx.err, label + ' may be partly removed: ' + (clause(j.error || '') || 'Kosmos did not say how far it got') + '. Look at the board before trying again.');
   const because = clause(j.because || j.error || '');
-  const end = /[?!]$/.test(because) ? '' : '.';
+  const end = /[?!)]$/.test(because) ? '' : '.';
   if (j.outcome === 'removed') {
     ctx.out(because ? because + end : label + ' has been removed from Kosmos.');
     // Only when the plan said so: an agent with no startup job has nothing for restore to start again.

@@ -6809,7 +6809,7 @@ cmd_agent() {
       printf '%s\n' "$rm_plan" | tail -n +2 | while IFS= read -r _l; do say "$_l"; done
       if [ -z "$KOSMOS_RM_YES" ]; then
         local rm_answer=""
-        printf '%sRemove %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$rm_label"
+        printf '%sRemove %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$rm_label" >&2
         read -r rm_answer || rm_answer=""
         case "$(printf '%s' "$rm_answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) say "Cancelled. Nothing was removed."; exit 1 ;; esac
       fi
@@ -6831,7 +6831,7 @@ cmd_agent() {
         || { say "Kosmos gave an answer we could not read when removing $rm_label. Look at the board to see whether it is still there: $URL/"; exit 1; }
       rm_out=$(printf '%s' "$rm_parsed" | cut -f1); rm_because=$(printf '%s' "$rm_parsed" | cut -f2)
       while [[ "$rm_because" == *[.[:space:]] ]]; do rm_because="${rm_because%?}"; done
-      case "$rm_because" in *[?!]) rm_end="" ;; *) rm_end="." ;; esac
+      case "$rm_because" in *[?!]|*\)) rm_end="" ;; *) rm_end="." ;; esac   # a closing ")" keeps its own stop (a dry-run note)
       case "$rm_out" in
         removed)
           say "${rm_because:-$rm_label has been removed from Kosmos}${rm_end}"
