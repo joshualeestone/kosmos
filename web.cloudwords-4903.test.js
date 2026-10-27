@@ -212,3 +212,15 @@ test('#4903 seam H, engine half: the create and remove flows say engine sentence
     'li.textContent = cloudWords(t); ul.appendChild(li); }\n  };\n  fill(\'rm-loses\'',
   ]) assert.ok(PAGE.includes(sink), 'not said through cloudWords: ' + sink.slice(0, 60));
 });
+
+test('#4903 seam H, engine half: a field refusal (the create name, among 16 callers) says the engine sentence through cloudWords', () => {
+  const said = (cloud) => {
+    const els = { 'create-name': { classList: { add() {} }, setAttribute() {}, focus() {} }, 'create-name-err': { textContent: '' } };
+    const document = { getElementById: (id) => els[id] || null };
+    run(['cloudWords', 'pjFieldBad'], "pjFieldBad('create-name', 'create-name-err', 'that name is already used on this computer');",
+      { ...machine(cloud, 'linux'), document });
+    return els['create-name-err'].textContent;
+  };
+  assert.equal(said(true), 'that name is already used on your cloud machine');
+  assert.equal(said(false), 'that name is already used on this computer', 'CONTROL: not a cloud machine');
+});
