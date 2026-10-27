@@ -196,24 +196,31 @@ test('round 1 W2: a refusal of the message itself (empty, too long, a bad attach
 });
 
 test('rounds 1 and 3: the sweep starts the streak of a self-speaking card over, so the agent back at idle is not stalled', () => {
-  for (const state of ['stopped', 'restarting', 'needs_you', 'needs_trust', 'rate_limited', 'auth_failed', 'connection_lost', 'blocked']) {
+  const fleet = require('../test-support/fleet');
+  /* fixture-discipline: real cards from test-support/fleet. It cannot arrange restarting, needs_trust or blocked, so
+     those three are checked as members of the set settleFor reads, the narrowest honest check left. */
+  for (const state of ['restarting', 'needs_trust', 'blocked']) assert.ok(ds.SPEAKS_FOR_ITSELF.has(state), state);
+  const speaks = ['stopped', 'needs_you', 'rate_limited', 'auth_failed', 'connection_lost'];
+  const quiet = ['idle', 'working', 'unknown'];
+  const board = fleet.install(speaks.concat(quiet).map((st) => fleet.agent('s-' + st.replace(/_/g, '-'), { state: st })));
+  try {
+    for (const card of board.agents) {
+      const at = Date.now() - 40 * MIN;
+      for (let i = 0; i < 3; i += 1) ds.note(card.sessionName, refused, at + i * MIN);
+      assert.ok(status.deliveryStallOf({ name: card.sessionName }, { state: 'idle' }), card.state + ': a READ changes nothing (round 3)');
+      ds.settleFor(card);
+      const left = status.deliveryStallOf({ name: card.sessionName }, { state: 'idle' });
+      if (speaks.includes(card.state)) assert.equal(left, null, card.state + ': the sweep started it over');
+      else assert.ok(left, card.state + ' is not a reason to forget');
+    }
+    assert.equal(board.agents.length, speaks.length + quiet.length, 'CONTROL: every state was arranged');
+  } finally { board.restore(); }
+  for (const state of ['stopped', 'needs_you']) {
     const at = Date.now() - 40 * MIN;
     for (let i = 0; i < 3; i += 1) ds.note('back', refused, at + i * MIN);
     assert.equal(status.deliveryStallOf({ name: 'back' }, { state }), null, state + ': not shown while it says itself');
-    assert.ok(status.deliveryStallOf({ name: 'back' }, { state: 'idle' }), state + ': a READ changes nothing (round 3)');
-    ds.settleFor({ sessionName: 'back', state });
-    assert.equal(status.deliveryStallOf({ name: 'back' }, { state: 'idle' }), null, state + ': the sweep started it over');
+    ds.reset('back');
   }
-  for (const state of ['idle', 'working', 'unknown']) {
-    const at = Date.now() - 40 * MIN;
-    for (let i = 0; i < 3; i += 1) ds.note('kept-' + state, refused, at + i * MIN);
-    ds.settleFor({ sessionName: 'kept-' + state, state });
-    assert.ok(status.deliveryStallOf({ name: 'kept-' + state }, { state: 'idle' }), state + ' is not a reason to forget');
-  }
-  // CONTROL: the same refusals on a card that never left idle are a stall.
-  const at = Date.now() - 40 * MIN;
-  for (let i = 0; i < 3; i += 1) ds.note('stayed', refused, at + i * MIN);
-  assert.ok(status.deliveryStallOf({ name: 'stayed' }, { state: 'idle' }));
 });
 
 test('Mona Lisa\'s design: the pill reads Messages stuck with the issue look, on the page and on the phone', () => {
