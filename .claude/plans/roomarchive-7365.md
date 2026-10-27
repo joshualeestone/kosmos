@@ -61,7 +61,12 @@ page cost worse, which makes the window more urgent, not less.
      31 ms at 5,500), to be measured there.
 
 ## Slice 2 review rounds
-1. (default, 13:1x CDT) 1 BLOCKER, 6 WARNINGs, 3 NITs. TO FIX (status after each):
+1. (default, 13:1x CDT) 1 BLOCKER, 6 WARNINGs, 3 NITs. ALL FIXED 13:1x-13:2x (commits "review 1 B1/W1/W2/W3+W4/W5/W6" and
+   the NITs): B1 race test (mutation-proven), W1 browser-checked ("further back"), W2 loading/failure line + stop-on-
+   failure test, W3/W4 browser-checked (no false no-match; clear paints the window in 30 ms), W5 floor measured now
+   (test), W6 held row updated (test), convPause, earlier rows not stamped as speech, the reopen test's URL pin. The
+   >200-new-rows reset without an anchor is left (rare: a sleeping laptop; the reader lands on the newest page).
+   Detail as found:
    - (B1) pjWinEarlier sets boundary = newestOlder AFTER the await: a poll landing mid-read with new posts moves
      newestOlder, so the rows between are never read (measured: p801-p830 lost for good). Fix: take
      `const at = PJ_WIN.newestOlder` before the await with the cursor; if it moved, loadRoom() at once. Test the race
