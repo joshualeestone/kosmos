@@ -1492,7 +1492,8 @@ async function sweepInstallGroup(keys, on) {
  *   a site 429 from its request limiter (rate_limit_exceeded): that agent alone waits the #4953 limiter pause; any
  *   other site 429: the pass waits Retry-After, capped like #4940's register wait;
  *   anything else (no answer, a 5xx, a 401 logging in again did not clear): the pass pauses 15 minutes (a 503's
- *   Retry-After is not honoured: the 15 minutes is longer, so safe, and a linked page can wait that long);
+ *   Retry-After is not honoured: the site's own not-ready answer asks 30 s, so 15 minutes is longer; a 503 asking
+ *   more than 15 minutes is asked once more after 15, one small request, accepted);
  *   a mint refused on this computer before it was sent (a register or a Forget is out): no pause.
  * The owner-link pauses are per endpoint, in memory; the #4953 limiter pause is per agent, as for posts.
  * Production passes go only to the production site: nothing is linked unless the community service and the Kosmos+

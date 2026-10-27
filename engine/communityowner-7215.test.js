@@ -351,6 +351,8 @@ test('the production coordinator spelled another way (case, a trailing slash, a 
       assert.equal(R.mints.length, 0, spelled + ' read as an override, and a production pass was asked for a loopback community');
     }
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was; }
+  await cs.sweep();
+  assert.ok(agentNamed('ava').owner, 'control: with the coordinator overridden again it links');
 });
 
 test('the site limiter on one agent (rate_limit_exceeded) pauses only that agent, which then spends no mint', async () => {
