@@ -85,14 +85,14 @@ test('#7365: scrolling back reads each earlier page by cursor, anchors the reade
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();
-  for (let k = 0; k < 10 && h.api.PJ_WIN.olderCount > 0; k++) await h.api.pjWinEarlier();
+  for (let k = 0; k < 10 && h.api.PJ_WIN.olderCount > 0; k++) await h.api.pjWinEarlier(true);
   const last = h.painted.at(-1);
   assert.deepEqual(ids(last), range(1, 1000), 'every post, in order, once');
   assert.ok(room.calls.slice(1).every((u) => /\?n=200&cursor=/.test(u)), 'earlier pages are read by cursor');
   assert.equal(h.anchors.taken, 4, 'one anchor per earlier page');
   assert.equal(h.anchors.restored, 4);
   const before = room.calls.length;
-  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier(true);
   assert.equal(room.calls.length, before, 'at the first post, reaching the top asks for nothing more');
 });
 
@@ -100,7 +100,7 @@ test('#7365: a poll after scrolling back keeps the earlier pages, and reads a ga
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();
-  await h.api.pjWinEarlier();   // posts 601 to 1000 held
+  await h.api.pjWinEarlier(true);   // posts 601 to 1000 held
   h.box.scrollTop = 1000;   // the reader is scrolled up, reading
   for (let i = 0; i < 50; i++) room.add();   // 50 new posts: the newest page now starts at 851, a gap of 801 to 850
   await h.api.loadRoom();
@@ -118,7 +118,7 @@ test('#7365: more new rows than a page between polls drops the earlier pages rat
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();
-  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier(true);
   for (let i = 0; i < 450; i++) room.add();
   await h.api.loadRoom();
   assert.deepEqual(ids(h.painted.at(-1)), range(1251, 1450), 'only the newest page: no rows missing between pages');
@@ -129,13 +129,13 @@ test('#7365: a search reads the whole room, so it finds every message; another p
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();
-  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier(true);
   h.api.query = 'post 7';
   await h.api.loadRoom();
   assert.match(room.calls.at(-1), /\/room$/, 'a search reads the room whole');
   assert.equal(h.painted.at(-1).rows.length, 1000);
   const n = room.calls.length;
-  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier(true);
   assert.equal(room.calls.length, n, 'no earlier page is read while searching');
   h.api.query = '';
   h.api.current = 'other';
@@ -158,7 +158,7 @@ test('#7365 review 1: a poll landing while the first earlier page is in flight l
   let release; const gate = new Promise((r) => { release = r; });
   const real = room.fetch;
   room.fetch = async (u) => { if (/cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
-  const earlier = h.api.pjWinEarlier();   // asks for 601 to 800, held back
+  const earlier = h.api.pjWinEarlier(true);   // asks for 601 to 800, held back
   for (let i = 0; i < 30; i++) room.add();   // 30 new posts: the newest page is now 831 to 1030
   await h.api.loadRoom();   // the poll answers first
   release(); await earlier;
@@ -172,14 +172,14 @@ test('#7365 review 1: a failed earlier read is said once and not asked again unt
   await h.api.loadRoom();
   const real = room.fetch;
   room.fetch = async (u) => (/cursor=/.test(u) ? { ok: false, json: async () => ({ error: 'down' }) } : real(u));
-  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier(true);
   assert.equal(h.api.PJ_WIN.because, 'We could not read the earlier messages.');
   const n = room.calls.length;
-  for (let i = 0; i < 5; i++) await h.api.pjWinEarlier();   // the reader keeps scrolling at the top
+  for (let i = 0; i < 5; i++) await h.api.pjWinEarlier(true);   // the reader keeps scrolling at the top
   assert.equal(room.calls.length, n, 'no request until the person asks again');
   room.fetch = real;
   h.api.PJ_WIN.because = null;   // what Try again does
-  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier(true);
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1000), 'Try again reads the page');
 });
 
@@ -187,7 +187,7 @@ test('#7365 review 1: a reader on the floor NOW is not anchored when a gap lands
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();
-  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier(true);
   const restoredBefore = h.anchors.restored;
   for (let i = 0; i < 50; i++) room.add();
   await h.api.loadRoom();   // the box is on the floor (its default)
@@ -199,7 +199,7 @@ test('#7365 review 1: a reaction made here on an earlier page\'s post is kept in
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();
-  await h.api.pjWinEarlier();   // 601 to 800 held
+  await h.api.pjWinEarlier(true);   // 601 to 800 held
   h.api.pjWinNoteReactions('proj', 'p700', [{ emoji: '👍', count: 1, who: ['you'], mine: true }], null);
   await h.api.loadRoom();   // the next poll rebuilds from the held rows
   const row = h.painted.at(-1).rows.find((r) => r.id === 'p700');
@@ -241,15 +241,31 @@ test('#7365 review 3: back on the newest message, the earlier pages are let go, 
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();
-  await h.api.pjWinEarlier();
-  await h.api.pjWinEarlier();   // 401 to 1000 held
+  await h.api.pjWinEarlier(true);
+  await h.api.pjWinEarlier(true);   // 401 to 1000 held, scrolled back to by the reader
   h.api.pjWinLetGoOfEarlier();
   // Scrolled straight back up, before any poll: the read must start from the newest page, not the old held cursor.
-  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier(true);
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1000), 'the page before the newest, read from the newest page\'s own cursor');
   h.api.pjWinLetGoOfEarlier();
+  assert.deepEqual(ids(h.painted.at(-1)), range(801, 1000), 'letting go draws the newest page at once');
   await h.api.loadRoom();
   assert.deepEqual(ids(h.painted.at(-1)), range(801, 1000), 'only the newest page after letting go');
-  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier(true);
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1000), 'the page before reads again from the newest page\'s own cursor');
+});
+
+test('#7365 review 4: pages a short room read for itself are not let go (the two rules would undo each other every poll)', async () => {
+  const room = fakeRoom(600);
+  const h = harness(room);
+  Object.assign(h.box, { clientHeight: 500, scrollHeight: 500, scrollTop: 0 });
+  await h.api.loadRoom();
+  for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r));
+  const n = room.calls.length;
+  h.api.pjWinLetGoOfEarlier();   // the scroll event a paint causes on a short room
+  assert.equal(h.api.PJ_WIN.older.length, 400, 'the pages read without the reader are kept');
+  await h.api.loadRoom();
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  assert.equal(room.calls.length, n + 1, 'a poll reads one page and nothing more: no loop');
+  assert.deepEqual(ids(h.painted.at(-1)), range(1, 600));
 });
