@@ -223,10 +223,14 @@ test('#4787 slice 2: a run reported past its slot\'s miss grace is marked late, 
   const slot3 = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, slot2 + 20 * 60000 + 10 * 60000);
   tasks.recordRun(id, n, 'ada', 'back on time', slot3 + 60000);
   assert.equal(stored(id, n).lastRunLate, undefined, 'the next on-time run clears the mark');
-  /* review 1: a missed day, then the next day's run on time: on time (measured against the latest slot, not the oldest). */
-  tasks.recordRun(id, n, 'bob', 'next day, on time', slot3 + 2 * 86400000 + 5 * 60000);
+  /* review 1: a missed day, then the next day's run on time: on time (measured against the latest slot, not the oldest).
+     Days are stepped with nextAfter, never as 86400000 ms: across a daylight-saving change a day is 23 or 25 hours, and
+     the ms sum lands an hour off the 09:00 slot (red in America/Chicago on 2026-10-27, the week before Nov 1). */
+  const day2 = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, taskrepeat.nextAfter({ every: 'day', at: '09:00' }, slot3));
+  tasks.recordRun(id, n, 'bob', 'next day, on time', day2 + 5 * 60000);
   assert.equal(stored(id, n).lastRunLate, undefined, 'after a missed day, the next day\'s 09:05 run is on time');
-  tasks.recordRun(id, n, 'bob', 'very late', slot3 + 3 * 86400000 + 4 * 3600000);
+  const day3 = taskrepeat.nextAfter({ every: 'day', at: '09:00' }, day2);
+  tasks.recordRun(id, n, 'bob', 'very late', day3 + 4 * 3600000);
   assert.equal(stored(id, n).lastRunLate, true, 'CONTROL: four hours after its slot is late');
   tasks.setRepeat(id, n, { every: 'day', at: '10:00' });
   assert.equal(stored(id, n).lastRunLate, undefined, 'review 1: a changed rule drops the mark, measured against the old rule');
