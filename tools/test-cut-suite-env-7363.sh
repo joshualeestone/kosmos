@@ -47,6 +47,9 @@ n="$(printf '%s\n' "$calls" | grep -c . )"
 wrapped="$(printf '%s\n' "$calls" | grep -cE 'cut_suite_env (nice -n 19 )?yarn test >"\$_suite_log"')"   # the wrap's shape, not just the word
 { [ "$n" = 2 ] && [ "$wrapped" = 2 ]; } && pass "both step-3 suite runs (serial, and the parallel 3+3b one) go through cut_suite_env" \
   || bad "step-3 suite runs: $n found, $wrapped wrapped: $calls"
+# Any OTHER line that runs `yarn test` (a new suite run with another redirect) must go through it too (review 4).
+other="$(grep -n 'yarn test' "$RS" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -v 'cut_suite_env ')"
+[ -z "$other" ] && pass "no line in release.sh runs yarn test outside cut_suite_env" || bad "yarn test run outside cut_suite_env: $other"
 # The isolation rerun (#2006), which decides whether a red suite stops the cut, runs in a subshell that unsets them first.
 rr="$(grep -nE 'kosmos_isolation_rerun_verdict "\$_suite_log"' "$RS" | grep -vE '^[0-9]+:[[:space:]]*#')"
 { [ "$(printf '%s\n' "$rr" | grep -c .)" = 1 ] && printf '%s\n' "$rr" | grep -qE '\$\(cut_suite_unset; kosmos_isolation_rerun_verdict '; } \
