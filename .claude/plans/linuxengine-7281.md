@@ -44,3 +44,24 @@ pointer instead, readManifest's linux arm reads `{version}` only, and the arch c
   families of a cut carry the same setup.sh. Weakest premise: release.sh cuts both families at one version, so the
   arm64 manifest exists for any version a portable Linux copy is offered (slice C must keep that true).
 - `setupManifestName(version, home, {platform, arch})`: linux-x64 manifest only on a Linux x86_64 copy with its own node.
+
+## Review 1 (2026-10-26 22:2x): 0 blockers, 4 warnings, 2 nits
+- W1 FIXED (measured by the reviewer under a linux/x64 preload): update.win32-check.test.js asserted pointerFor('linux',
+  'prod') === 'latest.json', which is false on a Linux x64 runner (linux.yml). Now arch-explicit (arm64 -> latest.json,
+  x64 -> latest-linux.json); 19/19 under the same preload.
+- W2 FIXED: the fallback fired whenever the strict Linux read failed, including a pointer that names a version with a
+  bad `versioned`; setup.sh takes the family on any a.b.c version, so the board would offer the Mac version while
+  setup.sh installed the Linux one. Now the fallback needs the Linux pointer to name NO a.b.c version (setup.sh's test);
+  otherwise no offer. Tested both ways; mutant red.
+- W3 DECIDED: offers from the Linux pointer (a board below glibc 2.35 still reads it, setup.sh then installs the
+  portable bundle at the Mac version) are safe only while both pointers of a channel name the same version. That is
+  slice C's lockstep invariant (plan .claude/plans/linuxrelease-7281.md on branch linuxrelease-7281): the cut writes
+  both at V, a promote moves both, a one-family move is refused.
+- W4 FIXED: a copy that runs its own Linux node now takes only a manifest that says "linux" (unnamed refused), so a
+  host cannot hand it the Mac build under the Linux name; unnamed stays acceptable on a portable copy. One helper,
+  `ownsLinuxNode(home)`, for verify's CLI form and setupManifestName. Tested via verify({ownLinux}); mutant red.
+  GAP, stated: the CLI's `ownLinux: ownsLinuxNode(home)` wiring has no test that can fail on it (the CLI checks only
+  the pinned release keys, so a test-signed manifest is refused on its signature before the platform check). The
+  call site is one line beside the key and version arguments.
+- NIT FIXED: cache.family was written and never read; dropped. NIT LEFT: pointerUrl() in the boot log names the
+  Linux pointer even when the fallback answered (log text only).
