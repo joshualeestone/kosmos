@@ -10,7 +10,8 @@
  * a trap that acts only at the ends leaks between them there and not in Chromium). On three pages (the
  * board's Agents tab, an agent's own page, Settings > AI Models), for five openers (openAcctAdd, openAcctReauth,
  * openAcctReauthOpenai, openAcctReauthGrok, and loginAdvGo, the path kosmos#7198's Refresh login takes into the
- * dialog: on Settings, where the page has read its list, for a row it lists. It ends in openAcctReauth, so its walk
+ * dialog: where the page has read its account list (Settings and an agent page, measured) for a row it lists, and on
+ * the board, where it has not, through its unloaded branch. It ends in openAcctReauth, so its walk
  * repeats the Claude dialog; what it adds is that loginAdvGo opens the dialog and hands focus back to the control
  * passed as its opener. The notice's own button is render-refreshlogin-5407's (D4). The trap keys on the dialog being
  * open, so the others, Gemini's and Meta's Sign in again and the Model tab's Connect an API key, share it). Per arm:
@@ -100,18 +101,23 @@ const focusNow = (p) => p.evaluate(() => {
 const OPENERS = ['Add a provider', 'Sign in again (Claude)', 'Sign in again (OpenAI)', 'Sign in again (Grok)', 'Refresh login (loginAdvGo)'];
 const REFRESH_LOGIN = OPENERS.indexOf('Refresh login (loginAdvGo)');
 /* kosmos#7284: loginAdvGo (kosmos#7198's Refresh login) opens the dialog only for a row the page lists once it has read
-   its list (Settings), so the page is handed one listed row through its own accountsRead, as render-refreshlogin-5407
-   does, and the control that had focus is passed as the opener. The page's own account state is saved first and put
+   its list, so where it has (Settings and an agent page: with the feed removed, both fail to open the dialog), the page
+   is handed one listed row through its own accountsRead, as render-refreshlogin-5407 does; on the board it has not,
+   and loginAdvGo takes its unloaded branch, as a person's does. The
+   control that had focus is passed as the opener. The page's own account state is saved first and put
    back after the arm (restoreAccounts7284), so no later arm or opener inherits the row. */
 const open = (p, i) => p.evaluate((n) => [() => openAcctAdd(),
   () => openAcctReauth('/nonexistent/acct-7202', 'someone@example.com'),
   () => openAcctReauthOpenai('/nonexistent/acct-7202', 'someone@example.com'),
   () => openAcctReauthGrok('/nonexistent/acct-7202', 'someone@example.com'),
   () => {
-    window.__acct7284 = { a: ACCOUNTS, l: ACCOUNTS_LOADED, u: typeof ACCOUNTS_UNREADABLE !== 'undefined' ? ACCOUNTS_UNREADABLE : undefined };
+    // Only where the page has read its list (Settings, an agent page); on the board loginAdvGo takes its unloaded branch.
+    if (ACCOUNTS_LOADED) {
+    window.__acct7284 = { a: ACCOUNTS, l: ACCOUNTS_LOADED, u: ACCOUNTS_UNREADABLE };
     accountsRead([{ provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'someone@example.com', label: 'someone@example.com',
       dir: '/nonexistent/acct-7284', organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
       connection: { state: 'connected', badge: 'working', observedFrom: 'login', checkedLive: true, plan: null, loginExpiresInDays: 2 } }]);
+    }
     window.__opener7284 = document.activeElement;
     loginAdvGo('/nonexistent/acct-7284', 'someone@example.com', document.activeElement);
   }][n](), i);
@@ -215,7 +221,8 @@ async function walk(p) {
               // focus back to it. Not Add a provider's own button: that is where closing falls back to.
               const back = await p.evaluate(() => !!window.__opener7284 && window.__opener7284.id !== 'acct-add-open' && document.activeElement === window.__opener7284);
               say(back, tag + ': closing the dialog gives focus back to the control passed to loginAdvGo as its opener');
-              await p.evaluate(() => { const s = window.__acct7284; if (!s) return; ACCOUNTS = s.a; ACCOUNTS_LOADED = s.l; if (s.u !== undefined) ACCOUNTS_UNREADABLE = s.u; window.__acct7284 = null; });
+              // A byte-for-byte restore of what the arm replaced, so written directly, not through accountsRead/accountsDropped.
+              await p.evaluate(() => { window.__opener7284 = null; const s = window.__acct7284; if (!s) return; ACCOUNTS = s.a; ACCOUNTS_LOADED = s.l; ACCOUNTS_UNREADABLE = s.u; window.__acct7284 = null; });
             }
           }
         }
