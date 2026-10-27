@@ -4331,6 +4331,7 @@ module.exports = {
   signinRegister,
   signinCancel,
   pendingDevices,
+  busy,   // kosmos#7285 review 2: the cloud own-device guard answers a Forget or sign-in in flight with these words
   devicesList,
   deviceAllow,
   joinStatus,

@@ -12303,12 +12303,17 @@ const server = http.createServer(async (req, res) => {
           const ownKeys = own('x-kosmos-session-key');
           let sameKey = false;
           if (ownKeys.length && !ownKeys.includes(id) && !own('x-kosmos-session-device').includes(id)) {
+            // A Forget or a sign-in in flight: the person reads why, not "could not check" (review 2). Still a refusal.
+            const b = remote.busy(); if (b) { sendJson(res, 400, { error: b.because }); return; }
             const listed = await remote.devicesList().catch(() => ({ ok: false }));
             if (!listed || !listed.ok) {
               sendJson(res, 409, { code: 'own_device_cloud_unknown', cloud: true, error: 'We could not check that this is not the browser you are using to reach this Kosmos cloud machine, so it is not removed or turned away from here. Try again in a moment, or use another phone or browser.' });
               return;
             }
             // Every row with that id (review 1): one row per id today, but a second row must never fail open.
+            /* Waiting requests are not checked (review 2, PigeonPete from kosmos-relay devices.rs): Not me on a pending
+               row turns away no key, and the v2 knock's drop-waiting never turns away a key that is already allowed,
+               which a session admitted by its key always is. */
             sameKey = (listed.data && Array.isArray(listed.data.devices) ? listed.data.devices : [])
               .some((d) => d && d.device_id === id && Array.isArray(d.keys) && d.keys.some((k) => ownKeys.includes(k)));
           }

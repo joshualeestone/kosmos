@@ -30,7 +30,7 @@ const cm = require('./engine/cloudmachine');
 
 let base;
 const calls = [];
-const real = { remove: remote.deviceRemove, deny: remote.deviceDeny, cloud: cm.isCloudMachine, v2: remote.boardV2, list: remote.devicesList };
+const real = { remove: remote.deviceRemove, deny: remote.deviceDeny, cloud: cm.isCloudMachine, v2: remote.boardV2, list: remote.devicesList, busy: remote.busy };
 remote.deviceRemove = async (id) => { calls.push(['remove', id]); return { ok: true }; };
 remote.deviceDeny = async (id) => { calls.push(['deny', id]); return { ok: true }; };
 remote.boardV2 = () => false;   // the board-v2 rule for Not me is not under test here
@@ -38,10 +38,11 @@ remote.boardV2 = () => false;   // the board-v2 rule for Not me is not under tes
 let LIST = { ok: true, data: { devices: [] } };
 let listReads = 0;
 remote.devicesList = async () => { listReads += 1; return LIST; };
+remote.busy = () => null;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => {
   remote.deviceRemove = real.remove; remote.deviceDeny = real.deny; cm.isCloudMachine = real.cloud; remote.boardV2 = real.v2;
-  remote.devicesList = real.list;
+  remote.devicesList = real.list; remote.busy = real.busy;
   server.closeAllConnections(); server.close();
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
@@ -96,9 +97,9 @@ test('#7285 follow-up (PigeonPete): a row held by the requesting session\'s KEYS
   for (const verb of ['remove', 'deny']) {
     assert.equal((await post(verb, 'd-shared', { ...VIA_PLUS, ...SESSION })).status, 409, verb + ': a row this key holds, not first');
   }
-  // This browser's own id dropped off its key's list (a key holds at most 16): the session's device header names an id
-  // no row has, and the row the person picks is still held by the session's key.
-  assert.equal((await post('remove', 'd-sibling', { ...VIA_PLUS, 'x-kosmos-session-key': 'k1.mine', 'x-kosmos-session-device': 'd-gone' })).status, 409);
+  // The key alone carries the refusal: the device header names a listed row held by ANOTHER key, and the row picked
+  // is held by the session's key.
+  assert.equal((await post('remove', 'd-sibling', { ...VIA_PLUS, 'x-kosmos-session-key': 'k1.mine', 'x-kosmos-session-device': 'd-other' })).status, 409);
   assert.deepEqual(calls, [], 'a refused request reached the engine');
 });
 
@@ -125,8 +126,11 @@ test('#7285 follow-up: a list that cannot be read, with a key header, refuses an
   assert.equal(got.body.code, 'own_device_cloud_unknown');
   assert.match(got.body.error, /could not check/);
   remote.devicesList = async () => { throw new Error('boom'); };
-  assert.equal((await post('deny', 'd-sibling', { ...VIA_PLUS, ...SESSION })).status, 409, 'a thrown read refuses too');
-  remote.devicesList = async () => { listReads += 1; return LIST; };
+  try {
+    assert.equal((await post('deny', 'd-sibling', { ...VIA_PLUS, ...SESSION })).status, 409, 'a thrown read refuses too');
+  } finally {
+    remote.devicesList = async () => { listReads += 1; return LIST; };
+  }
   assert.deepEqual(calls, []);
 });
 
@@ -139,4 +143,16 @@ test('#7285 review 1: GET /api/remote/devices does not hand the rows\' keys to t
   assert.ok(row, 'CONTROL: the row itself is listed: ' + JSON.stringify(body));
   assert.equal(row.name, 'phone');
   assert.equal('keys' in row, false, 'keys reached the page');
+});
+
+test('#7285 review 2: a Forget or sign-in in flight answers with its own words, not "could not check"', async () => {
+  cm.isCloudMachine = () => true;
+  calls.length = 0;
+  remote.busy = () => ({ ok: false, because: 'this computer is being forgotten; try again in a moment' });
+  try {
+    const got = await post('remove', 'd-sibling', { ...VIA_PLUS, ...SESSION });
+    assert.equal(got.status, 400);
+    assert.match(got.body.error, /being forgotten/);
+    assert.deepEqual(calls, [], 'a busy refusal reached the engine');
+  } finally { remote.busy = () => null; }
 });

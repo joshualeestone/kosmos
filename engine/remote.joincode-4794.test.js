@@ -341,4 +341,11 @@ test('#7285 follow-up: the allowed list carries every key holding each id ([] wh
   const got = await remote.devicesList();
   assert.equal(got.ok, true, got.because);
   assert.deepEqual(got.data.devices.map((d) => [d.device_id, d.keys]), [[MINTED, ['k1.first', 'k1.second']], [other, []]]);
+  // Review 2: junk entries are dropped, so an empty header piece can never match one; a non-array reads as none.
+  process.env.FAKE_LIST = JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', allowed_at: 1792168200, last_seen: 0, keys: ['', 7, null, 'k1.ok'] },
+    { device_id: other, name: 'computer two', allowed_at: 1792168200, last_seen: 0, keys: 'k1.ok' },
+  ] });
+  const junk = await remote.devicesList();
+  assert.deepEqual(junk.data.devices.map((d) => d.keys), [['k1.ok'], []]);
 });
