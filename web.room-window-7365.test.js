@@ -17,6 +17,7 @@ const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'
 const SRC = [
   liftConst(SCRIPT, 'PJ_WIN_PAGE'),
   liftConst(SCRIPT, 'PJ_WIN'),
+  liftConst(SCRIPT, 'THREAD_BOTTOM_SLACK'),
   liftAll(SCRIPT, ['pjWinReset', 'pjWinOlderLine', 'pjWinMerge', 'pjWinRead', 'pjWinEarlier', 'loadRoom']),
 ].join('\n');
 
@@ -47,7 +48,8 @@ function fakeRoom(n) {
 }
 
 function harness(room, project = 'proj') {
-  const box = { __lastBody: undefined, __roomHeldAtBottom: true };
+  // On the floor unless a test scrolls it up (the live position loadRoom measures before anchoring a gap).
+  const box = { __lastBody: undefined, clientHeight: 500, scrollHeight: 10000, scrollTop: 9500 };
   const msg = { textContent: '' };
   const painted = [];
   const anchors = { taken: 0, restored: 0 };
@@ -97,7 +99,7 @@ test('#7365: a poll after scrolling back keeps the earlier pages, and reads a ga
   const h = harness(room);
   await h.api.loadRoom();
   await h.api.pjWinEarlier();   // posts 601 to 1000 held
-  h.box.__roomHeldAtBottom = false;   // the reader is scrolled up, reading
+  h.box.scrollTop = 1000;   // the reader is scrolled up, reading
   for (let i = 0; i < 50; i++) room.add();   // 50 new posts: the newest page now starts at 851, a gap of 801 to 850
   await h.api.loadRoom();
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1050), 'the earlier pages, the gap and the newest page, contiguous');
@@ -177,4 +179,16 @@ test('#7365 review 1: a failed earlier read is said once and not asked again unt
   h.api.PJ_WIN.because = null;   // what Try again does
   await h.api.pjWinEarlier();
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1000), 'Try again reads the page');
+});
+
+test('#7365 review 1: a reader on the floor NOW is not anchored when a gap lands (the paint keeps them on the newest row)', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  await h.api.pjWinEarlier();
+  const restoredBefore = h.anchors.restored;
+  for (let i = 0; i < 50; i++) room.add();
+  await h.api.loadRoom();   // the box is on the floor (its default)
+  assert.equal(h.anchors.restored, restoredBefore, 'no anchor pulls a floor reader off the newest row');
+  assert.deepEqual(ids(h.painted.at(-1)), range(601, 1050));
 });
