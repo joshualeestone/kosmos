@@ -160,10 +160,14 @@ extension ComposerExtras {
         switch why {
         case .ignore: return
         case .background, .interruptionBegan: if busy { stop(say: true) }
-        case .mediaReset, .headphones: if live || starting { stop(say: true) }
+        case .mediaReset, .headphones: if active { stop(say: true) }   // review 7: finishing is left to complete
         // The engine stops itself when its input really changed; a notice while it still runs is our own setup.
         case .engineChanged: if live && state == .listening && !engine.isRunning { stop(say: true) }   // not while finishing (review 6)
-        case .active: if state != .ready && !busy { state = .ready }   // review 6: allowed in Settings, come back: no old refusal
+        // Review 6 and 7: back from Settings with both allowed, the old "not allowed" line goes. Only then: dismissing the
+        // permission alert itself also makes the app active, and must never wipe the refusal just given.
+        case .active:
+            if state == .denied, !busy, SFSpeechRecognizer.authorizationStatus() == .authorized,
+               AVAudioSession.sharedInstance().recordPermission == .granted { state = .ready }
         }
     }
 
@@ -187,7 +191,7 @@ extension ComposerExtras {
     // from the old snapshot (review 1). The composers call this from onChange of their text; each result also checks
     // the box itself before writing, for a change onChange has not delivered yet (review 3).
     func boxChanged(to text: String) {
-        if active || live, ComposerExtras.dictationOverridden(current: text, lastWritten: lastWritten) { stop() }
+        if active || live, ComposerExtras.dictationOverridden(current: text, lastWritten: lastWritten) { stop(say: true) }   // review 7: said
     }
 
     // A refusal is said every time, not only when the state changes (review 2).
@@ -247,8 +251,9 @@ extension ComposerExtras {
                 let words = result?.bestTranscription.formattedString
                 let final = result?.isFinal ?? false
                 let failed = error != nil
-                // Review 4: Speech's "no speech detected" (kAFAssistantErrorDomain 1110) is not a refusal: nothing said.
-                let silent = (error as NSError?).map { $0.domain == "kAFAssistantErrorDomain" && $0.code == 1110 } ?? false
+                // Review 4: Speech's "no speech detected" is not a refusal: nothing was said.
+                // Review 7: 203 ("Retry") is how server recognition often reports silence too.
+                let silent = (error as NSError?).map { $0.domain == "kAFAssistantErrorDomain" && [1110, 203].contains($0.code) } ?? false
                 Task { @MainActor in
                     guard let self, self.generation == mine, self.live else { return }
                     if let words, !words.trimmingCharacters(in: .whitespaces).isEmpty {
