@@ -331,3 +331,18 @@ test('#7270: cmd\'s ""path" args" form and env -S are read as they run', () => {
   assert.equal(commandRuns('cmd /c ""C:\\Program Files\\x\\node.exe" x.js"'), false);
   assert.equal(commandRuns('env -S "node x.js"'), false);
 });
+
+test('#7270 review 1: an argument with no space reaches the launcher bare, so what follows & ; | runs and is read', () => {
+  for (const [file, args] of [
+    ['cmd', ['/c', 'ver&schtasks']], ['cmd.exe', ['/d', '/s', '/c', 'schtasks|more']], ['bash', ['-c', 'true&&schtasks']],
+    ['bash', ['-c', 'schtasks;echo']], ['powershell', ['-Command', 'schtasks;echo']], ['cmd', ['/c', 'schtasks>out.txt']],
+    ['bash', ['-c', 'schtasks /Query >/dev/null; exec /bin/bash']], ['bash', ['-c', 'echo $((1<<X))\nschtasks /Query']],
+  ]) assert.equal(callRuns(file, args), true, JSON.stringify([file, args]));
+  // CONTROL: a lookup runs nothing; a quoted launcher path is still read as that launcher
+  for (const cmd of ['command -v schtasks', 'command -v schtasks >/dev/null && echo yes', 'command -V schtasks'])
+    assert.equal(commandRuns(cmd), false, cmd);
+  assert.equal(commandRuns('"C:\\Program Files\\Git\\bin\\bash.exe" -c "echo schtasks"'), false);
+  assert.equal(commandRuns('"C:\\Program Files\\Git\\bin\\bash.exe" -c "schtasks /Query"'), true);
+  // a backtick is PowerShell's escape and plain text to cmd, so it does not cut their lines
+  assert.equal(callRuns('powershell', ['-Command', 'Write-Output "a`nb" `schtasks']), false);
+});

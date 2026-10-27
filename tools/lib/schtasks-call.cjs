@@ -44,7 +44,8 @@ function baseName(p) {
 }
 
 /* A here-document's body is text the shell feeds to a command, not commands (bash -c "cat <<'END' ... END"; #7270).
-   Its lines are dropped, up to the line that ends it. A here-string (<<<) is not a here-document. */
+   Its lines are dropped, up to the line that ends it. Only a POSIX shell has them. A here-string (<<<) is not one, and
+   neither is a shift inside arithmetic ($((1<<X)), review 1). */
 function dropHeredocs(text) {
   const out = [];
   const ends = [];
@@ -55,21 +56,28 @@ function dropHeredocs(text) {
       continue;
     }
     out.push(line);
-    for (const m of line.matchAll(/(?<!<)<<(?!<)(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/g)) ends.push({ word: m[3], tabs: !!m[1] });
+    for (const m of line.matchAll(/(?<!<)<<(?!<)(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/g)) {
+      const before = line.slice(0, m.index);
+      if ((before.match(/\(\(/g) || []).length > (before.match(/\)\)/g) || []).length) continue;   // inside (( ))
+      ends.push({ word: m[3], tabs: !!m[1] });
+    }
   }
   return out.join('\n');
 }
 
-/* A command line cut into its commands at &, |, ;, parentheses, backticks and line ends outside quotes, so a quoted
-   argument (node -e "require('x')") stays whole. */
-function commands(text) {
+/* A command line cut into its commands at &, |, ;, parentheses and line ends outside quotes, so a quoted argument
+   (node -e "require('x')") stays whole. Backticks start a command too, except in a line known to be cmd's or
+   PowerShell's (where a backtick is text or an escape, review 1). shell is 'posix', 'other' or undefined (not known:
+   exec's own shell). */
+function commands(text, shell) {
   const parts = [];
   let cur = '';
   let quote = null;
-  for (const ch of dropHeredocs(text)) {
+  const cuts = shell === 'other' ? '&|;()\r\n' : '&|;()`\r\n';
+  for (const ch of shell === 'posix' ? dropHeredocs(text) : String(text == null ? '' : text)) {
     if (quote) { if (ch === quote) quote = null; cur += ch; continue; }
     if (ch === '"' || ch === "'") { quote = ch; cur += ch; continue; }
-    if ('&|;()`\r\n'.includes(ch)) { parts.push(cur); cur = ''; continue; }
+    if (cuts.includes(ch)) { parts.push(cur); cur = ''; continue; }
     cur += ch;
   }
   parts.push(cur);
@@ -107,21 +115,27 @@ function words(command) {
   return out;
 }
 
+/* Whether quoted text with a space is one program path ("C:\Program Files\Git\bin\bash.exe"), not a command line
+   that ends in one (schtasks /Query; exec /bin/bash): no separator, and no word after a space that starts a switch. */
+function isPath(text) {
+  return !/[&|;<>()`\r\n]/.test(text) && !/\s[/-]/.test(text);
+}
+
 /* PowerShell's -EncodedCommand: base64 of UTF-16LE. */
 function decodePs(value) {
   try { return Buffer.from(String(value), 'base64').toString('utf16le'); } catch { return ''; }
 }
 
 /* Whether the words, from index i, start schtasks: walking past any shell or launcher in front of it. */
-function wordsRun(ws, i, depth) {
+function wordsRun(ws, i, depth, shell) {
   if (depth > DEPTH) return false;
   const rest = (k) => ws.slice(k).map((w) => w.raw).join(' ');
   while (i < ws.length) {
     const w = ws[i];
     /* A quoted command as one word (cmd /c "schtasks /End"): read what is inside. A quoted path is a program, schtasks
        or a launcher read below ("C:\Program Files\Git\bin\bash.exe" -c ..., review 7). */
-    if (w.quoted && /\s/.test(w.inner) && !PROGRAM.test(baseName(w.inner)) && !isLauncher(baseName(w.inner))) {
-      return lineRuns(w.inner, depth + 1);
+    if (w.quoted && /\s/.test(w.inner) && !(isPath(w.inner) && (PROGRAM.test(baseName(w.inner)) || isLauncher(baseName(w.inner))))) {
+      return lineRuns(w.inner, depth + 1, shell);
     }
     /* NAME=value before the command sets its environment (X=1 schtasks): the command follows (#7270). */
     if (!w.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.text)) { i += 1; continue; }
@@ -132,7 +146,7 @@ function wordsRun(ws, i, depth) {
         if (/^\/[ckr]$/i.test(ws[i].text)) {
           const line = rest(i + 1);
           /* cmd /c ""C:\Program Files\x\schtasks.exe" /End": cmd drops the first and last quote (#7270). */
-          return lineRuns(line, depth + 1) || (/^""/.test(line) && /"$/.test(line) && lineRuns(line.slice(1, -1), depth + 1));
+          return lineRuns(line, depth + 1, 'other') || (/^""/.test(line) && /"$/.test(line) && lineRuns(line.slice(1, -1), depth + 1, 'other'));
         }
       }
       continue;   // cmd with no /c: what follows is read as the command
@@ -140,8 +154,8 @@ function wordsRun(ws, i, depth) {
     if (POWERSHELL.test(b)) {
       for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) {
         const s = ws[i].text;
-        if (/^-(command|c)$/i.test(s)) return lineRuns(rest(i + 1), depth + 1);
-        if (/^-(encodedcommand|enc|e|ec)$/i.test(s)) return i + 1 < ws.length && lineRuns(decodePs(ws[i + 1].text), depth + 1);
+        if (/^-(command|c)$/i.test(s)) return lineRuns(rest(i + 1), depth + 1, 'other');
+        if (/^-(encodedcommand|enc|e|ec)$/i.test(s)) return i + 1 < ws.length && lineRuns(decodePs(ws[i + 1].text), depth + 1, 'other');
         if (/^-(file|f)$/i.test(s)) return false;   // a script file: what it runs cannot be read here
         if (PS_VALUE.test(s)) i += 1;
       }
@@ -149,7 +163,12 @@ function wordsRun(ws, i, depth) {
     }
     if (POSIX_SHELL.test(b)) {
       for (i += 1; i < ws.length && /^[-+]/.test(ws[i].text); i += 1) {
-        if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1);   // -c, -lc, -ec (not -C)
+        if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(ws[i].text)) {   // -c, -lc, -ec (not -C)
+          /* The script as one quoted word is read from its inside, once: reading the quoted form and then its inside
+             would take a here-document twice and drop the commands after it (review 1). */
+          const script = ws[i + 1] && ws[i + 1].quoted ? ws[i + 1].inner : rest(i + 1);
+          return lineRuns(script, depth + 1, 'posix');
+        }
         if (/^[-+][oO]$/.test(ws[i].text)) i += 1;   // -o pipefail, +o errexit, -O extglob: the option's name is its value
         else if (/^--(rcfile|init-file)$/.test(ws[i].text)) i += 1;
       }
@@ -158,13 +177,14 @@ function wordsRun(ws, i, depth) {
     /* env NAME=value ... program: the program after the assignments is what runs. */
     if (/^env(\.exe)?$/i.test(b)) {
       for (i += 1; i < ws.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text) || /^-/.test(ws[i].text)); i += 1) {
-        if (/^(-S|--split-string)$/.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1);   // -S STRING is the command line
+        if (/^(-S|--split-string)$/.test(ws[i].text)) return lineRuns(rest(i + 1), depth + 1, 'posix');   // -S STRING is the command line
         if (/^-[uC]$/.test(ws[i].text)) i += 1;   // -u NAME, -C DIR: the option's value is the next word
       }
       continue;
     }
     /* Words that start the command after them: nohup, exec, command, time, nice, and the shell keywords a command
        follows (then, else, do, !) (#7270). */
+    if (/^(command|builtin)$/.test(b) && i + 1 < ws.length && /^-[a-zA-Z]*[vV]/.test(ws[i + 1].text)) return false;   // command -v: a lookup
     if (/^(nohup|exec|command|builtin|time|nice|then|else|do|!)$/i.test(b)) {
       for (i += 1; i < ws.length && /^-/.test(ws[i].text); i += 1) if (/^-(n|a)$/.test(ws[i].text)) i += 1;
       continue;
@@ -200,29 +220,32 @@ function wordsRun(ws, i, depth) {
 }
 
 /* Whether a shell command line starts schtasks in any of its commands. */
-function lineRuns(text, depth) {
-  return commands(text).some((part) => wordsRun(words(part.trim()), 0, depth));
+function lineRuns(text, depth, shell) {
+  return commands(text, shell).some((part) => wordsRun(words(part.trim()), 0, depth, shell));
 }
 function commandRuns(text) {
   return lineRuns(text, 0);
 }
 
 /* Whether spawn/execFile(file, args, options) runs schtasks. A shell or a launcher as the program is read with its
-   arguments as one command line. */
+   arguments: through a shell as one command line, and without one as the words node hands the launcher. */
 function callRuns(file, args, options) {
   const list = Array.isArray(args) ? args.map(String) : [];
   if (options && options.shell) return commandRuns([String(file)].concat(list).join(' '));
   const base = baseName(file);
   if (PROGRAM.test(base)) return true;
-  if (isLauncher(base)) return commandRuns([base].concat(list.map(asOneWord)).join(' '));
+  if (isLauncher(base)) return wordsRun([base].concat(list).map(argWord), 0, 0);
   return false;
 }
 
-/* Without a shell each argument reaches the launcher as one word (node quotes one with a space), so it is read as one:
-   cmd /c echo "a & schtasks" echoes (#7270). An argument already holding a quote is left as written, so cmd's own
-   ""path" args" form still reads as cmd reads it. */
-function asOneWord(arg) {
-  return /["']/.test(arg) || !/[\s&|;()<>`]/.test(arg) ? arg : '"' + arg + '"';
+/* Without a shell each argument is one word: it is never cut at a newline, &, ; or a backtick on the way in (review 1).
+   node quotes one that holds a space or a tab, and only then, so the launcher reads it as one word (cmd /c echo
+   "a & schtasks" echoes, #7270), while one with no space reaches it bare (ver&schtasks runs schtasks). An argument
+   already holding a double quote is left as written, so cmd's own ""path" args" form still reads as cmd reads it. */
+function argWord(arg) {
+  const text = arg.replace(/["']/g, '');
+  if (/[ \t]/.test(arg) && !arg.includes('"')) return { raw: '"' + arg + '"', text, quoted: true, inner: arg };
+  return { raw: arg, text, quoted: false, inner: null };
 }
 
 module.exports = { callRuns, commandRuns };

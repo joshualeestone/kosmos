@@ -19,8 +19,8 @@ tools/no-schtasks-preload.cjs (tools/lib/schtasks-call.cjs) missed common prefix
 - wordsRun: NAME=value and a leading @ skipped; nohup/exec/command/builtin/time/nice/then/else/do/! read past their
   options; timeout read past its duration (Windows' `timeout /t` runs nothing); cmd's if forms; env -S read as the line.
 - cmd /c: if the line starts with `""`, also read it with the outer pair dropped, as cmd does.
-- callRuns: a launcher argument with a space or metacharacter and no quote of its own is wrapped in quotes, so it is
-  read as the one word node passes.
+- callRuns: without a shell, the launcher's words are built from its arguments (argWord): one with a space or tab and no
+  double quote is one quoted word, as node passes it; any other is bare, as node passes it.
 
 ## Rejected
 - A real shell parser: out of proportion for a test guard; #7262 is the place for one shared reader.
@@ -29,8 +29,9 @@ tools/no-schtasks-preload.cjs (tools/lib/schtasks-call.cjs) missed common prefix
 
 ## Weakest part
 The matcher is still a tokenizer. New shapes will exist (a function or alias defined earlier in the same line,
-`xargs schtasks`, a here-string feeding a shell). It errs toward refusing only where a parenthesis or backtick splits
-a non-command, which turns that call into ENOENT in a test, never into a real scheduler call.
+`xargs schtasks`, a here-string feeding a shell). Round 1 showed my first version leaked (it quoted metacharacter-only arguments, hiding ver&schtasks), so this is not
+safe by construction: each change is checked against main's answers on the reviewer's cases, and a regression test
+holds each one.
 
 ## Verification
 - tools.windows-tests-schtasks-7247.test.js + engine/windows-tests-1777.test.js + engine/win32job.test.js under the
@@ -38,3 +39,10 @@ a non-command, which turns that call into ENOENT in a test, never into a real sc
 - Negative control: the test file against origin/main's schtasks-call.cjs: the 3 new tests fail, the 19 old ones pass.
 
 ## Review rounds
+- Round 1: 1 BLOCKER, 3 WARNINGs, 1 NIT, all FIXED. BLOCKER (a regression): quoting any argument with a metacharacter hid
+  schtasks behind & ; | in an argument with no space (cmd /c ver&schtasks); now only a space or tab quotes, as node does,
+  and the words are built from the arguments, never re-cut as a top-level line. WARNINGs: a quoted script ending in a
+  launcher path (exec /bin/bash) was taken for that launcher (isPath); command -v is a lookup, not a run; << inside
+  $(( )) is a shift, not a here-document, and only a POSIX line has here-documents. NIT: backticks no longer cut cmd or
+  PowerShell lines. Also found while fixing: a quoted -c script had its here-document taken twice; read once now.
+  Negative control: the new test fails against round 0's matcher. 76/76 with windows-tests-1777 and win32job.
