@@ -33,8 +33,11 @@ NARCH="x64"
 STAGE="$OUT/kosmos-linux-bundle"
 
 . "$REPO/tools/lib/exit-guard.sh"
-TMP=""
-_cleanup() { [ -z "${TMP:-}" ] || rm -rf "$TMP"; }
+TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; SMOKE_PID=""
+_cleanup() {
+  [ -z "${SMOKE_PID:-}" ] || kill "$SMOKE_PID" 2>/dev/null || true
+  rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" 2>/dev/null || true
+}
 kosmos_exit_guard _cleanup build-kosmos-linux
 
 # The build host's node writes the manifest and reads the pinned keys: the bundled node is a Linux binary and does
@@ -52,10 +55,30 @@ TUNNEL_IN="${KOSMOS_TUNNEL_LINUX_BIN:-}"
 [ -n "$TUNNEL_IN" ] || { echo "KOSMOS_TUNNEL_LINUX_BIN is not set: the Linux bundle needs kosmos-relay's Linux x86_64 kosmos-tunnel" >&2; exit 1; }
 [ -f "$TUNNEL_IN" ] || { echo "KOSMOS_TUNNEL_LINUX_BIN names no file: $TUNNEL_IN" >&2; exit 1; }
 _tunnel_kind="$(file -b "$TUNNEL_IN" 2>/dev/null || echo unknown)"
+# Review 1 (N1): an executable, not any ELF (a relocatable .o or a core file is ELF x86-64 too).
 case "$_tunnel_kind" in
-  *ELF\ 64-bit*x86-64*) ;;
+  *ELF\ 64-bit\ LSB*executable,\ x86-64*) ;;
   *) echo "the Linux connector must be an ELF 64-bit x86-64 executable; $TUNNEL_IN is: $_tunnel_kind" >&2; exit 1 ;;
 esac
+# Review 1 (B2): the provenance the Mac and Windows builders require, by the same shared check: a .sha256 sidecar
+# that matches these bytes and a 40-hex, never -dirty, kosmos-relay commit (tools/lib/connector-provenance.sh).
+. "$REPO/tools/lib/connector-provenance.sh"
+_connector_provenance_check "$TUNNEL_IN" || exit 1
+_tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
+# Review 1 (W3): a glibc-linked connector runs only where glibc is at least the newest symbol version it needs. The
+# floor is the oldest glibc a Kosmos Linux install supports (kosmos-relay builds it on Ubuntu 22.04: 2.35; cloud
+# machines are 24.04). A static connector needs none and passes.
+GLIBC_FLOOR="${KOSMOS_LINUX_GLIBC_FLOOR:-2.35}"
+glibc_needed() {   # <file>: the newest GLIBC_x.y[.z] its symbols name, or nothing
+  { strings -a "$1" 2>/dev/null || true; } | grep -oE 'GLIBC_[0-9]+\.[0-9]+(\.[0-9]+)?' | sed 's/^GLIBC_//' \
+    | LC_ALL=C sort -t. -k1,1n -k2,2n -k3,3n | tail -1 || true
+}
+_tunnel_glibc="$(glibc_needed "$TUNNEL_IN")"
+if [ -n "$_tunnel_glibc" ]; then
+  _newest="$(printf '%s\n%s\n' "$_tunnel_glibc" "$GLIBC_FLOOR" | LC_ALL=C sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+  [ "$_newest" = "$GLIBC_FLOOR" ] || [ "$_tunnel_glibc" = "$GLIBC_FLOOR" ] || {
+    echo "the Linux connector needs glibc $_tunnel_glibc, newer than the supported floor $GLIBC_FLOOR: it would not start on an older supported Linux" >&2; exit 1; }
+fi
 
 # ---- the tree is a commit -----------------------------------------------------
 _app_commit="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -105,8 +128,7 @@ chmod +x "$STAGE/bin/kosmos" "$STAGE/app/bin/kosmos-report-hook.sh"
 cp "$TUNNEL_IN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
 _tunnel_sha="$(sha256 "$STAGE/app/bin/kosmos-tunnel")"
-_tunnel_src="unknown"
-[ -f "$TUNNEL_IN.commit" ] && _tunnel_src="$(tr -d '[:space:]' < "$TUNNEL_IN.commit")"
+[ "$_tunnel_sha" = "$_tunnel_in" ] || { echo "the staged connector is not the bytes its sidecar named" >&2; exit 1; }
 echo "==> Plus connector: kosmos-tunnel (linux x86-64) $_tunnel_sha, built from kosmos-relay $_tunnel_src"
 
 # ---- the runtime: nodejs.org's linux-x64 node, checksum-checked ------------------
@@ -114,9 +136,11 @@ NODE_TARBALL="node-v$NODE_VERSION-linux-$NARCH.tar.gz"
 TMP="$(mktemp -d)"
 NODE_BASE="https://nodejs.org/dist/v$NODE_VERSION"
 if [ "${KOSMOS_NODE_UNCHECKED:-0}" = 1 ] && [ -n "${NODE_LINUX_SOURCE:-}" ]; then
+  # Review 1 (W1): a TEST build only, behind the same gate as a dirty tree, and named so in the manifest and VERSION.
+  [ "${KOSMOS_ALLOW_DIRTY:-0}" = 1 ] || { echo "an unchecked node is for a test build only (KOSMOS_ALLOW_DIRTY=1)" >&2; exit 1; }
   echo "==> using local node $NODE_LINUX_SOURCE UNCHECKED (TEST BUILD, not for release)"
   cp "$NODE_LINUX_SOURCE" "$TMP/$NODE_TARBALL"
-  WANT="$(sha256 "$TMP/$NODE_TARBALL")"
+  WANT="unchecked:$(sha256 "$TMP/$NODE_TARBALL")"
 else
   echo "==> fetching node v$NODE_VERSION (linux-$NARCH) checksums from nodejs.org"
   curl -fsSL "$NODE_BASE/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
@@ -153,9 +177,54 @@ case "$(file -b "$STAGE/runtime/bin/node" 2>/dev/null)" in
   *) echo "the staged node is not an ELF x86-64 executable" >&2; exit 1 ;;
 esac
 
+# ---- release gates the Mac build runs, all platform-neutral (review 1, W2) ------------
+# #6549: nothing under app/ or bin/ may name a build machine's home folder (a connector built in someone's home
+# folder carries it, hundreds of times).
+. "$REPO/tools/lib/home-path-gate.sh"
+home_path_gate_tree "$STAGE" || exit 1
+# #6468: every name the signed manifest lists must be plain. KEPT EQUAL WITH THE MAC BUILDER'S FUNCTION
+# (tools.build-linux-7281.test.js compares the two bodies).
+kosmos_bundle_odd_names() {   # <stage>; prints offenders, one per line (a missing stage or part is one too)
+  [ -d "$1" ] || { echo "no stage at $1"; return 0; }
+  local part
+  for part in bin app runtime VERSION; do [ -e "$1/$part" ] || echo "missing: $part"; done
+  # A newline anywhere in a path splits it into lines that can each look plain, so it is found by name, not by line.
+  ( cd "$1" && { find bin app runtime VERSION -name $'*\n*' -print0 2>/dev/null | tr '\n\0' ' \n' | sed 's/^/a name with a newline in it: /'
+                 find bin app runtime VERSION ! -type f ! -type d 2>/dev/null | sed 's/^/not a plain file: /'
+                 find bin app runtime VERSION -type f 2>/dev/null | LC_ALL=C grep -vE '^((bin|app|runtime)/[A-Za-z0-9._/@+=,~%#()-]+|VERSION)$' | sed 's/^/name the manifest cannot carry: /'; } ) || true
+}
+
+# Smoke test: the staged app boots and serves its own page. The bundled node is a Linux binary, so the build host's
+# node runs the STAGED app (dependency-free JavaScript); the Linux node itself is proved by the stock-Ubuntu CI job.
+# Disposable roots for every root the app has, as the Mac builder's smoke test (and engine/sandbox.js) requires.
+echo "==> smoke test: the staged app boots and serves its page"
+SMOKE_LOG="$(mktemp)"; SMOKE_ROOTS="$(mktemp -d)"
+PORT=0 AGENT_WORKFORCE_DATA="$SMOKE_ROOTS/data" AGENT_WORKFORCE_PROJECTS="$SMOKE_ROOTS/projects" \
+  AGENT_WORKFORCE_LAUNCH="$SMOKE_ROOTS/launch" AGENT_WORKFORCE_WORKERS="$SMOKE_ROOTS/workers" \
+  AGENT_WORKFORCE_CONFIG_ROOT="$SMOKE_ROOTS/config" AGENT_WORKFORCE_CLAUDE_CONFIG="$SMOKE_ROOTS/claude.json" \
+  AGENT_WORKFORCE_DRY_RUN=1 AGENT_WORKFORCE_TMUX_BIN="$REPO/test-support/fake-tmux.sh" \
+  AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback \
+  AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/ AGENT_WORKFORCE_PERSON_LOCALE=en \
+  node "$STAGE/app/server.js" > "$SMOKE_LOG" 2>&1 &
+SMOKE_PID=$!
+SMOKE_URL=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  SMOKE_URL="$(sed -n 's/.*\(http:\/\/127\.0\.0\.1:[0-9]*\).*/\1/p' "$SMOKE_LOG" | head -1)"
+  [ -n "$SMOKE_URL" ] && break
+  kill -0 "$SMOKE_PID" 2>/dev/null || break
+  sleep 0.5
+done
+smoke_fail() { echo "FAIL: $1" >&2; sed 's/^/    /' "$SMOKE_LOG" >&2; kill "$SMOKE_PID" 2>/dev/null || true; rm -f "$SMOKE_LOG"; rm -rf "$SMOKE_ROOTS"; exit 1; }
+[ -n "$SMOKE_URL" ] || smoke_fail "the staged app never announced a port. It said:"
+PAGE="$(curl -fsS -m 5 "$SMOKE_URL/" 2>/dev/null)" || smoke_fail "the staged app did not answer at $SMOKE_URL. It said:"
+case "$PAGE" in *Kosmos*) ;; *) smoke_fail "the staged app answered with something that is not its own page:" ;; esac
+kill "$SMOKE_PID" 2>/dev/null || true; wait "$SMOKE_PID" 2>/dev/null || true
+rm -f "$SMOKE_LOG"; rm -rf "$SMOKE_ROOTS"
+echo "    boots, answers, and serves its own page"
+
 {
   echo "app:    $_app_commit$( [ "$_app_dirty" = yes ] && echo ' (dirty)') (package.json $_ver)"
-  echo "node:   v$NODE_VERSION (linux-$NARCH)"
+  echo "node:   v$NODE_VERSION (linux-$NARCH)$(case "$NODE_SHA" in unchecked:*) echo ' UNCHECKED (test build)';; esac)"
   echo "built:  $(date -u +%Y-%m-%dT%H:%M:%SZ) for linux-$NARCH on $(uname -s)"
 } > "$STAGE/VERSION"
 
@@ -168,8 +237,16 @@ rm -f "$TARBALL_OUT"
 if tar --version 2>/dev/null | grep -qi bsdtar; then
   COPYFILE_DISABLE=1 tar -czf "$TARBALL_OUT" --uname kosmos --gname kosmos -C "$STAGE" --no-mac-metadata --no-xattrs --no-fflags bin app runtime VERSION
 else
-  tar -czf "$TARBALL_OUT" --owner=kosmos --group=kosmos --no-xattrs -C "$STAGE" bin app runtime VERSION
+  # Review 1 (B1): NAME:ID, so GNU tar needs no kosmos user on the build host (a bare name must exist there).
+  tar -czf "$TARBALL_OUT" --owner=kosmos:0 --group=kosmos:0 --no-xattrs -C "$STAGE" bin app runtime VERSION
 fi
+_odd="$(kosmos_bundle_odd_names "$STAGE")"
+[ -z "$_odd" ] || { echo "FAIL: the bundle holds names the signed manifest cannot list exactly (#6468):" >&2; printf '%s\n' "$_odd" | sed -n '1,5p' >&2; exit 1; }
+# #6562 and #6678, the Mac builder's gates: no build machine's account recorded, no macOS metadata.
+. "$REPO/tools/lib/tar-owner-gate.sh"
+tar_owner_gate "$TARBALL_OUT" || exit 1
+. "$REPO/tools/lib/tar-macmeta-gate.sh"
+tar_macmeta_gate "$TARBALL_OUT" || exit 1
 ( cd "$OUT" && printf '%s  %s\n' "$(sha256 "$(basename "$TARBALL_OUT")")" "$(basename "$TARBALL_OUT")" > "$(basename "$TARBALL_OUT").sha256" )
 
 # ---- the release manifest (#776, #6468), the Mac's shape plus platform -----------
@@ -183,7 +260,7 @@ KM_VERSION="$_ver" KM_ARCH="$NARCH" KM_ARTIFACT="$(basename "$TARBALL_OUT")" \
 KM_SHA="$(awk '{print $1}' "$TARBALL_OUT.sha256")" \
 KM_APP_COMMIT="$_app_commit" KM_APP_DIRTY="$_app_dirty" \
 KM_NODE_VERSION="v$NODE_VERSION" KM_NODE_SHA="$NODE_SHA" \
-KM_TUNNEL_SHA="$_tunnel_sha" KM_TUNNEL_COMMIT="$_tunnel_src" \
+KM_TUNNEL_SHA="$_tunnel_sha" KM_TUNNEL_COMMIT="$_tunnel_src" KM_TUNNEL_GLIBC="${_tunnel_glibc:-}" \
 KM_PINNED_KEYS="$KM_PINNED_KEYS" \
 KM_SETUP_SHA="$(sha256 "$REPO/install/setup.sh")" \
 KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || echo '?')" \
@@ -197,7 +274,10 @@ const m = {
   version: e.KM_VERSION, arch: e.KM_ARCH, artifact: e.KM_ARTIFACT, sha256: e.KM_SHA,
   app: { commit: e.KM_APP_COMMIT, dirty: e.KM_APP_DIRTY === "yes" },
   node: { version: e.KM_NODE_VERSION, download_sha256: e.KM_NODE_SHA },
-  connector: { sha256: e.KM_TUNNEL_SHA, commit: e.KM_TUNNEL_COMMIT },
+  // signed_sha256 and input_sha256 as the Mac entry has them (tools/verify-manifest.sh reads them): the Linux
+  // connector is not signed, so both are the bytes shipped. glibc: the newest the connector needs (empty when static).
+  // (No apostrophes in this program: it sits inside single quotes in the shell.)
+  connector: { signed_sha256: e.KM_TUNNEL_SHA, input_sha256: e.KM_TUNNEL_SHA, commit: e.KM_TUNNEL_COMMIT, glibc: e.KM_TUNNEL_GLIBC },
   built: { at: e.KM_BUILT, host: e.KM_HOST },
   pinned_keys: JSON.parse(e.KM_PINNED_KEYS || "[]"),
   setup_sha256: e.KM_SETUP_SHA,

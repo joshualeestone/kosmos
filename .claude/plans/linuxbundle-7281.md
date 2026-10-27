@@ -44,3 +44,21 @@ The plan as posted on the card (comment 6431703337):
   tarball, owner kosmos:kosmos, exec bits on node, kosmos-tunnel and bin/kosmos.
 - Weakest premise: that nothing in the app tree is Mac-only at runtime on Linux. The #4920 work ran this app on Linux
   from a source checkout, so the tree is known to run; slice E proves the PACKAGED bundle runs on stock Ubuntu.
+
+## Slice A review 1 (2026-10-26 21:0x): 2 blockers, 3 warnings, 4 nits
+- BLOCKER FIXED (B1): GNU tar's `--owner=kosmos` needs that user on the build host; now `kosmos:0` (name and id).
+  This branch has no GNU tar on the Mac; the Linux CI lane (linux.yml, dispatched on this branch) runs the test,
+  whose CONTROL case runs the whole builder there.
+- BLOCKER FIXED (B2): the connector's provenance, by the shared tools/lib/connector-provenance.sh (matching .sha256,
+  a 40-hex never-dirty commit), as the Mac and Windows builders require. Refusal tests for no sidecar and dirty.
+- WARNING FIXED (W1): an unchecked node needs KOSMOS_ALLOW_DIRTY=1 and is recorded as `unchecked:<sha>`.
+- WARNING FIXED (W2): the Mac's platform-neutral gates: home_path_gate_tree, kosmos_bundle_odd_names (a copy the
+  test holds word for word equal to the Mac's), tar_owner_gate, tar_macmeta_gate, and a smoke test that boots the
+  STAGED app with the host node and fetches its page.
+- WARNING FIXED (W3): the connector's newest GLIBC symbol must not exceed KOSMOS_LINUX_GLIBC_FLOOR (2.35, the
+  relay's ubuntu-22.04 build host); recorded as connector.glibc. Test: GLIBC_2.39 refused.
+- NIT FIXED (N1): only an ELF executable passes (not a relocatable or a core file).
+- NIT FOR SLICE D (N2): Mac verify never checks platform; once Linux manifests are signed with the same key, a Mac
+  must refuse a platform other than absent or darwin. Must land no later than slice C.
+- NIT FIXED (N3): connector carries signed_sha256 and input_sha256 (tools/verify-manifest.sh reads them).
+- NIT FIXED (N4): the Mach-O refusal test uses an unpublished node version, proving the refusal comes first.
