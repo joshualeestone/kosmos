@@ -27,6 +27,8 @@ touch it.
   failing case.
 
 ## What would change my mind
+- A pair reading high in CPU time inside a suite: the same work costs more CPU on an efficiency core or with caches
+  contended. The median absorbs two such pairs; three in one run would need a fit across more samples.
 - A failure of the new version inside a full suite: then the ratio itself moves under load and the test needs a
   different shape (for example a fit across three depths).
 
@@ -39,10 +41,23 @@ touch it.
 - After round 1, alone (12 runs, light lane, 18:1x CDT): median ratio 3.72 to 3.88, 12 of 12 pass; per-pair spread
   3.43 to 4.14. The bound stays 7.5 (the quadratic check measured about 13).
 - Round 2 (blind, sonnet, 18:2x): (1) WARNING, the median of five still lets a deep-biased burst win when bursts hit
-  most pairs: applied by timing CPU time instead of wall time, which removes the cause (time another process held the
-  core) rather than outvoting it. (3) the plan's "The call" was stale: rewritten. (4) the failure message now lists
+  most pairs: applied by timing CPU time instead of wall time, which removes preemption (time another process held
+  the core). Round 3 corrected the overclaim: it does not remove core migration or cache contention (see round 3). (3) the plan's "The call" was stale: rewritten. (4) the failure message now lists
   every pair ratio. DECLINED (2), a depth^1.5 regression may land near 7.5: the bound is inherited from #5536, and the
   card is the flake, not the guard's sensitivity; tightening it is new scope and would make load matter more again.
 - After round 2, alone (12 runs, light lane, 19:4x CDT), CPU time: median ratio 3.58 to 3.98, 12 of 12; per-pair spread
   2.93 to 4.60. Whole engine/backuprestore.test.js 24 of 24. Printed from an untracked copy of the test with one
   console.log added, deleted after; the committed test was never edited for the measurement.
+- Round 3 (blind, default model, 19:5x CDT): no BLOCKER. Applied:
+  (1) WARNING: my comment and this plan said CPU time removes the cause. It removes preemption only. On Apple silicon,
+  work costs 2 to 3 times the CPU time on an efficiency core, and cache contention inflates it. My own numbers showed a
+  WIDER per-pair spread in CPU time (2.93 to 4.60) than in wall time (3.43 to 4.14). Reworded: the median is what
+  absorbs load. Added to what would change my mind.
+  (2) WARNING (minor): always shallow-after-deep charges the deep run's GC to the next shallow sample, a steady pull
+  down that hides a regression. The order now alternates inside pairs.
+  (3, 4) NITs: the 10-08 range restated as measured (x3.8 to x4.5), and the "reads about 3.8" line is attributed to the
+  old test.
+  Measured after round 3, 12 runs, with the Mac at 1-minute load 38.6 on 12 cores (19:55 CDT, other agents' suites):
+  median 3.54 to 3.98, 12 of 12 under 7.5; per-pair spread 2.94 to 4.97. Whole file 24 of 24. This is close to the
+  loaded condition the card failed under, which the earlier measurements were not. Printed from an untracked copy, as
+  before, which was deleted afterwards.
