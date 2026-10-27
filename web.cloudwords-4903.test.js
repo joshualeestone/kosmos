@@ -195,25 +195,28 @@ test('#4903 seam H, engine half: an engine sentence says "your cloud machine" at
 });
 
 test('#4903 seam H, engine half: a made-agent warning line is said through cloudWords', () => {
-  assert.match(PAGE, /p\.className = 'tc-why'; p\.textContent = cloudWords\(w\);/);
+  assert.ok(PAGE.includes("p.className = 'tc-why'; p.textContent = " + "(typeof cloudWords === 'function' ? cloudWords : String)(" + 'w);'));
 });
 
 test('#4903 seam H, engine half: the create and remove flows say engine sentences through cloudWords', () => {
   // Each sink paints an engine sentence on the finish-line path (a create refusal, a name refusal, a partial create, an
   // import row, a create step, the Remove dialog). The words themselves are proven by the lifted arms above.
+  // Guarded as the page guards thisMachine, so a test that lifts one of these functions alone still runs.
+  const CW = "(typeof cloudWords === 'function' ? cloudWords : String)(";
   for (const sink of [
-    "fail(cloudWords(out.because || out.error ||",
-    "msg.textContent = cloudWords(result.because || 'that name will not work');",
-    'msg.textContent = cloudWords((result && (result.error || result.because))',
-    "const becauseSentence = cloudWords(result.because || '')",
-    "return tickLine('working', cloudWords(s.label));",
-    "tickLine(s.ok ? 'done' : 'fail', cloudWords(s.label));",
-    "hint.textContent = cloudWords(ask.hint || '');",
-    'li.textContent = cloudWords(t); ul.appendChild(li); }\n  };\n  fill(\'rm-loses\'',
+    'fail(' + CW + 'out.because || out.error ||',
+    'msg.textContent = ' + CW + "result.because || 'that name will not work');",
+    'msg.textContent = ' + CW + '(result && (result.error || result.because))',
+    'const becauseSentence = ' + CW + "result.because || '')",
+    "return tickLine('working', " + CW + 's.label));',
+    "tickLine(s.ok ? 'done' : 'fail', " + CW + 's.label));',
+    'hint.textContent = ' + CW + "ask.hint || '');",
+    'li.textContent = ' + CW + "t); ul.appendChild(li); }\n  };\n  fill('rm-loses'",
+    'if (err) err.textContent = ' + CW + 'reason);',
   ]) assert.ok(PAGE.includes(sink), 'not said through cloudWords: ' + sink.slice(0, 60));
 });
 
-test('#4903 seam H, engine half: a field refusal (the create name, among 16 callers) says the engine sentence through cloudWords', () => {
+test('#4903 seam H, engine half: a field refusal (the create name among them) says the engine sentence through cloudWords', () => {
   const said = (cloud) => {
     const els = { 'create-name': { classList: { add() {} }, setAttribute() {}, focus() {} }, 'create-name-err': { textContent: '' } };
     const document = { getElementById: (id) => els[id] || null };

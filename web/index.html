@@ -22490,7 +22490,7 @@ function saidLine(a) {
  * is the wrong way round: the better answer looked worse.
  */
 function asSentence(s) {
-  const t = typeof s === 'string' ? cloudWords(s).trim() : '';
+  const t = typeof s === 'string' ? (typeof cloudWords === 'function' ? cloudWords : String)(s).trim() : '';
   if (!t) return '';
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
 }
@@ -49015,7 +49015,7 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
     // to write its own version, which is the drift the block below forbids --
     // and it said an agent with no startup job would be "stopped from starting
     // again", describing work that does not happen.
-    hint.textContent = cloudWords(ask.hint || '');
+    hint.textContent = (typeof cloudWords === 'function' ? cloudWords : String)(ask.hint || '');
     document.getElementById('d-remove-start').hidden = false;
     setForceOffered(false);   // #2651: a tied agent removes normally; no override
   } else {
@@ -49344,7 +49344,7 @@ function openRemoveModal(name, ask) {
   const cols = document.getElementById('rm-cols');
   const fill = (id, items) => {
     const ul = document.getElementById(id); ul.innerHTML = '';
-    for (const t of (items || [])) { const li = document.createElement('li'); li.textContent = cloudWords(t); ul.appendChild(li); }
+    for (const t of (items || [])) { const li = document.createElement('li'); li.textContent = (typeof cloudWords === 'function' ? cloudWords : String)(t); ul.appendChild(li); }
   };
   fill('rm-loses', ask.loses); fill('rm-keeps', ask.keeps);
   cols.hidden = !((ask.loses || []).length && (ask.keeps || []).length);
@@ -51263,7 +51263,7 @@ function restartFailureLine(out) {
      while the restart did not take is a different machine problem from its
      having failed, and the person reporting it cannot tell us which unless the
      screen says. */
-  return cloudWords(said
+  return (typeof cloudWords === 'function' ? cloudWords : String)(said
     + (failed.length ? ' What failed: ' + failed.join(', ') + '.' : '')
     + (done.length ? ' What worked: ' + done.join(', ') + '.' : ''));
 }
@@ -61008,7 +61008,7 @@ function tcPaint() {
     if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = pjSentence(m.why); row.append(why); }   // Mona's review: shown as a sentence
     /* Round 3: what create reported as not done (its non-fatal steps, a project it could not add) is said
        on the row, as the single create says it, never folded into "Running". */
-    for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = cloudWords(w); row.append(p); }
+    for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = (typeof cloudWords === 'function' ? cloudWords : String)(w); row.append(p); }
     if (m.state === 'made' && m.seen === 'unseen' && m.made) {   // every member has a picture to set (review 27)
       const p = document.createElement('p'); p.className = 'tc-why';
       p.textContent = 'Its picture and project are set once it is seen running. Open this team again to check.';
@@ -64542,7 +64542,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
      is "not made", so it re-enables and shows its reason like any other failure; this
      one-click add has no made-screen to advance a partial to. */
-  if (!res.ok || out.outcome !== 'created') { fail(cloudWords(out.because || out.error || 'We could not make it, and we cannot tell you why.'), out.field === 'name'); return; }
+  if (!res.ok || out.outcome !== 'created') { fail((typeof cloudWords === 'function' ? cloudWords : String)(out.because || out.error || 'We could not make it, and we cannot tell you why.'), out.field === 'name'); return; }
 
   /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
      found/scan Add rows keep, on a screen where a person is about to press several
@@ -64702,10 +64702,10 @@ function paintMade(steps, watching, projectOutcomes, revealed) {
      its turn comes; nothing is smoothed over on the way past. */
   const show = typeof revealed === 'number' ? revealed : (steps || []).length;
   const lines = (steps || []).map((s, i) => {
-    if (i >= show) return tickLine('working', cloudWords(s.label));
+    if (i >= show) return tickLine('working', (typeof cloudWords === 'function' ? cloudWords : String)(s.label));
     return s.undone
-      ? tickLine('undone', cloudWords(s.label) + ' (undone)')
-      : tickLine(s.ok ? 'done' : 'fail', cloudWords(s.label));
+      ? tickLine('undone', (typeof cloudWords === 'function' ? cloudWords : String)(s.label) + ' (undone)')
+      : tickLine(s.ok ? 'done' : 'fail', (typeof cloudWords === 'function' ? cloudWords : String)(s.label));
   });
   /* 🛑 THE PROJECT ROWS AND THE BOARD-WATCH ROW ARE NOT DRAWN (Josh,
      2026-08-22): "I don't want to have the other steps that were put in there,
@@ -65450,7 +65450,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     if (result.field === 'name') {
       pjFieldBad('create-name', 'create-name-err', result.because || 'that name will not work');
     } else {
-      msg.textContent = cloudWords(result.because || 'that name will not work');
+      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : String)(result.because || 'that name will not work');
     }
     return;
   }
@@ -65471,7 +65471,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // beside the field, not on the progress screen we advanced to on click.
     dropMyLoader();
     cstep('name');
-    msg.textContent = cloudWords((result && (result.error || result.because))
+    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : String)((result && (result.error || result.because))
       || 'we could not make it, and we cannot tell you why');
     // The own gate's sentence is about the Role label at the top of a
     // scrolled form; put the person where the fix is (the live region has
@@ -65526,7 +65526,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
        the CLASS at the render site rather than one string: capitalize the first
        letter only for this screen. Idempotent -- a `because` that already starts
        with a capital (a proper noun) is unchanged. */
-    const becauseSentence = cloudWords(result.because || '').replace(/^([a-z])/, (c) => c.toUpperCase());
+    const becauseSentence = (typeof cloudWords === 'function' ? cloudWords : String)(result.because || '').replace(/^([a-z])/, (c) => c.toUpperCase());
     // ⚠️ SAY IT OUT LOUD. `paintMade` only writes the live region when there is
     // a line being watched, and a partial has none -- so the single outcome
     // this screen exists to communicate was the only one that announced
@@ -72250,7 +72250,7 @@ function pjDescTooLong(text) { return Array.from(String(text || '')).length > PJ
 function pjFieldBad(inputId, errId, reason) {
   const input = document.getElementById(inputId);
   const err = document.getElementById(errId);
-  if (err) err.textContent = cloudWords(reason);   // kosmos#4903: a field refusal is often the engine's sentence
+  if (err) err.textContent = (typeof cloudWords === 'function' ? cloudWords : String)(reason);   // kosmos#4903: a field refusal is often the engine's sentence
   if (input) {
     input.classList.add('bad');
     input.setAttribute('aria-invalid', 'true');
@@ -79287,7 +79287,7 @@ function pjMsg(m, name, session) {
  * of use, and leave the engine's strings alone so they still compose elsewhere.
  */
 function pjSentence(because) {
-  const said = cloudWords(String(because || '')).trim();
+  const said = (typeof cloudWords === 'function' ? cloudWords : String)(String(because || '')).trim();
   if (!said) return '';
   return said.charAt(0).toUpperCase() + said.slice(1) + (/[.!?]$/.test(said) ? '' : '.');
 }
