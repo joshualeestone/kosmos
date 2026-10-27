@@ -918,7 +918,8 @@ cut_suite_env() {
   env ${strip[@]+"${strip[@]}"} "$@"
 }
 # The same, for a subshell that runs shell functions rather than one command (step 3's isolation rerun, #2006, which
-# decides whether a red suite stops the cut): unsets them in THAT subshell only; the cut's own shell keeps them.
+# decides whether a red suite stops the cut): unsets them in THAT subshell only; the cut's own shell keeps them. For an
+# ordinary exported name: a readonly one, or one no shell can name, survives `unset` (env -u above has no such limit).
 cut_suite_unset() {
   local v
   for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) unset "$v" ;; esac; done

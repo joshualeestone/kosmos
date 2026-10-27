@@ -40,3 +40,13 @@ validation run will show it; a test that did would have been reading the operato
    - The reviewer checked: nothing the suite needs is stripped (self-exclusion uses KOSMOS_MACHINE_CLAIM_COOKIE and
      KOSMOS_RUN_COOKIE_*, run-tests.sh reads no KOSMOS_CUT_*), env finds the same yarn/nice, and 126/127 still reach the
      "could not run" branch.
+2. (sonnet, 15:0x CDT) 1 BLOCKER, 1 WARNING, 2 NITs; the BLOCKER and WARNING applied.
+   - (B) tools/test-cut-parallel-region.sh runs step 3's region verbatim, and the region now calls cut_suite_env and
+     cut_suite_unset, defined outside its markers: 4 FAILs on this branch (main 0). The test now lifts both helpers
+     from release.sh verbatim (not stubbed) and sources them before the region: FAILS: 0. My sweep had covered the new
+     test and the release tests, not the test that RUNS the region; a sweep of all 52 shell tests naming release.sh
+     followed.
+   - (W) cut_suite_unset cannot clear a readonly exported name or one no shell can name (env -u can): the comment says
+     so. Nobody exports such a KOSMOS_CUT_*.
+   - NITs left: the call-site pin counts `yarn test >"$_suite_log"` lines only (a new suite run with another redirect
+     would not be counted); the first grep -q '^}$' checks either function's closing line.
