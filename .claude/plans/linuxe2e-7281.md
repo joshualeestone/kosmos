@@ -28,3 +28,11 @@ x86-64 and starts, the installed version is the pointer's, the source-channel st
   a.b.c read; /run/user/<uid> is made; the restore looks wherever the hide could have moved a node.
 - Reviewer confirmed: setup.sh looks for a system node only via command -v node / nodejs (hidden here); the env
   reaches `sh` through the export; the fallback to the portable bundle fails the regular-file and ELF checks.
+
+## Review 2 (01:0x): 0 blockers, 0 warnings, 2 nits. CONVERGED.
+- Checked (probed under bash -eo pipefail with a failing control): KOSMOS_RELEASE_BASE is honoured when piped and keeps
+  the pointer and bytes on one site; the version read matches setup.sh's; the herestring and tr '\0' work; the
+  grep -qxF line receives exactly what linuxboard.js writes; the PATH reset cannot reach the board (the unit sets its
+  own PATH); a portable-bundle install fails the symlink and ELF checks.
+- NIT TAKEN: the restore step reads the list the hide step wrote. NIT RECORDED: a failed user@ start shows as a mkdir
+  permission error (4920 does the same).
