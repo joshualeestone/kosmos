@@ -9,7 +9,10 @@ enum Download {
     static let fromElsewhere = "The file came from somewhere Kosmos does not save from, so it was not saved."
     static let notABoard = "This page is not a board Kosmos saves files from, so the file was not saved."
     static let couldNotGet = "Kosmos could not get that file. Try again in a moment."
-    static func failed(_ reason: String) -> String { "The file could not be downloaded (\(reason))." }
+    static let failedLead = "The file could not be downloaded ("
+    static func failed(_ reason: String) -> String { failedLead + reason + ")." }
+    /// A failure (the file did not arrive), as against a refusal (a rule said no): the Mac titles the two differently.
+    static func isFailure(_ sentence: String) -> Bool { sentence == couldNotGet || sentence.hasPrefix(failedLead) }
     static func getting(_ name: String) -> String { "Getting \(name)" }
 
     /// The names Kosmos+ keeps for itself, so a page under one is a Kosmos+ service, not a board. A COPY of
