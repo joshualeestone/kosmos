@@ -112,6 +112,11 @@ function stateAfterEvent(event) {
 const STEP_MAX = 80;
 /* kosmos#7368: the step clock is written in buckets this wide (see the publisher's keyOf). */
 const STEP_CLOCK_MS = 5 * 60 * 1000;
+/* kosmos#7386: the invisible characters a secret can be split by that the mask does not undo itself: C1 controls and
+   the bidi marks, embeddings, overrides and isolates (zero-width ones it removes already, secretmask ZERO_WIDTH). The
+   C0 controls and DEL are folded to a space before this, as before. */
+const STEP_INVISIBLE = /[\u0080-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+const STEP_INVISIBLE_TEST = /[\u0080-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
 /* kosmos#7368: one tool call's step: the shell command it runs in quotes, or the tool and what it acts on. Short, one line,
    masked; never the whole input. */
 function stepOfUse(use) {
@@ -121,16 +126,28 @@ function stepOfUse(use) {
     /* Masked BEFORE it is cut (review 1 W2): a command can carry a token, and this text reaches the card and the board
        log. Control characters go; the cut is by character, never inside one. */
     const one = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '');
-    const cut = (v) => {
-      let t = Array.from(v).slice(0, STEP_MAX * 3).join('');   // review 3: never mask megabytes on the supervisor's loop
-      try { t = require('./secretmask').mask(t).text; } catch { t = ''; }
+    const sm = require('./secretmask');
+    /* kosmos#7386: a C1 or bidi control inside a secret breaks the mask's patterns, and neither undoing it helps on its
+       own: as a space it splits a token the mask would rejoin, removed it joins words a spaced mask needs apart. So a
+       value holding one is masked as it is, and also as BOTH copies; if either copy masks anything, the whole value is
+       shown as the mask. Bounded first (review 3 of #7368), so the extra copies never cost more than the first. */
+    const guarded = (v) => {
+      const t = Array.from(v).slice(0, STEP_MAX * 3).join('');   // review 3: never mask megabytes on the supervisor's loop
+      const asIs = sm.mask(t);
+      if (STEP_INVISIBLE_TEST.test(t)
+          && (sm.mask(t.replace(STEP_INVISIBLE, '')).fired.length || sm.mask(t.replace(STEP_INVISIBLE, ' ')).fired.length)) return sm.MASK;
+      return asIs.text;
+    };
+    const cut = (t) => {
       const chars = Array.from(t);
       return chars.length > STEP_MAX ? chars.slice(0, STEP_MAX - 1).join('') + '\u2026' : t;
     };
-    const cmd = one(input.command);
+    let cmd = one(input.command);
+    let target = cmd ? '' : (one(input.file_path) || one(input.path) || one(input.url) || one(input.pattern) || one(input.query));
+    let name = use.name;
+    try { cmd = cmd && guarded(cmd); target = target && guarded(target); name = guarded(name); } catch { return null; }
     if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
-    const target = one(input.file_path) || one(input.path) || one(input.url) || one(input.pattern) || one(input.query);
-    return cut('using ' + use.name + (target ? ' on ' + target : ''));
+    return cut('using ' + name + (target ? ' on ' + target : ''));
   } catch { return null; }
 }
 
