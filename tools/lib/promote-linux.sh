@@ -16,6 +16,8 @@ PROMOTE_LINUX=no
 PROMOTE_LINUX_SNAP=""
 PROMOTE_LINUX_TMP=""
 PROMOTE_LINUX_FAILED=0
+PROMOTE_LINUX_KL=""        # the key-list temp folder, removed by the EXIT trap too (review 2)
+PROMOTE_LINUX_REMEDY_SAID=0
 
 promote_linux_prepare() {
   local site="$1" v="$2" named="${3:-}" stg="$1/dist/latest-linux-staging.json" prod="$1/dist/latest-linux.json" tools field
@@ -68,10 +70,11 @@ promote_linux_prepare() {
     0)
       git -C "$site" fetch -q origin main 2>/dev/null || { echo "promote-linux: could not fetch the site to read the served release key list. Nothing was written." >&2; return 1; }
       kl="$(mktemp -d)" || { echo "promote-linux: could not make a temp folder" >&2; return 1; }
+      PROMOTE_LINUX_KL="$kl"
       git -C "$site" show "origin/main:dist/release-keys.json" > "$kl/release-keys.json" 2>/dev/null || rm -f "$kl/release-keys.json"
       git -C "$site" show "origin/main:dist/release-keys.json.sig" > "$kl/release-keys.json.sig" 2>/dev/null || rm -f "$kl/release-keys.json.sig"
       rc=0; node "$tools/manifest-sign.js" verify-under-list "$site/dist/$lman" "$site/dist/$lman.sig" "$kl/release-keys.json" "$kl/release-keys.json.sig" >/dev/null 2>&1 || rc=$?
-      rm -rf "$kl"
+      rm -rf "$kl"; PROMOTE_LINUX_KL=""
       [ "$rc" = 0 ] || { echo "promote-linux: $lman is not signed by a key the served release key list names (#6609). Nothing was written." >&2; return 1; } ;;
     *) echo "promote-linux: could not tell whether this checkout checks the release key list (needs-list exited $rc). Nothing was written." >&2; return 1 ;;
   esac
@@ -96,20 +99,34 @@ promote_linux_stage() {
 promote_linux_commit() {
   local site="$1"
   [ "$PROMOTE_LINUX" = yes ] || return 0
-  if mv "$PROMOTE_LINUX_TMP" "$site/dist/latest-linux.json" && cmp -s "$PROMOTE_LINUX_SNAP" "$site/dist/latest-linux.json"; then
+  if ! mv "$PROMOTE_LINUX_TMP" "$site/dist/latest-linux.json"; then
+    PROMOTE_LINUX_FAILED=1
+    echo "promote-linux: latest.json IS promoted but latest-linux.json is NOT (the rename failed). The promote carries on with /setup and the alias; before any deploy, copy dist/latest-linux-staging.json onto dist/latest-linux.json and commit it with latest.json." >&2
+  elif ! cmp -s "$PROMOTE_LINUX_SNAP" "$site/dist/latest-linux.json"; then
+    PROMOTE_LINUX_TMP=""; PROMOTE_LINUX_FAILED=1
+    echo "promote-linux: latest-linux.json WAS replaced but does not read back as the verified snapshot. Before any deploy, copy dist/latest-linux-staging.json onto it by hand and check it." >&2
+  else
     PROMOTE_LINUX_TMP=""
     echo "   latest-linux.json -> $(cat "$site/dist/latest-linux.json")"
-  else
-    PROMOTE_LINUX_FAILED=1
-    echo "promote-linux: latest.json IS promoted but latest-linux.json is NOT (the rename failed). The promote carries on through /setup and the alias, then refuses." >&2
   fi
   return 0
 }
 
 promote_linux_refuse_if_failed() {
   [ "$PROMOTE_LINUX_FAILED" = 1 ] || return 0
+  PROMOTE_LINUX_REMEDY_SAID=1
   echo "promote-linux: REFUSED AT THE END: latest.json, /setup and the alias were promoted, latest-linux.json was NOT. Before any deploy, copy dist/latest-linux-staging.json onto dist/latest-linux.json and commit it with latest.json (kosmos#7281 lockstep)." >&2
   return 1
 }
 
-promote_linux_cleanup() { [ -z "$PROMOTE_LINUX_SNAP" ] || rm -f "$PROMOTE_LINUX_SNAP"; [ -z "$PROMOTE_LINUX_TMP" ] || rm -f "$PROMOTE_LINUX_TMP"; }
+promote_linux_cleanup() {
+  [ -z "$PROMOTE_LINUX_SNAP" ] || rm -f "$PROMOTE_LINUX_SNAP"
+  [ -z "$PROMOTE_LINUX_TMP" ] || rm -f "$PROMOTE_LINUX_TMP"
+  [ -z "$PROMOTE_LINUX_KL" ] || rm -rf "$PROMOTE_LINUX_KL"
+  # Review 2 (W2): a later step (/setup, the alias) can exit before promote_linux_refuse_if_failed runs; the EXIT trap
+  # is the one place every such exit passes, so the Linux remedy is said here when it has not been.
+  if [ "$PROMOTE_LINUX_FAILED" = 1 ] && [ "$PROMOTE_LINUX_REMEDY_SAID" != 1 ]; then
+    echo "promote-linux: ALSO NOT DONE: latest-linux.json. Before any deploy, copy dist/latest-linux-staging.json onto dist/latest-linux.json and commit it with latest.json (kosmos#7281 lockstep)." >&2
+  fi
+  return 0
+}

@@ -69,9 +69,18 @@ printf 'sig UNDER\n' > "$S/dist/kosmos-1.4.0-linux-x64.manifest.json.sig"
 chk "a signature prod's current Linux release does not accept refuses" [ "$(prep "$S" 1.4.0)" = "rc=1 linux=no" ]
 rm -f "$S/dist/kosmos-1.3.0-linux-x64.manifest.json"; printf 'sig\n' > "$S/dist/kosmos-1.4.0-linux-x64.manifest.json.sig"
 chk "prod's current Linux manifest unreadable refuses (cannot tell)" [ "$(prep "$S" 1.4.0)" = "rc=1 linux=no" ]
-S="$(newsite list 1.4.0)"; git -C "$S" init -q; printf 'sig LIST\n' > "$S/dist/kosmos-1.4.0-linux-x64.manifest.json.sig"
+# Review 2 (W1): the key-list arm needs a real origin carrying the served list, or the fetch refuses first and the
+# check itself is never reached.
+S="$(newsite list 1.4.0)"; O="$T/origin-list.git"; git init -q --bare "$O"
+git -C "$S" init -q -b main; git -C "$S" config user.email t@t; git -C "$S" config user.name t
+printf '{"keys":[]}\n' > "$S/dist/release-keys.json"; printf 'list-sig\n' > "$S/dist/release-keys.json.sig"
+git -C "$S" add dist/release-keys.json dist/release-keys.json.sig; git -C "$S" commit -q -m keys; git -C "$S" remote add origin "$O"; git -C "$S" push -q origin main
+chk "CONTROL: key-list check ON, a good signature passes (the check ran and agreed)" [ "$(STUB_NEEDS_LIST=0 prep "$S" 1.4.0)" = "rc=0 linux=yes" ]
+printf 'sig LIST\n' > "$S/dist/kosmos-1.4.0-linux-x64.manifest.json.sig"
 chk "CONTROL: with the key-list check off, a LIST-only signature passes" [ "$(prep "$S" 1.4.0)" = "rc=0 linux=yes" ]
 chk "with it on, a signature the served list does not name refuses" [ "$(STUB_NEEDS_LIST=0 prep "$S" 1.4.0)" = "rc=1 linux=no" ]
+S2="$(newsite listnoorigin 1.4.0)"; git -C "$S2" init -q
+chk "with it on and no way to fetch the served list, it refuses" [ "$(STUB_NEEDS_LIST=0 prep "$S2" 1.4.0)" = "rc=1 linux=no" ]
 
 # ---- unchanged + stage + commit ----
 S="$(newsite write 1.5.0)"
@@ -91,8 +100,12 @@ chk "cleanup removes the snapshot" [ ! -f "$PROMOTE_LINUX_SNAP" ]
 S="$(newsite fail 1.6.0)"; promote_linux_prepare "$S" 1.6.0 >/dev/null 2>&1; promote_linux_stage "$S"
 rm -f "$PROMOTE_LINUX_TMP"
 chk "a failed rename returns 0 so the promote's other steps still run" promote_linux_commit "$S" 2>/dev/null
+out="$(promote_linux_cleanup 2>&1)"
+case "$out" in *"ALSO NOT DONE: latest-linux.json"*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: an exit before the end check did not say the Linux remedy (review 2 W2): $out" >&2 ;; esac
 chk "and the end of the promote refuses, naming what was not done" not promote_linux_refuse_if_failed 2>/dev/null
-promote_linux_cleanup; PROMOTE_LINUX_FAILED=0
+out="$(promote_linux_cleanup 2>&1)"
+chk "once the end check has said it, the trap does not say it again" [ -z "$out" ]
+PROMOTE_LINUX_FAILED=0; PROMOTE_LINUX_REMEDY_SAID=0
 PROMOTE_LINUX=no; E2="$T/site-none"; mkdir -p "$E2/dist"
 chk "with no Linux family the commit is a no-op" promote_linux_commit "$E2"
 chk "and writes nothing" [ ! -f "$E2/dist/latest-linux.json" ]
