@@ -244,7 +244,7 @@ test('#7333: a real file read by path and by handle has the same device on this 
 
 test('#7333 review 1: a 64-bit volume serial read at two widths (full and low 32 bits) is one volume on Windows; other volumes still differ', () => {
   const st = (dev) => ({ isFile: () => true, ino: 5, dev, size: 1, mtimeMs: 1 });
-  const full = 0x1a2b3c4d5n * 1n;   // a serial wider than 32 bits (ReFS / Dev Drive)
+  const full = 0x1a2b3c4d5n;   // a serial wider than 32 bits (ReFS / Dev Drive)
   const low = Number(BigInt.asUintN(32, full));
   assert.equal(projects.sameOpenedFile(st(Number(full)), st(low), 'win32'), true, 'the same volume read at two widths was refused');
   assert.equal(projects.sameOpenedFile(st(low), st(low + 1), 'win32'), false, 'CONTROL: another volume still differs');
