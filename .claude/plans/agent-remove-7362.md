@@ -22,7 +22,7 @@ by hand, so a kosmos command is the sanctioned path.
   DELETE left, and a removal that threw partway (500 {error, detail}).
 
 ## Tests
-cli.agent-remove-7362.test.js: Windows CLI (9) and Mac CLI (5, bash: cannot run on the Windows box) against a stub board:
+cli.agent-remove-7362.test.js: Windows CLI (13) and Mac CLI (7, bash: cannot run on the Windows box) against a stub board:
 --yes removes with no force; refused plan sends no DELETE (control: a DELETE would be recorded); partial exits non-zero;
 no terminal without --yes sends nothing; option-shaped name refused before any request; timeout says "may".
 
