@@ -917,6 +917,12 @@ cut_suite_env() {
   for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) strip+=(-u "$v") ;; esac; done
   env ${strip[@]+"${strip[@]}"} "$@"
 }
+# The same, for a subshell that runs shell functions rather than one command (step 3's isolation rerun, #2006, which
+# decides whether a red suite stops the cut): unsets them in THAT subshell only; the cut's own shell keeps them.
+cut_suite_unset() {
+  local v
+  for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) unset "$v" ;; esac; done
+}
 LINUX_TUNNEL_BIN="${KOSMOS_TUNNEL_LINUX_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel-linux-x86_64}"
 LINUX_CONNECTOR_COMMIT=""
 if [ "$CUT_LINUX" = yes ]; then
@@ -1224,7 +1230,7 @@ if [ "$_suite_exit" -ne 0 ]; then
   # `if VAR=$(...)` captures the verdict's exit WITHOUT tripping errexit and
   # WITHOUT a pipe -- a pipe would let a downstream exit mask the verdict's.
   echo "--- #2006: re-running the failing file(s) / the whole gate in isolation before deciding ---"
-  if _rr_out="$(kosmos_isolation_rerun_verdict "$_suite_log" "$REPO" 2>&1)"; then _rr_rc=0; else _rr_rc=$?; fi
+  if _rr_out="$(cut_suite_unset; kosmos_isolation_rerun_verdict "$_suite_log" "$REPO" 2>&1)"; then _rr_rc=0; else _rr_rc=$?; fi   # #7363
   printf '%s\n' "$_rr_out"
   if [ "$_rr_rc" -eq 0 ]; then _rr_word=contention_dismissed; else _rr_word=real_red; fi
   {
