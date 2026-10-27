@@ -5487,6 +5487,72 @@ fi
 # including a file that cannot be read, is not started: the installer cannot ask, and the app
 # starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the
 # app's reader does.
+# ---- kosmos#4903 S3: a Kosmos Cloud box joins its Kosmos+ account before its board first starts ---------------
+# BEGIN kosmos-cloud-join (install.cloud-join-4903.test.js runs this block as shipped, against stand-ins).
+# Only on Linux, and only when the box's cloud-init said so: it writes ~/.kosmos-cloud/provision.env (coordinator
+# cloud.rs cloud_init_user_data) and runs this installer with that file SOURCED, so KOSMOS_CLOUD=1 and the one-time
+# KOSMOS_PROVISIONING_TOKEN arrive in the environment, never in argv. Anywhere else this does nothing at all.
+# In order, BEFORE the board starts (the tunnel reads the latch once, at its start):
+#   1. kosmos-tunnel setup cloud --state-dir <dir>, the token on its STDIN: the coordinator registers the box as the
+#      account's computer (POST /v1/setup/cloud) and the tunnel writes its state as a Mac's register does.
+#   2. The latch: an EMPTY regular file `hosted`, mode 0600, in that state dir (PigeonPete's S4 shape; Baron's board
+#      reads the same file). A latch alone admits nobody: the tunnel also needs the coordinator's signed claim.
+#   3. Kosmos+ remote access switched on (engine/remote.js setOn), since nobody can sit at this box to switch it on.
+#   4. The spent token removed from provision.env.
+# The state dir is asked of the installed engine (remote.stateDir()), never re-derived here, so it is the one the
+# board passes the tunnel. A rerun on a box that already joined (state and latch present) changes nothing.
+# Returns non-zero with a sentence on any failure: a box that cannot join is of no use to anyone, and the caller stops.
+_kosmos_cloud_join() {
+  [ "$(uname -s)" = Linux ] || return 0
+  [ "${KOSMOS_CLOUD:-}" = 1 ] || return 0
+  _kcj_node="$KOSMOS_HOME/runtime/bin/node"
+  _kcj_remote="$KOSMOS_HOME/app/engine/remote.js"
+  _kcj_state="$("$_kcj_node" -e 'process.stdout.write(String(require(process.argv[1]).stateDir()))' "$_kcj_remote" 2>/dev/null)" || _kcj_state=""
+  if [ -z "$_kcj_state" ]; then
+    info "This cloud machine could not find where Kosmos keeps its remote-access files ($_kcj_remote)."
+    return 1
+  fi
+  if [ -f "$_kcj_state/hosted" ] && [ ! -L "$_kcj_state/hosted" ] && [ -s "$_kcj_state/mac_id" ]; then
+    info "This cloud machine has already joined its Kosmos+ account."
+    return 0
+  fi
+  if [ -z "${KOSMOS_PROVISIONING_TOKEN:-}" ]; then
+    info "This cloud machine has no setup token, so it cannot join its Kosmos+ account. It will be set up again."
+    return 1
+  fi
+  # -L on its own: a link whose target is missing fails -e, and `: >` below would then write through it.
+  if [ -L "$_kcj_state" ] || [ -L "$_kcj_state/hosted" ] || { [ -e "$_kcj_state/hosted" ] && [ ! -f "$_kcj_state/hosted" ]; }; then
+    info "This cloud machine's remote-access folder holds a link or a folder where a file belongs ($_kcj_state), so it was not touched."
+    return 1
+  fi
+  mkdir -p "$_kcj_state" && chmod 700 "$_kcj_state" || { info "Could not make $_kcj_state."; return 1; }
+  mkdir -p "$KOSMOS_HOME/logs" 2>/dev/null || true
+  if ! printf '%s' "$KOSMOS_PROVISIONING_TOKEN" | "$KOSMOS_HOME/app/bin/kosmos-tunnel" setup cloud --state-dir "$_kcj_state" > "$KOSMOS_HOME/logs/cloud-join.log" 2>&1; then
+    info "This cloud machine could not join its Kosmos+ account. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
+    return 1
+  fi
+  unset KOSMOS_PROVISIONING_TOKEN
+  if ! ( umask 077 && : > "$_kcj_state/hosted" ) || ! chmod 600 "$_kcj_state/hosted"; then
+    info "This cloud machine joined its account but could not mark itself as a cloud machine ($_kcj_state/hosted)."
+    return 1
+  fi
+  if ! "$_kcj_node" -e 'const r = require(process.argv[1]).setOn(true); if (!r || r.ok === false) { process.stderr.write(String((r && r.because) || "refused")); process.exit(1); }' "$_kcj_remote" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1; then
+    info "This cloud machine joined its account but could not turn on Kosmos+ remote access. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
+    return 1
+  fi
+  _kcj_env="$HOME/.kosmos-cloud/provision.env"
+  if [ -f "$_kcj_env" ] && [ ! -L "$_kcj_env" ]; then
+    { grep -v '^KOSMOS_PROVISIONING_TOKEN=' "$_kcj_env" > "$_kcj_env.new.$$" && chmod 600 "$_kcj_env.new.$$" && mv -f "$_kcj_env.new.$$" "$_kcj_env"; } 2>/dev/null \
+      || { rm -f "$_kcj_env.new.$$" 2>/dev/null; info "note: the spent setup token is still in $_kcj_env (it no longer works)"; }
+  fi
+  info "This cloud machine joined its Kosmos+ account."
+  return 0
+}
+# END kosmos-cloud-join
+if [ "$(uname -s)" = Linux ] && [ "${KOSMOS_CLOUD:-}" = 1 ]; then
+  step "Joining this cloud machine to its Kosmos+ account."
+  _kosmos_cloud_join || die "This cloud machine could not join its Kosmos+ account, so Kosmos was not started on it."
+fi
 # #4356 migration: an install from before the first screen has no mode file, which the app reads
 # as "not chosen" and would ask about, for instance when a second Kosmos (#1852) opens its own first
 # run on a Mac that has run agents for months. An update of an install whose first run is done
