@@ -48,3 +48,6 @@ measured on a real Mac.
   button there would not do what it says. A one-tap way needs a log out wired into the Agents screen (follow-up).
 - Review 4: a cloud machine refusing a key-less phone says sign in again at once (no fresh handoff cures a missing
   key); a Mac's refusal keeps its retries. A 400 on the nonce route is a miss, as gate.html.
+- Review 5 (after the final run): every LogicTests script that compiles BoardLogic.swift now compiles SignInLogic.swift
+  too (five sub-suites no longer built). A cloud machine's no-key refusal has its own screen, "Sign in on this iPhone",
+  not "recent": only a sign-in in the app keeps a key; the web page never does.

@@ -30,6 +30,9 @@ final class BoardClient: ObservableObject {
         case macRefused(mac: String)
         // kosmos#4903: a Kosmos cloud machine, which takes only a recent sign-in, and this one is not.
         case signInAgain(mac: String)
+        // Review 5: a cloud machine opens only for an iPhone that proved its own key, which only signing in here in the app
+        // keeps (relay gate.rs NO_KEY); a sign-in on the web page never does, however recent.
+        case signInHere(mac: String)
         // Review 3: the computer is not taking new sign-ins right now; nothing is wrong with this one. `because` is its own
         // sentence when it gave one.
         case macHeld(mac: String, because: String?)
@@ -1406,7 +1409,7 @@ final class BoardClient: ObservableObject {
                 // Review 4: a cloud machine refuses a sign-in that proved no key (relay gate.rs NO_KEY), and no fresh
                 // handoff cures that: only signing in here again, natively, which keeps a key. Said at once, not after
                 // six more handoffs.
-                if mac.hosted && proof == nil { set(.signInAgain(mac: mac.name), gen); return false }
+                if mac.hosted && proof == nil { set(.signInHere(mac: mac.name), gen); return false }
                 // Refused handoffs are retried a few times: one expires during a long wait for Allow, and a Mac that
                 // has just started refuses until it knows its account again (gate.rs ACCOUNT_NOT_KNOWN_YET).
                 guard fresh < Self.freshHandoffs else {
@@ -1559,7 +1562,7 @@ extension BoardClient.Phase {
     var macName: String? {
         switch self {
         case .waitingForAllow(let mac, _), .connecting(let mac), .denied(let mac), .unreachable(let mac), .macRefused(let mac),
-             .signInAgain(let mac), .macHeld(let mac, _):
+             .signInAgain(let mac), .signInHere(let mac), .macHeld(let mac, _):
             return mac
         case .live(let mac):
             return mac.name

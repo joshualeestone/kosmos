@@ -358,6 +358,11 @@ struct BoardStates<Empty: View>: View {
             message("Sign in again to open \(mac).",
                     detail: "Your cloud machine takes only a recent sign-in. Log out under Settings, Kosmos+, sign in again, then come back here.",
                     retry: true)
+        case .signInHere(let mac):
+            // Review 5: not "recent" but "here": the cloud machine needs this iPhone's own key, kept only by signing in in the app.
+            message("Sign in on this iPhone to open \(mac).",
+                    detail: "Your cloud machine opens only for an iPhone signed in here in the app. Log out under Settings, Kosmos+, then sign in again in the app, not on the web page.",
+                    retry: true)
         case .macHeld(let mac, let because):
             // Review 3: the gate page's own answer to a computer not taking new sign-ins now: its sentence, and the sign-in
             // is kept, so trying again later needs nothing else.
