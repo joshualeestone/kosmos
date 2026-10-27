@@ -112,7 +112,8 @@ chk "a committed Linux pointer older than live is refused" [ "$(carry "$S" HEAD 
 chk "a deliberate rollback names its version and passes" [ "$(KOSMOS_LINUX_ROLLBACK=1.7.0 carry "$S" HEAD "$H5")" = "rc=0 arts=kosmos-1.7.0-linux-x64.tar.gz" ]
 printf '{"version":"1.6.0"}\n' > "${H5#file://}/dist/latest-linux.json"
 chk "CONTROL: moving forward from live passes" [ "$(carry "$S" HEAD "$H5")" = "rc=0 arts=kosmos-1.7.0-linux-x64.tar.gz" ]
-chk "a fetched tarball is served mode 644" [ "$(stat -f %Lp "$S/dist/kosmos-1.7.0-linux-x64.tar.gz")" = 644 ]
+# The mode through node, not stat (BSD stat -f and GNU stat -c differ; the Linux shard runs this too).
+chk "a fetched tarball is served mode 644" [ "$(node -e 'process.stdout.write((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$S/dist/kosmos-1.7.0-linux-x64.tar.gz")" = 644 ]
 
 # ---- the export check ----
 X="$T/export"; mkdir -p "$X/dist"; DEPLOY_LINUX_ARTS="kosmos-1.7.0-linux-x64.tar.gz"
