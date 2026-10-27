@@ -29,7 +29,8 @@ function fileFor() { return path.join(store.ROOT, 'roomarchive.json'); }
 /* Null-prototype, so a project id such as "__proto__" is an own key like any other. A file that cannot be read or
    parsed reads as no markers: the room then shows only what the automatic rule archives, the safe direction (more
    live, never less). With { strict: true } (the writers) a file that is there but cannot be read or parsed throws
-   instead, so a write never replaces every other room's marker with an empty table. */
+   instead, so a write never replaces every other room's marker with an empty table. An entry that parses but carries
+   no readable `before` archives nothing, is left out here, and so is dropped by the next write. */
 function readAll({ strict = false } = {}) {
   const out = Object.create(null);
   try {

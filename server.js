@@ -22245,6 +22245,8 @@ const server = http.createServer(async (req, res) => {
       kept.forEach((m, i) => { if (archivedSrc.has(m)) rows[i].archived = true; });
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       // The archived rows are the start of `rows` (kept is roomRows in order, less some rows; the sort is stable).
+      /* How many of THIS view's rows are archived. The boundary is the same in both views; the number is not, because
+         the JSON view leaves out agent-only notes. */
       let archivedCount = 0;
       while (archivedCount < rows.length && rows[archivedCount].archived === true) archivedCount += 1;
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
