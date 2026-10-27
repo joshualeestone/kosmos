@@ -304,9 +304,13 @@ struct TasksView: View {
             .fixedSize()
             .accessibilityHidden(true)
             Text(s.group.label).foregroundColor(Palette.primary)
-            Text(count).foregroundColor(Palette.secondary)
+            // kosmos#7343 (Mona Lisa): the count as a small capsule at the right edge, aligned with the list's inset.
+            Spacer(minLength: 8)
+            Text(count).font(.caption.weight(.semibold)).foregroundColor(Palette.secondary)
+                .padding(.horizontal, 7).frame(minHeight: 20)
+                .background(Capsule().fill(Palette.card))
         }
-        .font(.footnote.weight(.semibold))
+        .font(.subheadline.weight(.semibold))
         .textCase(nil)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(s.group.label + ", " + (s.unknown ? "cannot tell" : count))
