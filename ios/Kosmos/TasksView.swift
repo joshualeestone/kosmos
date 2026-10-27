@@ -147,7 +147,7 @@ struct TasksView: View {
             // projects"; choosing a project moves into the filter button, left of +, in one capsule.
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+                ToolbarItem(placement: .principal) { ScreenHeading(title: "Tasks") }
                 ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
                 if let switcher { ToolbarItem(placement: .navigationBarLeading) { switcher } }
                 ToolbarItemGroup(placement: .navigationBarTrailing) {

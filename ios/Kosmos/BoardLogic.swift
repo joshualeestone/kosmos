@@ -312,7 +312,18 @@ enum Board {
     // something outside the agent, red only a real problem, grey when Kosmos cannot tell. The word is still the Mac's
     // own (statusWord); the pill's colour comes from the same state the word does.
     enum Pill: Equatable { case working, asks, held, problem, cantTell }
+    // Review: an agent the board counts as needing the person (needsPerson: a reconnect that gave up, a stuck error, a
+    // helper that gave up) is red whatever its state, unless it is asking; and when the Mac's own tone says needs you
+    // (a word the phone does not map, such as Messages stuck), a pill that would be calm or missing is red too. So the
+    // pill never reads calmer than the word in it, nor than the list's order.
     static func pill(_ a: Agent) -> Pill? {
+        let p = statePill(a)
+        if p == .asks { return p }
+        if a.needsYou { return .problem }
+        if a.macTone == .needsYou && (p == nil || p == .working || p == .cantTell) { return .problem }
+        return p
+    }
+    private static func statePill(_ a: Agent) -> Pill? {
         if !a.running && a.state != "restarting" {
             if a.needsTrust { return .asks }
             return a.jobRunningUnseen ? .cantTell : .problem
@@ -338,7 +349,7 @@ enum Board {
         return 0.25
     }
 
-    // kosmos#7343: the Agents list's order: as the computer sends it (the board's order), or by name.
+    // kosmos#7343: the Agents list's order: the list's own (starred agents, then needs you first, Board.sorted), or by name.
     enum AgentSort: String, CaseIterable { case board, name }
     static func agentSortLabel(_ s: AgentSort) -> String { s == .board ? "Needs you first" : "Name" }
     static func agentOrder(_ list: [Agent], byName: Bool) -> [Agent] {
@@ -381,7 +392,8 @@ enum Board {
     // kosmos#7341 (Josh 10-27): the avatar's dot says one thing, whether the agent is there: green while it runs, grey
     // when stopped, hollow when Kosmos cannot tell. Its work state is the word beside it. The board's memberDotClass
     // (web/index.html) with CARD_ST's pres, in its order: a trust prompt is unsure; not running (unless restarting) is
-    // off; then the state's own presence, where a failed restart is off and a state the phone does not know is unsure.
+    // off; then the state's own presence, where a failed restart is off (the grid card's cardStOf presence; the
+    // member dot alone would keep it green) and a state the phone does not know is unsure.
     enum Presence: Equatable { case on, off, unsure }
     static let presenceOf: [String: Presence] = [
         "working": .on, "needs_you": .on, "question": .on, "rate_limited": .on, "auth_failed": .on,
