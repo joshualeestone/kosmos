@@ -3844,6 +3844,38 @@ do {
     let boardPage = (try? String(contentsOf: page, encoding: .utf8)) ?? ""
     check(boardPage.contains("const NEARLY_FULL = 80;") && boardPage.contains("const WARM = 60;"),
           "the board's bands are still 60 and 80 (read from web/index.html)")
+    // kosmos#7341: the avatar dot's presence table is the board's CARD_ST pres, state for state (read from web/index.html).
+    do {
+        var board: [String: Board.Presence] = [:]
+        if let start = boardPage.range(of: "const CARD_ST = {"), let end = boardPage.range(of: "\n};", range: start.upperBound..<boardPage.endIndex) {
+            let block = String(boardPage[start.upperBound..<end.lowerBound])
+            let rx = try! NSRegularExpression(pattern: #"^\s*([a-z_]+):\s*\{[^}]*pres:\s*'(on|off|unsure)'"#, options: [.anchorsMatchLines])
+            for m in rx.matches(in: block, range: NSRange(block.startIndex..., in: block)) {
+                let key = String(block[Range(m.range(at: 1), in: block)!]), pres = String(block[Range(m.range(at: 2), in: block)!])
+                board[key] = pres == "on" ? .on : pres == "off" ? .off : .unsure
+            }
+        }
+        check(board.count >= 10, "kosmos#7341: the board's CARD_ST was read (\(board.count) states)")
+        check(board == Board.presenceOf, "kosmos#7341: the phone's presence table is the board's CARD_ST pres for every state")
+        func a(_ state: String, running: Bool = true, trust: Bool = false, failed: Bool = false) -> Board.Agent {
+            var x = Board.Agent(session: "s", name: "S", role: nil, state: state, task: nil, needsYou: false)
+            x.running = running; x.needsTrust = trust; x.restartFailed = failed
+            return x
+        }
+        check(Board.presence(a("idle")) == .on && Board.presence(a("working")) == .on && Board.presence(a("needs_you")) == .on,
+              "kosmos#7341: idle, working and stuck agents that run are green (Josh: every agent looked red or grey)")
+        check(Board.presence(a("stopped")) == .off, "a stopped agent is grey")
+        check(Board.presence(a("working", running: false)) == .off, "an agent not running is grey whatever its last state")
+        check(Board.presence(a("restarting", running: false)) == .on, "CONTROL: except while restarting")
+        check(Board.presence(a("idle", trust: true)) == .unsure, "an agent waiting on a trust prompt is hollow, never green")
+        check(Board.presence(a("idle", running: false, trust: true)) == .unsure, "and the trust prompt comes before not running")
+        check(Board.presence(a("needs_you", failed: true)) == .off, "a failed restart is grey (the board's CARD_ST_FAILED_RESTART)")
+        check(Board.presence(a("working", failed: true)) == .on, "CONTROL: only on needs_you, as the board")
+        check(Board.presence(a("unknown")) == .unsure && Board.presence(a("something_new")) == .unsure,
+              "unknown, and a state the phone does not know, are hollow")
+        let parsed = Board.parseAgents(Data(#"{"agents":[{"sessionName":"f","state":"needs_you","disruption":{"failed":true}}]}"#.utf8))
+        check(parsed?.first?.restartFailed == true, "kosmos#7341: disruption.failed is read from /api/status")
+    }
 }
 
 await boardLoopTests()
