@@ -47,8 +47,8 @@ improvement it gained would have died with the session that wrote it.
    Before you hold merges for a cut, run both checks yourself: `node tools/whats-new-check.js <V>
    web/whats-new.json --platform=mac` (0 and the highlights are for that version), and
    `node tools/whats-new-pool.js prod-check`: 0 or 4 (prod could not be read) and the cut goes on; 3 (prod is
-   newer) or anything else (a broken pool or tool) and it stops, so merge a fresh build or fix the pool first. A version that reached prod with no What's New at all
-   (cut with `KOSMOS_CUT_NO_WHATS_NEW=1`) is recorded with
+   newer) or anything else (a broken pool or tool) and it stops, so merge a fresh build or fix the pool first.
+   A version that reached prod with no What's New at all (cut with `KOSMOS_CUT_NO_WHATS_NEW=1`) is recorded with
    `node tools/whats-new-pool.js shown <version> --promoted --none`. `icon` is one of `swarm`, `tasks`, `phone`,
    `list`, `chat`, `shield`, `spark`; a title of about 40 characters; one plain
    sentence for the line; no em dashes. A highlight about one platform carries
