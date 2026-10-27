@@ -651,7 +651,7 @@ _rt_suite_check=1
 _rt_harness_check=1
 if [ "${_RT_WIN:-0}" = 1 ]; then
   _rt_suite_check=0; _rt_harness_check=0
-  echo "run-tests: the live-suite and install-harness checks, and so the suite queue and its cap, are not run on Windows (#7257: Git Bash's ps cannot answer them)" >&2
+  echo "run-tests: the live-suite and install-harness checks, and so the suite queue and its cap, are not run on Windows (#7257: Git Bash's ps cannot answer them; #7334 tracks a Windows reader)" >&2
 fi
 _rt_box_clear() {
   kosmos_refuse_if_machine_claimed "this test run" || return 1

@@ -85,3 +85,9 @@ suite has not been run to the end on Windows: many POSIX-only files fail there, 
   so it never fired for the user's; it reads the user's now. NIT: the comments say what the code does. No caller in the
   repo passes run-tests.sh node arguments (package.json, workflows, queued-heavy.sh). 10/10; the new test fails on
   round 4.
+- Round 6: no BLOCKER (common paths end to end: plain run 3 chunks/1,844 files once each, a red chunk reaches the
+  machine-naming block, --only with ./spelling once, non-test node calls untouched; macOS/Linux untouched; 3.2-safe by
+  reading). WARNING: on Windows the suite queue and cap are off, so two runs can overlap (no regression: before, none
+  ran) -> DEFERRED to #7334, named in the skip message. NITs FIXED: the stand-in uses #!/usr/bin/env bash; the #7262
+  comment in windows-tests.js is kept (it was wrong since #7318: its tool-guard arms run on Windows), said in the commit.
+  Converged.

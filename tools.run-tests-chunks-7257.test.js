@@ -32,7 +32,7 @@ function run(files, opts, extra, statusFor) {
   const log = path.join(dir, 'calls.log');
   const stub = path.join(dir, 'node');
   const st = statusFor ? Object.entries(statusFor).map(([f, c]) => `  case " $* " in *" ${f} "*) code=${c};; esac`).join('\n') : '';
-  fs.writeFileSync(stub, `#!/bin/bash\nprintf '%s\\0' "$@" >> "${log.replace(/\\/g, '/')}"\necho >> "${log.replace(/\\/g, '/')}"\ncode=0\n${st}\nexit $code\n`);
+  fs.writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\0' "$@" >> "${log.replace(/\\/g, '/')}"\necho >> "${log.replace(/\\/g, '/')}"\ncode=0\n${st}\nexit $code\n`);
   fs.chmodSync(stub, 0o755);
   // A PATH entry for bash: on Windows C:\x is /c/x, since the colon in C: would end the entry.
   const bashDir = dir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (m, d) => '/' + d.toLowerCase());
