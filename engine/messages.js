@@ -2904,9 +2904,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      reader can say "held until <time>" rather than read HELD as delivered. Present only when something was held. */
   const heldUntil = {};   // #4588 ask 3: for a Gemini cap hold this is the next look (a minute ahead), not a release time
   let reached = 0;
-  /* kosmos#7246 slice 2: members this agent post did not address (or the project's agent-wake cap paused), left quiet:
-     not typed, not held, the post in the room for them to read. */
-  let quiet = 0;
   let loopPausedHere = false;
   const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
   const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line
@@ -2917,7 +2914,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     if (operator !== true) {
       const asked = asksMember(name);
       if (asked && loopPaused) loopPausedHere = true;
-      if (!asked || loopPaused) { outcomes[name] = roomhold.QUIET; quiet += 1; return null; }
+      /* Members this agent post did not address (or the project's agent-wake cap paused) are left quiet: not typed, not
+         held, the post in the room for them to read. */
+      if (!asked || loopPaused) { outcomes[name] = roomhold.QUIET; return null; }
     }
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
        is held rather than typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
@@ -3019,7 +3018,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const missed = log.filter((m) => m && m.kind === 'post' && m.project === projectId
       && Date.parse(m.at) >= windowFrom && m.from !== name
       && Array.isArray(m.to) && (!m.to.includes(name) || (m.outcomes && m.outcomes[name] === roomhold.QUIET))).length;   // #7246 slice 2: a quiet post did not reach it either
-    const catchUp = mentioned.has(name) && missed > 0
+    const catchUp = asksMember(name) && missed > 0   // round 6: a member woken by rule B (an answer to its post) too
       ? ' [This room has been talking without you: ' + missed + ' earlier post'
         + (missed === 1 ? '' : 's') + ' this hour did not reach you.'
         + ' Read the room with: kosmos room ' + projectId + ']'
@@ -3148,7 +3147,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
    * The person reads the room from the record, and the record is written below.
    */
   /* kosmos#7246 slice 2: quiet members were never to be typed into; a post that addressed nobody is recorded, not refused. */
-  if (operator === true) require('./roomloop').clear(projectId);   // round 3: the person is here, so the count starts over
   if (loopPausedHere) {
     const note = require('./roomloop').pauseNote(projectId);
     if (note) {
@@ -3165,6 +3163,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     failed.outcomes = outcomes;
     return failed;
   }
+  /* Round 3: the person is here, so the agents' count starts over. Round 6: only once the post reached the room (a refused
+     one above, which reached nobody, is not the person being there). */
+  if (operator === true) require('./roomloop').clear(projectId);
 
   // #460: what in this post is another author's earlier words, decided once
   // here against the record as it stored, and persisted; never re-derived.
@@ -3191,7 +3192,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          claim guard, the owner rule, owed answers and the #185 nudge, which would otherwise wake every member owed an
          answer for an @all). Who the post addressed for waking is its own field, `addressed`, read by rule B. */
       ...(atNamed.mentioned.size ? { mentioned: [...atNamed.mentioned] } : {}),
-      ...(operator !== true && mentioned.size ? { addressed: [...mentioned] } : {}),
+      /* Round 6: without @all (namedHere), so an @all's answers do not each wake its author: rule B reads this, and a
+         broadcast asked no one in particular. */
+      ...(operator !== true && namedHere.size ? { addressed: [...namedHere] } : {}),
       /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
       ...(ambiguousWords.size ? { ambiguousMentions: [...ambiguousWords] } : {}),
       ...(operator === true ? { operator: true } : {}),

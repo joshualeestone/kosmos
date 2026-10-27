@@ -208,12 +208,14 @@ test('round 1: an @all inside `code` is quoted, not a broadcast', () => {
   assert.deepEqual([...messages.addressedMembers('@all heads up', MEMBERS, [], new Set(), 'angel', { all: false })], [], 'the swarm-off check reads named members only');
 });
 
-test('round 2: the row keeps @-names in `mentioned` (claims, owed answers, the #185 nudge) and the wake set in `addressed`', () => {
+test('round 2: the row keeps @-names in `mentioned` (claims, owed answers, the #185 nudge) and who it named in `addressed`', () => {
   withFleet(room(), (board) => {
     const p = post(board, 'angel', 'Angel -> Mona Lisa: @all the cut is on staging');
     const row = messages.record().rows.find((x) => x.id === p.sent.id);
     assert.ok(!row.mentioned, 'a header or @all became an owed answer: ' + JSON.stringify(row.mentioned));
-    assert.deepEqual([...row.addressed].sort(), ['monalisa', 'pigeonpete']);
+    // Round 6: `addressed` is who it named (rule B's set), without @all; the @all still woke both (wake set, not stored).
+    assert.deepEqual([...row.addressed].sort(), ['monalisa']);
+    assert.deepEqual(p.woke.sort(), ['monalisa', 'pigeonpete'], 'the @all still wakes everyone');
     const at = post(board, 'angel', '@pigeonpete one question');
     assert.deepEqual(messages.record().rows.find((x) => x.id === at.sent.id).mentioned, ['pigeonpete'], 'CONTROL: an @-name is still an owed answer');
   });
@@ -348,4 +350,33 @@ test('round 5: a header name keeps its member whatever words follow it', () => {
   assert.deepEqual(a('barondraxum', 'Baron to Kitty for tonight: x'), ['icecreamkitty']);
   assert.deepEqual(a('angel', 'Thanks to Kitty for the fix: x'), [], 'CONTROL: no reading has the poster as its sender');
   assert.deepEqual(a('claudebot', 'Splinter -> owners of the Kosmos Cloud finish line: x'), [], 'CONTROL: no leading words name a member');
+});
+
+/* Round 6. */
+test('round 6: answers to an @all do not each wake its author; answers to a named ask do', () => {
+  withFleet(room(), (board) => {
+    const all = post(board, 'angel', '@all status of your branches?');
+    assert.deepEqual(post(board, 'monalisa', 'mine is green', { replyTo: all.sent.id }).woke, [], 'an answer to a broadcast woke its author');
+    const named = post(board, 'angel', 'Angel -> Mona Lisa: status of your branch?');
+    assert.deepEqual(post(board, 'monalisa', 'mine is green', { replyTo: named.sent.id }).woke, ['angel'], 'CONTROL: an answer to a named ask wakes its author');
+  });
+});
+test('round 6: an author woken by an answer is told what it missed while quiet', () => {
+  withFleet(room(), (board) => {
+    const ask = post(board, 'angel', 'Angel -> Mona Lisa: can you build #7346?');
+    post(board, 'pigeonpete', 'an fyi angel never saw');
+    const answer = post(board, 'monalisa', 'yes, after #7265', { replyTo: ask.sent.id });
+    assert.match(typedTo(answer.tmux, 'angel').join(''), /This room has been talking without you: 1 earlier post/);
+  });
+});
+test('round 6: a person\'s post that reached nobody does not end the pause', () => {
+  withFleet(room(), (board) => {
+    for (let i = 0; i < roomloop.LOOP_CAP; i += 1) post(board, 'angel', '@monalisa ping ' + i);
+    const failing = (args) => (args[0] === 'display-message' ? { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' }
+      : { ran: true, spawnFailed: false, status: 1, out: '', err: 'no such pane' });
+    chat.setRunner(failing); chat.setDryRun(false);
+    const op = messages.sendPost({ operator: true, project: PROJECT, text: 'anyone there?' }, board.agents, MEMBERS);
+    assert.notEqual(op.state, chat.DELIVERY.PLACED, 'control: this person\'s post had to reach nobody');
+    assert.equal(roomloop.paused(PROJECT), true, 'a refused person\'s post ended the pause');
+  });
 });
