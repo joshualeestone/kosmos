@@ -76,6 +76,8 @@ function recordFor(account, now) {
         const { STATE } = require('./subscription');
         // The latest answer, as the badge reads it (review 5: unknown is unknown). Review 6: an answer from a check that
         // started at or before one heard from another caller is older than it, either way (a tie is not newer).
+        // (Review 7: in production this check's own readers, checkRowLive and subscription.checkLive, already told heard
+        // the same answer, stamped later, so this line changes nothing there; it decides only for a stubbed checkRow.)
         if (startedAt > rec.heardAt) rec.state = state === STATE.NONE ? 'none' : state === STATE.CONNECTED ? 'connected' : null;
       } catch { /* not known */ }
     }, () => { /* not known: the card keeps its reason */ }).finally(() => { rec.running = false; });

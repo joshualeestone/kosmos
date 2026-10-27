@@ -418,7 +418,11 @@ async function checkLive(opts) {
   const r = await checkLiveOnce(opts);
   try {
     const configDir = opts && typeof opts.configDir === 'string' && opts.configDir ? opts.configDir : null;
-    require('./stallsignin').heard(configDir ? { dir: configDir, isDefault: false } : { isDefault: true }, r && r.state);
+    /* Review 7: a check of the default folder BY PATH reads the decoy .claude.json inside it (see accounts.js's default
+       row) and answers about that, not the default account, so it is never heard; only a check with no folder is. */
+    if (!(configDir && require('./accounts').isDefaultDir(configDir))) {
+      require('./stallsignin').heard(configDir ? { dir: configDir, isDefault: false } : { isDefault: true }, r && r.state);
+    }
   } catch { /* the next check clears it */ }
   return r;
 }

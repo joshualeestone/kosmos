@@ -55,7 +55,7 @@ born('stuck', B_DIR);
 born('sibling', B_DIR);
 born('other', C_DIR);
 
-const { claudeObservationsFor } = require('./server');
+const { claudeObservationsFor, overlayStuckCards } = require('./server');
 
 test.beforeEach(() => { observed._clearForTest(); stallsignin.resetForTests(); });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -104,4 +104,25 @@ test('the stuck card, fed this join, says what the badge says: a sibling\'s 401 
   assert.equal(stallsignin.overlay(card, Date.now(), { obsFor }).deliveryStall.words, 'Its Claude account is signed out');
   observed._clearForTest();
   assert.equal(stallsignin.overlay(card, Date.now(), { obsFor: claudeObservationsFor(known) }).deliveryStall.words, 'x', 'CONTROL: no evidence, a connected check, slice 2\'s words');
+});
+
+test('review 7: the route\'s step marks a stuck card from a sibling\'s 401, and touches nothing when no card is stuck', async () => {
+  const known = accounts.list();
+  stallsignin.setDepsForTests({ list: () => known, checkRow: (row) => ({ ...row, connection: { state: STATE.CONNECTED } }) });
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('stuck', { state: 'idle' }), fleet.agent('sibling', { state: 'idle' })]);
+  let cards;
+  try { cards = board.agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  const stall = { since: new Date(Date.now() - 40 * 60000).toISOString(), count: 4, lastWhy: 'unconfirmed', words: 'x', next: 'y' };
+  const agents = cards.map((c) => ({ ...c, runner: '', account: { dir: B_DIR, isDefault: false }, deliveryStall: c === cards[0] ? stall : null }));
+  overlayStuckCards(agents, known);
+  await new Promise((r) => setImmediate(r));
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'sibling', observed.OUTCOME.REJECTED, Date.now());
+  overlayStuckCards(agents, known);
+  assert.equal(agents[0].deliveryStall.words, 'Its Claude account is signed out', 'the route\'s step did not hand the badge\'s evidence to the card');
+  assert.equal(agents[1].deliveryStall, null, 'a card that is not stuck was touched');
+  const calm = agents.map((c) => ({ ...c, deliveryStall: null }));
+  const before = JSON.stringify(calm);
+  overlayStuckCards(calm, known);
+  assert.equal(JSON.stringify(calm), before, 'CONTROL: nothing stuck, nothing changed');
 });

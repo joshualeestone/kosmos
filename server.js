@@ -2572,6 +2572,17 @@ function claudeObservationsFor(knownAccts) {
   };
 }
 
+/* #7212 slice 3: the status route's step, on its cards in place: a stuck Claude card whose own account the AI Models
+   badge would call signed out says so (engine/stallsignin.js). Only when a card is stuck (rare), and the badge's join
+   is built on the first card that asks (a stuck Claude card with an account record), never for a stuck Codex card
+   alone, once per call (review 6). Exported for its test (review 7). */
+function overlayStuckCards(agents, claudeKnown, now = Date.now()) {
+  if (!Array.isArray(agents) || !agents.some((c) => c && c.deliveryStall)) return;
+  let join = null;
+  const obsFor = (dir) => { if (!join) join = claudeObservationsFor(claudeKnown || []); return join(dir); };
+  for (let i = 0; i < agents.length; i += 1) agents[i] = require('./engine/stallsignin').overlay(agents[i], now, { obsFor });
+}
+
 function accountForAgent(name, known) {
   const job = create.readJob(name);
   if (!job) return null;
@@ -7237,13 +7248,7 @@ const server = http.createServer(async (req, res) => {
       attachPluginReach(agents); // #5309 slice 2: per-agent plugin-reach notice signal (see the function)
       /* #7212 slice 3: a stuck Claude agent whose own account was last seen signed out says so. The tick only reads what
          engine/stallsignin.js learned; its one live check per account and hour runs in the background. */
-      if (agents.some((c) => c && c.deliveryStall)) {   // the join reads job files, so only when a card is stuck (rare)
-        /* Review 6: built on the first card that asks (a stuck Claude card with an account record), never for a stuck
-           Codex card alone, and once per tick. */
-        let join = null;
-        const obsFor = (dir) => { if (!join) join = claudeObservationsFor(claudeKnown || []); return join(dir); };
-        for (let i = 0; i < agents.length; i += 1) agents[i] = require('./engine/stallsignin').overlay(agents[i], undefined, { obsFor });
-      }
+      overlayStuckCards(agents, claudeKnown);
       // ⚠️ THE COUNTS DESCRIBE THE CARDS THAT ARE LEFT. Computed over the
       // unfiltered snapshot they put "12 agents" above 11 cards, and can put
       // "1 needs you" on screen with no card anywhere to click. Recomputed with
@@ -27766,7 +27771,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
-  claudeObservationsFor, // #7212 slice 3 review 6: the AI Models badge's evidence, shared with the stuck card, for its test
+  claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour

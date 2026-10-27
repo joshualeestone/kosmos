@@ -108,3 +108,16 @@ checked and the card says what slice 2 says, which is the safe direction.
   Check now decides and is the same object (observedFrom); a card fed the join says what the badge says.
 - MINOR fixed: a check that finds no row clears the key flag.
 - NIT stated: a fresh 401 for an unrelated reason gets the sign-in sentence; the badge says "rejected" for it too.
+
+## Review round 7 (opus): 0 blocker, 0 major, 3 minor, 2 nit. Every subscription.checkLive caller checked: none pays more
+- MINOR fixed: a check of the default folder BY PATH reads the decoy .claude.json inside it, so the wrapper never
+  hears it (round 6 had widened that from "can only clear" to "can accuse"). Only a check with no folder speaks for
+  the default account. Latent today (every caller passes no folder for the default). Mutant red.
+- MINOR fixed: the status route's step is overlayStuckCards, exported and tested on real job files: a sibling's 401
+  marks the stuck card, a card that is not stuck is untouched. Mutant (empty evidence) red.
+- MINOR stated: while a card is stuck, each poll's join re-reads the job file of each agent with an observation (the
+  same reads accountOf does). Not a live check. Sharing one resolver across them would mean the card and the badge
+  resolve agents from different account lists, which is the parity this slice exists for.
+- NIT fixed (a comment): in production the background check's own answer lands after its readers told heard the same
+  thing, so that line changes nothing there.
+- NIT stated: an account that turns from a key to a sign-in within the hour keeps the key wording until the next check.

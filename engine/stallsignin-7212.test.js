@@ -123,7 +123,7 @@ test('the status route applies the overlay to every card it returns, and the min
      stall cannot be planted in from here. */
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
   const map = src.indexOf('const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map(');
-  const hook = src.indexOf("agents[i] = require('./engine/stallsignin').overlay(agents[i], undefined, { obsFor });", map);
+  const hook = src.indexOf("overlayStuckCards(agents, claudeKnown);", map);   // review 7: the step itself is tested in server.stallsignin-7212.test.js
   assert.ok(map > 0 && hook > map, 'the status route no longer overlays its cards');
   assert.ok(hook - map < 20000, 'the overlay moved away from the status route\'s cards');
   assert.ok(src.includes("require('./engine/stallsignin').sweep();"), 'the minute sweep no longer forgets accounts');
@@ -307,4 +307,15 @@ test('review 6: a check that started before another caller\'s answer does not ov
   stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.NONE, T0 + 1000);
   release(STATE.CONNECTED); await settle(); await settle();
   assert.equal(stallsignin.overlay(card(), T0 + 2000).deliveryStall.signedOut, true, 'an older connected overwrote a newer none');
+});
+
+test('review 7: a check of the default folder by path (its decoy file) never marks the default account signed out', async () => {
+  counting(STATE.CONNECTED);
+  const dflt = card({ account: { dir: '/x/.claude', isDefault: true } }, 'd');
+  stallsignin.overlay(dflt, Date.now() - 1000); await settle();
+  sub.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false, authMethod: 'none' }), err: null }));
+  await sub.checkLive({ configDir: require('node:path').join(accounts.homeDir(), '.claude') });
+  assert.equal(stallsignin.overlay(dflt, Date.now()).deliveryStall.signedOut, undefined, 'the decoy "not signed in" accused the default account');
+  await sub.checkLive();
+  assert.equal(stallsignin.overlay(dflt, Date.now()).deliveryStall.signedOut, true, 'CONTROL: the default account\'s own check is heard');
 });
