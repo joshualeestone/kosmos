@@ -1082,6 +1082,9 @@ final class BoardClient: ObservableObject {
             case .none: youName = nil; learned = true
             case .unknown: break
             }
+        } else if named?.1.statusCode == 404 {
+            // Review 5: an older board without the route has no name to give, as the picture read already treats it.
+            youName = nil; learned = true
         }
         // Review 4: nothing learned, so the next read comes after youRetry rather than youEvery.
         if !learned { youAt = env.now().addingTimeInterval(Board.youRetry - Board.youEvery) }

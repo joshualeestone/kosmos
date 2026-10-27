@@ -2153,7 +2153,7 @@ section("native board loop: connecting")
         w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
         w.youPictureAnswer = (200, "image/png", face)
         let got = await settle { c.youName == "Sam Carter" && c.youPicture == face }
-        check(got && w.clock.timeIntervalSince(from) < Board.youEvery, "both are read again within a minute, not 5 minutes later (\(w.clock.timeIntervalSince(from)) s)")
+        check(got && w.clock.timeIntervalSince(from) <= Board.youRetry + 10, "both are read again after youRetry plus one poll, not 5 minutes later (\(w.clock.timeIntervalSince(from)) s)")
         // The picture alone: a name read that worked, then a picture read that learned nothing, retries the picture by itself.
         let names = w.count("/api/you"), pics = w.count("/api/you/avatar")
         w.youPictureAnswer = (500, "text/plain", Data())
@@ -2163,8 +2163,36 @@ section("native board loop: connecting")
         let mid = w.clock, namesMid = w.count("/api/you")
         w.youPictureAnswer = (200, "image/png", Data([0x89, 0x50, 0x4e, 0x47, 6]))
         let again = await settle { c.youPicture == Data([0x89, 0x50, 0x4e, 0x47, 6]) }
-        check(again && w.clock.timeIntervalSince(mid) < Board.youEvery, "a picture read that failed is retried on its own within a minute (\(w.clock.timeIntervalSince(mid)) s)")
+        check(again && w.clock.timeIntervalSince(mid) <= Board.youRetry + 10, "a picture read that failed is retried on its own after youRetry plus one poll (\(w.clock.timeIntervalSince(mid)) s)")
         check(w.count("/api/you") == namesMid && namesMid > names, "and the name is not read again with it")
+        // Review 5: an older board answers the name read with 404; that is no name, learned, so it is not asked every 30 s.
+        // CONTROL first: the same loop with the sign-in page (nothing learned) does ask again, so the loop can see a retry.
+        // Each arm on its own client: a read still in flight from one arm would otherwise land in the next.
+        func namesAfterRetries(_ answer: (Int, String)) async -> Int {
+            let (c, w, _, _) = make("kst1")
+            w.youAnswer = answer
+            w.youPictureAnswer = (204, "text/plain", Data())
+            c.start()
+            _ = await settle { isLive(c) && w.count("/api/you") > 0 }
+            defer { c.stop() }
+            w.clock += Board.youEvery + 1
+            let before = w.count("/api/you")
+            await c.refreshNow()
+            _ = await settle { w.count("/api/you") > before }
+            let first = w.count("/api/you"), start = w.clock
+            for _ in 0..<2 {
+                w.clock += Board.youRetry + 1
+                await c.refreshNow()
+                // A bounded wait: settle idles through enough 5 s polls to reach the 5-minute re-read itself.
+                for _ in 0..<40 where w.count("/api/you") == first { await Task.yield() }
+            }
+            check(w.clock.timeIntervalSince(start) < Board.youEvery, "#7266 review 5: the retry loop stays inside 5 minutes (\(w.clock.timeIntervalSince(start)) s)")
+            return w.count("/api/you") - first
+        }
+        let signInAgain = await namesAfterRetries((200, "<html>sign in</html>"))
+        check(signInAgain > 0, "#7266 review 5: CONTROL: a sign-in page answer is asked again after youRetry (\(signInAgain) more)")
+        let olderAgain = await namesAfterRetries((404, "not found"))
+        check(olderAgain == 0, "#7266 review 5: a 404 (an older board) is not asked again every 30 s (\(olderAgain) more)")
         c.stop()
     }
     do {
