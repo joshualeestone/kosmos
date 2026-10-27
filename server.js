@@ -26183,7 +26183,7 @@ function start(port = PORT) {
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
           const shown = names.filter((n) => { const c = byName.get(n); return !!(c && c.deliveryStall); });
-          require('./engine/stallsignin').sweep(shown);   // #7212 slice 3: an agent no longer stuck is checked afresh next time
+          require('./engine/stallsignin').sweep();   // #7212 slice 3: accounts no stuck card read for an hour are forgotten
           for (const st of ds.stallsToSay(shown, stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
         } catch { /* said next minute */ }
       };

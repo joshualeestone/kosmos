@@ -323,7 +323,7 @@ function runAuthStatus(env) {
  * @param {{configDir?: string}} [opts] same contract as check()'s configDir.
  * @returns {Promise<{state: string, plan: string|null, because: string, checkedLive: true}>}
  */
-async function checkLive(opts) {
+async function checkLiveOnce(opts) {
   const configDir = opts && typeof opts.configDir === 'string' && opts.configDir ? opts.configDir : null;
   // ⚠️ NO configDir MEANS "the true default account", NOT "whatever
   // CLAUDE_CONFIG_DIR this process happens to have ambiently" -- this
@@ -410,6 +410,17 @@ async function checkLive(opts) {
     state: STATE.NONE, plan: null, checkedLive: true,
     because: 'Anthropic says this account is not signed in',
   };
+}
+/* checkLiveOnce, and (#7212 slice 3 review 2) whatever it learns is told to engine/stallsignin.js, so a sign-in confirmed
+   by ANY caller (the accounts screen, a sign-in or reconnect flow, the agent's account route) clears a stuck agent's
+   "signed out" on that account at once. No configDir is the default account. */
+async function checkLive(opts) {
+  const r = await checkLiveOnce(opts);
+  try {
+    const configDir = opts && typeof opts.configDir === 'string' && opts.configDir ? opts.configDir : null;
+    require('./stallsignin').heard(configDir ? { dir: configDir, isDefault: false } : { isDefault: true }, r && r.state);
+  } catch { /* the next check clears it */ }
+  return r;
 }
 
 /** What to call the plan on screen. Never a raw enum. */

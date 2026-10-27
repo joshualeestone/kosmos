@@ -41,3 +41,16 @@ checked and the card says what slice 2 says, which is the safe direction.
   person's machine is unverified; checking a folder with no row would need a second definition of "a Claude folder".
 - NITs fixed: comments say the hour runs from when a check started; listLiveNow's "ONLY" names the second caller;
   checkRowLive's requires sit inside its try.
+
+## Review round 2 (sonnet): 0 blocker, 1 major, 3 minor, 2 nit
+- MAJOR fixed: the record was per agent, so N stuck agents on one signed-out account started N `claude auth status`
+  checks an hour. It is now the ACCOUNT's ('default' or its folder): one check an hour per account serves every stuck
+  agent on it. Decided: a new stall within that hour reads the account's answer rather than checking again ("at most
+  once per stall" became "at most once per account and hour", which is cheaper and the same answer).
+- MINOR fixed: subscription.checkLive (every caller: the accounts screen, sign-in and reconnect flows, the agent's
+  account route) tells stallsignin.heard what it saw, not only accounts.checkRowLive.
+- MINOR fixed: a "signed out" from a check that started before a connected answer was heard is ignored.
+- MINOR fixed (by the per-account record): an agent moved to another account reads that account's record.
+- NIT fixed: the answer handler cannot throw out of the chain.
+- Mutants red: the stale-answer guard removed. The sweep forgets accounts no stuck card read for an hour, never one
+  whose check is running.

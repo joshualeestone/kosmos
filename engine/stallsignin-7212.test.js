@@ -54,18 +54,6 @@ test('CONTROL: a connected or unreachable account keeps slice 2\'s reason', asyn
   }
 });
 
-test('one live check per stall and per hour, and a new stall checks at once', async () => {
-  const calls = counting(STATE.CONNECTED);
-  stallsignin.overlay(card(), T0);
-  await settle();
-  for (let i = 1; i <= 20; i += 1) stallsignin.overlay(card(), T0 + i * 5000);   // the status tick
-  assert.equal(calls.length, 1, 'the tick ran a live check each time');
-  stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS);
-  assert.equal(calls.length, 2, 'an hour on, the stall is checked again');
-  await settle();
-  stallsignin.overlay(card({ deliveryStall: { ...STALL, since: '2026-10-27T13:30:00.000Z' } }), T0 + stallsignin.CHECK_EVERY_MS + 1000);
-  assert.equal(calls.length, 3, 'a new stall is checked without waiting out the hour');
-});
 
 test('a check still running is not started twice, however long it takes', async () => {
   let release;
@@ -108,17 +96,6 @@ test('a checker that throws or rejects leaves the card as it is', async () => {
   assert.equal(stallsignin.overlay(card(), T0 + 1).deliveryStall.words, ds.WHY_WORDS.unconfirmed);
 });
 
-test('sweep forgets agents no longer stuck, so their next stall checks again', async () => {
-  const calls = counting(STATE.CONNECTED);
-  stallsignin.overlay(card(), T0); await settle();
-  stallsignin.sweep(['someone-else'], T0 + 60000);
-  stallsignin.overlay(card({ deliveryStall: null }), T0 + 61000);
-  stallsignin.overlay(card(), T0 + 120000);
-  assert.equal(calls.length, 1, 'review 1: leaving the stall for a minute and coming back started a second check');
-  stallsignin.sweep(['someone-else'], T0 + stallsignin.CHECK_EVERY_MS);
-  stallsignin.overlay(card({ deliveryStall: { ...STALL, since: STALL.since } }), T0 + stallsignin.CHECK_EVERY_MS + 1);
-  assert.equal(calls.length, 2, 'an hour on, a forgotten agent is checked again');
-});
 
 test('the status route applies the overlay to every card it returns, and the minute sweep forgets agents no longer stuck', () => {
   /* A source check, as slice 2's page check is (engine/heldwarn2-7212.test.js): the route runs in a board process that a
@@ -128,7 +105,7 @@ test('the status route applies the overlay to every card it returns, and the min
   const hook = src.indexOf("agents[i] = require('./engine/stallsignin').overlay(agents[i]);", map);
   assert.ok(map > 0 && hook > map, 'the status route no longer overlays its cards');
   assert.ok(hook - map < 20000, 'the overlay moved away from the status route\'s cards');
-  assert.ok(src.includes("require('./engine/stallsignin').sweep(shown);"), 'the minute sweep no longer forgets agents');
+  assert.ok(src.includes("require('./engine/stallsignin').sweep();"), 'the minute sweep no longer forgets accounts');
 });
 
 test('review 1: each card is checked on its own row: the default, a second account, a key; no row, no check', async () => {
@@ -174,4 +151,60 @@ test('review 1: an account list that throws clears running, so the stall is chec
   stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS); await settle(); await settle();
   assert.equal(n, 2, 'a throw before the check left it running forever');
   assert.equal(stallsignin.overlay(card(), T0 + stallsignin.CHECK_EVERY_MS + 1).deliveryStall.signedOut, true);
+});
+
+/* Review 2: the record is the account's. */
+test('one live check per account and hour, however many agents on it are stuck, and whatever stalls they start', async () => {
+  const calls = counting(STATE.CONNECTED);
+  for (const n of ['a1', 'a2', 'a3', 'a4', 'a5']) stallsignin.overlay(card({ sessionName: n }), T0);
+  assert.equal(calls.length, 1, 'five stuck agents on one account started five checks');
+  await settle();
+  for (let i = 1; i <= 20; i += 1) stallsignin.overlay(card({ sessionName: 'a1' }), T0 + i * 5000);   // the status tick
+  stallsignin.overlay(card({ sessionName: 'a1', deliveryStall: { ...STALL, since: '2026-10-27T12:30:00.000Z' } }), T0 + 200000);
+  assert.equal(calls.length, 1, 'the tick, or a new stall within the hour, ran another check');
+  stallsignin.overlay(card({ sessionName: 'a2' }), T0 + stallsignin.CHECK_EVERY_MS);
+  assert.equal(calls.length, 2, 'an hour on, the account is checked again');
+  stallsignin.overlay(card({ sessionName: 'b1', account: { dir: '/x/.claude', isDefault: true } }), T0 + 1);
+  assert.equal(calls.length, 3, 'CONTROL: an agent on another account has its own check');
+});
+
+test('review 2: an agent moved to another account reads that account, not its old verdict', async () => {
+  counting((n, row) => (row.dir === '/x/.claude-b' ? STATE.NONE : STATE.CONNECTED));
+  stallsignin.overlay(card(), T0); await settle();
+  assert.equal(stallsignin.overlay(card(), T0 + 1).deliveryStall.signedOut, true);
+  const moved = card({ account: { dir: '/x/.claude', isDefault: true } });
+  stallsignin.overlay(moved, T0 + 2); await settle();
+  assert.equal(stallsignin.overlay(moved, T0 + 3).deliveryStall.signedOut, undefined, 'the old account\'s "signed out" followed the agent');
+});
+
+test('review 2: a slow "signed out" that started before a connected answer was heard is ignored', async () => {
+  let release;
+  counting(() => new Promise((resolve) => { release = resolve; }));
+  stallsignin.overlay(card(), T0);
+  stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.CONNECTED, T0 + 3000);   // the person signed in meanwhile
+  release(STATE.NONE); await settle(); await settle();
+  assert.equal(stallsignin.overlay(card(), T0 + 8000).deliveryStall.signedOut, undefined, 'a stale signed-out answer won');
+});
+
+test('review 2: subscription.checkLive tells stallsignin what it saw, for every caller', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'subscription.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function checkLive(opts) {'));
+  assert.ok(/const r = await checkLiveOnce\(opts\);[\s\S]{0,400}require\('\.\/stallsignin'\)\.heard\(/.test(fn.slice(0, fn.indexOf('\n}\n'))), 'checkLive no longer reports what it saw');
+});
+
+test('review 2: the sweep forgets an account no stuck card has read for an hour, never one still being checked', async () => {
+  let release;
+  const calls = counting(() => new Promise((resolve) => { release = resolve; }));
+  stallsignin.overlay(card(), T0);
+  stallsignin.sweep(T0 + 2 * stallsignin.CHECK_EVERY_MS);
+  release(STATE.CONNECTED); await settle(); await settle();
+  stallsignin.overlay(card(), T0 + 2 * stallsignin.CHECK_EVERY_MS + 1);
+  assert.equal(calls.length, 2, 'the hour passed, so the account is checked again');
+  release(STATE.CONNECTED); await settle(); await settle();
+  stallsignin.sweep(T0 + 2 * stallsignin.CHECK_EVERY_MS + 1000);
+  stallsignin.overlay(card(), T0 + 2 * stallsignin.CHECK_EVERY_MS + 2000);
+  assert.equal(calls.length, 2, 'a sweep within the hour of a read dropped the record');
+  stallsignin.sweep(T0 + 4 * stallsignin.CHECK_EVERY_MS);
+  stallsignin.overlay(card(), T0 + 4 * stallsignin.CHECK_EVERY_MS + 1);
+  assert.equal(calls.length, 3);
 });
