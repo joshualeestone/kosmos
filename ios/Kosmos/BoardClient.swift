@@ -428,6 +428,9 @@ final class BoardClient: ObservableObject {
     // cannot be made, or when no answer came. The caller reads the answer itself.
     // The Mac this client is connected to, for a link to its board (a room's info button); nil when not connected.
     var macURL: URL? { admitted?.url }
+    // kosmos#7266 review 4: the board of the computer the switcher names, connected or not, so a + made before that
+    // computer lets the phone in (or while it is offline) still targets it rather than the shared page's computer.
+    var switcherURL: URL? { switcherShown.flatMap { Board.macURL(address: $0, coordinator: coordinator) } }
 
     func throughMac(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let held = admitted, let request = build(held.url) else { return nil }

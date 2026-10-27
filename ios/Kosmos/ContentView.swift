@@ -297,8 +297,9 @@ struct ContentView: View {
     // kosmos#7266: a + button: the board's own create form, over the tabs, opened through the board's door.
     private func openCreate(_ what: AppTabs.Create) {
         showBoardPage()
-        // Review 3: on the computer the switcher shows (board.macURL), loading its board first when the page is elsewhere.
-        web.pressBoardSection(what == .agent ? .agents : .projects, door: what.rawValue, on: board.macURL)
+        // Review 3: on the computer the switcher shows, loading its board first when the page is elsewhere. Review 4:
+        // board.switcherURL, not the admitted session, which is unset until that computer lets the phone in.
+        web.pressBoardSection(what == .agent ? .agents : .projects, door: what.rawValue, on: board.switcherURL)
     }
 
     // kosmos#7252: the board page, under the Today tab while it is on, or over the tabs while it is off.
