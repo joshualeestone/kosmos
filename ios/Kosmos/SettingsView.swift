@@ -84,7 +84,7 @@ struct SettingsView: View {
         Section {
             VStack(spacing: 10) {
                 Group {
-                    if let data = youPicture, let picture = UIImage(data: data) {
+                    if let picture = YouFace.profileImage(youPicture) {
                         Image(uiImage: picture).resizable().scaledToFill()
                     } else if let letter = Board.youLetter(youName) {
                         // Mona Lisa's review: the person's letter on the avatar cream, as an agent with no picture.
