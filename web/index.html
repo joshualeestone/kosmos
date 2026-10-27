@@ -74445,6 +74445,7 @@ async function rxnToggle(forProject, box, emoji) {
     if (PJ_CURRENT !== forProject || !res.ok) return;
     const body = await res.json();
     repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : [], body.claim);
+    pjWinNoteReactions(forProject, postId, body.reactions, body.claim);   // kosmos#7365: an earlier page's row too
   } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
 }
 /* #6949: Free for another agent, beside a claimed post's 🙋 pill. It frees the claim of the agent the pill names (the
@@ -74479,12 +74480,14 @@ async function rxnFreeClaim(forProject, box, btn) {
   };
   if (res && res.ok && body && body.ok) {
     if (box) repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : [], body.claim);
+    pjWinNoteReactions(forProject, postId, body.reactions, body.claim);   // kosmos#7365
     refocus();
     pjRoomAnnounce(body.op !== 'freed' ? 'Nobody holds this post now, so there was nothing to free.'
       : 'Freed. ' + nameOf(by) + ' no longer holds this post' + (now ? ', and ' + now + ' holds it now.' : ', and another agent can claim it.'));
     return;
   }
   if (box && body && Array.isArray(body.reactions)) { repaintReactions(box, body.reactions, body.claim); refocus(); }
+  if (body && Array.isArray(body.reactions)) pjWinNoteReactions(forProject, postId, body.reactions, body.claim);   // kosmos#7365
   else btn.disabled = false;
   // A claim that changed hands is said with the names the page uses; any other refusal in the board's own words.
   msgToast(body && body.claimedBy ? 'We could not free that post: ' + nameOf(by) + ' no longer holds it'
@@ -75613,6 +75616,20 @@ const PJ_WIN_NEAR_TOP = 300;   // px from the top of the loaded rows that asks f
 document.getElementById('pj-room').addEventListener('scroll', (e) => {
   if (e.currentTarget.scrollTop <= PJ_WIN_NEAR_TOP) pjWinEarlier();
 }, { passive: true });
+/* A reaction or a freed claim made HERE on a post in an earlier page: those pages are a snapshot (only the newest page
+   is read again each poll), so the route's answer is written into the held row, or the next rebuild would draw the post
+   as it was before the press (review 1). Reactions or claims made elsewhere on an earlier page show once the room is
+   opened again, as a Direct conversation's earlier pages do. */
+function pjWinNoteReactions(project, postId, list, claim) {
+  if (PJ_WIN.pid !== project || !postId || !Array.isArray(list)) return;
+  PJ_WIN.older = PJ_WIN.older.map((r) => {
+    if (!r || r.kind !== 'post' || r.id !== postId) return r;
+    const next = Object.assign({}, r);
+    if (list.length) next.reactions = list; else delete next.reactions;
+    if (claim) next.claim = claim; else delete next.claim;
+    return next;
+  });
+}
 async function pjWinRead(pid, n, cursor) {
   const q = '?n=' + n + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
   const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room' + q);
