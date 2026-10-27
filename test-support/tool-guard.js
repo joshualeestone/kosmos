@@ -87,13 +87,13 @@ const isPathWord = (w) => (WIN ? /[\\/]/.test(w) || /^[A-Za-z]:/.test(w) : w.inc
 const within = (where, root) => {
   const a = WIN ? where.toLowerCase() : where;
   const b = WIN ? root.toLowerCase() : root;
-  return a === b || a.startsWith(b.endsWith(path.sep) ? b : b + path.sep);   // a drive root (C:\) already ends in one
+  return a === b || a.startsWith(WIN && b.endsWith(path.sep) ? b : b + path.sep);   // a Windows drive root (C:\) ends in one
 };
 
 // One command word: is it a real tool? `cwd` resolves a relative path the way the spawn will.
 function realToolIn(word, cwd, env) {
   if (typeof word !== 'string' || !word) return null;
-  if (cwd != null && typeof cwd !== 'string') {   // node takes a file: URL; anything else is left for node to reject
+  if (WIN && cwd != null && typeof cwd !== 'string') {   // Windows: node takes a file: URL; anything else is node's to reject
     try { cwd = cwd instanceof URL ? url.fileURLToPath(cwd) : String(cwd); } catch { cwd = undefined; }
   }
   // Expand $VAR / ${VAR} (and cmd's %VAR% on Windows) from the call's env (else this process's) and drop quotes, so a

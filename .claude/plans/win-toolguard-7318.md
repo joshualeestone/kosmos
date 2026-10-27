@@ -25,7 +25,7 @@ preloads it there. Its verdict on each word was POSIX-shaped. Stacked on #7316 (
 - Negative control: against the unpatched tool-guard.js, 3 tests fail (both #7262 tool-guard tests and the #7318 one).
 - All 87 engine/*win32*.test.js with BOTH preloads (schtasks + tool-guard, as npm test would), new vs old guard:
   identical, 1588 tests, 0 fail, 0 refusals. This box has a real gh.exe on PATH.
-- test-support.tool-guard-4326.test.js fails 12 tests on Windows before and after (POSIX-only fixtures: /bin/sh, /usr/bin,
+- test-support.tool-guard-4326.test.js fails 12 tests on Windows at main and 2 on this branch (POSIX-only fixtures: /bin/sh, /usr/bin,
   extensionless stubs); not selected for Windows CI; out of scope.
 
 ## Weakest part
@@ -59,3 +59,11 @@ the safe side for a guard against real CLIs.
   really run (gh.cmd, an extensionless gh) is refused when node's lookup reaches a real gh.exe later on PATH; it can
   only refuse, and telling lookups apart needs the shared reader to say which program reads each word. Negative
   control: the new test fails against round 2. 61/61; win32 sweep below.
+- After rebasing onto main (2fbb0884c1, #7316 merged): the drift test failed 2 of 20 runs here because #7262's fill()
+  rewrote a capital P inside its own base64 (77 of 2000 realistic paths). Reported; Renet fixed it on main in #7325
+  (f60741b125), so the fix carried here for a while was dropped from this branch.
+- Round 4: 1 BLOCKER (strict rule a), 3 NITs; the test file passed 30/30 runs; the real gh.exe refused in every
+  ordinary shape; controls allowed. BLOCKER FIXED: the non-string cwd conversion and within()'s trailing-separator case
+  were not gated to Windows, so POSIX behaviour changed (a URL cwd no longer threw; a TMPDIR of / allowed everything);
+  both are now WIN-only, so POSIX is unchanged. NITs: plan line on the 4326 file corrected (12 fail at main, 2 here);
+  a fake reached as \<drive path> counts as real (existing missing-path policy, accepted). 61/61, 10/10 runs.
