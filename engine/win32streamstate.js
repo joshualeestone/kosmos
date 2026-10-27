@@ -34,7 +34,8 @@
  * screen-read auth_failed ("Sign-in Issue"), cleared there too once the account's live check reads it signed in.
  *
  * So a message written, or any in-turn event, is BUSY; a `result` is IDLE; a
- * start is IDLE. Nothing is counted: a counter that missed one event would be
+ * start is IDLE. The state is not counted (kosmos#7368's `queued` is, but it resets to 0 at every boundary, so a missed
+ * event cannot carry forward): a counter that missed one event would be
  * wrong forever, while this reading corrects itself on the next event.
  *
  * 🔑 THE BOARD IS ANOTHER PROCESS, so the state crosses as a small file per agent,
@@ -96,6 +97,52 @@ function stateAfterEvent(event) {
      subtype arriving between turns must not strand the card on WORKING. */
   if (event.type === 'system' && event.subtype === 'init') return BUSY;
   return null;
+}
+
+/** kosmos#7368: the step a turn is on, from an assistant event's latest tool call: the shell command it runs, or the
+    tool and what it acts on. Short, one line, never the whole input. Null when the event calls no tool. */
+const STEP_MAX = 80;
+/* kosmos#7368: the step clock is written in buckets this wide (see the publisher's keyOf). */
+const STEP_CLOCK_MS = 5 * 60 * 1000;
+/* kosmos#7368: one tool call's step: the shell command it runs in quotes, or the tool and what it acts on. Short, one line,
+   masked; never the whole input. */
+function stepOfUse(use) {
+  try {
+    if (!use || typeof use.name !== 'string' || !use.name) return null;
+    const input = use.input && typeof use.input === 'object' ? use.input : {};
+    /* Masked BEFORE it is cut (review 1 W2): a command can carry a token, and this text reaches the card and the board
+       log. Control characters go; the cut is by character, never inside one. */
+    const one = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '');
+    const cut = (v) => {
+      let t = Array.from(v).slice(0, STEP_MAX * 3).join('');   // review 3: never mask megabytes on the supervisor's loop
+      try { t = require('./secretmask').mask(t).text; } catch { t = ''; }
+      const chars = Array.from(t);
+      return chars.length > STEP_MAX ? chars.slice(0, STEP_MAX - 1).join('') + '\u2026' : t;
+    };
+    const cmd = one(input.command);
+    if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
+    const target = one(input.file_path) || one(input.path) || one(input.url) || one(input.pattern) || one(input.query);
+    return cut('using ' + use.name + (target ? ' on ' + target : ''));
+  } catch { return null; }
+}
+
+/* Whether a process id names a running process. EPERM means it runs under another user, which is still alive. */
+function processAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
+}
+
+/** kosmos#7368: a busy agent's step, { since (ISO, its last sign of activity, to within STEP_CLOCK_MS), step|null,
+    queued (messages written in while it was busy, not yet taken) }, from its state file, or null when it is not busy or
+    the file says nothing about a step. The caller has already seen the agent working (its card reads Working). */
+function turnFor(name) {
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
+  if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION || rec.state !== BUSY) return null;
+  if (typeof rec.stepSince !== 'string' || !Number.isFinite(Date.parse(rec.stepSince))) return null;
+  /* Review 2 W5: a file its process outlived (a crash the supervisor did not clear) describes no agent running now. */
+  if (!Number.isInteger(rec.pid) || !processAlive(rec.pid)) return null;
+  const queued = Number.isInteger(rec.queued) && rec.queued > 0 ? rec.queued : 0;
+  return { since: rec.stepSince, step: typeof rec.step === 'string' && rec.step ? rec.step : null, queued };
 }
 
 /** #5805: an epoch time from `resetsAt` as an ISO string, or null. The schema gives seconds; a value already in
@@ -404,7 +451,8 @@ function liveIdentity(name) {
 /**
  * The supervisor's side: keep `name`'s state file in step with its agent.
  *
- * Writes only on a TRANSITION, so a turn of a hundred events costs two writes.
+ * Writes only on a TRANSITION, so a turn of a hundred events costs two writes, plus (kosmos#7368) one when its queue
+ * changes, one when its step changes while something is queued, and at most one per STEP_CLOCK_MS for its activity clock.
  * `write`, `clear`, `setTimer` and `onProblem` are injectable for tests;
  * `onProblem` gets a sentence for the task log whenever a state could not be
  * recorded.
@@ -414,6 +462,7 @@ function publisher(name, opts) {
   const write = o.write || ((rec) => writeState(name, rec));
   const clear = o.clear || ((ownerPid) => clearState(name, ownerPid));
   const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
+  const nowMs = typeof o.now === 'function' ? o.now : Date.now;   // kosmos#7368: the step clock's, injectable for tests
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
   /* kosmos#6570: the agent's Claude account folder (claudeAccountDirFor), where each rate_limit_event's readings are
      recorded the way the status line records them; none, and nothing is. `recordUsage` is injectable for tests. */
@@ -435,12 +484,29 @@ function publisher(name, opts) {
      the retry below -- or any transition that comes first -- is the second
      attempt, and a second failure in a row is what clears. */
   /* #5805: a refusal can arrive while the state token does not change, so a transition is the token AND the limit. */
-  /* #7369: and the sign-in record, which a result can set or clear while the token stays idle. */
-  function keyOf(c) { return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + JSON.stringify(c.auth || null); }
+  /* kosmos#7368: the queue is part of what is on disk, and the step's clock only in STEP_CLOCK_MS buckets. The step
+     itself rides along with those writes but never forces one (review 2 W3): a busy agent calling many tools writes about
+     once per bucket, not once per tool. */
+  function keyOf(c) {
+    const clock = c.stepSince ? Math.floor(Date.parse(c.stepSince) / STEP_CLOCK_MS) : '';
+    /* Review 3 W3: while something is queued the step IS part of the key, so the card never names a finished step. */
+    /* #7369: and the sign-in record, which a result can set or clear while the token stays idle. */
+    return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + JSON.stringify(c.auth || null) + '\u0000' + clock
+      + '\u0000' + (c.queued || 0) + '\u0000' + ((c.queued || 0) > 0 ? (c.step || '') : '');
+  }
+  function setState(next) {
+    if (next === BUSY && current.state !== BUSY) { current.step = null; current.stepSince = new Date(nowMs()).toISOString(); }
+    if (next === IDLE) { current.step = null; current.stepSince = null; current.open.clear(); }
+    current.state = next;
+  }
   function flush() {
     if (!current || written === keyOf(current)) { retrying = false; return; }
     const rec = { v: STATE_FILE_VERSION, state: current.state, sessionId: current.sessionId, pid: current.pid, at: new Date().toISOString() };
     if (current.limit) rec.limit = current.limit;
+    /* kosmos#7368: while busy, when the agent last showed any activity and the step it is on; and, busy or not, how many
+       messages were written into it while it was busy and are not yet taken (they survive a board restart here). */
+    if (current.state === BUSY && current.stepSince) { rec.stepSince = current.stepSince; if (current.step) rec.step = current.step; }
+    if (current.queued > 0) rec.queued = current.queued;
     if (current.auth) rec.auth = current.auth;
     const r = write(rec);
     if (r && r.ok) { written = keyOf(current); retrying = false; return; }
@@ -474,7 +540,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, state: IDLE, limit: null, auth: null, reachedModel: false };
+      current = { pid, sessionId, state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map() };
       flush();
     },
     /** One parsed stream event. */
@@ -488,8 +554,30 @@ function publisher(name, opts) {
           if (u && typeof dir === 'string' && dir) recordUsage(dir, u);
         } catch { /* the next event tries again */ }
       }
+      const before = keyOf(current);
       const next = stateAfterEvent(e);
-      if (next) current.state = next;
+      if (next) setState(next);
+      /* kosmos#7368, measured on Claude Code 2.1.311 (reviews 2 to 4): a message written in while the main agent's tool
+         calls run is taken when the model is next called, which is when ALL of that message's calls have returned (two
+         calls run one after the other: the person's message waits for the second). So the main agent's open calls are
+         kept by id; the queue empties when the last one returns, or at the turn's result. A turn's start is not a
+         boundary, and a subagent's own calls (parent_tool_use_id) are not the main agent's. The step is the first call
+         still open: the one actually running. */
+      const content = e && e.message && Array.isArray(e.message.content) ? e.message.content : [];
+      if (e && !e.parent_tool_use_id && e.type === 'assistant') {
+        for (const c of content) if (c && c.type === 'tool_use' && typeof c.id === 'string') current.open.set(c.id, stepOfUse(c));
+      }
+      if (e && !e.parent_tool_use_id && e.type === 'user') {
+        let closed = false;
+        for (const c of content) if (c && c.type === 'tool_result' && current.open.delete(c.tool_use_id)) closed = true;
+        if (closed && current.open.size === 0) current.queued = 0;
+      }
+      if (e && e.type === 'result') { current.open.clear(); current.queued = 0; }
+      /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
+         turn's start: an agent calling a new tool every minute is never on one step for an hour. */
+      if (current.state === BUSY && e && (e.type === 'assistant' || e.type === 'user' || e.type === 'system')) current.stepSince = new Date(nowMs()).toISOString();
+      current.step = current.state === BUSY && current.open.size ? (current.open.values().next().value || null) : null;
+      const stepChanged = before !== keyOf(current);
       /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
       /* Review 9: a refused request's own error message (is_api_error_message, in Claude Code's stream-json schema) did
          not reach the model, so it does not count; then even a result without is_error cannot clear the limit. */
@@ -535,11 +623,17 @@ function publisher(name, opts) {
         current.auth = null;
         authChanged = true;
       }
-      if (next || lim !== undefined || current.limit || authChanged) flush();
+      if (next || lim !== undefined || current.limit || authChanged || stepChanged) flush();
     },
     /** A message reached the agent's stdin. */
     wrote() {
-      if (current) { current.state = BUSY; current.reachedModel = false; current.authRefused = false; flush(); }
+      if (!current) return;
+      /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
+      if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
+      else setState(BUSY);
+      current.reachedModel = false;
+      current.authRefused = false;   // #7369
+      flush();
     },
     /** The agent process is gone. */
     stopped() {
@@ -568,4 +662,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, liveIdentity, isLimitToken, isAuthToken, usageOfEvent, claudeAccountDirFor };
+module.exports = { STEP_CLOCK_MS, BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, isLimitToken, isAuthToken, usageOfEvent, claudeAccountDirFor };

@@ -70,7 +70,11 @@ test('#570 7c-5 two back-to-back messages read as two turns, ending IDLE (measur
   r.pub.wrote(); r.pub.wrote();
   for (const e of PLAIN_TURN) r.pub.event(e);
   for (const e of PLAIN_TURN) r.pub.event(e);
-  assert.deepEqual(r.states(), ['idle', 'busy', 'idle', 'busy', 'idle']);
+  /* kosmos#7368: the second message is queued behind the first turn, so the queue count is also written; a write that
+     repeats the state is not a transition. The transitions are what this test is about. */
+  const transitions = r.states().filter((s, i, all) => i === 0 || s !== all[i - 1]);
+  assert.deepEqual(transitions, ['idle', 'busy', 'idle', 'busy', 'idle']);
+  assert.equal(r.wrote[r.wrote.length - 1].queued, undefined, 'both messages were taken: nothing is left queued');
 });
 
 test('#570 7c-5 a turn we did not see written (the channel was unsure) still reads BUSY from its own events', () => {
