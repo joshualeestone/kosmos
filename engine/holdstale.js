@@ -101,6 +101,8 @@ function owed(projects, log, now = Date.now(), o = {}) {
       }
     }
   }
+  // #7367: checked again after the task histories were read, as receipt.js and undo.plan do (the stamps can go unknown).
+  if (!require('./projectborn').snapshot().ok) return [];
   return out;
 }
 

@@ -26,7 +26,8 @@ silencing every room; the Projects page reports the damaged file. Also accepted 
 "which room did you mean" check and the room valve count a deleted project's posts from the last hour while the file is
 damaged, so a project deleted and re-made within the hour of the damage can see one extra hold. Likewise the #4580
 fold: a post identical to the same sender's post in a deleted same-id project, inside the fold window, reads as a
-retry of it while the file is damaged.
+retry of it while the file is damaged. And a reaction or freed claim given a deleted same-id project's post id writes its
+row against that post (orphaned and unseen once the file reads again).
 
 ## Readers that ACT on or KEEP rows: gated while the stamps are unknown
 receipt keep (before and after its read), messages.sweepUnanswered and unanswered(), undo.plan (before and after its

@@ -26963,7 +26963,11 @@ function start(port = PORT) {
           /* Review 5: nobody asked for this line (unlike the missed-run reviewer), so it waits for the Prompter like the
              reply nudge and the community turn: a person who turned the Prompter off gets no unprompted lines. */
           if (!allowed || heartbeatSetting.read().on !== true) return;
-          const rows = messages.readLog();
+          /* #7367: the rows with the stamps they were filtered by: read while the stamps were unknown, they hold a deleted
+             same-id project's posts, and the stamps can come back before owed() checks its own. */
+          const rec = messages.record();
+          if (rec.stampsUnknown) return;
+          const rows = rec.rows;
           const owed = holdstale.owed(projs, rows);
           if (!owed.length) return;
           const r = owed.some((x) => !x.swarmOff && x.members.includes(x.owner)) ? safeRoster() : null;

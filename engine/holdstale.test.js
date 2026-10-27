@@ -137,11 +137,11 @@ test('#6209 part 3: the board runs the sweep on its own minute timer, with the r
   const at = src.indexOf('const holdStaleTick = setInterval(');
   assert.notEqual(at, -1, 'server.js has no hold-stale timer');
   const body = src.slice(at, src.indexOf('}, 60000);', at));
-  assert.match(body, /const rows = messages\.readLog\(\);/, 'the sweep is not given the room log');
+  assert.match(body, /const rec = messages\.record\(\);\s*if \(rec\.stampsUnknown\) return;\s*const rows = rec\.rows;/, 'the sweep is not given the room log, or not with the stamps it was filtered by (#7367)');
   assert.match(body, /holdstale\.sweep\(\{/, 'the timer does not run the sweep');
   assert.match(body, /agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'not gated like the other tells');
   assert.match(body, /sent: AGENT_NUDGE_SENT/, 'not counted against Agent Communication\'s hour');
-  assert.match(body, /if \(!allowed \|\| heartbeatSetting\.read\(\)\.on !== true\) return;\s*const rows = messages\.readLog\(\);/, 'the log is read before the typing and Prompter gates are checked');
+  assert.match(body, /if \(!allowed \|\| heartbeatSetting\.read\(\)\.on !== true\) return;\s*(?:\/\*[\s\S]*?\*\/\s*)?const rec = messages\.record\(\);/, 'the log is read before the typing and Prompter gates are checked');
   assert.match(body, /\ballowed,\s/, 'the gate is not handed to the sweep');
   assert.match(body, /book: HOLD_STALE_BOOK, idleSeen: HOLD_STALE_IDLE/, 'the sweep does not keep its own tries and idle record');
 });
