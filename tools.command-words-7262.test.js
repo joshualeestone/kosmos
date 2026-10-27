@@ -210,3 +210,11 @@ test('#7320 review 3: nested env -S with escaped values stays cheap; $"..." quot
   // CONTROL: \t in $'...' is a tab, so sch<TAB>asks is not schtasks
   assert.equal(commandRuns("$'sch\\tasks' /q"), false);
 });
+
+test('#7320 review 4: the env -S memo tells apart word lists that join to the same text', () => {
+  // the second command really runs schtasks (GNU env runs env -u x schtasks); a memo keyed on joined text hid it
+  assert.equal(callRuns('bash', ['-c', "env -S \"-S -u 'x\\\" \\\"schtasks'\"; bash -c 'env -S -u \"x\" \"schtasks\"'"]), true);
+  assert.equal(callRuns('env', ['-S', 'env -S -u', 'x" "schtasks']), true);
+  // CONTROL: the one-argument form alone runs nothing
+  assert.equal(callRuns('env', ['-S', '-u', 'x" "schtasks']), false);
+});

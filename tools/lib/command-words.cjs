@@ -145,8 +145,11 @@ const SPLIT_JOINED = /^(?:-[iv0]*S|--([a-z-]+)=)([\s\S]+)$/;
    \';\schtasks, #7299). */
 function splitInto(strs, after, depth, out) {
   const tail = after.map((w) => w.raw).join(' ');
+  /* Keyed on the words' structure, not their joined text: one argument x" "schtasks and two words "x" "schtasks" join
+     alike but walk differently (review 4: the first seen hid the second, which really runs schtasks). */
+  const key = JSON.stringify(after.map((w) => [w.raw, !!w.quoted, w.inner, !!w.redirect]));
   for (const str of strs) {
-    if (!once(out, 'S\0' + str + '\0' + tail, depth)) continue;
+    if (!once(out, 'S\0' + str + '\0' + key, depth)) continue;
     walk([argWord('env')].concat(envSplit(str).map(argWord), after), 0, depth, 'posix', out);
     lineInto(str + ' ' + tail, depth, 'posix', out);
   }

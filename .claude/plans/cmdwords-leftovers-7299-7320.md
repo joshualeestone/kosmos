@@ -64,3 +64,9 @@ extra word, harmless for the same reason.
   call unless it recurs shallower (once(), a memo on out): 26 ms at 4000, and detection on the reviewer's script
   matches main row for row. The new timing test fails on round 2's reader (160 s). WARNING FIXED: $"..." is a double
   quote (bash ran $"echo" HIT). NIT FIXED: C escapes in $'...' are control characters. 66/66 (1 skip).
+- Round 4: no BLOCKER (strict), 1 WARNING, 2 NITs; cost linear on everything built (worst 135 ms); 2x200k fuzz vs
+  HEAD~1 and main. WARNING FIXED: splitInto's memo key joined the following words' raw text, so one argument x" "schtasks
+  and two words "x" "schtasks" collided and the first seen hid the second, which really runs schtasks (HEAD~1 caught
+  it); the key is now the words' structure (raw, quoted, inner, redirect). Test added; it fails on round 3. NITs
+  ACCEPTED: $" schtasks " reads as schtasks (cosmetic refusal, as " schtasks " already did); bash -c bash\ -c\ schtasks
+  is missed by main and here alike (named in the PR's known limits). 67/67 (1 skip); win32 sweep below.
