@@ -41,8 +41,45 @@ final class SignInModel: ObservableObject {
         #if DEBUG
         // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error|company|companyerror|passkey|passkeyerror.
         if let sample = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] { show(sample: sample); return }
+        if let walkEmail = ProcessInfo.processInfo.environment["KOSMOS_WALK_EMAIL"] { Task { @MainActor in await self.walk(walkEmail) } }
         #endif
     }
+
+    #if DEBUG
+    // kosmos#7352: a real sign-in walked without hands, for a simulator nobody can type into (Debug builds only).
+    // KOSMOS_WALK_EMAIL=<address> enters the address and asks for a code; each code is then read from walk-code.txt in
+    // the app's Documents (written from outside with simctl get_app_container), entered and submitted, exactly as a
+    // person would. The step and any error are written to walk-step.txt each second, for the walker to read. Every
+    // request is the real one: the code, the second step and the computer's Allow are all live.
+    @MainActor private func walk(_ address: String) async {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let codeFile = docs.appendingPathComponent("walk-code.txt"), stepFile = docs.appendingPathComponent("walk-step.txt")
+        var sent = false
+        for _ in 0..<1800 {
+            let line = "\(step) busy=\(busy) error=\(error ?? "-")"
+            try? line.write(to: stepFile, atomically: true, encoding: .utf8)
+            if case .done = step { return }
+            if !busy {
+                switch step {
+                case .email where !sent:
+                    email = address; sent = true; sendCode()
+                case .code, .second, .setupConfirm:
+                    if let got = try? String(contentsOf: codeFile, encoding: .utf8) {
+                        try? FileManager.default.removeItem(at: codeFile)
+                        code = got.trimmingCharacters(in: .whitespacesAndNewlines)
+                        switch step {
+                        case .code: verify()
+                        case .second: verifySecond()
+                        default: confirmSetup()
+                        }
+                    }
+                default: break
+                }
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+    }
+    #endif
 
     /// Whether Kosmos+ offers passkeys, asked the first time the email step shows (not at launch: a signed-in person
     /// never sees this step, and the store screenshots never show it). Only a clear answer is kept (an offer, or a 404
