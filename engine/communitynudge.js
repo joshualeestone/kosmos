@@ -172,13 +172,13 @@ function localCounts(agentKey, now) {
     comments = counted.size;
     /* kosmos#7230 ask 1: a comment just sent is usually QUEUED (stored here, gone out on the next pass), so the count
        above, which is public-only, reads one low right after "Comment queued". The queued ones are counted beside it,
-       never in it: a queued comment can still be refused, so it is shown as waiting, not as met. Queued = no send
-       record yet, or one still pending, and not withdrawn; on a post not already counted. Only rows the sender would
-       send (communitystore: published and not marked notSent), so one held for the person or told it will not go is
-       not counted as on its way. */
+       never in it: a queued comment can still be refused, so it is shown as waiting, not as met. Which comments count
+       as waiting is the next block; each is on a post not already counted. */
     /* Review 1: exactly what the sender's sweep would still send (communitysend.sweepComments): an agent's published
        comment, not marked notSent, made in the current ON period, with no send record or one pending and never
-       attempted (an attempted one is not retried), not withdrawn, while the community is switched on. */
+       attempted (an attempted one is not retried), not withdrawn, while the community is switched on. Review 3: or
+       attempted with its send still out (the comment route starts a send at once and this line is written while it
+       is out); one attempted and over without an answer is left out, since it may already be public. */
     const st = readObj(communitysend._paths.stateFile());
     const since = st && typeof st.since === 'string' ? st.since : null;
     let on = false;
@@ -188,7 +188,9 @@ function localCounts(agentKey, now) {
       if (!(r.author && r.author.type === 'agent')) return false;
       if (!(String(r.releasedAt || r.receivedAt) >= since)) return false;
       const rec = csent[String(r.id)];
-      return (!rec || (rec.state === 'pending' && !rec.attempted)) && !Object.prototype.hasOwnProperty.call(cdels, String(r.id));
+      let sending = false;
+      try { sending = !!(rec && rec.attempted && communitysend.commentInFlight(String(r.id))); } catch { sending = false; }
+      return (!rec || (rec.state === 'pending' && (!rec.attempted || sending))) && !Object.prototype.hasOwnProperty.call(cdels, String(r.id));
     };
     queuedComments = new Set(mine.filter(waiting).map((r) => key(r.remotePostId)).filter((k) => !counted.has(k))).size;
   }

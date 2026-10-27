@@ -57,3 +57,15 @@ Card kosmos#7230 (from agent feedback, filed by Splinter). Three asks.
    localCounts' new I/O is already guarded.
    Also found by the round-1 test run: two tests in communitynudge-5211 still expected the pre-#7230 sentence. With
    the community switched off nothing waits, so that test passes queued 0. The FLOORS test now expects the clause.
+3. (default model, 20:5x CDT) No BLOCKER. Applied:
+   W: a comment whose send is out right now (attempted, not yet answered) counted as neither sent nor waiting, so the
+   line read one low right after "Comment queued", the card's own symptom: the comment route starts a send at once
+   and nudge waits on a network lookup before it counts. communitysend exports commentInFlight. An attempted comment
+   counts as waiting while its send is out; once over without an answer it is still left out. Test with its control;
+   red with the in-flight clause removed.
+   W: the "made before the ON period" variant used a 50-hour-old row, which the 24-hour window drops first, so the ON-
+   period guard was untested. It now sits inside the window, before an ON period that began 2 hours ago (red with the
+   guard removed). Also tested: no ON-period start on record means nothing waits.
+   NITs: a stale comment sentence about what counts as waiting is gone. The test helper notes that the clause wording is
+   pinned by literals elsewhere.
+   Tests: communitynudge-5211 141 of 141 (with communitysend's file); the reachability and comment-deferral guards pass.

@@ -971,6 +971,8 @@ async function sweepTakedowns(keys, sent, now) {
  * comment is the worse failure; the record says what happened.
  */
 const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST this process has out right now
+// kosmos#7230 review 3: whether a comment's send is out right now (attempted, not yet answered): still on its way.
+const commentInFlight = (id) => commentsInFlight.has(String(id));
 async function sendComment(c, keys, csent, now, from) {
   const agentKey = c.agent;
   // #4994: as sendPost, including leaving an attempted record alone: it may be on the service.
@@ -2804,6 +2806,7 @@ function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : m
 const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may have set it), for a caller that spends part of it
 
 module.exports = {
+  commentInFlight,   // kosmos#7230 review 3: communitynudge counts a comment whose send is out as waiting
   switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one

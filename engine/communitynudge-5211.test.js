@@ -119,7 +119,8 @@ const F = () => block.FLOORS || { followsEveryDays: block.FOLLOW_EVERY_DAYS, pos
    it (main's FOLLOW_EVERY_DAYS 1 and POSTS_PER_DAY_MAX 6 only). Never rebuilt from the code's own logic. */
 const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 /* kosmos#7230: the fixture's c1q (pending, never attempted, on OTHER) is waiting to go out, so the line names one more
-   post beside the count; pass queued 0 for a fixture without it. */
+   post beside the count; pass queued 0 for a fixture without it. The clause's own wording ("more", "has"/"have") is
+   pinned by literal strings in the #7230 ask 1 test and the FLOORS test; here it is only assembled. */
 function today(comments, follows, posts, queued = 1) {
   const q = queued > 0 ? ', and ' + queued + (comments > 0 ? ' more' : '') + (queued === 1 ? ' post has' : ' posts have') + ' a comment of yours waiting to go out' : '';
   return block.FLOORS
@@ -332,7 +333,9 @@ test('#7230 review 1: each comment the sweep would NOT send is left out of waiti
     ['held for the person', { status: 'held' }, { status: 'published' }],
     ['told it will not go', { notSent: true }, { notSent: false }],
     ['written by a person, not an agent', { author: { type: 'user', name: 'p' } }, { author: { type: 'agent', name: 'mara' } }],
-    ['made before the ON period began', { receivedAt: iso(50 * H) }, { receivedAt: iso(1 * H) }],
+    // Review 3: inside the 24-hour window (a 50-hour-old row never reached the ON-period guard), before an ON period
+    // that began 2 hours ago.
+    ['made before the ON period began', { receivedAt: iso(3 * H), since: iso(2 * H) }, { receivedAt: iso(1 * H) }],
     ['a send attempted and never confirmed (not retried)', { rec: { state: 'pending', attempted: true, agent: 'mara' } }, { rec: null }],
     ['withdrawn by its agent', { deleted: true }, { deleted: false }],
   ];
@@ -340,7 +343,8 @@ test('#7230 review 1: each comment the sweep would NOT send is left out of waiti
   const write = (v) => {
     fresh(now);
     const row = { ...base, id: 'v', remotePostId: 'POSTV', ...v };
-    delete row.rec; delete row.deleted;
+    delete row.rec; delete row.deleted; delete row.since;
+    if (v.since) fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since: v.since }));
     fs.writeFileSync(store._paths.commentsFile(), JSON.stringify([base, row]));
     fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(v.rec ? { v: v.rec } : {}));
     fs.writeFileSync(cs._paths.commentDeletesFile(), JSON.stringify(v.deleted ? { v: iso(0) } : {}));
@@ -356,6 +360,17 @@ test('#7230 review 1: each comment the sweep would NOT send is left out of waiti
   cs.setSwitch(() => ({ ok: true, on: false }));
   try { assert.equal(nudge.localCounts('mara', now).queuedComments, 0, 'switched off, yet waiting'); } finally { cs.setSwitch(() => ({ ok: true, on: true })); }
   assert.equal(nudge.localCounts('mara', now).queuedComments, 2, 'CONTROL: switched on, both wait');
+  // Review 3: no ON-period start on record: nothing is on its way (the sweep sends nothing without one).
+  write({});
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({}));
+  assert.equal(nudge.localCounts('mara', now).queuedComments, 0, 'no ON-period start, yet waiting');
+  // Review 3: a comment whose send is out right now (attempted, not yet answered) is still on its way; CONTROL: the
+  // same record once the send is over is left out (it may already be public).
+  write({ rec: { state: 'pending', attempted: true, agent: 'mara' } });
+  const was = cs.commentInFlight;
+  cs.commentInFlight = (id) => id === 'v';
+  try { assert.equal(nudge.localCounts('mara', now).queuedComments, 2, 'a send in flight was not counted as waiting'); } finally { cs.commentInFlight = was; }
+  assert.equal(nudge.localCounts('mara', now).queuedComments, 1, 'CONTROL: the send over, it is left out');
 });
 
 test('copy review: floors said in words, plurals follow the count, every floor shape', () => {
