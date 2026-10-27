@@ -22,12 +22,16 @@ enum Board {
         return r
     }
 
-    static func handoffRequest(coordinator: URL, session: String, address: String) -> URLRequest {
+    // kosmos#4903: fresh for a Kosmos cloud machine (hosted). Its gate lets a sign-in in with no Allow only when the
+    // sign-in is recent, and nobody can press Allow on it; Kosmos+ answers step_up_required when this session is not.
+    static func handoffRequest(coordinator: URL, session: String, address: String, fresh: Bool = false) -> URLRequest {
         var r = URLRequest(url: URL(string: "/v1/account/handoff", relativeTo: coordinator)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = try? JSONSerialization.data(withJSONObject: ["address": address])
+        var body: [String: Any] = ["address": address]
+        if fresh { body["fresh"] = true }
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         r.httpShouldHandleCookies = false
         return r
     }
@@ -77,6 +81,8 @@ enum Board {
         var lastSeen: Double = 0
         // Kosmos+ says this Mac refused this iPhone (`this_device` "denied").
         var refusedThisDevice = false
+        // kosmos#4903: a Kosmos cloud machine (`hosted`), opened with a fresh handoff.
+        var hosted = false
     }
 
     // `{macs:[{name,address,last_seen,retired_at,remote_off,not_connected,held,refused}]}`.
@@ -96,7 +102,8 @@ enum Board {
                        // A Mac in the middle of an update (updating_until) is ranked like one not connected.
                        connected: !(row["not_connected"] as? Bool ?? false) && !(row["updating_until"] is NSNumber),
                        lastSeen: (row["last_seen"] as? NSNumber)?.doubleValue ?? 0,
-                       refusedThisDevice: (row["this_device"] as? String) == "denied")
+                       refusedThisDevice: (row["this_device"] as? String) == "denied",
+                       hosted: (row["hosted"] as? Bool) == true)
         }
     }
 
@@ -137,6 +144,12 @@ enum Board {
         macs.filter(\.usable)
             .sorted { ($0.name.lowercased(), $0.address) < ($1.name.lowercased(), $1.address) }
             .map { SwitcherRow(name: $0.name, address: $0.address, online: $0.connected, shown: $0.address == shown) }
+    }
+
+    // kosmos#4903: Kosmos+ refused a fresh handoff because this session did not sign in recently enough.
+    static func isStepUpRequired(_ data: Data?) -> Bool {
+        guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return (obj["code"] as? String) == "step_up_required"
     }
 
     static func parseHandoffToken(_ data: Data) -> String? {
