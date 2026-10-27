@@ -208,5 +208,16 @@ git -C "$S" fetch -q origin
 out="$(bash "$HERE/tools/publish-staging-pointer.sh" "$S" 9.9.9 2>&1; echo "rc=$?")"
 case "$out" in *lockstep*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: a Linux staging pointer on origin/main only did not refuse: $out" >&2 ;; esac
 
+# 0.7.71 cut: release.sh drops KOSMOS_CUT_LINUX once decided, BEFORE step 3, or the suite inherits it and every nested
+# release.sh in it tries to cut the Linux family (9 reds in tools.release-gate.test.js, the cut aborted).
+unset_order() {
+  local d u s
+  d="$(grep -n "^release_linux_decide " "$HERE/tools/release.sh" | head -1 | cut -d: -f1)"
+  u="$(grep -nx "unset KOSMOS_CUT_LINUX" "$HERE/tools/release.sh" | head -1 | cut -d: -f1)"
+  s="$(grep -nF "step \"== 3. the whole suite" "$HERE/tools/release.sh" | head -1 | cut -d: -f1)"
+  [ -n "$d" ] && [ -n "$u" ] && [ -n "$s" ] && [ "$d" -lt "$u" ] && [ "$u" -lt "$s" ]
+}
+chk "release.sh unsets KOSMOS_CUT_LINUX after deciding and before the suite" unset_order
+
 echo "test-release-linux-7281: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
