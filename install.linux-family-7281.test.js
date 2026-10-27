@@ -29,10 +29,13 @@ function cut(from, to) {
 const FAMILY = cut('LINUX_FAMILY=""', 'fi');
 const ARCH_BLOCK = cut('    if [ -n "${KOSMOS_BUNDLE_ARCH:-}" ]; then', '    fi');
 
-/* A bin folder whose `uname` answers as the given system and machine. */
-function unameAs(sys, machine) {
+/* A bin folder whose `uname` answers as the given system and machine, and whose `getconf GNU_LIBC_VERSION` answers
+   `glibc <libc>` (libc null: it fails, as on musl). */
+function unameAs(sys, machine, libc = '2.39') {
   const d = fs.mkdtempSync(path.join(WORK, 'bin-'));
   fs.writeFileSync(path.join(d, 'uname'), `#!/bin/sh\ncase "$1" in -s) echo ${sys} ;; -m) echo ${machine} ;; *) echo ${sys} ;; esac\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(d, 'getconf'), libc === null ? '#!/bin/sh\necho "getconf: unrecognized variable" >&2\nexit 1\n'
+    : `#!/bin/sh\n[ "$1" = GNU_LIBC_VERSION ] && echo "glibc ${libc}" && exit 0\nexit 1\n`, { mode: 0o755 });
   return d;
 }
 function releaseDir(files) {
@@ -40,11 +43,11 @@ function releaseDir(files) {
   for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(d, name), body);
   return d;
 }
-function family({ sys = 'Linux', machine = 'x86_64', files = {}, channel = '', env = {}, home = fs.mkdtempSync(path.join(WORK, 'home-')), expectStatus = 0 } = {}) {
+function family({ sys = 'Linux', machine = 'x86_64', libc = '2.39', files = {}, channel = '', env = {}, home = fs.mkdtempSync(path.join(WORK, 'home-')), expectStatus = 0 } = {}) {
   const dist = releaseDir(files);
-  const r = spawnSync('sh', ['-c', `die() { echo "DIE: $*"; exit 9; }\n_PTR_FILE=latest.json\n${FAMILY}\nprintf '%s|%s' "$LINUX_FAMILY" "$_PTR_FILE"`], {
+  const r = spawnSync('sh', ['-c', `die() { echo "DIE: $*"; exit 9; }\ninfo() { echo "INFO: $*" >&2; }\n_PTR_FILE=latest.json\n${FAMILY}\nprintf '%s|%s' "$LINUX_FAMILY" "$_PTR_FILE"`], {
     encoding: 'utf8',
-    env: { PATH: unameAs(sys, machine) + ':' + process.env.PATH, KOSMOS_RELEASE_BASE: 'file://' + dist, KOSMOS_UPDATE_CHANNEL: channel, KOSMOS_HOME: home, ...env },
+    env: { PATH: unameAs(sys, machine, libc) + ':' + process.env.PATH, KOSMOS_RELEASE_BASE: 'file://' + dist, KOSMOS_UPDATE_CHANNEL: channel, KOSMOS_HOME: home, ...env },
   });
   assert.equal(r.status, expectStatus, r.stdout + r.stderr);
   return r.stdout;
@@ -83,9 +86,29 @@ test('#7281 review 1: only an a.b.c version turns the family on', () => {
 
 test('#7281 review 1: an installed Linux-family copy refuses on an unreadable Linux pointer instead of downgrading', () => {
   const out = family({ files: {}, home: homeWithNode(false), expectStatus: 9 });
-  assert.match(out, /DIE: Could not read the Linux release pointer/);
+  assert.match(out, /DIE: Could not read a version from the Linux release pointer/);
   // CONTROL: a portable install (its node a link to a system one) keeps the transitional fallback.
   assert.equal(family({ files: {}, home: homeWithNode(true) }), '|latest.json');
+});
+
+test('#7281 review 2: a computer below glibc 2.35, or on musl, keeps the portable bundle; 2.35 itself and newer take the family', () => {
+  assert.equal(family({ libc: '2.34', files: { 'latest-linux.json': PTR } }), '|latest.json', 'glibc 2.34 took a build that needs 2.35');
+  assert.equal(family({ libc: '2.28', files: { 'latest-linux.json': PTR } }), '|latest.json');
+  assert.equal(family({ libc: null, files: { 'latest-linux.json': PTR } }), '|latest.json', 'a musl computer took the glibc build');
+  assert.equal(family({ libc: '2.35', files: { 'latest-linux.json': PTR } }), 'yes|latest-linux.json', 'CONTROL: the floor itself');
+  assert.equal(family({ libc: '3.0', files: { 'latest-linux.json': PTR } }), 'yes|latest-linux.json', 'CONTROL: a newer major');
+  // An installed Linux-family copy on a C library below the floor refuses rather than be swapped for the portable bundle.
+  assert.match(family({ libc: '2.31', files: { 'latest-linux.json': PTR }, home: homeWithNode(false), expectStatus: 9 }), /DIE: .*glibc 2\.35/);
+  assert.equal(family({ libc: '2.31', files: { 'latest-linux.json': PTR }, home: homeWithNode(true) }), '|latest.json', 'CONTROL: a portable install');
+});
+
+test('#7281 review 2: a Linux staging install is stamped staging (its pointer is latest-linux-staging.json)', () => {
+  const line = cut('case "$_PTR_FILE" in *staging.json)', 'case "${KOSMOS_SOURCE_CHANNEL:-}" in staging|prod) _source_channel="$KOSMOS_SOURCE_CHANNEL" ;; esac');
+  const stamp = (ptr) => spawnSync('sh', ['-c', `_PTR_FILE=${ptr}\n${line}\nprintf '%s' "$_source_channel"`], { encoding: 'utf8', env: { PATH: process.env.PATH } }).stdout;
+  assert.equal(stamp('latest-linux-staging.json'), 'staging', 'a Linux staging install would be moved to prod');
+  assert.equal(stamp('latest-staging.json'), 'staging');
+  assert.equal(stamp('latest-linux.json'), 'prod', 'CONTROL');
+  assert.equal(stamp('latest.json'), 'prod', 'CONTROL');
 });
 
 test('#7281 CONTROL: a Mac, and a Linux computer that is not x86_64, never read the Linux pointer', () => {

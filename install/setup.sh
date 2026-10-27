@@ -3505,20 +3505,35 @@ _LPTR_BODY=""
 if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] && [ -z "${KOSMOS_SRC:-}" ] && [ -z "${KOSMOS_BUNDLE_ARCH:-}" ]; then
   _lptr_file="latest-linux.json"
   [ "${KOSMOS_UPDATE_CHANNEL:-}" = staging ] && _lptr_file="latest-linux-staging.json"
+  # Review 2: the family's node and kosmos-tunnel are built against glibc 2.35 (Ubuntu 22.04), so a computer on an
+  # older glibc, or on musl (Alpine: getconf has no GNU_LIBC_VERSION), keeps the portable bundle and its system node.
+  _glibc_ok=""
+  _glibc="$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')" || _glibc=""
+  if [ -n "$_glibc" ]; then
+    _gmaj="${_glibc%% *}"; _gmin="${_glibc#* }"   # not `set --`: that would replace this script's own arguments
+    if [ "$_gmaj" -gt 2 ] || { [ "$_gmaj" -eq 2 ] && [ "$_gmin" -ge 35 ]; }; then _glibc_ok=yes; fi
+  fi
   case "$KOSMOS_RELEASE_BASE" in
     http://*|https://*) _lptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_lptr_file?nocache=$$" 2>/dev/null)" || _lptr="" ;;
     *) _lptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_lptr_file" 2>/dev/null)" || _lptr="" ;;
   esac
   # Review 1 (W3): an a.b.c version, read the way the main pointer read below reads it, and the body reused there.
   _lver="$(printf '%s' "$_lptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' | head -1)" || _lver=""
-  if [ -n "$_lver" ]; then
+  if [ -n "$_lver" ] && [ -z "$_glibc_ok" ]; then
+    # Review 2: an installed Linux-family copy on a C library it cannot run (moved disk, downgraded system) refuses
+    # rather than be swapped for the portable bundle; anything else takes the portable bundle and says why.
+    if [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ ! -L "$KOSMOS_HOME/runtime/bin/node" ]; then
+      die "This computer's C library is older than glibc 2.35, which the Linux build of Kosmos needs, so nothing was changed."
+    fi
+    info "this computer's C library is not glibc 2.35 or newer, so the portable bundle is installed instead of the Linux build"
+  elif [ -n "$_lver" ]; then
     LINUX_FAMILY=yes; _PTR_FILE="$_lptr_file"; _LPTR_BODY="$_lptr"
   elif [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ ! -L "$KOSMOS_HOME/runtime/bin/node" ] \
        && "$KOSMOS_HOME/runtime/bin/node" --version >/dev/null 2>&1; then
     # Review 1 (W2): this computer already runs the Linux family (its own node, not a linked system one). A Linux
     # pointer that cannot be read is then a failed read, never "not published": refuse rather than downgrade it to
     # the unchecked portable bundle.
-    die "Could not read the Linux release pointer ($_lptr_file), so nothing was changed. Try again in a minute."
+    die "Could not read a version from the Linux release pointer ($_lptr_file): it may not be published on this channel yet, or the download failed. Nothing was changed."
   fi
 fi
 # file:// bases (thumb drives, the test harness) have no cache to bust,
@@ -5508,7 +5523,8 @@ if [ -d "$_wf_base/AgentWorkforce" ] && [ ! -d "$_wf_base/Kosmos" ]; then
 else
   _wf_data_root="$_wf_base/Kosmos"
 fi
-if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
+# kosmos#7281 review 2: the Linux family's staging pointer is latest-linux-staging.json, so match the suffix.
+case "$_PTR_FILE" in *staging.json) _source_channel=staging ;; *) _source_channel=prod ;; esac
 # #2969: the updater names the SUBSCRIPTION separately from the pointer it installs from. A
 # staging subscriber offered a newer PROD build (a prod-only hotfix cut) installs from latest.json
 # but must stay subscribed to staging, or the next staging build would never reach it. Only the two
