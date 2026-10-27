@@ -46,3 +46,16 @@ Test: 45 checks.
   (688d036392). Rerun: promote 45/0, release 67/0, deploy 44/0, every-test-runs + all-node-tests-considered 6/6.
 - NOT YET CONVERGED by the loop's own rule: review 3 still fixed a WARNING, so a 4th blind pass on the rebased diff is
   owed before the proof file. Queued behind buildver-7281's loop (one reviewer at a time).
+
+## Review 4 (04:2x 10-27, sonnet, on the rebased diff): 0 blockers, 4 warnings, 5 nits
+- W1 FIXED: the named-promote refusal now also says how to roll prod back by hand (restore both pointers from one
+  earlier commit; the versioned files are never replaced). Rollback BY NAME stays a follow-up.
+- W2 FIXED: a prod latest-linux.json that exists but names no manifest refuses instead of skipping verify-under.
+- W3 FIXED: promote_linux_unchanged re-checks the tarball's sha256 and the manifest's signature right before the writes
+  (the gates can queue for a long time), not only the pointer.
+- W4 FIXED: the header says the two renames are not atomic and gives the remedy for a kill between them.
+- Mutants: removing each fix reds its test (w1 49/1, w2 49/1, w3 48/2). Test: 50 checks.
+- RECORDED (nits): a Linux pointer older than prod is guarded only by the Mac gate (the pair names one version);
+  symlinked pointer files are followed (trusted local checkout, as the Mac path); latest-linux.json lands 0600 as
+  latest.json does; the promote-channel.sh wiring is checked by greps and order, not a driven promote.
+- The CONVENTION note (C3 must merge with or before this) is met: C3 merged 02:07 (e40f95e4d).

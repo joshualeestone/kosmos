@@ -55,6 +55,8 @@ chk "a staging Linux pointer at another version refuses (lockstep)" [ "$(prep "$
 S2="$(newsite vfield 1.4.0)"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="1.4.9";require("fs").writeFileSync(f,JSON.stringify(p))' "$S2/dist/latest-linux-staging.json"
 chk "a pointer whose version field alone disagrees refuses (the names still say 1.4.0)" [ "$(prep "$S2" 1.4.0)" = "rc=1 linux=no" ]
 chk "a named promote refuses while staging has a Linux pointer" [ "$(prep "$S" 1.4.0 1.4.0)" = "rc=1 linux=no" ]
+out="$( ( promote_linux_prepare "$S" 1.4.0 1.4.0 2>&1 >/dev/null; promote_linux_cleanup ) )"
+case "$out" in *"git checkout <commit> -- dist/latest.json dist/latest-linux.json"*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: the named refusal does not say how to roll back by hand (review 4 W1): $out" >&2 ;; esac
 E="$T/site-empty"; mkdir -p "$E/dist"
 chk "CONTROL: no Linux pointers at all: the Mac promote goes ahead alone" [ "$(prep "$E" 1.4.0)" = "rc=0 linux=no" ]
 printf '{}\n' > "$E/dist/latest-linux.json"
@@ -75,6 +77,9 @@ printf 'sig UNDER\n' > "$S/dist/kosmos-1.4.0-linux-x64.manifest.json.sig"
 chk "a signature prod's current Linux release does not accept refuses" [ "$(prep "$S" 1.4.0)" = "rc=1 linux=no" ]
 rm -f "$S/dist/kosmos-1.3.0-linux-x64.manifest.json"; printf 'sig\n' > "$S/dist/kosmos-1.4.0-linux-x64.manifest.json.sig"
 chk "prod's current Linux manifest unreadable refuses (cannot tell)" [ "$(prep "$S" 1.4.0)" = "rc=1 linux=no" ]
+# Review 4 (W2): a prod pointer that exists but names no manifest refuses, rather than skipping the check.
+S="$(newsite prodnoman 1.4.0)"; printf '{"version":"1.3.0"}\n' > "$S/dist/latest-linux.json"
+chk "a prod Linux pointer that names no manifest refuses" [ "$(prep "$S" 1.4.0)" = "rc=1 linux=no" ]
 # Review 2 (W1): the key-list arm needs a real origin carrying the served list, or the fetch refuses first and the
 # check itself is never reached.
 S="$(newsite list 1.4.0)"; O="$T/origin-list.git"; git init -q --bare -b main "$O"
@@ -110,6 +115,16 @@ chk "the commit renames it into place" cmp -s "$S/dist/latest-linux-staging.json
 chk "and nothing is owed at the end" promote_linux_refuse_if_failed
 printf ' ' >> "$S/dist/latest-linux-staging.json"
 chk "a staging pointer that changed while the promote ran refuses" not promote_linux_unchanged "$S" 2>/dev/null
+promote_linux_cleanup
+# Review 4 (W3): the files the pointer names are checked again right before the writes, not only at prepare.
+S="$(newsite recheck 1.6.0)"; promote_linux_prepare "$S" 1.6.0 >/dev/null 2>&1
+chk "CONTROL: prepare took it, and the re-check passes on untouched files" promote_linux_unchanged "$S"
+printf 'x' >> "$S/dist/kosmos-1.6.0-linux-x64.tar.gz"
+chk "a tarball replaced after prepare (pointer unchanged) refuses" not promote_linux_unchanged "$S" 2>/dev/null
+promote_linux_cleanup
+S="$(newsite resig 1.6.0)"; promote_linux_prepare "$S" 1.6.0 >/dev/null 2>&1
+printf 'BAD\n' > "$S/dist/kosmos-1.6.0-linux-x64.manifest.json.sig"
+chk "a manifest signature replaced after prepare refuses" not promote_linux_unchanged "$S" 2>/dev/null
 promote_linux_cleanup
 chk "cleanup removes the snapshot" [ ! -f "$PROMOTE_LINUX_SNAP" ]
 # Review 1 (W1): a failed rename after latest.json moved does not exit; it is owed at the end.
