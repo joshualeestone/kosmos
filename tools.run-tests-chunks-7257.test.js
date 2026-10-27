@@ -102,7 +102,7 @@ test('#7257 review 1: a test failure outranks a 126/127 from another chunk; a ch
   const r = run(FILES, OPTS, [], { [FILES[10]]: 130 });
   assert.match(r.out, /STATUS=130/);
   assert.equal(r.calls.filter((c) => c[0] === '--test').length, 1, 'chunks after an interrupted one must not start');
-  assert.match(r.err, /ran in 1 chunk\(s\)/);
+  assert.match(r.err, /stopped after 1 chunk\(s\) \(exit 130\): \d+ of 1500 file\(s\) not run/, 'an interrupted run must not read as complete');
 });
 
 test('#7257 review 1: the Windows flag is reset before the case, so the environment cannot set it', () => {
@@ -114,4 +114,29 @@ test('#7257 review 2: a run that fits in one chunk (every --only run) runs under
   assert.match(r.out, /STATUS=0/, 'the one-chunk run must reach its status: ' + r.err.slice(0, 300));
   assert.doesNotMatch(r.err, /unbound variable/);
   assert.equal(r.calls.filter((c) => c[0] === '--test').length, 1);
+});
+
+test('#7257 review 3: a test file named after the suite\'s files runs once, in the last chunk; one already listed is not added', { skip: !BASH && 'no bash' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-chunks-extra-'));
+  const extraFile = path.join(dir, 'extra.test.js').replace(/\\/g, '/');
+  fs.writeFileSync(extraFile, '');
+  try {
+    const r = run(FILES, OPTS, [extraFile, '--test-name-pattern', 'x']);
+    const tests = r.calls.filter((c) => c[0] === '--test');
+    assert.ok(tests.length > 1);
+    assert.equal(tests.filter((c) => c.includes(extraFile)).length, 1, 'the named file runs once');
+    assert.ok(tests[tests.length - 1].includes(extraFile), 'in the last chunk');
+    for (const c of tests) assert.deepEqual(c.slice(-2), ['--test-name-pattern', 'x'], 'an option and its value go to every chunk');
+    // a file already in the suite's list stays in its own chunk, once
+    const again = run(FILES, OPTS, [FILES[3]]).calls.filter((c) => c[0] === '--test');
+    assert.equal(again.flat().filter((x) => x === FILES[3]).length, 1);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#7257 review 3: node() expands no array the way bash before 4.4 calls unbound under set -u, and stops after 126/127', { skip: !BASH && 'no bash' }, () => {
+  const fn = block();
+  assert.doesNotMatch(fn.replace(/\$\{(\w+)\[@\]\+"\$\{\1\[@\]\}"\}/g, ''), /"\$\{(opts|extra|chunk|files)\[@\]\}"/, 'opts, extra, chunk and files are read as ${x[@]+"${x[@]}"}');
+  const r = run(FILES, OPTS, [], { [FILES[0]]: 127 });
+  assert.match(r.out, /STATUS=127/);
+  assert.equal(r.calls.filter((c) => c[0] === '--test').length, 1, 'node cannot run: no later chunk is tried');
 });

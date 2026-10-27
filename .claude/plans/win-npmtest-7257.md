@@ -61,3 +61,11 @@ suite has not been run to the end on Windows: many POSIX-only files fail there, 
   block under set -uo pipefail with a one-chunk case (both fail on round 1). WARNING FIXED: --test-reporter-destination
   is named as written again per chunk. NIT FIXED: the comment says why 24,000 (headroom under 32,767). End to end with
   the stand-in: --only runs its one file in 1 chunk, exit 0; the full node part 3 chunks, 1,844 files. 6/6.
+- Round 3: 2 BLOCKERs, 1 WARNING, 1 NIT, all FIXED (node() rewritten whole). BLOCKER: under set -u, bash before 4.4
+  (a stock Mac's 3.2) calls an empty array unbound, so the new test would go red there; every array in node() is now
+  read as ${x[@]+"${x[@]}"} (pinned by a source check; no bash 3.2 on this box to run it). BLOCKER: a test file named
+  after the suite's files ran once per chunk (3 times); trailing arguments are now split: one equal to a listed file is
+  dropped (it runs in its chunk), an existing file goes with the last chunk only, anything else (options and their
+  values) with every chunk. WARNING: a run stopped by a signal says "stopped after N chunk(s) (exit E): M of T file(s)
+  not run". NIT: 126/127 (node cannot run) stops the rest too. End to end with the stand-in: full 3 chunks/1,844 files,
+  --only 1/1, a named file once. 8/8; the new tests fail on round 2.

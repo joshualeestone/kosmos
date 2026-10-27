@@ -869,17 +869,28 @@ if [ "${_RT_WIN:-0}" = 1 ]; then
       done
     fi
     if [ "$k" -lt 0 ]; then command node "$@"; return; fi
-    local opts=("${a[@]:0:k}") extra=("${a[@]:k+n}") chunk=() base=0 len=0 worst=0 failed=0 rc=0 chunks=0 x f
-    for x in "${opts[@]}" "${extra[@]}"; do
+    # Arrays read as ${x[@]+"${x[@]}"}: an empty one under set -u is "unbound" in bash before 4.4 (review 3).
+    local opts=() extra=() files=() chunk=() base=0 len=0 worst=0 failed=0 rc=0 chunks=0 ran=0 last=0 x f
+    for ((i = 0; i < k; i++)); do opts+=("${a[i]}"); done
+    # A trailing argument that names a file is a test file to run once, so it goes with the last chunk only; every
+    # other one (an option, or an option's value) goes with every chunk (review 3: engine/x.test.js ran once per chunk).
+    for ((i = k + n; i < ${#a[@]}; i++)); do
+      # Already one of the suite's files: it runs in its chunk, once (one node --test runs a repeated file once too).
+      for f in "${KOSMOS_TEST_FILES[@]}"; do [ "$f" = "${a[i]}" ] && continue 2; done
+      if [ "${a[i]#-}" = "${a[i]}" ] && [ -f "${a[i]}" ]; then files+=("${a[i]}"); else extra+=("${a[i]}"); fi
+    done
+    for x in ${opts[@]+"${opts[@]}"} ${extra[@]+"${extra[@]}"}; do
       base=$((base + ${#x} + 3))
       case "$x" in --test-reporter-destination*) echo "run-tests: --test-reporter-destination is written again by each chunk on Windows, so it holds the last chunk's results (#7257)" >&2 ;; esac
     done
+    for x in ${files[@]+"${files[@]}"}; do last=$((last + ${#x} + 3)); done
     _rt_chunk() {
-      command node "${opts[@]}" "${chunk[@]}" "${extra[@]}"; rc=$?
-      chunks=$((chunks + 1)); chunk=(); len=0
+      command node ${opts[@]+"${opts[@]}"} ${chunk[@]+"${chunk[@]}"} "$@" ${extra[@]+"${extra[@]}"}; rc=$?
+      chunks=$((chunks + 1)); ran=$((ran + ${#chunk[@]})); chunk=(); len=0
       case "$rc" in 0|126|127) ;; *) [ "$rc" -gt "$failed" ] && failed=$rc ;; esac
       [ "$rc" -gt "$worst" ] && worst=$rc
-      [ "$rc" -lt 128 ]
+      # 126/127: node itself could not run, so no later chunk can; 128 and up: a signal (Ctrl-C) stops the rest.
+      [ "$rc" -lt 126 ]
     }
     for f in "${KOSMOS_TEST_FILES[@]}"; do
       if [ "${#chunk[@]}" -gt 0 ] && [ $((base + len + ${#f} + 3)) -gt 24000 ]; then
@@ -887,10 +898,18 @@ if [ "${_RT_WIN:-0}" = 1 ]; then
       fi
       chunk+=("$f"); len=$((len + ${#f} + 3))
     done
-    # The last chunk, unless an earlier one ended from a signal (rc is 0 when every file fit in one chunk: review 2,
-    # under set -u an unset rc ended the script and --only never ran).
-    if [ "$chunks" -eq 0 ] || [ "$rc" -lt 128 ]; then _rt_chunk; fi
-    echo "run-tests: node --test ran in $chunks chunk(s) over $n file(s) (#7257: Windows caps a command line)" >&2
+    # The last chunk (with the trailing test files), unless an earlier one stopped the run. rc is 0 when every file fit
+    # in one chunk (review 2: under set -u an unset rc ended the script and --only never ran).
+    if [ "$chunks" -eq 0 ] || [ "$rc" -lt 126 ]; then
+      if [ "${#chunk[@]}" -gt 0 ] && [ $((base + len + last)) -gt 24000 ]; then _rt_chunk; fi
+      if [ "$rc" -lt 126 ]; then _rt_chunk ${files[@]+"${files[@]}"}; ran=$((ran + ${#files[@]})); fi
+    fi
+    local total=$((n + ${#files[@]}))
+    if [ "$ran" -lt "$total" ]; then
+      echo "run-tests: node --test stopped after $chunks chunk(s) (exit $rc): $((total - ran)) of $total file(s) not run (#7257)" >&2
+    else
+      echo "run-tests: node --test ran in $chunks chunk(s) over $total file(s) (#7257: Windows caps a command line)" >&2
+    fi
     unset -f _rt_chunk
     if [ "$failed" -gt 0 ]; then return "$failed"; fi
     return "$worst"
