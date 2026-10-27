@@ -1004,6 +1004,7 @@ struct RoomView: View {
                 .disabled(!canPost)
                 .opacity(canPost ? 1 : 0.5)
                 .accessibilityLabel("Post")
+                .accessibilityHint(dictation.busy ? "Stop dictating first" : "")   // kosmos#7268 review 5: why it waits
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             if let line = ComposerExtras.micLine(dictation.state) {

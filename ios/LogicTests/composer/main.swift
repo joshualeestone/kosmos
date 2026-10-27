@@ -70,8 +70,16 @@ for name in ["ChatView", "RoomView"] {
     let src = code(name)
     check(src.contains("dictation.reset(); emojiOpen = false }"), "\(name): leaving resets dictation and closes the panel")
     check(src.components(separatedBy: "dictation.reset(); emojiOpen = false").count - 1 >= 2, "\(name): another account resets them too")
-    check(src.contains("!dictation.busy &&"), "\(name): Send waits while dictating or finishing")
+    // Inside the guard itself (review 5), not anywhere in the file.
+    let guardBody = src.components(separatedBy: name == "ChatView" ? "private var canSend: Bool {" : "private var canPost: Bool {").dropFirst().first.map { String($0.prefix(400)) } ?? ""
+    check(guardBody.contains("!dictation.busy"), "\(name): Send waits while dictating or finishing")
 }
+// Review 5: dictation's own setup changes the category and the route; only headphones in or out may stop it, and an
+// interruption only when it begins.
+let extras = code("ComposerExtras")
+check(extras.contains(".oldDeviceUnavailable?, .newDeviceAvailable?: return .headphones") && !extras.contains(".categoryChange?"), "a route change stops dictation only for headphones in or out")
+check(extras.contains("== .began ? .interruptionBegan : .ignore"), "an interruption stops it only when it begins")
+check(extras.contains("if live && !engine.isRunning"), "an engine change stops it only when the engine really stopped")
 // The few lines before the draft is saved on leaving must stop dictation first.
 let chat = code("ChatView")
 let beforeSave = chat.components(separatedBy: "client.drafts[agent.session] = draftText").first.map { String($0.suffix(400)) } ?? ""

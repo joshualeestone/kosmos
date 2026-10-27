@@ -1104,6 +1104,7 @@ struct ChatView: View {
         }
         .disabled(!canSend)
         .accessibilityLabel("Send")
+        .accessibilityHint(dictation.busy ? "Stop dictating first" : "")   // kosmos#7268 review 5: why it waits
         .padding(.bottom, 2)
     }
 

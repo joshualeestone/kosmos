@@ -27,7 +27,7 @@ struct ComposerMicButton: View {
     @ObservedObject var dictation: Dictation
     let action: () -> Void
     var body: some View {
-        let on = dictation.active   // review 2: starting shows the stop look too (a press cancels it)
+        let on = dictation.busy   // starting and finishing show the stop look too: a press then ends it (reviews 2, 5)
         Button(action: action) {
             Image(systemName: on ? "stop.circle.fill" : "mic")
                 .font(.system(size: 20))
@@ -94,7 +94,8 @@ extension ComposerExtras {
     private var generation = 0
     // The app's audio session as it was before dictation, put back whenever dictation lets go (review 1 and 2: a video
     // played later must be heard, including after a failed start). Kept only once, never overwritten by our own. The
-    // session is deactivated only if dictation activated it (review 3).
+    // session is deactivated only after dictation's own setActive(true) succeeded (review 3); nothing else in the app
+    // uses the audio session today, so that is also the only activation there is (review 5).
     private var savedSession: (AVAudioSession.Category, AVAudioSession.Mode, AVAudioSession.CategoryOptions)?
     private var didActivate = false
     private var observers: [NSObjectProtocol] = []
@@ -110,12 +111,44 @@ extension ComposerExtras {
             (AVAudioSession.routeChangeNotification, nil),   // review 4: headphones in or out, said plainly
         ]
         for (name, object) in watch {
-            observers.append(nc.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.stop(say: true) }
+            observers.append(nc.addObserver(forName: name, object: object, queue: .main) { [weak self] note in
+                // Review 5: read the reason here, where the notification is; act on the main actor.
+                let why = Dictation.reason(note)
+                Task { @MainActor in self?.handle(why) }
             })
         }
     }
     deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+
+    // Review 5: which notifications mean the microphone really ended. Dictation's own setup changes the category and the
+    // route, and those notices must never stop the session it just started.
+    private enum Ended { case interruptionBegan, background, mediaReset, engineChanged, headphones, ignore }
+    nonisolated private static func reason(_ note: Notification) -> Ended {
+        switch note.name {
+        case AVAudioSession.interruptionNotification:
+            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            return raw.flatMap(AVAudioSession.InterruptionType.init) == .began ? .interruptionBegan : .ignore   // not .ended
+        case UIApplication.didEnterBackgroundNotification: return .background
+        case AVAudioSession.mediaServicesWereResetNotification: return .mediaReset
+        case .AVAudioEngineConfigurationChange: return .engineChanged
+        case AVAudioSession.routeChangeNotification:
+            let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            switch raw.flatMap(AVAudioSession.RouteChangeReason.init) {
+            case .oldDeviceUnavailable?, .newDeviceAvailable?: return .headphones   // in or out; never .categoryChange
+            default: return .ignore
+            }
+        default: return .ignore
+        }
+    }
+    private func handle(_ why: Ended) {
+        switch why {
+        case .ignore: return
+        case .background, .interruptionBegan: if busy { stop(say: true) }
+        case .mediaReset, .headphones: if live || starting { stop(say: true) }
+        // The engine stops itself when its input really changed; a notice while it still runs is our own setup.
+        case .engineChanged: if live && !engine.isRunning { stop(say: true) }
+        }
+    }
 
     var active: Bool { starting || state == .listening }
 
@@ -125,6 +158,8 @@ extension ComposerExtras {
         if state == .listening { finish(); return }
         generation += 1
         let mine = generation
+        lastWritten = base   // review 5: boxChanged during starting compares against THIS start's box
+        heard = false
         if state != .ready { state = .ready }   // review 3: an old refusal line goes while this start runs
         starting = true
         Task { await start(base: base, current: current, onText: onText, generation: mine) }
@@ -175,8 +210,6 @@ extension ComposerExtras {
             // Review 4: anything left from an earlier session goes first, and this session's fields are set only now,
             // after every await has passed its generation check.
             task?.cancel(); request?.endAudio(); task = nil; request = nil
-            lastWritten = base
-            heard = false
             input.removeTap(onBus: 0)
             input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in req.append(buffer) }
             tapInstalled = true
