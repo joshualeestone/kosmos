@@ -720,6 +720,10 @@ do {
     check(Board.youLetter("Sam Carter") == "S" && Board.youLetter("  sam ") == "S", "the name's first letter, upper-cased, spaces ignored")
     check(Board.youLetter(nil) == nil && Board.youLetter("   ") == nil, "no letter while the name is not known (the gear shows then)")
     check(Board.youLetter("élodie") == "É" && Board.youLetter("李明") == "李", "a first letter outside A to Z is kept whole")
+    // Review 1: only "no record" or a saved blank name clears the name; anything that is not the record keeps it.
+    check(Board.youName(Data(#"{"state":"saved","you":{"name":"Sam"}}"#.utf8)) == .name("Sam"), "a saved name")
+    check(Board.youName(Data(#"{"state":"absent","you":null}"#.utf8)) == .none && Board.youName(Data(#"{"state":"saved","you":{"name":" "}}"#.utf8)) == .none, "absent or blank: no name")
+    check(Board.youName(Data("<html>sign in</html>".utf8)) == .unknown && Board.youName(Data(#"{"state":"unknown","you":null}"#.utf8)) == .unknown, "the gate's page or an unreadable record learns nothing")
     let png = Data([0x89, 0x50, 0x4e, 0x47])
     check(Board.youPicture(status: 200, contentType: "image/png", data: png) == .picture(png), "a picture")
     check(Board.youPicture(status: 204, contentType: nil, data: Data()) == .none && Board.youPicture(status: 404, contentType: "text/plain", data: Data("x".utf8)) == .none, "204 (none yet) and an older board's 404 are no picture")
@@ -2109,15 +2113,23 @@ section("native board loop: connecting")
         c.start()
         let got = await settle { c.youName == "Sam Carter" && c.youPicture == face }
         check(got, "the shown computer's name and picture are read with its first list")
-        let reads = w.count("/api/you/avatar")
+        let reads = w.count("/api/you/avatar"), names = w.count("/api/you")
         w.youPictureAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        w.youAnswer = (200, "<html>sign in</html>")
         for _ in 0..<3 { await c.refreshNow() }
-        check(w.count("/api/you/avatar") == reads, "and not on every 5-second read (every 5 minutes)")
+        check(w.count("/api/you/avatar") == reads && w.count("/api/you") == names, "and not on every 5-second read")
         w.clock += Board.youEvery + 1
+        await c.refreshNow()
+        // No idle settle here: each pass of the poll advances the fake clock 5 s, so idling would pass 30 minutes.
+        _ = await settle { w.count("/api/you") > names }
+        check(w.count("/api/you") > names, "after 5 minutes the name is read again (\(w.count("/api/you")) after \(names))")
+        check(w.count("/api/you/avatar") == reads, "and the picture is not (review 1: every 30 minutes; \(w.count("/api/you/avatar")) after \(reads))")
+        check(c.youName == "Sam Carter", "a name read that is the gate's page keeps the name (review 1)")
+        w.clock += Board.youPictureEvery + 1
         await c.refreshNow()
         _ = await settle { w.count("/api/you/avatar") > reads }
         _ = await settle { false }
-        check(w.count("/api/you/avatar") > reads && c.youPicture == face, "a later read that is the gate's page keeps the picture shown")
+        check(w.count("/api/you/avatar") > reads && c.youPicture == face, "after 30 minutes the picture is read; the gate's page keeps the picture shown")
         w.youPictureAnswer = (204, "text/plain", Data())
         w.youAnswer = (200, #"{"state":"absent","you":null}"#)
         c.showMac(address: "laptop.kosmosplus.com")
@@ -2125,6 +2137,18 @@ section("native board loop: connecting")
         let laptop = await settle { isLive(c) && c.shownMacName == "Laptop" }
         _ = await settle { w.requests.contains("GET laptop.kosmosplus.com/api/you/avatar") }
         check(laptop && c.youName == nil && c.youPicture == nil, "a computer with no name or picture shows none (the gear and You)")
+        c.stop()
+    }
+    do {
+        // Review 1: a sign-out forgets the person too, not only a switch.
+        let (c, w, sessions, _) = make("kst1")
+        w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
+        w.youPictureAnswer = (200, "image/png", Data([0x89, 0x50, 0x4e, 0x47, 9]))
+        c.start()
+        let got = await settle { c.youName == "Sam Carter" && c.youPicture != nil }
+        sessions.value = nil
+        c.start()
+        check(got && c.youName == nil && c.youPicture == nil, "a sign-out forgets the person's name and picture")
         c.stop()
     }
 

@@ -978,8 +978,18 @@ final class SessionMessageProxy: NSObject, WKScriptMessageHandler {
 // so the gear shows then and never a wrong letter.
 enum YouFace {
     static let tabSide: CGFloat = 26
+    // Review 1: ContentView redraws on every 5 s agents read, and a picture can be several MB, so the decoded circle is
+    // kept and made again only when the picture's bytes change.
+    private static var lastPicture: (data: Data, image: UIImage)?
     static func tabImage(_ data: Data?, letter: String?, dark: Bool) -> UIImage? {
-        if let data, let picture = UIImage(data: data) { return circle(picture, side: tabSide).withRenderingMode(.alwaysOriginal) }
+        if let data {
+            if let last = lastPicture, last.data == data { return last.image }
+            if let picture = UIImage(data: data) {
+                let image = circle(picture, side: tabSide).withRenderingMode(.alwaysOriginal)
+                lastPicture = (data, image)
+                return image
+            }
+        }
         guard let letter else { return nil }
         // Palette.avatarFill / avatarLetter, light and dark (AgentsView.swift).
         let fill = dark ? UIColor(red: 0x25 / 255.0, green: 0x25 / 255.0, blue: 0x29 / 255.0, alpha: 1) : UIColor(red: 0xec / 255.0, green: 0xe7 / 255.0, blue: 0xdd / 255.0, alpha: 1)

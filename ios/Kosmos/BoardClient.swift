@@ -87,7 +87,10 @@ final class BoardClient: ObservableObject {
     @Published private(set) var youName: String?
     @Published private(set) var youPicture: Data?
     private var youAt: Date?
+    private var youPictureAt: Date?
     private var youTask: Task<Void, Never>?
+    // Review 1: only the read that started last clears the handle, as the tasks read's token does.
+    private var youTicket = 0
     private var chosenMac: String?
     // The computer the switcher marks: the shown list's, else the one being opened.
     var switcherShown: String? { shownMac?.address ?? admitted?.mac.address ?? chosenMac }
@@ -298,6 +301,9 @@ final class BoardClient: ObservableObject {
         // kosmos#7030 review 3: a tasks read in the air would otherwise hold off the next one after start().
         tasksTask?.cancel()
         tasksTask = nil
+        // kosmos#7266 slice B review 1: a name and picture read in the air is dropped with the run, so it is not counted
+        // as done: the next start reads at once instead of waiting 5 minutes with nothing shown.
+        if youTask != nil { youTask?.cancel(); youTask = nil; youAt = nil; youPictureAt = nil }
     }
 
     // MARK: - Today (kosmos#7030)
@@ -1054,7 +1060,16 @@ final class BoardClient: ObservableObject {
     private func fetchYou(url: URL, _ gen: Int) async {
         let named = await env.send(Board.youRequest(mac: url))
         guard gen == generation, !Task.isCancelled else { return }
-        if let (data, answer) = named, (200...299).contains(answer.statusCode) { youName = Board.parseYouName(data) }
+        if let (data, answer) = named, (200...299).contains(answer.statusCode) {
+            switch Board.youName(data) {
+            case .name(let n): youName = n
+            case .none: youName = nil
+            case .unknown: break
+            }
+        }
+        // Review 1: the picture on the first read and then every 30 minutes (it is the big one).
+        guard youPictureAt.map({ env.now().timeIntervalSince($0) >= Board.youPictureEvery }) ?? true else { return }
+        youPictureAt = env.now()
         let pic = await env.send(Board.youPictureRequest(mac: url))
         guard gen == generation, !Task.isCancelled else { return }
         switch Board.youPicture(status: pic?.1.statusCode, contentType: pic?.1.value(forHTTPHeaderField: "Content-Type"), data: pic?.0) {
@@ -1067,7 +1082,7 @@ final class BoardClient: ObservableObject {
     // Another computer, another account or a sign-out: the person's name and picture are that computer's own.
     private func forgetYou() {
         youTask?.cancel(); youTask = nil
-        youAt = nil; youName = nil; youPicture = nil
+        youAt = nil; youPictureAt = nil; youName = nil; youPicture = nil
     }
 
     // Everything learned under the previous Kosmos+ session goes, cookies and the kept Mac session included.
@@ -1321,7 +1336,9 @@ final class BoardClient: ObservableObject {
             // kosmos#7266 slice B: the person's name and picture, on the first list and then every 5 minutes.
             if youTask == nil, youAt.map({ env.now().timeIntervalSince($0) >= Board.youEvery }) ?? true {
                 youAt = env.now()
-                youTask = Task { await self.fetchYou(url: url, gen); self.youTask = nil }
+                youTicket += 1
+                let ticket = youTicket
+                youTask = Task { await self.fetchYou(url: url, gen); if self.youTicket == ticket { self.youTask = nil } }
             }
             // kosmos#7030: the tasks Today shows, read only while Today is on screen, at most every 30 s (the board's Tasks
             // view read is not cheap); pull to refresh reads them at once.
