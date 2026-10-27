@@ -77,9 +77,11 @@ for name in ["ChatView", "RoomView"] {
 // Review 5: dictation's own setup changes the category and the route; only headphones in or out may stop it, and an
 // interruption only when it begins.
 let extras = code("ComposerExtras")
-check(extras.contains(".oldDeviceUnavailable?, .newDeviceAvailable?: return .headphones") && !extras.contains(".categoryChange?"), "a route change stops dictation only for headphones in or out")
+check(extras.contains("case .oldDeviceUnavailable?, .newDeviceAvailable?:") && extras.contains("return before == now ? .ignore : .headphones") && !extras.contains(".categoryChange?"), "a route change stops dictation only when headphones change the microphone input")
 check(extras.contains("== .began ? .interruptionBegan : .ignore"), "an interruption stops it only when it begins")
-check(extras.contains("if live && !engine.isRunning"), "an engine change stops it only when the engine really stopped")
+check(extras.contains("if live && state == .listening && !engine.isRunning"), "an engine change stops it only when the engine really stopped, never while finishing")
+check(extras.contains("if finishing { return }"), "a press while the last words land does not throw them away")
+check(extras.contains("&& !silent && self.state == .listening"), "no refusal for silence or after a stop by hand")
 // The few lines before the draft is saved on leaving must stop dictation first.
 let chat = code("ChatView")
 let beforeSave = chat.components(separatedBy: "client.drafts[agent.session] = draftText").first.map { String($0.suffix(400)) } ?? ""

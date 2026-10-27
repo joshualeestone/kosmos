@@ -22,21 +22,28 @@ struct ComposerEmojiButton: View {
     }
 }
 
-// The microphone beside it: grey at rest, red while listening (a press stops it).
+// The microphone beside it: grey at rest, red while listening (a press stops it). While the last words land after a
+// stop (review 6), a small spinner, not pressable: a second press there would throw those words away.
 struct ComposerMicButton: View {
     @ObservedObject var dictation: Dictation
     let action: () -> Void
     var body: some View {
-        let on = dictation.busy   // starting and finishing show the stop look too: a press then ends it (reviews 2, 5)
+        let on = dictation.active
         Button(action: action) {
-            Image(systemName: on ? "stop.circle.fill" : "mic")
-                .font(.system(size: 20))
-                .foregroundColor(on ? Palette.dangerWord : Palette.tertiary)
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
+            Group {
+                if dictation.finishing { ProgressView().controlSize(.small) }
+                else {
+                    Image(systemName: on ? "stop.circle.fill" : "mic")
+                        .font(.system(size: 20))
+                        .foregroundColor(on ? Palette.dangerWord : Palette.tertiary)
+                }
+            }
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
-        .accessibilityLabel(ComposerExtras.micLabel(listening: on))
-        .accessibilityHint(on ? "" : ComposerExtras.micHint)
+        .disabled(dictation.finishing)
+        .accessibilityLabel(dictation.finishing ? "Finishing dictation" : ComposerExtras.micLabel(listening: on))
+        .accessibilityHint(on || dictation.finishing ? "" : ComposerExtras.micHint)
     }
 }
 
@@ -80,6 +87,8 @@ extension ComposerExtras {
     private var base = ""
     private var lastWritten = ""
     private var heard = false
+    // Review 6: kept for the whole session, as Apple's own sample does; nothing promises the task keeps it alive.
+    private var recognizer: SFSpeechRecognizer?
     private var current: (() -> String)?
     private var onText: ((String) -> Void)?
     private var tapInstalled = false
@@ -109,6 +118,7 @@ extension ComposerExtras {
             (AVAudioSession.interruptionNotification, nil), (UIApplication.didEnterBackgroundNotification, nil),
             (AVAudioSession.mediaServicesWereResetNotification, nil), (.AVAudioEngineConfigurationChange, engine),
             (AVAudioSession.routeChangeNotification, nil),   // review 4: headphones in or out, said plainly
+            (UIApplication.didBecomeActiveNotification, nil),   // review 6: back from Settings
         ]
         for (name, object) in watch {
             observers.append(nc.addObserver(forName: name, object: object, queue: .main) { [weak self] note in
@@ -122,19 +132,25 @@ extension ComposerExtras {
 
     // Review 5: which notifications mean the microphone really ended. Dictation's own setup changes the category and the
     // route, and those notices must never stop the session it just started.
-    private enum Ended { case interruptionBegan, background, mediaReset, engineChanged, headphones, ignore }
+    private enum Ended { case interruptionBegan, background, mediaReset, engineChanged, headphones, active, ignore }
     nonisolated private static func reason(_ note: Notification) -> Ended {
         switch note.name {
         case AVAudioSession.interruptionNotification:
             let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             return raw.flatMap(AVAudioSession.InterruptionType.init) == .began ? .interruptionBegan : .ignore   // not .ended
         case UIApplication.didEnterBackgroundNotification: return .background
+        case UIApplication.didBecomeActiveNotification: return .active
         case AVAudioSession.mediaServicesWereResetNotification: return .mediaReset
         case .AVAudioEngineConfigurationChange: return .engineChanged
         case AVAudioSession.routeChangeNotification:
             let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             switch raw.flatMap(AVAudioSession.RouteChangeReason.init) {
-            case .oldDeviceUnavailable?, .newDeviceAvailable?: return .headphones   // in or out; never .categoryChange
+            case .oldDeviceUnavailable?, .newDeviceAvailable?:
+                // In or out; never .categoryChange. Review 6: only when the microphone input itself changed (AirPods
+                // connecting for output alone leave dictation's built-in microphone as it was).
+                let before = (note.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription)?.inputs.map(\.uid) ?? []
+                let now = AVAudioSession.sharedInstance().currentRoute.inputs.map(\.uid)
+                return before == now ? .ignore : .headphones
             default: return .ignore
             }
         default: return .ignore
@@ -146,7 +162,8 @@ extension ComposerExtras {
         case .background, .interruptionBegan: if busy { stop(say: true) }
         case .mediaReset, .headphones: if live || starting { stop(say: true) }
         // The engine stops itself when its input really changed; a notice while it still runs is our own setup.
-        case .engineChanged: if live && !engine.isRunning { stop(say: true) }
+        case .engineChanged: if live && state == .listening && !engine.isRunning { stop(say: true) }   // not while finishing (review 6)
+        case .active: if state != .ready && !busy { state = .ready }   // review 6: allowed in Settings, come back: no old refusal
         }
     }
 
@@ -154,7 +171,8 @@ extension ComposerExtras {
 
     // `current` reads the box as it is now, so a result never writes over something typed since (review 3).
     func toggle(base: String, current: @escaping () -> String, onText: @escaping (String) -> Void) {
-        if starting || finishing { stop(); return }   // review 4: a press while finishing ends it, never a new start
+        if finishing { return }   // review 6: the last words are landing (at most 2 s); a press must not throw them away
+        if starting { stop(); return }
         if state == .listening { finish(); return }
         generation += 1
         let mine = generation
@@ -192,6 +210,7 @@ extension ComposerExtras {
         guard mic else { refuse(.denied); return }
         guard let recognizer = SFSpeechRecognizer() else { refuse(.unsupported); return }
         guard recognizer.isAvailable else { refuse(.unavailable); return }
+        self.recognizer = recognizer
         do {
             let session = AVAudioSession.sharedInstance()
             if savedSession == nil { savedSession = (session.category, session.mode, session.categoryOptions) }
@@ -289,6 +308,7 @@ extension ComposerExtras {
         request = nil
         current = nil
         onText = nil
+        recognizer = nil
         releaseAudio()
         if state == .listening {
             state = .ready
