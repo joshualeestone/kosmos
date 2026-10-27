@@ -8,7 +8,7 @@ unknown, talk or swarm `sec` lands on the conversation as today. `sec` on `?tab=
 ## Shape
 - web/index.html: WANT_AGENT_SEC read once at boot beside BOOT_TAB; settleWantAgent passes it to openDetail (which
   already takes a section) and, when set, scrolls that section into view on a phone instead of revealing Talk.
-- render-waiting-phone-718.js arm (e): the link with &sec=model and with an unknown sec, on a phone. Control: the same
+- render-waiting-phone-718.js arm (f): the link with &sec=model and with an unknown sec, on a phone. Control: the same
   check against origin/main's page must fail the sec=model arm.
 
 ## Decided
@@ -26,3 +26,16 @@ unknown, talk or swarm `sec` lands on the conversation as today. `sec` on `?tab=
 - Fixed: a link opens only model, memory, profile, instr, skills or files; term and remove (a destructive control) land
   on the conversation, as talk and swarm do. Arm for each.
 - Known, not changed: on a wide window a folded name opens its group at the top, as its pill does.
+
+## Review 2
+- Fixed: the hold re-reads the position it holds after each correction. A section on a page too short to reach its
+  landing stops short the first time; once content above makes room it lands for real, and holding the first spot would
+  scroll it again on every tick for 4 s.
+- Fixed: the check's README row lists the #7280 arms and both measured controls; this plan's finished line names term
+  and remove.
+- Known, not changed: a notice that appears during the 4 s can sit over the section's heading (its landing counts the
+  notice height at landing time only).
+
+## Review 3 (converged)
+- No arm guards the review-2 re-read: without it the hold only repeats a no-op scroll on a section already at its
+  landing, so nothing a check reads changes. Recorded, not armed.
