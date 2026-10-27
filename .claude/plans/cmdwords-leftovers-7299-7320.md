@@ -41,3 +41,11 @@ that is the accepted side. The unescaped spelling of a Windows path in a POSIX r
 extra word, harmless for the same reason.
 
 ## Review rounds
+- Round 1: no BLOCKER (about 160 fixed calls and 200k fuzz vs main and f9dd5a35d4: every f9dd-true/HEAD-false row is an
+  option's value, not a program; no new false refusal; nothing slow or throwing). 2 WARNINGs, 3 NITs. FIXED: eval drops
+  a double-quoted argument's escapes before reading it (eval "echo a\'; schtasks; ..."); the unescaped spelling is also
+  walked as the command word, so b\ash -c, $'eval', e\nv and c^md /c are read as launchers; unescaping only in a line a
+  shell reads (not a spawn argument), and cmd's caret only outside quotes; $'...' decodes \xHH, \NNN, \uHHHH. NIT
+  ACCEPTED: eval nested past DEPTH 6. Reviewer NIT corrected by a live probe: cmd /c "ec^ho" hi printed hi (the /c
+  quote stripping exposes the caret), so cmd /c "sch^tasks" IS refused, and the test says so. Negative control: the new
+  test fails against round 0. 64/64 (1 skip, #7318's); 87 win32 files 0 fail 0 refusals.

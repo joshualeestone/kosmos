@@ -150,12 +150,29 @@ function splitInto(strs, after, depth, out) {
   }
 }
 
-/* A word as the shell will run it, where that differs from its text: a POSIX shell unescapes g\h and $'gh' to gh, cmd
-   unescapes sch^tasks to schtasks (#7320). Both spellings are returned. */
+/* A word as the shell will run it, where that differs from its text: a POSIX shell unescapes g\h and $'gh' (with
+   $'...'s \xHH, \NNN and \uHHHH) to gh, cmd unescapes sch^tasks outside quotes to schtasks (#7320). Both spellings are
+   returned. Only in a line a shell reads: an argument handed to a program with no shell keeps its text (review 1). */
 function unescaped(w, shell) {
-  if (shell === 'other') return w.text.replace(/\^(.)/g, '$1');
-  return w.raw.replace(/\$'((?:\\.|[^'])*)'/g, (m, c) => c.replace(/\\(.)/g, '$1'))
-    .replace(/\\(.)/g, '$1').replace(/["']/g, '');
+  if (shell === 'other') {
+    let out = '';
+    let q = false;
+    for (let k = 0; k < w.raw.length; k += 1) {
+      const c = w.raw[k];
+      if (c === '"') { q = !q; continue; }
+      if (c === '^' && !q && k + 1 < w.raw.length) { out += w.raw[(k += 1)]; continue; }
+      out += c;
+    }
+    return out;
+  }
+  if (shell !== 'posix') return w.text;
+  const ansi = (c) => c.replace(/\\(x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{1,4}|[0-7]{1,3}|.)/g, (m, e) => {
+    if (/^x/.test(e)) return String.fromCharCode(parseInt(e.slice(1), 16));
+    if (/^u/.test(e)) return String.fromCharCode(parseInt(e.slice(1), 16));
+    if (/^[0-7]/.test(e)) return String.fromCharCode(parseInt(e, 8));
+    return e;
+  });
+  return w.raw.replace(/\$'((?:\\.|[^'])*)'/g, (m, c) => ansi(c)).replace(/\\(.)/g, '$1').replace(/["']/g, '');
 }
 const DEPTH = 6;   // shells inside shells, as far as anyone writes them
 
@@ -305,6 +322,11 @@ function walk(ws, i, depth, shell, out) {
     const plain = unescaped(w, shell).replace(/^@/, '');
     if (plain && plain !== word) out.push(plain);
     const b = baseName(word);
+    /* The unescaped spelling can be a launcher the escaped one is not (b\ash -c x, e\val x, c^md /c x; review 1): the
+       call is also walked with that spelling in its place. */
+    if (plain && plain !== word && baseName(plain) !== b) {
+      walk([{ raw: plain, text: plain, quoted: false, inner: null }].concat(ws.slice(i + 1)), 0, depth + 1, shell, out);
+    }
     if (CMD.test(b)) {
       for (i += 1; i < ws.length && (ws[i].redirect || /^\//.test(ws[i].text)); i += 1) {
         if (!ws[i].redirect && /^\/[ckr]$/i.test(ws[i].text)) {
@@ -410,7 +432,8 @@ function walk(ws, i, depth, shell, out) {
     }
     /* eval joins its arguments and runs them as a command line (eval "gh auth", #7320). */
     if (/^eval$/.test(b)) {
-      lineInto(ws.slice(i + 1).map((x) => (x.quoted ? x.inner : x.raw)).join(' '), depth + 1, 'posix', out);
+      // A double-quoted argument loses its escapes before eval sees it; a single-quoted one is literal (review 1).
+      lineInto(ws.slice(i + 1).map((x) => (!x.quoted ? x.raw : x.raw.startsWith('"') ? unshell(x.inner) : x.inner)).join(' '), depth + 1, 'posix', out);
       return;
     }
     if (/^(nohup|exec|command|builtin|time|nice|coproc|then|else|do|while|until|\{|!)(\.exe)?$/i.test(b)) {

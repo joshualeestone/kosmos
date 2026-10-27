@@ -170,3 +170,17 @@ test('#7320: a word a shell unescapes is read in both spellings; an unclosed "$(
   callRuns('bash', ['-c', 'echo "$('.repeat(3000)]);
   assert.ok(Date.now() - t0 < 500, 'took ' + (Date.now() - t0) + ' ms');
 });
+
+test('#7320 review 1: eval unescapes double quotes, an escaped launcher is a launcher, ANSI-C codes, no unescaping without a shell', () => {
+  // each ran its middle command under Git Bash or cmd (checked live with echo in its place)
+  for (const cmd of ["eval \"echo a\\\\'; schtasks; echo b\\\\'\"", 'b\\ash -c schtasks', "$'bash' -c schtasks", 'e\\nv schtasks',
+    'e\\val schtasks', "$'eval' schtasks", "$'sch\\x74asks' /q", "$'sch\\164asks' /q"])
+    assert.equal(commandRuns(cmd), true, cmd);
+  assert.equal(callRuns('cmd', ['/c', 'c^md /c schtasks']), true);
+  // CONTROL: eval of an escaped quote only prints; no shell reads a spawn argument
+  assert.equal(commandRuns('eval "echo \\"x; schtasks\\""'), false);
+  assert.equal(callRuns('env', ['sch\\tasks']), false);
+  // after /c, cmd drops the outer quotes, so the caret escapes again: "ec^ho" hi printed hi (measured live)
+  assert.equal(callRuns('cmd', ['/c', '"sch^tasks"'], { windowsVerbatimArguments: true }), true);
+  assert.equal(commandRuns('echo "sch^tasks"'), false, 'a caret inside quotes in an argument is text');
+});
