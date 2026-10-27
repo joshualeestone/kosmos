@@ -39,3 +39,14 @@ calls both ways.
 ## Weakest premise
 tool-guard now reads more, so it can refuse a call it let through before. It refuses only a REAL install of its three
 CLIs, and refusing is its safe side; the full suite is the measurement.
+
+## Review rounds
+1. (default model, 01:3x CDT 10-27) 1 WARNING, 5 NITs. The reviewer's random differentials (200,000 schtasks lines,
+   100,000 tool-guard lines, spawn calls) found no call either guard refused before and allows now, except
+   `bash ['script.sh', '-c', ...]`, which really runs the script file. Applied: (W) a $( ) or backtick inside double
+   quotes (TOKEN="$(gh auth token)") was not read, by either the old or the new reader; it is now, in a POSIX or
+   exec line. (N) sudo clusters ending in a value-taking letter (-iu root). (N) a stale not-seen clause about a quoted
+   path to a prefix word (now seen). (N) a bare-name PATH test for tool-guard through the shared reader. Deferred: (N)
+   fileCheck checks the file twice; harmless, and the shell: true case needs the separate check. For the PR body:
+   (N) an out-of-tree copy of no-schtasks-preload.cjs now needs lib/command-words.cjs beside lib/schtasks-call.cjs.
+   Mutations M4 (the quoted-substitution read off) and M5 (no sudo clusters) each red, restored.
