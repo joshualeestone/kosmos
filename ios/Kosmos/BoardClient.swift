@@ -365,8 +365,12 @@ final class BoardClient: ObservableObject {
     // kosmos#7031: by session, for a task row whose agent the roster does not list yet.
     func chatURL(session: String) -> URL? {
         guard let mac = shownMac else { return nil }
-        return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": session], coordinator: coordinator)
+        let url = PushBridge.boardURL(fromNotification: ["address": mac.address, "session": session], coordinator: coordinator)
+        return boardSectionOnce.flatMap { sec in url.flatMap { Board.withBoardSection($0, sec) } } ?? url
     }
+    // kosmos#7267/#7280: the agent page's "Open on your computer's board" sets this for the one open it starts, so the
+    // board lands on that section (?sec=model) instead of the conversation. Set and cleared around a single call.
+    var boardSectionOnce: String?
 
     // MARK: - One agent's conversation (kosmos#7008)
 

@@ -215,7 +215,12 @@ struct AgentInfoView: View {
 
     @ViewBuilder private var moreRow: some View {
         Section {
-            Button(action: openOnBoard) {
+            Button {
+                // #7280: land on AI Settings, not the conversation (the URL is built inside openOnBoard's chatURL).
+                client.boardSectionOnce = "model"
+                openOnBoard()
+                client.boardSectionOnce = nil
+            } label: {
                 HStack {
                     Text("Open on your computer\u{2019}s board").foregroundColor(Palette.primary)
                     Spacer()
@@ -224,9 +229,9 @@ struct AgentInfoView: View {
             }
         } footer: {
             // Not "open its Terminal": from a phone the board refuses that (it opens on the computer itself; review 3).
-            // Review 5: the board opens an agent's page on its conversation (it reads ?sec= only for Settings), so this
-            // says where the rest is rather than promising to land there; the deep link is a follow-up (#7280).
-            Text("Its page there opens on the conversation. AI Settings, beside it, changes the model or the account it runs on, restarts it, or removes it.")
+            // #7280: the row opens the board on this agent's AI Settings (an older board ignores sec and opens the
+            // conversation, with AI Settings beside it).
+            Text("Its AI Settings there change the model or the account it runs on, restart it, or remove it.")
         }
     }
 

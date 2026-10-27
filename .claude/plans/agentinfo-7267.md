@@ -52,3 +52,6 @@ and dark, and never the conversation again.
   only for Settings; the deep link to AI Settings is filed as #7280); the segmented control is hidden for an agent the
   page cannot load; the fields are locked until the first read; the after-save sentence follows the board's order when
   both halves could not. Shots retaken at this commit.
+- #7280 (Angel built the board half, agentsec-7280): the row now opens ?tab=detail&agent=<n>&sec=model, the board's
+  AI Settings (an older board ignores sec). BoardClient.chatURL appends it only while AgentInfoView's one call sets
+  boardSectionOnce; Board.withBoardSection is tested.

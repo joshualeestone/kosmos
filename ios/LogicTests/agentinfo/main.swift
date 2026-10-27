@@ -63,6 +63,12 @@ check(Board.runnerMark(d("")) == "MarkClaude" && Board.runnerMark(gus) == "MarkQ
       && Board.runnerMark(d("antigravity")) == "MarkGemini" && Board.runnerMark(d("muse")) == "MarkMeta" && Board.runnerMark(d("weird")) == nil, "each runner's mark")
 check(Board.reportsToWords(cleo!, names: ["dana": "Dana"]) == "Dana" && Board.reportsToWords(gus, names: [:]) == "You", "reports to: a name, or you")
 
+section("the board link lands on AI Settings (kosmos#7280)")
+let link = URL(string: "https://studio.kosmosplus.com/?tab=detail&agent=cleo")!
+check(Board.withBoardSection(link, "model")?.absoluteString == "https://studio.kosmosplus.com/?tab=detail&agent=cleo&sec=model", "sec=model appended")
+check(Board.withBoardSection(URL(string: "https://studio.kosmosplus.com/?tab=detail&agent=cleo&sec=talk")!, "model")?.absoluteString.hasSuffix("agent=cleo&sec=model") == true, "one sec, ours")
+check(Board.withBoardSection(link, "talk") == nil && Board.withBoardSection(URL(string: "https://studio.kosmosplus.com/?tab=projects")!, "model") == nil, "only the board's section names, only on an agent link")
+
 section("saving the name and role")
 let save = Board.profileSaveRequest(mac: mac, session: "cleo", name: " Cleo ", role: "Lead designer", shownName: "Cleo")
 let saveBody = save?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
