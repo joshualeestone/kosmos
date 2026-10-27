@@ -7584,8 +7584,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      step aside, and come back when either ends: the trade the agent talk view makes (#d-talk-box, below). With them go
      the title row's Read aloud button and its paused, goal and pause-result lines, seen before typing; a status painted
      while hidden is not announced, as in the talk view. Kept, as there: Kosmos's own top bar, and the connection notice
-     (#conn), the one line that says the subscription is unreachable. Kept too while the room search holds a query, so a
-     filtered room never looks unfiltered, and while focus is in the search box (it is in the header). */
+     (#conn), the one line that says the subscription is unreachable. Kept too while the room search has a non-empty
+     value (spaces included, which filter nothing), so a filtered room never looks unfiltered, and while focus is in the search box (it is in the header). */
   html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) > #askcard,
   html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) #pj-one-view > .pj-crumbrow,
   html.kosmos-keyboard-up body:not(.consolidated):not(:has(#pj-room-search:not(:placeholder-shown))):has(.pjmid .composer :is(#pj-post, #pj-post-go, #pj-mic, #pj-emoji-btn, #pj-emoji button):focus) #pj-one-view .pjmidhead { display: none; }
@@ -77573,6 +77573,13 @@ function pjFitRoomPhone() {
   if (atFloor) room.scrollTop = room.scrollHeight;
 }
 if (window.visualViewport) window.visualViewport.addEventListener('resize', pjFitRoomPhone);
+/* kosmos#7272: the room's header steps aside while the composer has focus with the keyboard up (the phone room CSS),
+   and moving focus from the search box to the composer fires no resize, so the thread kept the cap it had under the
+   header. Its height changing (to 0 when hidden, back when shown; #conn appearing or wrapping too) re-fits. */
+if (window.ResizeObserver) {
+  const pjRoomHeadWatch = new ResizeObserver(() => pjFitRoomPhone());
+  for (const el of document.querySelectorAll('#pj-one-view .pjmidhead, #pj-one-view .pj-crumbrow, #askcard, #conn')) pjRoomHeadWatch.observe(el);
+}
 window.addEventListener('resize', pjFitRoomPhone);
 /* The search input repaints from the cached body (loadRoom keeps it on
    the box) so typing filters instantly between polls; the query resets
