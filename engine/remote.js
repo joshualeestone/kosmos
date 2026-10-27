@@ -1068,25 +1068,29 @@ function setRelay(relay) {
 /* kosmos#7285 item 2: on a Kosmos cloud machine the tunnel is the person's only way in, and the switch that would
    repair a damaged remote.json is reachable only through it. So there, a settings file that cannot be read (or is
    gone) keeps the tunnel wanted instead of reading as off, which on a Mac is the safe answer and here is a lockout.
-   Switching it off on purpose is refused there anyway (server.js PUT /api/remote, kosmos#7277). Review 1: the file is
-   REPAIRED to on there and then, as the switch repairs it on a Mac, because a missing file reads as a readable off and
-   the next ordinary save (a standing refresh, within a poll) would write off into it. Said once in the log. */
+   Switching it off on purpose is refused there anyway (server.js PUT /api/remote, kosmos#7277). Review 1: a MISSING file
+   is written again with on there and then, because it reads as a readable off and the next ordinary save (a standing
+   refresh, within a poll) would write off into it. Review 2: a file that is there but cannot be read is NOT rewritten
+   (every ordinary save already refuses it, and a rewrite from blank would drop this computer's ids and settings, or
+   replace a good file after a passing read error): it is kept on in memory each tick. Said in the log once per loss. */
 let cloudKeptOnSaid = false;
 function cloudKeepsOn() {
   let s;
   try { s = read(); } catch { s = { ok: false }; }
-  const damaged = s.ok === false || !fs.existsSync(FILE);
-  if (!damaged) { cloudKeptOnSaid = false; return false; }
+  let missing = false;
+  try { missing = !fs.existsSync(FILE); } catch { missing = false; }
+  if (s.ok !== false && !missing) { cloudKeptOnSaid = false; return false; }
   let cloud = false;
   try { cloud = require('./cloudmachine').isCloudMachine(); } catch { cloud = false; }
   if (!cloud) return false;
   let repaired = false;
-  try { repaired = write({ on: true }, { repair: true }).ok === true; } catch { repaired = false; }
+  if (missing) { try { repaired = write({ on: true }).ok === true; } catch { repaired = false; } }
   if (!cloudKeptOnSaid) {
-    cloudKeptOnSaid = true;
-    process.stderr.write('remote: remote.json is missing or damaged on this Kosmos cloud machine; remote access is kept wanted, the only way in'
-      + (repaired ? ', and the file is written again with it on\n' : ', but the file could not be written again\n'));
+    process.stderr.write('remote: remote.json is ' + (missing ? 'missing' : 'unreadable') + ' on this Kosmos cloud machine; remote access is kept wanted, the only way in'
+      + (missing ? (repaired ? ', and the file is written again with it on\n' : ', but the file could not be written\n') : '\n'));
   }
+  // A written file reads on from now, so this is not called again: a later loss in the same run is said again.
+  cloudKeptOnSaid = !repaired;
   return true;
 }
 

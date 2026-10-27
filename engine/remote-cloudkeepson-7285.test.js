@@ -41,13 +41,14 @@ test('review 1: the keep-on survives the next ordinary save (the file is repaire
   // An ordinary save after it (as a standing refresh makes) keeps on.
   fs.writeFileSync(FILE, JSON.stringify({ ...JSON.parse(fs.readFileSync(FILE, 'utf8')), email: 'x@example.invalid' }));
   assert.equal(remote.read().on, true);
+  // Review 2: a file that is there but cannot be read is kept on in memory, never rewritten (its ids would go).
   fs.writeFileSync(FILE, '{ damaged');
-  remote.cloudKeepsOn();
-  assert.equal(remote.read().on, true, 'a damaged file was not repaired to on');
+  assert.equal(remote.cloudKeepsOn(), true);
+  assert.equal(fs.readFileSync(FILE, 'utf8'), '{ damaged', 'a damaged file was rewritten');
   // ensure() decides from it: its wanted line reads cloudKeepsOn (a revert of that line fails here).
   const src = fs.readFileSync(path.join(__dirname, 'remote.js'), 'utf8');
   const body = src.slice(src.indexOf('function ensure(port)'), src.indexOf('function ensure(port)') + 900);
-  assert.match(body, /const wanted = [^;]*cloudKeepsOn\(\)/);
+  assert.match(body, /const wanted = !forgetting && \(read\(\)\.on \|\| cloudKeepsOn\(\)\) && enrolled\(\)/, 'ensure() is not wired as decided');
 });
 
 test('CONTROL: on a computer that is not a cloud machine a damaged file reads as off, as before', () => {

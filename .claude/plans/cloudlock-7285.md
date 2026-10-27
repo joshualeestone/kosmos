@@ -32,3 +32,8 @@ refused (Remove until kosmos-relay S4 ships; Not me always), or shown not to be 
   there and then, as the switch repairs it on a Mac. The test proves the repair holds after a save and pins that
   ensure() uses cloudKeepsOn; a comma-joined header counts every piece; the log line says missing or damaged and
   whether the file was written again.
+- Round 2 (cloudlock-7285-review2.md): 0 blockers, 1 warning, 2 nits, all fixed. Only a MISSING file is written again
+  with on; a file that is there but cannot be read is kept on in memory each tick, never rewritten (every ordinary save
+  already refuses it; a rewrite from blank would drop this computer's ids). The log says missing or unreadable once per
+  loss; the ensure() pin matches the decided line exactly. Asked PigeonPete: the header values must be the ids the
+  Devices list carries, or item 1 does nothing (harmlessly).
