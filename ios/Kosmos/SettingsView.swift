@@ -86,6 +86,12 @@ struct SettingsView: View {
                 Group {
                     if let data = youPicture, let picture = UIImage(data: data) {
                         Image(uiImage: picture).resizable().scaledToFill()
+                    } else if let letter = Board.youLetter(youName) {
+                        // Mona Lisa's review: the person's letter on the avatar cream, as an agent with no picture.
+                        ZStack {
+                            Palette.avatarFill
+                            Text(letter).font(.system(size: 36, weight: .semibold)).foregroundColor(Palette.avatarLetter)
+                        }
                     } else {
                         Image(systemName: "person.crop.circle.fill").resizable().scaledToFit().foregroundColor(Palette.secondary)
                     }

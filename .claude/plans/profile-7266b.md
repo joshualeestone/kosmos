@@ -18,3 +18,9 @@ every setting under it, and a line saying both are changed in the board's Settin
 ## Checks
 LogicTests (parsers, client: read, 5-minute cadence, kept on a bad read, forgotten on a switch, none shown when none),
 two mutation controls, the other six runners, the repo iOS route tests, a full iOS typecheck, sim shots.
+
+## Design review (Mona Lisa)
+- No picture: the person's letter on the avatar cream (Palette.avatarFill / avatarLetter), as an agent with none, in the
+  tab and on the profile page. Josh asked for the picture "instead of a settings cog", so a gear for everyone without a
+  photo would bring the cog back. The gear (tab) and person symbol (page) show only while the name is not known yet.
+- The screenshot stand-in for a photo is drawn in the cream too (Debug only).

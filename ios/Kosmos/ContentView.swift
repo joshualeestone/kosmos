@@ -114,8 +114,19 @@ struct ContentView: View {
     }
 
 
+    // kosmos#7266 slice B: the Settings tab's letter disc is drawn for the scheme in use (it is an image, not tinted).
+    @Environment(\.colorScheme) private var colorScheme
+
     // kosmos#7266 slice B: the person's picture, the board's (BoardClient.youPicture), or in a Debug sample with
     // KOSMOS_SAMPLE_YOUPIC=1 a drawn one, so no real face is ever in a screenshot.
+    // The person's name, the board's; in a Debug sample the sample's, so a shot that opens straight on Settings (before
+    // any agents read) shows it.
+    private var youName: String? {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return board.youName ?? "Sam Carter" }
+        #endif
+        return board.youName
+    }
     private var youPicture: Data? {
         #if DEBUG
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_YOUPIC"] == "1" { return YouFace.sample }
@@ -139,7 +150,7 @@ struct ContentView: View {
                         tabPage(which)
                             .tabItem {
                                 // kosmos#7266: Agents draws its own icon (Font Awesome Free's user-tie, a template image).
-                                if which == .settings, let face = YouFace.tabImage(youPicture) {
+                                if which == .settings, let face = YouFace.tabImage(youPicture, letter: Board.youLetter(youName), dark: colorScheme == .dark) {
                                     // kosmos#7266 slice B: Settings shows the person's picture when the computer has one.
                                     Label { Text(which.title) } icon: { Image(uiImage: face) }
                                 } else if let asset = which.asset { Label(which.title, image: asset) } else { Label(which.title, systemImage: which.symbol) }
@@ -374,7 +385,7 @@ struct ContentView: View {
                 // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
                 showBoardPage()
                 web.pressBoardSection(.settings)
-            }, youName: board.youName, youPicture: youPicture)
+            }, youName: youName, youPicture: youPicture)
         } else {
             webBoard(which)
         }
@@ -962,12 +973,24 @@ final class SessionMessageProxy: NSObject, WKScriptMessageHandler {
 }
 
 // kosmos#7266 slice B: the person's picture as the Settings tab draws it: a circle the size of the bar's icons, drawn as
-// it is (not tinted). nil for no picture or bytes that are not one, so the gear shows.
+// it is (not tinted). With no picture, their letter on the avatar cream, as an agent with none (Mona Lisa's review: a
+// gear for everyone without a photo would bring back the cog Josh asked to replace). nil only while neither is known,
+// so the gear shows then and never a wrong letter.
 enum YouFace {
     static let tabSide: CGFloat = 26
-    static func tabImage(_ data: Data?) -> UIImage? {
-        guard let data, let picture = UIImage(data: data) else { return nil }
-        return circle(picture, side: tabSide).withRenderingMode(.alwaysOriginal)
+    static func tabImage(_ data: Data?, letter: String?, dark: Bool) -> UIImage? {
+        if let data, let picture = UIImage(data: data) { return circle(picture, side: tabSide).withRenderingMode(.alwaysOriginal) }
+        guard let letter else { return nil }
+        // Palette.avatarFill / avatarLetter, light and dark (AgentsView.swift).
+        let fill = dark ? UIColor(red: 0x25 / 255.0, green: 0x25 / 255.0, blue: 0x29 / 255.0, alpha: 1) : UIColor(red: 0xec / 255.0, green: 0xe7 / 255.0, blue: 0xdd / 255.0, alpha: 1)
+        let ink = dark ? UIColor(red: 0xc7 / 255.0, green: 0xc7 / 255.0, blue: 0xcc / 255.0, alpha: 1) : UIColor(red: 0x4a / 255.0, green: 0x4f / 255.0, blue: 0x57 / 255.0, alpha: 1)
+        return UIGraphicsImageRenderer(size: CGSize(width: tabSide, height: tabSide)).image { _ in
+            fill.setFill()
+            UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: tabSide, height: tabSide)).fill()
+            let words = NSAttributedString(string: letter, attributes: [.font: UIFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: ink])
+            let size = words.size()
+            words.draw(at: CGPoint(x: (tabSide - size.width) / 2, y: (tabSide - size.height) / 2))
+        }.withRenderingMode(.alwaysOriginal)
     }
     static func circle(_ picture: UIImage, side: CGFloat) -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in

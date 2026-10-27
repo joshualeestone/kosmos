@@ -716,6 +716,10 @@ do {
     check(Board.parseYouName(Data(#"{"state":"saved","you":{"name":"  Sam Carter ","does":"x"}}"#.utf8)) == "Sam Carter", "a saved name, trimmed")
     check(Board.parseYouName(Data(#"{"state":"absent","you":null}"#.utf8)) == nil && Board.parseYouName(Data(#"{"state":"saved","you":{"name":"   "}}"#.utf8)) == nil, "no name when none is saved, or it is blank")
     check(Board.parseYouName(Data(#"{"state":"unknown","you":{"name":"Old"}}"#.utf8)) == nil && Board.parseYouName(Data("<html>".utf8)) == nil, "nor from an unreadable record or a page")
+    // Mona Lisa's review: no picture shows the person's letter, as an agent with none; never a letter for no name.
+    check(Board.youLetter("Sam Carter") == "S" && Board.youLetter("  sam ") == "S", "the name's first letter, upper-cased, spaces ignored")
+    check(Board.youLetter(nil) == nil && Board.youLetter("   ") == nil, "no letter while the name is not known (the gear shows then)")
+    check(Board.youLetter("élodie") == "É" && Board.youLetter("李明") == "李", "a first letter outside A to Z is kept whole")
     let png = Data([0x89, 0x50, 0x4e, 0x47])
     check(Board.youPicture(status: 200, contentType: "image/png", data: png) == .picture(png), "a picture")
     check(Board.youPicture(status: 204, contentType: nil, data: Data()) == .none && Board.youPicture(status: 404, contentType: "text/plain", data: Data("x".utf8)) == .none, "204 (none yet) and an older board's 404 are no picture")

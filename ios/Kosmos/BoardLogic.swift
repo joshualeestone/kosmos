@@ -436,6 +436,13 @@ enum Board {
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
     }
+    // Mona Lisa's review: a person with no picture shows their letter on the avatar cream, as an agent with none does
+    // (its name's first letter, upper-cased). nil while the name is not known, so a wrong letter is never shown.
+    static func youLetter(_ name: String?) -> String? {
+        guard let first = name?.trimmingCharacters(in: .whitespacesAndNewlines).first else { return nil }
+        return String(first).uppercased()
+    }
+
     // The saved name, trimmed; nil when the board has none (absent, unreadable, or blank).
     static func parseYouName(_ data: Data) -> String? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
