@@ -1532,9 +1532,9 @@ function ownerLinkSkipAgent(ep, agentKey, why) {
 }
 // A pass-wide reason is logged once until it changes or an agent is linked, so a board waiting for the route to
 // ship does not log it every hour.
-function ownerLinkPassLog(ep, why) {
-  if (ownerLinkPassLogged.get(ep) === why) return;
-  ownerLinkPassLogged.set(ep, why);
+function ownerLinkPassLog(ep, why, reason = why) {   // reason: what makes it the same, when the words carry a number
+  if (ownerLinkPassLogged.get(ep) === reason) return;
+  ownerLinkPassLogged.set(ep, reason);
   log(`owner link: ${why}`);
 }
 async function sweepOwnerLink(keys, on) {
@@ -1575,6 +1575,9 @@ async function sweepOwnerLink(keys, on) {
       // Refused on this computer before anything was sent (a register or a Forget is out): nothing was asked, so
       // nothing pauses; the next sweep tries again.
       if (minted.notSent) return;
+      // A Forget (or a sign-in) pressed during the mint: remote.forget() waits for this very request before it forgets,
+      // so the identity has not changed yet and the check below cannot see it. Not sent; the next sweep looks again.
+      if (require('./remote').busy()) return;
       // A Forget and a new sign-in during the mint: this pass vouches for the account just forgotten. Not sent; the
       // next sweep links the agent under the new identity.
       if (ownerLinkMac() !== mac) return;
@@ -1594,7 +1597,7 @@ async function sweepOwnerLink(keys, on) {
         if (!unknown) stopHere();   // a missing route is the same for every agent
         const what = unknown ? 'Kosmos+ cannot vouch for agents yet'
           : epoch ? 'Kosmos+ refused this computer\'s key as out of date (400)'
-          : st === 400 ? 'Kosmos+ refused the request for two agents in a row (400), so the request itself is likely wrong'
+          : st === 400 ? 'Kosmos+ refused the request for two agents in one pass (400), so the request itself is likely wrong'
             : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '');
         ownerLinkPassLog(ep, `${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
         break;
@@ -1622,14 +1625,14 @@ async function sweepOwnerLink(keys, on) {
         const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600));
         ownerLinkPassAt.set(ep, Date.now() + waitS * 1000);
         stopHere();
-        ownerLinkPassLog(ep, `the service asked to slow down (429); the pass waits ${waitS} s`);
+        ownerLinkPassLog(ep, `the service asked to slow down (429); the pass waits ${waitS} s`, 'site 429');
         break;
       }
       // No answer, a 5xx (the site's 503 while it is not ready), a 401 logging in again could not clear, or a second
       // site refusal: the service.
       ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
       stopHere();
-      ownerLinkPassLog(ep, siteRefusal ? `the community refused the passes of two agents in a row (${r.status}), so it likely no longer takes them; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`
+      ownerLinkPassLog(ep, siteRefusal ? `the community refused the passes of two agents in one pass (${r.status}), so it likely no longer takes them; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`
         : `the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
       break;
     }
