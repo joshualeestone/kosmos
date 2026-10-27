@@ -265,6 +265,8 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     // Review 13: a filled star is a glyph, so it needs 3:1 on every ground it sits on: the plain, working and needs-you
     // tiles and the list row, in both themes. The grounds are composited from the page's own tokens. CONTROL: the
     // brand gold measured the same way fails in light, so the instrument can return the dangerous answer.
+    // #7339: the star is FILLED with --gold-bright (Josh: "the brightest gold that we have") and its EDGE is the button's
+    // colour. The 3:1 is the edge's job, so `edge` below is what is measured; the fill is checked to be --gold-bright.
     for (const theme of ['light', 'dark']) {
       const t = `[${eng} ${theme} filled-star contrast]`;
       const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme);
@@ -281,14 +283,16 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         const over = (bg, wash) => (wash && wash.length === 4 ? bg.map((v, i) => v * (1 - wash[3]) + wash[i] * wash[3]) : bg);
         const surface = resolve(css('--k-surface'));
         const grounds = { plain: surface, working: over(surface, resolve(css('--wash-working'))), attn: over(surface, resolve(css('--wash-attn'))), row: over(surface, [120, 120, 128, 0.07]) };
-        const fill = rgb(getComputedStyle(st).color); const brand = resolve(css('--gold-deep'));
-        const out = { star: true, fill, min: Infinity, brandMin: Infinity, by: {} };
-        for (const [k, g] of Object.entries(grounds)) { const r = ratio(fill, g); out.by[k] = +r.toFixed(2); out.min = Math.min(out.min, r); out.brandMin = Math.min(out.brandMin, ratio(brand, g)); }
+        const edge = rgb(getComputedStyle(st).color); const brand = resolve(css('--gold-deep'));
+        const fill = rgb(getComputedStyle(st.querySelector('svg path')).fill); const bright = resolve(css('--gold-bright'));
+        const out = { star: true, edge, fill, brightFill: !!fill && !!bright && fill.slice(0, 3).join() === bright.slice(0, 3).join(), min: Infinity, brandMin: Infinity, by: {} };
+        for (const [k, g] of Object.entries(grounds)) { const r = ratio(edge, g); out.by[k] = +r.toFixed(2); out.min = Math.min(out.min, r); out.brandMin = Math.min(out.brandMin, ratio(brand, g)); }
         out.min = +out.min.toFixed(2); out.brandMin = +out.brandMin.toFixed(2);
         probe.remove(); st.classList.remove('on');
         return out;
       });
-      chk(c.star && c.min >= 3, `${t} the filled star is at least 3:1 on every tile and row ground`, JSON.stringify(c));
+      chk(c.star && c.brightFill, `${t} #7339: the filled star is filled with --gold-bright, the brightest gold`, JSON.stringify(c));
+      chk(c.star && c.min >= 3, `${t} the filled star's edge is at least 3:1 on every tile and row ground`, JSON.stringify(c));
       if (theme === 'light') chk(c.star && c.brandMin < 3, `${t} CONTROL: the brand gold measured the same way is under 3:1 here`, JSON.stringify(c));
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await ctx.close();
