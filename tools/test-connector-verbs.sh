@@ -226,8 +226,14 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # An older connector refuses personal-backup; preview answers "could not be reached" and nothing is made or written, and
 # the status read it sends first only reads. Nothing calls it yet (the screens are a later slice, behind
 # KOSMOS_PERSONAL_BACKUP, off), so nothing that works today breaks.
+# kosmos#7215 re-decided for engine/communitysend.js (linking community agents to this computer's Kosmos+ account, the
+# owner pass): it calls /v1/mac/community-owner-pass, which only a connector carrying that route signs. An older
+# connector refuses to sign it ("mac-request does not sign"); sweepOwnerLink reads that as a route that does not exist
+# yet, sends nothing to the community site and waits an hour before asking again (engine/communityowner-7215.test.js
+# pins it). Linking never worked before this route, and the sweep's other passes do not use mac-request, so nothing
+# that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/companycommunity.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/personalbackup.js engine/personalbackupkey.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the sixteen the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/communitysend.js engine/companycommunity.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/personalbackup.js engine/personalbackupkey.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the seventeen the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
