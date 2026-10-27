@@ -855,6 +855,24 @@ const SCREENS = [
     await page.click('#fedinv-make');
     await page.waitForFunction(() => /Only the Kosmos\+ account with/.test(document.getElementById('fedinv-until').textContent), { timeout: 8000 });
   } },
+  /* kosmos#7339 (Mona Lisa): a starred agent's star, filled with the brightest gold. The first agent is starred through
+     the board's own route, the same PUT the star button sends, and unstarred in `after`, so no later screen starts
+     with a starred agent first. star-grid-7339 shows the tile's corner star; star-list-7339 the list row's. */
+  { name: 'star-grid-7339', owner: 'Mona Lisa', go: async (page, data) => {
+    await page.evaluate(async (name) => { await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on: true }) }); }, data.chatAgent);
+    await page.reload(); await page.waitForSelector('#grid .astar.on', { timeout: 8000 });
+  }, after: async (page, data) => {
+    await page.evaluate(async (name) => { await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on: false }) }); }, data.chatAgent);
+  } },
+  { name: 'star-list-7339', owner: 'Mona Lisa', go: async (page, data) => {
+    await page.evaluate(async (name) => { await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on: true }) }); }, data.chatAgent);
+    await page.reload();
+    await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
+    await page.waitForSelector('.lname .astar.on', { timeout: 8000 });
+  }, after: async (page, data) => {
+    await page.evaluate(async (name) => { await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on: false }) }); }, data.chatAgent);
+    await page.click('button.vt[data-layout="grid"]').catch(() => {});
+  } },
   { name: 'agents-list', owner: 'Raiden', go: async (page) => {
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
