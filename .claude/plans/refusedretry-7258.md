@@ -46,3 +46,10 @@ it on this shared machine; that shows as relistenError, a clear red, never a fal
   Measured after round 1 (light lane, 19:3x CDT): the whole file 12 of 12, three times. The slow arm back on a 600 ms
   clock: red. On a 1000 ms clock: red. The fast task-list arm on a 1000 ms clock: green, so the slow arm is what
   catches a clock in that range.
+- Round 2 (blind, sonnet, 19:4x CDT): no BLOCKER and no WARNING. It confirmed that the cut-reply arm still goes red on a
+  regression (msg's second ask losing _KOSMOS_CURL_ONCE gives 3 tries and 2 POSTs), and that no fixed clock passes both
+  the fast arms and the slow one. Nits applied:
+  (1) the port-to-log map is cleared when an arm ends, so a reused port cannot hand a later arm an old 7;
+  (2) a missing log is reported through the arm's relistenError instead of thrown inside the request handler;
+  (3) the slow-first comment says "first" means the counting curl's first call.
+  Nit (4) needed nothing (the stall bound is the weakest premise above). File 12 of 12, three runs.

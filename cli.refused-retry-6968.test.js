@@ -36,7 +36,8 @@ const SHIM_DIR = path.join(SCRATCH, 'bin');
 fs.mkdirSync(SHIM_DIR);
 fs.writeFileSync(path.join(SHIM_DIR, 'curl'), [
   '#!/bin/sh',
-  // A slow first try (#7258): as on a loaded machine, it comes later than any fixed re-listen clock would allow.
+  // A slow first try (#7258): as on a loaded machine, it comes later than any fixed re-listen clock would allow. "First"
+  // means the counting curl's first call; every call it sees today is an http request (the health check bypasses it).
   '[ -n "$KOSMOS_TEST_CURL_SLOW_FIRST" ] && [ ! -s "$KOSMOS_TEST_CURL_LOG" ] && sleep "$KOSMOS_TEST_CURL_SLOW_FIRST"',
   'for a in "$@"; do case "$a" in http://*) printf \'%s\\n\' "$a" >> "$KOSMOS_TEST_CURL_LOG"; [ -n "$KOSMOS_TEST_CURL_REFUSE" ] && exit 7 ;; esac; done',
   '/usr/bin/curl "$@"; rc=$?',
@@ -124,7 +125,8 @@ async function withRefusingBoard(back, fn, { after503 = false, cutFirstPost = fa
     if (back === 'refused') {
       // Every 10 ms, well inside the CLI's one-second pause: listen again once a try has ended in curl's 7.
       const log = CURL_LOG_BY_PORT.get(port);
-      if (!log) throw new Error('a refuse-once board needs the arm to call baseEnv(port) first: it waits on that curl log');
+      // Reported by the arm (rethrown at its end), not thrown here inside the server's request handler.
+      if (!log) { relistenError = new Error('a refuse-once board needs the arm to call baseEnv(port) first: it waits on that curl log'); return; }
       const rcLog = log + '.rc';
       const poll = () => {
         if (ended) return;
@@ -163,6 +165,7 @@ async function withRefusingBoard(back, fn, { after503 = false, cutFirstPost = fa
   try { const r = await fn(port, seen); if (relistenError) throw relistenError; return r; } finally {
     ended = true;
     clearTimeout(backTimer);
+    CURL_LOG_BY_PORT.delete(port);   // a later arm on a reused port must not find this arm's log (and its 7)
     await new Promise((r) => { if (current.listening) current.close(r); else r(); });
   }
 }
