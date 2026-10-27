@@ -90,3 +90,18 @@ Test: 45 checks.
   browser-checks.sh), so they are kept for consistency.
 - NITs RECORDED: the owed e2e drives the read-back arm (the rename arm is unit-tested); field() global name; the
   commit-both hint prints only on success (the remedy prints on failure).
+
+## Review 7 (05:0x 10-27, opus): 0 blockers, 3 warnings, 4 nits
+- W1 FIXED: after a named promote, every failure remedy writes the pointer COMMITTED with it
+  (`git show <commit>:dist/latest-linux-staging.json > dist/latest-linux.json`), not the staging file, which has
+  usually moved on (copying it would split the pair). PROMOTE_LINUX_RESTORE carries the right one. Mutant -> 2 red.
+- W2 FIXED: a rollback promote (--allow-older) with a Linux pair prints that the deploy needs KOSMOS_LINUX_ROLLBACK=<V>
+  (deploy-site refuses a Linux pointer that moves backwards without it).
+- W3 FIXED (message) + KNOWN LIMIT: a named rollback to a build cut before the first Linux build is refused (no Linux
+  pointer to pair with); the refusal now says to roll back to a build that has a Linux build, and that deleting
+  latest-linux.json is no way round it (installed Linux copies refuse to update on an unreadable pointer).
+- NITs RECORDED: `shasum -c` checks the file the sidecar names (the sha is then compared to the pointer's, as the Mac
+  path); the named path's verify-under reads prod's Linux pointer from the working tree, the Mac named path from
+  origin/main; field() global name; the deploy check is skipped when no Mac pointer is committed (deliberate: test
+  sites, and a real site always commits latest.json).
+- Test: 73 checks.

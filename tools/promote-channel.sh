@@ -847,6 +847,8 @@ echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
 [ -n "$SETUP_STAGING" ] && echo "promote-channel: COMMIT setup and setup.sha256 together with $PROD_NAME (#5032): a deploy serves the committed site, and deploy-site.sh refuses a committed /setup that does not hash to the pointer's setup_sha256."
 [ "$PROMOTE_LINUX" != yes ] || echo "promote-channel: COMMIT dist/latest-linux.json in the same commit as $PROD_NAME (kosmos#7281 lockstep)."
+# Review 7 (W2): deploy-site refuses a Linux pointer that moves backwards unless the rollback is named to it.
+[ "$PROMOTE_LINUX" != yes ] || [ "$ALLOW_OLDER" != 1 ] || echo "promote-channel: this is a rollback, so deploy it with KOSMOS_LINUX_ROLLBACK=$V set (deploy-site refuses a Linux pointer that moves backwards without it)."
 
 if [ "$FAMILY" = win ]; then
   win_append_approval_line "$(date -u +%FT%TZ) family=win path=promote version=$V sha256=$SHA approval_ref=$APPROVAL_REF promoted=yes" \

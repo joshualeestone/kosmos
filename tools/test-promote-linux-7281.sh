@@ -65,11 +65,18 @@ git -C "$S" rm -q --cached dist/latest-linux-staging.json; git -C "$S" commit -q
 chk "CONTROL: a named commit with no Linux pointer and no prod one: the Mac promote goes alone" [ "$(prep "$S" 1.4.0 "$CNOL")" = "rc=0 linux=no" ]
 printf '{"manifest":"x"}\n' > "$S/dist/latest-linux.json"
 chk "a named commit with no Linux pointer while prod has one refuses (lockstep)" [ "$(prep "$S" 1.4.0 "$CNOL")" = "rc=1 linux=no" ]
+out="$( ( promote_linux_prepare "$S" 1.4.0 "$CNOL" 2>&1 >/dev/null; promote_linux_cleanup ) )"
+case "$out" in *"cut before the Linux family"*"Roll back to a build that has a Linux build"*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: a named rollback to a pre-Linux build does not say what to do (review 7 W3): $out" >&2 ;; esac
 rm -f "$S/dist/latest-linux.json"
 promote_linux_prepare "$S" 1.4.0 "$C140" >/dev/null 2>&1
 printf ' ' >> "$S/dist/latest-linux-staging.json"
 chk "a named promote is not refused when the staging pointer's FILE moves (it read a commit)" promote_linux_unchanged "$S"
 promote_linux_cleanup
+# Review 7 (W1): after a named promote, the remedy writes the COMMITTED pointer, not the staging file (which has moved on).
+out="$( ( promote_linux_prepare "$S" 1.4.0 "$C140" >/dev/null 2>&1; promote_linux_stage "$S" >/dev/null 2>&1; rm -f "$PROMOTE_LINUX_TMP"; promote_linux_commit "$S" 2>&1 >/dev/null; promote_linux_refuse_if_failed 2>&1; promote_linux_cleanup ) )"
+case "$out" in *"show $C140:dist/latest-linux-staging.json"*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: a named promote's remedy does not name its commit (review 7 W1): $out" >&2 ;; esac
+case "$out" in *"copy dist/latest-linux-staging.json"*) FAIL=$((FAIL+1)); echo "FAIL: a named promote's remedy still says to copy the staging file (review 7 W1)" >&2 ;; *) PASS=$((PASS+1)) ;; esac
+rm -f "$S/dist/latest-linux.json"
 E="$T/site-empty"; mkdir -p "$E/dist"
 chk "CONTROL: no Linux pointers at all: the Mac promote goes ahead alone" [ "$(prep "$E" 1.4.0)" = "rc=0 linux=no" ]
 printf '{}\n' > "$E/dist/latest-linux.json"
@@ -229,6 +236,9 @@ chk "e2e: a Linux write that does not take refuses at the end" [ "$(e2e "$S")" =
 chk "e2e: after latest.json was promoted" grep -q '"version": *"9.9.9"' "$S/dist/latest.json"
 chk "e2e: and /setup too (the steps after the Linux write still ran)" [ "$(cat "$S/setup")" = "INSTALLER-9.9.9 KOSMOS_READONLY_APP" ]
 chk "e2e: saying what is owed" grep -q 'REFUSED AT THE END' "$T/e2e/out.log"
+chk "e2e: an unnamed promote's remedy copies the staging pointer" grep -q 'copy dist/latest-linux-staging.json onto dist/latest-linux.json' "$T/e2e/out.log"
+# Review 7 (W2): a rollback promote says the deploy needs KOSMOS_LINUX_ROLLBACK (deploy-site refuses a backwards move).
+chk "a rollback promote names KOSMOS_LINUX_ROLLBACK for the deploy" grep -qF 'deploy it with KOSMOS_LINUX_ROLLBACK=$V set' "$HERE/tools/promote-channel.sh"
 # A NAMED promote, driven: staging has moved on to a later cut, and --version takes the Linux pointer committed with
 # the named cut, not the working tree's.
 e2eaddcut() {   # <site> <version>: one more committed staging cut with its Linux pair
