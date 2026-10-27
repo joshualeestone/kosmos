@@ -37,3 +37,15 @@ queue logic is unchanged.
   `agents --json` idle stays WORKING until the decay; control: a stream BUSY stays WORKING).
 - A held/carried stream idle does not end the report.
 - e2e: kosmos-scripts e2e-zip.js Z3 run 5 times in a row on the Windows box after the build (the card's done-when).
+
+## Decided while building
+The stream idle token carries the state file's time (`stream-idle <at>`), and reconcileReport ends a fresh AUTOMATIC
+working only when the stream recorded idle AFTER the report: a new turn's working (written after the state file went
+busy) and a background agent's heartbeat stand. Per-turn runners (codex, gemini, grok, antigravity) go through the same
+path: only looser (a fresh automatic working ends at the turn's result rather than waiting for the supervisor's idle).
+
+## Review rounds
+- Round 1: no blocker, no warning (converged). [NIT] liveIdleSince is the state file's last write, not the moment it went idle (a rekey or a sign-in change rewrites it while still idle); harmless today (only the gap before a write-less turn's first event) --> ACCEPTED, recorded; a later card can carry an explicit idleSince.
+
+## Still owed (card stays open)
+e2e-zip.js Z3 five runs in a row on the Windows box, on a build carrying this (the 0.7.72 staging V2).
