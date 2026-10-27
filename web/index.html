@@ -20902,6 +20902,14 @@ function hostMachineCap(platform) {   // the same words opening a sentence
    is a browser, "this computer" is the laptop in front of them, so there it is "your cloud machine". */
 function thisMachine() { return (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'your cloud machine' : 'this computer'; }
 function ThisMachine() { return (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Your cloud machine' : 'This computer'; }
+/* kosmos#4903 seam H, the engine's half: the engine runs on the cloud machine, so "this computer" in a sentence it sends
+   (a presence reason, a Files or made-agent step, a refusal) always means that machine. Said as "your cloud machine" at
+   display, never in the engine, whose sentences are also matching keys (projects.js groupBecause, the page's regexes). */
+function cloudWords(s) {
+  const t = typeof s === 'string' ? s : String(s == null ? '' : s);
+  if (!(typeof onCloudMachine === 'function' && onCloudMachine())) return t;
+  return t.replace(/\bthis computer\b/g, 'your cloud machine').replace(/\bThis computer\b/g, 'Your cloud machine');
+}
 /* The restart and Start at login notices are hidden on a cloud machine: there is no login there for the person to start
    anything at. Right only while the box brings every agent back by itself after a restart (Baron confirms on a test
    box, #4903 seam H); if it does not, set this false and the notices come back. */
@@ -22482,7 +22490,7 @@ function saidLine(a) {
  * is the wrong way round: the better answer looked worse.
  */
 function asSentence(s) {
-  const t = typeof s === 'string' ? s.trim() : '';
+  const t = typeof s === 'string' ? cloudWords(s).trim() : '';
   if (!t) return '';
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
 }
@@ -51255,9 +51263,9 @@ function restartFailureLine(out) {
      while the restart did not take is a different machine problem from its
      having failed, and the person reporting it cannot tell us which unless the
      screen says. */
-  return said
+  return cloudWords(said
     + (failed.length ? ' What failed: ' + failed.join(', ') + '.' : '')
-    + (done.length ? ' What worked: ' + done.join(', ') + '.' : '');
+    + (done.length ? ' What worked: ' + done.join(', ') + '.' : ''));
 }
 
 /* #3410: the "Start this agent" click. It reuses the proven restart plumbing
@@ -61000,7 +61008,7 @@ function tcPaint() {
     if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = pjSentence(m.why); row.append(why); }   // Mona's review: shown as a sentence
     /* Round 3: what create reported as not done (its non-fatal steps, a project it could not add) is said
        on the row, as the single create says it, never folded into "Running". */
-    for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = w; row.append(p); }
+    for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = cloudWords(w); row.append(p); }
     if (m.state === 'made' && m.seen === 'unseen' && m.made) {   // every member has a picture to set (review 27)
       const p = document.createElement('p'); p.className = 'tc-why';
       p.textContent = 'Its picture and project are set once it is seen running. Open this team again to check.';
@@ -79279,7 +79287,7 @@ function pjMsg(m, name, session) {
  * of use, and leave the engine's strings alone so they still compose elsewhere.
  */
 function pjSentence(because) {
-  const said = String(because || '').trim();
+  const said = cloudWords(String(because || '')).trim();
   if (!said) return '';
   return said.charAt(0).toUpperCase() + said.slice(1) + (/[.!?]$/.test(said) ? '' : '.');
 }

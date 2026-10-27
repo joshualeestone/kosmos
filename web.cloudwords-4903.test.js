@@ -168,3 +168,32 @@ test('#4903 seam H: the page\'s own "this computer" sentences on the agent, its 
     assert.ok(!PAGE.includes(old), 'still fixed: ' + old);
   }
 });
+
+test('#4903 seam H, engine half: an engine sentence says "your cloud machine" at display on a cloud machine, and only there', () => {
+  const said = (cloud) => run(['cloudWords', 'asSentence', 'pjSentence', 'restartFailureLine'], `return [
+    pjSentence('we cannot see an agent by exactly this name on this computer right now'),
+    asSentence('it has no folder of its own on this computer yet'),
+    cloudWords("This computer's tmux server belongs to a different version"),
+    restartFailureLine({ because: 'we could not find Claude Code on this computer', steps: [{ ok: false, label: 'started it on this computer' }] }),
+    cloudWords('a computer named this computerlike'),
+  ];`, machine(cloud, 'linux'));
+  assert.deepEqual(said(true), [
+    'We cannot see an agent by exactly this name on your cloud machine right now.',
+    'It has no folder of its own on your cloud machine yet.',
+    "Your cloud machine's tmux server belongs to a different version",
+    'we could not find Claude Code on your cloud machine What failed: started it on your cloud machine.',
+    'a computer named this computerlike',
+  ]);
+  // CONTROL: the same sentences on a board that is not a cloud machine are the engine's own words.
+  assert.deepEqual(said(false), [
+    'We cannot see an agent by exactly this name on this computer right now.',
+    'It has no folder of its own on this computer yet.',
+    "This computer's tmux server belongs to a different version",
+    'we could not find Claude Code on this computer What failed: started it on this computer.',
+    'a computer named this computerlike',
+  ]);
+});
+
+test('#4903 seam H, engine half: a made-agent warning line is said through cloudWords', () => {
+  assert.match(PAGE, /p\.className = 'tc-why'; p\.textContent = cloudWords\(w\);/);
+});
