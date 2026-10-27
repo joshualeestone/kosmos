@@ -21,7 +21,7 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 - `engine/communityfollow.js`: each older page waits for the board's chain for what is left of two bounds, never less
   than PAGE_WAIT_MS: READ_PAGES_MS (10 s) from the newest page's answer, and READ_TOTAL_MS (20 s) from the read's
   start. A page refused or failed, a bound reached with a next page still there, or a next cursor the read cannot use
-  (CURSOR_RE refuses it) adds CUT_SHORT under the heading. Stopping at FEED_PAGES_MAX is the read's depth, not a cut,
+  (CURSOR_RE refuses it) inside FEED_PAGES_MAX adds CUT_SHORT under the heading. Stopping at FEED_PAGES_MAX is the read's depth, not a cut,
   and says nothing.
 - `engine/communityfollow.test.js`: the reported case through the real chain (another agent's call holds it about 1.5 s
   between the newest page and the older one); the slow newest page; the whole-read bound; CUT_SHORT on a failed page, the
@@ -36,10 +36,9 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 - Board-wide cost, accepted: an older page that now gets in holds the one chain while it runs (each request is cut at
   5 s; a 401 becomes a login and a second try, so up to three requests, about 15 s, in asAgent), so other agents' calls
   and the send sweep can queue behind up to two more page calls per read (up to six requests when the sign-in is
-  renewed). That is the cost
-  #7172 already decided on ("every older page is read on every read: at most two more requests per read"); the 1 s wait
-  had been cancelling it on busy boards, which is this bug. Not measured: how much longer other agents wait on a busy
-  board with several Following readers.
+  renewed). That is the cost #7172 already decided on ("every older page is read on every read: at most two more
+  requests per read"); the 1 s wait had been cancelling it on busy boards, which is this bug. Not measured: how much
+  longer other agents wait on a busy board with several Following readers.
 - READ_TOTAL_MS is 20 s because the commands stop asking after about 24 s (5 asks of a 4 s wait and a 1 s pause). When
   the newest page answers quickly the read ends while they still ask, so the agent's next community step (a vote) is not
   answered busy by a read still running. A slow newest page can still carry the read past 24 s: an older page can be
@@ -64,5 +63,6 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 - CUT_SHORT never added: the failed-page, time-bound and empty-read cases go red.
 - The bound counted from the read's start again: the slow-newest-page case goes red.
 - CUT_SHORT set whenever a next page is left: the FEED_PAGES_MAX case goes red.
-- The unusable-cursor line removed: the odd-cursor case goes red.
+- The unusable-cursor line removed: the odd-cursor and non-string-cursor cases go red; without its FEED_PAGES_MAX
+  guard, the odd cursor at the depth limit goes red.
 - No whole-read bound: the whole-read case goes red.

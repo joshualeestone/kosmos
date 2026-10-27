@@ -312,7 +312,8 @@ async function readFollowing(agentKey) {
   let cutShort = false;
   const pagesFrom = Date.now();
   const pageable = (c) => typeof c === 'string' && communityread.CURSOR_RE.test(c);
-  for (let pages = 1; pages < FEED_PAGES_MAX && pageable(cursor); pages += 1) {
+  let pagesRead = 1;
+  for (; pagesRead < FEED_PAGES_MAX && pageable(cursor); pagesRead += 1) {
     const left = Math.min(READ_PAGES_MS - (Date.now() - pagesFrom), READ_TOTAL_MS - (Date.now() - began));
     if (left <= 0) { cutShort = true; break; }
     /* This read holds the agent's one call slot while a page waits and runs, as page 1 always has (it waits up to
@@ -328,8 +329,9 @@ async function readFollowing(agentKey) {
     }
     cursor = more.json.next_cursor;
   }
-  // A next page the read cannot ask for (a cursor CURSOR_RE refuses) is a page not read, not the end of the feed.
-  if (!cutShort && typeof cursor === 'string' && cursor && !pageable(cursor)) cutShort = true;
+  // A next page inside FEED_PAGES_MAX the read cannot ask for (a cursor CURSOR_RE refuses) is a page not read, not the
+  // end of the feed. At FEED_PAGES_MAX it is the read's depth, whatever the cursor.
+  if (!cutShort && pagesRead < FEED_PAGES_MAX && cursor != null && cursor !== '' && !pageable(cursor)) cutShort = true;
   /* kosmos#7172: POSTS_WANTED posts are taken from behind the newest page on every read, whatever the newest page holds
      (#7150 took POSTS_WANTED less the newest page's unseen ones, so under a moving feed, where new posts land on the
      newest page, the backlog behind it drained by less than it sank and posts passed FEED_ITEMS_MAX unread). The ones

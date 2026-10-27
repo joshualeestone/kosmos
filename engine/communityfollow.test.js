@@ -679,6 +679,20 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     b.st.cursorOf = undefined;
     assert.deepEqual(b.st.feedCalls, [null], 'CONTROL: the odd cursor was asked for, so this tests nothing');
     assert.ok(odd.text.includes(cf.CUT_SHORT), 'an unusable next cursor ended the paging silently: ' + odd.text);
+    // kosmos#7391 review 7: the same odd cursor at FEED_PAGES_MAX is the read's depth, not a cut; and a non-string one
+    // inside it is a page not read.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(746, '11')], [post(747, '11')], [post(748, '10')]];
+    b.st.cursorOf = (i) => (i === 2 ? 'not a cursor!' : undefined);
+    const deep = await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'CONTROL: the read did not reach FEED_PAGES_MAX, so this tests nothing');
+    assert.ok(!deep.text.includes(cf.CUT_SHORT), 'an odd cursor at FEED_PAGES_MAX said cut short: ' + deep.text);
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(749, '11')]];
+    b.st.cursorOf = (i) => (i === 0 ? 42 : undefined);
+    const num = await cf.readFollowing('mara');
+    b.st.cursorOf = undefined;
+    assert.ok(num.text.includes(cf.CUT_SHORT), 'a non-string next cursor ended the paging silently: ' + num.text);
     // kosmos#7391 review 2: nothing to show and an older page refused: the heading does not say "nothing new".
     b.st.feedCalls = [];
     b.st.pages = [[], [post(740, '11')]];
@@ -763,7 +777,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
       const slowFirst = await cf.readFollowing('mara');
       assert.ok(slowFirst.text.includes('POST730') && !slowFirst.text.includes(cf.CUT_SHORT), 'a slow newest page left the older pages no time: ' + slowFirst.text);
     } finally { cs.agentCall = real; cf._setReadPagesMs(null); }
-    // Review 3: no older page starts once READ_PAGES_MS has passed since the read began.
+    // Review 3, #7391: no older page is asked for once READ_PAGES_MS has passed since the newest page answered.
     cf._setReadPagesMs(0);
     try {
       b.st.feedCalls = [];
