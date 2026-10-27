@@ -347,7 +347,7 @@ test('the production coordinator spelled another way (case, a trailing slash, a 
   await registered('ava');
   const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
   try {
-    for (const spelled of ['https://login.kosmosplus.com/', 'https://LOGIN.kosmosplus.com', 'https://login.kosmosplus.com:443']) {
+    for (const spelled of ['https://login.kosmosplus.com/', 'https://LOGIN.kosmosplus.com', 'https://login.kosmosplus.com:443', 'https://login.kosmosplus.com.']) {
       process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = spelled;
       await cs.sweep();
       assert.equal(R.mints.length, 0, spelled + ' read as an override, and a production pass was asked for a loopback community');
@@ -400,9 +400,10 @@ test('an agent whose key the community refuses is not tried again', async () => 
   await registered('ava');
   be.st.mode.unauthorized = true;
   be.st.mode.loginRefused = true;
-  await cs.sweep();
+  const lines = await ownerLogs(() => cs.sweep());
   const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
   assert.equal(keys.ava.refused, true, 'the key is marked refused');
+  assert.ok(!lines.some((l) => l.includes('the community answered 401')), 'a refused key skips the agent, it does not pause the pass: ' + JSON.stringify(lines));
   const n = ownerCalls().length;
   cs._ownerLinkReset(0);
   await cs.sweep();
@@ -569,9 +570,9 @@ test('the pass budget: a pass whose budget is already spent starts no agent, and
 test('the pass budget spent during one agent: the next agent waits, and the next pass starts at it (not at the first)', async () => {
   await registered('ava');
   await registered('bo');
-  const slow = (body) => new Promise((r) => setTimeout(() => r({ ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } }), 150));
+  const slow = (body) => new Promise((r) => setTimeout(() => r({ ok: true, data: { pass: 'pass-for:' + body.agent, expires_at: 0 } }), 1500));
   R.mint = slow;
-  cs._ownerLinkBudget(50);   // runs out during the first agent's mint
+  cs._ownerLinkBudget(1000);   // runs out during the first agent's mint, with room for a loaded box before it
   try {
     await cs.sweep();
   } finally { cs._ownerLinkBudget(30 * 1000); }

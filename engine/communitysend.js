@@ -1547,7 +1547,8 @@ function ownerLinkPassLog(ep, why, reason = why) {   // reason: what makes it th
 /* Whether an address is a production one, judged by its host name (case, a trailing slash or a port do not make
    production read as an override). An address that cannot be read counts as production: the safe side for both. */
 function ownerLinkProdHost(address, defaults) {
-  const host = (u) => { try { return new URL(String(u)).hostname.toLowerCase(); } catch { return null; } };
+  // A trailing dot names the same host (DNS's root); an IP address cannot reach it, since its certificate names the host.
+  const host = (u) => { try { return new URL(String(u)).hostname.toLowerCase().replace(/\.+$/, ''); } catch { return null; } };
   const h = host(address);
   return h === null || defaults.some((d) => host(d) === h);
 }
