@@ -22128,6 +22128,18 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const rec = messages.record();
+      /* kosmos#7365: each post's reaction rows, grouped ONCE per request (log order kept). reactionsFor and claimOf
+         each walk the rows they are given for this post's reaction events, so handing them the whole log made a read
+         O(posts x log): 76% of a 5,500-post room's read time. They see exactly the rows they keep, in the same order. */
+      const reactionRowsOf = new Map();
+      for (const x of rec.rows) {
+        if (!x || x.kind !== 'reaction') continue;
+        const k = String(x.of);
+        let list = reactionRowsOf.get(k);
+        if (!list) { list = []; reactionRowsOf.set(k, list); }
+        list.push(x);
+      }
+      const NO_REACTIONS = [];
       let claimMembers;   // #6946: the room's members for claims, read once per request and only if a post has a 🙋
       let youClaimAt;     // #6974: post id -> when the person's live 🙋 on it was given (null once taken off), one pass per request
       const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
@@ -22169,7 +22181,7 @@ const server = http.createServer(async (req, res) => {
                  reactor whose own pills get marked (`mine`). Only attached when
                  there is at least one live reaction, so a post with none carries
                  no field (byte-identical to before for the common case). */
-              const reactions = messages.reactionsFor(m.id, rec.rows, 'you');
+              const reactions = messages.reactionsFor(m.id, reactionRowsOf.get(String(m.id)) || NO_REACTIONS, 'you');
               return { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
                 text: m.text, at: m.at, outcomes: m.outcomes || {},
                 // #460: the only thing a renderer may style as quoted.
@@ -22192,7 +22204,7 @@ const server = http.createServer(async (req, res) => {
                 ...((() => {
                   if (!reactions.some((r) => messages.isClaimEmoji(r.emoji))) return {};
                   if (claimMembers === undefined) claimMembers = messages.claimMembers(roomRecord && roomRecord.agents);
-                  const c = messages.claimOf(m.id, rec.rows, claimMembers);
+                  const c = messages.claimOf(m.id, reactionRowsOf.get(String(m.id)) || NO_REACTIONS, claimMembers);
                   if (!c) return {};
                   // #6957: whether the person's live 🙋 was given after this claim began (agrees with THIS holder).
                   if (youClaimAt === undefined) {
