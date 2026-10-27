@@ -8,9 +8,10 @@
  * Hermetic: boots its own sandboxed board with one agent and no sign-in. Real key presses, both
  * directions, in Chromium AND WebKit (the Mac app is a WKWebView, whose default Tab skips buttons, so
  * a trap that acts only at the ends leaks between them there and not in Chromium). On three pages (the
- * board's Agents tab, an agent's own page, Settings > AI Models), for four openers (openAcctAdd, openAcctReauth,
- * openAcctReauthOpenai, openAcctReauthGrok; the trap keys on the dialog being open, so the others, Gemini's and
- * Meta's Sign in again and the Model tab's Connect an API key, share it). Per arm:
+ * board's Agents tab, an agent's own page, Settings > AI Models), for five openers (openAcctAdd, openAcctReauth,
+ * openAcctReauthOpenai, openAcctReauthGrok, and kosmos#7198's Refresh login on a login notice, loginAdvGo, for an
+ * account the page lists; the trap keys on the dialog being open, so the others, Gemini's and Meta's Sign in again
+ * and the Model tab's Connect an API key, share it). Per arm:
  *   - before opening, focus is on a page control outside the dialog (asserted, so the arm cannot pass
  *     with focus already inside);
  *   - one Tab goes INTO the dialog (Sign in again for OpenAI opens without moving focus);
@@ -94,11 +95,22 @@ const focusNow = (p) => p.evaluate(() => {
   return { at: window.__stops7202().indexOf(a), name: String((a && (a.id || a.className || a.tagName)) || '').slice(0, 50) };
 });
 
-const OPENERS = ['Add a provider', 'Sign in again (Claude)', 'Sign in again (OpenAI)', 'Sign in again (Grok)'];
+const OPENERS = ['Add a provider', 'Sign in again (Claude)', 'Sign in again (OpenAI)', 'Sign in again (Grok)', 'Refresh login on a login notice'];
+const REFRESH_LOGIN = OPENERS.length - 1;
+/* kosmos#7284: the login notice's Refresh login (loginAdvGo, kosmos#7198) opens the dialog only for an account the page
+   lists, so the page is handed one listed row through its own accountsRead, as render-refreshlogin-5407 does, and the
+   control that had focus is passed as the opener, as the notice's button passes itself. */
 const open = (p, i) => p.evaluate((n) => [() => openAcctAdd(),
   () => openAcctReauth('/nonexistent/acct-7202', 'someone@example.com'),
   () => openAcctReauthOpenai('/nonexistent/acct-7202', 'someone@example.com'),
-  () => openAcctReauthGrok('/nonexistent/acct-7202', 'someone@example.com')][n](), i);
+  () => openAcctReauthGrok('/nonexistent/acct-7202', 'someone@example.com'),
+  () => {
+    accountsRead([{ provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'someone@example.com', label: 'someone@example.com',
+      dir: '/nonexistent/acct-7284', organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
+      connection: { state: 'connected', badge: 'working', observedFrom: 'login', checkedLive: true, plan: null, loginExpiresInDays: 2 } }]);
+    window.__opener7284 = document.activeElement;
+    loginAdvGo('/nonexistent/acct-7284', 'someone@example.com', document.activeElement);
+  }][n](), i);
 /* A page control outside the dialog takes focus; says whether it did. */
 const focusPage = (p) => p.evaluate(() => {
   const modal = document.getElementById('acct-add-modal');
@@ -194,6 +206,11 @@ async function walk(p) {
             await p.keyboard.press('Escape');
             await p.waitForTimeout(300);
             say(await p.isHidden('#acct-add-modal'), tag + ': Escape closes the dialog');
+            if (i === REFRESH_LOGIN) {
+              // The notice's button is handed back focus when the dialog closes (ACCT_ADD_RETURN_FOCUS, kosmos#7198).
+              const back = await p.evaluate(() => !!window.__opener7284 && document.activeElement === window.__opener7284);
+              say(back, tag + ': closing the dialog gives focus back to the control that opened it');
+            }
           }
         }
 
