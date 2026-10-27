@@ -49,18 +49,26 @@ const toolUse = (name, input) => { lastId = 'toolu_' + (++nextId); return { type
 const init = { type: 'system', subtype: 'init' };
 const result = { type: 'result', is_error: false };
 
+/* The step a tool call is shown as, read the way the card reads it: through the publisher's own write. */
+function stepVia(name, input) {
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.wrote(); r.pub.event(init);
+  r.pub.event(toolUse(name, input));
+  r.pub.wrote();   // something queued, so the step is written
+  return r.last().step;
+}
+
 test('#7368: the step names the shell command in quotes, or the tool and what it acts on; masked, one line, cut by character', () => {
-  assert.equal(ss.stepOfEvent(toolUse('Bash', { command: 'npm install' })), 'running "npm install"');
-  assert.equal(ss.stepOfEvent(toolUse('Read', { file_path: 'C:\\work\\notes.md' })), 'using Read on C:\\work\\notes.md');
-  assert.equal(ss.stepOfEvent(toolUse('WebFetch', {})), 'using WebFetch');
-  assert.equal(ss.stepOfEvent({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } }), null, 'a reply with no tool has no step');
-  assert.equal(ss.stepOfEvent(result), null);
-  assert.equal(ss.stepOfEvent(toolUse('Bash', { command: 'a\n\t\u0007 b' })), 'running "a b"', 'control characters and runs of space fold to one space');
-  const long = ss.stepOfEvent(toolUse('Bash', { command: '\u{1F600}'.repeat(200) }));
+  assert.equal(stepVia('Bash', { command: 'npm install' }), 'running "npm install"');
+  assert.equal(stepVia('Read', { file_path: 'C:\\work\\notes.md' }), 'using Read on C:\\work\\notes.md');
+  assert.equal(stepVia('WebFetch', {}), 'using WebFetch');
+  assert.equal(stepVia('Bash', { command: 'a\n\t\u0007 b' }), 'running "a b"', 'control characters and runs of space fold to one space');
+  const long = stepVia('Bash', { command: '\u{1F600}'.repeat(200) });
   assert.equal(Array.from(long).length, 80, 'cut to 80 characters');
   assert.ok(!/[\uD800-\uDBFF]\u2026$/.test(long), 'never cut inside a character');
   const token = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
-  const masked = ss.stepOfEvent(toolUse('Bash', { command: 'GH_TOKEN=' + token + ' gh pr list' }));
+  const masked = stepVia('Bash', { command: 'GH_TOKEN=' + token + ' gh pr list' });
   assert.ok(!masked.includes(token), 'a token in the command is masked before it reaches the card or the log: ' + masked);
 });
 

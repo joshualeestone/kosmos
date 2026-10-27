@@ -3411,10 +3411,9 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
  * that pinned test is deliberately left as WORKING and this change does
  * not touch it.
  */
-const AUTH_FAILED_MARKERS = [
-  /OAuth\s*access\s*token\s*is\s*invalid/i,
-  /"type":\s*"authentication_error"/i,
-];
+/* #7369: the patterns themselves live in engine/claudesignintext.js, unchanged, so the Windows stream reads the same
+   words without loading this file; the reasoning for each stays here. */
+const { AUTH_FAILED_MARKERS } = require('./claudesignintext');
 
 /**
  * The envelope the two markers above were captured INSIDE, and the thing that
@@ -3444,7 +3443,7 @@ const AUTH_FAILED_MARKERS = [
  * were captured 2026-08-25, off the SAME line. What the prose lacks is the rest
  * of that line, so the rest of that line is the discriminator.
  */
-const AUTH_ENVELOPE = /"type":\s*"error"/i;
+const { AUTH_ENVELOPE } = require('./claudesignintext');   // #7369: shared, unchanged
 
 /**
  * #1930: how many real 401 auth-error lines are on this screen right now -- the
@@ -3597,8 +3596,7 @@ function waitingSinceFrom(waitReport, cardState, nowMs = Date.now()) {
  * false calm that stopped the tester. A missed dead token is worse than a rare false
  * pause; that trade is this file's oldest rule.
  */
-const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Your session has expired/i;
-const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
+const { AUTH_FRIENDLY_MESSAGE, AUTH_FRIENDLY_REMEDY } = require('./claudesignintext');   // #7369: shared, unchanged
 
 /**
  * #3410. Claude Code's own on-screen text for a TRANSIENT network error --
@@ -5204,6 +5202,25 @@ function classify(pane, paneText) {
       /* streamLimit: the account's own refusal, not a screen reading, so reconcileReport lets it stand against a fresh
          AUTOMATIC report, as #3723 does for Codex's and Gemini's limit messages (review 5). */
       return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.SCRAPED, because: 'its account reported a usage limit', evidence: line, limitUntil: until, streamLimit: true, streamLimitSince: since };
+    }
+    /* #7369: its last turn was refused for its sign-in (win32streamstate's `auth <since> <busy|idle>[ <line>]`). It reads
+       exactly as the Mac's screen reading of a dead token does (auth_failed, scraped, never reported), so the card says
+       "Sign-in Issue", the account's live check (authprobe, kicked below for a scraped auth_failed) can clear it, and
+       chat.signinHeldVerdict holds messages on it. `underlying` is the plain state the stream read under it: when that
+       live check reads the account signed in again, reconcileReport shows this instead of "can't tell" (the Mac has no
+       such reading under a stale line, so it never carries one). Evidence is Claude's own sentence or nothing. */
+    const authTok = typeof paneText === 'string' ? /^auth (\S+) (busy|idle)(?: ([\s\S]*))?$/.exec(paneText) : null;
+    if (authTok && Number.isFinite(Date.parse(authTok[1]))) {
+      const line = typeof authTok[3] === 'string' && authTok[3].trim() ? authTok[3].trim() : null;
+      const underlying = authTok[2] === 'busy'
+        ? { state: STATE.WORKING, because: 'it is working' }
+        : { state: STATE.IDLE, because: 'it is idle at its prompt' };
+      /* Review 2: the record stands until the agent's next good turn, which may be long after the person signed in again.
+         Once the account check has read this refusal (by its own `since`) as stale, it stays cleared, so the idle card
+         does not flicker back to "Sign-in Issue" each time the 30 s check is re-asked. A NEW refusal has a new since. */
+      const authKey = String((pane && pane.name) || '') + '\u0000' + authTok[1];   // review 4: this agent's refusal, not a same-ms one of another's
+      if (WIN32_AUTH_CLEARED.has(authKey)) return { ...underlying, confidence: CONFIDENCE.SCRAPED };
+      return { state: STATE.AUTH_FAILED, confidence: CONFIDENCE.SCRAPED, because: 'its Claude sign-in is not working', evidence: line, underlying, authSince: authTok[1], authKey };
     }
     /* The two tokens are win32streamstate's, the one vocabulary win32capture holds by too (#5949). */
     const { BUSY: WIN32_BUSY, IDLE: WIN32_IDLE } = require('./win32streamstate');
@@ -8091,7 +8108,22 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
         conflict: 'the account sign-in currently reads valid, but its screen is still producing new Claude sign-in rejections, so a live rejection loop is running' + saidWords(reported, nowMs),
       };
     }
-    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner);
+    /* #7369: a Windows stream reading carries the plain state under the refusal (`underlying`), so a re-signed-in
+       Windows agent reads idle or working again rather than "can't tell" until its next turn (which a held queue
+       would never give it). A Mac screen has no such reading: UNKNOWN, as before. Neither is AUTH_FAILED, so this
+       still cannot recurse. */
+    const under = scraped.underlying && typeof scraped.underlying === 'object' && typeof scraped.underlying.state === 'string'
+      && scraped.underlying.state !== STATE.AUTH_FAILED ? scraped.underlying : null;
+    /* Review 2: stays cleared. Review 3: only when the HEALTHY check began after this refusal: a cached HEALTHY from
+       before it (another agent on the account, or this one's earlier clear) shows the plain state for this tick only,
+       and the next check, asked after the refusal, decides. */
+    if (under && typeof scraped.authSince === 'string' && Number(scraped.authCheckStartedAt) > Date.parse(scraped.authSince)) {
+      if (typeof scraped.authKey === 'string') noteWin32AuthCleared(scraped.authKey);
+    }
+    const reentry = under
+      ? { state: under.state, confidence: CONFIDENCE.SCRAPED, because: under.because }
+      : { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE };
+    const answer = reconcileReport(reported, reentry, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
   /* #4006: a restart that did NOT come back (disruption.fail). Not "restarting" and not a quiet
@@ -8854,9 +8886,43 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   // #7206: nor a vendor account (~/.kosmos-deepseek-<label>): a claude agent there holds the vendor's key, not a Claude
   // sign-in, so `claude auth status` on it could only be wrong, and a HEALTHY answer would hide the vendor's refusal.
   if (job.configDir && require('./anthropiccompat').isCompatHome(job.configDir)) return undefined;
+  /* #7369 review 4: nor an API-key account (#2420: a key file and an apiKeyHelper in the folder). `claude auth status`
+     reads it logged in whenever a key is THERE, revoked or not (measured), so a HEALTHY answer could only hide the key's
+     real refusal. auth_failed stands: the card says Sign-in Issue, and nothing is held (nothing could release it). */
+  try {
+    // Review 5: the default account too (no configDir: CLAUDE_CONFIG_DIR, else ~/.claude), which may hold a key.
+    const dir = job.configDir || process.env.CLAUDE_CONFIG_DIR || require('node:path').join(require('node:os').homedir(), '.claude');
+    if (require('node:fs').existsSync(require('./claudeaccounts').keyFile(dir))) return undefined;
+  } catch { return undefined; }
   // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
   // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
   try { return verdictFn(job.configDir || null); } catch { return undefined; }
+}
+
+/* #7369: whether a scraped auth_failed on this agent is one authprobe can check, and so can clear (the HEALTHY drop in
+   reconcileReport). The SAME guards as liveAuthForAuthFailed (it is asked, with a verdict that only says "asked"), so
+   the two can never disagree: no job, a Qwen home or a vendor home is not checkable. chat.signinHeldVerdict holds a
+   Claude agent only when this is true, because a hold nothing can release would keep its messages for a day. */
+/* #7369 review 2: the Windows sign-in refusals (by the `since` win32streamstate stamped) the account check has read as
+   stale. Bounded: refusals are rare, and the oldest are dropped past 200. In memory only, accepted: after a board
+   restart a cleared record reads "Sign-in Issue" once, until the first check answers HEALTHY again (a check in flight
+   holds nothing, so it is a label for a few seconds, never a hold). */
+const WIN32_AUTH_CLEARED = new Set();
+function noteWin32AuthCleared(since) {
+  WIN32_AUTH_CLEARED.add(since);
+  if (WIN32_AUTH_CLEARED.size > 200) WIN32_AUTH_CLEARED.delete(WIN32_AUTH_CLEARED.values().next().value);
+}
+
+/* #7369 review 1: whether this agent's own account check (the same guards as liveAuthForAuthFailed) POSITIVELY reads
+   signed out right now: authprobe EXPIRED, fresh from its cache. chat.signinHeldVerdict holds a Claude agent only on this,
+   never on the card's label alone: a stale HEALTHY being re-checked reads UNCHECKED for a few seconds every 30 s, and an
+   agent printing live 401s keeps its auth_failed label over a HEALTHY account, and neither may hold a healthy agent's
+   messages. Asking also keeps the check fresh (authprobe kicks a re-check when its entry is old). */
+function claudeSignedOutConfirmed(name, readJobFn, verdictFn) {
+  const ap = require('./authprobe');
+  try {
+    return liveAuthForAuthFailed(name, readJobFn || ((n) => require('./create').readJob(n)), verdictFn || ap.verdict) === ap.EXPIRED;
+  } catch { return false; }
 }
 
 /* #2093: the per-account live-auth verdict for a running codex agent whose screen said nothing
@@ -9068,10 +9134,16 @@ function snapshot() {
        need the name to resolve the account config dir); no probe for a healthy agent. */
     let liveAuth;
     if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
+      let probedDir;
       liveAuth = liveAuthForAuthFailed(
         pane.name,
         (n) => require('./create').readJob(n),
-        (d) => require('./authprobe').verdict(d, now));
+        (d) => { probedDir = d; return require('./authprobe').verdict(d, now); });
+      /* #7369 review 3: a Windows refusal is remembered as cleared only by a HEALTHY check that BEGAN after it (a cached
+         HEALTHY from before a new sign-out must not hide it for good); reconcileReport reads this. */
+      if (typeof scrapedStatus.authSince === 'string' && probedDir !== undefined) {
+        scrapedStatus = { ...scrapedStatus, authCheckStartedAt: require('./authprobe').startedAt(probedDir) };
+      }
     }
     /* #2019: is this pane's agent one we are deliberately restarting right now?
        Only for a pane TIED to the name -- the same identity gate every
@@ -10061,7 +10133,7 @@ module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, split
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignedOutConfirmed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an

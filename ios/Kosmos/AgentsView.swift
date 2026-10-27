@@ -23,13 +23,31 @@ struct AgentsView: View {
     private static var sampleOpened = false
     #endif
 
+    // kosmos#7343: the order the list is in, kept on this phone: as the computer orders them (who needs you first), or by
+    // name.
+    @AppStorage("kosmos.agentSort") private var agentSort = Board.AgentSort.board.rawValue
+    private var agentSortMenu: some View {
+        Menu {
+            Picker("Order", selection: $agentSort) {
+                ForEach(Board.AgentSort.allCases, id: \.rawValue) { s in Text(Board.agentSortLabel(s)).tag(s.rawValue) }
+            }
+        } label: { Image(systemName: "arrow.up.arrow.down") }
+        .accessibilityLabel("Order: \(Board.agentSortLabel(Board.AgentSort(rawValue: agentSort) ?? .board))")
+    }
+
     var body: some View {
         NavigationView {
             content
                 .navigationTitle("Agents")
+                // kosmos#7343 (Josh 10-27, Mona Lisa's design): one bar on Agents, Projects and Tasks, no big title (the
+                // tab bar names the screen): the Kosmos mark, the computer switcher, then order and + in one capsule.
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .principal) { ScreenHeading(title: "Agents") }
+                    ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
                     ToolbarItem(placement: .navigationBarLeading) { MacSwitcher(client: client) }
-                    ToolbarItem(placement: .navigationBarTrailing) {
+                    ToolbarItemGroup(placement: .navigationBarTrailing) {
+                        agentSortMenu
                         Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
                             .accessibilityLabel("Add agent")
                     }
@@ -138,7 +156,7 @@ struct AgentsView: View {
                 }
             }
             Section(footer: footer) {
-                ForEach(client.agents) { agent in
+                ForEach(Board.agentOrder(client.agents, byName: agentSort == Board.AgentSort.name.rawValue)) { agent in
                     // kosmos#7008: the agent's chat, native; anything it does not draw opens the board's (openChat).
                     Button {
                         openAgent = agent
@@ -313,7 +331,6 @@ struct AgentRow: View {
     let stale: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var tone: Board.Tone { stale ? .quiet : Board.tone(agent) }
     private var word: String { Board.statusWord(agent) }
     private var large: Bool { typeSize.isAccessibilitySize }
 
@@ -333,7 +350,8 @@ struct AgentRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         // A list shown as not current says so to VoiceOver too, not only by colour.
-        .accessibilityLabel(([agent.name, agent.role, word, Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
+        .accessibilityLabel(([agent.name, agent.role, word, stale ? nil : Board.presenceWords(Board.presence(agent), word: word),
+                              Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
                              + (stale ? ["not updating"] : [])).compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the chat")
@@ -342,7 +360,7 @@ struct AgentRow: View {
     private var size: CGFloat { large ? 48 : 40 }
 
     private var avatar: some View {
-        AgentAvatar(name: agent.name, picture: picture, tone: tone, size: size, memoryPercent: agent.contextPercent,
+        AgentAvatar(name: agent.name, picture: picture, tone: nil, presence: stale ? .unsure : Board.presence(agent), size: size, memoryPercent: agent.contextPercent,
                     memoryQuiet: stale)
     }
 
@@ -358,17 +376,17 @@ struct AgentRow: View {
 
     // The board's own word, never truncated (it wraps at the largest sizes rather than run off the row); a live
     // change crossfades in 0.2s, the animation on the container so the outgoing word fades as the new one comes in.
-    private var status: some View {
+    // kosmos#7342: a pill only when there is something to see (Board.pill); Idle shows nothing. Not updating: every row
+    // keeps its last word in a grey pill, Idle included, so no row reads as current.
+    @ViewBuilder private var status: some View {
         ZStack(alignment: large ? .leading : .trailing) {
-            Text(word)
-                .font(.footnote.weight(tone == .asked || tone == .needsYou ? .semibold : .regular))
-                .foregroundColor(Palette.word(tone))
-                .fixedSize(horizontal: !large, vertical: true)
-                .id(word)
-                .transition(.opacity)
+            if stale || Board.pill(agent) != nil {
+                StatusPill(word: word, pill: stale ? .cantTell : Board.pill(agent) ?? .cantTell, wraps: large)
+                    .id(word)
+                    .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.2), value: word)
-        .animation(.easeInOut(duration: 0.2), value: tone)
     }
 }
 
@@ -378,6 +396,9 @@ struct AgentAvatar: View {
     let name: String
     let picture: UIImage?
     let tone: Board.Tone?
+    // kosmos#7341: when set, the dot is the agent's presence (green, grey, hollow) rather than its tone. The Agents list
+    // sets it; screens that still colour by state pass a tone instead.
+    var presence: Board.Presence? = nil
     let size: CGFloat
     // kosmos#7120: the context ring round the picture, as the board's list row draws it (lrowRing); nil draws none.
     var memoryPercent: Double? = nil
@@ -402,7 +423,16 @@ struct AgentAvatar: View {
             .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay { memoryRing }
-            if let tone {
+            if let presence {
+                // kosmos#7341: hollow is a ring in the quiet grey on the card colour, as the board's pjd-unk.
+                Circle()
+                    .fill(presence == .unsure ? Palette.card : Palette.presence(presence))
+                    .overlay(Circle().inset(by: 1.5).stroke(presence == .unsure ? Palette.presence(.off) : .clear, lineWidth: 1.5))
+                    .frame(width: 12, height: 12)
+                    .overlay(Circle().stroke(Palette.card, lineWidth: 2))
+                    .offset(x: 1, y: 1)
+                    .animation(.easeInOut(duration: 0.2), value: presence)
+            } else if let tone {
                 // The status dot, 12pt with a 2pt ring in the card colour, 1pt outside the picture.
                 Circle()
                     .fill(Palette.dot(tone))
@@ -462,6 +492,34 @@ enum Palette {
     // kosmos#7030: the board's built colour (--pj-mention), the dot before a ready-to-check card's "Marked built" line.
     static let built = pair(0x0a58d8, 0x5aa2ff)
 
+    // kosmos#7341: the presence dot, the board's green and grey (unsure is drawn as a ring of the grey).
+    static func presence(_ p: Board.Presence) -> Color {
+        switch p {
+        case .on: return dot(.working)
+        case .off, .unsure: return dot(.quiet)
+        }
+    }
+
+    // kosmos#7342: the pills' ground and words (Mona Lisa's values; each word clears 4.5:1 on its own ground).
+    static func pillGround(_ p: Board.Pill) -> Color {
+        switch p {
+        case .working: return pair(0xe3f1e8, 0x173a26)
+        case .asks: return pair(0xe6eefb, 0x1b2c4a)
+        case .held: return pair(0xfbefd9, 0x3d2e0f)
+        case .problem: return pair(0xfbe3e1, 0x4a1c19)
+        case .cantTell: return pair(0xececee, 0x2c2c2e)
+        }
+    }
+    static func pillWord(_ p: Board.Pill) -> Color {
+        switch p {
+        case .working: return pair(0x2b7149, 0x6fd69a)
+        case .asks: return pair(0x2d5fb3, 0x8fb4ff)
+        case .held: return pair(0x8a5a00, 0xf2c260)
+        case .problem: return pair(0xb3261e, 0xff8a80)
+        case .cantTell: return pair(0x5f5f66, 0xa1a1a8)
+        }
+    }
+
     static func dot(_ tone: Board.Tone) -> Color {
         switch tone {
         case .working: return pair(0x1f7a4d, 0x4ade80)
@@ -477,6 +535,31 @@ enum Palette {
         case .needsYou: return dangerWord
         case .working, .quiet: return secondary
         }
+    }
+}
+
+// kosmos#7343 (Mona Lisa's design): the Kosmos mark at the bar's left, a 44 pt gold circle (the app icon's gold) with
+// the icon's dotted K. Decoration only, so VoiceOver skips it.
+struct KosmosMark: View {
+    var body: some View {
+        ZStack {
+            Circle().fill(Color(red: 0xe2 / 255, green: 0xac / 255, blue: 0x1e / 255))
+            Image("KosmosMark").resizable().scaledToFill().frame(width: 38, height: 38).clipShape(Circle())
+        }
+        .frame(width: 44, height: 44)
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .accessibilityHidden(true)
+    }
+}
+
+// kosmos#7343: no title shows in the bar, but VoiceOver still hears the screen's name as its heading.
+struct ScreenHeading: View {
+    let title: String
+    var body: some View {
+        Color.clear.frame(width: 1, height: 1)
+            .accessibilityElement()
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -520,4 +603,48 @@ struct MacSwitcher: View {
             }
         }
     }
+}
+
+// kosmos#7342: one status pill, 20 pt tall and fully round, 12 pt semibold with 8 pt sides. Working carries the board's
+// Sweep: three dots lit one after another (Josh's pick, 09-05); with Reduce Motion they stand still, the first lit.
+struct StatusPill: View {
+    let word: String
+    let pill: Board.Pill
+    var wraps = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if pill == .working { sweep }
+            Text(word)
+                .font(.caption.weight(.semibold))
+                .fixedSize(horizontal: !wraps, vertical: true)
+        }
+        .foregroundColor(Palette.pillWord(pill))
+        .padding(.horizontal, 8)
+        .frame(minHeight: 20)
+        .background(Capsule().fill(Palette.pillGround(pill)))
+    }
+
+    @ViewBuilder private var sweep: some View {
+        if reduceMotion {
+            dots { i in i == 0 ? 1 : 0.25 }
+        } else {
+            // 30 frames a second is smooth for a 1.2 s fade and costs less than the display's own rate.
+            TimelineView(.periodic(from: .now, by: 1.0 / 30)) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                dots { i in Board.sweepOpacity(t - Double(i) * 0.2) }
+            }
+        }
+    }
+
+    private func dots(_ opacity: @escaping (Int) -> Double) -> some View {
+        HStack(spacing: 2.5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle().frame(width: 4, height: 4).opacity(opacity(i)).scaleEffect(0.7 + 0.4 * (opacity(i) - 0.25) / 0.75)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
 }

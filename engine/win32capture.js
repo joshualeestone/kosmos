@@ -67,7 +67,9 @@ const GOOD = new Set([win32streamstate.BUSY, win32streamstate.IDLE]);
 /* #5805: a reading the card can be drawn from: the two tokens, or the out-of-usage one (`limit ...`, read by classify
    as rate_limited). The carry file may record a limit token, but only the two plain tokens are READ BACK after a
    restart (failed(), below): a limit carried across a restart is from before it, so it says nothing about now. */
-const isGood = (token) => GOOD.has(token) || win32streamstate.isLimitToken(token);
+/* #7369: and the signed-out one (`auth ...`, read by classify as auth_failed), on the limit's terms: carried, never read
+   back after a restart. */
+const isGood = (token) => GOOD.has(token) || win32streamstate.isLimitToken(token) || win32streamstate.isAuthToken(token);
 /* #5949: a card shows "Can't tell" only after this many failed looks in a row AND this long
    since its last good one. Both, so neither a burst of quick looks nor one slow one is enough
    on its own: about 15 s at the board's 5 s poll. The time is the roster's own hold, one fact,
@@ -417,7 +419,7 @@ function make(opts) {
       q.skipped = 0;
       m.said = 'held';
       say(name, 'status-read-failed', (flaps > 0 ? '(it also failed and came back ' + flaps + (flaps === 1 ? ' time' : ' times') + ' since the last line) ' : '') + 'Kosmos could not check on it just now' + (m.carried ? ' (Kosmos has just started; this is its state from before)' : '')
-        + ', so its card keeps its last known state (' + (win32streamstate.isLimitToken(m.token) ? 'out of usage' : m.token === win32streamstate.BUSY ? 'working' : 'idle') + '), marked as remembered: ' + cause);
+        + ', so its card keeps its last known state (' + (win32streamstate.isLimitToken(m.token) ? 'out of usage' : win32streamstate.isAuthToken(m.token) ? 'signed out' : m.token === win32streamstate.BUSY ? 'working' : 'idle') + '), marked as remembered: ' + cause);
     }
   }
 

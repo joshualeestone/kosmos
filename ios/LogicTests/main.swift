@@ -3844,6 +3844,77 @@ do {
     let boardPage = (try? String(contentsOf: page, encoding: .utf8)) ?? ""
     check(boardPage.contains("const NEARLY_FULL = 80;") && boardPage.contains("const WARM = 60;"),
           "the board's bands are still 60 and 80 (read from web/index.html)")
+    // kosmos#7341: the avatar dot's presence table is the board's CARD_ST pres, state for state (read from web/index.html).
+    do {
+        var board: [String: Board.Presence] = [:]
+        if let start = boardPage.range(of: "const CARD_ST = {"), let end = boardPage.range(of: "\n};", range: start.upperBound..<boardPage.endIndex) {
+            let block = String(boardPage[start.upperBound..<end.lowerBound])
+            let rx = try! NSRegularExpression(pattern: #"^\s*([a-z_]+):\s*\{[^}]*pres:\s*'(on|off|unsure)'"#, options: [.anchorsMatchLines])
+            for m in rx.matches(in: block, range: NSRange(block.startIndex..., in: block)) {
+                let key = String(block[Range(m.range(at: 1), in: block)!]), pres = String(block[Range(m.range(at: 2), in: block)!])
+                board[key] = pres == "on" ? .on : pres == "off" ? .off : .unsure
+            }
+        }
+        check(board.count >= 10, "kosmos#7341: the board's CARD_ST was read (\(board.count) states)")
+        check(board == Board.presenceOf, "kosmos#7341: the phone's presence table is the board's CARD_ST pres for every state")
+        func a(_ state: String, running: Bool = true, trust: Bool = false, failed: Bool = false) -> Board.Agent {
+            var x = Board.Agent(session: "s", name: "S", role: nil, state: state, task: nil, needsYou: false)
+            x.running = running; x.needsTrust = trust; x.restartFailed = failed
+            return x
+        }
+        check(Board.presence(a("idle")) == .on && Board.presence(a("working")) == .on && Board.presence(a("needs_you")) == .on,
+              "kosmos#7341: idle, working and stuck agents that run are green (Josh: every agent looked red or grey)")
+        check(Board.presence(a("stopped")) == .off, "a stopped agent is grey")
+        check(Board.presence(a("working", running: false)) == .off, "an agent not running is grey whatever its last state")
+        check(Board.presence(a("restarting", running: false)) == .on, "CONTROL: except while restarting")
+        check(Board.presence(a("idle", trust: true)) == .unsure, "an agent waiting on a trust prompt is hollow, never green")
+        check(Board.presence(a("idle", running: false, trust: true)) == .unsure, "and the trust prompt comes before not running")
+        check(Board.presence(a("needs_you", failed: true)) == .off, "a failed restart is grey (the board's CARD_ST_FAILED_RESTART)")
+        check(Board.presence(a("working", failed: true)) == .on, "CONTROL: only on needs_you, as the board")
+        check(Board.presence(a("unknown")) == .unsure && Board.presence(a("something_new")) == .unsure,
+              "unknown, and a state the phone does not know, are hollow")
+        let parsed = Board.parseAgents(Data(#"{"agents":[{"sessionName":"f","state":"needs_you","disruption":{"failed":true}}]}"#.utf8))
+        check(parsed?.first?.restartFailed == true, "kosmos#7341: disruption.failed is read from /api/status")
+        // kosmos#7342: a pill only when there is something to see; its colour follows the state the word comes from.
+        func q(_ x: Board.Agent, _ f: (inout Board.Agent) -> Void) -> Board.Agent { var y = x; f(&y); return y }
+        check(Board.pill(a("idle")) == nil, "kosmos#7342: Idle shows no pill (Josh: no pill means all is well)")
+        check(Board.pill(a("working")) == .working, "working is the green pill with the Sweep")
+        check(Board.pill(q(a("needs_you")) { $0.reportedByAgent = true }) == .asks, "an agent's question is blue")
+        check(Board.pill(q(a("needs_you")) { $0.awaitingApproval = true }) == .asks, "a permission waiting is blue")
+        check(Board.pill(a("needs_you")) == .problem, "CONTROL: a plain needs_you (the board's Issue) is a real problem, red")
+        check(Board.pill(a("idle", running: false, trust: true)) == .asks, "a trust prompt is the person's to answer: blue")
+        check(Board.pill(a("rate_limited")) == .held && Board.pill(a("blocked")) == .held && Board.pill(a("restarting", running: false)) == .held,
+              "rate limited, waiting and restarting are amber: held by something outside the agent")
+        check(Board.pill(a("idle", running: false)) == .problem && Board.pill(a("stopped")) == .problem, "not running is red")
+        check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
+        check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
+        check(Board.pill(a("unknown")) == .cantTell && Board.pill(a("something_new")) == .cantTell, "unknown and unrecognised states are grey")
+        check(Board.presenceWords(.off, word: "Issue") == "not running", "review: a grey dot beside another word is spoken")
+        check(Board.presenceWords(.off, word: "Not running") == nil, "CONTROL: not said twice when the word says it")
+        check(Board.presenceWords(.unsure, word: "Idle") != nil && Board.presenceWords(.on, word: "Idle") == nil, "a hollow dot is spoken; a green one adds nothing")
+        // Review: the pill is never calmer than what the board counts as needing the person.
+        func needing(_ s: String) -> Board.Agent { Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: true) }
+        check(Board.pill(needing("connection_lost")) == .problem, "review: a reconnect that gave up is red, not amber")
+        check(Board.pill(a("connection_lost")) == .held, "CONTROL: a connection still being retried stays amber")
+        check(Board.pill(needing("rate_limited")) == .problem, "review: a rate limit stuck on its error is red")
+        check(Board.pill(needing("idle")) == .problem, "review: an idle agent whose helper gave up shows a red pill, not none")
+        check(Board.pill(q(a("working")) { $0.macWord = "Messages stuck"; $0.macTone = .needsYou }) == .problem,
+              "review: a word the Mac counts as needs you (Messages stuck) is red, not a green Working pill")
+        check(Board.pill(q(a("unknown")) { $0.macWord = "Can't tell"; $0.macTone = .needsYou }) == .cantTell,
+              "review: Can't tell stays grey though the Mac's tone for it is needs you")
+        check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true; $0.macWord = "Can't tell"; $0.macTone = .needsYou }) == .cantTell,
+              "review: and so does a job Kosmos cannot see, as a current Mac sends it")
+        check(Board.pill(q(a("rate_limited")) { $0.macTone = .needsYou }) == .held, "CONTROL: the Mac's needs-you tone leaves a held state amber")
+        check(Board.pill(q(needing("needs_you")) { $0.reportedByAgent = true }) == .asks,
+              "CONTROL: an agent's question stays blue though the board counts it as needing the person")
+        // kosmos#7343: the Agents list's order, its own or by name (ties keep the list's order).
+        let ord = [Board.Agent(session: "b", name: "bea", role: nil, state: "idle", task: nil, needsYou: false),
+                   Board.Agent(session: "a", name: "Al", role: nil, state: "idle", task: nil, needsYou: false),
+                   Board.Agent(session: "c", name: "al", role: nil, state: "idle", task: nil, needsYou: false)]
+        check(Board.agentOrder(ord, byName: false).map(\.session) == ["b", "a", "c"], "kosmos#7343: Needs you first keeps the computer's order")
+        check(Board.agentOrder(ord, byName: true).map(\.session) == ["a", "c", "b"], "Name sorts without case, ties in the computer's order")
+        check(abs(Board.sweepOpacity(0.24) - 1) < 0.001 && abs(Board.sweepOpacity(1.0) - 0.25) < 0.001, "the Sweep peaks at 20% of 1.2 s and rests after 70%")
+    }
 }
 
 await boardLoopTests()

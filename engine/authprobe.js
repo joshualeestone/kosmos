@@ -63,11 +63,20 @@ function kickCheck(configDir) {
   const key = dirKey(configDir);
   const cur = cache.get(key);
   if (cur && cur.checking) return;
-  cache.set(key, { verdict: cur ? cur.verdict : UNCHECKED, at: cur ? cur.at : 0, checking: true });
+  /* #7369 review 3: `startedAt` is when the check that gave the verdict BEGAN (`at` is when it settled): an answer can
+     only speak for what happened before it was asked. */
+  const startedAt = Date.now();
+  cache.set(key, { verdict: cur ? cur.verdict : UNCHECKED, at: cur ? cur.at : 0, startedAt: cur ? cur.startedAt : 0, checking: true });
   Promise.resolve()
     .then(() => checker(configDir))
-    .then((live) => { cache.set(key, { verdict: verdictFromLive(live), at: Date.now(), checking: false }); })
-    .catch(() => { cache.set(key, { verdict: UNKNOWN, at: Date.now(), checking: false }); });
+    .then((live) => { cache.set(key, { verdict: verdictFromLive(live), at: Date.now(), startedAt, checking: false }); })
+    .catch(() => { cache.set(key, { verdict: UNKNOWN, at: Date.now(), startedAt, checking: false }); });
+}
+
+/* #7369 review 3: when the check behind this account's current verdict began (epoch ms), or 0 when none has settled. */
+function startedAt(configDir) {
+  const cur = cache.get(dirKey(configDir));
+  return cur && Number.isFinite(cur.startedAt) ? cur.startedAt : 0;
 }
 
 /**
@@ -98,7 +107,7 @@ function verdict(configDir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  verdict,
+  verdict, startedAt,
   HEALTHY, EXPIRED, UNKNOWN, UNCHECKED,
   TTL_MS,
   dirKey,

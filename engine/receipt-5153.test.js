@@ -574,3 +574,44 @@ test('an agent\'s receipts are worked out a few at a time, in order, and one tha
   assert.deepEqual(r.receipts.map((x) => x.receipt && x.receipt.commands), [5, 4, null, 2, 1], 'the failed one is a row with no receipt');
   assert.ok(most > 1 && most <= 3, 'a few at a time, never more than three: ' + most);
 });
+
+/* #7367: while the projects file cannot be read, a task conversation keeps every row (a deleted same-numbered task's
+   included), so a receipt worked out then is shown but never kept: the keep is the one write that would last. */
+async function settledReceipt(name) {
+  const project = 'p' + (++pn);
+  const who = worker(name);
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: name }, { at: '12:00', kind: 'closed' }]);
+  fs.writeFileSync(path.join(claudeDir(who), 's.jsonl'), assistant('10:10', { id: name + '1', usage: use(10, 1), tools: [{ id: name + 't1', name: 'Bash' }] }) + '\n');
+  const pf = require('./projects').file();
+  fs.mkdirSync(path.dirname(pf), { recursive: true });
+  fs.writeFileSync(pf, '[]');
+  return { project, task: { number: 1, closedAt: T('12:00') }, kept: receipt.receiptFile(project, 1), pf, settled: ms('12:00') + receipt.SETTLE_MS };
+}
+
+test('#7367: with the projects file damaged a settled receipt is shown but not kept; repaired, it is kept', async () => {
+  const { project, task, kept, pf, settled } = await settledReceipt('fay');
+  fs.writeFileSync(pf, Buffer.alloc(16, 0));
+  let r;
+  try { r = await receipt.forTask(project, task, { now: settled }); } finally { fs.writeFileSync(pf, '[]'); }
+  assert.ok(r && Array.isArray(r.agents), 'the receipt is still worked out and shown');
+  assert.equal(fs.existsSync(kept), false, 'damaged: not kept');
+  await receipt.forTask(project, task, { now: settled });
+  assert.equal(fs.existsSync(kept), true, 'CONTROL: repaired, the same receipt is kept');
+});
+
+test('#7367: the stamps going unknown DURING the transcript read is caught by the check before the keep', async () => {
+  const { project, task, kept, pf, settled } = await settledReceipt('gus');
+  const realRead = taskchat.read;
+  taskchat.read = (...a) => { const rows = realRead(...a); fs.writeFileSync(pf, Buffer.alloc(16, 0)); return rows; };
+  try { await receipt.forTask(project, task, { now: settled }); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
+  assert.equal(fs.existsSync(kept), false, 'damaged mid-read: not kept');
+});
+
+test('#7367: stamps unknown at entry and the file repaired DURING the read is caught by the check before it', async () => {
+  const { project, task, kept, pf, settled } = await settledReceipt('ida');
+  fs.writeFileSync(pf, Buffer.alloc(16, 0));
+  const realRead = taskchat.read;
+  taskchat.read = (...a) => { fs.writeFileSync(pf, '[]'); return realRead(...a); };
+  try { await receipt.forTask(project, task, { now: settled }); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
+  assert.equal(fs.existsSync(kept), false, 'unknown at entry: not kept');
+});

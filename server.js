@@ -26407,6 +26407,21 @@ function start(port = PORT) {
       });
       const stalereportSweep = setInterval(stalereportTick, Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (stalereportSweep && typeof stalereportSweep.unref === 'function') stalereportSweep.unref();
+      /* #7374: once a day, when today has no product-feedback report and sending is on, ONE idle agent (a Project
+         Manager or Director first) is asked to write it (engine/feedbacknudge.js, kept on disk). Same gating as the
+         sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_FEEDBACK_NUDGE_OFF=1, own timer, unref'd, best-effort. */
+      const FEEDBACKNUDGE_BOOK = new Map();
+      const feedbacknudgeTick = require('./engine/feedbacknudge').makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: FEEDBACKNUDGE_BOOK,
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`feedback-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+      });
+      const feedbacknudgeSweep = setInterval(feedbacknudgeTick, Number(process.env.AGENT_WORKFORCE_FEEDBACK_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_NUDGE_MS) : 10 * 60 * 1000); // the env is the test seam only
+      if (feedbacknudgeSweep && typeof feedbacknudgeSweep.unref === 'function') feedbacknudgeSweep.unref();
       /* #6209 part 2: an agent whose running summary is overdue while it has been working (projectview's freshness and
          rhythm; the work is the module's own workedSinceMs) is told ONCE per stale summary (kept on disk), typed into its session (engine/summarydue-nudge.js).
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
@@ -26968,7 +26983,11 @@ function start(port = PORT) {
           /* Review 5: nobody asked for this line (unlike the missed-run reviewer), so it waits for the Prompter like the
              reply nudge and the community turn: a person who turned the Prompter off gets no unprompted lines. */
           if (!allowed || heartbeatSetting.read().on !== true) return;
-          const rows = messages.readLog();
+          /* #7367: the rows with the stamps they were filtered by: read while the stamps were unknown, they hold a deleted
+             same-id project's posts, and the stamps can come back before owed() checks its own. */
+          const rec = messages.record();
+          if (rec.stampsUnknown) return;
+          const rows = rec.rows;
           const owed = holdstale.owed(projs, rows);
           if (!owed.length) return;
           const r = owed.some((x) => !x.swarmOff && x.members.includes(x.owner)) ? safeRoster() : null;
