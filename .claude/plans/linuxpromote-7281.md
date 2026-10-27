@@ -29,3 +29,14 @@ staging without one refuses.
 - NITs FIXED: the key-list temp folder is in the trap; the read-back failure is named apart from the rename failure.
   NIT RECORDED: manifest-sign.js maps a thrown error to 1 ("not signed"); still a refusal, wording only (Mac too).
 Test: 41 checks.
+
+## Review 3 (23:4x): 0 blockers, 1 warning (test only), 2 nits. CONVERGED.
+- Checked clean: the trap's remedy never prints on success or twice; it cannot change the exit code (cleanup returns
+  0, every exit between the commit and the end check is exit 1); the read-back branch clears TMP so the trap keeps the
+  real latest-linux.json; the key-list temp is in the trap.
+- WARNING FIXED (test): the stub's verify-under-list never opened the list, so the control proved the fetch, not that
+  the COMMITTED list was read. Now the stub refuses a missing list and needs the committed signature; the working
+  tree's copy disagrees with origin; the served list moves from another clone, so only a real fetch passes; a reachable
+  origin with no list refuses. Mutants: read the working tree, skip the fetch: both red.
+- NITs FIXED: the read-back failure is tested (owed, no temp, the real file kept); its message says to commit.
+Test: 45 checks.
