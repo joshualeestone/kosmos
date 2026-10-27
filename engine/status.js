@@ -1786,6 +1786,13 @@ function deliveryStallOf(pane, status) {
     if (st.state !== STATE.IDLE && st.state !== STATE.WORKING) return null;
     // The card's own four fields, built as the card builds them.
     const limitShown = ds.limitShownOn({ limitUntil: claudeLimitUntilIso(pane, st), limitFrom: st.limitFrom, quotaUntil: st.quotaUntil, poolUntil: st.poolUntil });
+    /* kosmos#7368: a Windows agent working on one turn for over an hour with messages placed behind it. It comes
+       first: those messages each landed, so the streak below can never see them, and it names the step (PigeonPete,
+       m716: when both apply, show this one). */
+    if (st.state === STATE.WORKING && pane && require('./win32roster').isWin32Pane(pane)) {
+      const turn = ds.turnStuckOf(pane.name, require('./win32streamstate').turnFor(pane.name));
+      if (turn) return turn;
+    }
     return ds.stallOf(pane && pane.name, { limitShown });
   } catch { return null; }
 }

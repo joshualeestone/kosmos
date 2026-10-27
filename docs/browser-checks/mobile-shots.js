@@ -682,7 +682,7 @@ async function ownremoveScreen(page, data) {
 
 /* kosmos#7212 slice 2: stand the chat agent in as idle with a delivery stall 2 hours old, in the shape
    engine/deliverystreak.js stallOf gives the card. */
-async function stallRoute(page, data) {
+async function stallRoute(page, data, kind) {
   await page.route('**/api/status*', async (r) => {
     try {
       if (r.request().method() !== 'GET') { await r.continue(); return; }
@@ -692,9 +692,17 @@ async function stallRoute(page, data) {
       if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
       for (const a of body.agents) {
         if (a && a.sessionName === data.chatAgent) {
-          a.state = 'idle';
-          a.deliveryStall = { since: new Date(Date.now() - 2 * 3600e3).toISOString(), count: 9, lastWhy: 'menu',
-            words: require('../../engine/deliverystreak').WHY_WORDS.menu };   // the engine's own words, never a copy
+          const ds = require('../../engine/deliverystreak');
+          if (kind === 'turn') {
+            /* kosmos#7368: a Windows agent on one step for two hours with three messages waiting behind it. */
+            a.state = 'working';
+            a.deliveryStall = { since: new Date(Date.now() - 2 * 3600e3).toISOString(), count: 3, lastWhy: 'turn',
+              step: 'running `npm install`', words: ds.WHY_WORDS.turn, next: ds.NEXT_WORDS.turn };
+          } else {
+            a.state = 'idle';
+            a.deliveryStall = { since: new Date(Date.now() - 2 * 3600e3).toISOString(), count: 9, lastWhy: 'menu',
+              words: ds.WHY_WORDS.menu };   // the engine's own words, never a copy
+          }
         }
       }
       await r.fulfill({ response: res, body: JSON.stringify(body) });
@@ -988,6 +996,19 @@ const SCREENS = [
     await stallRoute(page, data);
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
+  } },
+  /* kosmos#7368 (Mona Lisa): a Windows agent whose one step has run two hours with messages waiting behind it. The
+     same stand-in as #7212's, with the turn's reason: the card says Messages stuck, the page names the step. */
+  { name: 'agent-turnstuck-7368', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await stallRoute(page, data, 'turn');
+    await at(page, '');
+    await page.waitForSelector('text=Messages stuck', { timeout: 8000 });
+  } },
+  { name: 'agent-turnstuck-7368-page', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await stallRoute(page, data, 'turn');
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
+    await page.waitForSelector('text=has been on one step for', { timeout: 8000 });
   } },
   /* kosmos#7248 (Mona Lisa): the note for files of Kosmos's own that a crash left damaged, one with a good copy to put
      back and one without. The board's answer is stood in on the way to the page; nothing is written to the board. */

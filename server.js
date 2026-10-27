@@ -26166,6 +26166,8 @@ function start(port = PORT) {
       };
       /* #7212 slice 2: agents whose current delivery stall was already said, and when (deliverystreak.stallsToSay). */
       const stallSaid = new Map();
+      /* kosmos#7368: agents whose current stuck turn was already said: name -> the turn's start, so each turn is said once. */
+      const turnSaid = new Map();
       /* #7212 slice 2: an agent no message has been seen to reach for half an hour, whatever the cause, is said once per
          stall and again each day it lasts. Agents gone from the board lose their streaks (not on an empty read). */
       const sayStalls = () => {
@@ -26180,7 +26182,16 @@ function start(port = PORT) {
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
           const shown = names.filter((n) => { const c = byName.get(n); return !!(c && c.deliveryStall); });
-          for (const st of ds.stallsToSay(shown, stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
+          /* kosmos#7368: a stuck turn is said once per turn (its start is the key); the streak lines below keep their own rule. */
+          const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
+          for (const n of [...turnSaid.keys()]) if (!shown.includes(n) || !isTurn(n)) turnSaid.delete(n);
+          for (const n of shown.filter(isTurn)) {
+            const st = byName.get(n).deliveryStall;
+            if (turnSaid.get(n) === st.since) continue;
+            turnSaid.set(n, st.since);
+            process.stdout.write(ds.turnLine(n, st));
+          }
+          for (const st of ds.stallsToSay(shown.filter((n) => !isTurn(n)), stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
         } catch { /* said next minute */ }
       };
       const sweep = setInterval(() => {

@@ -33,6 +33,14 @@ const SPEAKS_FOR_ITSELF = new Set(['stopped', 'restarting', 'needs_you', 'needs_
 /* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string> } */
 const streaks = new Map();
 
+/* kosmos#7368: on Windows a message is written into the agent's input and counts as PLACED even while a turn is
+   running, so the agent queues it behind that turn, and a turn that never ends holds every later message. The streak
+   above cannot see that (each one landed). So the times messages were placed are kept, per agent, and a turn that has
+   run TURN_STUCK_MS with messages placed since it began is said, with the step it is on. */
+const TURN_STUCK_MS = 60 * 60 * 1000;
+const PLACED_KEEP = 200;   // enough to count every message behind one turn; older times only ever fall outside it
+const placedTimes = new Map();   // name -> [ms, ...] oldest first
+
 /* What one verdict was held or refused for, in a word the card and the log can key on. */
 function whyOf(v) {
   if (!v || typeof v !== 'object') return 'unknown';
@@ -48,7 +56,14 @@ function whyOf(v) {
 function note(name, v, now = Date.now()) {
   try {
     if (typeof name !== 'string' || !name || !v || typeof v !== 'object') return;
-    if (v.state === 'placed') { streaks.delete(name); return; }
+    if (v.state === 'placed') {
+      streaks.delete(name);
+      const t = placedTimes.get(name) || [];
+      t.push(now);
+      if (t.length > PLACED_KEEP) t.splice(0, t.length - PLACED_KEEP);
+      placedTimes.set(name, t);
+      return;
+    }
     if (v.busy === true || v.contentRefused === true) return;
     if (v.state !== 'could_not' && v.state !== 'unconfirmed') return;
     const why = whyOf(v);
@@ -76,6 +91,22 @@ function stallOf(name, { now = Date.now(), limitShown = false } = {}) {
   if (limitShown && [...s.kinds].every((k) => k === 'limit' || k === 'quota')) return null;
   const why = Object.hasOwn(WHY_WORDS, s.lastWhy) ? s.lastWhy : 'unknown';
   return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy, words: WHY_WORDS[why], next: NEXT_WORDS[why] };
+}
+
+/* kosmos#7368: the card's deliveryStall for a turn that never ends, { since (ISO, when the turn began), count (messages
+   placed since), lastWhy: 'turn', step, words, next }, once `turn` ({ since, step }, from win32streamstate.turnFor) has
+   run TURN_STUCK_MS AND at least one message has been placed behind it; else null. A long turn nothing waits behind
+   harms nobody and is not said. */
+function turnStuckOf(name, turn, { now = Date.now() } = {}) {
+  try {
+    if (!turn || typeof turn.since !== 'string') return null;
+    const since = Date.parse(turn.since);
+    if (!Number.isFinite(since) || now - since < TURN_STUCK_MS) return null;
+    const count = (placedTimes.get(name) || []).filter((t) => t >= since).length;
+    if (count < 1) return null;
+    const step = typeof turn.step === 'string' && turn.step ? turn.step : null;
+    return { since: new Date(since).toISOString(), count, lastWhy: 'turn', step, words: WHY_WORDS.turn, next: NEXT_WORDS.turn };
+  } catch { return null; }
 }
 
 /* True when a card shows a usage limit itself (its limit reset, a limitFrom reading, or an Antigravity quota or pool
@@ -116,6 +147,9 @@ const WHY_WORDS = {
   unconfirmed: 'Kosmos typed its messages but did not see them sent',
   refused: 'Kosmos could not type into it',
   unknown: 'Kosmos could not tell why',
+  /* kosmos#7368: the page words this case on its own (the messages did arrive; they wait behind one step), so this is
+     the board log's and the phone's short reason. */
+  turn: 'It has been on one step for over an hour, and the messages wait behind it',
 };
 /* What the person can do, the card's last sentence (round 3: a restart does not help a sign-in, a limit or a quota). */
 const LOOK = 'Open it to see what it shows, or restart it';
@@ -124,11 +158,19 @@ const NEXT_WORDS = {
   signin: 'Reconnect its account in Settings, AI Models',
   limit: 'Kosmos sends them once its usage resets',
   quota: 'Kosmos sends them once the shared quota resets',
+  /* kosmos#7368: a restart ends the process, and what it had queued goes with it, so they must be sent again. */
+  turn: 'Restart it to free it, then send them again',
 };
 /* The board log's line for one stall. */
 function stallLine(s) {
   return 'delivery-stall: no message has been seen to reach ' + s.name + ' since ' + s.since + ' (' + s.count
     + ' tries). ' + s.words + '.\n';
+}
+
+/* kosmos#7368: the board log's line for one turn that never ends, said once per turn. */
+function turnLine(name, s) {
+  return 'turn-stuck: ' + name + ' has been on one step since ' + s.since + (s.step ? ' (' + s.step + ')' : '')
+    + ', with ' + s.count + ' message' + (s.count === 1 ? '' : 's') + ' waiting behind it.\n';
 }
 
 /* Start `name`'s streak over: a card reading stopped or restarting (lines refused while it was down are not a stall of
@@ -145,8 +187,9 @@ function settleFor(card) {
 function sweep(names) {
   const present = new Set(Array.from(names || [], String));
   for (const k of [...streaks.keys()]) if (!present.has(k)) streaks.delete(k);
+  for (const k of [...placedTimes.keys()]) if (!present.has(k)) placedTimes.delete(k);
 }
 
-function resetForTests() { streaks.clear(); }
+function resetForTests() { streaks.clear(); placedTimes.clear(); }
 
-module.exports = { reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, WHY_WORDS };
+module.exports = { turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
