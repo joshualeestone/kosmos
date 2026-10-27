@@ -31,7 +31,7 @@ struct ChatView: View {
     // behind and never followed again. On iOS 18 only the person's own scroll (scroll phase interacting or decelerating)
     // moves atBottom; endVisible is the marker as it is, read when their scroll comes to rest.
     @State private var endVisible = true
-    // kosmos#7265 debug (KOSMOS_SAMPLE_POSID=1, iOS 17+): the message the list is anchored on.
+    // kosmos#7265 (iOS 17+, idAnchor): the message the list is anchored on; "end" keeps the newest in view.
     @State private var positionId: String?
     @State private var personScrolling = false
     // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
@@ -394,9 +394,9 @@ struct ChatView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .modifier(PositionTargets(on: Self.samplePosId))
+                    .modifier(PositionTargets(on: Self.idAnchor))
                 }
-                .modifier(PositionById(on: Self.samplePosId, id: $positionId))
+                .modifier(PositionById(on: Self.idAnchor, id: $positionId))
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(PersonScroll(scrolling: $personScrolling) {
                     // Their scroll has come to rest: they are at the newest message exactly when the end shows.
@@ -410,7 +410,7 @@ struct ChatView: View {
                 .onAppear {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
                     if eagerFrom == nil, !items.isEmpty { eagerFrom = items[max(0, items.count - Self.eagerTail)].id }
-                    proxy.scrollTo("end", anchor: .bottom)
+                    goNewest(proxy)
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
@@ -419,7 +419,10 @@ struct ChatView: View {
                     if let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init), up > 0, items.count > up {
                         let target = items[items.count - up].id
                         // Counts as the person's own scroll (nothing in the simulator can drag).
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { proxy.scrollTo(target, anchor: .top) }
+                        // With the id anchor, a person's scroll moves the anchor; a scrollTo alone would not, so move it too.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            if Self.idAnchor { positionId = target } else { proxy.scrollTo(target, anchor: .top) }
+                        }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { atBottom = endVisible; Self.trace("debug scroll-up rested, atBottom \(endVisible)") }
                     }
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
@@ -433,13 +436,15 @@ struct ChatView: View {
                 // The place kept after a page lands above: the row that was first stays at the top.
                 .onChange(of: keepAnchor) { id in
                     guard let id else { return }
+                    // The id anchor already keeps the reader's message in place as a page lands above (kosmos#7265).
+                    if Self.idAnchor { keepAnchor = nil; return }
                     Self.trace("keepAnchor scrollTo \(id)")
                     proxy.scrollTo(id, anchor: .top)
                     keepAnchor = nil
                 }
                 .onChange(of: keepAtEndTick) { _ in
                     Self.trace("keepAtEnd scrollTo end")
-                    if Self.samplePosId { pinPosition(items); return }
+                    if Self.idAnchor { goNewest(proxy); return }
                     if !Self.sampleNoKeep {
                         // Debug arm: after the new rows have laid out, and once more a beat later.
                         DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
@@ -454,7 +459,7 @@ struct ChatView: View {
                 // While searching too, unlike the board's jumpToOwnSend: the phone keeps the sent bubble on screen below
                 // what matched, and it is the send's only feedback.
                 .onChange(of: pending.count) { n in
-                    if n > lastPendingCount { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    if n > lastPendingCount { goNewest(proxy, animated: true) }
                     lastPendingCount = n
                 }
                 // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
@@ -464,12 +469,12 @@ struct ChatView: View {
                     keepNewestInView = atBottom || (searchOpen && openedAtNewest && !searching)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    if keepNewestInView { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    if keepNewestInView { goNewest(proxy, animated: true) }
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
                     guard visible else { return }
-                    withAnimation { proxy.scrollTo("end", anchor: .bottom) }
+                    goNewest(proxy, animated: true)
                 }
             }
         } else {
@@ -542,20 +547,35 @@ struct ChatView: View {
         }
     }
 
-    private func pinPosition(_ items: [Board.ChatItem]) { positionId = items.last?.id }
+    // kosmos#7265: to the newest message. With the id anchor (idAnchor) the anchor is the end marker, which keeps the
+    // end in view as rows land, until the person's own scroll moves the anchor; re-set through nil so a repeat is seen.
+    private func goNewest(_ proxy: ScrollViewProxy, animated: Bool = false) {
+        if Self.idAnchor {
+            if positionId == "end" { positionId = nil; DispatchQueue.main.async { positionId = "end" } } else { positionId = "end" }
+            return
+        }
+        if animated { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { proxy.scrollTo("end", anchor: .bottom) }
+    }
 
-    // Where the eager newest rows begin (the debug switches move it: POSID none, EAGERALL all).
+    // Where the eager newest rows begin: none with the id anchor (iOS 17+), all with the debug EAGERALL switch.
     private func eagerStartIndex(_ items: [Board.ChatItem]) -> Int {
-        if Self.samplePosId { return items.count }
+        if Self.idAnchor { return items.count }
         if Self.sampleEagerAll { return 0 }
         return Board.eagerStart(items, from: Self.sampleNoKeep ? nil : eagerFrom, eager: Self.eagerTail)
     }
 
-    static let samplePosId: Bool = {
+    // kosmos#7265 (measured on the simulator 10-27, sim7265/r12 and r13): on iOS 17 and later the chat is anchored on a
+    // message id (SwiftUI's scroll position) instead of on positions. Rows above the reader are drawn lazily with
+    // estimated heights, and every read re-estimated them, so the view wandered (226, then 256, then 238 in one run) and
+    // rows overlapped; anchored on an id, a scrolled-up reader holds still while messages arrive, and a reader at the
+    // newest message (anchored on the end marker) follows each one. iOS 16 keeps the eager newest rows instead.
+    // Debug: KOSMOS_SAMPLE_NOPOSID=1 runs the iOS 16 path, as the control.
+    static let idAnchor: Bool = {
+        guard #available(iOS 17.0, *) else { return false }
         #if DEBUG
-        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_POSID"] == "1"
+        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOPOSID"] != "1"
         #else
-        return false
+        return true
         #endif
     }()
 
@@ -576,7 +596,7 @@ struct ChatView: View {
 
     private func follow(_ proxy: ScrollViewProxy) {
         if searching { return }
-        if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
+        if atBottom { goNewest(proxy, animated: true) } else { unseenNew = true }
     }
 
     // kosmos#7089: the field under the bar, styled as the composer's box. The x and Cancel both empty it and put it away.
@@ -1867,7 +1887,7 @@ struct PersonScroll: ViewModifier {
     }
 }
 
-// kosmos#7265 debug: rows as scroll targets, and the list anchored on one message id (iOS 17+).
+// kosmos#7265: rows as scroll targets, and the list anchored on one message id (iOS 17+, ChatView.idAnchor).
 struct PositionTargets: ViewModifier {
     let on: Bool
     @ViewBuilder func body(content: Content) -> some View {
