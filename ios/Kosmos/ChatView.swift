@@ -26,6 +26,12 @@ struct ChatView: View {
     @State private var refusal: String?
     @State private var loop: Task<Void, Never>?
     @State private var atBottom = true
+    // kosmos#7265 (measured on the simulator, 10-27): the end marker leaving the screen was read as the person scrolling
+    // up, but new rows push it off too, and a re-pin can land a row short, so a reader at the newest message was left
+    // behind and never followed again. On iOS 18 only the person's own scroll (scroll phase interacting or decelerating)
+    // moves atBottom; endVisible is the marker as it is, read when their scroll comes to rest.
+    @State private var endVisible = true
+    @State private var personScrolling = false
     // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
     @State private var eagerFrom: String?
     @State private var unseenNew = false
@@ -64,7 +70,9 @@ struct ChatView: View {
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
     // kosmos#7265 review 2: a page landed while the reader was at the newest message: keep them there, without animation.
-    @State private var keepAtEnd = false
+    // A count, not a flag (measured on the simulator, 10-27): a flag set in the same update that first draws the scroll
+    // view never reached onChange, stayed true, and every later request was true to true, so nothing re-pinned.
+    @State private var keepAtEndTick = 0
     // Review 3: whether the end marker has ever shown (atBottom starts true, so it alone cannot say the reader got there).
     @State private var endSeen = false
     // The conversation's items on screen now.
@@ -344,7 +352,7 @@ struct ChatView: View {
                         // earlierNearTop); the line says only that a page is loading, or that one failed, with Try again.
                         earlierFailedLine
                         Color.clear.frame(height: 1).id("top")
-                            .onAppear { topVisible = true; loadEarlier() }
+                            .onAppear { Self.trace("top appear"); topVisible = true; loadEarlier() }
                             .onDisappear {
                                 topVisible = false
                                 // The top leaving after the first layout proves the jump to the newest message
@@ -362,7 +370,7 @@ struct ChatView: View {
                         // An exact cut: a cut in steps of 20 (fewer rebuilds) measured short again, 0 of 10 against 10 of 10
                         // (rounds 16 and 17). So each new message moves one row from the eager stack to the lazy rows, which
                         // rebuilds it and drops any state it held (a stated limit).
-                        let tailStart = Board.eagerStart(items, from: Self.sampleNoKeep ? nil : eagerFrom, eager: Self.eagerTail)
+                        let tailStart = Self.sampleEagerAll ? 0 : Board.eagerStart(items, from: Self.sampleNoKeep ? nil : eagerFrom, eager: Self.eagerTail)
                         ForEach(items[..<tailStart]) { item in row(item) }
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(items[tailStart...]) { item in row(item) }
@@ -371,6 +379,8 @@ struct ChatView: View {
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
                         Color.clear.frame(height: 1).id("end")
                             .onAppear {
+                                Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
+                                endVisible = true
                                 atBottom = true; unseenNew = false; endSeen = true
                                 // The first scroll has settled when the newest message is really on screen (not after
                                 // a time): from then on, reaching the top is the person scrolling up. Checked a turn
@@ -378,12 +388,22 @@ struct ChatView: View {
                                 // short to scroll still shows its top then, and loads by itself.
                                 if !settledAtEnd { DispatchQueue.main.async { settledAtEnd = true; loadEarlier() } }
                             }
-                            .onDisappear { atBottom = false }
+                            .onDisappear {
+                                Self.trace("end disappear (personScrolling \(personScrolling))")
+                                endVisible = false
+                                if !Self.followsScrollPhase || personScrolling { atBottom = false }
+                            }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .modifier(PersonScroll(scrolling: $personScrolling) {
+                    // Their scroll has come to rest: they are at the newest message exactly when the end shows.
+                    atBottom = endVisible
+                    if endVisible { unseenNew = false }
+                    Self.trace("person scroll rested, atBottom \(endVisible)")
+                })
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
@@ -398,7 +418,9 @@ struct ChatView: View {
                     // top, as a reader scrolled up would be, to see whether later reads move it.
                     if let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init), up > 0, items.count > up {
                         let target = items[items.count - up].id
+                        // Counts as the person's own scroll (nothing in the simulator can drag).
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { proxy.scrollTo(target, anchor: .top) }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { atBottom = endVisible; Self.trace("debug scroll-up rested, atBottom \(endVisible)") }
                     }
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
                         // Twice: the first reaches the top and loads a page; the second shows what landed above.
@@ -411,13 +433,19 @@ struct ChatView: View {
                 // The place kept after a page lands above: the row that was first stays at the top.
                 .onChange(of: keepAnchor) { id in
                     guard let id else { return }
+                    Self.trace("keepAnchor scrollTo \(id)")
                     proxy.scrollTo(id, anchor: .top)
                     keepAnchor = nil
                 }
-                .onChange(of: keepAtEnd) { now in
-                    guard now else { return }
-                    proxy.scrollTo("end", anchor: .bottom)
-                    keepAtEnd = false
+                .onChange(of: keepAtEndTick) { _ in
+                    Self.trace("keepAtEnd scrollTo end")
+                    if !Self.sampleNoKeep {
+                        // Debug arm: after the new rows have laid out, and once more a beat later.
+                        DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo("end", anchor: .bottom) }
+                    } else {
+                        proxy.scrollTo("end", anchor: .bottom)
+                    }
                 }
                 .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
                 .onChange(of: working) { now in if now { follow(proxy) } }
@@ -481,6 +509,44 @@ struct ChatView: View {
     // New messages come in at the bottom; if the person has scrolled up, the view stays and the capsule offers a jump.
     // Not while searching: the person is reading what matched, and a new message may not even be among it (the
     // board's convPause, #5624).
+    // kosmos#7265 debug: KOSMOS_SAMPLE_TRACE=1 prints the chat's scroll state to the console (simctl launch --console-pty).
+    static let sampleNoAnchor: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOANCHOR"] == "1"
+        #else
+        return false
+        #endif
+    }()
+    // kosmos#7265 debug: KOSMOS_SAMPLE_EAGERALL=1 draws every row eagerly, to see whether estimated heights move the reader.
+    static let sampleEagerAll: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EAGERALL"] == "1"
+        #else
+        return false
+        #endif
+    }()
+    static let samplePinAsync: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PINASYNC"] == "1"
+        #else
+        return false
+        #endif
+    }()
+    // kosmos#7265: iOS 18 reports the scroll phase, which tells the person's scroll from rows moving under them.
+    static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
+
+    static func trace(_ line: @autoclosure () -> String) {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1" {
+            let text = String(format: "TRACE %.2f ", Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1000)) + line() + "\n"
+            // Appended to Documents/trace.txt, pulled out with simctl get_app_container (stderr never reached a file).
+            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("trace.txt")
+            if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(text.utf8)); try? h.close() }
+            else { try? Data(text.utf8).write(to: url) }
+        }
+        #endif
+    }
+
     private func follow(_ proxy: ScrollViewProxy) {
         if searching { return }
         if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
@@ -694,7 +760,7 @@ struct ChatView: View {
             // a reader stopped part way inside the newest rows as a page lands may still move).
             // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
             // reader is up there) rules it out.
-            if atBottom && endSeen && !topVisible { keepAtEnd = true }
+            if atBottom && endSeen && !topVisible { keepAtEndTick += 1 }
             else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
@@ -1295,7 +1361,8 @@ struct ChatView: View {
                 let pinned = !Self.sampleNoKeep && (atBottom || !endSeen) && !searching
                 if !Self.sampleNoKeep { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh) }   // NOKEEP: the control
                 thread = fresh; recomputeHiddenHeads()
-                if pinned { keepAtEnd = true }
+                if pinned { keepAtEndTick += 1 }
+                Self.trace("read \(mine): rows \(fresh.rows.count) older \(fresh.olderCount) pinned \(pinned) atBottom \(atBottom) endSeen \(endSeen) settled \(settledAtEnd) earlierOpen \(earlier.open) earlierRows \(earlier.rows.count) loading \(earlier.loading) filling \(earlier.filling)")
             }
             fillGap(fresh)
             // A moved reset leaves the top in view with nothing loading: the next read asks again.
@@ -1754,4 +1821,21 @@ extension ChatView {
     static let sampleNoFix = false
     static let sampleNoKeep = false
     #endif
+}
+
+// kosmos#7265: whether the person is scrolling the chat (iOS 18 scroll phases), and a call when their scroll comes to
+// rest. Before iOS 18 nothing is reported and the chat reads the end marker as before.
+struct PersonScroll: ViewModifier {
+    @Binding var scrolling: Bool
+    let rested: () -> Void
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollPhaseChange { _, phase in
+                let now = phase == .interacting || phase == .decelerating || phase == .tracking
+                if scrolling && !now { scrolling = false; rested() } else if now { scrolling = true }
+            }
+        } else {
+            content
+        }
+    }
 }
