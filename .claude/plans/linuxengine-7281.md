@@ -77,3 +77,12 @@ pointer instead, readManifest's linux arm reads `{version}` only, and the arch c
   anyway when both pointers move together.
 - Reviewer measured: all suites pass plainly and under a linux/x64 preload (56/56 after this round); the portable ->
   family transition verifies (a portable copy's node is a symlink, so ownLinux is false and "linux" passes).
+
+## Review 3 (2026-10-26 22:3x): 0 blockers, 0 warnings, 1 nit. CONVERGED.
+- Checked clean: no require cycle (manifest-verify requires nothing of update.js), a null root returns false before
+  any lstat, engine.reachable 8/8 (ownsLinuxNode now has an outside caller), the sed and the regex agree on padded
+  strings and v1.2.3 (probe against linuxsetup-7281's setup.sh), and the padded test fails with the trim back
+  (measured: mutant red).
+- NIT ACCEPTED, the same item review 2 recorded: a pointer that is not valid JSON but that setup.sh's sed still reads
+  (trailing text, trailing comma, a duplicate key) sends the board to the Mac pointer. Accepted because the only
+  writer is write-latest-pointer.js (JSON.stringify), and slice C's lockstep makes the two versions equal anyway.
