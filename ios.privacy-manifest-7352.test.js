@@ -16,10 +16,10 @@ const IOS = path.join(__dirname, 'ios');
 const MANIFEST = path.join(IOS, 'Kosmos', 'PrivacyInfo.xcprivacy');
 /* Apple's required-reason categories and the Swift spellings that use them. */
 const CATEGORIES = {
-  NSPrivacyAccessedAPICategoryUserDefaults: /\bUserDefaults\b|@AppStorage\b/,
-  NSPrivacyAccessedAPICategoryFileTimestamp: /\b(creationDate|contentModificationDate|modificationDate|fileModificationDate|attributesOfItem|getattrlist|st_mtime|st_ctime)\b/,
+  NSPrivacyAccessedAPICategoryUserDefaults: /UserDefaults\b|@AppStorage\b/,
+  NSPrivacyAccessedAPICategoryFileTimestamp: /\b(creationDate|contentModificationDate|modificationDate|fileModificationDate|attributesOfItem|f?getattrlist\w*|st_mtime\w*|st_ctime\w*)\b|\b(f?stat|fstatat|lstat)\s*\(/,
   NSPrivacyAccessedAPICategorySystemBootTime: /\b(systemUptime|mach_absolute_time)\b/,
-  NSPrivacyAccessedAPICategoryDiskSpace: /\b(volumeAvailableCapacity\w*|volumeTotalCapacity|systemFreeSize|systemSize|statfs|attributesOfFileSystem)\b/,
+  NSPrivacyAccessedAPICategoryDiskSpace: /\b(volumeAvailableCapacity\w*|volumeTotalCapacity\w*|systemFreeSize|systemSize|f?statfs|f?statvfs|attributesOfFileSystem)\b/,
   NSPrivacyAccessedAPICategoryActiveKeyboards: /\bactiveInputModes\b/,
 };
 
@@ -33,13 +33,20 @@ function swiftFiles(dir) {
   return out;
 }
 
-/* Comments are removed first, so a comment naming an API is not a use of it. */
+/* Comments are removed first, so a comment naming an API is not a use of it. String literals are skipped over
+   (kept), so a "https://" inside one is not read as the start of a comment. */
 function code(file) {
-  return fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const src = fs.readFileSync(file, 'utf8');
+  return src.replace(/"(?:\\.|[^"\\\n])*"|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => (m[0] === '"' ? m : ''));
+}
+
+/* The manifest without its XML comments, so a commented-out entry does not count as declared. */
+function manifestText() {
+  return fs.readFileSync(MANIFEST, 'utf8').replace(/<!--[\s\S]*?-->/g, '');
 }
 
 test('kosmos#7352: every required-reason API the iPhone app uses is declared in its privacy manifest', () => {
-  const manifest = fs.readFileSync(MANIFEST, 'utf8');
+  const manifest = manifestText();
   const files = swiftFiles(IOS);
   assert.ok(files.length > 20, `the iPhone sources were found (${files.length} Swift files)`);
   const sources = files.map((f) => [f, code(f)]);
@@ -55,7 +62,7 @@ test('kosmos#7352: UserDefaults is in use today, so the check is aimed at someth
 });
 
 test('kosmos#7352: the UserDefaults reason is CA92.1 (this app only, no app-group suite)', () => {
-  const manifest = fs.readFileSync(MANIFEST, 'utf8');
+  const manifest = manifestText();
   assert.match(manifest, /NSPrivacyAccessedAPICategoryUserDefaults<\/string>\s*<key>NSPrivacyAccessedAPITypeReasons<\/key>\s*<array>\s*<string>CA92\.1<\/string>/);
   const suite = swiftFiles(IOS).filter((f) => /UserDefaults\(\s*suiteName/.test(code(f)));
   assert.deepEqual(suite, [], 'an app-group UserDefaults suite needs reason 1C8F.1 added to the manifest');
