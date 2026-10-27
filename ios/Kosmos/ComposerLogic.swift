@@ -33,9 +33,9 @@ enum ComposerExtras {
         // Back to the start of the word being corrected: the change can begin before the caret.
         var from = prefix
         while from > 0 && !b[from - 1].isWhitespace { from -= 1 }
-        // The new line nearest the end whose whole tail was already in the text.
-        guard let at = (0...suffix).lazy.map({ b.count - 1 - $0 }).first(where: { $0 >= from && newLine.contains(b[$0]) })
-        else { return nil }
+        // The first new line from where the change can begin, among those whose whole tail was already in the text (an
+        // older break further on, in the unchanged tail, is the text's own).
+        guard let at = (max(from, b.count - 1 - suffix)..<b.count).first(where: { newLine.contains(b[$0]) }) else { return nil }
         var out = b
         out.remove(at: at)
         return String(out)

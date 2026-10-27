@@ -35,6 +35,8 @@ check(ComposerExtras.typedReturn(was: "ab", now: "ac\n") == "ac", "a letter chan
 check(ComposerExtras.typedReturn(was: "ab", now: "a\nc") == nil, "review: CONTROL: a letter changed AFTER the new line is not the Send key (it goes in at the caret, after any correction)")
 check(ComposerExtras.typedReturn(was: "abc", now: "abc\nok") == nil, "review: CONTROL: a short pasted \"\\nok\" keeps its break and does not send")
 check(ComposerExtras.typedReturn(was: "helo\nworld", now: "hello\nworld\n") == "hello\nworld", "review: a correction before an earlier pasted break takes out the new Return, not the old break")
+check(ComposerExtras.typedReturn(was: "hello there\nworld", now: "hello\n there\nworld") == "hello there\nworld", "review: Send with the caret in an earlier paragraph takes out the new Return, not the break after it")
+check(ComposerExtras.typedReturn(was: "ab\ncd", now: "ab\n\ncd") == "ab\ncd", "a Return beside an old break leaves one break")
 check(ComposerExtras.typedReturn(was: "abc", now: "a\n") == nil, "CONTROL: text shrinking around a new line is not a Return")
 check(ComposerExtras.typedReturn(was: "see you tomorow", now: "see you tomorrow\n") == "see you tomorrow", "review: autocorrect landing with Send still sends, corrected")
 check(ComposerExtras.typedReturn(was: "im here", now: "I'm here\n") == "I'm here", "and a correction earlier in the text too")
