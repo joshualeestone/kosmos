@@ -18,7 +18,8 @@ const SRC = [
   liftConst(SCRIPT, 'PJ_WIN_PAGE'),
   liftConst(SCRIPT, 'PJ_WIN'),
   liftConst(SCRIPT, 'THREAD_BOTTOM_SLACK'),
-  liftAll(SCRIPT, ['pjWinReset', 'pjWinOlderLine', 'pjWinMerge', 'pjWinNoteReactions', 'pjWinRead', 'pjWinEarlier', 'loadRoom']),
+  liftConst(SCRIPT, 'PJ_WIN_NEAR_TOP'),
+  liftAll(SCRIPT, ['pjWinReset', 'pjWinOlderLine', 'pjWinMerge', 'pjWinNoteReactions', 'pjWinRead', 'pjWinEarlier', 'pjWinNearTop', 'pjWinLetGoOfEarlier', 'loadRoom']),
 ].join('\n');
 
 /* A room of `n` posts, one second apart (so every key is "<at>|0"), paged as the server pages it. */
@@ -65,7 +66,7 @@ function harness(room, project = 'proj') {
   };
   vm.createContext(ctx);
   vm.runInContext('var PJ_CURRENT = ' + JSON.stringify(project) + '; var PJ_ROOM_GEN = 0; var PJ_ROOM_QUERY = "";\n' + SRC
-    + '\nthis.api = { loadRoom, pjWinEarlier, pjWinMerge, pjWinReset, pjWinNoteReactions, PJ_WIN, set query(q) { PJ_ROOM_QUERY = q; }, set current(p) { PJ_CURRENT = p; } };', ctx);
+    + '\nthis.api = { loadRoom, pjWinEarlier, pjWinMerge, pjWinReset, pjWinNoteReactions, pjWinLetGoOfEarlier, PJ_WIN, set query(q) { PJ_ROOM_QUERY = q; }, set current(p) { PJ_CURRENT = p; } };', ctx);
   return { api: ctx.api, box, painted, anchors };
 }
 const ids = (body) => JSON.parse(JSON.stringify(body.rows.map((r) => r.id)));   // out of the vm realm
@@ -218,4 +219,37 @@ test('#7365 review 2: loadRoom answers true only when it painted (a search\'s no
   await h.api.loadRoom();
   h.api.pjWinNoteReactions('proj', 'p450', [{ emoji: '🎉', count: 1, who: ['you'], mine: true }], null);
   assert.equal(h.api.PJ_WIN.newest.find((r) => r.id === 'p450').reactions[0].emoji, '🎉');
+});
+
+test('#7365 review 3: a room too short to scroll reads its earlier pages itself, all of them', async () => {
+  const room = fakeRoom(600);
+  const h = harness(room);
+  Object.assign(h.box, { clientHeight: 500, scrollHeight: 500, scrollTop: 0 });   // a folded band: nothing to scroll
+  await h.api.loadRoom();
+  for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(ids(h.painted.at(-1)), range(1, 600), 'every page read without a scroll event');
+  // CONTROL: a hidden box (no height) asks for nothing beyond the newest page.
+  const room2 = fakeRoom(600);
+  const h2 = harness(room2);
+  Object.assign(h2.box, { clientHeight: 0, scrollHeight: 0, scrollTop: 0 });
+  await h2.api.loadRoom();
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  assert.equal(room2.calls.length, 1);
+});
+
+test('#7365 review 3: back on the newest message, the earlier pages are let go, and scrolling back reads them again', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  await h.api.pjWinEarlier();
+  await h.api.pjWinEarlier();   // 401 to 1000 held
+  h.api.pjWinLetGoOfEarlier();
+  // Scrolled straight back up, before any poll: the read must start from the newest page, not the old held cursor.
+  await h.api.pjWinEarlier();
+  assert.deepEqual(ids(h.painted.at(-1)), range(601, 1000), 'the page before the newest, read from the newest page\'s own cursor');
+  h.api.pjWinLetGoOfEarlier();
+  await h.api.loadRoom();
+  assert.deepEqual(ids(h.painted.at(-1)), range(801, 1000), 'only the newest page after letting go');
+  await h.api.pjWinEarlier();
+  assert.deepEqual(ids(h.painted.at(-1)), range(601, 1000), 'the page before reads again from the newest page\'s own cursor');
 });

@@ -74487,8 +74487,8 @@ async function rxnFreeClaim(forProject, box, btn) {
     return;
   }
   if (box && body && Array.isArray(body.reactions)) { repaintReactions(box, body.reactions, body.claim); refocus(); }
-  if (body && Array.isArray(body.reactions)) pjWinNoteReactions(forProject, postId, body.reactions, body.claim);   // kosmos#7365
   else btn.disabled = false;
+  if (body && Array.isArray(body.reactions)) pjWinNoteReactions(forProject, postId, body.reactions, body.claim);   // kosmos#7365
   // A claim that changed hands is said with the names the page uses; any other refusal in the board's own words.
   msgToast(body && body.claimedBy ? 'We could not free that post: ' + nameOf(by) + ' no longer holds it'
     + (now ? ', ' + now + ' does.' : '.') : body && (body.because || body.error) ? 'We could not free that post: ' + (body.because || body.error) + '.'
@@ -75546,8 +75546,8 @@ let PJ_ROOM_GEN = 0;
    which is read before painting so nothing falls between. While the room search box has text, the room is read
    whole and filtered as before, so search still finds every message. */
 const PJ_WIN_PAGE = 200;
-const PJ_WIN = { pid: null, older: [], newest: null, newestOlder: 0, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0 };
-function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], newest: null, newestOlder: 0, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1 }); pjWinOlderLine(); }
+const PJ_WIN = { pid: null, older: [], newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0 };
+function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1 }); pjWinOlderLine(); }
 /* The line over the room's top: "Loading earlier messages..." while a page is read; after a failed read, why, with Try
    again, which stays until the person presses it (a scroll event must not turn one failure into a stream of requests,
    as the Direct conversation's line learned, #6086). Nothing at all otherwise. */
@@ -75557,7 +75557,7 @@ function pjWinOlderLine() {
   const textEl = document.getElementById('pj-room-older-text');
   const retry = document.getElementById('pj-room-older-show');
   if (!line || !textEl || !retry) return;
-  const mine = PJ_WIN.pid === PJ_CURRENT;
+  const mine = PJ_WIN.pid === PJ_CURRENT && PJ_ROOM_QUERY.trim() === '';   // a search reads the whole room: no line then
   const failed = mine && Boolean(PJ_WIN.because) && !PJ_WIN.loading;
   const text = !mine ? '' : failed ? PJ_WIN.because : PJ_WIN.loading ? 'Loading earlier messages\u2026' : '';
   if (textEl.textContent !== text) textEl.textContent = text;
@@ -75607,15 +75607,35 @@ async function pjWinEarlier() {
   if (anchor) restoreThreadAnchor(box, anchor);
   // The newest page moved while this page was read: read the rows between now, not at the next poll.
   if (at !== PJ_WIN.newestOlder) loadRoom();
+  else pjWinNearTop();   // still too short to scroll: the page before that one too
 }
-document.getElementById('pj-room-older-show').addEventListener('click', () => {
+document.getElementById('pj-room-older-show').addEventListener('click', (e) => {
   if (PJ_WIN.pid !== PJ_CURRENT || PJ_WIN.loading) return;
+  /* The button hides as the read starts, so keyboard focus would fall to the page: it moves to the room's message box,
+     still inside the room, as the Direct conversation's Try again does (review 3). */
+  if (document.activeElement === e.currentTarget) { const box = document.getElementById('pj-post'); if (box) box.focus({ preventScroll: true }); }
   PJ_WIN.because = null;
   pjWinEarlier();   // Try again: asked for by the person
 });
 const PJ_WIN_NEAR_TOP = 300;   // px from the top of the loaded rows that asks for the page before
+/* Asked after every paint too, not only on scroll: a room too short to scroll (a folded run of refusals, a page of short
+   lines) never fires a scroll event, so it reads its earlier page itself, as a Direct conversation's thread does
+   (review 3). A hidden box (no height) asks nothing. */
+function pjWinNearTop() {
+  const box = document.getElementById('pj-room');
+  if (box && box.clientHeight > 0 && box.scrollTop <= PJ_WIN_NEAR_TOP) pjWinEarlier();
+}
+/* A reader back on the newest message no longer needs the earlier pages: they are let go, so a poll paints only the
+   newest page again (holding thousands of rows made every poll repaint them all; review 3). Scrolling back reads them
+   again. Not while a page is being read, or with a search on (a search's body is the whole room). */
+function pjWinLetGoOfEarlier() {
+  if (!PJ_WIN.older.length || PJ_WIN.loading || PJ_ROOM_QUERY.trim() !== '' || PJ_WIN.pid !== PJ_CURRENT) return;
+  Object.assign(PJ_WIN, { older: [], boundary: null, cursor: PJ_WIN.newestCursor, olderCount: PJ_WIN.newestOlder, because: null });
+}
 document.getElementById('pj-room').addEventListener('scroll', (e) => {
-  if (e.currentTarget.scrollTop <= PJ_WIN_NEAR_TOP) pjWinEarlier();
+  const box = e.currentTarget;
+  if (box.scrollTop <= PJ_WIN_NEAR_TOP) pjWinEarlier();
+  else if (box.clientHeight > 0 && (box.scrollHeight - box.scrollTop - box.clientHeight) <= THREAD_BOTTOM_SLACK) pjWinLetGoOfEarlier();
 }, { passive: true });
 /* A reaction or a freed claim made HERE on a post in an earlier page: those pages are a snapshot (only the newest page
    is read again each poll), so the route's answer is written into the held row, or the next rebuild would draw the post
@@ -78030,10 +78050,11 @@ document.getElementById('pj-room-search').addEventListener('input', async () => 
   const wasSearching = PJ_ROOM_QUERY.trim() !== '';
   PJ_ROOM_QUERY = document.getElementById('pj-room-search').value;
   const nowSearching = PJ_ROOM_QUERY.trim() !== '';
+  if (wasSearching !== nowSearching) pjWinOlderLine();   // kosmos#7365: the earlier-pages line is not shown while searching
   const said = document.getElementById('pj-room-msg');   // #3745: "hidden by your search" is stale once the search changes
   if (said && said.textContent === PJ_HIDDEN_BY_SEARCH) said.textContent = '';
   const box = document.getElementById('pj-room');
-  if (!box.__lastBody) return;
+  if (!box.__lastBody && !(!wasSearching && nowSearching)) return;   // a search started before the first read still reads
   /* kosmos#7365: a search reads the whole room; the plain view holds only its newest page and the earlier pages read.
      STARTING a search paints nothing from those and says nothing until the whole read lands (the window is not the
      room, so "nothing matches" from it can be false; review 1), and neither does a keystroke typed while it reads.
@@ -78120,6 +78141,7 @@ async function loadRoom() {
       }
       PJ_WIN.newest = body.rows;
       PJ_WIN.newestOlder = Number(body.olderCount) || 0;
+      PJ_WIN.newestCursor = body.olderCursor || null;
       body = Object.assign({}, body, { rows: pjWinMerge(PJ_WIN.older, body.rows) });
     }
   } catch {
@@ -78142,6 +78164,7 @@ async function loadRoom() {
   roomEl.__lastBody = body;
   paintRoom(body);
   if (anchor) restoreThreadAnchor(roomEl, anchor);
+  if (PJ_ROOM_QUERY.trim() === '') pjWinNearTop();   // a room too short to scroll reads its earlier page itself
   return true;   // kosmos#7365: painted (every early return above answers undefined): a search's no-match reads this
 }
 
