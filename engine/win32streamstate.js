@@ -132,23 +132,30 @@ function stepOfUse(use) {
        own: as a space it splits a token the mask would rejoin, removed it joins words a spaced mask needs apart. So a
        value holding one is masked as it is, and also as BOTH copies; if either copy masks anything, the whole value is
        shown as the mask. Bounded first (review 3 of #7368), so the extra copies never cost more than the first. */
+    /* What is shown is what is checked (review 2): the value is folded for display FIRST and that exact text masked,
+       as before; a raw cap keeps the supervisor's loop bounded (review 3 of #7368), and the cut to STEP_MAX * 3 is taken
+       AFTER the fold, so padding cannot push half a key past it (review 2). */
+    const bound = STEP_MAX * 3;
+    const fold = (t) => Array.from(one(t)).slice(0, bound).join('');
     const guarded = (v) => {
-      const t = Array.from(v.trim()).slice(0, STEP_MAX * 3).join('');   // review 3: never mask megabytes on the supervisor's loop
-      const asIs = sm.mask(t);
-      if (STEP_INVISIBLE_TEST.test(t)
-          && (sm.mask(t.replace(STEP_INVISIBLE, '')).fired.length || sm.mask(t.replace(STEP_INVISIBLE, ' ')).fired.length)) return sm.MASK;
-      return asIs.text;
+      const raw = Array.from(v).slice(0, bound * 8).join('');
+      const shownText = sm.mask(fold(raw)).text;
+      if (STEP_INVISIBLE_TEST.test(raw)
+          && (sm.mask(fold(raw.replace(STEP_INVISIBLE, ''))).fired.length
+              || sm.mask(fold(raw.replace(STEP_INVISIBLE, ' '))).fired.length)) return sm.MASK;
+      return shownText;
     };
     const cut = (t) => {
       const chars = Array.from(t);
       return chars.length > STEP_MAX ? chars.slice(0, STEP_MAX - 1).join('') + '\u2026' : t;
     };
     /* The name is folded like the command and the target (review 1: a newline or a C0 control in an MCP tool name split
-       a key and broke the one-line step). Only the values a step shows are masked, so a shell step adds one entry to
-       mask()'s shared cache, as before, and a tool step two (review 1: the cache is the board's). */
-    /* Guarded on the RAW value, folded after (review 2 of this card): folding a C0 control to a space first split the
-       key before the guard could see the character, so its tail showed. */
-    const shown = (v) => (one(v) ? one(guarded(v)) : '');
+       a key and broke the one-line step). Only the values a step shows are masked: with no invisible character a shell
+       step adds one entry to mask()'s shared cache, as before, and a tool step two; each value holding one adds two
+       more (review 2). */
+    /* A C0 control or a newline inside a key is one of the invisible characters, so the "removed" copy rejoins the key
+       the display fold splits (review 1); the display itself is always the folded, masked text (review 2). */
+    const shown = (v) => (one(v) ? guarded(v) : '');
     try {
       const cmd = shown(input.command);
       if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text

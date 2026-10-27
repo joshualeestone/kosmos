@@ -108,3 +108,21 @@ test('#7386 review 1: a C0 control or a newline in a tool name is folded, so it 
   // Control: an ordinary tool name with a newline in it is shown on one line.
   assert.equal(stepVia('Grep\nx', {}), 'using Grep x');
 });
+
+test('#7386 review 2: a password spelled with Unicode spaces is masked, in a command and a target, as on main', () => {
+  for (const sp of [' ', '　', ' ', ' ']) {
+    const cmd = stepVia('Bash', { command: 'echo password' + sp + 'is' + sp + 'Abc123!xyz9' });
+    assert.ok(!cmd.includes('Abc123!xyz9'), 'U+' + sp.codePointAt(0).toString(16) + ' in a command: ' + JSON.stringify(cmd));
+    const q = stepVia('WebSearch', { query: 'password' + sp + 'is' + sp + 'Abc123!xyz9' });
+    assert.ok(!q.includes('Abc123!xyz9'), 'U+' + sp.codePointAt(0).toString(16) + ' in a query: ' + JSON.stringify(q));
+  }
+});
+
+test('#7386 review 2: padding cannot push half a key past the cut and into the step', () => {
+  for (const pad of [200, 210, 222, 230, 234]) {
+    const step = stepVia('Bash', { command: 'a' + ' '.repeat(pad) + LIVE + ' && run' });
+    assert.ok(!leaks(step, LIVE, 8), pad + ' spaces let part of the key show: ' + JSON.stringify(step));
+    const ant = stepVia('Bash', { command: 'a' + ' '.repeat(pad) + ANT });
+    assert.ok(!ant.includes('sk-ant-api03') && !leaks(ant, ANT, 13), pad + ' spaces let part of the key show: ' + JSON.stringify(ant));
+  }
+});
