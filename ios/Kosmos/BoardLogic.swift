@@ -108,14 +108,35 @@ enum Board {
     // The Mac remembered from last time while it is usable and connected; else a connected usable one, most
     // recently seen first; else the remembered or most recently seen usable one. A Mac that refused this iPhone is
     // picked only when there is no other.
-    static func pickMac(_ macs: [Mac], remembered: String?) -> Mac? {
+    // kosmos#7266: a Mac the person chose in the switcher wins while it is usable, connected or not (choosing one that
+    // is offline shows its own "not answering" screen, which names it).
+    static func pickMac(_ macs: [Mac], remembered: String?, chosen: String? = nil) -> Mac? {
         let all = macs.filter(\.usable).sorted { ($0.lastSeen, $1.address) > ($1.lastSeen, $0.address) }
+        if let c = chosen, let m = all.first(where: { $0.address == c }) { return m }
         let open = all.filter { !$0.refusedThisDevice }
         let usable = open.isEmpty ? all : open
         if let r = remembered, let m = usable.first(where: { $0.address == r && $0.connected }) { return m }
         if let m = usable.first(where: { $0.connected }) { return m }
         if let r = remembered, let m = usable.first(where: { $0.address == r }) { return m }
         return usable.first
+    }
+
+    // MARK: - The switcher (kosmos#7266)
+
+    struct SwitcherRow: Equatable {
+        let name: String
+        let address: String
+        let online: Bool
+        let shown: Bool
+        var status: String { online ? "Online" : "Offline" }
+    }
+
+    // The computers the switcher lists: the usable ones, by name (then address, so two of one name keep their order),
+    // the shown one marked. A retired, held, refused or switched-off Mac is not listed: it cannot be opened.
+    static func switcherRows(_ macs: [Mac], shown: String?) -> [SwitcherRow] {
+        macs.filter(\.usable)
+            .sorted { ($0.name.lowercased(), $0.address) < ($1.name.lowercased(), $1.address) }
+            .map { SwitcherRow(name: $0.name, address: $0.address, online: $0.connected, shown: $0.address == shown) }
     }
 
     static func parseHandoffToken(_ data: Data) -> String? {

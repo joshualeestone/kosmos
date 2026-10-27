@@ -698,6 +698,19 @@ do {
     let refused = #"{"macs":[{"address":"new.kosmosplus.com","last_seen":900,"this_device":"denied"},{"address":"old.kosmosplus.com","last_seen":100}]}"#
     check(Board.pickMac(Board.parseMacs(Data(refused.utf8)) ?? [], remembered: nil)?.address == "old.kosmosplus.com", "a Mac that refused this iPhone is passed over while another can be tried")
     let onlyRefused = #"{"macs":[{"address":"new.kosmosplus.com","last_seen":900,"this_device":"denied"}]}"#
+    // kosmos#7266: the switcher's choice wins while usable, connected or not, and never a Mac that cannot be opened.
+    check(Board.pickMac(r, remembered: "mini.kosmosplus.com", chosen: "old.kosmosplus.com")?.address == "old.kosmosplus.com", "a chosen Mac wins even when it is not connected (its own screen says so)")
+    check(Board.pickMac(Board.parseMacs(Data(refused.utf8)) ?? [], remembered: nil, chosen: "new.kosmosplus.com")?.address == "new.kosmosplus.com", "a chosen Mac wins even when it refused this iPhone (the person asked for it)")
+    check(Board.pickMac(macs, remembered: nil, chosen: "old.kosmosplus.com")?.address == "laptop.kosmosplus.com", "a chosen Mac that was retired is not opened")
+    check(Board.pickMac(r, remembered: nil, chosen: "gone.kosmosplus.com")?.address == "studio.kosmosplus.com", "a chosen Mac no longer listed falls back to the usual pick")
+    let rows = Board.switcherRows(macs + r, shown: "mini.kosmosplus.com")
+    check(rows.map(\.name) == ["laptop.kosmosplus.com", "Mini", "Old laptop", "Studio", "Studio"], "the switcher lists the usable Macs by name, retired and switched-off ones left out")
+    let twins = [Board.Mac(name: "Mac", address: "b.kosmosplus.com", usable: true), Board.Mac(name: "Mac", address: "a.kosmosplus.com", usable: true)]
+    check(Board.switcherRows(twins, shown: nil).map(\.address) == ["a.kosmosplus.com", "b.kosmosplus.com"], "two of one name keep the order of their addresses")
+    check(rows.filter(\.shown).map(\.address) == ["mini.kosmosplus.com"], "only the shown Mac is checked")
+    check(rows.first(where: { $0.name == "Old laptop" })?.status == "Offline" && rows.first(where: { $0.name == "Mini" })?.status == "Online", "each row says online or offline from not_connected")
+    check(Board.switcherRows(heldRefused, shown: nil).isEmpty, "a held or refused Mac is not offered")
+    check(Board.switcherRows([Board.Mac(name: "b", address: "b.kosmosplus.com", usable: true), Board.Mac(name: "A", address: "a.kosmosplus.com", usable: true)], shown: nil).map(\.name) == ["A", "b"], "by name, whatever its case")
     check(Board.pickMac(Board.parseMacs(Data(onlyRefused.utf8)) ?? [], remembered: nil)?.address == "new.kosmosplus.com", "and still picked when it is the only one, so the screen can say it refused")
     check(Board.parseMacs(Data("[]".utf8)) == nil, "a body that is not the list reads as nothing")
     check(Board.parseHandoffToken(Data(#"{"token":"t"}"#.utf8)) == "t" && Board.parseHandoffToken(Data(#"{"token":""}"#.utf8)) == nil, "the handoff token, never an empty one")
