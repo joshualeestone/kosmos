@@ -30,7 +30,7 @@ struct AgentsView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
-                            .accessibilityLabel("New agent")
+                            .accessibilityLabel("Add agent")
                     }
                 }
                 .background(Palette.ground.ignoresSafeArea())

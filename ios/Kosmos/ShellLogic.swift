@@ -370,6 +370,22 @@ enum AppTabs {
     // with replaceState). Not the bar's previous tab: the bar may have moved since without the page following. And
     // never Agents (an address never names it): from Agents every web tab would be refused in turn while the box
     // refusing them sat out of sight.
+    // kosmos#7266 review 1: a + the board turned down (an older board whose door does not know the create names, or a
+    // box up) must not leave the person on an unexplained page. A refused project create opens the board's Projects
+    // section; a refused agent create loads the board's own create page (?tab=create, a deep link the board has long
+    // served). nil when the press opened, still waits, or was not a create.
+    enum CreateFallback: Equatable { case projects, load(URL) }
+    static func createFallback(door: String?, _ answer: DoorAnswer, pageURL: URL?) -> CreateFallback? {
+        guard let door, answer != .opened, afterAnswer(answer, pageURL: pageURL).over else { return nil }
+        if door == Create.project.rawValue { return .projects }
+        guard door == Create.agent.rawValue, let url = pageURL, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else { return nil }
+        parts.path = "/"
+        parts.query = "tab=create"
+        parts.fragment = nil
+        return parts.url.map { .load($0) }
+    }
+
     static func afterAnswer(_ answer: DoorAnswer, pageURL: URL?) -> (over: Bool, barTo: Tab?) {
         switch answer {
         case .opened: return (true, nil)
@@ -470,6 +486,9 @@ struct PressTracker {
     private(set) var pending: AppTabs.Tab?
     // kosmos#7266: the door name a waiting press uses instead of its tab's section (a create), replayed with it.
     private(set) var pendingDoor: String?
+    // kosmos#7266 review 1: what a finished load replays, the tab and its create name together (ContentView.loaded), so
+    // the replay rule is one the tests can reach.
+    var replay: (tab: AppTabs.Tab, door: String?)? { pending.map { ($0, pendingDoor) } }
     // Whether the latest press's script is running (sent, no answer yet). Only then does the bar not follow the page:
     // a press waiting for a load does not hold the bar, since the page can move many times before that load.
     private(set) var running = false
@@ -578,6 +597,7 @@ struct PressTracker {
         running = false
         generation += 1
         pending = AppTabs.isNative(selected) || AppTabs.pressScript(selected) == nil ? nil : selected
+        pendingDoor = nil   // review 1 nit: a dropped page drops a waiting create too
         readThisLaunch = false
         launchAnswered = false
         launchHost = nil

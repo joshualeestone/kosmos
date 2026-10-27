@@ -465,12 +465,11 @@ struct ProjectsView: View {
             content
                 .navigationTitle("Projects")
                 .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        HStack(spacing: 4) {
-                            sortMenu
-                            Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
-                                .accessibilityLabel("New project")
-                        }
+                    // kosmos#7266 review 1: two items, not one HStack, so each keeps the toolbar's full tap target.
+                    ToolbarItemGroup(placement: .navigationBarTrailing) {
+                        sortMenu
+                        Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
+                            .accessibilityLabel("Add project")   // the board's own button says Add Project
                     }
                 }
                 .background(Palette.ground.ignoresSafeArea())
