@@ -31,9 +31,9 @@
  * It reads command lines with a small tokenizer, not a full shell parser. What it does not see: a command built at run
  * time inside the shell (a variable, a script file run by powershell -File or cmd /c script.cmd), a PowerShell script
  * block or Start-Process (powershell -Command "& {schtasks}"), cmd /c with no space before the command, a launcher it
- * does not know (wsl, npx, xargs, doas), a quoted path to a prefix word ("C:\tools x\nohup.exe" schtasks), a backtick
- * inside double quotes in a POSIX line (echo "`schtasks`"), and a lone apostrophe in a cmd line (cmd has no single
- * quotes, but this reads one as a quote, so "echo don't & schtasks" stays one command). PowerShell accepts any unique
+ * does not know (wsl, npx, xargs, doas), and a lone apostrophe in a cmd line (cmd has no single quotes, but this reads
+ * one as a quote, so "echo don't & schtasks" stays one command). In a POSIX line (or an exec line, whose shell is not
+ * known) a $( ) or a backtick inside double quotes is read as the command it is (#7262). PowerShell accepts any unique
  * prefix of a parameter (-Com, -enco); only the spellings PS_VALUE and the -Command and -EncodedCommand checks list are
  * read, so "powershell -enco <base64>" is not decoded.
  */
@@ -54,8 +54,8 @@ function isLauncher(base) {
 /* PowerShell switches whose value is the next word, so the value is not taken for the command. */
 const PS_VALUE = /^-(executionpolicy|ep|ex|windowstyle|w|version|v|inputformat|if|outputformat|of|configurationname|workingdirectory|wd|settingsfile|custompipename|psconsolefile)$/i;
 /* sudo options whose value is the next word (-u USER, -g GROUP, -C FD, -D DIR, -p PROMPT, -h HOST, -r ROLE, -t TYPE,
-   -U USER, -T TIMEOUT), and the long forms that take one. */
-const SUDO_VALUE = /^(-[ugCDphrtUT]|--(user|group|close-from|chdir|prompt|host|role|type|other-user|command-timeout))$/;
+   -U USER, -T TIMEOUT), also as the last letter of a cluster (-iu root), and the long forms that take one. */
+const SUDO_VALUE = /^(-[a-zA-Z]*[ugCDphrtUT]|--(user|group|close-from|chdir|prompt|host|role|type|other-user|command-timeout))$/;
 const DEPTH = 6;   // shells inside shells, as far as anyone writes them
 
 /* The last part of a program path, without quotes. */
@@ -73,7 +73,20 @@ function commands(text, shell) {
   let quote = null;
   const cuts = shell === 'other' ? '&|;()\r\n' : '&|;()`\r\n';
   let prev = '';
-  for (const ch of String(text == null ? '' : text)) {
+  const chars = Array.from(String(text == null ? '' : text));
+  for (let i = 0; i < chars.length; i += 1) {
+    const ch = chars[i];
+    /* Inside double quotes a POSIX shell still runs $( ) and backticks (TOKEN="$(gh auth token)", #7262 review 1):
+       their commands are read as well, and the quoted word itself stays whole. */
+    if (quote === '"' && shell !== 'other' && ((ch === '$' && chars[i + 1] === '(') || ch === '`')) {
+      const end = ch === '`' ? chars.indexOf('`', i + 1) : closeParen(chars, i + 2);
+      const stop = end < 0 ? chars.length : end;
+      parts.push(...commands(chars.slice(ch === '`' ? i + 1 : i + 2, stop).join(''), shell));
+      cur += chars.slice(i, stop + 1).join('');
+      prev = chars[Math.min(stop, chars.length - 1)];
+      i = stop;
+      continue;
+    }
     if (quote) { if (ch === quote) quote = null; cur += ch; prev = ch; continue; }
     if (ch === '"' || ch === "'") { quote = ch; cur += ch; prev = ch; continue; }
     if (ch === '&' && (prev === '>' || prev === '<')) { cur += ch; prev = ch; continue; }   // 2>&1: a redirect (review 3)
@@ -83,6 +96,16 @@ function commands(text, shell) {
   }
   parts.push(cur);
   return parts;
+}
+
+/* The index of the ) that closes a $( whose inside starts at from, counting nested parentheses; -1 if none. */
+function closeParen(chars, from) {
+  let depth = 1;
+  for (let k = from; k < chars.length; k += 1) {
+    if (chars[k] === '(') depth += 1;
+    else if (chars[k] === ')' && --depth === 0) return k;
+  }
+  return -1;
 }
 
 /* One command cut into words at spaces outside quotes. Each word keeps its raw spelling, its text without quotes, and

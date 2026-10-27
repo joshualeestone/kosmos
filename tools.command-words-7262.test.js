@@ -45,6 +45,12 @@ const SHAPES = [
   ['cmd /c "P /End"', true],
   ['cd /x && P', true],
   ['echo $(P api user)', true],
+  ['TOKEN="$(P auth token)"', true],   // review 1: a substitution inside double quotes runs
+  ['echo "`P`"', true],
+  ['echo "$(echo P)"', false],
+  ['echo "a (P) b"', false],   // parentheses inside double quotes are text
+  ['sudo -iu root P', true],   // review 1: a cluster ending in a value-taking letter
+  ['"/opt/my tools/nohup" P', true],   // a quoted path to a prefix word
   ['echo P', false],
   ['git commit -m "fix P"', false],
   ['command -v P', false],
@@ -69,6 +75,26 @@ const fill = (shape, p) => {
   const one = (s) => s.replace(/ENC\(([^)]*)\)/, (m, inner) => b64(inner.replace(/P/g, p))).replace(/P/g, p);
   return typeof shape === 'string' ? one(shape) : [one(shape[0]), shape[1].map(one), shape[2]];
 };
+
+test('#7262: tool-guard judges a BARE name by the call\'s PATH through the shared reader (review 1)', () => {
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cmdwords-7262-path-'));
+  fs.writeFileSync(path.join(stub, 'gh'), '#!/bin/sh\n');
+  fs.chmodSync(path.join(stub, 'gh'), 0o755);
+  try {
+    const env = { PATH: stub };
+    // Without the stand-in marked real, a PATH-stub fake is allowed: the CONTROL.
+    assert.equal(realToolInScript('nohup gh x', undefined, env), null);
+    assert.equal(refusedCall('/usr/bin/env', ['gh', 'x'], { env }), null);
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = stub;
+    assert.equal(realToolInScript('nohup gh x', undefined, env), 'gh');
+    assert.equal(realToolInScript('TOKEN="$(gh auth token)"', undefined, env), 'gh');
+    assert.equal(refusedCall('/usr/bin/env', ['gh', 'x'], { env }), 'gh');
+    assert.equal(refusedCall('sudo', ['-iu', 'root', 'gh'], { env }), 'gh');
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
+});
 
 test('#7262: both guards give the same answer for every call shape (the readers cannot drift)', () => {
   const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cmdwords-7262-'));
