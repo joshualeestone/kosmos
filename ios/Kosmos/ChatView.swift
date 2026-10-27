@@ -368,7 +368,8 @@ struct ChatView: View {
                     // kosmos#7265: while the rows below are still estimated a jump lands short, so a few more, only while
                     // opening (measured 10-26: the initial-offset anchor alone left a blank thread 3 of 5 times; an anchor with jumps,
                     // round 2, 5 of 5; this bounded form is round 4).
-                    if !Self.sampleNoFix {
+                    // Round 7: only for a long thread, as the anchors (round 6 measured a short chat 346 px lower with the jumps on).
+                    if !Self.sampleNoFix, rows.count >= OpensAtBottom.longThread {
                         for at in [0.3, 0.8, 1.5, 2.2] {
                             DispatchQueue.main.asyncAfter(deadline: .now() + at) { if opening && !searchMode { proxy.scrollTo("end", anchor: .bottom) } }
                         }
@@ -1684,7 +1685,9 @@ private struct OpensAtBottom: ViewModifier {
         // `long` picks the anchors, never the branch: a thread that grows past the threshold as older pages load must not
         // swap the view (that would rebuild the scroll view and lose the reader's place).
         if #available(iOS 18.0, *), !ChatView.sampleNoFix {
-            content.defaultScrollAnchor(long ? .bottom : nil, for: .initialOffset).defaultScrollAnchor(long && active ? .bottom : nil, for: .sizeChanges)
+            // Round 7: no initial-offset anchor. It left a blank thread when used alone (3 of 5, 10-26) and again once in
+            // 5 opens in round 6 with the jumps; the jumps and the size-change anchor land the newest message without it.
+            content.defaultScrollAnchor(long && active ? .bottom : nil, for: .sizeChanges)
                 .onScrollPhaseChange { _, phase in if phase == .interacting { touched() } }
         } else {
             content
