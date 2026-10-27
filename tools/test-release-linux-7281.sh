@@ -64,11 +64,15 @@ out="$(CUT_LINUX=; KOSMOS_CUT_LINUX=1 release_linux_decide "$S" prod 2>&1; echo 
 chk "a prod Linux cut is refused until the promote keeps lockstep" [ "${out##*rc=}" = 1 ]
 out="$(CUT_LINUX=; KOSMOS_CUT_LINUX=1 RELEASE_LINUX_PROMOTE_LOCKSTEP=1 release_linux_decide "$S" prod 2>&1; echo "rc=$?")"
 chk "and no variable lifts that by hand (review 2 W1)" [ "${out##*rc=}" = 1 ]
-printf '# moves latest-linux.json with latest.json\n' > "$T/tools/promote-channel.sh"
+# Review 3: a mention (a comment naming the Linux pointer) must not lift it; only C2's exact marker line does.
+printf '# does not move latest-linux.json yet (kosmos#7281)\n' > "$T/tools/promote-channel.sh"
+out="$(CUT_LINUX=; KOSMOS_CUT_LINUX=1 release_linux_decide "$S" prod 2>&1; echo "rc=$?")"
+chk "a promote-channel.sh that only MENTIONS the Linux pointer keeps prod refused" [ "${out##*rc=}" = 1 ]
+printf '# moves the Linux pointer with the Mac one\nPROMOTE_MOVES_LINUX=1\n' > "$T/tools/promote-channel.sh"
 out="$(KOSMOS_CUT_LINUX=1 release_linux_decide "$S" prod 2>&1; echo "rc=$? cut=$CUT_LINUX file=$LINUX_POINTER_FILE")"
-chk "CONTROL: once promote-channel.sh moves the Linux pointer, prod cuts it" [ "${out##*rc=}" = "0 cut=yes file=latest-linux.json" ]
+chk "CONTROL: with C2's marker line, prod cuts it" [ "${out##*rc=}" = "0 cut=yes file=latest-linux.json" ]
 rm -f "$T/tools/promote-channel.sh"
-chk "the shipped promote-channel.sh does not move it yet, so prod stays refused today" not grep -qF latest-linux.json "$HERE/tools/promote-channel.sh"
+chk "the shipped promote-channel.sh has no marker yet, so prod stays refused today" not grep -qx 'PROMOTE_MOVES_LINUX=1' "$HERE/tools/promote-channel.sh"
 printf '{}\n' > "$S/dist/latest-linux-staging.json"
 out="$(unset KOSMOS_CUT_LINUX; release_linux_decide "$S" staging 2>&1; echo "rc=$?")"
 chk "a channel with a Linux pointer on disk refuses a cut without it (lockstep)" [ "${out##*rc=}" = 1 ]
@@ -168,13 +172,26 @@ chk "step 4 checks the manifest against the connector and V" wired 'release_linu
 chk "the publish exits on failure" wired 'release_linux_publish "$REPO/dist" "$SITE" "$V" "$KM_SETUP_SHA" "$KOSMOS_MANIFEST_KEY" || exit 1'
 chk "the site commit takes the Linux paths" wired '_site_paths="$_site_paths $(release_linux_site_paths "$V")"'
 chk "step 6 refuses a Linux bundle that is not V" wired 'THE LINUX BUNDLE IS NOT $V"; exit 1'
-chk "step 8 refuses an export without the Linux pair" wired 'shasum -a 256 --status -c "kosmos-$V-linux-x64.tar.gz.sha256"'
-chk "step 8 refuses a committed Linux pointer that names other bytes" wired 'does not name the Linux tarball the export carries'
+chk "step 8 calls the export check and refuses on it" wired 'release_linux_export_ok "$_site_export" "$V" || { echo "nothing was deployed"; exit 1; }'
 chk "the abort trap passes the Linux pair record" wired '"$_staging_ptr_had" "$_linux_pair_had";'
 # The post-commit cleanup's line is identical to the /setup-staging one above it, so it is checked as the line after
 # its own loop head, not by text alone.
 linux_cleanup() { grep -A1 -F 'for _p in $(release_linux_site_paths "$V"); do' "$RS" | grep -qF 'ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"'; }
 chk "after the site commit, the untracked Linux paths are removed so the next pull is not refused" linux_cleanup
+
+# ---- release_linux_export_ok (step 8), on behaviour (review 3) ----
+S="$(newsite export)"; B="$T/build-ex"; newbuild "$B" 1.3.0
+LINUX_POINTER_FILE=latest-linux-staging.json; release_linux_publish "$B" "$S" 1.3.0 "$SETUP_SHA" /dev/null >/dev/null
+chk "CONTROL: an export with the pair and its pointer passes" release_linux_export_ok "$S" 1.3.0
+cp "$S/dist/latest-linux-staging.json" "$T/ptr.bak"
+node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.sha256="f".repeat(64);require("fs").writeFileSync(f,JSON.stringify(p))' "$S/dist/latest-linux-staging.json"
+chk "a committed pointer naming other bytes is refused" not release_linux_export_ok "$S" 1.3.0 2>/dev/null
+rm -f "$S/dist/latest-linux-staging.json"
+chk "a missing pointer is refused" not release_linux_export_ok "$S" 1.3.0 2>/dev/null
+cp "$T/ptr.bak" "$S/dist/latest-linux-staging.json"; mv "$S/dist/kosmos-1.3.0-linux-x64.tar.gz" "$T/tgz.bak"
+chk "a missing tarball is refused" not release_linux_export_ok "$S" 1.3.0 2>/dev/null
+mv "$T/tgz.bak" "$S/dist/kosmos-1.3.0-linux-x64.tar.gz"; printf 'x' >> "$S/dist/kosmos-1.3.0-linux-x64.tar.gz"
+chk "a tarball that does not match its .sha256 is refused" not release_linux_export_ok "$S" 1.3.0 2>/dev/null
 
 # ---- publish-staging-pointer.sh refuses to move the Mac staging pointer alone (review 2 W2) ----
 S="$(newsite psp)"; printf '{}\n' > "$S/dist/latest-linux-staging.json"
@@ -184,6 +201,12 @@ case "$out" in *lockstep*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: 
 rm -f "$S/dist/latest-linux-staging.json"
 out="$(bash "$HERE/tools/publish-staging-pointer.sh" "$S" 9.9.9 2>&1; echo "rc=$?")"
 case "$out" in *lockstep*) FAIL=$((FAIL+1)); echo "FAIL: CONTROL: it refused on lockstep with no Linux pointer" >&2 ;; *) PASS=$((PASS+1)) ;; esac
+# Review 3 (nit): the origin/main arm, a Linux staging pointer published but absent from this checkout.
+C3="$T/clone-psp"; git clone -q "$T/origin-psp.git" "$C3"; git -C "$C3" config user.email t@t; git -C "$C3" config user.name t
+printf '{}\n' > "$C3/dist/latest-linux-staging.json"; git -C "$C3" add dist/latest-linux-staging.json; git -C "$C3" commit -q -m p; git -C "$C3" push -q origin main
+git -C "$S" fetch -q origin
+out="$(bash "$HERE/tools/publish-staging-pointer.sh" "$S" 9.9.9 2>&1; echo "rc=$?")"
+case "$out" in *lockstep*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: a Linux staging pointer on origin/main only did not refuse: $out" >&2 ;; esac
 
 echo "test-release-linux-7281: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
