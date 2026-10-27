@@ -53,3 +53,9 @@ it on this shared machine; that shows as relistenError, a clear red, never a fal
   (2) a missing log is reported through the arm's relistenError instead of thrown inside the request handler;
   (3) the slow-first comment says "first" means the counting curl's first call.
   Nit (4) needed nothing (the stall bound is the weakest premise above). File 12 of 12, three runs.
+- Round 3 (blind, default model, 19:5x CDT): no new findings; converged. File 12 of 12 at load 8 to 23. Two NITs
+  declined, with reasons:
+  (1) entries left in CURL_LOG_BY_PORT by arms that are not refuse-once could only mislead a future refuse-once arm that
+  skips baseEnv. Every refuse-once arm calls baseEnv, which overwrites the entry.
+  (2) any refused call in an arm triggers the re-listen, not only the counted route. A future earlier call refused
+  would bring the board back early and the arm would count 1 try: a red, never a false green.
