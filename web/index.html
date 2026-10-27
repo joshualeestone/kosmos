@@ -84895,7 +84895,8 @@ function frPaintConnect(st) {
   /* kosmos#4903 S5 (review 3): the link this paint shows, decided ONCE for every path (the repeat-paint path below
      too, which runs every second): on a cloud machine none while Claude is finishing, since the link is the primary
      button there and the screen says it is finishing. The Mac keeps its fallback link, as before. */
-  const shownUrl = phase === 'signin-completing' && (typeof onCloudMachine === 'function' && onCloudMachine()) ? null : (st && st.url);
+  const cloud = typeof onCloudMachine === 'function' && onCloudMachine();   // review 4: the cloud fact, read once too
+  const shownUrl = phase === 'signin-completing' && cloud ? null : (st && st.url);
   // #2236 (Josh 0.6.42 re-test): Mona Lisa's "Sweep" loading spinner (the dots-trail she
   // designed and Josh chose 2026-09-05; installkosmos.com/design/loading-indicators, variant D).
   // #11 wrongly used the .kspin Kosmos MARK here (a tiny Kosmos icon), which Josh flagged as the
@@ -84977,12 +84978,12 @@ function frPaintConnect(st) {
     // on 'signin-browser-open', which is waiting on the PERSON to sign in in the browser --
     // a "working" spinner there would misrepresent who the screen is waiting on.
     box.innerHTML = '<div class="fr-ctitle">'
-      + (phase === 'signin-completing' ? spin + ' Finishing the sign-in&#8230;' : (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Sign in to Claude' : 'Your browser has opened')
+      + (phase === 'signin-completing' ? spin + ' Finishing the sign-in&#8230;' : cloud ? 'Sign in to Claude' : 'Your browser has opened')
       + '</div>'
       + '<div class="fr-cdetail">'
       + (phase === 'signin-completing'
         ? 'Checking the connection. This screen will change on its own.'
-        : (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Open the sign-in page (its link appears below) and sign in there. This screen will update when it is done.'
+        : cloud ? 'Open the sign-in page (its link appears below) and sign in there. This screen will update when it is done.'
           : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
     frConnPaintUrl(shownUrl);
@@ -84991,8 +84992,8 @@ function frPaintConnect(st) {
   }
 
   if (phase === 'signin-awaiting-code') {
-    box.innerHTML = '<div class="fr-ctitle">' + ((typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Sign in to Claude' : 'Your browser has opened') + '</div>'
-      + '<div class="fr-cdetail">' + ((typeof onCloudMachine === 'function' && onCloudMachine())
+    box.innerHTML = '<div class="fr-ctitle">' + (cloud ? 'Sign in to Claude' : 'Your browser has opened') + '</div>'
+      + '<div class="fr-cdetail">' + (cloud
         ? 'Open the sign-in page (its link appears below) and sign in. Claude then shows a code: paste it here.'
         : 'Sign in to Claude there. This screen will notice when it is done.') + '</div>'
       + urlLine
@@ -85127,7 +85128,7 @@ function frPaintConnect(st) {
          fall into. Mac and Windows copy are unchanged. */
       /* kosmos#4903 S5 (review 1): a Kosmos cloud machine is reached only through a browser, so neither hatch
          (a shell on the server, or Terminal) is a way out there: none is offered, and Try again is the way on. */
-      : (typeof onCloudMachine === 'function' && onCloudMachine()) ? ''
+      : cloud ? ''
       : ((st && st.canRunClaude && onLinux(st && st.platform))
         ? '<details class="fr-hatch"><summary>Have a shell on the server?</summary>'
           + 'You can sign in to Claude on the computer running Kosmos. Open a terminal there '

@@ -81,3 +81,9 @@ session has second=false and the hosted gate refuses it), Claude Code sign-in on
   removed box signed in the ordinary way would be admitted with no Allow. Needs a coordinator-side test.
 - FOLLOW-UP CARD: Remove on a cloud machine locks the person out of their board entirely (it is reached only through
   the relay); offering it there at all, or warning first, needs its own decision.
+
+## Review 4 (2026-10-26 20:1x): CONVERGED, no blockers, no warnings
+- NIT TAKEN: frPaintConnect read the cloud fact in five places; it is now read once (`cloud`, beside `shownUrl`).
+- NIT TAKEN: a comment at PAGE_PLATFORM_MARKER points to its sibling inside stampServedPlatform (a test lifts it).
+- Confirmed: every link-painting path uses the one decided value, and no Mac or PC path paints anything different
+  from origin/main (checked spot by spot).
