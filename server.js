@@ -1388,6 +1388,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
   setTimer: createdbeacon.underTest() ? () => null : setTimeout,
 });
 const heartbeat = require('./engine/heartbeat');
+const roomarchive = require('./engine/roomarchive'); // kosmos#7365 slice 3: which part of a room is archived
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
 /* kosmos#6894: when each task last put a run in its project room, so a task that changes every run says so at most hourly. */
@@ -22065,12 +22066,18 @@ const server = http.createServer(async (req, res) => {
        during its delivery, which is why the phone re-reads the newest page and merges. */
     let jsonRows = null;
     let jsonCursor = null;   // the raw ?cursor=, checked against the rows below
+    /* kosmos#7365 slice 3: with ?n, ?archive=0 pages the room's live part and ?archive=1 its archive (the same cursors).
+       Without it a page is drawn from the whole room as before, so a board page or an iPhone build from before the
+       archive, which has no way to open it, still reaches every message by scrolling back. */
+    let archiveView = null;   // null (the whole room), 'live' or 'archive'
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
       const n = q.get('n');
       if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) { textRows = Number(n); jsonRows = Number(n); }
       if (jsonRows !== null) jsonCursor = q.get('cursor') || null;   // an empty cursor is no cursor (the newest page)
+      const av = jsonRows !== null ? q.get('archive') : null;
+      archiveView = av === '1' ? 'archive' : av === '0' ? 'live' : null;
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -22149,19 +22156,29 @@ const server = http.createServer(async (req, res) => {
          stalled a busy room). The text view never shows them, so it does not read them. */
       const labelOf = asText ? new Map() : fedmembers.labelsFor(id);
       /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
-      const rows = guideMaskedRows(rec.rows, null)
+      /* kosmos#7365 slice 3: the room's rows before the audience filter, the set the archive rule counts, so both arms
+         agree on where the archive ends. */
+      const roomRows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
            who and why, once per sender-reason-window; the room just shows it. */
         .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note' || m.kind === 'external') ? m.project === id
-          : (m.kind === 'refused' && m.project === id)))
+          : (m.kind === 'refused' && m.project === id)));
+      /* kosmos#7365 slice 3: the archived stretch is the oldest roomarchive.archivedCount rows in time order (the same
+         stable sort as `rows` below). Best-effort: an unreadable marker reads as none, so more stays live, never less. */
+      let archiveMarker = null;
+      try { archiveMarker = roomarchive.markerFor(id); } catch { archiveMarker = null; }
+      const byTime = roomRows.slice().sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
+      const archivedSrc = new Set(byTime.slice(0, roomarchive.archivedCount(byTime, archiveMarker, Date.now())));
+      const kept = roomRows
         /* A note written for the agents (the "no brief yet" coordination note) is theirs to
            read through `kosmos room` (the text arm below keeps it), not the first thing a
            person sees in a new room: the JSON arm is the person's view, and leaving it out
            lets the page say its own "Nothing here yet". Notes written before notes carried
            an audience are matched by their frozen exact text. */
-        .filter((m) => asText || !(m.kind === 'note' && (m.audience === messages.NOTE_AUDIENCE_AGENTS || projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE.includes(m.text))))
+        .filter((m) => asText || !(m.kind === 'note' && (m.audience === messages.NOTE_AUDIENCE_AGENTS || projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE.includes(m.text))));
+      const rows = kept
         .map((m) => (m.kind === 'refused'
           /* kosmos#5752 slice 3: what the agent tried, and whether adding it would end the refusal (the add button). */
           ? Object.assign({ kind: 'refused', from: m.from, because: m.because || null, at: m.at },
@@ -22224,7 +22241,12 @@ const server = http.createServer(async (req, res) => {
                 })()) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
+      // kosmos#7365 slice 3: every row is a fresh object from the map above, so marking it touches no stored row.
+      kept.forEach((m, i) => { if (archivedSrc.has(m)) rows[i].archived = true; });
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
+      // The archived rows are the start of `rows` (the same order as byTime, the audience filter only drops rows).
+      let archivedCount = 0;
+      while (archivedCount < rows.length && rows[archivedCount].archived === true) archivedCount += 1;
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
          stock bash 3.2 with no JSON parser, so the server does the shaping.
          The tail only (the last messages.ROOM_READ_ROWS, or the last `n` the CLI asks for, #4891), oldest first, one line per row, and the
@@ -22263,7 +22285,8 @@ const server = http.createServer(async (req, res) => {
         /* At least one, so `-n 1` on a room whose newest row came from outside shows that row rather than an older
            local one, or "nothing has been said" in a room where something was (#4891 review 1). */
         const outsideCap = Math.max(1, Math.floor(textRows / 2));
-        for (let i = rows.length - 1; i >= 0 && tail.length < textRows; i--) {
+        // kosmos#7365 slice 3: agents read the live room only, so the walk stops at the archive.
+        for (let i = rows.length - 1; i >= archivedCount && tail.length < textRows; i--) {
           if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
           tail.unshift(rows[i]);
         }
@@ -22424,25 +22447,31 @@ const server = http.createServer(async (req, res) => {
           }
           pool = rows.slice(0, at);
         }
+        /* kosmos#7365 slice 3: the live part is everything after the archive, the archive everything before it. A cursor
+           on the other side of the boundary leaves an empty page with nothing older (the reader has crossed it). */
+        if (archiveView === 'archive') pool = pool.slice(0, Math.min(pool.length, archivedCount));
+        else if (archiveView === 'live') pool = pool.slice(Math.min(pool.length, archivedCount));
         // Each row on a page carries `key`, its exact place ("<at>|<k>", the cursor's own form), so the phone can merge
         // a re-read page row by row, Kosmos lines (which carry no id) included.
         const firstOfTime = new Map();
         rows.forEach((r, i) => { if (r && typeof r.at === 'string' && !firstOfTime.has(r.at)) firstOfTime.set(r.at, i); });
+        const poolStart = archiveView === 'live' ? Math.min(archivedCount, rows.length) : 0;   // where pool starts within rows
         const page = pool.slice(-jsonRows).map((r, j) => {
-          const i = pool.length - Math.min(jsonRows, pool.length) + j;
+          const i = poolStart + pool.length - Math.min(jsonRows, pool.length) + j;
           return r && typeof r.at === 'string' && firstOfTime.has(r.at) ? { ...r, key: r.at + '|' + (i - firstOfTime.get(r.at)) } : r;
         });
         const olderCount = pool.length - page.length;
         // The next older page's cursor: the first row's time and how many rows of that time sit ahead of it.
         const olderCursor = olderCount > 0 && page[0] && typeof page[0].key === 'string' ? page[0].key : null;
-        sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount, olderCursor },
-          held ? { held } : {}));
+        sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount, olderCursor,
+          archivedCount, archiveMarker }, held ? { held } : {}));
         return;
       }
       /* #185: which addressed agents have not answered which posts, from
          the record alone; the page renders the small line from this and
          never re-derives it. Best-effort like the room itself. */
-      sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(rows), unanswered: silent }, held ? { held } : {}));
+      sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(rows), unanswered: silent, archivedCount, archiveMarker },
+        held ? { held } : {}));
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
     }
@@ -22589,6 +22618,35 @@ const server = http.createServer(async (req, res) => {
     if (!found) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
     const out = messages.reopenRoom(found.id);
     sendJson(res, out.ok ? 200 : 400, out);
+    return;
+  }
+
+  /* kosmos#7365 slice 3: the person's "Archive older messages" (POST {before: an ISO time}) and its Undo (POST .../undo).
+     An operator write like Reopen above: agent tokens reach only AGENT_TOKEN_ROUTES, and this is not one. The marker
+     moves nothing; the room read splits at it (engine/roomarchive.js). */
+  const roomArchive = pathname.match(/^\/api\/project\/([^/]+)\/room\/archive(\/undo)?$/);
+  if (roomArchive && req.method === 'POST') {
+    const id = decodeSegment(roomArchive[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let found = null;
+    try { found = projects.get(id, safeRoster() || []); } catch { found = null; }
+    if (!found) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+    if (roomArchive[2]) {
+      try { sendJson(res, 200, roomarchive.clearMarker(found.id)); }
+      catch { sendJson(res, 503, { ok: false, because: 'we could not undo the archive just now; nothing changed' }); }
+      return;
+    }
+    readBody(req)
+      .then((buf) => {
+        let body = null;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { ok: false, because: 'that request is not something we can read' }); return; }
+        let out;
+        try { out = roomarchive.setMarker(found.id, body.before); }
+        catch { sendJson(res, 503, { ok: false, because: 'we could not archive just now; nothing changed' }); return; }
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { ok: false, because: String((err && err.message) || 'that request could not be read') }));
     return;
   }
 
