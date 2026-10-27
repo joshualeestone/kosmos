@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  kosmos#7352: the app's privacy manifest, which App Store Connect requires (ITMS-91053) because the app uses a
+  required-reason API. Swept 10-27 on the app and the notification extension: UserDefaults (and @AppStorage) is the
+  only one, read and written by this app alone (no app-group suite), so the reason is CA92.1. No file timestamps,
+  system boot time, disk space or active keyboard APIs are used; a new use of any of them needs its reason added here.
+  The extension (KosmosNotice) uses none and needs no manifest. The App Privacy answers are separate
+  (ios/store/privacy-label.md).
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
