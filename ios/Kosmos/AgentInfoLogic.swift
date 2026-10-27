@@ -12,6 +12,8 @@ extension Board {
         let session: String
         let name: String
         let role: String?
+        // True when `role` is the person's saved choice (profile.role), false when it is the file's parsed line.
+        var roleChosen = true
         let reportsTo: String?   // a session, or nil when the agent reports to the person
         let runner: String       // "" for Claude, else codex, gemini, grok, antigravity, muse (engine/status.js)
         let modelName: String?
@@ -40,6 +42,7 @@ extension Board {
             // The person's saved role first, then the line parsed out of the instruction file, as the board reads it
             // (review 2: the parsed line alone made a saved role look undone, and a name-only save sent it back).
             role: text(profile?["role"]) ?? text(row["role"]),
+            roleChosen: text(profile?["role"]) != nil,
             reportsTo: text(profile?["reportsTo"]),
             runner: (row["runner"] as? String) ?? "",
             modelName: text(row["modelName"]),
@@ -71,6 +74,25 @@ extension Board {
         if d.runner == "muse" { return name ?? "Meta Muse" }
         guard let name else { return d.neverRecorded ? "Made before Kosmos recorded this" : "Unknown Model" }
         return starts(name, "^claude") ? name : "Claude " + name
+    }
+
+    // The board's roleLine: a chosen role as written; a role parsed from the instruction file is matched against the
+    // role catalogue's own labels (GET /api/roles `roles[].label`, case folded) and, when it is not one of them, given a
+    // capital first letter only (never title case: "SEO specialist" stays so). Review 3: the raw parsed line put
+    // "project manager" into the saved profile on a name-only save.
+    static func roleLine(_ d: AgentDetails, titles: [String: String]?) -> String? {
+        guard let role = d.role else { return nil }
+        if d.roleChosen { return role }
+        if let known = titles?[role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] { return known }
+        return role.prefix(1).uppercased() + role.dropFirst()
+    }
+    // GET /api/roles: label (lower-cased) to label, nil when none could be read (the board's learnRoleTitles).
+    static func parseRoleTitles(_ data: Data) -> [String: String]? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let roles = obj["roles"] as? [[String: Any]] else { return nil }
+        var m: [String: String] = [:]
+        for r in roles { if let l = r["label"] as? String, !l.isEmpty { m[l.lowercased()] = l } }
+        return m.isEmpty ? nil : m
     }
 
     // The provider's mark beside the model (the board's own marks, kept equal to the board's by LogicTests/room), by the runner.
@@ -152,7 +174,7 @@ extension Board {
         }
         if let rep = saved["reports"] as? [String: Any] {
             if rep["state"] as? String == "told" && running {
-                return "Saved. They are running on what they read when they started, so restart them to use it now."
+                return "Saved. They are running on what they read when they started, so restart them to use it now. You can restart them from your computer."
             }
             if rep["state"] as? String == "could_not", let why = rep["because"] as? String, !why.isEmpty { return "Saved here, but \(why)." }
         }

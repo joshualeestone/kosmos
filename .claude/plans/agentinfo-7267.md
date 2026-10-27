@@ -38,3 +38,8 @@ and dark, and never the conversation again.
   says it cannot be read); a failed restart counts as not running for the model line; skills keyed by key; the 80
   cap counted in UTF-16 units, as the route; an empty `was` falls back to the shown name; the Debug sample opens the
   page once a launch.
+- Round 3 (agentinfo-7267-review3.md): 0 blockers, 2 warnings, 2 nits. Fixed: the role is the board's roleLine (a
+  parsed role matched against the catalogue's labels from GET /api/roles, else a capital first letter only), in the
+  fields and the header, so a name-only save never writes "project manager" into the profile; the footer no longer
+  offers the Terminal (a phone cannot open it); the reports-to sentence says where to restart. KEPT: the segmented
+  control does not grow at accessibility sizes (a system control; still readable).

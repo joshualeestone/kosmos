@@ -19,6 +19,13 @@ let cleo = Board.parseAgentDetails(Data(status.utf8), session: "cleo")
 check(cleo?.name == "Cleo" && cleo?.role == "Designer" && cleo?.reportsTo == "dana" && cleo?.accountLabel == "Work account", "the fields the page reads")
 let roles = Board.parseAgentDetails(Data(#"{"agents":[{"sessionName":"r","role":"From the file","profile":{"role":"Saved by the person"}}]}"#.utf8), session: "r")
 check(roles?.role == "Saved by the person", "the saved role first, as the board (review 2)")
+let parsedOnly = Board.parseAgentDetails(Data(#"{"agents":[{"sessionName":"p","role":"project manager"}]}"#.utf8), session: "p")!
+let seo = Board.parseAgentDetails(Data(#"{"agents":[{"sessionName":"q","role":"SEO specialist"}]}"#.utf8), session: "q")!
+let titles = Board.parseRoleTitles(Data(#"{"roles":[{"label":"Project Manager"},{"label":""}]}"#.utf8))
+check(Board.roleLine(parsedOnly, titles: titles) == "Project Manager", "a parsed role that is one of the catalogue's: its own label (review 3)")
+check(Board.roleLine(parsedOnly, titles: nil) == "Project manager" && Board.roleLine(seo, titles: titles) == "SEO specialist", "else a capital first letter only, never title case")
+check(Board.roleLine(roles!, titles: ["saved by the person": "X"]) == "Saved by the person", "a chosen role is never rewritten")
+check(boardPage.contains("return parsed.charAt(0).toUpperCase() + parsed.slice(1);") && boardPage.contains("const known = titles && titles.get(parsed.trim().toLowerCase());"), "the board's roleLine still")
 let failedRestart = Board.parseAgentDetails(Data(#"{"agents":[{"sessionName":"f","state":"needs_you","disruption":{"failed":true},"modelName":"Opus 5","plannedModelName":"Haiku 4.5"}]}"#.utf8), session: "f")!
 check(failedRestart.stopped && Board.modelLine(failedRestart) == "Claude Haiku 4.5", "a restart that did not come back is not running, as the board's card")
 func acct(_ a: String) -> String? { Board.parseAgentDetails(Data(("{\"agents\":[{\"sessionName\":\"a\",\"account\":" + a + "}]}").utf8), session: "a")?.accountLabel }
@@ -79,7 +86,7 @@ check(said(#"{"renamed":{"changed":true,"ok":true}}"#, before: "Scarlet") == "Sa
 check(said(#"{"renamed":{"changed":true,"ok":true,"was":""}}"#) == "Saved. Bob will not answer to Scarlet until you restart it. You can restart it from your computer.", "an empty was falls back to the shown name, as the board's ren.was || wasCalled")
 check(said(#"{"renamed":{"changed":true,"ok":true,"was":"Bob"}}"#, running: false) == "Saved. It will know its new name when it next starts.", "stopped: no restart claim")
 check(said(#"{"renamed":{"changed":false,"ok":false,"because":"we could not update its instructions"}}"#) == "Saved here, but we could not update its instructions.", "a partial save says so")
-check(said(#"{"reports":{"state":"told"}}"#, typed: "Bob") == "Saved. They are running on what they read when they started, so restart them to use it now." && said(#"{"reports":{"state":"told"}}"#, running: false, typed: "Bob") == "Saved.", "reports-to told: restart only while running")
+check(said(#"{"reports":{"state":"told"}}"#, typed: "Bob") == "Saved. They are running on what they read when they started, so restart them to use it now. You can restart them from your computer." && said(#"{"reports":{"state":"told"}}"#, running: false, typed: "Bob") == "Saved.", "reports-to told: restart only while running")
 check(said(#"{"reports":{"state":"could_not","because":"its file is locked"}}"#, typed: "Bob") == "Saved here, but its file is locked.", "reports-to could not")
 let boardSave = boardPage.components(separatedBy: .newlines).joined(separator: " ")
 for phrase in ["'Saved. Its instructions say the new name too, so restart it when you are ready and it will know.'", "'Saved. It will know its new name when it next starts.'",

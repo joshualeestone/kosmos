@@ -15,6 +15,7 @@ struct AgentInfoView: View {
     @State private var readFailed = false
     @State private var instructions: String?
     @State private var skills: [Board.Skill]?
+    @State private var roleTitles: [String: String]?
     // Name and role as typed, and what was last read, so Save shows only for a change.
     @State private var nameText = ""
     @State private var roleText = ""
@@ -72,7 +73,7 @@ struct AgentInfoView: View {
             VStack(spacing: 2) {
                 Text(live.name).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                     .multilineTextAlignment(.center)
-                if let role = details?.role ?? live.role {   // the saved role first, as the fields show (review 2)
+                if let role = details.flatMap({ Board.roleLine($0, titles: roleTitles) }) ?? live.role {   // as the fields show
                     Text(role).font(.subheadline).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
                 }
             }
@@ -157,8 +158,9 @@ struct AgentInfoView: View {
             || roleText.trimmingCharacters(in: .whitespacesAndNewlines) != filledRole
     }
     private func fill(_ d: Board.AgentDetails) {
-        nameText = d.name; roleText = d.role ?? ""
-        filledName = d.name; filledRole = d.role ?? ""
+        let role = Board.roleLine(d, titles: roleTitles) ?? ""
+        nameText = d.name; roleText = role
+        filledName = d.name; filledRole = role
     }
 
     // MARK: AI Settings
@@ -206,7 +208,8 @@ struct AgentInfoView: View {
                 }
             }
         } footer: {
-            Text("Change the model or the account it runs on, restart it, open its Terminal, or remove it.")
+            // Not "open its Terminal": from a phone the board refuses that (it opens on the computer itself; review 3).
+            Text("Change the model or the account it runs on, restart it, or remove it.")
         }
     }
 
@@ -249,7 +252,13 @@ struct AgentInfoView: View {
         async let status = client.throughMac { Board.statusRequest(mac: $0) }
         async let instr = client.throughMac { Board.agentRequest(mac: $0, session: session, "instructions") }
         async let sk = client.throughMac { Board.agentRequest(mac: $0, session: session, "skills") }
-        let (s, i, k) = await (status, instr, sk)
+        async let rl = client.throughMac { mac -> URLRequest? in
+            var r = URLRequest(url: URL(string: "/api/roles", relativeTo: mac)!.absoluteURL)
+            r.setValue("application/json", forHTTPHeaderField: "Accept")
+            return r
+        }
+        let (s, i, k, roles) = await (status, instr, sk, rl)
+        if let t = roles.flatMap({ $0.1.statusCode == 200 ? Board.parseRoleTitles($0.0) : nil }) { roleTitles = t }
         let d = s.flatMap { $0.1.statusCode == 200 ? Board.parseAgentDetails($0.0, session: session) : nil }
         if let d {
             // Only into fields the person has not changed (a refresh must not undo their typing).
