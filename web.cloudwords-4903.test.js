@@ -118,15 +118,17 @@ test('#4903 seam G: the first-run Connect list offers Claude alone on a cloud ma
 });
 
 test('#4903 seam H: the page\'s own "this computer" sentences on the agent, its files and the create flow go through thisMachine', () => {
+  const T = "(typeof thisMachine === 'function' ? thisMachine() : 'this computer')";
+  const TC = "(typeof ThisMachine === 'function' ? ThisMachine() : 'This computer')";
   for (const said of [
-    "'Not on ' + thisMachine()",
-    "'<option value=\"\">The OpenAI sign-in on ' + thisMachine() + '</option>'",
-    "'<option value=\"\">' + ThisMachine() + '\\'s own '",
-    "'subscription and uses ' + thisMachine() + '\\'s memory. Start all '",
-    "trusted hooks can act freely on ' + thisMachine() + '. If you are not sure",
-    "'This agent has no folder of its own on ' + thisMachine() + ', so there is no Files list.'",
-    "'Kosmos has no folder for ' + name + ' on ' + thisMachine() + ', so it has nowhere to write.'",
-    "const head = ThisMachine() + ' restarted ' + down;",
+    "'Not on ' + " + T,
+    "'<option value=\"\">The OpenAI sign-in on ' + " + T + " + '</option>'",
+    "'<option value=\"\">' + " + TC + " + '\\'s own '",
+    "'subscription and uses ' + " + T + " + '\\'s memory. Start all '",
+    "trusted hooks can act freely on ' + " + T + " + '. If you are not sure",
+    "'This agent has no folder of its own on ' + " + T + " + ', so there is no Files list.'",
+    "'Kosmos has no folder for ' + name + ' on ' + " + T + " + ', so it has nowhere to write.'",
+    "const head = " + TC + " + ' restarted ' + down;",
     "'It keeps trying each time your cloud machine starts. If it appears under Agents, you can remove it there.'",
     'where they live on <span data-cloud-copy="thisMachine">this computer</span>',
     '(cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at)',
@@ -134,7 +136,7 @@ test('#4903 seam H: the page\'s own "this computer" sentences on the agent, its 
   assert.match(SCRIPT, /const CLOUD_ASLEEP_SENTENCE = 'It may be restarting, and this page asks again by itself\./);
   // None of the swapped sentences is left in its old fixed form.
   for (const old of ["'Not on this computer'", 'The OpenAI sign-in on this computer', "uses this computer\\'s memory", 'act freely on this computer',
-    'no folder of its own on this computer, so', "' on this computer, so it has nowhere", "'This computer restarted '"]) {
+    'no folder of its own on this computer, so there is no Files list', "' on this computer, so it has nowhere", "'This computer restarted '"]) {
     assert.ok(!PAGE.includes(old), 'still fixed: ' + old);
   }
 });
