@@ -1124,6 +1124,21 @@ do {
         check(grown[Board.eagerStart(grown, from: nil, eager: 40)].id != from, "CONTROL: without the kept start the boundary moves with each new message")
         check(Board.eagerStart(grown, from: "gone", eager: 40) == grown.count - 40, "a start no longer shown falls back to the last 40")
     }
+    // kosmos#7346 review: with no send arrow, a Send that cannot go says why; nothing to send says nothing.
+    do {
+        let long = String(repeating: "word ", count: 2500)
+        check(Board.dmSendBlocked(said: long, files: 0, uploading: 0, dictating: false, finishing: false) == Board.tooLongLine, "kosmos#7346: a message over the board's limit says it is too long")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 0, dictating: false, finishing: false) == nil, "CONTROL: a message that can go has no reason")
+        check(Board.dmSendBlocked(said: "  ", files: 0, uploading: 0, dictating: false, finishing: false) == nil, "an empty box says nothing")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 0, dictating: true, finishing: false) == Board.sendStopDictating, "dictating says stop first")
+        check(Board.dmSendBlocked(said: "a.png", files: 1, uploading: 1, dictating: false, finishing: false) == Board.stillAddingLine, "a file on its way says so")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 1, dictating: false, finishing: false) == nil, "CONTROL: words alone go while another upload runs (no file of theirs waits)")
+        check(Board.roomPostBlocked(words: "@ann ", mentionOnly: true, read: true, files: 0, uploading: 0, dictating: false, finishing: false) == Board.roomOnlyMentionLine, "a room post of only the @name asks for words")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: false, files: 0, uploading: 0, dictating: false, finishing: false) == Board.roomNotReadLine, "a room not read yet says it is loading")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: Board.maxFiles + 1, uploading: 0, dictating: false, finishing: false) != nil, "too many files says so")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: 1, uploading: 0, dictating: false, finishing: false) == nil, "CONTROL: a room post that can go has no reason")
+        check(Board.roomPostBlocked(words: "", mentionOnly: false, read: false, files: 0, uploading: 0, dictating: false, finishing: false) == nil, "an empty room box says nothing")
+    }
     // kosmos#7348 (Josh 10-27): the sent text filling back into the box just after a send is caught; anything else is not.
     do {
         let t0 = Date(timeIntervalSince1970: 1_000_000)

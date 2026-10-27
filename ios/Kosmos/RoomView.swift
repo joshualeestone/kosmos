@@ -1136,8 +1136,9 @@ struct RoomView: View {
     // kosmos#7346 review: with no arrow to grey out, a Send that cannot post says why, to VoiceOver and on screen.
     private func postOrSayWhy() {
         if canPost { send(); return }
-        guard !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let why = dictation.finishing ? "Waiting for the last words." : dictation.busy ? "Stop dictating first." : uploadingHere > 0 ? Board.stillAddingLine : nil
+        let why = Board.roomPostBlocked(words: postWords, mentionOnly: Board.isOnlyMention(postWords, mention: replyMention),
+                                        read: store.rows[project.id] != nil, files: attachedHere.count, uploading: uploadingHere,
+                                        dictating: dictation.busy, finishing: dictation.finishing)
         if let why { client.attachLine[attachKey] = why; Self.say(why) }
     }
 

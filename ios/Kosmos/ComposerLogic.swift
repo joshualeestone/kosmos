@@ -14,15 +14,11 @@ enum ComposerExtras {
         "💡", "📌", "📝", "🐛", "🔧", "🔒", "⏳", "📈", "☕", "🎯", "🧠", "🍕", "🐢", "🎈", "📎", "🗂️",
     ]
 
-    // The board's pjEmojiInsert: the glyph replaces the selection (or goes in at the cursor), and the cursor lands
-    // after it. `selection` is in Characters of `text`; nil (no cursor known: older iOS, or the box not focused) puts
-    // it at the end. Returns the new text and the cursor's place in Characters.
     // kosmos#7346 (Josh 10-27): no send arrow; the keyboard's Send key sends. The box is a multi-line field, so the key
-    // arrives as one new line typed into the text: that one character, and nothing else changed, is a send, and this is
-    // the text without it. Pasted text (more than the one character) keeps its line breaks, and is nil here.
-    // Review: the keyboard can fix the word before the caret in the same change as the Send key (autocorrect, "tomorow"
-    // to "tomorrow"), so a change of a few characters holding exactly one more new line also counts, and the result keeps
-    // the correction: the first new line at or after where the texts start to differ is the one taken out.
+    // arrives as one new line typed into the text, and this is the text without it; nil when the change is not that.
+    // The keyboard can fix the word before the caret in the same change (autocorrect), so a change of a few characters
+    // holding one more new line also counts, but only when everything after that new line was already there: the key
+    // goes in at the caret, after any correction. A pasted "\nok" adds words after its new line, so it is not a send.
     static let returnSlack = 4
     static func typedReturn(was: String, now: String) -> String? {
         let a = Array(was), b = Array(now)
@@ -30,16 +26,24 @@ enum ComposerExtras {
         let added = b.count - a.count
         guard added >= 1, added <= returnSlack,
               b.filter({ newLine.contains($0) }).count == a.filter({ newLine.contains($0) }).count + 1 else { return nil }
-        var i = 0
-        while i < a.count && a[i] == b[i] { i += 1 }
-        // Back to the start of the word being corrected, so a correction that ends in a new line is still found.
-        while i > 0 && !b[i - 1].isWhitespace { i -= 1 }
-        guard let at = b[i...].firstIndex(where: { newLine.contains($0) }) else { return nil }
+        var prefix = 0
+        while prefix < a.count && a[prefix] == b[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < a.count - prefix && a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
+        // Back to the start of the word being corrected: the change can begin before the caret.
+        var from = prefix
+        while from > 0 && !b[from - 1].isWhitespace { from -= 1 }
+        // The new line nearest the end whose whole tail was already in the text.
+        guard let at = (0...suffix).lazy.map({ b.count - 1 - $0 }).first(where: { $0 >= from && newLine.contains(b[$0]) })
+        else { return nil }
         var out = b
         out.remove(at: at)
         return String(out)
     }
 
+    // The board's pjEmojiInsert: the glyph replaces the selection (or goes in at the cursor), and the cursor lands
+    // after it. `selection` is in Characters of `text`; nil (no cursor known: older iOS, or the box not focused) puts
+    // it at the end. Returns the new text and the cursor's place in Characters.
     static func insert(_ glyph: String, into text: String, selection: Range<Int>?) -> (text: String, caret: Int) {
         let count = text.count
         let lo = min(max(selection?.lowerBound ?? count, 0), count)
