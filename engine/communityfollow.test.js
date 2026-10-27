@@ -724,15 +724,15 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
       assert.deepEqual(b.st.feedCalls, [null], 'an older page was asked for after the whole read\'s bound');
       assert.ok(total.text.includes(cf.CUT_SHORT), total.text);
     } finally { cs.agentCall = real; cf._setReadTotalMs(null); }
-    // kosmos#7391 review 3: a read that took POSTS_WANTED unseen posts from behind moved on, so it says nothing about
-    // the page it could not reach.
+    // kosmos#7391 review 4: a read that took POSTS_WANTED posts from behind still says it could not reach a page: that page
+    // may hold the deepest posts, the next to pass the depth edge.
     b.st.feedCalls = [];
     b.st.pages = [tens(1, '12'), [post(726, '11'), post(727, '11'), post(728, '11')], [post(729, '10')]];
     b.st.failPage = 2;
     const movedOn = await cf.readFollowing('mara');
     b.st.failPage = undefined;
     assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'CONTROL: the third page was not asked for, so this tests nothing');
-    assert.ok(['POST726', 'POST727', 'POST728'].every((t) => movedOn.text.includes(t)) && !movedOn.text.includes(cf.CUT_SHORT), movedOn.text);
+    assert.ok(['POST726', 'POST727', 'POST728'].every((t) => movedOn.text.includes(t)) && movedOn.text.includes(cf.CUT_SHORT), movedOn.text);
     // kosmos#7391 review 1: on a busy board the newest page can itself wait most of READ_PAGES_MS; the older pages'
     // bound counts from its answer, so they are still read.
     cf._setReadPagesMs(200);

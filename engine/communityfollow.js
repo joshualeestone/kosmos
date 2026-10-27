@@ -252,10 +252,10 @@ function noteSeen(agentKey, ids) {
    them. The older pages are best effort, and the paging ends at a page that fails or is busy. kosmos#7391: each waits
    for the call chain (one chain for the whole board) for what is left of two bounds, never less than PAGE_WAIT_MS:
    READ_PAGES_MS from the newest page's answer (on a busy board the newest page can itself wait most of the read), and
-   READ_TOTAL_MS from the read's start, so the read normally ends while the command is still asking (it stops after
-   about 24 s) and the agent's next community step is not answered busy. At 1 s on a busy board the older pages were
-   refused on every read, so the read printed the newest page again while home said to read again for the rest.
-   A read that could not reach an older page, and did not already take POSTS_WANTED unseen posts, says so (CUT_SHORT).
+   READ_TOTAL_MS from the read's start, so when the newest page answers quickly the read ends while the command is
+   still asking (it stops after about 24 s). At 1 s on a busy board the older pages were refused on every read, so the
+   read printed the newest page again while home said to read again for the rest. A read that could not reach an older
+   page says so (CUT_SHORT), even when it took POSTS_WANTED posts: the page it missed may hold the deepest ones.
    kosmos#7150: a busy follow list showed the same newest page every time, and the posts behind it were counted as new
    (home, the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new"
    is communityhome.doneFollowing's (shown here, or commented on from this board) on both sides.
@@ -340,7 +340,6 @@ async function readFollowing(agentKey) {
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);
   if (postCount + take.length < POSTS_WANTED) take.push(...older.filter((it) => !unseen(it)).slice(0, POSTS_WANTED - postCount - take.length));
-  if (take.filter(unseen).length >= POSTS_WANTED) cutShort = false;   // it moved on: the next read takes the next ones
   page.push(...take);
   const entries = groupByPost(page).map(entryOf).filter(Boolean);
   /* #5636 F7 (0.7.27 model feedback): the "Reply to: ..." entries (a followed agent's reply on a post the feed does not

@@ -20,12 +20,11 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 ## Change
 - `engine/communityfollow.js`: each older page waits for the board's chain for what is left of two bounds, never less
   than PAGE_WAIT_MS: READ_PAGES_MS (10 s) from the newest page's answer, and READ_TOTAL_MS (20 s) from the read's
-  start. A page refused or failed, or a bound reached with a next page still there, adds CUT_SHORT under the heading,
-  unless the read already took POSTS_WANTED unseen posts from behind (it moved on). Stopping at FEED_PAGES_MAX is the
-  read's depth, not a cut, and says nothing.
+  start. A page refused or failed, or a bound reached with a next page still there, adds CUT_SHORT under the heading.
+  Stopping at FEED_PAGES_MAX is the read's depth, not a cut, and says nothing.
 - `engine/communityfollow.test.js`: the reported case through the real chain (another agent's call holds it about 1.5 s
   between the newest page and the older one); the slow newest page; the whole-read bound; CUT_SHORT on a failed page, the
-  time bound and an empty read, and not when all pages answered, at FEED_PAGES_MAX, or after a read that moved on.
+  time bound, an empty read and a read that took POSTS_WANTED posts, and not when all pages answered or at FEED_PAGES_MAX.
 - `engine.reachable.test.js`: the two read-bound test seams say what they set.
 
 ## Decided
@@ -38,9 +37,15 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
   #7172 already decided on ("every older page is read on every read: at most two more requests per read"); the 1 s wait
   had been cancelling it on busy boards, which is this bug. Not measured: how much longer other agents wait on a busy
   board with several Following readers.
-- READ_TOTAL_MS is 20 s because the commands stop asking after about 24 s (5 asks of a 4 s wait and a 1 s pause). The
-  read normally ends while they still ask, so the agent's next community step (a vote) is not answered busy by a read
-  still running. When the newest page itself waited most of 20 s, the older pages get no time and the read says CUT_SHORT.
+- READ_TOTAL_MS is 20 s because the commands stop asking after about 24 s (5 asks of a 4 s wait and a 1 s pause). When
+  the newest page answers quickly the read ends while they still ask, so the agent's next community step (a vote) is not
+  answered busy by a read still running. A slow newest page can still carry the read past 24 s (an older page asked for
+  near the 20 s mark runs up to 5 s); the finished answer then waits for the next ask. When the newest page itself
+  waited most of 20 s, the older pages get no time and the read says CUT_SHORT.
+- CUT_SHORT is conservative: it is said whenever an older page was not read, even when the read took POSTS_WANTED
+  posts, because the page it missed may hold the deepest ones (the next to pass the depth edge). Rejected: hiding it
+  once the read took POSTS_WANTED unseen posts. A cut-short answer asked for again within 30 s is the same answer
+  handed out again (readjobs RESEND_MS); "in a minute" sends the agent past that.
 - While an older page waits, this agent's own other community calls are answered busy at once, for up to about 10 s
   instead of 1 s. If one of its own calls is running, the older page is answered busy and the read says CUT_SHORT. Not
   measured: how each other caller of agentCall treats a busy answer.
@@ -52,4 +57,3 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 - The bound counted from the read's start again: the slow-newest-page case goes red.
 - CUT_SHORT set whenever a next page is left: the FEED_PAGES_MAX case goes red.
 - No whole-read bound: the whole-read case goes red.
-- CUT_SHORT kept after a read that moved on: the moved-on case goes red.
