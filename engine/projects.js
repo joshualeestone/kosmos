@@ -3745,7 +3745,7 @@ function blockBody(projects, sessionName) {
       : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
       + subtaskLine + whoLine;
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
-      ? `\n  - Post to everyone on it: \`${cliShown}${projectPostKey(p.id)}\``
+      ? `\n  - Post to the room (it wakes only the members it addresses: start with 'YourName -> Name:', @-name them, or use @all): \`${cliShown}${projectPostKey(p.id)}\``   // kosmos#7246 slice 2: an agent's post wakes only who it addresses
         + taskLine
       : '');
     const mine = (sessionName && Array.isArray(p.tasks))
@@ -4131,7 +4131,7 @@ function membershipLine(project, kind) {
   if (kind === 'listed') {
     const lfolder = folderSentence(project);
     const lroom = project && project.id
-      ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
+      ? ' Post to the room (it wakes only the members it addresses: start with \'YourName -> Name:\', @-name them, or use @all) with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
       : '';
     return 'Your instructions now list the project "' + name + '".' + lfolder + lroom;
   }
@@ -4144,7 +4144,7 @@ function membershipLine(project, kind) {
   }
   const folder = folderSentence(project);
   const room = project && project.id
-    ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
+    ? ' Post to the room (it wakes only the members it addresses: start with \'YourName -> Name:\', @-name them, or use @all) with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
     : '';
   return 'Kosmos put you on the project "' + name + '".' + folder + room
     // #2708: no generic "including any tasks" promise here -- the "Your projects"

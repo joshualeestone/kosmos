@@ -3407,7 +3407,8 @@ cmd_post() {
         *'":"quiet"'*) say "Posted to $project. It reached only the members it addresses; the others can read it in the room. To reach someone, start with 'YourName -> Their Name:', @-name them, or use @all." ;;
         *) say "Posted to $project. Everyone on it has it waiting." ;;
       esac
-      _placedWhy=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p') || true
+      # Round 3: anchored on the route's own opening (state, then because), so a "because" quoted in the post's text is never read.
+      _placedWhy=$(printf '%s' "$body" | sed -n 's/^{"delivery":{"state":"placed","because":"\([^"]*\)".*/\1/p') || true
       if [ -n "$_placedWhy" ]; then say "Note: $_placedWhy."; fi
       # #6925: it went through a held room as this member's one summary; say so, so the agent does not try another.
       case "$body" in   # a case on the captured body, not printf | grep -q (the SIGPIPE/pipefail rule above)
