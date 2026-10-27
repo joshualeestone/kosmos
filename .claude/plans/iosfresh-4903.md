@@ -23,7 +23,7 @@ fresh handoff.
    on the web page has none, and sends the token alone as before. So does a gate with no nonce route (404).
 
 ## Verification
-- Logic tests 1387/1387: the proof verifies over the gate's message and not over another host's; 409 then a new nonce
+- Logic tests (1446 after review 4): the proof verifies over the gate's message and not over another host's; 409 then a new nonce
   then admitted; no key = no nonce asked, token alone; 404 nonce = token alone; hosted = fresh handoff; step-up =
   signInAgain; Mac controls. Controls: main's BoardClient fails the hosted checks; swapping two message fields fails the
   signature check.
@@ -46,3 +46,5 @@ measured on a real Mac.
   and a busy computer is not a verdict on the sign-in.
 - No Sign in button on "Sign in again to open <name>": the board's openBoard keeps the same, not recent, sign-in, so a
   button there would not do what it says. A one-tap way needs a log out wired into the Agents screen (follow-up).
+- Review 4: a cloud machine refusing a key-less phone says sign in again at once (no fresh handoff cures a missing
+  key); a Mac's refusal keeps its retries. A 400 on the nonce route is a miss, as gate.html.

@@ -1764,6 +1764,8 @@ final class FakeBoardWorld {
     // The nonce route's other answers: none at all, or this status (nil: as issuesNonces says).
     var nonceNoAnswer = false
     var nonceStatus: Int? = nil
+    // Review 4: the nonce route answered by an older gate's sign-in page (200 HTML).
+    var nonceHTML = false
     var sessionBodies: [[String: Any]] = []
     var sessionQueue: [(Int, String)] = []
     var deviceKey: SignIn.DeviceKey? = nil
@@ -1871,6 +1873,7 @@ final class FakeBoardWorld {
             return answer(handoffAnswer.0, handoffAnswer.1)
         case "/_kosmos/nonce":
             if nonceNoAnswer { return nil }
+            if nonceHTML { return answer(200, "<!doctype html><title>Sign in</title>") }
             if let code = nonceStatus { return answer(code, #"{"retry":true}"#) }
             guard issuesNonces else { return answer(404, "{}") }
             noncesIssued += 1
@@ -2357,6 +2360,31 @@ section("native board loop: connecting")
         check(!w3.handoffBodies.isEmpty && w3.handoffBodies.first?["address"] != nil && w3.handoffBodies.first?["fresh"] == nil,
               "CONTROL: a Mac is asked with no fresh key")
         c3.stop()
+        // Review 4: a key-less phone refused by a cloud machine (the gate's NO_KEY) says sign in again at once: no fresh
+        // handoff cures a missing key.
+        let noKey = #"{"because":"this browser has not shown the key this computer allowed; sign in again on this browser, and allow it on this computer if it asks"}"#
+        let (c4, w4, _, _) = make("kst1")
+        w4.macsBody = w.macsBody
+        w4.sessionAnswer = (403, noKey)
+        c4.start()
+        let signAgain = await settle { c4.phase == .signInAgain(mac: "Your cloud machine") }
+        check(signAgain && w4.handoffBodies.count == 1, "review 4: a hosted refusal of a key-less phone says sign in again after one handoff (\(w4.handoffBodies.count) asked, phase \(c4.phase))")
+        c4.stop()
+        // CONTROL: a Mac's same refusal still gets the fresh handoffs it always did.
+        let (c7, w7, _, _) = make("kst1")
+        w7.sessionAnswer = (403, noKey)
+        c7.start()
+        let macRefused = await settle { c7.phase == .macRefused(mac: "Studio") }
+        check(macRefused && w7.handoffBodies.count > 1, "CONTROL: a Mac refusing still retries fresh handoffs (\(w7.handoffBodies.count) asked)")
+        c7.stop()
+        // Review 4: an older gate answers the nonce route with its sign-in page (200 HTML): no nonce, the token alone.
+        let (c8, w8, _, _) = make("kst1")
+        w8.deviceKey = .software(P256.Signing.PrivateKey())
+        w8.nonceHTML = true
+        c8.start()
+        let in8 = await settle { isLive(c8) }
+        check(in8 && w8.sessionBodies.first?.keys.sorted() == ["token"], "review 4: an HTML page on the nonce route sends the token alone and is let in")
+        c8.stop()
     }
     do {
         let (c, w, _, macs) = make("kst1")
