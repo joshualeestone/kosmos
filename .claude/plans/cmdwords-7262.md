@@ -70,3 +70,12 @@ engine/windows-tests-1777.test.js requires that entry: measured, removing it red
    test header misstated who missed sudo; corrected. (N) on win32 the tool-guard verdict was still computed and
    discarded; now it is not computed. Deferred: (N) the double file check (as rounds 1 and 2). The reviewer's
    differential (60,000 lines, 40,000 calls, old readers from origin/main) found no realistic shape either guard lost.
+4. (sonnet, 02:5x CDT) 1 WARNING, 1 CONVENTION, 2 NITs. (W) a backslash was not an escape in a POSIX line, so
+   `echo "a \" b"; gh x` hid the gh (older than this branch). Applied: commands() and words() take a POSIX backslash
+   with the next character, inside double quotes and out, never inside single quotes or in a cmd line; both
+   characters are kept, so paths read the same. (N) a leading backslash (`\gh`, past an alias) is stripped from a
+   POSIX command word. New table rows, including a POSIX-only call shape, since an exec line's second (cmd) reading
+   masked words()'s escape: measured, M7 (words escape off) stayed green until that row was added. Mutations M6
+   (commands escape off), M7 and M8 (no backslash strip) each red, restored. Deferred: (N) a lone apostrophe in a
+   POSIX line (a real shell refuses an unterminated quote, so nothing runs); (C) #7318 cannot be checked from the
+   tree (it is the card filed this round); (N) a further negative PATH arm (the table covers it).

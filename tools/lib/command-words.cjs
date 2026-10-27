@@ -76,6 +76,15 @@ function commands(text, shell) {
   const chars = Array.from(String(text == null ? '' : text));
   for (let i = 0; i < chars.length; i += 1) {
     const ch = chars[i];
+    /* A POSIX backslash takes the next character as text, inside double quotes and out (echo "a \" b"; gh, #7262
+       review 4). Both characters are kept, so a path reads the same. Not inside single quotes, and not in a cmd or
+       PowerShell line, where a backslash is a path separator (an exec line is read both ways, so C:\x is still seen). */
+    if (ch === '\\' && shell !== 'other' && quote !== "'" && i + 1 < chars.length) {
+      cur += ch + chars[i + 1];
+      prev = chars[i + 1];
+      i += 1;
+      continue;
+    }
     /* Inside double quotes a POSIX shell still runs $( ) and backticks (TOKEN="$(gh auth token)", #7262 review 1):
        their commands are read as well, and the quoted word itself stays whole. */
     if (quote === '"' && shell !== 'other' && ((ch === '$' && chars[i + 1] === '(') || ch === '`')) {
@@ -112,7 +121,7 @@ function closeParen(chars, from) {
    whether it was one quoted string. A redirect (>, >>, <, 2>) ends a word with or without a space (schtasks>out.txt),
    and the redirect with its file is one word marked redirect: it names a file, not the command (#7270), and it keeps
    its raw spelling so a line rebuilt from the words is the line cmd reads (review 5: cmd /c "echo a b" > "x & y"). */
-function words(command) {
+function words(command, shell) {
   const out = [];
   let raw = '';
   let quote = null;
@@ -125,7 +134,11 @@ function words(command) {
     op = '';
     raw = '';
   };
-  for (const ch of String(command)) {
+  const chars = Array.from(String(command));
+  for (let i = 0; i < chars.length; i += 1) {
+    const ch = chars[i];
+    // A POSIX backslash takes the next character as text, as in commands().
+    if (ch === '\\' && shell !== 'other' && quote !== "'" && i + 1 < chars.length) { raw += ch + chars[i + 1]; i += 1; continue; }
     if (quote) { if (ch === quote) quote = null; raw += ch; continue; }
     if (ch === '"' || ch === "'") { quote = ch; raw += ch; continue; }
     if (ch === '<' || ch === '>') {
@@ -171,7 +184,8 @@ function walk(ws, i, depth, shell, out) {
     }
     /* NAME=value before the command sets its environment (X=1 schtasks): the command follows (#7270). */
     if (!w.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.text)) { i += 1; continue; }
-    const word = w.text.replace(/^@/, '');   // @schtasks: cmd's no-echo prefix
+    // @schtasks: cmd's no-echo prefix. \gh: a POSIX shell's way past an alias, which still runs gh (#7262 review 4).
+    const word = shell === 'other' ? w.text.replace(/^@/, '') : w.text.replace(/^@/, '').replace(/^\\(?=[^\\])/, '');
     out.push(word);
     const b = baseName(word);
     if (CMD.test(b)) {
@@ -285,7 +299,7 @@ function lineInto(text, depth, shell, out) {
   /* An exec line's shell is not known (cmd on Windows): read it with backtick cuts and without (review 5: a lone
      backtick, env A=`x schtasks, must not cut the command in two). */
   if (shell === undefined) { lineInto(text, depth, 'posix', out); lineInto(text, depth, 'other', out); return; }
-  for (const part of commands(text, shell)) walk(words(part.trim()), 0, depth, shell, out);
+  for (const part of commands(text, shell)) walk(words(part.trim(), shell), 0, depth, shell, out);
 }
 
 /* The words a shell command line (exec, execSync, shell: true) runs, in every one of its commands. */

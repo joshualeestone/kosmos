@@ -52,6 +52,11 @@ const SHAPES = [
   ['cd /x && P', true],
   ['echo $(P api user)', true],
   ['TOKEN="$(P auth token)"', true],   // review 1: a substitution inside double quotes runs
+  ['echo "a \\" b" ; P x', true],   // review 4: an escaped quote does not end the string
+  ['\\P x', true],   // review 4: a leading backslash (past an alias) still runs the program
+  ['echo "\\$(P)"', false],   // an escaped $( is text
+  ['bash -c "echo \\" x; P"', true],   // the escape inside one word: the script after -c stays one word at its space
+  ["echo 'a\\' ; P", true],   // inside single quotes a backslash is text, so the quote ends
   ['echo "`P`"', true],
   ['echo "$(echo P)"', false],
   ['echo "a (P) b"', false],   // parentheses inside double quotes are text
@@ -73,6 +78,7 @@ const SHAPES = [
   [['pwsh', ['-EncodedCommand', 'ENC(P x)']], true],
   [['/bin/bash', ['-lc', 'nohup P x']], true],
   [['/bin/sh', ['-c', 'echo P']], false],
+  [['/bin/sh', ['-c', 'bash -c "echo \\" x; P"']], true],   // review 4: POSIX only (no second reading), so words() must honour the escape
   [['/bin/bash', ['script.sh']], false],
   [['git', ['grep', 'P']], false],
   [['P x', [], { shell: true }], true],
