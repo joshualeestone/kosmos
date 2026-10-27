@@ -260,7 +260,7 @@ test('#5536 an empty chunk is refused, and a deep folder clash is found', async 
 test('#5536 the collision check scales linearly with path depth (a ratio, so machine load does not decide it)', async () => {
   // Every entry is listed twice, so all are refused before any fetch and the time is the path and collision checks.
   // Measured: depth x4 costs x3.8 to x4.5 with the trie (wall time, 10-08), x13 with the quadratic check; in CPU time, as
-  // now timed, a median of x3.54 to x3.98 (#7235, 12 runs at load 38 on 12 cores, 10-26).
+  // now timed, a median of x3.22 to x4.12, single pairs up to x6.0 (#7235, 12 runs at load 13 to 22 on 12 cores, 10-26).
   // kosmos#7235: each depth's fixture is built ONCE, so no sample pays for a build (and the deep build's garbage) inside
   // its timed region; only run() is timed.
   const fixtureAt = (depth) => {
