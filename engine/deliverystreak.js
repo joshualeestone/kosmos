@@ -118,6 +118,7 @@ const WHY_WORDS = {
   unknown: 'Kosmos could not tell why',
   /* #7212 slice 3: not a delivery verdict; engine/stallsignin.js sets it when a live check found the account signed out. */
   signedout: 'Its Claude account is signed out',
+  keyrefused: 'Its Claude key no longer works',   // review 1: an api-key account is not signed in to; its key was refused
 };
 /* What the person can do, the card's last sentence (round 3: a restart does not help a sign-in, a limit or a quota). */
 const LOOK = 'Open it to see what it shows, or restart it';
@@ -127,6 +128,7 @@ const NEXT_WORDS = {
   limit: 'Kosmos sends them once its usage resets',
   quota: 'Kosmos sends them once the shared quota resets',
   signedout: 'Sign in again in Settings, AI Models',   // #7212 slice 3
+  keyrefused: 'Replace its key in Settings, AI Models',
 };
 /* The board log's line for one stall. */
 function stallLine(s) {

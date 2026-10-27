@@ -22,3 +22,22 @@ account out; slice 2 would have said "Messages stuck" with a generic reason.
 ## Weakest premise
 That the card's account summary finds its accounts.list() row by folder (or isDefault). If it finds none, nothing is
 checked and the card says what slice 2 says, which is the safe direction.
+
+## Review round 1 (opus): 0 blocker, 2 major, 4 minor, 3 nit
+- MAJOR fixed: the test seam replaced the whole check, so which row a card matched was untested. The seam is now the
+  account list and the live call (setDepsForTests); tests match the default row, a second account's row, a key's row,
+  and a card with no row is never checked. Mutant (first row for every card) red.
+- MAJOR fixed: after the person signs in again, the card said "Sign in again" until the next hourly check.
+  accounts.checkRowLive tells stallsignin.heard a row is connected (the accounts screen opening is enough), which
+  clears every stuck agent on that account at once. Mutant (heard does nothing) red.
+- MINOR fixed: a throw before the check (an unreadable account list) left the record running forever; it is now a
+  rejected promise, so the stall is checked again an hour on.
+- MINOR fixed: the minute sweep keeps a record whose check is running or started within the hour, so a card leaving
+  its stall for a minute does not start a second check.
+- MINOR fixed: an api-key account's refused key says "Its Claude key no longer works. Replace its key in Settings,
+  AI Models", not "sign in".
+- MINOR NOT done, stated: a sign-out that removed the folder's sign-in identity leaves no accounts.list() row, so
+  nothing is checked and the card keeps slice 2's words. Whether Anthropic's revocation removes that identity on the
+  person's machine is unverified; checking a folder with no row would need a second definition of "a Claude folder".
+- NITs fixed: comments say the hour runs from when a check started; listLiveNow's "ONLY" names the second caller;
+  checkRowLive's requires sit inside its try.
