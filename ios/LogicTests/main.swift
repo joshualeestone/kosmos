@@ -3745,6 +3745,10 @@ for sel in AppTabs.visible(tasksTab: true) {
 check(AppTabs.pressScript(door: "new-agent").contains("window.kosmosAppTab('new-agent')"), "#7266: the create name goes to the door")
 check(AppTabs.pressScript(.agents) == nil && AppTabs.pressScript(.projects) == AppTabs.pressScript(door: "projects"), "#7266: a section press is unchanged")
 check(AppTabs.pressScript(door: "new-agent").contains("return 'covered'; return 'refused'") && !AppTabs.pressScript(door: "projects").contains(".rm-back"), "#7266 review 2: only a create reads a covered board as covered; a section press is unchanged")
+// Review 3 (switcher): a + goes to the computer the switcher shows.
+let studioURL = URL(string: "https://studio.kosmosplus.com/")!, laptopURL = URL(string: "https://laptop.kosmosplus.com/")!
+check(AppTabs.createTarget(pageURL: URL(string: "https://studio.kosmosplus.com/?tab=agents"), shown: laptopURL) == laptopURL, "#7266 review 3: the page on Studio while Laptop is shown loads Laptop's board first")
+check(AppTabs.createTarget(pageURL: URL(string: "https://LAPTOP.kosmosplus.com/?tab=agents"), shown: laptopURL) == nil && AppTabs.createTarget(pageURL: studioURL, shown: nil) == nil, "#7266 review 3: already there, or no computer shown: press where the page is")
 // Review 3: through the real answer parsing, the covered answer waits and never falls back (review 2 returned 'absent',
 // which answer() reads as .noDoor and the fallback fired).
 let coveredMac = URL(string: "https://studio.kosmosplus.com/?tab=agents")!

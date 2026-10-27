@@ -297,7 +297,8 @@ struct ContentView: View {
     // kosmos#7266: a + button: the board's own create form, over the tabs, opened through the board's door.
     private func openCreate(_ what: AppTabs.Create) {
         showBoardPage()
-        web.pressBoardSection(what == .agent ? .agents : .projects, door: what.rawValue)
+        // Review 3: on the computer the switcher shows (board.macURL), loading its board first when the page is elsewhere.
+        web.pressBoardSection(what == .agent ? .agents : .projects, door: what.rawValue, on: board.macURL)
     }
 
     // kosmos#7252: the board page, under the Today tab while it is on, or over the tabs while it is off.
@@ -584,7 +585,13 @@ final class BoardWeb: ObservableObject {
     // shared page is a Kosmos+ page (the account page that screen opens), there is no board to press, so the board is
     // loaded first and the press waits for it (it waits on the sign-in host, then runs once the board has loaded).
     // kosmos#7266: `door`, a create name the board's door takes instead of the section's (the + buttons).
-    func pressBoardSection(_ tab: AppTabs.Tab, door: String? = nil) {
+    func pressBoardSection(_ tab: AppTabs.Tab, door: String? = nil, on computer: URL? = nil) {
+        // kosmos#7266 review 3: a press meant for another computer's board loads that board first and waits for it.
+        if let webView = webView, let target = AppTabs.createTarget(pageURL: webView.url, shown: computer) {
+            webView.load(URLRequest(url: target))
+            _ = tracker.press(tab, page: .loading, section: true, door: door)
+            return
+        }
         if let webView = webView, webView.url?.host == AppTabs.signInHost {
             webView.load(URLRequest(url: KosmosConfig.boardURL))
             _ = tracker.press(tab, page: .loading, section: true, door: door)
