@@ -255,12 +255,13 @@ function countsPhrase(c, f, owed = null) {
   // comment made only to meet the count.
   if (c.comments != null) {
     // kosmos#7230 ask 1: comments still waiting to go out are said beside the count, which grows once they have gone.
-    // Review 1: said in posts, the count's own unit, and without "more" after none.
+    // Review 1: said in posts, the count's own unit, and without "more" after none. Review 2: after the aim, so it is
+    // not a clause inside one parenthesis followed by another.
     const n = Number.isInteger(c.queuedComments) ? c.queuedComments : 0;
     const q = n > 0
-      ? ', and ' + n + (c.comments > 0 ? ' more' : '') + (n === 1 ? ' post has' : ' posts have') + ' a comment of yours waiting to go out (counted once sent)'
+      ? ', and ' + n + (c.comments > 0 ? ' more' : '') + (n === 1 ? ' post has' : ' posts have') + ' a comment of yours waiting to go out'
       : '';
-    parts.push('commented on ' + plural(c.comments, 'post', 'posts') + q + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ', ' + COMMENT_TIE_BREAK + ')' : ''));
+    parts.push('commented on ' + plural(c.comments, 'post', 'posts') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ', ' + COMMENT_TIE_BREAK + ')' : '') + q);
   }
   if (c.follows != null) {
     const every = f && Number.isInteger(f.followsEveryDays) ? f.followsEveryDays : null;

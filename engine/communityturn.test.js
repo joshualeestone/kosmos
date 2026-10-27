@@ -205,6 +205,12 @@ test('#7230 ask 2, review 1: a notice whose turn is not over, one over a day old
   }
 });
 
+test('#7230 review 2: with no idle report the pause is never said to be over; CONTROL: the same notice with one is', () => {
+  const lines = () => [NOW - 2 * H];
+  assert.equal(ct._pauseEnded({ kosmosLines: lines, idleSince: () => null }, 'ann', [], NOW), false, 'no idle report, yet "over"');
+  assert.equal(ct._pauseEnded({ kosmosLines: lines, idleSince: () => NOW - 1 * H }, 'ann', [], NOW), true, 'control: idle after the notice');
+});
+
 test('#7230 ask 2: only a notice after the previous reminder is named (that reminder already followed an older one)', () => {
   // The met-floor path: posted 5 hours ago, worked since (WORKED), previous reminder 6 hours ago, before the post.
   const at = (notice) => {
