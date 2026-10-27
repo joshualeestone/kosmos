@@ -122,7 +122,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 31[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 32[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -251,7 +251,7 @@ test('#5167 core: the board\'s 204/205 refusal is never saved as an empty file (
 
 test('#5167 core: a policy refusal is SAID (2026-10-27: logged-only read as nothing happening), never over another or as a repeat; a real failure is one modal alert; the queueing machinery is gone', () => {
   const t = body('private func tellDownloadFailed(_ detail: String, title: String? = nil, refusal: Bool = false, always: Bool = false) {');
-  assert.match(t, /if refusal \{\n\s+logLine\([^\n]*\)\n\s+AppDelegate\.refusalRequestedForSelftest\?\(detail\)\n\s+if refusalsShown\.commit != pageCommits \{ refusalsShown = \(pageCommits, 0\) \}\n\s+guard refusalShouldShow\(up: alertsOnScreen > 0, asking: !downloadAsks\.isEmpty, lastAt: refusalLastAt, now: Date\(\),\n\s+window: AppDelegate\.refusalRepeatSeconds,\n\s+shownThisPage: refusalsShown\.count, perPage: AppDelegate\.refusalsPerPage\) else \{ return \}\n\s+refusalsShown\.count \+= 1\n\s+\}/,
+  assert.match(t, /if refusal \{\n\s+logLine\([^\n]*\)\n\s+AppDelegate\.refusalRequestedForSelftest\?\(detail\)\n\s+if refusalsShown\.commit != pageCommits \{ refusalsShown = \(pageCommits, \[:\]\) \}\n\s+guard refusalShouldShow\(up: alertsOnScreen > 0, asking: !downloadAsks\.isEmpty, lastAt: refusalLastAt, now: Date\(\),\n\s+window: AppDelegate\.refusalRepeatSeconds,\n\s+shownThisPage: refusalsShown\.by\[detail, default: 0\], perPage: AppDelegate\.refusalsPerPage\) else \{ return \}\n\s+refusalsShown\.by\[detail, default: 0\] \+= 1\n\s+\}/,
     'a refusal is no longer logged, or is said without the alert, Allow-question, window and per-page guard');
   // Review 1: the window holds for ANY refusal, so two alternating sentences cannot put one up after every OK.
   const pure = SRC.slice(SRC.indexOf('func refusalShouldShow('), SRC.indexOf('\n}\n', SRC.indexOf('func refusalShouldShow(')));
