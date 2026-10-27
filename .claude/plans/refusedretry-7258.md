@@ -13,8 +13,8 @@ work between the health check and the request ran longer, the try found the boar
   try has ended in curl's 7. The first try is refused however late it comes. The one remaining bound is the CLI's
   one-second pause between the refusal and the retry.
 - The board finds the arm's log through `CURL_LOG_BY_PORT`, which `baseEnv` fills (port -> log path).
-- New arm `#7258`: `KOSMOS_TEST_CURL_SLOW_FIRST=0.8` makes the counting curl sleep 800 ms before the first try,
-  standing in for a loaded machine.
+- New arm `#7258`: `KOSMOS_TEST_CURL_SLOW_FIRST=1.5` makes the counting curl sleep 1.5 s before the first try,
+  standing in for a loaded machine (0.8 s in the first version; see round 1).
 
 ## Measured (this Mac, light lane, 18:1x CDT, load 2 to 4)
 - Old file and new file run alternately, 6 runs each: old 11/11 green every time, new 12/12 every time. The idle
@@ -26,11 +26,23 @@ work between the health check and the request ran longer, the try found the boar
 That the 600 ms clock is the cause on Mortals. The arm reproduces that mechanism; it does not prove Mortals hit
 this and nothing else. A second slow point remains by design: refusal -> retry is the CLI's one-second pause, so a
 board that cannot relisten within ~1 s of the refusal (an event loop stalled for over a second) could still go red.
-Untouched on purpose: the cutFirstPost arm (`withRefusingBoard(2500, ...)`) is also clock-based, but it did not fail
-on the card and its clock is 1.5 s wider than the pause it races.
+The board's port is free from the stop until the first refusal, however long that takes, so another process could take
+it on this shared machine; that shows as relistenError, a clear red, never a false green.
 
 ## Rejected
 - Raising 600 to a bigger number: just moves the race, and past 1000 ms the board would miss the retry instead.
 - Lengthening the CLI pause with KOSMOS_REFUSED_RETRY_MS in these arms: costs seconds per arm and still races.
 
 ## Review rounds
+- Round 1 (blind, default model, 18:2x CDT): no BLOCKER. Applied:
+  (1) WARNING, the slow arm at 0.8 s guarded only against the 600 ms clock: a 1000 ms clock passed every arm idle. Now
+  1.5 s. The fast arms need a clock under about 1.1 s and the slow arm one above about 1.6 s, so no fixed clock passes
+  both.
+  (2) WARNING, the cutFirstPost arm was still on a 2500 ms clock, exposed to the same load: it now uses the refusal
+  trigger too. A regressed third try still lands on a listening board, so it shows in both the try count and the POSTs.
+  (3) NIT, the port-loss window is open-ended: noted under the weakest premise.
+  (4) NIT, an unwrapped doc comment: rewrapped.
+  (5) NIT, a refuse-once board with no baseEnv log polled `undefined.rc` forever: it now throws with the setup mistake.
+  Measured after round 1 (light lane, 19:3x CDT): the whole file 12 of 12, three times. The slow arm back on a 600 ms
+  clock: red. On a 1000 ms clock: red. The fast task-list arm on a 1000 ms clock: green, so the slow arm is what
+  catches a clock in that range.

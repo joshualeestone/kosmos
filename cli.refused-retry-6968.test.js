@@ -97,7 +97,8 @@ async function closedPort() {
 }
 
 /** A board that answers its first health check, then stops listening; `back` ms later (null: never; 'refused': once
- *  the counting curl has reported a refused try, #7258) it listens on the same port again. `seen` records each request after the health check, with its body. With `after503` it
+ *  the counting curl has reported a refused try, #7258) it listens on the same port again. `seen` records each
+ *  request after the health check, with its body. With `after503` it
  *  stays up through the health check, answers the first request 503 (it reached the board, nothing recorded) and
  *  only then stops listening. With `cutFirstPost` it cuts the first request's reply, then stops listening. */
 async function withRefusingBoard(back, fn, { after503 = false, cutFirstPost = false } = {}) {
@@ -122,7 +123,9 @@ async function withRefusingBoard(back, fn, { after503 = false, cutFirstPost = fa
     };
     if (back === 'refused') {
       // Every 10 ms, well inside the CLI's one-second pause: listen again once a try has ended in curl's 7.
-      const rcLog = CURL_LOG_BY_PORT.get(port) + '.rc';
+      const log = CURL_LOG_BY_PORT.get(port);
+      if (!log) throw new Error('a refuse-once board needs the arm to call baseEnv(port) first: it waits on that curl log');
+      const rcLog = log + '.rc';
       const poll = () => {
         if (ended) return;
         let rcs = '';
@@ -174,9 +177,11 @@ test('#6968: a board that refuses the request once and then accepts: `task list`
   assertNoLeftovers(env);
 }));
 
-test('#7258: a first try slower than the old 600 ms re-listen clock is still refused, then asked once more', () => withRefusingBoard('refused', async (port, seen) => {
-  // 800 ms before the first try: a board back on a clock 600 ms after the health check would take it (1 try, red).
-  const env = baseEnv(port, { KOSMOS_TEST_CURL_SLOW_FIRST: '0.8' });
+test('#7258: a first try slower than any re-listen clock the fast arms allow is still refused, then asked once more', () => withRefusingBoard('refused', async (port, seen) => {
+  // 1.5 s before the first try. The fast arms' first try comes about 0.1 s after the health check and their retry a
+  // second later, so a clock must be under about 1.1 s for them; this arm's first try would take a board back on any
+  // such clock (1 try, red). So no fixed clock passes both, and a return to one goes red.
+  const env = baseEnv(port, { KOSMOS_TEST_CURL_SLOW_FIRST: '1.5' });
   const out = await runCli(['task', 'list', 'proj'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(tries(env, /\/api\/tasks/), 2, 'refused, then asked once more');
@@ -274,9 +279,10 @@ test('#6968: `task ran` answered 503 and then refused: not recorded, never "noth
   assert.doesNotMatch(out.stdout, /nothing was sent|Is it running|kosmos start/);
 }, { after503: true }));
 
-test('#6968: msg\'s second ask after a cut reply is one plain try: a board that restarts meanwhile gets the message once', () => withRefusingBoard(2500, async (port, seen) => {
-  // The first send's reply is cut (it may have landed), then the board restarts and is back 2.5 s later. msg asks once
-  // more after 1 s, which is refused; kosmos_curl would ask again 3 s after that, into the restarted board.
+test('#6968: msg\'s second ask after a cut reply is one plain try: a board that restarts meanwhile gets the message once', () => withRefusingBoard('refused', async (port, seen) => {
+  // The first send's reply is cut (it may have landed), then the board restarts. msg asks once more after 1 s, which is
+  // refused, and the board is back the moment that refusal is recorded (#7258: no clock for load to outrun). kosmos_curl
+  // would ask again 3 s after that, into the restarted board: a third try, and a second POST the board records.
   const env = baseEnv(port, { TMUX_PANE: '%42', KOSMOS_REFUSED_RETRY_MS: '3000' });
   const out = await runCli(['msg', 'mara', 'only', 'once'], env);
   assert.notEqual(out.code, 0, out.stdout + out.stderr);
