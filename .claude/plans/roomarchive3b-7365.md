@@ -76,3 +76,28 @@ map. Fixed by moving the return to just before the rows are written.
      person; reactions in the archive are a follow-up if anyone asks for them.
    - Found by the sweep, not the reviewer: the confirm was a 42nd body child (web.consolidated-980), so it moved inside
      the room's section; the modal sweep needed its row; the check needed its four wiring lines.
+2. (sonnet, 18:1x CDT) 0 BLOCKERs, 8 WARNINGs, 1 CONVENTION, 3 NITs; all applied.
+   - (W) a gap read's pjWinReset zeroed the archive count for one poll after it was stored: stored after the gap block.
+   - (W) every row in the archive view carried the Archived tag (the server marks archive=1 rows too): not inside the
+     archive view (the browser check asserts none).
+   - (W) inside the archive, an original on an unread earlier archive page said "unavailable": "further back".
+   - (W) a reaction made in the archive was taken back off by the next archive page's paint: PJ_ARCH.rows is patched
+     too.
+   - (W) View archive had no busy state and no generation check: "Opening the archive..." on the line, a second press
+     while a read is out does nothing, and a stale read never lands (executed test, mutation-proven).
+   - (W) the archive functions had only source-order tests: a vm harness runs pjArchOpen, pjArchEarlier and
+     pjArchClose (open and Back with the anchor restored and focus moved; a stale read; a failed page, no retry by
+     scroll, Try again), each mutation-proven.
+   - (W) browser-check gaps: Undo's toast and focus, a refused Archive (route 503), a failed earlier archive page and
+     Try again (route 500 once), no Archived tag in the archive view, Tab containment, the cutoff line, and a 390 px
+     pass for the header.
+   - (W) the button promised an archive when nothing was old enough: after Archive the page reads the count, and with
+     nothing archived it says so instead of the receipt.
+   - (W) "this week" means seven days back, not a calendar week: the confirm shows the cutoff time beside the choice and
+     follows it. The labels stay Mona's.
+   - (C) Tab is contained in the confirm, and opening another project closes it.
+   - NITs: no raw server reason in the failure line; a successful Archive is announced; a search closes the archive
+     quietly.
+   - Found by me while fixing: my new pjArchWhen replaced the archived-projects list's own pjArchWhen (a function
+     declared twice; the later wins with no error). Renamed pjRoomArchWhen, and a new test asserts every top-level
+     function in the page is declared once (mutation: a second pjArchWhen reds it).

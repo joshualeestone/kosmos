@@ -138,7 +138,22 @@ function findUnder(dir, name) {
     chk(await p.locator('#pjarch-modal').isHidden() && Number(esc.archivedCount) === 0, 'CONTROL: Escape closes the confirm and archives nothing', String(esc.archivedCount));
     await p.click('#pj-arch-ask');
     await p.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 5000 });
+    await p.selectOption('#pjarch-when', 'month');
+    const cutMonth = await p.locator('#pjarch-cut').innerText();
     await p.selectOption('#pjarch-when', 'week');
+    const cutWeek = await p.locator('#pjarch-cut').innerText();
+    chk(/^Messages from before .+\.$/.test(cutWeek) && cutWeek !== cutMonth, 'the confirm shows the cutoff as a time, and it follows the choice', JSON.stringify({ cutWeek, cutMonth }));
+    // Tab stays inside the confirm (aria-modal): from Archive, the last stop, it comes round to the choice.
+    await p.focus('#pjarch-go');
+    await p.keyboard.press('Tab');
+    chk(await p.evaluate(() => document.activeElement && document.activeElement.id) === 'pjarch-when', 'Tab from the last button comes back to the choice, not the page behind');
+    // A refused Archive keeps the confirm open, says nothing changed, and leaves focus on Archive.
+    await p.route('**/room/archive', (r) => (r.request().method() === 'POST' ? r.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false,"because":"x"}' }) : r.continue()));
+    await p.click('#pjarch-go');
+    await p.waitForTimeout(500);
+    const refused = await p.evaluate(() => ({ open: !document.getElementById('pjarch-modal').hidden, msg: document.getElementById('pjarch-msg').textContent, focus: document.activeElement && document.activeElement.id }));
+    chk(refused.open && refused.msg === 'We could not archive just now; nothing changed.' && refused.focus === 'pjarch-go', 'a refused Archive keeps the confirm open, says nothing changed (no raw reason) and keeps focus on Archive', JSON.stringify(refused));
+    await p.unroute('**/room/archive');
     await p.click('#pjarch-go');
     await p.waitForSelector('#pjarch-modal', { state: 'hidden', timeout: 5000 });
     const receipt = await p.evaluate(() => document.body.textContent.match(/Messages before [^.]+ are archived\. Undo is in the archive\./));
@@ -181,6 +196,7 @@ function findUnder(dir, name) {
     chk(/^Archive 260 messages Undo Back to the room$/.test(arch.head) && arch.undo, 'the archive header reads "Archive · 260 messages · Undo · Back to the room"', arch.head);
     chk(arch.on && arch.n === 200 && /archived post 259/.test(arch.last) && !arch.live, 'the archive shows its newest page, the newest archived post at the bottom, and no live post', JSON.stringify({ n: arch.n, live: arch.live }));
     chk(!arch.start, 'CONTROL: on the first archive page the start-of-room line is not shown yet');
+    chk(await p.locator('#pj-room .msg-archived').count() === 0, 'inside the archive view no row carries the Archived tag (the header says it)');
     const archReply = await p.evaluate(() => { const r = [...document.querySelectorAll('#pj-room .msg')].find((m) => /archived post 250\b/.test(m.textContent)); if (!r) return null; const h = r.querySelector('.msg-replyto'); const vh = r.querySelector('.vh'); return { header: h ? h.textContent.trim() : null, heard: vh ? vh.textContent.trim() : null }; });
     chk(!!archReply && !/unavailable/.test(JSON.stringify(archReply)) && /archived post 249/.test(JSON.stringify(archReply)), 'an archived reply names its archived original, not "unavailable"', JSON.stringify(archReply));
     // A poll lands while the archive is open, with a new post in the live room: the archive stays as it is.
@@ -191,6 +207,17 @@ function findUnder(dir, name) {
       leaked: /posted while the archive was open|live post/.test(document.getElementById('pj-room').textContent) }));
     chk(kept.head && kept.n >= 200 && !kept.leaked, 'a poll that lands while the archive is open leaves the archive on screen and paints no live row over it', JSON.stringify(kept));
     await p.screenshot({ path: path.join(OUT, 'archive-view.png') });
+    // The earlier archive page fails once: the line says so with Try again, and a scroll does not retry by itself.
+    let failOnce = true;
+    await p.route(/\/room\?.*archive=1.*cursor=/, (r) => { if (failOnce) { failOnce = false; return r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"x"}' }); } return r.continue(); });
+    await p.evaluate(() => { const b = document.getElementById('pj-room'); b.scrollTop = 0; b.dispatchEvent(new Event('scroll')); });
+    await p.waitForTimeout(800);
+    const failed = await p.evaluate(() => ({ text: document.getElementById('pj-room-older-text').textContent, retry: !document.getElementById('pj-room-older-show').hidden, n: document.querySelectorAll('#pj-room .msg').length }));
+    chk(failed.text === 'We could not read the earlier archived messages.' && failed.retry && failed.n === 200, 'a failed earlier archive page says so on the line, with Try again', JSON.stringify(failed));
+    await p.click('#pj-room-older-show');
+    await p.waitForTimeout(800);
+    await p.unroute(/\/room\?.*archive=1.*cursor=/);
+    chk(await p.evaluate(() => document.querySelectorAll('#pj-room .msg').length) > 200, 'Try again reads the earlier archive page');
     for (let i = 0; i < 10 && !(await p.evaluate(() => PJ_ARCH.olderCount === 0)); i++) {
       await p.evaluate(() => { const b = document.getElementById('pj-room'); b.scrollTop = 0; b.dispatchEvent(new Event('scroll')); });
       await p.waitForTimeout(400);
@@ -235,6 +262,8 @@ function findUnder(dir, name) {
     chk(Number(marker.archivedCount) === 0 && !marker.archiveMarker, 'Undo clears the marker: the live read says nothing is archived', JSON.stringify({ archivedCount: marker.archivedCount, marker: marker.archiveMarker }));
     const undone = await p.evaluate(() => ({ head: document.getElementById('pj-arch-head').hidden, count: PJ_WIN.archivedCount }));
     chk(undone.head && undone.count === 0, 'after Undo the page leaves the archive and counts nothing archived', JSON.stringify(undone));
+    const undoSaid = await p.evaluate(() => ({ toast: /Undone\. Messages you archived are back in the room/.test(document.body.textContent), focus: document.activeElement && document.activeElement.id }));
+    chk(undoSaid.toast && undoSaid.focus === 'pj-post', 'Undo says what it did and moves focus to the message box', JSON.stringify(undoSaid));
     await scrollToStart();
     await p.waitForTimeout(300);
     chk(await p.locator('#pj-arch-head').isHidden() && await p.locator('#pj-arch-open').count() === 0, 'after Undo the start of the room has no boundary row (and the archive is not on screen)');
@@ -247,6 +276,12 @@ function findUnder(dir, name) {
     const dayM = await (await fetch(base + '/api/project/' + pid + '/room?n=1&archive=0')).json();
     const dayMs = dayM.archiveMarker ? Date.parse(dayM.archiveMarker.before) : NaN;
     chk(Math.abs(dayMs - (Date.now() - DAY)) < 5 * 60 * 1000 && Number(dayM.archivedCount) === ARCHIVED, '"everything older than a day" archives up to 24 hours ago, and the 230 posts from today stay live', JSON.stringify({ before: dayM.archiveMarker && dayM.archiveMarker.before, archived: dayM.archivedCount }));
+    // Phone width: the header holds read-aloud, the archive button and search; none of it may push the page sideways.
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.waitForTimeout(400);
+    const narrow = await p.evaluate(() => { const b = document.getElementById('pj-arch-ask').getBoundingClientRect(); return { sw: document.documentElement.scrollWidth, vw: innerWidth, left: Math.round(b.left), right: Math.round(b.right), w: Math.round(b.width) }; });
+    await p.screenshot({ path: path.join(OUT, 'phone-header.png') });
+    chk(narrow.sw <= narrow.vw && (narrow.w === 0 || (narrow.left >= 0 && narrow.right <= narrow.vw)), 'at 390px the page does not scroll sideways and the archive button stays on screen', JSON.stringify(narrow));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     if (browser) await browser.close();

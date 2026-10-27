@@ -13,7 +13,7 @@ const vm = require('node:vm');
 const { scriptOf, liftAll, liftConst } = require('./test-support/page');
 
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
-const SRC = [liftConst(SCRIPT, 'PJ_WIN'), liftAll(SCRIPT, ['pjArchBefore', 'pjArchReceipt', 'pjWinAtStart'])].join('\n');
+const SRC = [liftConst(SCRIPT, 'PJ_WIN'), liftAll(SCRIPT, ['pjArchBefore', 'pjRoomArchWhen', 'pjArchReceipt', 'pjWinAtStart'])].join('\n');
 function page(extra = {}) {
   const ctx = vm.createContext({ PJ_CURRENT: 'p1', Date, Number, Array, ...extra });
   vm.runInContext(SRC + '\nthis.PJ_WIN = PJ_WIN; this.pjArchBefore = pjArchBefore; this.pjArchReceipt = pjArchReceipt; this.pjWinAtStart = pjWinAtStart;', ctx);
@@ -111,4 +111,87 @@ test('#7365 3b review 1: paintRoom keeps its state and hold strip running while 
     const at = src.indexOf(after);
     assert.ok(at > stop, after + ' is skipped while the archive is open');
   }
+});
+
+test('#7365 3b review 2: every top-level function in the page is declared once (a second declaration silently replaces the first)', () => {
+  // Found in review 2's fixes: a new pjArchWhen replaced the archived-projects list's own pjArchWhen, with no error.
+  const names = [...SCRIPT.matchAll(/^(?:async )?function ([A-Za-z0-9_$]+)\s*\(/gm)].map((m) => m[1]);
+  assert.ok(names.length > 1000, 'the declaration scan found only ' + names.length + '; it has stopped seeing them');
+  const seen = new Set(), twice = new Set();
+  for (const n of names) (seen.has(n) ? twice : seen).add(n);
+  assert.deepEqual([...twice], []);
+});
+
+/* The archive view's own functions, run against a fake room panel and a fake paged read. */
+function archPage({ reads }) {
+  const els = {};
+  const el = (id) => els[id] || (els[id] = { id, hidden: id === 'pj-arch-head', textContent: '', innerHTML: '', scrollTop: 0, scrollHeight: 1000,
+    classList: { on: new Set(), add(c) { this.on.add(c); }, remove(c) { this.on.delete(c); }, toggle(c, v) { if (v) this.on.add(c); else this.on.delete(c); }, contains(c) { return this.on.has(c); } },
+    focus() { doc.activeElement = this; }, parentNode: null, closest: () => null });
+  const doc = { activeElement: null, getElementById: el };
+  const said = [], toasts = [], painted = [], restored = [];
+  const ctx = vm.createContext({
+    document: doc, PJ_CURRENT: 'p1', PJ_ROOM_QUERY: '', PJ_WIN_PAGE: 200, Number, Array, Map, Object, JSON, Promise,
+    pjById: () => ({ id: 'p1', agents: [] }), pjRoomRow: (m) => '<div class="msg">' + m.text + '</div>',
+    threadAnchor: () => ({ mid: 'm-live' }), restoreThreadAnchor: (b, a) => restored.push(a),
+    paintRoom: (body) => painted.push(body), pjRoomAnnounce: (t) => said.push(t), msgToast: (t) => toasts.push(t),
+    pjWinMerge: (older, page) => older.concat(page),
+    pjWinRead: (pid, n, cursor, archive) => { const r = reads.shift(); return typeof r === 'function' ? r({ pid, n, cursor, archive }) : r; },
+  });
+  vm.runInContext([liftConst(SCRIPT, 'PJ_WIN'), liftConst(SCRIPT, 'PJ_ARCH'),
+    liftAll(SCRIPT, ['pjArchReset', 'pjArchShowing', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine'])].join('\n')
+    + '\nthis.PJ_WIN = PJ_WIN; this.PJ_ARCH = PJ_ARCH; this.pjArchOpen = pjArchOpen; this.pjArchEarlier = pjArchEarlier; this.pjArchClose = pjArchClose;', ctx);
+  el('pj-room').__lastBody = { rows: [{ text: 'live' }] };
+  return { ctx, el, doc, said, toasts, painted, restored };
+}
+const page1 = { rows: [{ kind: 'post', id: 'a1', text: 'archived one' }], olderCursor: 'c1', olderCount: 5, archivedCount: 6 };
+
+test('#7365 3b review 2: opening the archive paints its page, moves focus to Back and says so; Back restores the room and the place', async () => {
+  const h = archPage({ reads: [page1] });
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1', archiveMarker: { before: 'x' } });
+  await h.ctx.pjArchOpen();
+  assert.equal(h.ctx.PJ_ARCH.on, true);
+  assert.match(h.el('pj-room').innerHTML, /archived one/);
+  assert.equal(h.el('pj-arch-head').hidden, false);
+  assert.equal(h.el('pj-arch-undo').hidden, false);
+  assert.equal(h.doc.activeElement && h.doc.activeElement.id, 'pj-arch-back');
+  assert.match(h.said.join('|'), /^Showing the archive, 6 messages\.$/);
+  h.doc.activeElement = { closest: (sel) => (sel === '#pj-arch-head' ? {} : null) };
+  h.ctx.pjArchClose();
+  assert.equal(h.ctx.PJ_ARCH.on, false);
+  assert.equal(h.painted.length, 1, 'the live room is painted from its last body');
+  assert.deepEqual(h.restored, [{ mid: 'm-live' }], 'the reader is put back on the message they left from');
+  assert.equal(h.doc.activeElement.id, 'pj-post');
+  assert.equal(h.said[h.said.length - 1], 'Back in the room.');
+});
+
+test('#7365 3b review 2: a stale archive read never lands over a newer one, and a second press while one is out does nothing', async () => {
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const h = archPage({ reads: [() => slow, page1] });
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1' });
+  const first = h.ctx.pjArchOpen();
+  await h.ctx.pjArchOpen();   // a second press while the first read is out
+  assert.equal(h.el('pj-room-older-text').textContent, 'Opening the archive…');
+  h.ctx.PJ_ARCH.gen += 1;   // the archive was closed and opened again meanwhile
+  release({ rows: [{ kind: 'post', id: 'old', text: 'stale page' }], olderCount: 0, archivedCount: 1 });
+  await first;
+  assert.doesNotMatch(h.el('pj-room').innerHTML, /stale page/);
+});
+
+test('#7365 3b review 2: a failed earlier archive page says so on the line with Try again, and clearing it reads again', async () => {
+  const h = archPage({ reads: [page1, null, { rows: [{ kind: 'post', id: 'a0', text: 'earlier one' }], olderCount: 0 }] });
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1' });
+  await h.ctx.pjArchOpen();
+  await h.ctx.pjArchEarlier();   // the read answers null: pjWinRead threw or failed
+  assert.equal(h.ctx.PJ_ARCH.because, 'We could not read the earlier archived messages.');
+  assert.equal(h.el('pj-room-older-text').textContent, 'We could not read the earlier archived messages.');
+  assert.equal(h.el('pj-room-older-show').hidden, false, 'Try again shows');
+  await h.ctx.pjArchEarlier();   // a scroll does not retry by itself
+  assert.equal(h.ctx.PJ_ARCH.rows.length, 1);
+  h.ctx.PJ_ARCH.because = null;   // what Try again does
+  await h.ctx.pjArchEarlier();
+  assert.equal(h.ctx.PJ_ARCH.rows.length, 2);
+  assert.equal(h.el('pj-room-older-show').hidden, true);
+  assert.match(h.el('pj-room').innerHTML, /This is the start of the room\./);
 });
