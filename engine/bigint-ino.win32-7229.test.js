@@ -190,3 +190,25 @@ test('#7229 review 3: on Windows a listDir row (exact id) is fingerprinted, and 
   }
   assert.equal(lrow && lrow.sha256, want);
 });
+
+test('#7229 review 4: listFiles and listDir share one fingerprint on Windows (no re-hash every poll)', winOnly, async () => {
+  const filehash = require('./filehash.js');
+  filehash._settleForTest(0);
+  let hashed = 0;
+  filehash._onHashedForTest(() => { hashed += 1; });
+  const root = path.join(SANDBOX, 'pingpong');
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'one.txt'), 'hello');
+  const want = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
+  const shaOf = (rows) => ((rows || []).find((e) => /one\.txt$/.test(e.name)) || {}).sha256;
+  const seen = [];
+  for (let tick = 0; tick < 5; tick++) {
+    const a = shaOf(projects.listFiles(root, 50, { maxDepth: 1, fingerprint: true }).files);
+    const r = projects.listDir(root, '', 'this folder', { maxDepth: 1, fingerprint: true });
+    const b = shaOf(r.files || r.entries);
+    seen.push([a, b]);
+    await new Promise((res) => setTimeout(res, 150));
+  }
+  assert.deepEqual(seen.slice(2), [[want, want], [want, want], [want, want]], 'both lists keep the sha: ' + JSON.stringify(seen));
+  assert.equal(hashed, 1, 'the file is hashed once, not once per poll');
+});

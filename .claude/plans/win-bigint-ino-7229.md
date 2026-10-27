@@ -76,3 +76,9 @@ zip size) it can only be a regular file at the same listed name inside the folde
   test: listDir and listFiles rows both get sha256 on Windows (fails on round 2). NIT noted: listFiles' walk stat has no
   exact id; making it exact now also works, since hashOne follows the job. Not stored anywhere: the hash cache is in
   memory, the preview stamp only names a PNG, so a changed key costs one recompute. 20/20 with filehash-6761.
+- Round 4: 1 BLOCKER (reproduced against an origin/main control). listFiles built its rows from a plain stat and listDir
+  from an exact one, so their fingerprint keys for the same file never agreed and the one-key-per-path cache evicted
+  each other: on Windows the agent Files screen (and a project's list beside its browser) rehashed every listed file on
+  every poll and the sha never stayed. listFiles now builds its stats exactly too; every stat that reaches the
+  fingerprint cache on Windows carries the exact id. Test: alternating the two lists keeps the sha on both and hashes
+  once (on round 3 it flips every tick). Every other consumer checked consistent. 21/21 with filehash-6761.

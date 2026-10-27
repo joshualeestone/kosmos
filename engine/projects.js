@@ -1905,7 +1905,8 @@ function listFiles(folder, limit, opts) {
     }
     if (!ent.isFile()) return;
     let st;
-    try { st = fs.statSync(path.join(abs, ent.name)); } catch { return; }
+    // #7229 review 4: with the exact id on Windows, as listDir's rows are, so both lists key one fingerprint alike.
+    try { const at = path.join(abs, ent.name); st = exactPathStat(fs.statSync(at), at, false); } catch { return; }
     files.push({ name: relName, size: st.size, modified: st.mtime.toISOString(), abs: path.join(abs, ent.name), st });
   };
   while (queue.length && !truncated) {
