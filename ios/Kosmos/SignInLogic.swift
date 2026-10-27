@@ -28,11 +28,17 @@ enum SignIn {
     /// is never a code step: no code was sent), and a 404 means the door closed since the link showed.
     enum ReviewAnswer: Equatable { case closed, refused(String), answered(Answer) }
     static let reviewRefused = "That email and password do not match."
+    static let reviewTooMany = "Too many tries. Wait a minute, then try again."
+    static let reviewNoAnswer = "Kosmos+ could not answer. Try again."
     static let reviewClosed = "Password sign-in is not open now. Sign in with a code instead."
     static func reviewAnswer(status: Int, json: Any?) -> ReviewAnswer {
         if status == 404 { return .closed }
         let answer = answer(status: status, json: json)
-        if case .refused(let message, _) = answer { return .refused(message ?? reviewRefused) }
+        if case .refused(let message, _) = answer {
+            // Kosmos+'s own sentence when it gave one; otherwise only a 401 says the password is wrong.
+            if let message { return .refused(message) }
+            return .refused(status == 401 ? reviewRefused : status == 429 ? reviewTooMany : reviewNoAnswer)
+        }
         return .answered(answer)
     }
     /// Whether the review door is open, from a GET's status: nil when the answer says neither (asked again later).

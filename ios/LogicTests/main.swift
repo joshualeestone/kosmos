@@ -3648,10 +3648,10 @@ do {
     check(admitted == .signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "K7Q2", hasComputer: true)),
           "an admitted review sign-in waits for the review computer's Allow, as any sign-in does")
     // Review 1: a refusal stays on the password step (never the code step: no code was sent), a 404 is the door closed.
-    check(SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"]) != .answered(.refused(message: "that email and password do not match", proofRefused: false)),
-          "CONTROL: a refusal is not handed to the code step's path")
     if case .refused(let s) = SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"]) { check(!s.isEmpty, "a refusal keeps a sentence on the password step") } else { check(false, "a 401 is a refusal") }
-    if case .refused = SignIn.reviewAnswer(status: 429, json: [:] as [String: Any]) { check(true, "a rate limit is a refusal on the password step too") } else { check(false, "a 429 is a refusal") }
+    check(SignIn.reviewAnswer(status: 429, json: [:] as [String: Any]) == .refused(SignIn.reviewTooMany), "review 2: a rate limit says wait, not that the password is wrong")
+    check(SignIn.reviewAnswer(status: 503, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer) && SignIn.reviewAnswer(status: 400, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer),
+          "and a server error or a bad request says try again")
     check(SignIn.reviewAnswer(status: 401, json: [:] as [String: Any]) == .refused(SignIn.reviewRefused), "with no sentence from Kosmos+, the phone's own")
     check(SignIn.reviewAnswer(status: 404, json: nil) == .closed, "a 404 is the door closed since the link showed")
     check(SignIn.reviewAnswer(status: 200, json: ["token": "t", "device_status": "pending"] as [String: Any]) == .answered(.signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: nil, hasComputer: false))),
