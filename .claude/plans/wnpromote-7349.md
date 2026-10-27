@@ -65,3 +65,13 @@ waits, not before the hold. The docs line and the promote hint are what reach th
      hold; the #7349 release-gate arm cleans up in t.after and reads a missing call count as 0.
    - NIT 5, not changed: the new shell test runs on Linux CI too (it is not macOS-only, like test-pointer-freeze.sh);
      unmeasured there until the PR's CI runs. Watch the first run.
+4. (sonnet, 10:5x CDT) 0 BLOCKERs, 1 WARNING, 3 NITs.
+   - (W) Under macOS /bin/bash 3.2 with set -u, an empty `drop` array ("${drop[@]}") is unbound, so with no KOSMOS_*
+     exported the new test aborted. Reproduced with a script that unsets them all ("drop[@]: unbound variable"); the
+     array is now seeded with `-u KOSMOS_CUT_NO_WHATS_NEW`. After: ALL PASS scrubbed, normal, and with the opt-out
+     exported.
+   - NIT applied: a docs line run on into the next sentence, re-wrapped.
+   - NIT not taken: "prod serves $V now" on the prod cut's NEXT line is true where it prints: a prod cut deploys at
+     step 8 and verifies what is served at step 9 before it reaches its end.
+   - NIT not taken: the opt-out arm's empty-log assertion relies on the sandbox dying at step 1; if a future sandbox gets
+     past 1b-ii the arm reds loudly (the safe direction), so it is noted rather than changed.

@@ -48,7 +48,7 @@ run() {  # <check rc> <pool rc> [env...] : sets RC, OUT, LOG; each run gets a fr
   # KOSMOS_HARNESS_IGNORE_CUT=1, or inside a real cut the copy refuses as "a second cut"; the harness, light-side and
   # pre-push bypasses, or a test-install.sh another agent runs makes it refuse or wait (as tools.release-gate.test.js
   # found, #3619). The arm under test passes its own KOSMOS_CUT_NO_WHATS_NEW after these.
-  local v drop=()
+  local v drop=(-u KOSMOS_CUT_NO_WHATS_NEW)   # never empty: bash 3.2 under set -u calls "${drop[@]}" of () unbound
   for v in $(compgen -e | grep -E '^(KOSMOS_|AGENT_WORKFORCE_)'); do drop+=(-u "$v"); done
   env "${drop[@]}" HOME="$sb/home" TMPDIR="$sb/tmp" KOSMOS_SITE="$S" KOSMOS_HARNESS_IGNORE_CUT=1 \
     KOSMOS_CUT_IGNORE_HARNESS=1 KOSMOS_CUT_IGNORE_SIDE=1 KOSMOS_CUT_IGNORE_PREPUSH=1 \
