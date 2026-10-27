@@ -38,6 +38,7 @@ function run(files, opts, extra, statusFor) {
   const bashDir = dir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (m, d) => '/' + d.toLowerCase());
   const script = [
     `export PATH="${bashDir}:$PATH"`,
+    'set -uo pipefail',   // as run-tests.sh runs (review 2: an unset variable passed here and ended the real script)
     '_RT_WIN=1',
     'KOSMOS_TEST_FILES=(' + files.map((f) => `'${f}'`).join(' ') + ')',
     block(),
@@ -106,4 +107,11 @@ test('#7257 review 1: a test failure outranks a 126/127 from another chunk; a ch
 
 test('#7257 review 1: the Windows flag is reset before the case, so the environment cannot set it', () => {
   assert.match(SRC, /\n_RT_WIN=0 [^\n]*\ncase "\$\(uname -s/);
+});
+
+test('#7257 review 2: a run that fits in one chunk (every --only run) runs under set -u, once', { skip: !BASH && 'no bash' }, () => {
+  const r = run(FILES.slice(0, 3), OPTS, EXTRA);
+  assert.match(r.out, /STATUS=0/, 'the one-chunk run must reach its status: ' + r.err.slice(0, 300));
+  assert.doesNotMatch(r.err, /unbound variable/);
+  assert.equal(r.calls.filter((c) => c[0] === '--test').length, 1);
 });

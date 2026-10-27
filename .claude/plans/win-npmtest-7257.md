@@ -55,3 +55,9 @@ suite has not been run to the end on Windows: many POSIX-only files fail there, 
   the rest; a test failure outranks a 126/127 from another chunk, so the "not a failing test" line stays true; the skip
   message names the suite queue and cap too; the cap assertion is exact (24,000). Negative control: the 2 new tests fail
   on round 0. 5/5; full script with the stand-in: 3 chunks, all files.
+- Round 2: 1 BLOCKER, 1 WARNING, 1 NIT. BLOCKER FIXED (reproduced by the reviewer): run-tests.sh runs under set -u, and
+  a run that fit in one chunk read rc before any chunk set it, so every --only run on Windows ended with "rc: unbound
+  variable" and ran nothing; rc starts at 0 and the last chunk is decided by the chunk count. The test now runs the
+  block under set -uo pipefail with a one-chunk case (both fail on round 1). WARNING FIXED: --test-reporter-destination
+  is named as written again per chunk. NIT FIXED: the comment says why 24,000 (headroom under 32,767). End to end with
+  the stand-in: --only runs its one file in 1 chunk, exit 0; the full node part 3 chunks, 1,844 files. 6/6.

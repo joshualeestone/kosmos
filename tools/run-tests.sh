@@ -853,7 +853,8 @@ fi
 # left idle on a loaded runner cannot come back ECONNRESET on the next request (one preload for ~240 files).
 # #7257: Windows caps a command line at about 32K characters, so one node --test over every file stopped with
 # "Argument list too long" and ran nothing. There, node is this function for the one call over KOSMOS_TEST_FILES: the
-# same options and trailing arguments over the files in chunks of under 24,000 characters, in order, the worst exit
+# same options and trailing arguments over the files in chunks of under 24,000 characters (the cap is 32,767; the rest
+# is headroom for node.exe's own path and Git Bash rewriting each relative path), in order, the worst exit
 # status as the node part's, and one line naming the chunk count (so a run that did one chunk of many shows). A test
 # failure outranks a 126/127 from another chunk (so the "not a failing test" line below stays true), and a chunk that
 # ends from a signal (128 and up, a Ctrl-C) stops the rest. Every other node call goes to node itself. The node --test line below stays as it is (three guards find it flush left).
@@ -868,8 +869,11 @@ if [ "${_RT_WIN:-0}" = 1 ]; then
       done
     fi
     if [ "$k" -lt 0 ]; then command node "$@"; return; fi
-    local opts=("${a[@]:0:k}") extra=("${a[@]:k+n}") chunk=() base=0 len=0 worst=0 failed=0 rc chunks=0 x f
-    for x in "${opts[@]}" "${extra[@]}"; do base=$((base + ${#x} + 3)); done
+    local opts=("${a[@]:0:k}") extra=("${a[@]:k+n}") chunk=() base=0 len=0 worst=0 failed=0 rc=0 chunks=0 x f
+    for x in "${opts[@]}" "${extra[@]}"; do
+      base=$((base + ${#x} + 3))
+      case "$x" in --test-reporter-destination*) echo "run-tests: --test-reporter-destination is written again by each chunk on Windows, so it holds the last chunk's results (#7257)" >&2 ;; esac
+    done
     _rt_chunk() {
       command node "${opts[@]}" "${chunk[@]}" "${extra[@]}"; rc=$?
       chunks=$((chunks + 1)); chunk=(); len=0
@@ -883,7 +887,9 @@ if [ "${_RT_WIN:-0}" = 1 ]; then
       fi
       chunk+=("$f"); len=$((len + ${#f} + 3))
     done
-    if [ "$rc" = "" ] || [ "$rc" -lt 128 ]; then _rt_chunk; fi
+    # The last chunk, unless an earlier one ended from a signal (rc is 0 when every file fit in one chunk: review 2,
+    # under set -u an unset rc ended the script and --only never ran).
+    if [ "$chunks" -eq 0 ] || [ "$rc" -lt 128 ]; then _rt_chunk; fi
     echo "run-tests: node --test ran in $chunks chunk(s) over $n file(s) (#7257: Windows caps a command line)" >&2
     unset -f _rt_chunk
     if [ "$failed" -gt 0 ]; then return "$failed"; fi
