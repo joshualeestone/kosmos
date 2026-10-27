@@ -3499,20 +3499,35 @@ _PTR_FILE="latest.json"
 # that publishes it, the run below keeps the portable bundle it always had (and says so), so this installer can ship
 # before the first Linux release does without breaking a Linux install. LINUX_FAMILY is decided here, once.
 LINUX_FAMILY=""
-if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; then
+_LPTR_BODY=""
+# Review 1: a local copy (KOSMOS_SRC) or a test arch override (KOSMOS_BUNDLE_ARCH) decides the bytes itself, so the
+# network pointer never turns the family on for it (the Linux CI job installs the checkout this way, with no runtime).
+if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] && [ -z "${KOSMOS_SRC:-}" ] && [ -z "${KOSMOS_BUNDLE_ARCH:-}" ]; then
   _lptr_file="latest-linux.json"
   [ "${KOSMOS_UPDATE_CHANNEL:-}" = staging ] && _lptr_file="latest-linux-staging.json"
   case "$KOSMOS_RELEASE_BASE" in
     http://*|https://*) _lptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_lptr_file?nocache=$$" 2>/dev/null)" || _lptr="" ;;
     *) _lptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_lptr_file" 2>/dev/null)" || _lptr="" ;;
   esac
-  case "$_lptr" in *'"version"'*) LINUX_FAMILY=yes; _PTR_FILE="$_lptr_file" ;; esac
+  # Review 1 (W3): an a.b.c version, read the way the main pointer read below reads it, and the body reused there.
+  _lver="$(printf '%s' "$_lptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' | head -1)" || _lver=""
+  if [ -n "$_lver" ]; then
+    LINUX_FAMILY=yes; _PTR_FILE="$_lptr_file"; _LPTR_BODY="$_lptr"
+  elif [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ ! -L "$KOSMOS_HOME/runtime/bin/node" ] \
+       && "$KOSMOS_HOME/runtime/bin/node" --version >/dev/null 2>&1; then
+    # Review 1 (W2): this computer already runs the Linux family (its own node, not a linked system one). A Linux
+    # pointer that cannot be read is then a failed read, never "not published": refuse rather than downgrade it to
+    # the unchecked portable bundle.
+    die "Could not read the Linux release pointer ($_lptr_file), so nothing was changed. Try again in a minute."
+  fi
 fi
 # file:// bases (thumb drives, the test harness) have no cache to bust,
 # and a query string there is a different, missing filename.
 BUST=""
 case "$KOSMOS_RELEASE_BASE" in http://*|https://*) BUST=yes ;; esac
-if [ -n "$BUST" ]; then
+if [ -n "$_LPTR_BODY" ]; then
+  _ptr="$_LPTR_BODY"   # #7281 review 1: the Linux pointer already read above, not fetched a second time
+elif [ -n "$BUST" ]; then
   _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_PTR_FILE?nocache=$$" 2>/dev/null)" || _ptr=""
 else
   _ptr="$(curl -fsSL -m 15 "$KOSMOS_RELEASE_BASE/$_PTR_FILE" 2>/dev/null)" || _ptr=""
