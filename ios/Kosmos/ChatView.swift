@@ -237,7 +237,10 @@ struct ChatView: View {
             // Only into an empty box: if SwiftUI shows the chat again without having hidden it, the words being typed stay.
             if draftText.isEmpty { draftText = client.drafts[agent.session] ?? "" }
             startReading()
+            markDmSeen()
         }
+        // kosmos#7354: replies landing while the chat is open are read here, so its count on the Agents list stays clear.
+        .onChange(of: unreadHere) { n in if visible && n > 0 { markDmSeen() } }
         .onDisappear {
             visible = false
             if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }   // review 3: by session on purpose: a computer switch while open must never leave a stale value hiding banners; the cost is an extra banner
@@ -617,6 +620,14 @@ struct ChatView: View {
     // New messages come in at the bottom; if the person has scrolled up, the view stays and the capsule offers a jump.
     // Not while searching: the person is reading what matched, and a new message may not even be among it (the
     // board's convPause, #5624).
+    // kosmos#7354: this agent's unread replies as the last read of the list has them, and the board's own read cursor
+    // moved on opening the chat (server.js dmSeen), so the count on its avatar clears as on the board.
+    private var unreadHere: Int { client.agents.first { $0.session == agent.session }?.dmUnread ?? 0 }
+    private func markDmSeen() {
+        let session = agent.session
+        Task { _ = await client.throughMac { Board.dmSeenRequest(mac: $0, session: session) } }
+    }
+
     private func follow(_ proxy: ScrollViewProxy) {
         if searching { return }
         if atBottom { goNewest(proxy, animated: true) } else { unseenNew = true }
