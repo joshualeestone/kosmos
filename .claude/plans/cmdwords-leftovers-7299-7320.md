@@ -70,3 +70,8 @@ extra word, harmless for the same reason.
   it); the key is now the words' structure (raw, quoted, inner, redirect). Test added; it fails on round 3. NITs
   ACCEPTED: $" schtasks " reads as schtasks (cosmetic refusal, as " schtasks " already did); bash -c bash\ -c\ schtasks
   is missed by main and here alike (named in the PR's known limits). 67/67 (1 skip); win32 sweep below.
+- Round 5: no BLOCKER, no WARNING, 1 NIT (the splitInto key encodes `after` even when every string is skipped; bounded
+  by the depth cap, measured fine; left). Both memo keys proven collision-free by reading every caller; memo vs no memo
+  over 3x200k flat fuzz, 3x200k nested fuzz (about 155k memo skips a run) and the 1719-string test corpus: 0
+  differences in the full word list. vs main: 0 schtasks calls missed over 400k fuzz. Cost linear on 12 adversarial
+  shapes (worst 310 ms at 4000 commands). 10/10 runs of both test files. Converged.
