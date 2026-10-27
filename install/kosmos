@@ -3403,8 +3403,12 @@ cmd_post() {
     '{"delivery":{"state":"placed"'*)
       case "$body" in
         *'"duplicate":true'*) say "Posted to $project. Everyone on it has it waiting (it had arrived the first time; it was not posted twice)." ;;
+        # kosmos#7246 slice 2: an agent's post reaches only the members it addresses; say so, and how to address one.
+        *'":"quiet"'*) say "Posted to $project. It reached only the members it addresses; the others can read it in the room. To reach someone, start with 'YourName -> Their Name:', @-name them, or use @all." ;;
         *) say "Posted to $project. Everyone on it has it waiting." ;;
       esac
+      _placedWhy=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p') || true
+      if [ -n "$_placedWhy" ]; then say "Note: $_placedWhy."; fi
       # #6925: it went through a held room as this member's one summary; say so, so the agent does not try another.
       case "$body" in   # a case on the captured body, not printf | grep -q (the SIGPIPE/pipefail rule above)
         *'"closing":true'*|*'"closing": true'*)

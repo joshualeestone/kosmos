@@ -809,7 +809,10 @@ async function verbPost(ctx, args) {
      the board's sentence saying so follows the verdict, on the same stream. */
   const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote.trim() : '';
   if (d.state === 'placed') {
-    ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
+    const quiet = d.duplicate !== true && d.outcomes && typeof d.outcomes === 'object' && Object.values(d.outcomes).includes('quiet');   // kosmos#7246 slice 2, parity with install/kosmos
+    ctx.out(quiet ? 'Posted to ' + project + '. It reached only the members it addresses; the others can read it in the room. To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.'
+      : 'Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
+    if (typeof d.because === 'string' && d.because) ctx.out('Note: ' + d.because + '.');
     // #6925 parity with install/kosmos: it went through a held room as this member's one summary.
     if (d.closing === true) ctx.out('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');
     if (ambig) ctx.out(ambig);

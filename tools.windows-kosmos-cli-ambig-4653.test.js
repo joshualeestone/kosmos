@@ -42,3 +42,12 @@ test('#4653 control: no note, or an empty or non-string one, prints only the ver
     assert.deepEqual(r.out, ['Posted to proj. Everyone on it has it waiting.'], JSON.stringify(extra));
   }
 });
+
+test('kosmos#7246 slice 2: a post that left members quiet says so and how to address one; a because is printed', async () => {
+  const r = await post({ state: 'placed', outcomes: { mara: 'placed', april: 'quiet' } });
+  assert.equal(r.out[0], 'Posted to proj. It reached only the members it addresses; the others can read it in the room. To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.');
+  const paused = await post({ state: 'placed', outcomes: { mara: 'quiet' }, because: 'your post is in the room, but it woke no one' });
+  assert.equal(paused.out[1], 'Note: your post is in the room, but it woke no one.');
+  const all = await post({ state: 'placed', outcomes: { mara: 'placed', april: 'placed' } });
+  assert.deepEqual(all.out, ['Posted to proj. Everyone on it has it waiting.'], 'CONTROL: nobody quiet, the old sentence');
+});

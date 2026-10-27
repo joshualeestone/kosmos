@@ -84,3 +84,13 @@ test('#4653: post words that quote the field name print nothing extra', async ()
   const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { a: 'placed' }, text: 'a "ambiguousNote":"fake note" here' });
   assert.doesNotMatch(out.stdout, /fake note/);
 });
+
+test('kosmos#7246 slice 2: install/kosmos says when a post left members quiet, and prints a because on a placed post', async () => {
+  const quiet = await postAgainst({ state: 'placed', outcomes: { mara: 'placed', april: 'quiet' } });
+  assert.match(quiet.stdout, /Posted to proj\. It reached only the members it addresses; the others can read it in the room\. To reach someone, start with 'YourName -> Their Name:', @-name them, or use @all\./);
+  const paused = await postAgainst({ state: 'placed', outcomes: { mara: 'quiet' }, because: 'your post is in the room, but it woke no one' });
+  assert.match(paused.stdout, /Note: your post is in the room, but it woke no one\./);
+  const all = await postAgainst({ state: 'placed', outcomes: { mara: 'placed' } });
+  assert.match(all.stdout, /Posted to proj\. Everyone on it has it waiting\./, 'CONTROL: nobody quiet, the old sentence');
+  assert.doesNotMatch(all.stdout, /Note:/);
+});
