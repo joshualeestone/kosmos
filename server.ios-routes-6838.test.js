@@ -80,12 +80,13 @@ const SITES = [
     callers: { pattern: /\brequest\(\s*[^,()]+,\s*method:\s*([^,)]+)/g, every: /\brequest\(/g, skip: /\bfunc\s+request\(/,
       expect: ['"GET"', '"PUT"'], scope: 'file' } },
   // The notification extension: a notification's words, and an agent's picture (the request to "/" gets the board's
-  // picture path, accepted only as /api/agent/<x>/avatar).
+  // picture path, accepted only as /api/agent/<x>/avatar; kosmos#7345: a notice with no words asks the same route for
+  // the session the push names).
   { file: 'ios/KosmosNotice/NoticeLogic.swift', text: 'var r = URLRequest(url: url, cachePolicy', method: 'GET',
     routes: ['GET /api/phone/notice', 'GET /api/agent/x/avatar'],
     pins: ['path.hasPrefix("/api/agent/"), path.hasSuffix("/avatar")'],
     callers: { pattern: /\brequest\(host:[^,]+,\s*path:\s*("[^"]*"|[\w.]+)/g, every: /\brequest\(host:/g,
-      skip: /\bfunc\s+request\(host:/, expect: ['"/"', '"/api/phone/notice"'], scope: 'file' } },
+      skip: /\bfunc\s+request\(host:/, expect: ['"/"', '"/api/agent/\\(session)/avatar"', '"/api/phone/notice"'], scope: 'file' } },
   // kosmos#7074: a task's page. The URL is built by taskRoute (the task number is a real number here, since the board's
   // routes take only digits); every caller passes its route's last part as a literal ("close", "reopen", "seen",
   // "activity"), so a new one changes the callers and fails here. As for the other SITES files, the whole file is then

@@ -26,7 +26,16 @@ final class NotificationService: UNNotificationServiceExtension {
         let info = arrived.userInfo
         let stored = Self.keptMacSession()
         guard let ask = PhoneNotice.wordsRequest(userInfo: info, stored: stored) else {
-            finish(arrived)
+            // kosmos#7345: no words to ask for (a "ready"): the notice as it came, with its agent's picture when the push
+            // names one.
+            guard let picture = PhoneNotice.pictureOnlyRequest(userInfo: info, stored: stored) else { finish(arrived); return }
+            let task = Task { [weak self] in
+                let shown = await Self.pictureOnlyContent(original: arrived, picture: picture, info: info)
+                self?.finish(shown ?? arrived)
+            }
+            lock.lock()
+            work = task
+            lock.unlock()
             return
         }
         let task = Task { [weak self] in
@@ -62,13 +71,38 @@ final class NotificationService: UNNotificationServiceExtension {
         if let kept { finish(kept) }
     }
 
-    // Hands iOS one content, once: whichever of the answer and the time limit comes first.
+    // Hands iOS one content, once: whichever of the answer and the time limit comes first. kosmos#7345: with the Mac's
+    // bubble pop in place of the sound it came with (a silent notice stays silent).
     private func finish(_ content: UNNotificationContent) {
         lock.lock()
         let h = handler
         handler = nil
         lock.unlock()
-        h?(content)
+        h?(Self.withPop(content))
+    }
+
+    static func withPop(_ content: UNNotificationContent) -> UNNotificationContent {
+        guard content.sound != nil, let copy = content.mutableCopy() as? UNMutableNotificationContent else { return content }
+        copy.sound = UNNotificationSound(named: UNNotificationSoundName(PhoneNotice.soundName))
+        return copy
+    }
+
+    // kosmos#7345: a notice with no words to ask for, shown as it came, with its agent's picture.
+    static func pictureOnlyContent(original: UNNotificationContent, picture: URLRequest, info: [AnyHashable: Any]) async -> UNNotificationContent? {
+        guard let session = info["session"] as? String,
+              let (pd, ph) = await fetch(picture, within: 20, maxBytes: PhoneNotice.maxPictureBytes),
+              let data = PhoneNotice.pictureData(status: ph.statusCode, contentType: ph.value(forHTTPHeaderField: "Content-Type"), data: pd),
+              let shown = PhoneNotice.attachable(data, contentType: ph.value(forHTTPHeaderField: "Content-Type")),
+              !Task.isCancelled,
+              let content = original.mutableCopy() as? UNMutableNotificationContent
+        else { return nil }
+        let agent = (info["agent"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? session
+        // Message style shows the agent's name as the title, so what the notice said ("Dana has work ready for you", and
+        // "in Spring catalogue") becomes its line, never lost to the name.
+        if Bundle.main.object(forInfoDictionaryKey: PhoneNotice.messageStyleKey) as? Bool == true {
+            content.body = original.body.isEmpty ? original.title : "\(original.title), \(original.body)"
+        }
+        return await decorated(content, picture: shown, agent: agent, session: session, conversation: session)
     }
 
     // The app's kept session for its computer (SessionKeychain.macSession), from the keychain group the two share.
@@ -147,7 +181,13 @@ final class NotificationService: UNNotificationServiceExtension {
            let picture = PhoneNotice.pictureData(status: ph.statusCode, contentType: ph.value(forHTTPHeaderField: "Content-Type"), data: pd) {
             shown = PhoneNotice.attachable(picture, contentType: ph.value(forHTTPHeaderField: "Content-Type"))
         }
+        return await decorated(content, picture: shown, agent: words.agent, session: words.session, conversation: PhoneNotice.conversation(words))
+    }
 
+    // The agent's picture on a notice: as an attachment, or (message style) as a message from the agent, the way a chat
+    // app's notices look. Shared by a notice with words and one without (kosmos#7345).
+    static func decorated(_ content: UNMutableNotificationContent, picture shown: (Data, String)?, agent: String, session: String,
+                          conversation: String) async -> UNNotificationContent {
         guard Bundle.main.object(forInfoDictionaryKey: PhoneNotice.messageStyleKey) as? Bool == true else {
             // Message style off: the picture rides as the notice's attachment.
             if let (bytes, ext) = shown {
@@ -162,11 +202,11 @@ final class NotificationService: UNNotificationServiceExtension {
 
         // A message from a person: iOS then shows the agent's picture and name the way a chat app's notices look.
         let image = shown.map { INImage(imageData: $0.0) }
-        let sender = INPerson(personHandle: INPersonHandle(value: words.session, type: .unknown), nameComponents: nil,
-                              displayName: words.agent, image: image, contactIdentifier: nil, customIdentifier: words.session)
+        let sender = INPerson(personHandle: INPersonHandle(value: session, type: .unknown), nameComponents: nil,
+                              displayName: agent, image: image, contactIdentifier: nil, customIdentifier: session)
         // The body as set above (a permission's request, or the words): message style must never show other words.
         let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: content.body,
-                                         speakableGroupName: nil, conversationIdentifier: PhoneNotice.conversation(words), serviceName: nil,
+                                         speakableGroupName: nil, conversationIdentifier: conversation, serviceName: nil,
                                          sender: sender, attachments: nil)
         if let image { intent.setImage(image, forParameterNamed: \.sender) }
         let interaction = INInteraction(intent: intent, response: nil)
