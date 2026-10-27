@@ -405,8 +405,8 @@
       "shownIn": "0.7.53"
     },
     {
-      "title": "Moved agents keep your imports answer",
-      "line": "Moving a Claude agent to another Claude account keeps your external imports answer, except for a folder inside a git repository.",
+      "title": "A moved agent is not asked again",
+      "line": "A Claude agent moved to another account is no longer stuck on a question you already answered, unless its folder is in a git repository.",
       "icon": "list",
       "rank": 14.5,
       "since": "0.7.47",

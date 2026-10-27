@@ -15,3 +15,10 @@ The window: the damaged-file, links, tables and community items, plus "Moved age
 
 ## Proof
 whats-new-check 0.7.71: 5 highlights (mac 5, windows 5). `whats-new-pool.js prod-check`: the pool records prod 0.7.70.
+
+## Review 1 (09:0x, opus): 0 blockers, 1 warning, 2 nits
+- W1 FIXED: "Moved agents keep your imports answer" (0.7.47, rank 14.5, joins the window now) read as developer jargon.
+  Reworded from #6085's own "what changes for the person": title "A moved agent is not asked again", line "A Claude
+  agent moved to another account is no longer stuck on a question you already answered, unless its folder is in a git
+  repository." (the exception #6085 keeps). It was never shown, so the title change cannot break a `shown` match.
+- NITs RECORDED: the community line does not name where in Settings it is; it counts moderator-removed comments too.
