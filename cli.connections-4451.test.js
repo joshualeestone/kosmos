@@ -76,12 +76,13 @@ function cli(port, args, stdin, tmpdir, shimDir) {
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; });
-    const t = setTimeout(() => child.kill('SIGKILL'), 20000);
+    const killMs = scaleBudget(20000);   // #5727 Group C: scale the CLI kill budget by host load (floor 1 so CI is byte-identical)
+    const t = setTimeout(() => child.kill('SIGKILL'), killMs);
     child.on('close', (code, sig) => {
       clearTimeout(t);
       const r = { code, out, argv: child.spawnargs };
       /* #3628: a killed CLI has no exit code; it must fail the test, never read as one. */
-      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the 20s limit. ' + out)); return; }
+      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the ' + killMs + 'ms limit. ' + out)); return; }
       resolve(r);
     });
     if (stdin !== null) child.stdin.end(stdin); else child.stdin.end();
