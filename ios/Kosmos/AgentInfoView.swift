@@ -200,7 +200,7 @@ struct AgentInfoView: View {
     private var memoryWords: String {
         if live.contextFull { return "Full" }
         guard let p = live.contextPercent else { return "Not known" }
-        return "\(Int(p.rounded()))% full"
+        return "\(Int(p.rounded()))%"   // the row's label already says "How full"
     }
     private var memoryColor: Color {
         if live.contextFull { return Palette.ring(.high) }
