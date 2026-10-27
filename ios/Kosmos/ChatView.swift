@@ -373,7 +373,7 @@ struct ChatView: View {
                 .onAppear {
                     proxy.scrollTo("end", anchor: .bottom)
                     // kosmos#7265: the opening window (OpensAtBottom keeps a long thread at its bottom edge while it lasts).
-                    openedLong = OpensAtBottom.isLong(loaded)
+                    if openedLong == nil { openedLong = OpensAtBottom.isLong(loaded) }   // review 6: the first appear only (a return keeps it)
                     let gen = openingGen
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { if openingGen == gen { opening = false } }
                     #if DEBUG
