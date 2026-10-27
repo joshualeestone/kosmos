@@ -549,7 +549,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   return { ok: true, why: v.why, keys: v.keys };
 }
 
-module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, pauseUrl, pausedIn, pausedSync, pausedAsync, PAUSED_SENTENCE, PAUSE_DEFAULT_COORDINATOR, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS, setupManifestName /* kosmos#7281 */,
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, pauseUrl, pausedIn, pausedSync, pausedAsync, PAUSED_SENTENCE, PAUSE_DEFAULT_COORDINATOR, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS, setupManifestName, ownsLinuxNode /* kosmos#7281 */,
   RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, MAX_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
