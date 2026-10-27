@@ -29,6 +29,8 @@
  * step whose card would otherwise go flat may scroll the page (the project tip: the Conversation step, or none).
  * #7312: the make-room step itself is tested by a FORCED case, the room with its #7196 height fit switched off, where
  * the page must make room and every step then points; its control (the tour's scroll not done) leaves the card flat.
+ * Both hold only while that layout squeezes the card (6px, measured 10-27; neither a taller room nor a taller card
+ * deepens it). When the squeeze is gone, the run stays green, make-room is untested that run, and a STALE line says so.
  * The gate runs Chromium only; the WebKit arms run by hand with ENGINES=chromium,webkit (both pass, measured 10-27).
  *
  *   node docs/browser-checks/render-chatbox-phone-4108.js            # headed
@@ -153,7 +155,9 @@ async function walkTip(page, tipId, { noScroll = false } = {}) {
       return { title: st.title, pointing: !/\bflat\b/.test(card.className),
         cardOnScreen: C.top >= 0 && C.bottom <= vh && C.left >= 0 && C.right <= vw,
         areaInView: T.bottom > 0 && T.top < vh && T.right > 0 && T.left < vw,
-        scrolledHere: (window.__tipScrolls || []).includes(st.title) };
+        scrolledHere: (window.__tipScrolls || []).includes(st.title),
+        // #7312 review 4: the geometry the make-room step reads, so a declined-by-its-own-rules run can be told apart.
+        y: Math.round(window.scrollY), top: Math.round(T.top), bottom: Math.round(T.bottom), cardH: Math.round(C.height) };
     }));
     await page.evaluate(() => { const go = document.querySelector('#tipcard .tip-go'); if (go) go.click(); });
   }
@@ -181,6 +185,7 @@ function heightOf(page, sel) {
   // Where the project tip's walk made room for its Conversation step (#7196 follow-up: reported at the end).
   const madeRoom = [];
   const forcedRoom = [];   // #7312: where the forced case made room
+  const forcedStale = [];  // #7312 review 4: where the forced case no longer squeezes the card (printed after the verdict)
   try {
     const res = await fetch(base + '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ name: 'Spring launch', agents: NAMES, description: 'Sell more tea' }) });
@@ -352,10 +357,12 @@ function heightOf(page, sel) {
               }
             } else if (conv && !conv.pointing) {
               // The squeeze is there (the card is flat without the scroll), so the tour MUST have asked to make room.
-              chk(w.scrolled.includes('Conversation'), `${tag} the card is flat without the scroll, so the tour must ask to make room (it did not: the make-room step is broken or gone)`, JSON.stringify(w.scrolled));
+              chk(w.scrolled.includes('Conversation'), `${tag} the card is flat without the scroll, so the tour must ask to make room (it did not: the make-room step is broken or gone, or declined by its own rules: see scrollY and the place)`, JSON.stringify({ scrolled: w.scrolled, conv }));
             } else {
-              // The card points with no scroll at all: this layout no longer squeezes it, so make-room went unexercised.
-              console.log(`MEASURE  ${tag} the forced layout no longer squeezes the Conversation card, so make-room was not exercised this run: re-tune this case (#7312). Not a regression.`);
+              /* The card points with no scrollBy at all: the layout no longer squeezes it, or the make-room step now moves
+                 the page some other way than window.scrollBy. Either way make-room went unexercised this run. */
+              forcedStale.push(tag);
+              console.log(`MEASURE  ${tag} the Conversation card points with no scrollBy: the forced layout no longer squeezes it (or make-room moves the page another way), so make-room was not exercised this run: re-tune this case (#7312). ${JSON.stringify(conv)}`);
             }
             chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
           } catch (e) {
@@ -372,4 +379,5 @@ function heightOf(page, sel) {
   console.log(`MEASURE  the project tip made room at real sizes in: ${JSON.stringify(madeRoom)} (${ENGINES.join(', ')} walked; reported, not judged); in the forced case: ${JSON.stringify(forcedRoom)}`);
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
   console.log('\nALL PASS');
+  if (forcedStale.length) console.log(`STALE  ${forcedStale.length}: the forced make-room case no longer squeezes the card in ${JSON.stringify(forcedStale)}, so the tour's make-room step went untested; re-tune it (#7312)`);
 })().catch((e) => { console.error(e); process.exit(1); });
