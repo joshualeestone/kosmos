@@ -567,8 +567,10 @@ const NO_FILE = -1n;
 /* Unsigned: node fills BigInt stats from a signed 64-bit array, so an id whose top bit is set (an NTFS sequence number
    of 0x8000 or more) reads negative, while the number stat reads it unsigned (review 1 of #7229). */
 const u64 = (ino) => BigInt.asUintN(64, ino);
-function withExactIno(st, ino) {
+function withExactIno(st, ino, dev) {
   if (st && ino !== undefined) Object.defineProperty(st, 'inoExact', { value: ino, enumerable: false, configurable: true });
+  /* #7333 review 2: the exact volume serial too (a 64-bit ReFS / Dev Drive serial loses its low bits in a number stat). */
+  if (st && typeof dev === 'bigint') Object.defineProperty(st, 'devExact', { value: BigInt.asUintN(64, dev), enumerable: false, configurable: true });
   return st;
 }
 function exactPathStat(st, p, lstat) {
@@ -578,16 +580,16 @@ function exactPathStat(st, p, lstat) {
   // The id only: size is not identity, and a file being written to grows between the two reads (review 1). Creation
   // time cannot help either: colliding files are often made in the same clock tick (review 2, measured: 0 ns apart).
   const ino = u64(big.ino);
-  return withExactIno(st, Number(ino) === st.ino ? ino : NO_FILE);
+  return Number(ino) === st.ino ? withExactIno(st, ino, big.dev) : withExactIno(st, NO_FILE);
 }
 /* The exact id of an OPENED file, from a BigInt stat of the same descriptor (no second path read, so no race). */
 function exactOpenedStat(st, fd) {
   if (!EXACT_IDS || !st) return st;
-  try { return withExactIno(st, u64(fs.fstatSync(fd, { bigint: true }).ino)); } catch { return withExactIno(st, NO_FILE); }
+  try { const big = fs.fstatSync(fd, { bigint: true }); return withExactIno(st, u64(big.ino), big.dev); } catch { return withExactIno(st, NO_FILE); }
 }
 async function exactOpenedStatAsync(st, fh) {
   if (!EXACT_IDS || !st) return st;
-  try { return withExactIno(st, u64((await fh.stat({ bigint: true })).ino)); } catch { return withExactIno(st, NO_FILE); }
+  try { const big = await fh.stat({ bigint: true }); return withExactIno(st, u64(big.ino), big.dev); } catch { return withExactIno(st, NO_FILE); }
 }
 function statOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.stat ? fsWorldForTests.stat(p) : exactPathStat(fs.statSync(p), p, false); }
 /* #4997: the listed walk's lstat, through the same world (a world without one reads its stat: a fake folder has no links). */
@@ -2100,10 +2102,15 @@ function sameListedPath(resolved, walked, platform = process.platform) {
    handle stat may report it at different widths (one the full value, one its low 32 bits); unmeasured here (no admin to
    make such a volume). So Windows compares the low 32 bits: equal on NTFS whatever the width (measured), and a different
    volume still differs there unless two serials share their low 32 bits. Elsewhere, exact. */
-function sameDevice(a, b, platform) {
-  if (platform !== 'win32') return a === b;
+function sameDevice(gated, opened, platform) {
+  if (platform !== 'win32') return gated.dev === opened.dev;
+  /* Review 2: the low 32 bits of the EXACT serial when both sides carry one (a number dev above 2^53 has lost its low
+     bits, so its >>> 0 is not the serial's low 32 bits); else of the number dev, exact below 2^53 (NTFS: 32-bit). */
+  if (typeof gated.devExact === 'bigint' && typeof opened.devExact === 'bigint') {
+    return BigInt.asUintN(32, gated.devExact) === BigInt.asUintN(32, opened.devExact);
+  }
   const lo = (v) => (typeof v === 'bigint' ? Number(BigInt.asUintN(32, v)) : (Number(v) >>> 0));
-  return lo(a) === lo(b);
+  return lo(gated.dev) === lo(opened.dev);
 }
 
 function sameOpenedFile(gated, opened, platform = process.platform) {
@@ -2112,7 +2119,7 @@ function sameOpenedFile(gated, opened, platform = process.platform) {
      A side whose second read was not the same file carries an id no file has, so it never matches. */
   if (typeof gated.inoExact === 'bigint' && typeof opened.inoExact === 'bigint' && (gated.inoExact !== 0n || opened.inoExact !== 0n)) {
     if (gated.inoExact !== opened.inoExact || gated.inoExact === NO_FILE) return false;
-    return sameDevice(gated.dev, opened.dev, platform);
+    return sameDevice(gated, opened, platform);
   }
   /* #7333: the device is compared on Windows too. NTFS file ids are numbered per volume, so an equal id on another
      volume is another file. Measured on Windows (node 24): st.dev is the volume serial and reads the same from
@@ -2121,7 +2128,7 @@ function sameOpenedFile(gated, opened, platform = process.platform) {
      volume's serial both ways too (review 1 measured \\?\Volume{GUID}\ and an SMB share of this computer as well). */
   if (Number(gated.ino) !== 0 && Number(opened.ino) !== 0) {
     if (gated.ino !== opened.ino) return false;
-    return sameDevice(gated.dev, opened.dev, platform);
+    return sameDevice(gated, opened, platform);
   }
   if (gated.size !== opened.size || gated.mtimeMs !== opened.mtimeMs) return false;
   if (gated.birthtimeMs && opened.birthtimeMs && gated.birthtimeMs !== opened.birthtimeMs) return false;
