@@ -1829,11 +1829,7 @@ site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not expo
 # kosmos#7281 review 1 (W2): the Linux pointer is committed, its tarball is carried from the working tree; a deploy
 # without the tarball would serve a pointer that 404s. The pair must be in the export and verify there.
 if [ "$CUT_LINUX" = yes ]; then
-  ( cd "$_site_export/dist" && shasum -a 256 --status -c "kosmos-$V-linux-x64.tar.gz.sha256" ) 2>/dev/null \
-    || { echo "the export does not carry kosmos-$V-linux-x64.tar.gz with a .sha256 that verifies (kosmos#7281); nothing was deployed"; exit 1; }
-  # Review 2: and the COMMITTED pointer names those bytes (the pair could agree with itself and not with the commit).
-  [ "$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).sha256' "$_site_export/dist/$LINUX_POINTER_FILE" 2>/dev/null)" = "$(awk 'NR==1{print $1}' "$_site_export/dist/kosmos-$V-linux-x64.tar.gz.sha256")" ] \
-    || { echo "the committed $LINUX_POINTER_FILE does not name the Linux tarball the export carries (kosmos#7281); nothing was deployed"; exit 1; }
+  release_linux_export_ok "$_site_export" "$V" || { echo "nothing was deployed"; exit 1; }
 fi
 # kosmos#6149: this deploy publishes BOTH pointers and BOTH installers at the site commit, including the prod ones a
 # staging cut does not touch: none of them may be older than the setup floor.

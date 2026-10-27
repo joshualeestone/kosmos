@@ -25,9 +25,22 @@ release_linux_pointer_file() {
   esac
 }
 
-# Does this tree's promote-channel.sh move the Linux pointer? (It names it once slice C2 lands.)
+# Does this tree's promote-channel.sh move the Linux pointer with the Mac one? Review 3: one exact marker line, which
+# slice C2 adds beside the code that does it, never a mention (a comment naming the file must not lift the guard).
 release_linux_promote_in_lockstep() {
-  grep -qF 'latest-linux.json' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/promote-channel.sh" 2>/dev/null
+  grep -qx 'PROMOTE_MOVES_LINUX=1' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/promote-channel.sh" 2>/dev/null
+}
+
+# Review 3 (nit): step 8's check, here so it is tested on behaviour. The export must carry kosmos-<v>-linux-x64.tar.gz
+# with a .sha256 that verifies in place, and the COMMITTED pointer must name those bytes.
+release_linux_export_ok() {
+  local export="$1" v="$2" want got
+  ( cd "$export/dist" && shasum -a 256 --status -c "kosmos-$v-linux-x64.tar.gz.sha256" ) 2>/dev/null \
+    || { echo "the export does not carry kosmos-$v-linux-x64.tar.gz with a .sha256 that verifies (kosmos#7281)" >&2; return 1; }
+  want="$(awk 'NR==1{print $1}' "$export/dist/kosmos-$v-linux-x64.tar.gz.sha256")"
+  got="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).sha256' "$export/dist/$LINUX_POINTER_FILE" 2>/dev/null)" || got=""
+  [ -n "$want" ] && [ "$got" = "$want" ] \
+    || { echo "the committed $LINUX_POINTER_FILE does not name the Linux tarball the export carries (kosmos#7281)" >&2; return 1; }
 }
 
 release_linux_decide() {
