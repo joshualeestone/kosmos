@@ -2026,6 +2026,48 @@ section("native board loop: connecting")
         c.stop()
     }
 
+    section("the Kosmos switcher (kosmos#7266 slice C)")
+    do {
+        let (c, w, sessions, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100,"not_connected":true}]}"#
+        w.starsAnswer = (200, #"{"stars":["dana"]}"#)
+        c.start()
+        let live = await settle { isLive(c) }
+        check(live && c.switcherShown == "studio.kosmosplus.com", "on Studio, from its kept session")
+        // The kept session skips the Mac list, so a first Try again asks Kosmos+ for it.
+        c.retry(); c.retry()
+        let listed = await settle { c.macs.count == 2 && isLive(c) }
+        check(listed, "the switcher has the account's two computers once Kosmos+ is asked")
+        let before = Board.switcherRows(c.macs, shown: c.switcherShown)
+        check(before.map(\.name) == ["Laptop", "Studio"] && before.filter(\.shown).map(\.name) == ["Studio"], "Studio checked, Laptop listed")
+        let epoch = c.chatEpoch
+        let studioReads = w.requests.filter { $0 == "GET studio.kosmosplus.com/api/status" }.count
+        c.showMac(address: "studio.kosmosplus.com")
+        check(c.chatEpoch == epoch && isLive(c), "choosing the computer already shown does nothing")
+        w.sessionNoAnswer = true   // Laptop does not answer
+        c.showMac(address: "laptop.kosmosplus.com")
+        check(c.agents.isEmpty && c.shownMacName == nil && c.chatEpoch > epoch, "a switch clears Studio's list and chats at once")
+        check(c.switcherShown == "laptop.kosmosplus.com", "and the switcher checks Laptop while it opens")
+        let down = await settle { if case .unreachable = c.phase { return true }; return false }
+        check(down && c.phase.macName == "Laptop" && c.failingMacName == "Laptop", "an offline choice says Laptop is not answering, never Studio")
+        // The bug review 1 found: any later start restored Studio's kept session and undid the choice.
+        c.retry()
+        _ = await settle { if case .unreachable = c.phase { return true }; return false }
+        c.start()
+        _ = await settle { if case .unreachable = c.phase { return true }; return false }
+        check(c.phase.macName == "Laptop" && c.agents.isEmpty && c.switcherShown == "laptop.kosmosplus.com", "a Try again or a return to the app stays on Laptop")
+        check(w.requests.filter { $0 == "GET studio.kosmosplus.com/api/status" }.count == studioReads, "and never reads Studio again")
+        w.sessionNoAnswer = false
+        c.retry()
+        let onLaptop = await settle { isLive(c) && c.shownMacName == "Laptop" }
+        check(onLaptop, "once Laptop answers, its list shows")
+        check(UserDefaults(suiteName: "kosmos-board-loop-tests")!.string(forKey: Board.rememberedMacKey) == "laptop.kosmosplus.com", "and Laptop is remembered for the next launch")
+        sessions.value = nil
+        c.start()
+        check(c.macs.isEmpty && c.switcherShown == nil, "a sign-out clears the switcher")
+        c.stop()
+    }
+
     section("every request to the computer says it is the board's own; Kosmos+ itself is left alone (kosmos#7075)")
     do {
         let (c, w, _, _) = make("kst1")
