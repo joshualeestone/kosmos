@@ -211,8 +211,10 @@ struct AgentsView: View {
         return "Checking for updates."
     }
 
+    // kosmos#7266 (Mona Lisa's design review): the + above adds an agent from the phone (the board's own form, over the
+    // tabs), so the footer no longer says new agents are set up on the computer.
     private var footer: some View {
-        Text("New agents, models and connections are set up on your computer.")
+        Text("Models and connections are set up on your computer.")
             .font(.footnote)
             .foregroundColor(Palette.tertiary)
     }
