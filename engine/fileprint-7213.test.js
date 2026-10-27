@@ -134,7 +134,9 @@ test('#7213 follow-up (Josh 0.7.71): an older mark checked against the SAME PDF 
   assert.equal(same.match, true);
   assert.match(same.words, /that value is this PDF's fingerprint/);
   assert.doesNotMatch(same.words, /bytes differ/, 'a byte-identical file was told its bytes differ');
-  assert.match(same.words, /give the approved file's plain sha256 \(what shasum -a 256 prints for it\), with no label/, 'the byte-check advice names a value that can match');
+  assert.match(same.words, /give the approved file's plain sha256 \(what shasum -a 256 prints for it/, 'the byte-check advice names a value that can match');
+  assert.match(same.words, /not its plain sha256, so it does not show whether the bytes are identical/, 'the two claims this message makes');
+  assert.match(same.words, /This value alone cannot give one/, 'a reader holding only the older mark is told it cannot');
 });
 
 test('#7213 review 1: a PDF whose dates are already empty matches a PDF fingerprint with the same hex, whatever its label', () => {
