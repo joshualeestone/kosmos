@@ -34,7 +34,7 @@ a row is never retired early on it. No done time: the sighting, as before. A row
 
 ## Verify
 
-engine/limitretire-5805.test.js in seven zones (17/17 each); the new test fails on the code before; every test file
+engine/limitretire-5805.test.js in several zones (all pass in each); each new test fails on the code before; every test file
 touching rate limits; full suite before the PR.
 
 ## Review bound
@@ -46,3 +46,7 @@ Challenge loop to convergence. Merge on green (beta rule).
   earlier, which released a weekly limit about a day early); as limitResetTimeOnlyAt already reads a reset.
 - A done clock with seconds is not read at all (it read as 12 hours off); a reading it cannot be sure of keeps the
   sighting's timing, so it errs toward staying capped.
+
+## Review 2
+- The footer gives the minute only, so the reset is timed from the end of the done minute: a reset in that same
+  minute is skipped (the limit may have come after it), erring later.

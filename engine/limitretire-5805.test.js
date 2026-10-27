@@ -504,3 +504,17 @@ test('kosmos#7358 review 1: a done time this cannot read for sure is not read (a
   assert.notEqual(status.turnDoneAt(`✻ Baked for 2s · done ${localClock(Date.parse('2026-10-26T22:32:00Z'))}`, at), null, 'CONTROL: h:mm AM/PM is read');
   assert.notEqual(status.turnDoneAt('✻ Baked for 2s · done 17:32', at), null, 'CONTROL: a 24-hour h:mm is read');
 });
+
+test('kosmos#7358 review 2: a turn done in the reset\'s own minute is timed from the end of that minute (the next reset, never early)', () => {
+  const reset = Date.parse('2026-10-26T23:00:00Z');   // 6pm CDT
+  const row = `You've hit your weekly limit · resets 6pm ${Z}`;
+  const sighting = Date.parse('2026-10-27T00:20:00Z');
+  const late = () => ({ at: sighting, late: true });
+  const sameMinute = '❯ hello\n' + `  ⎿  ${row}\n` + `✻ Sautéed for 3s · done ${localClock(reset)}\n` + STATUS_LINE;
+  assert.ok(status.retireResetLimits(sameMinute, sighting + 2 * 60e3, late).includes('weekly limit'),
+    'a limit hit in the reset minute (done 6:00 PM) may be the next day\'s and was released at once');
+  // CONTROL: a minute earlier, the turn ended before the reset: released once it passed.
+  const minuteBefore = '❯ hello\n' + `  ⎿  ${row}\n` + `✻ Sautéed for 3s · done ${localClock(reset - 60e3)}\n` + STATUS_LINE;
+  assert.ok(!status.retireResetLimits(minuteBefore, sighting + 2 * 60e3, late).includes('weekly limit'),
+    'CONTROL: a turn done the minute before the reset is released after it');
+});
