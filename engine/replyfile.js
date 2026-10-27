@@ -589,7 +589,13 @@ function winLinkRefusal(p, roots) {
      finding 1). winRealRefusal later lets the share real path through as a project file. */
   const view = roots ? { ...roots, folders: roots.folders.slice() } : null;
   const ownShareProject = (linkPath, to) => {
-    if (!view || !isPlainShare(to) || !roots.folders.some((f) => !!driveOf(f) && sameWrittenPath(linkPath, f))) return false;
+    /* #7250: projectFolders, not folders. A share-written PROJECT folder is the person's own choice (a project may
+       live on a share), but the Files folder is one Kosmos always makes as a real folder, so a Files folder that is
+       itself a drive-written link to a share is never legitimate: filesRoot refuses it anyway. Gating on folders
+       (Files included) let that link be followed onto the share, so realOf contacted the share before that refusal.
+       projectFolders excludes Files, so such a link is refused unresolved (ON_NETWORK), with no SMB contact (reviews
+       25, 26, 28). */
+    if (!view || !isPlainShare(to) || !roots.projectFolders.some((f) => !!driveOf(f) && sameWrittenPath(linkPath, f))) return false;
     view.folders.push(to);
     return true;
   };
