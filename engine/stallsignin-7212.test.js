@@ -153,8 +153,6 @@ test('review 1: signing in again (the accounts screen sees it connected) clears 
   assert.equal(stallsignin.overlay(card(), T0 + 1).deliveryStall.signedOut, true);
   stallsignin.heard({ dir: '/x/.claude-other', isDefault: false }, STATE.CONNECTED);
   assert.equal(stallsignin.overlay(card(), T0 + 2).deliveryStall.signedOut, true, 'CONTROL: another account connecting changes nothing');
-  stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.UNKNOWN);
-  assert.equal(stallsignin.overlay(card(), T0 + 3).deliveryStall.signedOut, true, 'CONTROL: an unknown answer changes nothing');
   stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.CONNECTED);
   assert.equal(stallsignin.overlay(card(), T0 + 4).deliveryStall.signedOut, undefined, 'the card still says sign in again after a sign-in');
 });
@@ -290,4 +288,23 @@ test('review 5: the default account named by its folder is the default account',
   assert.equal(stallsignin.overlay(dflt, T0 + 1).deliveryStall.signedOut, true);
   stallsignin.heard({ dir: require('node:path').join(accounts.homeDir(), '.claude'), isDefault: false }, STATE.CONNECTED, T0 + 2);
   assert.equal(stallsignin.overlay(dflt, T0 + 3).deliveryStall.signedOut, undefined, 'a connected answer for the default folder missed the default account');
+});
+
+/* Review 6: another caller's answer, whichever it is, is the account's latest. */
+test('review 6: a "none" the AI Models screen saw reaches the stuck card at once; an unknown one is unknown', async () => {
+  counting(STATE.CONNECTED);
+  stallsignin.overlay(card(), T0); await settle();
+  assert.equal(stallsignin.overlay(card(), T0 + 1).deliveryStall.signedOut, undefined, 'control: connected at first');
+  stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.NONE, T0 + 2);
+  assert.equal(stallsignin.overlay(card(), T0 + 3).deliveryStall.signedOut, true, 'the screen showed signed out and the card did not');
+  stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.UNKNOWN, T0 + 4);
+  assert.equal(stallsignin.overlay(card(), T0 + 5).deliveryStall.signedOut, undefined, 'an unknown answer kept an old "none" (the badge says unchecked)');
+});
+test('review 6: a check that started before another caller\'s answer does not overwrite it, either way', async () => {
+  let release;
+  counting(() => new Promise((resolve) => { release = resolve; }));
+  stallsignin.overlay(card(), T0);
+  stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.NONE, T0 + 1000);
+  release(STATE.CONNECTED); await settle(); await settle();
+  assert.equal(stallsignin.overlay(card(), T0 + 2000).deliveryStall.signedOut, true, 'an older connected overwrote a newer none');
 });

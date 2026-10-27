@@ -96,3 +96,15 @@ checked and the card says what slice 2 says, which is the safe direction.
   is seen, exactly as long as the badge says "rejected". Agreeing with the badge beats clearing sooner than it.
 - MINOR fixed: the live state is the latest answer (an unknown one is unknown), as the badge reads it.
 - MINOR fixed: a connected answer for the default account named by its folder clears the default account's record.
+
+## Review round 6 (sonnet): 0 blocker, 1 major, 3 minor, 1 nit. The extraction checked line by line: badge unchanged
+- MAJOR fixed: another caller's live check was heard only when it said connected, so a "none" the AI Models screen
+  just showed never reached the stuck card. heard now records every answer (none, connected, unknown as unknown), and
+  any check that started at or before it is older when it lands (one rule, both directions). Mutant red.
+- MINOR fixed: the join is built on the first card that asks (a stuck Claude card with an account record) and once
+  per tick, never for a stuck Codex card alone.
+- MINOR fixed: claudeObservationsFor is exported and tested on real job files and observations
+  (server.stallsignin-7212.test.js): a sibling's 401 is its account's evidence and not another account's; a newer
+  Check now decides and is the same object (observedFrom); a card fed the join says what the badge says.
+- MINOR fixed: a check that finds no row clears the key flag.
+- NIT stated: a fresh 401 for an unrelated reason gets the sign-in sentence; the badge says "rejected" for it too.

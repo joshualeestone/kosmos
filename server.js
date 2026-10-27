@@ -7238,7 +7238,10 @@ const server = http.createServer(async (req, res) => {
       /* #7212 slice 3: a stuck Claude agent whose own account was last seen signed out says so. The tick only reads what
          engine/stallsignin.js learned; its one live check per account and hour runs in the background. */
       if (agents.some((c) => c && c.deliveryStall)) {   // the join reads job files, so only when a card is stuck (rare)
-        const obsFor = claudeObservationsFor(claudeKnown || []);
+        /* Review 6: built on the first card that asks (a stuck Claude card with an account record), never for a stuck
+           Codex card alone, and once per tick. */
+        let join = null;
+        const obsFor = (dir) => { if (!join) join = claudeObservationsFor(claudeKnown || []); return join(dir); };
         for (let i = 0; i < agents.length; i += 1) agents[i] = require('./engine/stallsignin').overlay(agents[i], undefined, { obsFor });
       }
       // ⚠️ THE COUNTS DESCRIBE THE CARDS THAT ARE LEFT. Computed over the
@@ -27763,6 +27766,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
+  claudeObservationsFor, // #7212 slice 3 review 6: the AI Models badge's evidence, shared with the stuck card, for its test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour

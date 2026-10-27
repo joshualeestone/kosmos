@@ -20,15 +20,15 @@
  * this card is for, so a fresh 401 is "signed out" whatever it says. Unreachable, a check still running, or no account
  * row is "not known", and the card keeps slice 2's reason. As on the badge, the live state is the latest answer (an
  * unknown one is unknown, review 5) and a fresh request outcome outranks it, either way. A connected answer clears the
- * live check's "none" at once (`heard`; for a stored key only from the reader that tries the key), and a "none" from
- * a check that started before it was heard is ignored. In memory, on the board. Never throws.
+ * live check's state at once, whichever answer it is (`heard`; for a stored key only from the reader that tries the
+ * key), and an answer from a check that started before it was heard is ignored. In memory, on the board. Never throws.
  */
 
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 
 /* account key ('default' or its folder) -> { at (ms the last check started), running, state (the live check's last
    answer: 'connected' | 'none' | null),
-   apiKey (the row is a stored key: "signed out" means the key was refused), connectedAt (ms a connected answer was
+   apiKey (the row is a stored key: "signed out" means the key was refused), heardAt (ms another caller's answer was
    last heard), usedAt (ms a stuck card last read it, for the sweep) } */
 const accounts = new Map();
 let deps = null;   // setDepsForTests only: { list, checkRow }
@@ -56,7 +56,7 @@ function rowFor(account) {
 function check(account, rec) {
   try {
     const row = rowFor(account);
-    if (!row) return Promise.resolve(null);
+    if (!row) { rec.apiKey = false; return Promise.resolve(null); }   // review 6: no row, no key sentence left over
     rec.apiKey = Boolean(row.apiKey);
     return Promise.resolve(checkRow(row)).then((r) => (r && r.connection ? r.connection.state : null));
   } catch (err) { return Promise.reject(err); }
@@ -68,16 +68,15 @@ function recordFor(account, now) {
   if (!key) return null;
   let rec = accounts.get(key);
   if (!rec || (!rec.running && now - rec.at >= CHECK_EVERY_MS)) {
-    if (!rec) { rec = { at: now, running: false, state: null, apiKey: false, connectedAt: 0, usedAt: now }; accounts.set(key, rec); }
+    if (!rec) { rec = { at: now, running: false, state: null, apiKey: false, heardAt: 0, usedAt: now }; accounts.set(key, rec); }
     const startedAt = now;
     rec.at = now; rec.running = true;
     check(account, rec).then((state) => {
       try {
         const { STATE } = require('./subscription');
-        // Only an answer moves it, and a "signed out" that started before a connected answer was heard is stale.
-        // The latest answer, as the badge reads it (review 5): unknown is unknown, not the last answer kept.
-        if (state === STATE.NONE) { if (startedAt > rec.connectedAt) rec.state = 'none'; }   // a tie is not newer: never claim signed out on it
-        else rec.state = state === STATE.CONNECTED ? 'connected' : null;
+        // The latest answer, as the badge reads it (review 5: unknown is unknown). Review 6: an answer from a check that
+        // started at or before one heard from another caller is older than it, either way (a tie is not newer).
+        if (startedAt > rec.heardAt) rec.state = state === STATE.NONE ? 'none' : state === STATE.CONNECTED ? 'connected' : null;
       } catch { /* not known */ }
     }, () => { /* not known: the card keeps its reason */ }).finally(() => { rec.running = false; });
   }
@@ -110,16 +109,19 @@ function overlay(card, now = Date.now(), { obsFor } = {}) {
   } catch { return card; }
 }
 
-/* A live check saw this account (`{ dir }` or `{ isDefault: true }`) connected: its live state is connected at once, and
-   a slower "none" already in flight is ignored when it lands. `fromRow`: the answer came from accounts.checkRowLive
-   (review 3: a stored key's "refused" is cleared only by that reader, which tries the key; `claude auth status` answers
-   another question for a key folder). */
+/* Another caller's live check of this account (`{ dir }` or `{ isDefault: true }`): the AI Models screen, a sign-in flow,
+   the agent's account route. Its answer is the account's latest, as the badge reads it (review 6: a "none" the screen
+   just showed reaches the card too, not only a "connected"), and a slower check already in flight is older when it
+   lands. `fromRow`: the answer came from accounts.checkRowLive (review 3: a stored key's verdict is moved only by that
+   reader, which tries the key; `claude auth status` answers another question for a key folder). */
 function heard(account, state, now = Date.now(), { fromRow = false } = {}) {
   try {
-    if (state !== require('./subscription').STATE.CONNECTED) return;
+    const { STATE } = require('./subscription');
     const rec = accounts.get(keyOf(account));
-    if (rec && (!rec.apiKey || fromRow)) { rec.state = 'connected'; rec.connectedAt = now; }
-  } catch { /* the next check clears it */ }
+    if (!rec || (rec.apiKey && !fromRow)) return;
+    rec.state = state === STATE.NONE ? 'none' : state === STATE.CONNECTED ? 'connected' : null;
+    rec.heardAt = now;
+  } catch { /* the next check says */ }
 }
 
 /* Accounts no stuck card has read for an hour lose their record, unless a check is still running. */
