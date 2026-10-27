@@ -920,7 +920,8 @@ function stillSending(from) {
    pause, which the 5-minute timer or a sendSoon starts).
    One pause per agent covers its post and comment SENDS (with a valid token the limiter counts every request in one
    bucket per agent, refused ones included; a token it cannot resolve is counted in a bucket shared by the board's
-   address, which this per-agent pause does not model); the register, login, lookup, take-down and delete calls neither set it nor wait for it. */
+   address, which this per-agent pause does not model); the register, login, lookup, take-down and delete calls neither set it nor wait for it.
+   The owner link (#7215) both sets it (its own rate_limit_exceeded) and waits for it before minting. */
 const limiterPauseUntil = new Map();   // agentKey -> ms
 function dailyCap429(r, name) {
   return Boolean(r && r.json && r.json.detail && typeof r.json.detail === 'object' && r.json.detail.error === name);
@@ -1488,11 +1489,16 @@ async function sweepInstallGroup(keys, on) {
  *   (member_key_wrong_epoch), a coordinator 400 for a second agent
  *   in one pass (the request, not a name), or a second site refusal in one pass: the pass pauses 15 minutes;
  *   the route does not exist yet (the tunnel refuses to sign it, or a 404/405 from either side): an hour;
- *   a site 429: Retry-After, capped like #4940's register wait;
+ *   a site 429 from its request limiter (rate_limit_exceeded): that agent alone waits the #4953 limiter pause; any
+ *   other site 429: the pass waits Retry-After, capped like #4940's register wait;
  *   anything else (no answer, a 5xx, a 401 logging in again did not clear): the pass pauses 15 minutes (a 503's
  *   Retry-After is not honoured: the 15 minutes is longer, so safe, and a linked page can wait that long);
  *   a mint refused on this computer before it was sent (a register or a Forget is out): no pause.
  * Pauses are per endpoint, in memory.
+ * Production passes go only to the production site: nothing is linked unless the community service and the Kosmos+
+ * coordinator are both the defaults or both overridden (a board pointed at another community while signed in to the
+ * real Kosmos+ would hand that service a live pass for the person's account, which it could present at the real site
+ * under a name it registers there).
  */
 const OWNER_PASS_ROUTE = '/v1/mac/community-owner-pass';
 let OWNER_LINK_RETRY_MS = 15 * 60 * 1000;   // a pause after a failure of the service or of one agent (tests set it)
@@ -1542,6 +1548,13 @@ async function sweepOwnerLink(keys, on) {
   const mac = ownerLinkMac();
   if (!mac) return;
   const ep = endpointDir();
+  const prodSite = serviceId() === (SAME_SERVICE[DEFAULT_ENDPOINT] || DEFAULT_ENDPOINT);
+  const remote = require('./remote');
+  const prodCoordinator = remote.COORDINATOR() === remote.DEFAULT_COORDINATOR;
+  if (prodSite !== prodCoordinator) {
+    ownerLinkPassLog(ep, 'not linking: this community service and the Kosmos+ coordinator are not the same deployment (one is the default, one is overridden)', 'deployment mismatch');
+    return;
+  }
   if ((ownerLinkPassAt.get(ep) || 0) > Date.now()) return;
   // #4994: which names are being retired is unknown while the list is unreadable, so nothing is linked (fail-closed).
   if (retireListUnreadable()) return;
@@ -1588,8 +1601,9 @@ async function sweepOwnerLink(keys, on) {
       if (ownerLinkMac() !== mac) return;
       // The person switched Community or Kosmos+ off during the mint: nothing is sent.
       if (!switchOn() || !ownerLinkLive() || retireListUnreadable()) return;
-      // This agent's delete began during the mint: its pass is not sent; the others go on.
-      if (retiring(agentKey)) continue;
+      // This agent's delete began during the mint: its pass is not sent; the others go on. (A failed mint is classified
+      // below as usual, so a pass-wide failure still pauses the pass.)
+      if (minted.ok && retiring(agentKey)) continue;
       if (!minted.ok || !minted.data || typeof minted.data.pass !== 'string' || !minted.data.pass) {
         const st = minted.refusal ? minted.refusal.status : 0;
         // The coordinator's only refusal about one agent is its 400 (the name); its 403s are about this computer (not
@@ -1601,7 +1615,7 @@ async function sweepOwnerLink(keys, on) {
         if (st === 400 && !epoch && coord400 < 2) { ownerLinkSkipAgent(ep, agentKey, 'Kosmos+ refused to vouch for that name (400)'); continue; }
         const unknown = !minted.ok && ownerPassUnknown(minted);
         ownerLinkPassAt.set(ep, Date.now() + (unknown ? OWNER_LINK_UNKNOWN_MS : OWNER_LINK_RETRY_MS));
-        if (!unknown) stopHere();   // a missing route is the same for every agent
+        stopHere();   // even for a missing route: the same for every agent then, and an agent's own 404 cannot hold the walk
         const what = unknown ? 'Kosmos+ cannot vouch for agents yet'
           : epoch ? 'Kosmos+ refused this computer\'s key as out of date (400)'
           : st === 400 ? 'Kosmos+ refused the request for two agents in one pass (400), so the request itself is likely wrong'
@@ -1625,8 +1639,9 @@ async function sweepOwnerLink(keys, on) {
       const siteRefusal = r.status >= 400 && r.status < 500 && ![401, 404, 405, 408, 413, 429].includes(r.status);
       if (siteRefusal) siteRefused += 1;
       if (siteRefusal && siteRefused < 2) { ownerLinkSkipAgent(ep, agentKey, `the community refused the pass (${r.status})`); continue; }
-      if (r.status === 404 || r.status === 405) {   // no stopHere: the missing route is the same for every agent
+      if (r.status === 404 || r.status === 405) {
         ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_UNKNOWN_MS);
+        stopHere();   // a missing route is the same for every agent; an agent's own 404 must not hold the walk on it
         ownerLinkPassLog(ep, `the community has no owner route yet (${r.status}); trying again in an hour`);
         break;
       }
