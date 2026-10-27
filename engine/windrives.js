@@ -49,9 +49,13 @@ const now = () => (testLearn && testLearn.now ? testLearn.now() : performance.no
 
 /* A share as \\host\share, nothing more; anything else (a U+FFFD from a mis-decoded name, a path below the share, an
    empty part) is a share this cannot name, so null: callers then fail closed (review 1 finding 1). */
+/* Review 4 finding 1: a drive may map to a folder BELOW a share (net use Z: \\srv\share\sub), and the redirector names
+   it so: \\host\share then any number of parts, none empty, '.' or '..'. Rejecting it refused every project file
+   board-wide while another agent had a project on that letter. */
 function cleanShare(s) {
   const v = String(s || '').trim();
-  return /^\\\\[^\\/\uFFFD]+\\[^\\/\uFFFD]+$/.test(v) ? v : null;
+  if (!/^\\\\[^\\/\uFFFD]+(?:\\[^\\/\uFFFD]+)+$/.test(v)) return null;
+  return v.slice(2).split('\\').some((p) => p === '.' || p === '..') ? null : v;
 }
 /* DriveType 4 is Network; 0 (Unknown) and 1 (NoRootDirectory) are absent; anything else is local to this computer.
    Review 2 finding 2: a letter the redirector names a share for is a network drive when GetDrives says it is not a
@@ -120,17 +124,22 @@ function startRefreshing() {
 /* The entry for a drive letter, or null when the table is unknown. A letter the table does not list is 'absent' now, and
    learned again once, in the background (a drive mapped since the last refresh). A learn that failed is not tried again in
    the foreground for REFRESH_MS, so a broken PowerShell costs one attach at most 3 s a minute, never every attach. */
+/* The learned table, refreshed as due, or null when unknown. */
+function current() {
+  /* Review 1 finding 3: a table whose last good learn is older than two refreshes is dropped, so refreshes that keep
+     failing fall back to before #7232 instead of trusting an old table for ever (the one window a stale table is
+     trusted is at most 2 x REFRESH_MS, 120 s). */
+  if (table && now() - learnedAt > 2 * REFRESH_MS) table = null;
+  if (!table) { if (now() - failedAt > REFRESH_MS) learnSync(); }
+  else if (now() - learnedAt > REFRESH_MS) learnSoon();
+  return table;
+}
 function driveInfo(letter) {
   const L = String(letter || '').toUpperCase();
   if (!/^[A-Z]$/.test(L)) return null;
   if (testTable === UNKNOWN) return null;
   if (testTable) return testTable.get(L) || { kind: 'absent', share: null };
-  /* Review 1 finding 3: a table whose last good learn is older than two refreshes is dropped, so refreshes that keep
-     failing fall back to before #7232 instead of trusting an old table for ever (the one window a stale table is trusted is at most 2 x REFRESH_MS, 120 s). */
-  if (table && now() - learnedAt > 2 * REFRESH_MS) table = null;
-  if (!table) { if (now() - failedAt > REFRESH_MS) learnSync(); }
-  else if (now() - learnedAt > REFRESH_MS) learnSoon();
-  if (!table) return null;
+  if (!current()) return null;
   /* Review 3 finding 4: in the BACKGROUND. A letter no drive has (a project left on an unplugged disk) is unlisted on
      every refresh, and a blocking learn for it froze the board up to 3 s a minute. This attach reads it as absent (walked
      as before #7232); the next one has the new table. */
@@ -162,13 +171,13 @@ function isThisComputer(host) {
   try { names.push(os.hostname().toLowerCase().split('.')[0]); } catch { /* none */ }
   if (process.env.COMPUTERNAME) names.push(String(process.env.COMPUTERNAME).toLowerCase().split('.')[0]);
   if (names.some((n) => n && first === n)) return true;
-  /* A host made only of digits, dots and hex marks that is not a plain four-part address is read by Windows as a
-     number in some other form, so it may be 127.0.0.1. */
-  if (/^[0-9a-fx.]+$/.test(h) && !/[g-wyz]/.test(h)) {
-    const parts = h.split('.');
-    const plain = parts.length === 4 && parts.every((p) => /^(?:0|[1-9]\d{0,2})$/.test(p) && Number(p) <= 255);
-    if (!plain) return true;
-  }
+  /* A host Windows reads as a number in some form other than a plain four-part address (inet_aton: one to four parts,
+     each decimal, 0x hex or 0 octal) may be 127.0.0.1. Only such a host (review 4 finding 2: dc1, db01 and cafe are
+     names, not numbers, and a dead \\dc1\share must still be skipped). */
+  const parts = h.split('.');
+  const numeric = /\d/.test(h) && parts.length >= 1 && parts.length <= 4 && parts.every((p) => /^(?:0x[0-9a-f]+|0[0-7]*|[1-9]\d*)$/.test(p));
+  const plain = parts.length === 4 && parts.every((p) => /^(?:0|[1-9]\d{0,2})$/.test(p) && Number(p) <= 255);
+  if (numeric && !plain) return true;
   try {
     for (const list of Object.values(os.networkInterfaces())) {
       for (const a of list || []) {
@@ -201,7 +210,13 @@ function hostOf(unc) {
 }
 
 /* Whether the table is known (learned, or a test's). Unknown -> every caller behaves exactly as before #7232. */
-function known() { return driveInfo('C') !== null; }
+/* Review 4 finding 3: asked of the table itself, never of a letter, so a computer with no C: does not spend the one
+   unlisted-letter re-learn of each refresh on this question. */
+function known() {
+  if (testTable === UNKNOWN) return false;
+  if (testTable) return true;
+  return !!current();
+}
 
 /* Where a drive letter's folders are, for a check that must fail closed:
    - null: the table is unknown, or the letter is local, or it is a network drive whose server is this computer: treat

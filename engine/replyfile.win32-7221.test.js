@@ -1441,9 +1441,9 @@ test('#7232 scale: 200 projects, one on a dead mapped drive, answers in under a 
 /* ---------- #7232 review 1 ---------- */
 
 test('#7232 review 1-1: a share name that was mis-decoded (U+FFFD) or is not \\\\host\\share is a share this cannot name', () => {
-  const t = windrives.parseForTests('Z\t4\t\\\\srv\\Donn\uFFFDes\r\nY\t4\t\\\\srv\\s\\below\r\nX\t4\tsrv\r\nW\t4\t\\\\srv\\Données\r\n');
+  const t = windrives.parseForTests('Z\t4\t\\\\srv\\Donn\uFFFDes\r\nY\t4\t\\\\srv\\s\\..\\x\r\nX\t4\tsrv\r\nW\t4\t\\\\srv\\Données\r\n');
   assert.equal(t.get('Z').share, null, 'a U+FFFD in it');
-  assert.equal(t.get('Y').share, null, 'a path below a share');
+  assert.equal(t.get('Y').share, null, 'a .. below a share (review 4: a plain folder below one is a share it can name)');
   assert.equal(t.get('X').share, null, 'no \\\\ start');
   assert.equal(t.get('W').share, '\\\\srv\\Données', 'CONTROL: an accented name read right is kept');
 });
@@ -1705,4 +1705,45 @@ test('#7232 review 3-4: a letter the table does not list is re-learned in the ba
   assert.equal(later.length, 1, 'and only one');
   later[0](null, 'C\t3\t\r\nQ\t4\t\\\\srv\\q\r\n');
   assert.deepEqual(windrives.placeOf('Q'), { remote: true, share: '\\\\srv\\q' }, 'the next attach has the new table');
+});
+
+/* ---------- #7232 review 4 ---------- */
+
+test('#7232 review 4-1: a drive mapped to a folder below a share names that folder; dot, dot-dot and empty parts do not', () => {
+  const t = windrives.parseForTests('Z\t4\t\\\\srv\\share\\sub\r\nY\t4\t\\\\srv\\share\\a\\b\r\nX\t4\t\\\\srv\\share\\..\\x\r\nW\t4\t\\\\srv\\share\\.\\x\r\nV\t4\t\\\\srv\\share\\\\x\r\nU\t4\t\\\\srv\\share\\sub\\\r\n');
+  assert.equal(t.get('Z').share, '\\\\srv\\share\\sub');
+  assert.equal(t.get('Y').share, '\\\\srv\\share\\a\\b');
+  for (const L of ['X', 'W', 'V', 'U']) assert.equal(t.get(L).share, null, L);
+});
+
+test('#7232 review 4-1: another agent\'s project on a drive mapped below a share is passed over for a local file, and judged by that folder', winOnly, () => {
+  const own = ownProject('own7232-r4');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-z', name: 'Far', folder: 'Z:\\far', agents: ['someone-else'] },
+  ];
+  const sub = '\\\\10.255.255.1\\zshare\\sub';
+  windrives.setTableForTests(windrives.parseForTests(HERE + '\t3\t\r\nZ\t4\t' + sub + '\r\n'));
+  const { r, touches } = attachIn({}, path.join(own, 'f.txt'));
+  assert.equal(r.ok, true, 'attaches, not refused as unplaced: ' + JSON.stringify(r));
+  assert.equal(touches.z, 0);
+  // where it leads includes the \sub below the share
+  assert.deepEqual(windrives.placeOf('Z'), { remote: true, share: sub });
+});
+
+test('#7232 review 4-2: a host name made of hex letters and digits is a name; a number in another form is still this computer', () => {
+  for (const h of ['dc', 'dc1', 'db01', 'cafe', 'fab', 'deadbeef', 'a1.b2']) assert.equal(windrives.isThisComputer(h), false, h + ' is a name');
+  for (const h of ['0x7f.1', '0x7f000001', '2130706433', '127.1', '0177.0.0.1', '017700000001']) assert.equal(windrives.isThisComputer(h), true, h + ' may be 127.0.0.1');
+});
+
+test('#7232 review 4-3: asking whether the table is known spends no re-learn, even with no C:', (t) => {
+  const later = [];
+  windrives.setLearnForTests({ run: () => 'D\t3\t\r\n', runLater: (done) => later.push(done) });
+  t.after(() => windrives.setLearnForTests(null));
+  assert.equal(windrives.known(), true);
+  assert.equal(windrives.known(), true);
+  assert.equal(later.length, 0, 'no background re-learn for a C: this computer does not have');
+  // CONTROL: the one re-learn is still there for a letter an attach meets
+  assert.deepEqual(windrives.placeOf('Q'), { absent: true });
+  assert.equal(later.length, 1);
 });

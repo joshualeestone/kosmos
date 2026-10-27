@@ -137,3 +137,14 @@ Seams added: windrives.setLearnForTests (clock and learner), scriptForTests; bot
    folder that is ITSELF a link was already refused by create.usableRecordedDir, which lstats it.)
 4. NIT, the blocking re-learn for an unlisted letter: now a background learn (learnSoon), once per refresh; the attach
    reads the letter as absent (walked as main). Header: the remap window is up to 120 s, not 60 s.
+
+### Review 4 (decided, all fixed; each with a test that fails on 4f29e56887)
+1. WARNING, a drive mapped to a folder below a share (net use Z: \\srv\share\sub): cleanShare now accepts
+   \\host\share(\part)* with no empty, '.' or '..' part and no U+FFFD, so the letter is placed (onShareOf joins the
+   rest on; mayHold/shareTail compare the whole path, \sub included) instead of refusing every project file as
+   unplaced. The review 1 test that called \\srv\s\below unnameable now uses \\srv\s\..\x.
+2. NIT, isThisComputer's numeric rule: only a host that contains a digit and parses inet_aton-style (1 to 4 parts,
+   each decimal, 0x hex or 0 octal) and is not a plain four-part address counts as maybe-this-computer; dc1, db01,
+   cafe are names.
+3. NIT, known(): asks the table itself (current(), the refresh step split out of driveInfo), never a letter, so a
+   computer with no C: does not spend the one unlisted-letter re-learn.
