@@ -36,6 +36,7 @@ let base;
 let pid;
 let other;
 const POSTS = 40;
+const QUIET = 10;   // posts with no reaction at all: most of a real room, and the case this card speeds up
 test.before(async () => {
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
@@ -59,6 +60,7 @@ test.before(async () => {
     // A 🙋 claim (claim: true) on every fifth post, so the read also asks claimOf about it.
     if (i % 5 === 0) lines.push({ kind: 'reaction', project: pid, of: id, at: at(t++), emoji: '\u{1F64B}', op: 'add', from: 'gamma', claim: true });
   }
+  for (let i = 1; i <= QUIET; i++) lines.push({ kind: 'post', id: 'q7365-' + i, project: pid, from: 'beta', to: [], text: 'quiet ' + i, at: at(t++), outcomes: {} });
   lines.push({ kind: 'post', id: 'o7365-1', project: other, from: 'gamma', to: [], text: 'elsewhere', at: at(t++), outcomes: {} });
   lines.push({ kind: 'reaction', project: other, of: 'o7365-1', at: at(t++), emoji: '🎉', op: 'add', from: 'gamma' });
   // A reaction written from the OTHER room on one of this room's post ids: it counted before (reactions are keyed by
@@ -81,10 +83,15 @@ test('#7365: each post\'s reactionsFor call is given only that post\'s reaction 
     assert.equal(res.status, 200);
     json = await res.json();
   } finally { messages.reactionsFor = real; messages.claimOf = realClaim; }
-  const posts = json.rows.filter((r) => r.kind === 'post');
+  const posts = json.rows.filter((r) => r.kind === 'post' && r.id.startsWith('p7365-'));
+  const quiet = json.rows.filter((r) => r.kind === 'post' && r.id.startsWith('q7365-'));
   assert.equal(posts.length, POSTS);
-  assert.equal(calls.length, POSTS, 'one reactionsFor call per post');
-  for (const c of calls) {
+  assert.equal(quiet.length, QUIET);
+  assert.equal(calls.length, POSTS + QUIET, 'one reactionsFor call per post');
+  // A post with no reaction is handed NO rows (not the whole log), and carries no reactions field.
+  for (const c of calls.filter((x) => x.of.startsWith('q7365-'))) assert.equal(c.rows.length, 0, `quiet post ${c.of} was given ${c.rows.length} rows`);
+  for (const q of quiet) assert.equal('reactions' in q, false, `quiet post ${q.id} carries a reactions field`);
+  for (const c of calls.filter((x) => x.of.startsWith('p7365-'))) {
     assert.ok(c.rows.length >= 3 && c.rows.length <= 5, `post ${c.of} was given ${c.rows.length} rows, not its own 3 to 5`);
     assert.ok(c.rows.every((m) => m.kind === 'reaction' && String(m.of) === c.of), `post ${c.of} was given another row`);
   }
