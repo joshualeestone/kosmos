@@ -1349,6 +1349,8 @@ final class BoardClient: ObservableObject {
             case .unproven: break
             case .miss:
                 // kosmos#7337: the gate page's miss (no nonce now): counted as a session that got no answer, and no post.
+                // A re-sign run it interrupts starts again (as gate.html resets reSigned on any other answer).
+                resigned = 0
                 guard gen == generation else { return false }
                 misses += 1
                 if misses < 3 { await env.sleep(3); continue }
@@ -1421,10 +1423,13 @@ final class BoardClient: ObservableObject {
     enum ProofOutcome { case proof(Board.GateProof), unproven, miss }
 
     private func gateProof(url: URL, token: String, key: SignIn.DeviceKey?) async -> ProofOutcome {
-        guard let key, let host = url.host else { return .unproven }
+        guard let key, let host = url.host?.lowercased() else { return .unproven }   // the gate signs location.hostname
         guard let (data, answer) = await env.send(Board.nonceRequest(mac: url)) else { return .miss }
-        if answer.statusCode == 404 { return .unproven }
-        guard (200...299).contains(answer.statusCode) else { return .miss }
+        // A gate that would give a nonce but not now (refused for now, too many waiting, busy) is a miss, as gate.html;
+        // any other refusal of the route (404, or an older gate's 401 or 405) means it has none: the token alone.
+        let status = answer.statusCode
+        if status == 403 || status == 429 || status >= 500 { return .miss }
+        guard (200...299).contains(status) else { return .unproven }
         guard let nonce = Board.parseNonce(data) else { return .unproven }
         return Board.gateProof(host: host, nonce: nonce, token: token, key: key).map { .proof($0) } ?? .unproven
     }
