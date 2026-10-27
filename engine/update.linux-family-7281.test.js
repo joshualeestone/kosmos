@@ -129,6 +129,11 @@ test('#7281 review 1: a Linux pointer that names a version but fails the checks 
   assert.deepEqual(asked, ['latest-linux.json'], 'a malformed Linux pointer sent the board to the Mac pair');
   assert.equal(update.available(), null);
   assert.equal(update.lastLook().readable, false);
+  // A padded version names no version for setup.sh's sed either, so it is "not published" for both: the board falls back.
+  update.resetCache();
+  const padded = host({ 'latest-linux.json': linuxPointer(' 99.0.0'), 'latest.json': { version: '98.0.0' } });
+  await update.checkNow();
+  assert.deepEqual(padded, ['latest-linux.json', 'latest.json'], 'a padded version disagreed with setup.sh');
   // CONTROL: one that names no version at all is "not published", and the portable board falls back.
   update.resetCache();
   const asked2 = host({ 'latest-linux.json': { error: 'not here' }, 'latest.json': { version: '98.0.0' } });

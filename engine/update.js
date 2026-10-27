@@ -132,9 +132,8 @@ function linuxBuildName(version) { return `kosmos-${version}-linux-x64.tar.gz`; 
    installed runtime node is its OWN file (a regular file, not the system node the portable bundle links in). Such a
    board never falls back to the Mac pointer, so a Linux pointer that cannot be read is no offer, never a downgrade. */
 function linuxFamilyInstalled() {
-  const root = installedRoot();
-  if (!root) return false;
-  try { return fs.lstatSync(path.join(root, 'runtime', 'bin', 'node')).isFile(); } catch { return false; }
+  // Review 2: the one rule, shared with the verifier (manifest-verify.js ownsLinuxNode).
+  return manifestVerify.ownsLinuxNode(installedRoot(), { platform: updatePlatform(), arch: updateArch() });
 }
 /** The full pointer URL this board's looks fetch, for the look itself and for the boot log. */
 function pointerUrl() {
@@ -441,7 +440,8 @@ async function refresh() {
       /* Review 1 (W2): only when the Linux pointer names NO a.b.c version, the same test setup.sh uses to pick the
          family; one that names a version but fails the strict checks is no offer, never the Mac pair's version (which
          setup.sh would not install). */
-      const linuxNamesVersion = !!(body && typeof body.version === 'string' && /^\d+\.\d+\.\d+$/.test(body.version.trim()));
+      // Review 2: the raw string, untrimmed, as setup.sh's sed reads it (" 1.2.3" names no version for either).
+      const linuxNamesVersion = !!(body && typeof body.version === 'string' && /^\d+\.\d+\.\d+$/.test(body.version));
       if (!latest && !linuxNamesVersion && pointerFamily(platform) === 'linux' && !linuxFamilyInstalled()) {
         readAs = 'darwin';
         try {   // the Linux pointer's answer already says the host was reached; a failed second read is no offer
