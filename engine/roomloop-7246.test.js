@@ -104,13 +104,15 @@ test('CONTROL: @name and @all still wake their members; @all never wakes its sen
 
 test('A: an agent post that addresses no one wakes no one, and is still in the room', () => {
   withFleet(room(), (board) => {
-    for (const text of ['read it, nothing to do from me', 'Renet for Baron: measured on Agent1s', 'Angel: noted, thanks']) {
+    // Round 5: "Mona Lisa for PigeonPete" names members, but its sender is not the poster, so it is a sentence, not a header.
+    for (const text of ['read it, nothing to do from me', 'Mona Lisa for PigeonPete: measured on Agent1s', 'Angel: noted, thanks']) {
       const p = post(board, 'angel', text);
       assert.deepEqual(p.woke, [], 'an unaddressed post woke someone: ' + text);
       assert.equal(p.sent.state, chat.DELIVERY.PLACED, 'refused instead of recorded: ' + text);
       assert.ok(messages.record().rows.some((m) => m.id === p.sent.id), 'not in the room: ' + text);
       for (const m of ['pigeonpete', 'monalisa']) assert.deepEqual(roomhold.heldIn(m, PROJECT), [], 'held for later instead of quiet');
     }
+    assert.deepEqual(post(board, 'angel', 'Angel for PigeonPete: measured on Agent1s').woke, ['pigeonpete'], 'CONTROL: the same words from their sender wake the target');
   });
 });
 
@@ -301,7 +303,12 @@ test('round 4: the cap frees as its oldest wake leaves the hour, and a new pause
   assert.equal(roomloop.paused('p', t0 + roomloop.LOOP_WINDOW_MS + 500), false, 'the oldest wake aged out, so there is room');
   roomloop.noteWake('p', t0 + roomloop.LOOP_WINDOW_MS + 600);
   assert.equal(roomloop.paused('p', t0 + roomloop.LOOP_WINDOW_MS + 700), true);
-  assert.ok(roomloop.pauseNote('p', t0 + roomloop.LOOP_WINDOW_MS + 700), 'a new pause (a later free time) is said again');
+  // Round 5: the slid window paused again within the hour of the last note, so the person is not told again.
+  assert.equal(roomloop.pauseNote('p', t0 + roomloop.LOOP_WINDOW_MS + 700), '', 'a slot freeing and filling again re-posted the note');
+  assert.ok(roomloop.pauseNote('p', t0 + 60000 + roomloop.LOOP_WINDOW_MS), 'an hour after the last note, a pause still on is said again');
+  roomloop.clear('p');
+  for (let i = 0; i < roomloop.LOOP_CAP; i += 1) roomloop.noteWake('p', t0 + roomloop.LOOP_WINDOW_MS + 61000 + i);
+  assert.ok(roomloop.pauseNote('p', t0 + roomloop.LOOP_WINDOW_MS + 62000), 'after the person posted, a new pause is said at once');
   assert.equal(roomloop.paused('other', t0 + 60000), false, 'CONTROL: another project is not paused');
 });
 test('round 4: "Ada -> all:" and "-> everyone:" are the header\'s @all', () => {
@@ -327,4 +334,18 @@ test('round 4: two posts started together at the last free wake: only one wakes 
     assert.equal(ra.outcomes.monalisa, 'placed', 'the first post fills the cap and wakes its member');
     assert.equal(rb.outcomes.pigeonpete, roomhold.QUIET, 'a post started while the first was still typing ran past the cap');
   } finally { board.restore(); }
+});
+
+/* Round 5 (M1): words after a name, and the word form read every way, so the fleet's own shapes keep their names. */
+test('round 5: a header name keeps its member whatever words follow it', () => {
+  const F = FLEET.concat([{ sessionName: 'basil', name: 'Basil' }, { sessionName: 'ada', name: 'Ada' }]);
+  const n = F.map((c) => c.sessionName);
+  const a = (from, text) => [...messages.addressedMembers(text, n.filter((x) => x !== from), F, new Set(), from)].sort();
+  assert.deepEqual(a('pigeonpete', 'PigeonPete -> Mona Lisa on m702: re-shot'), ['monalisa']);
+  assert.deepEqual(a('claudebot', 'Splinter -> PigeonPete and Angel re #12: x'), ['angel', 'pigeonpete']);
+  assert.deepEqual(a('claudebot', 'Splinter -> Angel about the cut: x'), ['angel']);
+  assert.deepEqual(a('ada', 'Ada to Basil for review: x'), ['basil'], 'the greedy first reading of "to" lost the name');
+  assert.deepEqual(a('barondraxum', 'Baron to Kitty for tonight: x'), ['icecreamkitty']);
+  assert.deepEqual(a('angel', 'Thanks to Kitty for the fix: x'), [], 'CONTROL: no reading has the poster as its sender');
+  assert.deepEqual(a('claudebot', 'Splinter -> owners of the Kosmos Cloud finish line: x'), [], 'CONTROL: no leading words name a member');
 });

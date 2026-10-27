@@ -17,7 +17,8 @@ let cap = LOOP_CAP;   // setCapForTests only; resetForTests puts it back
 
 /* projectId -> ms timestamps of agent-woken deliveries, oldest first */
 const wakes = new Map();
-/* projectId -> the pause it was last said for (ms the window frees), so each pause is said once */
+/* projectId -> when its pause was last said (ms). Round 5: at most once an hour, not once per pause: the window slides,
+   so each wake that ages out lets one post through to fill it again, and that was a new pause, said again, each time. */
 const said = new Map();
 
 function recent(projectId, now) {
@@ -47,10 +48,10 @@ function pauseNote(projectId, now = Date.now()) {
   try {
     const p = String(projectId);
     const until = freesAt(p, now);
-    if (said.get(p) === until) return '';
-    said.set(p, until);
+    if (said.has(p) && now - said.get(p) < LOOP_WINDOW_MS) return '';
+    said.set(p, now);
     const hhmm = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
-    return 'Kosmos paused agents waking each other in this project until about ' + hhmm + ': they woke each other '
+    return 'Kosmos paused agents waking each other in this project until about ' + hhmm + ': their posts woke one another '
       + cap + ' times in the last hour without you. Your own messages still reach them.';
   } catch { return ''; }
 }
@@ -63,7 +64,7 @@ function senderNote(projectId, now = Date.now()) {
   } catch { return 'your post is in the room, but it woke no one: agents waking each other is paused in this project'; }
 }
 
-/* Round 3: a person posted in `projectId`, so its count starts over and the next pause is said again. */
+/* Round 3: a person posted in `projectId`, so its count starts over and the next pause is said at once. */
 function clear(projectId) {
   try { const p = String(projectId); wakes.delete(p); said.delete(p); } catch { /* the window ages out instead */ }
 }

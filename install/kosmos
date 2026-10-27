@@ -3403,12 +3403,22 @@ cmd_post() {
     '{"delivery":{"state":"placed"'*)
       # Round 3: anchored on the route's own opening (state, then because), so a "because" quoted in the post's text is never read.
       _placedWhy=$(printf '%s' "$body" | sed -n 's/^{"delivery":{"state":"placed","because":"\([^"]*\)".*/\1/p') || true
-      case "$body" in
-        *'"duplicate":true'*) say "Posted to $project. Everyone on it has it waiting (it had arrived the first time; it was not posted twice)." ;;
-        # kosmos#7246 slice 2: an agent's post reaches only the members it addresses; say so, and how to address one.
-        # Round 4: unless the board said why (a pause): then the post addressed them, and the Note says the rest.
-        *'":"quiet"'*) if [ -n "$_placedWhy" ]; then say "Posted to $project."; else say "Posted to $project. It reached only the members it addresses; the others can read it in the room. To reach someone, start with 'YourName -> Their Name:', @-name them, or use @all."; fi ;;
-        *) say "Posted to $project. Everyone on it has it waiting." ;;
+      # kosmos#7246 slice 2: an agent's post reaches only the members it addresses; say so, and how to address one.
+      # Round 5: read from the outcomes object alone (the body's own "state":"placed" is not an outcome). A folded retry
+      # reports the first copy's outcomes, so quiet is said before the duplicate wording, which would claim everyone.
+      _outs=$(printf '%s' "$body" | sed -n 's/^{"delivery":{.*"outcomes":{\([^}]*\)}.*/\1/p') || true
+      _woke=$(printf '%s' "$_outs" | sed 's/"[^"]*":"quiet"//g; s/,//g') || true
+      _hint="To reach someone, start with 'YourName -> Their Name:', @-name them, or use @all."
+      case "$_outs" in
+        # Round 4: when the board said why (a pause), the post addressed them, and the Note says the rest.
+        *'":"quiet"'*)
+          if [ -n "$_placedWhy" ]; then say "Posted to $project."
+          elif [ -z "$_woke" ]; then say "Posted to $project. It woke no one: it addresses no member, so it is only in the room. $_hint"
+          else say "Posted to $project. It reached only the members it addresses; the others can read it in the room. $_hint"; fi ;;
+        *) case "$body" in
+             *'"duplicate":true'*) say "Posted to $project. Everyone on it has it waiting (it had arrived the first time; it was not posted twice)." ;;
+             *) say "Posted to $project. Everyone on it has it waiting." ;;
+           esac ;;
       esac
       if [ -n "$_placedWhy" ]; then say "Note: $_placedWhy."; fi
       # #6925: it went through a held room as this member's one summary; say so, so the agent does not try another.

@@ -809,10 +809,16 @@ async function verbPost(ctx, args) {
      the board's sentence saying so follows the verdict, on the same stream. */
   const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote.trim() : '';
   if (d.state === 'placed') {
-    const quiet = d.duplicate !== true && d.outcomes && typeof d.outcomes === 'object' && Object.values(d.outcomes).includes('quiet');   // kosmos#7246 slice 2, parity with install/kosmos
+    /* kosmos#7246 slice 2, parity with install/kosmos. Round 5: a folded retry reports the first copy's outcomes, so a quiet
+       one is said as quiet, never as "everyone on it has it". */
+    const outs = d.outcomes && typeof d.outcomes === 'object' ? Object.values(d.outcomes) : [];
+    const quiet = outs.includes('quiet');
     const why = typeof d.because === 'string' && d.because ? d.because : '';   // round 4: a pause; the post did address them
-    ctx.out(quiet && why ? 'Posted to ' + project + '.' : quiet ? 'Posted to ' + project + '. It reached only the members it addresses; the others can read it in the room. To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.'
-      : 'Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
+    const hint = ' To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.';
+    ctx.out(quiet && why ? 'Posted to ' + project + '.'
+      : quiet && outs.every((o) => o === 'quiet') ? 'Posted to ' + project + '. It woke no one: it addresses no member, so it is only in the room.' + hint
+        : quiet ? 'Posted to ' + project + '. It reached only the members it addresses; the others can read it in the room.' + hint
+          : 'Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
     if (why) ctx.out('Note: ' + why + '.');
     // #6925 parity with install/kosmos: it went through a held room as this member's one summary.
     if (d.closing === true) ctx.out('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');

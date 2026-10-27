@@ -17,17 +17,17 @@ post; rooms of 8 or fewer keep the per-post turn-end flush.
   that addressed at least one member.
 - **C.** Per project, at most LOOP_CAP (40) agent posts that woke anyone in any rolling hour (engine/roomloop.js), decided
   once per post. 40 is about three times the busiest agent hour measured in this fleet's room (13); a guess with that basis. Past it,
-  agent-to-agent delivery in that project is quiet until the window has room, the room gets one Kosmos note saying so
-  (roomNote, the person sees it), and the board log says it. A person's posts are never capped.
-- **Old holds, decided:** left as they are. Under A no post creates a plain held id any more, so the flushes of plain ids
-  only ever tell what was held before the upgrade: at most one more line per member, once. Filtering them in
+  agent-to-agent delivery in that project is quiet until the window has room, the room gets a Kosmos note saying so, at most
+  once an hour (roomNote, the person sees it; round 5), and the board log says it. A person's posts are never capped.
+- **Old holds, decided:** left as they are. Round 5: an @all to a busy member is held again (a plain held id, flushed
+  when it is idle, as an unaddressed post was before), so the plain-id flushes are live, not only for old holds. Filtering them in
   `roomhold.take` was tried and rejected: it rewrote every flush suite to buy that one line.
 
 ## Controls (fleetbuilders-shaped posts, Splinter 12:24)
 - "Ada -> Basil: ..." wakes Basil only; "Ada -> Basil, Cleo: ..." wakes both; "Ada -> Mona Lisa (note): ..." resolves
   the display name; "@basil ..." wakes Basil; "@all ..." wakes everyone but Ada.
 - A reply to a post that addressed its author wakes the author; a reply to an FYI wakes no one.
-- "Ada for Basil: ..." and an FYI with no header wake no one (stated: the fleet uses the header, @ or @all).
+- An FYI with no header, and a "for"/"to" sentence whose sender is not the poster ("Thanks to Kitty:"), wake no one.
 
 ## Tests changed for the new contract
 55 existing room tests assumed an unaddressed agent post reaches (or is held for) every member. Each was changed one
@@ -90,3 +90,16 @@ That no workflow relies on an unaddressed agent post waking teammates. Remedy: @
   answering each other by header are stopped only by the project's 40, which also quiets everyone else there.
 - Accepted: the arrow form does not check that the sender names the poster ("Note -> Angel:" addresses Angel); a
   sender name of four or more words is not a header.
+
+## Review round 5 (changes and decisions)
+- A header target is its longest leading run of one to three words that names a member, so "-> Mona Lisa on m702:",
+  "-> Angel re #12:" keep their names; the word form tries every "to"/"for" split ("Ada to Basil for review:").
+- Both CLIs say "It woke no one: it addresses no member" when every outcome is quiet, and a folded retry of a quiet post
+  is described as quiet, never as "everyone on it has it" (the shell CLI reads the outcomes object alone).
+- The pause note is said at most once an hour per project (a person's post resets that): the window slides, so each
+  wake that aged out let one post through and re-said it, 41 notes in 80 minutes in the reviewer's run.
+- An @all is held for a busy member until it is idle (the hold reads namedHere, without @all); @-names and header
+  names are typed at once.
+- `kosmos room` names the members a post woke ("the room" when it woke no one), not every member it was in the room for.
+- The note says "their posts woke one another 40 times" (it counts posts).
+- Accepted: an @all inside a quotation ("Josh said \"@all please confirm\"") is a broadcast; only `code` is excluded.
