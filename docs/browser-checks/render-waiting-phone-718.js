@@ -187,13 +187,13 @@ async function open(browser, opts) {
     // with /api/status stubbed and the page's own timers REAL, through tick -> settleWantAgent ->
     // openDetail -> the reveal. Present: it lands on the conversation. Missing: after the grace
     // it goes to the board home and the address loses the link.
-    const fromLink = async (agents, waitMs) => {
+    const fromLink = async (agents, waitMs, extra) => {
       const page = await browser.newPage({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
       await page.addInitScript((list) => {
         const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
         window.fetch = async (u) => (String(u).indexOf('/api/status') !== -1 ? enc({ agents: list, counts: {}, checkedAt: Date.now() }) : enc({}));
       }, agents);
-      await page.goto(PAGE + '?tab=detail&agent=' + encodeURIComponent(BASE.sessionName));
+      await page.goto(PAGE + '?tab=detail&agent=' + encodeURIComponent(BASE.sessionName) + (extra || ''));
       await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.remove(); });
       await page.waitForTimeout(waitMs);
       const r = await page.evaluate(() => {
@@ -205,7 +205,10 @@ async function open(browser, opts) {
           docH: document.documentElement.scrollHeight, vh: window.innerHeight,
           boxBottom: box ? Math.round(box.getBoundingClientRect().bottom) : null,
           boxW: box ? Math.round(box.getBoundingClientRect().width) : 0, boxH: box ? Math.round(box.getBoundingClientRect().height) : 0,
-          talkShown: !!(talk && !talk.hidden) };
+          talkShown: !!(talk && !talk.hidden),
+          // #7280: AI Settings (d-sec-model) shown, and where it sits on the screen.
+          modelShown: !!(document.getElementById('d-sec-model') && !document.getElementById('d-sec-model').hidden),
+          modelTop: document.getElementById('d-sec-model') ? Math.round(document.getElementById('d-sec-model').getBoundingClientRect().top) : null };
       });
       await page.close();
       return r;
@@ -223,6 +226,16 @@ async function open(browser, opts) {
       && present.boxBottom !== null && present.boxBottom <= present.vh + 1;
     chk(present.detailShown && present.current === BASE.sessionName && (scrolledTo || wholeScreen),
       '[link/phone] a page load with ?tab=detail&agent= lands on that agent\'s conversation', JSON.stringify(present));
+    // #7280: the link may name a section. &sec=model opens AI Settings (not the conversation), on screen; an unknown
+    // section lands on the conversation as before. A main without the change lands &sec=model on the conversation,
+    // which the first arm reads as a failure (measured against origin/main when this was written).
+    const toModel = await fromLink([BASE], 2000, '&sec=model');
+    chk(toModel.detailShown && toModel.current === BASE.sessionName && toModel.modelShown && !toModel.talkShown
+      && toModel.modelTop !== null && toModel.modelTop >= 0 && toModel.modelTop < 667,
+      '[link/phone] ?tab=detail&agent=&sec=model opens that agent\'s AI Settings, on screen', JSON.stringify(toModel));
+    const toUnknown = await fromLink([BASE], 2000, '&sec=nonsense');
+    chk(toUnknown.detailShown && toUnknown.current === BASE.sessionName && toUnknown.talkShown && !toUnknown.modelShown,
+      '[link/phone] an unknown &sec= lands on the conversation as before', JSON.stringify(toUnknown));
     const missing = await fromLink([], 11000);
     // The board home is the agents tab. (The address loses agent= at boot anyway, before the
     // settle runs, so checking the address here could not fail; it is not asserted.)

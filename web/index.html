@@ -45042,10 +45042,15 @@ function settleWantAgent() {
   // Only opening an agent spends it: a person who moves to another tab during the grace
   // can still be taken to the linked agent if it shows up then (a short window, as before).
   if (CURRENT) { WANT_AGENT_DONE = true; return; }
-  openDetail(WANT_AGENT);
+  openDetail(WANT_AGENT, WANT_AGENT_SEC || undefined);
   if (CURRENT && CURRENT.sessionName === WANT_AGENT) {
     WANT_AGENT_DONE = true;
-    detailRevealTalkOnPhone();
+    /* #7280: a link that named a section (the iPhone's "Open on your computer's board" asks for AI Settings) lands
+       there, at the top on a phone; otherwise the conversation, as before. */
+    if (WANT_AGENT_SEC) {
+      const sec = detailSection(WANT_AGENT_SEC);
+      if (sec && window.matchMedia && window.matchMedia(DETAIL_STACK_MQ).matches) { try { sec.scrollIntoView({ block: 'start' }); } catch (_e) { /* stay put */ } }
+    } else detailRevealTalkOnPhone();
     return;
   }
   // The grace is judged only on a read, and a read that finds the agent has already opened it
@@ -90230,6 +90235,13 @@ const RAW_TAB = PARAMS.get('tab') || 'agents';
 const KNOWN_TABS = ['agents', 'projects', 'tasks', 'settings', 'detail', 'create'];
 const BOOT_TAB = RAW_TAB === 'joint' ? 'projects'
   : (KNOWN_TABS.includes(RAW_TAB) ? RAW_TAB : 'agents');
+/* #7280: an agent link (?tab=detail&agent=<name>) may name the section to open, `&sec=model` (AI Settings) or
+   `profile` and the rest of DETAIL_SECTIONS. Talk, Swarm Settings (only on a swarm's page) and an unknown name land on
+   the conversation as before. On ?tab=settings, `sec` is Settings' own (settingsOpen, below). */
+const WANT_AGENT_SEC = (() => {
+  const s = PARAMS.get('sec');
+  return BOOT_TAB === 'detail' && s && DETAIL_SECTIONS.includes(s) && s !== 'talk' && s !== 'swarm' ? s : null;
+})();
 showTab(BOOT_TAB);
 /* #725: a refresh on a Settings sub-tab comes back to that sub-tab. The
    section is read from the address once, here; an unknown one falls to
