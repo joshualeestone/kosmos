@@ -31,6 +31,8 @@ struct ChatView: View {
     // behind and never followed again. On iOS 18 only the person's own scroll (scroll phase interacting or decelerating)
     // moves atBottom; endVisible is the marker as it is, read when their scroll comes to rest.
     @State private var endVisible = true
+    // kosmos#7265 debug (KOSMOS_SAMPLE_POSID=1, iOS 17+): the message the list is anchored on.
+    @State private var positionId: String?
     @State private var personScrolling = false
     // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
     @State private var eagerFrom: String?
@@ -370,11 +372,7 @@ struct ChatView: View {
                         // An exact cut: a cut in steps of 20 (fewer rebuilds) measured short again, 0 of 10 against 10 of 10
                         // (rounds 16 and 17). So each new message moves one row from the eager stack to the lazy rows, which
                         // rebuilds it and drops any state it held (a stated limit).
-                        let tailStart = Self.sampleEagerAll ? 0 : Board.eagerStart(items, from: Self.sampleNoKeep ? nil : eagerFrom, eager: Self.eagerTail)
-                        ForEach(items[..<tailStart]) { item in row(item) }
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(items[tailStart...]) { item in row(item) }
-                        }
+                        chatRows(items)
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
                         Color.clear.frame(height: 1).id("end")
@@ -396,7 +394,9 @@ struct ChatView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
+                    .modifier(PositionTargets(on: Self.samplePosId))
                 }
+                .modifier(PositionById(on: Self.samplePosId, id: $positionId))
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(PersonScroll(scrolling: $personScrolling) {
                     // Their scroll has come to rest: they are at the newest message exactly when the end shows.
@@ -439,6 +439,7 @@ struct ChatView: View {
                 }
                 .onChange(of: keepAtEndTick) { _ in
                     Self.trace("keepAtEnd scrollTo end")
+                    if Self.samplePosId { pinPosition(items); return }
                     if !Self.sampleNoKeep {
                         // Debug arm: after the new rows have laid out, and once more a beat later.
                         DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
@@ -532,6 +533,32 @@ struct ChatView: View {
         return false
         #endif
     }()
+    // The lazy older rows, then the newest as one eager stack (kosmos#7265, see the comment where this is drawn).
+    @ViewBuilder private func chatRows(_ items: [Board.ChatItem]) -> some View {
+        let tailStart = eagerStartIndex(items)
+        ForEach(items[..<tailStart]) { item in row(item) }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(items[tailStart...]) { item in row(item) }
+        }
+    }
+
+    private func pinPosition(_ items: [Board.ChatItem]) { positionId = items.last?.id }
+
+    // Where the eager newest rows begin (the debug switches move it: POSID none, EAGERALL all).
+    private func eagerStartIndex(_ items: [Board.ChatItem]) -> Int {
+        if Self.samplePosId { return items.count }
+        if Self.sampleEagerAll { return 0 }
+        return Board.eagerStart(items, from: Self.sampleNoKeep ? nil : eagerFrom, eager: Self.eagerTail)
+    }
+
+    static let samplePosId: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_POSID"] == "1"
+        #else
+        return false
+        #endif
+    }()
+
     // kosmos#7265: iOS 18 reports the scroll phase, which tells the person's scroll from rows moving under them.
     static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
 
@@ -1837,5 +1864,20 @@ struct PersonScroll: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+// kosmos#7265 debug: rows as scroll targets, and the list anchored on one message id (iOS 17+).
+struct PositionTargets: ViewModifier {
+    let on: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *), on { content.scrollTargetLayout() } else { content }
+    }
+}
+struct PositionById: ViewModifier {
+    let on: Bool
+    @Binding var id: String?
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *), on { content.scrollPosition(id: $id, anchor: .bottom) } else { content }
     }
 }
