@@ -77995,17 +77995,39 @@ document.addEventListener('focusin', (e) => {
   if (!(row && e.target === row && row.querySelector('.rxns[data-post="' + CSS.escape(PJ_JUMP_FOCUS) + '"]'))) PJ_JUMP_FOCUS = null;
 });
 document.addEventListener('pointerdown', () => { PJ_JUMP_FOCUS = null; }, true);
-document.getElementById('pj-room-search').addEventListener('input', () => {
+let PJ_SEARCH_READING = 0;   // kosmos#7365: a search's whole-room read is in flight (its keystroke number)
+document.getElementById('pj-room-search').addEventListener('input', async () => {
   const wasSearching = PJ_ROOM_QUERY.trim() !== '';
   PJ_ROOM_QUERY = document.getElementById('pj-room-search').value;
-  /* kosmos#7365: a search reads the whole room and the plain view only its newest page and the earlier pages, so
-     starting or ending a search reads the room again now, not at the next poll. */
-  if (wasSearching !== (PJ_ROOM_QUERY.trim() !== '')) loadRoom();
+  const nowSearching = PJ_ROOM_QUERY.trim() !== '';
   const said = document.getElementById('pj-room-msg');   // #3745: "hidden by your search" is stale once the search changes
   if (said && said.textContent === PJ_HIDDEN_BY_SEARCH) said.textContent = '';
   const box = document.getElementById('pj-room');
   if (!box.__lastBody) return;
-  paintRoom(box.__lastBody);
+  /* kosmos#7365: a search reads the whole room; the plain view holds only its newest page and the earlier pages read.
+     STARTING a search paints nothing from those and says nothing until the whole read lands (the window is not the
+     room, so "nothing matches" from it can be false; review 1), and neither does a keystroke typed while it reads.
+     ENDING a search paints the window, not the whole room the search read (that paint is the freeze this card
+     removes), and reads the newest page again. */
+  if (!wasSearching && nowSearching) {
+    const mine = ++PJ_SEARCH_READING;
+    await loadRoom();
+    if (mine !== PJ_SEARCH_READING) return;   // cleared, or started again, while it read
+    PJ_SEARCH_READING = 0;
+  } else if (wasSearching && !nowSearching) {
+    PJ_SEARCH_READING = 0;
+    if (PJ_WIN.pid === PJ_CURRENT && Array.isArray(PJ_WIN.newest)) {
+      box.__lastBody = Object.assign({}, box.__lastBody, { rows: pjWinMerge(PJ_WIN.older, PJ_WIN.newest) });
+    }
+    paintRoom(box.__lastBody);
+    loadRoom();
+    PJ_SEARCH_WAS_EMPTY = false;
+    return;
+  } else if (PJ_SEARCH_READING) {
+    return;   // the whole read is still in flight: its handler paints and speaks for the query as it is when it lands
+  } else {
+    paintRoom(box.__lastBody);
+  }
   /* The no-match state is announced ON THE TRANSITION only: a filtered
      room repaints silently for a screen-reader user, and per-keystroke
      announcements would be noise. Same helper the say-box uses. */
