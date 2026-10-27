@@ -3520,12 +3520,10 @@ if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] && [ -z "${KOSMOS
   # Review 1 (W3): an a.b.c version, read the way the main pointer read below reads it, and the body reused there.
   _lver="$(printf '%s' "$_lptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' | head -1)" || _lver=""
   if [ -n "$_lver" ] && [ -z "$_glibc_ok" ]; then
-    # Review 2: an installed Linux-family copy on a C library it cannot run (moved disk, downgraded system) refuses
-    # rather than be swapped for the portable bundle; anything else takes the portable bundle and says why.
-    if [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ ! -L "$KOSMOS_HOME/runtime/bin/node" ]; then
-      die "This computer's C library is older than glibc 2.35, which the Linux build of Kosmos needs, so nothing was changed."
-    fi
-    info "this computer's C library is not glibc 2.35 or newer, so the portable bundle is installed instead of the Linux build"
+    # Review 3: no refusal here, even for an installed Linux-family copy. Below the floor that copy's own node cannot
+    # start, so it is already broken and the portable bundle (with the system node) repairs it; a refusal here would
+    # also disagree with the unreadable-pointer arm below, which cannot refuse a node that does not run.
+    info "could not confirm glibc 2.35 or newer on this computer, so the portable bundle is installed instead of the Linux build"
   elif [ -n "$_lver" ]; then
     LINUX_FAMILY=yes; _PTR_FILE="$_lptr_file"; _LPTR_BODY="$_lptr"
   elif [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ ! -L "$KOSMOS_HOME/runtime/bin/node" ] \
