@@ -158,23 +158,26 @@ test('#6734: a streamed download of a multi-MB file is byte-identical, with its 
 const v8 = require('node:v8');
 v8.setFlagsFromString('--expose-gc');
 const collect = require('node:vm').runInNewContext('gc');
-async function settled() {
+/* Review 2: readings that agree can still both hold a buffer that frees later, so a baseline must also come back down to
+   `floor` (a reading taken before the buffers this test made) when one is given, and three readings over 20 ms must
+   agree. A baseline that never settles fails the test by name, never passes it on a doubtful reading. */
+async function settled(floor = Infinity) {
   assert.equal(typeof collect, 'function', 'gc() is not available to the memory check (Node refused --expose-gc at run time)');
-  let prev = -Infinity;
-  for (let i = 0; i < 40; i++) {
+  const last = [];
+  for (let i = 0; i < 100; i++) {
     collect();
     await new Promise((r) => setTimeout(r, 10));
-    const now = process.memoryUsage().arrayBuffers;
-    if (Math.abs(now - prev) < MB) return now;
-    prev = now;
+    last.push(process.memoryUsage().arrayBuffers);
+    if (last.length > 3) last.shift();
+    if (last.length === 3 && Math.max(...last) - Math.min(...last) < MB && last[2] <= floor + 2 * MB) return last[2];
   }
-  return prev;
+  assert.fail('arrayBuffers never settled for the memory check (last ' + last.map((x) => (x / MB).toFixed(1)).join(', ') + ' MB, floor ' + (floor === Infinity ? 'none' : (floor / MB).toFixed(1)) + ' MB)');
 }
 /** The most arrayBuffers memory grows over a settled baseline while a client that paused at once holds the response from
  *  `url` for 400 ms: whatever the server read of the file is then held by the server. Sampled every 2 ms from before
  *  the request goes out, so a server that reads the file whole is caught even if it hands the buffer on fast. */
-async function pausedPeak(url) {
-  const base = await settled();
+async function pausedPeak(url, floor) {
+  const base = await settled(floor);
   let peak = 0;
   const read = () => { peak = Math.max(peak, process.memoryUsage().arrayBuffers - base); };
   const sample = setInterval(read, 2);
@@ -199,6 +202,7 @@ test('#6734: a download does not read the file into memory: a 64 MB file held by
   let held = Buffer.alloc(64 * MB, 1);
   assert.ok(process.memoryUsage().arrayBuffers - before >= 60 * MB, 'CONTROL: arrayBuffers did not see a 64 MB Buffer');
   held = null;
+  // Both baselines below must come back down to `before`: CONTROL 1's 64 MB is gone, not just steady (review 2).
   /* The board FIRST, the buffering control second (kosmos#7302 review 1): a leftover in a baseline can then only make
      the control read low, which fails red, never let a buffering board read low and pass. */
   const readWhole = [];
@@ -206,7 +210,7 @@ test('#6734: a download does not read the file into memory: a 64 MB file held by
   fs.readFileSync = function (p, ...rest) { if (String(p) === rec.file) readWhole.push(p); return realRead.call(this, p, ...rest); };
   let peak = 0;
   try {
-    peak = await pausedPeak({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id });
+    peak = await pausedPeak({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id }, before);
   } finally { fs.readFileSync = realRead; }
   assert.equal(readWhole.length, 0, 'the download read the whole file with readFileSync');
   assert.ok(await until(() => fdsOn(rec.file) === 0), 'the paused-then-dropped download left the file open');
@@ -216,12 +220,12 @@ test('#6734: a download does not read the file into memory: a 64 MB file held by
   await new Promise((r) => buffering.listen(0, '127.0.0.1', r));
   let bufferedPeak = 0;
   try {
-    bufferedPeak = await pausedPeak({ host: '127.0.0.1', port: buffering.address().port, path: '/' });
+    bufferedPeak = await pausedPeak({ host: '127.0.0.1', port: buffering.address().port, path: '/' }, before);
   } finally { buffering.closeAllConnections(); await new Promise((r) => buffering.close(r)); }
   assert.ok(bufferedPeak >= 48 * MB, 'CONTROL: a buffering server measured only ' + Math.round(bufferedPeak / MB) + ' MB held for a paused 64 MB download');
   /* The board streams in 64 KB reads and measures 0 to about 1 MB held; 8 MB (and an eighth of the buffering figure)
-     leaves room for socket buffers and catches a board that holds even a fifth of the file (review 1: a 20 MB partial
-     buffer passed the old 24 MB bound). */
+     leaves room for socket buffers and catches a board that holds more than an eighth of the file (review 1: a 20 MB
+     partial buffer passed the old 24 MB bound). */
   assert.ok(peak < 8 * MB && peak * 8 < bufferedPeak,
     'the board held ' + (peak / MB).toFixed(1) + ' MB for a paused 64 MB download (a buffering server held ' + Math.round(bufferedPeak / MB) + ' MB)');
 });
@@ -293,7 +297,8 @@ test('#6734: an image preview is streamed from the file too, byte-identical and 
 test('#6734: an upload exactly at the cap is kept byte-identical, without the board holding it, and leaves no part file', async () => {
   const src = sourceOf(attachments.MAX_BYTES, 'at-cap.bin');
   const before = stored().length;
-  const base = process.memoryUsage().arrayBuffers;
+  // kosmos#7302 review 2: a settled baseline here too, so a leftover from the test before cannot hide the upload's hold.
+  const base = await settled();
   let peak = 0;
   const sample = setInterval(() => { peak = Math.max(peak, process.memoryUsage().arrayBuffers - base); }, 10);
   let got;
