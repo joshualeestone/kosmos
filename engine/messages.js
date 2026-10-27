@@ -2146,7 +2146,7 @@ function mentionedMembers(cleaned, recipients, roster) {
    "Renet for Baron: ...", "**Ada -> Basil:** ...". The header ends at the first ':' outside parentheses; the sender is a
    name of at most three words ("Ice Cream Kitty"), so a sentence that mentions an arrow is not a header; the connector
    is "->", "→", or the word "to" or "for" (`word`, and then the sender must name the poster, since "Thanks to Angel:"
-   is a sentence). Targets split on ',', ' and ' and '&', with anything in parentheses dropped first.
+   is a sentence). Targets split on ',', ';', '&', '/', '+' and ' and ' (round 8: the last four too), with anything in parentheses dropped first.
    Round 5: the word form can be read more than one way ("Ada to Basil for review"), so every split whose sender is a
    name of at most three words is offered, in order, and the caller takes the first whose sender names the poster.
    Returns the readings ([] when the post has no header). */
@@ -2162,9 +2162,10 @@ function postHeader(text) {
   }
   if (colon < 0) return [];
   const head = line.slice(0, colon).replace(/\*+\s*$/, '');
-  const targetsOf = (rest) => rest.replace(/\([^)]*\)/g, ' ').split(/,|&|[ \t]+and[ \t]+/).map((p) => p.trim()).filter(Boolean);
-  const arrow = head.match(/^([A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2})[ \t]*(?:->|\u2192)[ \t]*(.+)$/);
-  if (arrow) return [{ sender: arrow[1], targets: targetsOf(arrow[2]), word: false }];
+  const targetsOf = (rest) => rest.replace(/\([^)]*\)/g, ' ').split(/[,;&/+]|[ \t]+and[ \t]+/).map((p) => p.trim()).filter(Boolean);
+  // Round 8: the sender is optional before an arrow ("-> all:"); the arrow alone marks a header.
+  const arrow = head.match(/^(?:([A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2})[ \t]*)?(?:->|\u2192)[ \t]*(.+)$/);
+  if (arrow) return [{ sender: arrow[1] || '', targets: targetsOf(arrow[2]), word: false }];
   const out = [];
   for (const m of head.matchAll(/[ \t]+(?:to|for)[ \t]+/g)) {
     const sender = head.slice(0, m.index);

@@ -122,3 +122,16 @@ That no workflow relies on an unaddressed agent post waking teammates. Remedy: @
 - Reopen, and a post from the person's other computer, clear the agents' count, as a post here does.
 - The header is read from the post as written: cleanMessage joins every line, so the "first line" was the whole post.
 - `kosmos room` leaves out members a post could not reach (could_not); a held one is listed (it is told later).
+
+## Review round 8, the last (changes, not re-reviewed: the round limit is 8)
+- The pause is latched: from the post that finds the cap used, quiet for a whole hour, then the count starts from zero
+  (or a person acts). The sliding window let one post through each time a wake aged out, so a real loop settled at 40
+  wakes an hour for as long as nobody posted. Each pause is said once, and a pause lasts at least an hour.
+- The arrow needs no sender before it ("-> all:", "→ Kitty, Renet:"), and targets also split on ';', '/' and '+'.
+- Accepted (round 6's call, challenged again): an answer to an @all does not wake its asker. A broadcast's N answers
+  each waking it is the fan-in this card exists to stop; the replier's CLI says its answer woke no one, and naming the
+  asker ("Y -> X:") wakes it.
+- Not done: naming, in the CLI line, which listed names resolved to no member (round 8 MINOR). The CLI already says
+  when a post reached fewer members or none; per-name feedback is a follow-up.
+- These fixes have tests and mutants red (a sliding window, a required sender), and were not put to a ninth blind
+  round. Weakest premise of the whole slice: that no workflow relies on an unaddressed agent post waking teammates.

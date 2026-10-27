@@ -295,25 +295,32 @@ test('round 3: a person\'s post clears the pause, so the agents can wake each ot
 });
 
 /* Round 4: the window itself, the header's "all", a row from before the upgrade, and two async posts at the cap. */
-test('round 4: the cap frees as its oldest wake leaves the hour, and a new pause is said again', () => {
+test('round 8: a pause lasts a whole hour from when it began, then the count starts from zero; each pause is said once', () => {
   const t0 = Date.parse('2026-10-27T12:00:00Z');
+  const H = roomloop.LOOP_WINDOW_MS;
   for (let i = 0; i < roomloop.LOOP_CAP; i += 1) roomloop.noteWake('p', t0 + i * 1000);
-  assert.equal(roomloop.paused('p', t0 + 60000), true);
-  assert.equal(roomloop.freesAt('p', t0 + 60000), t0 + roomloop.LOOP_WINDOW_MS, 'the window frees when its first wake is an hour old');
-  assert.ok(roomloop.pauseNote('p', t0 + 60000), 'the first pause is said');
-  assert.equal(roomloop.pauseNote('p', t0 + 61000), '', 'and only once');
-  assert.equal(roomloop.paused('p', t0 + roomloop.LOOP_WINDOW_MS + 500), false, 'the oldest wake aged out, so there is room');
-  roomloop.noteWake('p', t0 + roomloop.LOOP_WINDOW_MS + 600);
-  assert.equal(roomloop.paused('p', t0 + roomloop.LOOP_WINDOW_MS + 700), true);
-  // Round 5: the slid window paused again within the hour of the last note, so the person is not told again.
-  assert.equal(roomloop.pauseNote('p', t0 + roomloop.LOOP_WINDOW_MS + 700), '', 'a slot freeing and filling again re-posted the note');
-  assert.ok(roomloop.pauseNote('p', t0 + 60000 + roomloop.LOOP_WINDOW_MS), 'an hour after the last note, a pause still on is said again');
+  const p0 = t0 + 60000;   // the post that finds the cap used: the pause begins here
+  assert.equal(roomloop.paused('p', p0), true);
+  assert.equal(roomloop.freesAt('p', p0 + 1), p0 + H, 'the pause ends an hour after it began');
+  assert.ok(roomloop.pauseNote('p', p0), 'the first pause is said');
+  assert.equal(roomloop.pauseNote('p', p0 + 1000), '', 'and only once');
+  // Round 8: the oldest wake aging out does NOT let a post through (the slide held a real loop at 40 an hour).
+  assert.equal(roomloop.paused('p', t0 + H + 500), true, 'a wake aging out let the loop through mid-pause');
+  assert.equal(roomloop.paused('p', p0 + H - 1), true);
+  assert.equal(roomloop.paused('p', p0 + H), false, 'the hour is up');
+  roomloop.noteWake('p', p0 + H + 1);
+  assert.equal(roomloop.paused('p', p0 + H + 2), false, 'the count started again from zero, not from the slid window');
+  for (let i = 0; i < roomloop.LOOP_CAP; i += 1) roomloop.noteWake('p', p0 + H + 10 + i);
+  assert.equal(roomloop.paused('p', p0 + H + 100), true);
+  assert.ok(roomloop.pauseNote('p', p0 + H + 100), 'a new pause is said');
   roomloop.clear('p');
-  for (let i = 0; i < roomloop.LOOP_CAP; i += 1) roomloop.noteWake('p', t0 + roomloop.LOOP_WINDOW_MS + 61000 + i);
-  assert.ok(roomloop.pauseNote('p', t0 + roomloop.LOOP_WINDOW_MS + 62000), 'after the person posted, a new pause is said at once');
-  assert.equal(roomloop.paused('other', t0 + 60000), false, 'CONTROL: another project is not paused');
+  assert.equal(roomloop.paused('p', p0 + H + 200), false, 'a person acting ends the pause at once');
+  assert.equal(roomloop.paused('other', p0), false, 'CONTROL: another project is not paused');
 });
 test('round 4: "Ada -> all:" and "-> everyone:" are the header\'s @all', () => {
+  // Round 8: and with no sender before the arrow.
+  assert.deepEqual(addressed('barondraxum', '-> all: hi'), fleetNames.filter((n) => n !== 'barondraxum').sort());
+  assert.deepEqual(addressed('barondraxum', '\u2192 Kitty, Renet: hi'), ['icecreamkitty', 'renettilley']);
   assert.deepEqual(addressed('angel', 'Angel -> all: the build is green'), fleetNames.filter((n) => n !== 'angel').sort());
   assert.deepEqual(addressed('angel', 'Angel -> Everyone: x'), fleetNames.filter((n) => n !== 'angel').sort());
   assert.deepEqual([...messages.addressedMembers('Angel -> all: x', fleetNames, FLEET, new Set(), 'angel', { all: false })], [],
@@ -349,6 +356,11 @@ test('round 5: a header name keeps its member whatever words follow it', () => {
   assert.deepEqual(a('ada', 'Ada to Basil for review: x'), ['basil'], 'the greedy first reading of "to" lost the name');
   assert.deepEqual(a('barondraxum', 'Baron to Kitty for tonight: x'), ['icecreamkitty']);
   assert.deepEqual(a('angel', 'Thanks to Kitty for the fix: x'), [], 'CONTROL: no reading has the poster as its sender');
+  // Round 8: ';', '/' and '+' separate names too.
+  assert.deepEqual(a('barondraxum', 'Baron -> Kitty, Angel; Renet: x'), ['angel', 'icecreamkitty', 'renettilley']);
+  assert.deepEqual(a('barondraxum', 'Baron -> Kitty/Renet: x'), ['icecreamkitty', 'renettilley']);
+  assert.deepEqual(a('barondraxum', 'Baron -> Kitty + Renet: x'), ['icecreamkitty', 'renettilley']);
+  assert.deepEqual(a('angel', 'see the a -> b mapping: here'), [], 'CONTROL: an arrow inside a sentence is not a header');
   assert.deepEqual(a('claudebot', 'Splinter -> owners of the Kosmos Cloud finish line: x'), [], 'CONTROL: no leading words name a member');
 });
 
