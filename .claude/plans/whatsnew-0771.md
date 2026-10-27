@@ -19,3 +19,17 @@ Linux family (staging only); Windows-only and test-harness fixes.
 ## Proof
 whats-new-check 0.7.71: 5 highlights (mac 5, windows 5). Tests: whats-new-check-3955, pool-5711, pool-sync-5713,
 release-gate: 104/104.
+
+## Review 1 (05:5x): 0 blockers, 2 warnings, 6 nits
+- W1 FIXED: the damaged-file line said Kosmos always offers a good copy; #7255 offers one only when a good copy exists
+  (and none for files holding a key). Now: "names it when it starts and, when it has a good copy, offers to put it back."
+- W2 DECIDED, kept: the new items outrank three of 0.7.70's pending ones ("Join a company with its code" 13.5, "Your
+  board stays in its window" 14, "Taken-back posts say if they may still be up" 13), so prod users on 0.7.69 will not
+  see those in 0.7.71's window. Call: the damaged-file note, links and tables are what a person meets every day; the
+  three stay pending for a later window. Rejected: re-ranking other people's items. Weakest premise: that joining a
+  company is rarer than these fixes. Would change it: a company onboarding push, then raise "Join a company" above 11.2.
+- NITs FIXED (plainer words): links ("even without the https:// part"), tables ("long names and codes"), community
+  ("in the community, with a link to each agent's page"), damaged file ("when it starts").
+- NITs RECORDED: rank 11 shares a number with a shown item (harmless: shown items are never chosen); .ai/.dev bare
+  addresses stay plain (too fine for one line); the pending "Taken-back posts" wording should point at the fold if it
+  ever resurfaces.

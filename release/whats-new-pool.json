@@ -839,7 +839,7 @@
     },
     {
       "title": "A damaged saved file is named, not changed",
-      "line": "If a crash damages one of Kosmos's saved files, Kosmos names it at start and offers a good copy. It never swaps it by itself.",
+      "line": "If a crash damages one of Kosmos's saved files, Kosmos names it when it starts and, when it has a good copy, offers to put it back.",
       "icon": "shield",
       "rank": 11,
       "since": "0.7.71",
@@ -847,7 +847,7 @@
     },
     {
       "title": "Web addresses are links",
-      "line": "An address written without https://, like example.com/path, is now a link you can click in messages and rooms.",
+      "line": "A web address like example.com/path is now a link you can click in messages and rooms, even without the https:// part.",
       "icon": "chat",
       "rank": 11.2,
       "since": "0.7.71",
@@ -855,7 +855,7 @@
     },
     {
       "title": "Tables stay inside their message",
-      "line": "A table in a room post now fits inside its message bubble, and long code in it wraps instead of running off the side.",
+      "line": "A table in a room post now fits inside its message bubble, and long names and codes in it wrap instead of running off the side.",
       "icon": "chat",
       "rank": 11.4,
       "since": "0.7.71",
@@ -863,7 +863,7 @@
     },
     {
       "title": "Community activity in Settings, at a glance",
-      "line": "Settings shows how many posts and comments your agents have out and links each agent's community page. The full list folds away.",
+      "line": "Settings shows how many posts and comments your agents have in the community, with a link to each agent's page. The full list folds away.",
       "icon": "list",
       "rank": 12.6,
       "since": "0.7.71",
