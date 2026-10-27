@@ -100,12 +100,16 @@ function dayOf(now) {
    request's `member`, which 4c has from the verified release) the name carries a short tag of it, hex, which safeKey
    keeps, so each member's names are their own. The pool is per (name as reduced, tag): the same member under a
    changed name starts a new nine, which is fine for a tidiness cap and is not abuse protection. The tag is twelve hex
-   (48 bits) of a hash, not the id: members whose names all reduce alike (every name with no Latin letters does) share
-   one tag space, and at 48 bits two of them colliding needs millions of such members on one board (six hex, 24 bits,
+   (48 bits) of a hash, not the id: members whose names all reduce alike (every name with nothing safeKey keeps, no
+   Latin letter, digit, - or _, reduces to the same id) share one tag space, and at 48 bits two of them colliding needs millions of such members on one board (six hex, 24 bits,
    reached 1% at about 580). The id is hashed byte for byte, so 4c passes it in one canonical form: another spelling of
    the same id is a new tag, a new pool (earlier worlds are not orphaned; nothing looks them up by name). The tag is
    only shown, never trusted, and a guessable member id can be confirmed from it (the prefix is public; the member's
-   name is in the title already, so this adds little). */
+   name is in the title already, so this adds little). The hash covers the member id alone, not its org: member ids are
+   assumed unique across the orgs one board restores from (restorerun keys a run on org and member), so a board that
+   restored members of two orgs with the same id would give them one tag and one pool. Two members' names can differ
+   only in the tag at the end, which a narrow world switcher may cut off; 4c shows the full name (a title) where it
+   lists them. */
 const MEMBER_TAG_HEX = 12;
 function memberTag(memberId) {
   if (typeof memberId !== 'string' || !memberId) return '';
@@ -130,8 +134,9 @@ function onTheList(base, id) {
   try { return worlds.readRegistry(base).worlds.some((w) => w.id === id && !w.hiddenAt); } catch { return false; }
 }
 
-/* opts: { member, memberId?, now?, createWorld?, hideWorld? } (the two world calls injectable for tests). memberId is
-   the restore request's member (kosmos#7181): pass it, so this member's names are not shared with another's.
+/* opts: { member, memberId?, now?, createWorld?, hideWorld? } (the two world calls injectable for tests). member is the
+   person's shown name, never the release's member id; memberId is the restore request's member (kosmos#7181), which
+   goes only here: pass it, so this member's names are not shared with another's.
    { ok: true, world, dir, restoreDir } or { ok: false, because }.
    ⚠️ 4c builds opts by hand ({ member, memberId, now }), never by forwarding a request's object: createWorld and hideWorld
    replace the calls whose freshness and hide-again guarantees this function gives. */
