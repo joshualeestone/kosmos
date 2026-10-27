@@ -27,7 +27,9 @@ silencing every room; the Projects page reports the damaged file. Also accepted 
 damaged, so a project deleted and re-made within the hour of the damage can see one extra hold. Likewise the #4580
 fold: a post identical to the same sender's post in a deleted same-id project, inside the fold window, reads as a
 retry of it while the file is damaged. And a reaction or freed claim given a deleted same-id project's post id writes its
-row against that post (orphaned and unseen once the file reads again).
+row against that post (orphaned and unseen once the file reads again). And the room's "no reply yet" markers (server.js,
+from unanswered()) are not drawn while the file is damaged: unanswered() answers nothing then, because the sweep acts on
+it; a missing marker is a display loss for the length of the damage, never a wrong nudge.
 
 ## Readers that ACT on or KEEP rows: gated while the stamps are unknown
 receipt keep (before and after its read), messages.sweepUnanswered and unanswered(), undo.plan (before and after its
