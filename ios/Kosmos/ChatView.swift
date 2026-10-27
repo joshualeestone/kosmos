@@ -59,15 +59,6 @@ struct ChatView: View {
     @State private var earlier = Board.Earlier()
     @State private var topVisible = false
     @State private var settledAtEnd = false
-    // kosmos#7265: the first moments after the chat opens, while its rows load and are measured. Only then is the thread
-    // kept at its newest message as it grows (OpensAtBottom, the jumps below). The person scrolling (iOS 18), a search or a
-    // page of older messages ends it early, and nothing after it moves the thread for the person.
-    @State private var opening = true
-    // Review 3: each opening window's number, so a timer left from an earlier open cannot end a newer window early.
-    @State private var openingGen = 0
-    // Review 5: whether this open is of a long thread, fixed once the thread has appeared, so a message arriving in the
-    // first seconds cannot turn a short thread's anchors on part way through (nil until then, and after a reset).
-    @State private var openedLong: Bool?
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
     // The conversation's items on screen now.
@@ -154,12 +145,12 @@ struct ChatView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     // With the row already open it only puts the cursor back in the field.
-                    let firstOpen = !searchOpen
-                    if firstOpen { openedAtNewest = atBottom }
+                    let opening = !searchOpen
+                    if opening { openedAtNewest = atBottom }
                     searchOpen = true
                     DispatchQueue.main.async {
                         searchFocused = true
-                        if firstOpen && openedAtNewest { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+                        if opening && openedAtNewest { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
                     }
                 } label: {
                     Image(systemName: "magnifyingglass").font(.system(size: 20)).foregroundColor(Palette.secondary)
@@ -223,7 +214,6 @@ struct ChatView: View {
         .onChange(of: searching) { now in if now { filteredInMode = true } }
         // Putting away a search that filtered is reading at the bottom again: what loaded meanwhile is there to see.
         .onChange(of: searchMode) { now in
-            if now { opening = false }   // kosmos#7265 review 2: a search ends the opening window, not pauses it
             guard !now && filteredInMode else { return }
             filteredInMode = false
             // Not when the search went with the conversation (an account reset empties both).
@@ -248,11 +238,6 @@ struct ChatView: View {
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
             epoch = now
-            // kosmos#7265 review 2: the thread is rebuilt (a chat opened from a room stays open through an account or Mac
-            // switch), so it opens again: its ScrollView's onAppear starts a new window.
-            opening = true
-            openingGen += 1
-            openedLong = nil
             thread = nil
             replying = nil
             retryNote = nil
@@ -315,8 +300,10 @@ struct ChatView: View {
 
     // MARK: - The conversation
 
-    // kosmos#7265 round 14: how many of the newest rows are drawn eagerly (more than a screen of short messages).
-    static let eagerTail = 40
+    // kosmos#7265: how many of the newest rows are drawn eagerly, more than a screen of short messages. Measured on the
+    // simulator (a 260-message chat of varied lengths, 10 opens, the newest message read at 4 s and 10 s): 20 of 20 on the
+    // newest message; with every row lazy about 1 in 10 (rounds 6 to 13 of the card). 0 in the Debug no-fix arm.
+    static var eagerTail: Int { sampleNoFix ? 0 : 40 }
 
     // One row of the conversation, with what the thread needs to know about it.
     private func row(_ item: Board.ChatItem) -> some View {
@@ -353,10 +340,9 @@ struct ChatView: View {
                             }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         else if searching && rows.isEmpty && !loaded.isEmpty { noMatch }
-                        // kosmos#7265 round 14: the newest rows are drawn as one eager stack, so their real heights are known
-                        // and a jump to "end" lands on the newest message; with every row lazy those heights were estimated
-                        // and the jump stopped short (rounds 7 to 9), and the anchor that made up for it drew a blank chat
-                        // (2 of 5 in round 13). Older rows stay lazy.
+                        // kosmos#7265: the newest rows are drawn as one eager stack, so their real heights are known and the
+                        // jump to "end" on open lands on the newest message. With every row lazy their heights were estimated
+                        // and a long chat of long messages opened mid-thread. Older rows stay lazy.
                         let tailStart = max(0, items.count - Self.eagerTail)
                         ForEach(items[..<tailStart]) { item in row(item) }
                         VStack(alignment: .leading, spacing: 0) {
@@ -379,25 +365,18 @@ struct ChatView: View {
                     .padding(.vertical, 12)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                // kosmos#7265: the thread opens on its newest message whatever the rows' heights (iOS 18 and later).
-                .modifier(OpensAtBottom(long: openedLong ?? OpensAtBottom.isLong(loaded), active: opening && !searchMode, stillOpening: { opening && !searchMode }, touched: { opening = false }))
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     proxy.scrollTo("end", anchor: .bottom)
-                    // kosmos#7265: the opening window (OpensAtBottom keeps a long thread at its bottom edge while it lasts).
-                    if openedLong == nil { openedLong = OpensAtBottom.isLong(loaded) }   // review 6: the first appear only (a return keeps it)
-                    let gen = openingGen
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { if openingGen == gen { opening = false } }
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
                     // person would (nothing in the simulator can scroll here).
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
                         // Twice: the first reaches the top and loads a page; the second shows what landed above.
                         for at in [3.0, 6.0] {
-                            // Review 5: a person's scroll ends the opening window (a drag), so the stand-in does too.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + at) { opening = false; withAnimation { proxy.scrollTo("top", anchor: .top) } }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + at) { withAnimation { proxy.scrollTo("top", anchor: .top) } }
                         }
                     }
                     #endif
@@ -668,7 +647,6 @@ struct ChatView: View {
         guard !searchMode, let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
         else { return }
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
-        opening = false   // kosmos#7265: a reader at the top has left the newest message
         earlier = start
         let opened = epoch
         Task {
@@ -1682,70 +1660,9 @@ extension Palette {
     static let pillStroke = pair(0xe3e1dc, 0x000000, lightAlpha: 1, darkAlpha: 0)
 }
 
-/* kosmos#7265 (Josh, 10-26: a long DM opened in the middle). The one jump to "end" on open lands short in a long chat,
-   because the rows below are only estimated until drawn (measured 10-26 on the simulator, 5 opens each: jumps alone 0 of
-   5; the initial-offset anchor alone a blank thread 3 of 5, since the rows arrive after the first layout). The thread
-   starts at its bottom and, only while opening, stays there as its rows load and size. After that the size-change
-   anchor is off, so a row growing or arriving never moves what the person is reading, and a short chat is not
-   bottom-aligned. iOS 18's role-scoped forms; iOS 16 and 17 open as before (a stated limit). */
-private struct OpensAtBottom: ViewModifier {
-    // A thread that fits on the screen opens as on main: the anchors put a short chat's first line 346 px lower than main
-    // (measured 10-26 and in round 6), so it is left exactly as main has it. Review 3 (round 3): the bug follows height,
-    // not count, so a thread is long by its rows OR by its text (15 multi-paragraph replies do not fit a phone screen).
-    static let longThread = 30
-    static let longText = 3000
-    static func isLong(_ rows: [Board.ChatRow]) -> Bool {
-        rows.count >= longThread || rows.reduce(0) { $0 + $1.text.count } >= longText
-    }
-    let long: Bool
-    let active: Bool
-    // Read when a jump fires, not when the view was built (the window can end in between).
-    let stillOpening: () -> Bool
-    // Review 2: the person's own scroll (a drag; .interacting) ends the opening window, so no jump pulls them back.
-    let touched: () -> Void
-    func body(content: Content) -> some View {
-        // `long` picks the anchors, never the branch: a thread that grows past the threshold as older pages load must not
-        // swap the view (that would rebuild the scroll view and lose the reader's place).
-        if #available(iOS 18.0, *), !ChatView.sampleNoFix {
-            content.modifier(EdgeOpen(long: long, active: active, stillOpening: stillOpening, touched: touched))
-        } else {
-            content
-        }
-    }
-}
-
-/* kosmos#7265. A long thread opens with the initial-offset anchor at its bottom; while the opening window lasts the
-   size-change anchor and jumps to the bottom edge (ScrollPosition.scrollTo(edge:)) keep it there as rows are measured.
-   Measured on the simulator, 5 opens of a 260-message chat of varied lengths, newest message read at 4 s and 10 s:
-   this form (round 10) 10 of 10 on the newest, no blank thread; without the fix 1 of 10. Without the initial-offset
-   anchor (rounds 7 to 9) every open stopped at message 255, as main does; the anchor alone once drew a blank thread
-   (10-26), which the jumps here cover. A drag ends the window. Review 4: an animated scroll does not, because the
-   app's own animated scrolls (following a new message) report it too and would end the window early; so a status-bar
-   tap or a VoiceOver scroll in the first 3.6 s is pulled back to the newest message (a stated limit). */
-@available(iOS 18.0, *)
-private struct EdgeOpen: ViewModifier {
-    let long: Bool
-    let active: Bool
-    let stillOpening: () -> Bool
-    let touched: () -> Void
-    @State private var position = ScrollPosition()
-    func body(content: Content) -> some View {
-        // Round 14: no initial-offset anchor (it drew a blank chat in 2 of 5 opens, round 13); the eager tail lets the
-        // jumps land instead.
-        content.scrollPosition($position)
-            .defaultScrollAnchor(long && active ? .bottom : nil, for: .sizeChanges)
-            .onScrollPhaseChange { _, phase in if phase == .interacting { touched() } }
-            .onAppear {
-                guard long else { return }   // a short thread opens exactly as on main (round 7)
-                for at in stride(from: 0.0, through: 3.3, by: 0.3) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + at) { if stillOpening() { position.scrollTo(edge: .bottom) } }
-                }
-            }
-    }
-}
-
 extension ChatView {
-    // kosmos#7265, a Debug build only: KOSMOS_SAMPLE_NOFIX=1 turns the fix off, so one build shows both arms.
+    // kosmos#7265, a Debug build only: KOSMOS_SAMPLE_NOFIX=1 draws every row lazily, as before the fix, so one build shows
+    // both arms.
     #if DEBUG
     static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
     #else
