@@ -53,3 +53,11 @@ CLIs, and refusing is its safe side; the full suite is the measurement.
 2. (sonnet, 01:4x CDT) No BLOCKERs, WARNINGs or CONVENTIONs; 3 NITs. Applied: (N) the NOT SEEN comment in
    tool-guard.js was left broken mid-sentence by my line edit; reflowed. Deferred: (N) keyword words (if, then, {) are
    returned, documented in the header and ignored by both guards; (N) the double file check (as round 1). Converged.
+
+## After the PR opened: Windows (Homer, 02:4x CDT, on his box)
+All 87 engine win32 tests and tools.windows-tests-schtasks-7247 pass with the shared reader under the schtasks preload. Two
+tool-guard arms of tools.command-words-7262.test.js failed there: tool-guard's verdict is POSIX-shaped (a path needs a
+'/'; a bare name needs an executable file on PATH, and the stub is a #!/bin/sh file). Windows runs never preload
+tool-guard (tools/windows-tests.js loads only the schtasks preload), so this is a test-only gap, not a guard gap there.
+Call (Homer's suggestion): those arms skip on win32, the schtasks arms run there, and the file is added to ALSO_ROOT.
+engine/windows-tests-1777.test.js requires that entry: measured, removing it reds that test naming this file.

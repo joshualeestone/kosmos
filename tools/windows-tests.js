@@ -100,7 +100,8 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
   'test-support.remove-tree.test.js',
   'tools.cleanup-fixture-tokens-5418.test.js',   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
-  'engine.reachable.test.js'];   // #5548: its caller keys are posix so a module is not its own caller; measured red here before
+  'engine.reachable.test.js',   // #5548: its caller keys are posix so a module is not its own caller; measured red here before
+  'tools.command-words-7262.test.js'];   // #7262: the shared reader's schtasks arms run here; its tool-guard arms skip (not loaded on Windows)
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {

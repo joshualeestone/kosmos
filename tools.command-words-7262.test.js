@@ -18,6 +18,10 @@ const { callRuns, commandRuns } = require('./tools/lib/schtasks-call.cjs');
 const { realToolInScript, refusedCall } = require('./test-support/tool-guard');
 
 const b64 = (s) => Buffer.from(s, 'utf16le').toString('base64');
+/* tool-guard's verdict is POSIX-shaped: a word is a path only when it has a '/', and a bare name resolves only to an
+   executable file on PATH. A Windows run never preloads it (tools/windows-tests.js loads only the schtasks preload), so
+   on win32 its arms here are skipped and the schtasks arms still run (measured on Homer's box, 10-27). */
+const TOOL_GUARD_HOST = process.platform !== 'win32';
 
 test('#7262: the words a call runs are the ones in command position, not its arguments', () => {
   assert.deepEqual(lineWords('X=1 nohup gh auth status'), ['nohup', 'gh']);
@@ -76,7 +80,7 @@ const fill = (shape, p) => {
   return typeof shape === 'string' ? one(shape) : [one(shape[0]), shape[1].map(one), shape[2]];
 };
 
-test('#7262: tool-guard judges a BARE name by the call\'s PATH through the shared reader (review 1)', () => {
+test('#7262: tool-guard judges a BARE name by the call\'s PATH through the shared reader (review 1)', { skip: !TOOL_GUARD_HOST && 'tool-guard is not loaded on Windows, and a #!/bin/sh stub is not a Windows executable' }, () => {
   const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cmdwords-7262-path-'));
   fs.writeFileSync(path.join(stub, 'gh'), '#!/bin/sh\n');
   fs.chmodSync(path.join(stub, 'gh'), 0o755);
@@ -110,7 +114,7 @@ test('#7262: both guards give the same answer for every call shape (the readers 
       const sched = typeof s === 'string' ? commandRuns(s) : callRuns(s[0], s[1], s[2]);
       const tool = (typeof t === 'string' ? realToolInScript(t) : refusedCall(t[0], t[1], t[2])) === 'gh';
       assert.equal(sched, runs, `schtasks guard on ${label}`);
-      assert.equal(tool, runs, `tool guard on ${label}`);
+      if (TOOL_GUARD_HOST) assert.equal(tool, runs, `tool guard on ${label}`);
     }
   } finally {
     delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
