@@ -12287,11 +12287,27 @@ const server = http.createServer(async (req, res) => {
            safe; without them (an older tunnel) nothing changes. Another device can still remove this one. A Devices row's
            id is always a device id, byte for byte the session's device (PigeonPete, measured on kosmos-relay
            devices.rs list, and pinned by a tunnel test), so x-kosmos-session-device is the one that matches; the key
-           header never equals a row id and is compared only as a harmless extra. */
+           header never equals a row id and is compared only as a harmless extra.
+           Follow-up (PigeonPete, sessdevice-7285): a key records at most 16 device ids, so this browser's own id can drop
+           off its key's list while its session lives on by the key, and removing a SIBLING row held by the same key
+           locks it out just the same. So a row whose key (from the tunnel's list) equals the key header is refused too.
+           A row with no key, or no key header, falls back to the device id alone. A list that cannot be read when a key
+           header is there refuses: here we cannot tell, and refusing only stops a removal. */
         if ((verb === 'remove' || verb === 'deny') && id && isRemoteRequest(req) && cloudMachine.isCloudMachine()) {
           // Every piece of a comma-joined copy counts (review 1): a header can only make this refuse, so more is safer.
           const own = (h) => { const v = req.headers[h]; return typeof v === 'string' ? v.split(',').map((x) => x.trim()).filter(Boolean) : []; };
-          if (own('x-kosmos-session-key').includes(id) || own('x-kosmos-session-device').includes(id)) {
+          const ownKeys = own('x-kosmos-session-key');
+          let sameKey = false;
+          if (ownKeys.length && !ownKeys.includes(id) && !own('x-kosmos-session-device').includes(id)) {
+            const listed = await remote.devicesList().catch(() => ({ ok: false }));
+            if (!listed || !listed.ok) {
+              sendJson(res, 409, { code: 'own_device_cloud_unknown', cloud: true, error: 'We could not check that this is not the browser you are using to reach this Kosmos cloud machine, so it is not removed or turned away from here. Try again in a moment, or use another phone or browser.' });
+              return;
+            }
+            const row = (listed.data && Array.isArray(listed.data.devices) ? listed.data.devices : []).find((d) => d.device_id === id);
+            sameKey = !!(row && row.key && ownKeys.includes(row.key));
+          }
+          if (sameKey || ownKeys.includes(id) || own('x-kosmos-session-device').includes(id)) {
             sendJson(res, 409, { code: 'own_device_cloud', cloud: true, error: 'This is the browser you are using to reach this Kosmos cloud machine, so it is not removed or turned away from here: you would have no way back. Use another phone or browser to remove it.' });
             return;
           }
