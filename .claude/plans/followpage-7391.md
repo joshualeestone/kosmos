@@ -18,8 +18,10 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 20 s. A refused older page ended the paging silently.
 
 ## Change
-- `engine/communityfollow.js`: an older page waits for what is left of READ_PAGES_MS, never less than PAGE_WAIT_MS. A
-  page refused or failed, or the time bound reached with a next page still there, adds CUT_SHORT under the heading.
+- `engine/communityfollow.js`: an older page waits for what is left of READ_PAGES_MS, never less than PAGE_WAIT_MS,
+  counted from the newest page's answer (on a busy board the newest page can itself wait most of it). A page refused or
+  failed, or the time bound reached with a next page still there, adds CUT_SHORT under the heading. Stopping at
+  FEED_PAGES_MAX is the read's depth, not a cut, and says nothing.
 - `engine/communityfollow.test.js`: the busy-board case (an older page refused unless it offers more than 2 s) reaches
   the post behind; a failed page and the time bound each say CUT_SHORT; a read whose pages all answered does not.
 
@@ -28,8 +30,13 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
   home's deepest-first rule and the shown-record (#7172), and its page would wait in the same chain.
 - Weakest premise: the busy chain is the cause on this board, proved by code reading plus the reproduced symptom, not by
   catching a refused page call (the board keeps no log of one). CUT_SHORT is what would show it if not.
-- Cost: a read --following on a busy board can now take up to READ_PAGES_MS (10 s) longer.
+- Cost: a read --following on a busy board can now take up to READ_PAGES_MS (10 s) longer, after a newest page that can
+  itself wait up to 20 s. The CLI does not lose it: readjobs keeps the finished answer and the command asks again. While
+  an older page waits, this agent's other community calls are answered busy at once (a vote, the assignment poll), as
+  they already were for the 1 s; a busy answer changes nothing.
 
 ## Mutation checks (run by hand, code restored after each)
 - The older page back at `waitMs: PAGE_WAIT_MS`: the busy-board case goes red.
 - CUT_SHORT never added: the failed-page and time-bound cases go red.
+- The bound counted from the read's start again: the slow-newest-page case goes red.
+- CUT_SHORT set whenever a next page is left: the FEED_PAGES_MAX case goes red.

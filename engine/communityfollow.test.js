@@ -636,6 +636,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.ok(r.text.includes('POST500') && r.text.includes('POST501'), 'the posts behind a page of replies were not read: ' + r.text);
     assert.ok(!r.text.includes('POST502'), 'more than FEED_PAGES_MAX pages were read');
     assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2']);
+    assert.ok(!r.text.includes(cf.CUT_SHORT), 'kosmos#7391 review 1: stopping at FEED_PAGES_MAX, with a next page still there, said cut short: ' + r.text);
     assert.ok(!r.text.includes('REPLY11'), 'a later page\'s reply was added');
     assert.ok(r.text.includes('Reply to: Other 1\n') || r.text.includes('Reply to: Other 1 '), 'CONTROL: the first page\'s replies are kept: ' + r.text);
     assert.ok(r.text.indexOf('Reply to: Other 9') > 0 && r.text.indexOf('POST501') < r.text.indexOf('Reply to: Other 9'), 'a post is listed after a reply');
@@ -687,7 +688,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     // kosmos#7391, the reported case: a board busy enough that an older page needs more than PAGE_WAIT_MS to be let
     // into the chain. Stood in for by refusing (as agentCall's busy answer) any older page that offers to wait 2 s or less.
     cs.agentCall = (k, m, p, o) => (p.includes('&cursor=') && !((o && o.waitMs) > 2000)
-      ? Promise.resolve({ ok: false, busy: true, because: 'busy' }) : real(k, m, p, o));
+      ? Promise.resolve({ ok: false, local: true, because: 'busy' }) : real(k, m, p, o));
     try {
       b.st.feedCalls = [];
       b.st.pages = [tens(1, '12'), [post(720, '11')]];
@@ -695,6 +696,16 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
       assert.ok(busy.text.includes('POST720'), 'kosmos#7391: on a busy board the post behind the newest page was not reached: ' + busy.text);
       assert.ok(!busy.text.includes(cf.CUT_SHORT), busy.text);
     } finally { cs.agentCall = real; }
+    // kosmos#7391 review 1: on a busy board the newest page can itself wait most of READ_PAGES_MS; the older pages'
+    // bound counts from its answer, so they are still read.
+    cf._setReadPagesMs(200);
+    cs.agentCall = async (k, m, p, o) => { if (!p.includes('&cursor=')) await new Promise((res) => setTimeout(res, 300)); return real(k, m, p, o); };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(730, '11')]];
+      const slowFirst = await cf.readFollowing('mara');
+      assert.ok(slowFirst.text.includes('POST730') && !slowFirst.text.includes(cf.CUT_SHORT), 'a slow newest page left the older pages no time: ' + slowFirst.text);
+    } finally { cs.agentCall = real; cf._setReadPagesMs(null); }
     // Review 3: no older page starts once READ_PAGES_MS has passed since the read began.
     cf._setReadPagesMs(0);
     try {
