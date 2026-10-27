@@ -1716,7 +1716,14 @@ test('#7232 review 4-1: a drive mapped to a folder below a share names that fold
   for (const L of ['X', 'W', 'V', 'U']) assert.equal(t.get(L).share, null, L);
 });
 
-test('#7232 review 4-1: another agent\'s project on a drive mapped below a share is passed over for a local file, and judged by that folder', winOnly, () => {
+test('#7232 review 5: a device or extended-length spelling (\\\\?\\, \\\\.\\) is never a share the table names', () => {
+  const t = windrives.parseForTests('Z\t4\t\\\\?\\C:\\x\r\nY\t4\t\\\\.\\pipe\\x\r\nX\t4\t\\\\srv\\s\r\n');
+  assert.equal(t.get('Z').share, null, 'a \\\\?\\ spelling names no share');
+  assert.equal(t.get('Y').share, null, 'a \\\\.\\ spelling names no share');
+  assert.equal(t.get('X').share, '\\\\srv\\s', 'CONTROL: a plain share is still named');
+});
+
+test('#7232 review 4-1: another agent\'s project on a drive mapped below a share is passed over for a local file, and is attached rather than refused unplaced', winOnly, () => {
   const own = ownProject('own7232-r4');
   PROJECTS = [
     { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },

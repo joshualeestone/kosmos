@@ -141,10 +141,22 @@ Seams added: windrives.setLearnForTests (clock and learner), scriptForTests; bot
 ### Review 4 (decided, all fixed; each with a test that fails on 4f29e56887)
 1. WARNING, a drive mapped to a folder below a share (net use Z: \\srv\share\sub): cleanShare now accepts
    \\host\share(\part)* with no empty, '.' or '..' part and no U+FFFD, so the letter is placed (onShareOf joins the
-   rest on; mayHold/shareTail compare the whole path, \sub included) instead of refusing every project file as
-   unplaced. The review 1 test that called \\srv\s\below unnameable now uses \\srv\s\..\x.
+   rest on) instead of refusing every project file as unplaced. (Review 5: a drive-table leadsTo is used only for a
+   local file, where skippedMayHold returns before any share-tail compare, so no sub-path is ever compared; the test
+   proves the attach is no longer refused unplaced, nothing more.) The review 1 test that called \\srv\s\below unnameable now uses \\srv\s\..\x.
 2. NIT, isThisComputer's numeric rule: only a host that contains a digit and parses inet_aton-style (1 to 4 parts,
    each decimal, 0x hex or 0 octal) and is not a plain four-part address counts as maybe-this-computer; dc1, db01,
    cafe are names.
 3. NIT, known(): asks the table itself (current(), the refresh step split out of driveInfo), never a letter, so a
    computer with no C: does not spend the one unlisted-letter re-learn.
+
+### Review 5 (no blocker, no warning: converged)
+- NIT: cleanShare refuses a host part starting '?' or '.' (\?\C:\x, \.\pipe\x are device spellings, never a share). Test fails without it.
+- NIT: Review 4 item 1's wording and the 4-1 test name claimed a sub-path compare that no live path makes; corrected.
+
+### Round summary (for the proof)
+- Round 1: [BLOCKER] mis-decoded share names let a nested file through --> FIXED (UTF-8, malformed shares unknown). [BLOCKER] keptRoots skipped an agent whose share is unknown --> FIXED. [WARNING] table kept for ever on failed refresh --> FIXED (120 s drop). [WARNING] absent-then-subst letter --> FIXED (walked as main). [WARNING] this-computer names --> FIXED. [NIT] one re-learn per refresh --> FIXED.
+- Round 2: no blocker. [WARNING] two shares of one server, same folder --> FIXED (spelling skip only for a local file). [WARNING] remembered unavailable mapping read absent --> FIXED. [NIT] x3 --> FIXED.
+- Round 3: [BLOCKER] stale share on a now-local letter --> FIXED (share overrides only types 0/1/4). [WARNING] redirector failing refused board-wide --> FIXED (!ENUM_FAILED -> unknown; exposed the $e.Count() bug). [WARNING] local link onto a dead drive stalled keptRoots --> FIXED. [NIT] blocking re-learn --> FIXED (background).
+- Round 4: no blocker, no fail-open. [WARNING] drive mapped below a share refused board-wide --> FIXED. [NIT] hex host names --> FIXED. [NIT] known() spent a re-learn --> FIXED.
+- Round 5: no blocker, no warning. [NIT] device spellings as shares --> FIXED. [NIT] wording --> FIXED.

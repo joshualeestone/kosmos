@@ -55,6 +55,8 @@ const now = () => (testLearn && testLearn.now ? testLearn.now() : performance.no
 function cleanShare(s) {
   const v = String(s || '').trim();
   if (!/^\\\\[^\\/\uFFFD]+(?:\\[^\\/\uFFFD]+)+$/.test(v)) return null;
+  // Review 5: a host part starting '?' or '.' is a device or extended-length spelling (\\?\C:\x, \\.\x), never a share.
+  if (/^\\\\[?.]/.test(v)) return null;
   return v.slice(2).split('\\').some((p) => p === '.' || p === '..') ? null : v;
 }
 /* DriveType 4 is Network; 0 (Unknown) and 1 (NoRootDirectory) are absent; anything else is local to this computer.
