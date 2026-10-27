@@ -472,7 +472,7 @@ whats_new_gate() {
 # to be where that was found, with the machine claimed. Quiet when it passes (1b-ii prints the result); 1b-ii still runs,
 # since the checkout can move during the waits. KOSMOS_CUT_NO_WHATS_NEW=1 skips both, as before.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ] && ! whats_new_gate quiet >/dev/null; then
-  echo "release: stopped before marking the cut or claiming the machine (kosmos#7349): step 1b-ii's What's New check refuses $V (above). If it says prod serves a newer version than the pool records (a prod promote since the last build): node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again (if that build is already on origin/main, fast-forward this checkout instead). Otherwise fix what it names. Nothing was claimed, bumped or built." >&2
+  echo "release: stopped before marking the cut or claiming the machine (kosmos#7349): step 1b-ii's What's New check refuses $V (above). If it says prod serves a newer version than the pool records (a prod promote since the last build): node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again (if that build is already on origin/main, fast-forward this checkout instead). Otherwise fix what it names, and check this checkout is an up-to-date main (step 1, which says so, comes after this check). Nothing was claimed, bumped or built." >&2
   exit 1
 fi
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes

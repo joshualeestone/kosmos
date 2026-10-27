@@ -75,3 +75,12 @@ waits, not before the hold. The docs line and the promote hint are what reach th
      step 8 and verifies what is served at step 9 before it reaches its end.
    - NIT not taken: the opt-out arm's empty-log assertion relies on the sandbox dying at step 1; if a future sandbox gets
      past 1b-ii the arm reds loudly (the safe direction), so it is noted rather than changed.
+5. (default, 11:1x CDT) 0 BLOCKERs, 0 WARNINGs, 4 NITs. The reviewer re-proved six earlier claims by mutating a copy
+   (all red as recorded) and three of its own.
+   - NIT applied: no promote hint on a rollback (--allow-older), where prod-check passes and a build records nothing
+     (pinned; mutation-proven).
+   - NIT applied: the early refusal also says to check this checkout is an up-to-date main, since step 1 (which says
+     so) now comes after this check.
+   - NIT applied: the two 1b-ii pins skip a commented-out call (mutation-proven: commenting it out reds both).
+   - NIT not changed: the promote hint has only a structural pin; the promote fixtures never print that line. Said here
+     so nobody reads the pin as a behaviour test.
