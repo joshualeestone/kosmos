@@ -5475,6 +5475,7 @@ function sendFileDownload(req, res, found, recheck) {
   fs.open(found.target, flags, (openErr, fd) => {
     if (openErr) { refuseDownload(req, res, openErr.code === 'ENOENT' || openErr.code === 'ELOOP' ? DOWNLOAD_GONE : DOWNLOAD_UNREADABLE); return; }
     fs.fstat(fd, (statErr, st) => {
+      if (!statErr) st = projects.exactOpenedStat(st, fd);   // #7229: the exact id of this descriptor on Windows
       const again = statErr ? null : recheck();
       if (statErr || !projects.sameOpenedFile(found.st, st) || !again || !again.ok || again.target !== found.target) {
         fs.close(fd, () => {});
@@ -5607,7 +5608,7 @@ async function writeZipEntries(res, folder, where, maxDepth, entries) {
     if (!gate.ok || !projects.sameOpenedFile(e.st, gate.st) || gate.st.size !== e.size) throw changed();
     const fh = await fs.promises.open(gate.target, flags);
     try {
-      const st = await fh.stat();
+      const st = await projects.exactOpenedStatAsync(await fh.stat(), fh);   // #7229: the exact id on Windows
       if (!projects.sameOpenedFile(gate.st, st) || st.size !== e.size) throw changed();
       // The CRC first (the local header carries it), then the bytes, CRC'd again: a file rewritten in between is caught.
       const scratch = Buffer.alloc(Math.min(ZIP_CHUNK, Math.max(1, e.size)));

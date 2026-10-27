@@ -2500,9 +2500,9 @@ function recordGuardState(agentName, r, deps = {}) {
                stays). Residual: a launch renaming in between that check and the removal; a window of microseconds that
                needs a cut-off line to start with. */
             let seen = null;
-            try { seen = fs.statSync(file).ino; } catch { seen = null; }
+            try { seen = fs.statSync(file, { bigint: true }).ino; } catch { seen = null; }   // #7229: exact on Windows
             if (seen !== null && !readableGuardLine(file)) {
-              try { if (fs.statSync(file).ino === seen) fs.unlinkSync(file); } catch { /* gone */ }
+              try { if (fs.statSync(file, { bigint: true }).ino === seen) fs.unlinkSync(file); } catch { /* gone */ }
               try { fs.linkSync(tmp, file); } catch (e2) { if (!(e2 && e2.code === 'EEXIST')) throw e2; }
             }
           }
