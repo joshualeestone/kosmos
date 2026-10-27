@@ -3184,6 +3184,15 @@ function noteLimitRows(agent, text, nowMs) {
     seen.last = Math.max(seen.last, now);
     const newFooter = [...here].some((f) => !seen.footers.has(f));
     for (const f of here) seen.footers.add(f);
+    /* kosmos#7264 (review 2): a late entry is retired by its own sighting (retireResetLimits), so a NEW limit printing
+       the same words must not inherit it, or it would read as already reset while it binds. A turn footer this entry
+       has not seen, on a capture that is not itself a first one, is a limit the board watched arrive: the entry is
+       timed from now, as any row seen arriving. A redraw copies the old footer, so it never re-times; and a footer
+       revealed by scrolling up re-times toward later, never earlier (the safe way). */
+    if (seen.late && newFooter && !firstCapture) {
+      limitFirstSeen.set(key, { at: now, last: now, count, late: false, footers: seen.footers });
+      continue;
+    }
     /* More rows than before is a NEW limit only when one could have appeared and the new row ended a NEW turn
        (reviews 3 and 5): a SESSION limit, timed, its reset passed (the next day's limit can print the same words), and a
        turn footer under its rows this entry has not seen. A redraw (a resize reprinting the transcript) copies the old
@@ -3219,7 +3228,7 @@ function limitFirstSeenOf(agent, text) {
 function limitRetireFromOf(agent, text) {
   const key = limitRowKey(agent, text);
   const seen = key ? limitFirstSeen.get(key) : null;
-  return seen ? { at: seen.at, late: seen.late === true, count: Number(seen.count) || 0 } : null;
+  return seen ? { at: seen.at, late: seen.late === true } : null;
 }
 /* kosmos#7264: whether a dateless reset line can be read at all (a real clock time, in a zone this runtime knows), so a
    late row given no time because its next reset is beyond the span is told apart from one that cannot be read. */
@@ -3326,7 +3335,7 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
     if (resetAt === null && typeof firstSeenOf === 'function') {
       let first = null;
       try { first = firstSeenOf(row); } catch { first = null; }
-      // A number, or (limitRetireFromOf) { at, late, count }.
+      // A number, or (limitRetireFromOf) { at, late }.
       const late = first !== null && typeof first === 'object' && first.late === true;
       const at = first !== null && typeof first === 'object' ? first.at : first;
       if (Number.isFinite(at)) {
@@ -3334,9 +3343,9 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
         /* kosmos#7264: a row seen late (on screen before the board's sighting) whose clock time does not come round
            again within its span after the sighting cannot still be binding, since no limit outlasts its span: its reset
            was before the sighting, so it is retired at the sighting. Not for a row this cannot read (an unknown zone:
-           kept, as before), and not while two rows on screen share this record (count > 1): a new limit printed with
-           the same reset time beside a stale one would read as the stale one's, and be lifted while it binds. */
-        if (resetAt === null && late && limitTimeOnlyReadable(row) && first.count <= 1) resetAt = at - RESET_GRACE_MS;   // passed long before: no grace owed
+           kept, as before). A new limit with the same words is not this row: noteLimitRows re-times the entry when a
+           turn footer it has not seen arrives, so it is no longer late. */
+        if (resetAt === null && late && limitTimeOnlyReadable(row)) resetAt = at - RESET_GRACE_MS;   // passed long before: no grace owed
       }
     }
     if (!superseded && (resetAt === null || now < resetAt + RESET_GRACE_MS)) return;

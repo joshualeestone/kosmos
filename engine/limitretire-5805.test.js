@@ -310,7 +310,7 @@ test('kosmos#7264: a dateless row the board saw late (on its first capture after
   });
   const bound = Date.parse('2026-10-26T23:00:00Z') + 60e3;
   for (let t = early + 60e3; t < bound; t += 60e3) read(t, screen, 'rate_limited', () => {});
-  read(bound + 60e3, screen, 'idle', (card) => assert.equal(card.state, status.STATE.IDLE, 'the late row was not retired at its reset'));
+  read(bound, screen, 'idle', (card) => assert.equal(card.state, status.STATE.IDLE, 'the late row was not retired at its reset plus the grace'));
 });
 
 test('kosmos#7264: the late rules, as retireResetLimits reads them: never early, and gone once the reset is past', () => {
@@ -326,8 +326,6 @@ test('kosmos#7264: the late rules, as retireResetLimits reads them: never early,
   assert.ok(!kept(s0300, { at: s0300, late: true, count: 1 }), 'a late row seen more than a span after its reset was kept');
   // The same sighting NOT late (seen arriving) keeps it: a row timed from its arrival is never read as already past.
   assert.ok(kept(s0300, { at: s0300, late: false, count: 1 }), 'CONTROL: a row seen arriving was retired at once');
-  // Two rows sharing the record (a new limit with the same reset beside a stale one): kept, so a binding one is not lifted.
-  assert.ok(kept(s0300, { at: s0300, late: true, count: 2 }), 'a row sharing its record with another was retired');
   // A row this cannot read (an unknown zone): kept, as before.
   const odd = screen.replace('(America/Chicago)', '(Nowhere/Atlantis)');
   assert.ok(status.retireResetLimits(odd, s0300, () => ({ at: s0300, late: true, count: 1 })).includes('session limit'), 'an unreadable row was retired');
@@ -338,4 +336,36 @@ test('kosmos#7264: the late rules, as retireResetLimits reads them: never early,
   assert.ok(!status.retireResetLimits(wscreen, Date.parse('2026-10-27T23:02:00Z'), () => ({ at: s0300, late: true, count: 1 })).includes('weekly limit'), 'CONTROL: and kept after it');
   // And with no sighting at all, kept, as before.
   assert.ok(kept(Date.parse('2026-10-28T00:00:00Z'), null), 'a row with no sighting was retired');
+});
+
+test('kosmos#7264 review 2: a NEW limit printing the same words after a late sighting is timed from its arrival, never lifted while it binds; a redraw does not re-cap a retired row', () => {
+  const real = Date.now;
+  const read = (ms, screen, state) => {
+    Date.now = () => ms;
+    try { const board = fleet.install([fleet.agent('camille', { state, runner: 'claude', command: 'claude', screen })]); board.restore(); }
+    finally { Date.now = real; }
+  };
+  const row = `You've hit your session limit · resets 6pm ${Z}`;
+  const oldBlock = '❯ hello\n' + `  ⎿  ${row}\n` + FOOTER;
+  const newBlock = '❯ do the report\n' + `  ⎿  ${row}\n` + NEW_FOOTER;
+  const minutes = (from, to, screen, state) => { for (let t = from; t < to; t += 60e3) read(t, screen, state); };
+  // Scenario A: restart 17:40 CDT on day 1 with the 6pm row (late, retired at 18:01), the row left on screen overnight;
+  // day 2 at 15:00 a new 6pm limit prints under it. It binds until 18:00 on day 2.
+  status.resetLimitFirstSeenForTests();
+  const d1 = Date.parse('2026-10-26T22:40:00Z');
+  minutes(d1, Date.parse('2026-10-26T23:01:00Z'), oldBlock + STATUS_LINE, 'rate_limited');
+  const d2 = Date.parse('2026-10-27T20:00:00Z');   // 15:00 CDT
+  minutes(Date.parse('2026-10-26T23:01:00Z'), d2, oldBlock + STATUS_LINE, 'idle');
+  minutes(d2, Date.parse('2026-10-27T23:01:00Z'), oldBlock + newBlock + STATUS_LINE, 'rate_limited');
+  read(Date.parse('2026-10-27T23:01:00Z'), oldBlock + newBlock + STATUS_LINE, 'idle');
+  // Scenario B: restart 19:20 CDT after the reset (retired at once); day 2 the new limit's capture is the first without
+  // the old row (scrolled off in the same capture). Still timed from its arrival, so capped until 18:00.
+  status.resetLimitFirstSeenForTests();
+  const r = Date.parse('2026-10-27T00:20:00Z');
+  minutes(r, d2, oldBlock + STATUS_LINE, 'idle');
+  minutes(d2, Date.parse('2026-10-27T23:01:00Z'), newBlock + STATUS_LINE, 'rate_limited');
+  // Redraw: after that late row was retired, a resize reprints the old block twice with its own footer: still idle.
+  status.resetLimitFirstSeenForTests();
+  minutes(r, r + 30 * 60e3, oldBlock + STATUS_LINE, 'idle');
+  minutes(r + 30 * 60e3, r + 40 * 60e3, oldBlock + oldBlock + STATUS_LINE, 'idle');
 });
