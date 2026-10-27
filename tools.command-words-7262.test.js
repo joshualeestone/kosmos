@@ -105,7 +105,8 @@ const fill = (shape, p) => {
 };
 
 test('#7262: fill substitutes the program once, so an encoded row survives a base64 that contains P', () => {
-  // A temp-shaped path whose encoded row holds a capital P (found by search; about 1 in 26 such paths does).
+  // A temp-shaped path whose encoded row holds a capital P, found by search (3 to 4% of random temp paths do: 614 of
+  // 20,000 in review, 77 of 2,000 on Homer's box).
   const p = '/tmp/aw-cmdwords-7262-Oa/gh';
   assert.ok(b64(`${p} x`).includes('P'), 'the planted path no longer encodes with a capital P, so this test proves nothing');
   const [, args] = fill(['pwsh', ['-EncodedCommand', 'ENC(P x)']], p);
