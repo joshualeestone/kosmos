@@ -24,6 +24,20 @@ padding; opening the keyboard at the newest message keeps it in view. Not "solve
    only because atBottom was wrong; #7265 fixes atBottom. Weakest premise: not measured with a keyboard on the
    simulator (it cannot type); the phone build is the check.
 
+## Decided in review (trade-offs, not defects)
+
+- The Send key arrives as a new line typed into the box, so anything else that types one new line at the caret (a
+  dictated "new line", Shift-Return on a hardware keyboard) also sends. Josh asked for the Send key to send and the
+  text cannot tell them apart. Pastes with words after their new line keep their breaks.
+- The #7348 refill guard clears the box jumping from empty to exactly the text just sent, for 5 s. A deliberate
+  re-entry of the same text in that window (the same emoji again) is cleared too; it costs a retype, and the late
+  keyboard refill Josh hit is the common case.
+- Files with no words go with the keyboard's Send (VoiceOver: the Send action). No on-screen hint after a photo pick;
+  Mona Lisa's design has no arrow. Revisit if Josh misses it on the phone.
+- iOS 16 only: the eager newest rows keep their first row while the chat stays open, so the stack grows with each
+  message until the chat is reopened. iOS 17+ has no eager stack.
+- A blocked Send's reason line stays until the box changes or the next send.
+
 ## Verify
 
 LogicTests run.sh (1391), run-composer.sh (59), run-room.sh (425), typecheck for iOS 16 simulator, all green after
