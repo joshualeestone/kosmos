@@ -116,13 +116,46 @@ const STEP_CLOCK_MS = 5 * 60 * 1000;
    character (Cf: the bidi marks, embeddings, overrides and isolates, the invisible operators, tag characters) and every
    default-ignorable code point (variation selectors, Hangul fillers and the rest). By category, not by list (review 1:
    a list of the bidi marks and C1 missed U+2061-2064, U+FE00-FE0F, the tags and more, and each let a key show). */
-/* Review 3: combining marks (Mn) and the Braille blank (U+2800) render as nothing too. */
-const STEP_INVISIBLE = /[\p{Cc}\p{Cf}\p{Mn}\p{Default_Ignorable_Code_Point}\u2800]/gu;
-const STEP_INVISIBLE_TEST = /[\p{Cc}\p{Cf}\p{Mn}\p{Default_Ignorable_Code_Point}\u2800]/u;
-/* Review 3: the "removed" copy keeps line breaks and tabs as a space, so lines of an ordinary command (a list of
-   hashes) are not joined into one long token that reads as a key. A key split by a line break is left to secretmask's
-   own line rejoin, as on main. */
-const STEP_HIDDEN_NOT_SPACE = /(?![\t\n\v\f\r])[\p{Cc}\p{Cf}\p{Mn}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+/* Review 3: combining marks (Mn) and the Braille blank (U+2800) render as nothing too; review 4: private use (Co),
+   which some Windows fonts draw as nothing. */
+const STEP_HIDDEN = '\\p{Cc}\\p{Cf}\\p{Mn}\\p{Co}\\p{Default_Ignorable_Code_Point}\\u2800';
+/* Review 4 (cost): the value is read in ONE pass, a run of each kind at a time with a sticky regex (one native match per
+   run, so a megabyte of padding is one step), building the three copies together and stopping each at the cut:
+   - whitespace (JS \\s): one space in all three;
+   - a C0 control or DEL that is not whitespace: a space in what is shown (as before), removed in the "removed" copy;
+   - any other hidden character: kept in what is shown, removed in the "removed" copy, a space in the "spaced" one.
+   Line breaks and tabs are whitespace, so the "removed" copy keeps them as a space and does not join the lines of an
+   ordinary command into one long token (review 3). */
+const RUN_SPACE = /\s+/y;
+const RUN_C0 = /[\u0000-\u0008\u000e-\u001f\u007f]+/y;
+const RUN_HIDDEN = new RegExp('[' + STEP_HIDDEN + ']+', 'uy');
+const RUN_PLAIN = new RegExp('[^\\s\\u0000-\\u001f\\u007f' + STEP_HIDDEN + ']+', 'uy');
+function stepCopies(v, bound) {
+  const outs = [{ t: '', n: 0, sp: false }, { t: '', n: 0, sp: false }, { t: '', n: 0, sp: false }];   // shown, removed, spaced
+  const space = (o) => { if (o.n > 0 && !o.sp && o.n < bound) { o.t += ' '; o.n += 1; o.sp = true; } };
+  const text = (o, run) => {
+    if (o.n >= bound) return;
+    for (const ch of run) { if (o.n >= bound) break; o.t += ch; o.n += 1; }
+    o.sp = false;
+  };
+  let hidden = false;
+  let i = 0;
+  const take = (re) => { re.lastIndex = i; const m = re.exec(v); return m ? m[0] : null; };
+  while (i < v.length && !outs.every((o) => o.n >= bound)) {
+    let run;
+    /* A line break or a tab inside a value counts as hidden too (a newline in a tool name split a key, and the shown text
+       masked only its first half): its copies equal what is shown, so only a value whose shown text masks something is
+       masked whole, never an ordinary list of hashes (review 3). */
+    if ((run = take(RUN_SPACE)) !== null) { if (/[\t\n\v\f\r]/.test(run)) hidden = true; outs.forEach(space); }
+    else if ((run = take(RUN_C0)) !== null) { hidden = true; space(outs[0]); space(outs[2]); }
+    else if ((run = take(RUN_HIDDEN)) !== null) { hidden = true; text(outs[0], run); space(outs[2]); }
+    else if ((run = take(RUN_PLAIN)) !== null) { outs.forEach((o) => text(o, run)); }
+    else { run = String.fromCodePoint(v.codePointAt(i)); outs.forEach((o) => text(o, run)); }   // a lone surrogate
+    i += run.length;
+  }
+  const done = (o) => (o.sp && o.n < bound ? o.t.slice(0, -1) : o.t);
+  return { shown: done(outs[0]), removed: done(outs[1]), spaced: done(outs[2]), hidden };
+}
 /* kosmos#7368: one tool call's step: the shell command it runs in quotes, or the tool and what it acts on. Short, one line,
    masked; never the whole input. */
 function stepOfUse(use) {
@@ -131,7 +164,6 @@ function stepOfUse(use) {
     const input = use.input && typeof use.input === 'object' ? use.input : {};
     /* Masked BEFORE it is cut (review 1 W2): a command can carry a token, and this text reaches the card and the board
        log. Control characters go; the cut is by character, never inside one. */
-    const one = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '');
     const sm = require('./secretmask');
     /* kosmos#7386: a C1 or bidi control inside a secret breaks the mask's patterns, and neither undoing it helps on its
        own: as a space it splits a token the mask would rejoin, removed it joins words a spaced mask needs apart. So a
@@ -141,20 +173,11 @@ function stepOfUse(use) {
        as before; a raw cap keeps the supervisor's loop bounded (review 3 of #7368), and the cut to STEP_MAX * 3 is taken
        AFTER the fold, so padding cannot push half a key past it (review 2). */
     const bound = STEP_MAX * 3;
-    /* The WHOLE value is folded, then cut (review 3: a raw cap before the fold let collapsed padding bring the cut-off
-       front of a key into view). Folding is two linear passes, as on main; only the masking is bounded. */
-    const fold = (t) => {
-      let out = '';
-      let n = 0;
-      for (const ch of one(t)) { if (n++ >= bound) break; out += ch; }
-      return out;
-    };
-    const guarded = (v) => {
-      const shownText = sm.mask(fold(v)).text;
-      if (STEP_INVISIBLE_TEST.test(v)
-          && (sm.mask(fold(v.replace(STEP_HIDDEN_NOT_SPACE, ''))).fired.length
-              || sm.mask(fold(v.replace(STEP_INVISIBLE, ' '))).fired.length)) return sm.MASK;
-      return shownText;
+    /* What is shown is what is checked (review 2): the folded text, cut AFTER the fold (review 3), masked, as on main;
+       a value holding a hidden character is also masked as its two copies, and either firing shows the mask whole. */
+    const guarded = (c) => {
+      if (c.hidden && (sm.mask(c.removed).fired.length || sm.mask(c.spaced).fired.length)) return sm.MASK;
+      return sm.mask(c.shown).text;
     };
     const cut = (t) => {
       const chars = Array.from(t);
@@ -166,12 +189,16 @@ function stepOfUse(use) {
        more (review 2). */
     /* A C0 control inside a key is one of the invisible characters, so the "removed" copy rejoins the key the display
        fold splits (review 1); the display itself is always the folded, masked text (review 2). */
-    const shown = (v) => (one(v) ? guarded(v) : '');
+    const shown = (v) => {
+      if (typeof v !== 'string' || !v) return '';
+      const c = stepCopies(v, bound);
+      return c.shown ? guarded(c) : '';
+    };
     try {
       const cmd = shown(input.command);
       if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
-      const raw = [input.file_path, input.path, input.url, input.pattern, input.query].find((v) => one(v));
-      const target = raw === undefined ? '' : shown(raw);
+      let target = '';
+      for (const v of [input.file_path, input.path, input.url, input.pattern, input.query]) { target = shown(v); if (target) break; }
       const name = shown(use.name);
       if (!name) return null;
       return cut('using ' + name + (target ? ' on ' + target : ''));
