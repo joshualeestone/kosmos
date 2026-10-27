@@ -35,11 +35,10 @@ const streaks = new Map();
 
 /* kosmos#7368: on Windows a message is written into the agent's input and counts as PLACED even while a turn is
    running, so the agent queues it behind that turn, and a turn that never ends holds every later message. The streak
-   above cannot see that (each one landed). So the times messages were placed are kept, per agent, and a turn that has
-   run TURN_STUCK_MS with messages placed since it began is said, with the step it is on. */
+   above cannot see that (each one landed). The agent's own supervisor counts what it queued (win32streamstate's
+   `queued`, kept in its state file), and a step with no sign of activity for TURN_STUCK_MS while something is queued is
+   said here, with the step it is on. */
 const TURN_STUCK_MS = 60 * 60 * 1000;
-const PLACED_KEEP = 200;   // enough to count every message behind one turn; older times only ever fall outside it
-const placedTimes = new Map();   // name -> [ms, ...] oldest first
 
 /* What one verdict was held or refused for, in a word the card and the log can key on. */
 function whyOf(v) {
@@ -56,14 +55,7 @@ function whyOf(v) {
 function note(name, v, now = Date.now()) {
   try {
     if (typeof name !== 'string' || !name || !v || typeof v !== 'object') return;
-    if (v.state === 'placed') {
-      streaks.delete(name);
-      const t = placedTimes.get(name) || [];
-      t.push(now);
-      if (t.length > PLACED_KEEP) t.splice(0, t.length - PLACED_KEEP);
-      placedTimes.set(name, t);
-      return;
-    }
+    if (v.state === 'placed') { streaks.delete(name); return; }
     if (v.busy === true || v.contentRefused === true) return;
     if (v.state !== 'could_not' && v.state !== 'unconfirmed') return;
     const why = whyOf(v);
@@ -93,21 +85,23 @@ function stallOf(name, { now = Date.now(), limitShown = false } = {}) {
   return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy, words: WHY_WORDS[why], next: NEXT_WORDS[why] };
 }
 
-/* kosmos#7368: the card's deliveryStall for a turn that never ends, { since (ISO, when the turn began), count (messages
-   placed since), lastWhy: 'turn', step, words, next }, once `turn` ({ since, step }, from win32streamstate.turnFor) has
-   run TURN_STUCK_MS AND at least one message has been placed behind it; else null. A long turn nothing waits behind
-   harms nobody and is not said. */
+/* kosmos#7368: the card's deliveryStall for a step that never ends, { since (ISO, its last sign of activity), count
+   (messages queued behind it), lastWhy: 'turn', step, words, next }, once `turn` ({ since, step, queued }, from
+   win32streamstate.turnFor) has shown no activity for TURN_STUCK_MS AND has at least one message queued behind it; else
+   null. A long step nothing waits behind harms nobody and is not said. */
 function turnStuckOf(name, turn, { now = Date.now() } = {}) {
   try {
     if (!turn || typeof turn.since !== 'string') return null;
     const since = Date.parse(turn.since);
     if (!Number.isFinite(since) || now - since < TURN_STUCK_MS) return null;
-    const count = (placedTimes.get(name) || []).filter((t) => t >= since).length;
+    const count = Number.isInteger(turn.queued) ? turn.queued : 0;
     if (count < 1) return null;
     const step = typeof turn.step === 'string' && turn.step ? turn.step : null;
-    return { since: new Date(since).toISOString(), count, lastWhy: 'turn', step, words: WHY_WORDS.turn, next: NEXT_WORDS.turn };
+    return { since: new Date(since).toISOString(), count, lastWhy: 'turn', step, words: WHY_WORDS.turn, next: turnNext(count) };
   } catch { return null; }
 }
+/* The way out, worded for how many wait (review 1: "them" for one message). */
+function turnNext(count) { return count === 1 ? 'Restart it to free it, then send that message again' : 'Restart it to free it, then send them again'; }
 
 /* True when a card shows a usage limit itself (its limit reset, a limitFrom reading, or an Antigravity quota or pool
    pause): the one rule both the card field and the board log use. Never throws. */
@@ -147,8 +141,8 @@ const WHY_WORDS = {
   unconfirmed: 'Kosmos typed its messages but did not see them sent',
   refused: 'Kosmos could not type into it',
   unknown: 'Kosmos could not tell why',
-  /* kosmos#7368: the page words this case on its own (the messages did arrive; they wait behind one step), so this is
-     the board log's and the phone's short reason. */
+  /* kosmos#7368: the short reason for this case; the agent page words it on its own (the messages did arrive, they wait
+     behind one step). */
   turn: 'It has been on one step for over an hour, and the messages wait behind it',
 };
 /* What the person can do, the card's last sentence (round 3: a restart does not help a sign-in, a limit or a quota). */
@@ -158,7 +152,8 @@ const NEXT_WORDS = {
   signin: 'Reconnect its account in Settings, AI Models',
   limit: 'Kosmos sends them once its usage resets',
   quota: 'Kosmos sends them once the shared quota resets',
-  /* kosmos#7368: a restart ends the process, and what it had queued goes with it, so they must be sent again. */
+  /* kosmos#7368: a restart ends the process, and what it had queued goes with it, so they must be sent again
+     (turnNext words it for one message). */
   turn: 'Restart it to free it, then send them again',
 };
 /* The board log's line for one stall. */
@@ -167,7 +162,7 @@ function stallLine(s) {
     + ' tries). ' + s.words + '.\n';
 }
 
-/* kosmos#7368: the board log's line for one turn that never ends, said once per turn. */
+/* kosmos#7368: the board log's line for one step that never ends, said once per stuck step. */
 function turnLine(name, s) {
   return 'turn-stuck: ' + name + ' has been on one step since ' + s.since + (s.step ? ' (' + s.step + ')' : '')
     + ', with ' + s.count + ' message' + (s.count === 1 ? '' : 's') + ' waiting behind it.\n';
@@ -187,9 +182,8 @@ function settleFor(card) {
 function sweep(names) {
   const present = new Set(Array.from(names || [], String));
   for (const k of [...streaks.keys()]) if (!present.has(k)) streaks.delete(k);
-  for (const k of [...placedTimes.keys()]) if (!present.has(k)) placedTimes.delete(k);
 }
 
-function resetForTests() { streaks.clear(); placedTimes.clear(); }
+function resetForTests() { streaks.clear(); }
 
-module.exports = { turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

@@ -92,6 +92,8 @@ function stateAfterEvent(event) {
 /** kosmos#7368: the step a turn is on, from an assistant event's latest tool call: the shell command it runs, or the
     tool and what it acts on. Short, one line, never the whole input. Null when the event calls no tool. */
 const STEP_MAX = 80;
+/* kosmos#7368: the step clock is written in buckets this wide (see the publisher's keyOf). */
+const STEP_CLOCK_MS = 5 * 60 * 1000;
 function stepOfEvent(event) {
   try {
     const content = event && event.type === 'assistant' && event.message && Array.isArray(event.message.content) ? event.message.content : null;
@@ -100,8 +102,15 @@ function stepOfEvent(event) {
     for (const c of content) if (c && c.type === 'tool_use' && typeof c.name === 'string' && c.name) use = c;
     if (!use) return null;
     const input = use.input && typeof use.input === 'object' ? use.input : {};
-    const one = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
-    const cut = (v) => (v.length > STEP_MAX ? v.slice(0, STEP_MAX - 1) + '\u2026' : v);
+    /* Masked BEFORE it is cut (review 1 W2): a command can carry a token, and this text reaches the card and the board
+       log. Control characters go; the cut is by character, never inside one. */
+    const one = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '');
+    const cut = (v) => {
+      let t = v;
+      try { t = require('./secretmask').mask(v).text; } catch { t = ''; }
+      const chars = Array.from(t);
+      return chars.length > STEP_MAX ? chars.slice(0, STEP_MAX - 1).join('') + '\u2026' : t;
+    };
     const cmd = one(input.command);
     if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
     const target = one(input.file_path) || one(input.path) || one(input.url) || one(input.pattern) || one(input.query);
@@ -109,14 +118,16 @@ function stepOfEvent(event) {
   } catch { return null; }
 }
 
-/** kosmos#7368: the turn a busy agent is on, { since (ISO), step|null }, from its state file, or null when it is not
-    busy or the file says nothing about a turn. The caller has already seen the agent working (its card reads Working). */
+/** kosmos#7368: a busy agent's step, { since (ISO, its last sign of activity, to within STEP_CLOCK_MS), step|null,
+    queued (messages written in while it was busy, not yet taken) }, from its state file, or null when it is not busy or
+    the file says nothing about a step. The caller has already seen the agent working (its card reads Working). */
 function turnFor(name) {
   let rec;
   try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
   if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION || rec.state !== BUSY) return null;
-  if (typeof rec.turnSince !== 'string' || !Number.isFinite(Date.parse(rec.turnSince))) return null;
-  return { since: rec.turnSince, step: typeof rec.step === 'string' && rec.step ? rec.step : null };
+  if (typeof rec.stepSince !== 'string' || !Number.isFinite(Date.parse(rec.stepSince))) return null;
+  const queued = Number.isInteger(rec.queued) && rec.queued > 0 ? rec.queued : 0;
+  return { since: rec.stepSince, step: typeof rec.step === 'string' && rec.step ? rec.step : null, queued };
 }
 
 /** #5805: an epoch time from `resetsAt` as an ISO string, or null. The schema gives seconds; a value already in
@@ -387,7 +398,8 @@ function liveIdentity(name) {
 /**
  * The supervisor's side: keep `name`'s state file in step with its agent.
  *
- * Writes only on a TRANSITION, so a turn of a hundred events costs two writes.
+ * Writes only on a TRANSITION, so a turn of a hundred events costs two writes, plus (kosmos#7368) one when its step or
+ * queue changes and at most one per STEP_CLOCK_MS for its activity clock.
  * `write`, `clear`, `setTimer` and `onProblem` are injectable for tests;
  * `onProblem` gets a sentence for the task log whenever a state could not be
  * recorded.
@@ -418,20 +430,32 @@ function publisher(name, opts) {
      the retry below -- or any transition that comes first -- is the second
      attempt, and a second failure in a row is what clears. */
   /* #5805: a refusal can arrive while the state token does not change, so a transition is the token AND the limit. */
-  function keyOf(c) { return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + (c.busySince || '') + '\u0000' + (c.step || ''); }
-  /* kosmos#7368: a turn's start is set only when the agent goes from idle to busy, and dropped when it goes idle. A
-     message written into a busy agent (wrote) does not move it: the turn it waits behind is still the same one. */
-  function setState(next) {
-    if (next === BUSY && current.state !== BUSY) { current.busySince = new Date().toISOString(); current.step = null; }
-    if (next === IDLE) { current.busySince = null; current.step = null; }
+  /* kosmos#7368: the step and the queue are part of what is on disk; the step's clock only in STEP_CLOCK_MS buckets, so
+     an agent that is busy and producing events writes at most once per bucket for it, not once per event. */
+  function keyOf(c) {
+    const clock = c.stepSince ? Math.floor(Date.parse(c.stepSince) / STEP_CLOCK_MS) : '';
+    return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + (c.step || '') + '\u0000' + clock + '\u0000' + (c.queued || 0);
+  }
+  /* kosmos#7368 (review 1): a turn that the agent starts BY ITSELF (an event, not a write) is it taking the next message
+     it had queued, so the queue shrinks by one. A turn started by a write took that message at once and queued nothing.
+     Going idle clears the step, never the queue: what is still queued is still waiting. */
+  function setState(next, byWrite) {
+    if (next === BUSY && current.state !== BUSY) {
+      if (!byWrite) current.queued = Math.max(0, (current.queued || 0) - 1);
+      current.step = null;
+      current.stepSince = new Date().toISOString();
+    }
+    if (next === IDLE) { current.step = null; current.stepSince = null; }
     current.state = next;
   }
   function flush() {
     if (!current || written === keyOf(current)) { retrying = false; return; }
     const rec = { v: STATE_FILE_VERSION, state: current.state, sessionId: current.sessionId, pid: current.pid, at: new Date().toISOString() };
     if (current.limit) rec.limit = current.limit;
-    /* kosmos#7368: while busy, when this turn began and the step it is on, for a turn that never ends. */
-    if (current.state === BUSY && current.busySince) { rec.turnSince = current.busySince; if (current.step) rec.step = current.step; }
+    /* kosmos#7368: while busy, when the agent last showed any activity and the step it is on; and, busy or not, how many
+       messages were written into it while it was busy and are not yet taken (they survive a board restart here). */
+    if (current.state === BUSY && current.stepSince) { rec.stepSince = current.stepSince; if (current.step) rec.step = current.step; }
+    if (current.queued > 0) rec.queued = current.queued;
     const r = write(rec);
     if (r && r.ok) { written = keyOf(current); retrying = false; return; }
     onProblem('we could not record its state (' + ((r && r.because) || 'unknown') + ')');
@@ -464,7 +488,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, state: IDLE, limit: null, reachedModel: false, busySince: null, step: null };
+      current = { pid, sessionId, state: IDLE, limit: null, reachedModel: false, step: null, stepSince: null, queued: 0 };
       flush();
     },
     /** One parsed stream event. */
@@ -479,10 +503,14 @@ function publisher(name, opts) {
         } catch { /* the next event tries again */ }
       }
       const next = stateAfterEvent(e);
-      if (next) setState(next);
+      if (next) setState(next, false);
+      /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
+         turn's start: an agent calling a new tool every minute is never on one step for an hour. */
+      const before = current.stepSince ? keyOf(current) : null;
+      if (current.state === BUSY && e && (e.type === 'assistant' || e.type === 'user' || e.type === 'system')) current.stepSince = new Date().toISOString();
       const step = stepOfEvent(e);
-      const stepChanged = step !== null && step !== current.step && current.state === BUSY;
-      if (stepChanged) current.step = step;
+      if (step !== null && current.state === BUSY) current.step = step;
+      const stepChanged = current.state === BUSY && before !== keyOf(current);
       /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
       /* Review 9: a refused request's own error message (is_api_error_message, in Claude Code's stream-json schema) did
          not reach the model, so it does not count; then even a result without is_error cannot clear the limit. */
@@ -512,7 +540,12 @@ function publisher(name, opts) {
     },
     /** A message reached the agent's stdin. */
     wrote() {
-      if (current) { setState(BUSY); current.reachedModel = false; flush(); }
+      if (!current) return;
+      /* kosmos#7368: written into a busy agent, it waits behind the turn; into an idle one, it starts the turn. */
+      if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
+      else setState(BUSY, true);
+      current.reachedModel = false;
+      flush();
     },
     /** The agent process is gone. */
     stopped() {
@@ -541,4 +574,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, turnFor, stepOfEvent, liveIdentity, isLimitToken, usageOfEvent, claudeAccountDirFor };
+module.exports = { STEP_CLOCK_MS, BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, turnFor, stepOfEvent, liveIdentity, isLimitToken, usageOfEvent, claudeAccountDirFor };
