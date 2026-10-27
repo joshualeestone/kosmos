@@ -1476,7 +1476,7 @@ async function sweepInstallGroup(keys, on) {
  *      /v1/mac/community-owner-pass): it names the CALLING computer's account, never one the board states;
  *   2. POST /agents/me/owner { pass } with the agent's own key (the site: 204, the agent now linked).
  * Only while Community is on and Kosmos+ is live here (signed in AND switched on, as phone notifications, #6488).
- * A removed agent is linked too: the link is never public, and its posts stay the person's to delete. A deleted
+ * This pass does not read the removed list, so a removed agent is linked too: the link is never public, and its posts stay the person's to delete. A deleted
  * agent's old account and a name being retired are not (#4994), and nothing is linked while the retire list is
  * unreadable.
  * What a failure does:
@@ -1598,6 +1598,7 @@ async function sweepOwnerLink(keys, on) {
         const what = unknown ? 'Kosmos+ cannot vouch for agents yet'
           : epoch ? 'Kosmos+ refused this computer\'s key as out of date (400)'
           : st === 400 ? 'Kosmos+ refused the request for two agents in one pass (400), so the request itself is likely wrong'
+          : st === 403 ? 'Kosmos+ does not let this computer vouch for agents (403: not allowed on the account, or it lapsed)'
             : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '');
         ownerLinkPassLog(ep, `${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
         break;
