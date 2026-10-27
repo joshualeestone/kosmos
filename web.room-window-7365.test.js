@@ -146,3 +146,18 @@ test('#7365: pjWinMerge keeps a row on both reads once, from the newer read, in 
   const merged = api.pjWinMerge([{ key: 'a', v: 1 }, { key: 'b', v: 1 }], [{ key: 'b', v: 2 }, { key: 'c', v: 2 }]);
   assert.deepEqual(JSON.parse(JSON.stringify(merged)), [{ key: 'a', v: 1 }, { key: 'b', v: 2 }, { key: 'c', v: 2 }]);
 });
+
+test('#7365 review 1: a poll landing while the first earlier page is in flight loses no row', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();   // newest 801 to 1000
+  let release; const gate = new Promise((r) => { release = r; });
+  const real = room.fetch;
+  room.fetch = async (u) => { if (/cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
+  const earlier = h.api.pjWinEarlier();   // asks for 601 to 800, held back
+  for (let i = 0; i < 30; i++) room.add();   // 30 new posts: the newest page is now 831 to 1030
+  await h.api.loadRoom();   // the poll answers first
+  release(); await earlier;
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));   // the read pjWinEarlier starts when the page moved
+  assert.deepEqual(ids(h.painted.at(-1)), range(601, 1030), 'every row from the first earlier page to the newest, none lost');
+});

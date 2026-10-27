@@ -59,3 +59,27 @@ page cost worse, which makes the window more urgent, not less.
    - NITs not changed: the plan's PR placeholder is filled when the PR opens; the #6946 comment ("no second pass") is
      still true; slice 2's poll still builds every row server-side before the page cut (O(log + posts) now, measured
      31 ms at 5,500), to be measured there.
+
+## Slice 2 review rounds
+1. (default, 13:1x CDT) 1 BLOCKER, 6 WARNINGs, 3 NITs. TO FIX (status after each):
+   - (B1) pjWinEarlier sets boundary = newestOlder AFTER the await: a poll landing mid-read with new posts moves
+     newestOlder, so the rows between are never read (measured: p801-p830 lost for good). Fix: take
+     `const at = PJ_WIN.newestOlder` before the await with the cursor; if it moved, loadRoom() at once. Test the race
+     (reviewer's probe: scratchpad/revwin1/web.review-race.test.js).
+   - (W1) a reply to a post outside the window says "Original message unavailable" (web/index.html ~77407). Mirror the
+     DM's "Original message is further back" (~42282) when the target is older than the oldest loaded row or
+     PJ_WIN.olderCount > 0.
+   - (W2) no loading sign, no failure row, no back-off (61 requests in 3 s on 503), a 400 cursor retried for ever, a
+     reader at scrollTop 0 stuck after a failure. Port the DM's paintOlderLine / `because` / stop-on-failure with
+     Try again (~42858).
+   - (W3) starting a search repaints the windowed body first and says "Nothing here matches" aloud before the whole
+     read lands. On the empty-to-searching transition, skip the cached repaint and announcement until the read lands.
+   - (W4) clearing a search paints the whole 5,500-row body once (873 ms). On searching-to-empty paint the window
+     (pjWinMerge(PJ_WIN.older, PJ_WIN.newest)) or nothing.
+   - (W5) gap-fill anchoring reads __roomHeldAtBottom (last repaint) not the live position: measure fresh before paint
+     (scrollHeight - scrollTop - clientHeight <= THREAD_BOTTOM_SLACK).
+   - (W6) a reaction made on an older post is lost at the next rebuild (rxnToggle ~74409 patches only the DOM): on
+     success update the row in PJ_WIN.older by id, as the DM does.
+   - NITs: convPause() before painting an earlier page (the DM does); learnedAt stamps old rows as "just spoke"
+     (~77703) when an earlier page lands; the >200-new-rows reset lands a scrolled-up reader on an arbitrary row;
+     tests for the race, the scroll listener, search transitions, reply headers, tied keys.
