@@ -128,6 +128,8 @@ test('B: a reply wakes its author only when the post it answers asked something'
     const ask = post(board, 'monalisa', 'Mona Lisa -> Angel: can you build #7346?');
     const answer = post(board, 'angel', 'yes, after #7265', { replyTo: ask.sent.id });
     assert.deepEqual(answer.woke, ['monalisa'], 'the answer to a question must reach its asker');
+    // Round 3: the author is woken by an envelope, never by bare words (#4642: what arrives is always marked).
+    for (const t of typedTo(answer.tmux, 'monalisa')) assert.ok(t.startsWith('['), 'the reply reached its author unmarked: ' + t.slice(0, 80));
     const fyi = post(board, 'monalisa', 'shots are in the folder');
     const ack = post(board, 'angel', 'read it, nothing to do', { replyTo: fyi.sent.id });
     assert.deepEqual(ack.woke, [], 'an acknowledgement of an FYI woke its author: the loop');
@@ -172,7 +174,7 @@ test('round 1: a person\'s @all or arrow header keeps the person\'s old meaning 
 test('round 1: the cap counts posts, not members, so an @all post is never cut partway', () => {
   withFleet(room(), (board) => {
     for (let i = 0; i < roomloop.LOOP_CAP - 1; i += 1) post(board, 'angel', '@monalisa ping ' + i);
-    const all = post(board, 'pigeonpete', '@all the twentieth post');
+    const all = post(board, 'pigeonpete', '@all the post that fills the cap');
     assert.deepEqual(all.woke.sort(), ['angel', 'monalisa'], 'the post that fills the cap must still reach every member it addresses');
     const over = post(board, 'pigeonpete', '@all one too many');
     assert.deepEqual(over.woke, []);
@@ -219,4 +221,71 @@ test('round 2: @all-hands and @everyone-else are words, not broadcasts', () => {
   assert.deepEqual([...messages.addressedMembers('see the @all-hands notes', MEMBERS, [], new Set(), 'angel')], []);
   assert.deepEqual([...messages.addressedMembers('thanks @everyone-else', MEMBERS, [], new Set(), 'angel')], []);
   assert.deepEqual([...messages.addressedMembers('thanks @all.', MEMBERS, [], new Set(), 'angel')].sort(), ['monalisa', 'pigeonpete'], 'CONTROL: @all at a sentence end');
+});
+
+/* Round 3 (W1): the room valve charges an agent's post up front for the members it will wake, not for the whole room. */
+const limits = require('./limits');
+const ROOM_BUDGET = limits.DEFAULTS.perHour * limits.ROOM_FACTOR;
+function seedArrivals(n) {
+  // n arrivals of real content from alternating senders (so only the volume valve can fire), one member each.
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const now = Date.now();
+  for (let i = 0; i < n; i += 1) {
+    const from = i % 2 ? 'pigeonpete' : 'monalisa';
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm' + (i + 1), project: PROJECT, from, to: ['angel'],
+      text: 'step ' + i + ' of the build carries real content', at: new Date(now - (n - i) * 1000).toISOString(), outcomes: {} }) + '\n');
+  }
+}
+test('round 3: one arrival under the budget, a post that wakes one member goes through', () => {
+  withFleet(room(), (board) => {
+    seedArrivals(ROOM_BUDGET - 1);
+    const one = post(board, 'angel', '@monalisa can you check the build log for step 3');
+    assert.equal(one.sent.state, chat.DELIVERY.PLACED, 'a one-member post was charged for the whole room: ' + JSON.stringify(one.sent.code));
+    assert.deepEqual(one.woke, ['monalisa']);
+  });
+});
+test('round 3 CONTROL: at the same point, a post that wakes both members is held', () => {
+  withFleet(room(), (board) => {
+    seedArrivals(ROOM_BUDGET - 1);
+    const both = post(board, 'angel', '@all can you check the build log for step 3');
+    assert.equal(both.sent.code, 'room_held', 'the control did not reach the valve, so the arm above proves nothing');
+  });
+});
+
+/* Round 3 (W2): the header as the fleet writes it, controls from real Fleet Builders posts. */
+const FLEET = [['angel', 'Angel'], ['monalisa', 'Mona Lisa'], ['renettilley', 'Renet Tilley'], ['barondraxum', 'Baron Draxum'],
+  ['icecreamkitty', 'Ice Cream Kitty'], ['pigeonpete', 'PigeonPete'], ['claudebot', 'Splinter']].map(([sessionName, name]) => ({ sessionName, name }));
+const fleetNames = FLEET.map((c) => c.sessionName);
+const addressed = (from, text, roster = FLEET) => [...messages.addressedMembers(text, fleetNames.filter((n) => n !== from), roster, new Set(), from)].sort();
+test('round 3: the header reads "to", "for", "→", parentheses with colons, and one word of a display name', () => {
+  assert.deepEqual(addressed('barondraxum', 'Baron to Kitty, heads-up on S3 ca4752d9d before its push: my local validation'), ['icecreamkitty']);
+  assert.deepEqual(addressed('monalisa', 'Mona Lisa -> Renet, #7365 room archive: my design and a proposed data shape'), ['renettilley']);
+  assert.deepEqual(addressed('angel', 'Angel -> PigeonPete (re: #12): x'), ['pigeonpete'], 'a colon inside parentheses ended the header');
+  assert.deepEqual(addressed('renettilley', 'Renet for Baron: #7324 steps 2 to 4 are built'), ['barondraxum']);
+  assert.deepEqual(addressed('icecreamkitty', 'Ice Cream Kitty -> PigeonPete, Angel (and Josh\'s walkthrough), from the question: t'), ['angel', 'pigeonpete']);
+  assert.deepEqual(addressed('angel', 'Angel -> Mona Lisa & Baron and Renet: x'), ['barondraxum', 'monalisa', 'renettilley']);
+  assert.deepEqual(addressed('angel', '**Angel → Kitty:** x'), ['icecreamkitty']);
+});
+test('round 3 CONTROLS: what is not a header addresses no one', () => {
+  assert.deepEqual(addressed('angel', 'Thanks to Kitty: great work'), [], '"to" needs the sender to name the poster');
+  assert.deepEqual(addressed('claudebot', 'Splinter -> owners of the Kosmos Cloud finish line: x'), []);
+  assert.deepEqual(addressed('pigeonpete', 'PigeonPete, on m616 seam F: answered'), []);
+  assert.deepEqual(addressed('angel', 'Angel -> Mona Lisa, on m590: fine by me'), ['monalisa'], 'a reference after the name is not a member');
+  const twoKitties = FLEET.concat([{ sessionName: 'kittyhawk', name: 'Kitty Hawk' }]);
+  const names = fleetNames.concat(['kittyhawk']);
+  assert.deepEqual([...messages.addressedMembers('Angel -> Kitty: x', names.filter((n) => n !== 'angel'), twoKitties, new Set(), 'angel')], [],
+    'two members share the word, so it names neither');
+  assert.deepEqual([...messages.addressedMembers('Angel -> Kitty Hawk: x', names.filter((n) => n !== 'angel'), twoKitties, new Set(), 'angel')], ['kittyhawk'],
+    'CONTROL: the whole display name still names one');
+});
+
+/* Round 3 (W4): "Your own messages still reach them" -- and a person's post starts the agents' count over. */
+test('round 3: a person\'s post clears the pause, so the agents can wake each other again', () => {
+  withFleet(room(), (board) => {
+    for (let i = 0; i < roomloop.LOOP_CAP; i += 1) post(board, 'angel', '@monalisa ping ' + i);
+    assert.deepEqual(post(board, 'angel', '@monalisa paused?').woke, [], 'control: the project must be paused before the person posts');
+    arm();
+    messages.sendPost({ operator: true, project: PROJECT, text: 'carry on, both of you' }, board.agents, MEMBERS);
+    assert.deepEqual(post(board, 'angel', '@monalisa after the person').woke, ['monalisa'], 'the person posted and the pause still held');
+  });
 });

@@ -53,3 +53,22 @@ drains). Every edit carries a `kosmos#7246 slice 2` comment.
 
 ## Weakest premise
 That no workflow relies on an unaddressed agent post waking teammates. Remedy: @-name them or use the header.
+
+## Review round 3 (changes)
+- The room valve charges an agent's post up front for the members it will wake (addressed, not switched off here, the
+  project not paused), the same count reachedCount gives the logged row. It charged the whole room, so a post to one
+  member was held as if it reached everyone. 20 valve tests drove the valve with unaddressed posts, which now cost
+  nothing; each now says @all (one comment per test), so they still test the valve.
+- The header is read by hand (postHeader): it ends at the first ':' outside parentheses, takes "->", "→", or the
+  word "to" or "for" (then the sender must name the poster, so "Thanks to Angel:" is a sentence), a leading ** or *,
+  and targets split on ',', ' and ', '&'. A one-word target names the one member whose display name has that word
+  ("Renet", "Baron", "Kitty"); two members sharing it, neither. Controls are real Fleet Builders posts.
+- Agents are born with "Post to the room (it wakes only the members it addresses: ...)" instead of "Post to everyone
+  on it", in the instructions and the two join lines.
+- A person's post clears the project's agent-wake count (roomloop.clear), so the pause note's "Your own messages
+  still reach them" is true and the agents can answer them.
+- KEPT: the catch-up line on most wakes ("This room has been talking without you: N earlier posts"). It is accurate,
+  and it is the one pointer a woken member gets to the quiet posts it did not see.
+- Small: install/kosmos reads `because` only at the route's own opening (a nested because is never printed); the
+  pause note and the board log print the live cap; two messages.test.js titles say what they now test; rule B's
+  reply reaches its author marked (#4642).

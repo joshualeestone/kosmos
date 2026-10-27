@@ -2131,11 +2131,53 @@ function mentionedMembers(cleaned, recipients, roster) {
   }
   return { mentioned, ambiguous, ambiguousWords, shown, namedAt };
 }
+/* kosmos#7246 slice 2 (round 3): the fleet's header, read by hand from the post's first line, as the room writes it:
+   "Mona Lisa -> Renet, #7365 room archive: ...", "Ada -> Angel (re: #12): ...", "Baron to Kitty, heads-up ...: ...",
+   "Renet for Baron: ...", "**Ada -> Basil:** ...". The header ends at the first ':' outside parentheses; the sender is a
+   name of at most three words ("Ice Cream Kitty"), so a sentence that mentions an arrow is not a header; the connector
+   is "->", "→", or the word "to" or "for" (`word`, and then the sender must name the poster, since "Thanks to Angel:"
+   is a sentence). Targets split on ',', ' and ' and '&', with anything in parentheses dropped first. null when the
+   post has no header. */
+function postHeader(text) {
+  const line = String(text || '').replace(/^\s+/, '').replace(/^\*{1,2}/, '').split('\n')[0].slice(0, 400);
+  let depth = 0;
+  let colon = -1;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (c === '(') depth += 1;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    else if (c === ':' && depth === 0) { colon = i; break; }
+  }
+  if (colon < 0) return null;
+  const head = line.slice(0, colon).replace(/\*+\s*$/, '');
+  let m = head.match(/^([A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2})[ \t]*(?:->|\u2192)[ \t]*(.+)$/);
+  let word = false;
+  if (!m) { m = head.match(/^([A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2})[ \t]+(?:to|for)[ \t]+(.+)$/); word = Boolean(m); }
+  if (!m) return null;
+  const targets = m[2].replace(/\([^)]*\)/g, ' ').split(/,|&|[ \t]+and[ \t]+/).map((p) => p.trim()).filter(Boolean);
+  return { sender: m[1], targets, word };
+}
+/* The members a header name means: by the @ rule (mentionedMembers on "@" + its key: a session name or a whole display
+   name, "Mona Lisa" is monalisa), or, for a one-word name, the one member whose display name has that word ("Renet" is
+   Renet Tilley, "Kitty" is Ice Cream Kitty). Two members sharing the word: neither, as with an ambiguous @. */
+function nameResolves(name, members, roster) {
+  const nameKey = require('./agentnames').nameKey;
+  const key = nameKey(name);
+  if (key.length < 2) return [];
+  const exact = [...mentionedMembers('@' + key, members, roster).mentioned];
+  if (exact.length || /\s/.test(String(name).trim())) return exact;
+  const hits = new Set();
+  for (const card of Array.isArray(roster) ? roster : []) {
+    if (!card || !members.includes(card.sessionName) || typeof card.name !== 'string') continue;
+    if (card.name.split(/\s+/).some((w) => nameKey(w) === key)) hits.add(card.sessionName);
+  }
+  return hits.size === 1 ? [...hits] : [];
+}
 /* kosmos#7246 slice 2: the members a post ADDRESSES, which is who an agent's post wakes (sendPostWithDelivery). Its
    @-names (`atNamed`, from mentionedMembers), plus:
-   - the fleet's header: a post that STARTS "Sender -> Name[, Name]:" addresses each listed name, each resolved by the
-     same @ rule (mentionedMembers on "@" + its name key), so a display name such as "Mona Lisa" reaches monalisa and a
-     name that is not a member addresses no one. Only the start of the post, before its first colon;
+   - the fleet's header (postHeader): a post that STARTS "Sender -> Name[, Name]:" (or "Sender to Name:") addresses each
+     listed name, each resolved by nameResolves, so "Mona Lisa" and "Renet" reach their members and a name that is not
+     a member addresses no one;
    - @all or @everyone: every member but the sender.
    A Set. Never throws (on a fault it is the @-names alone). */
 function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = true } = {}) {
@@ -2147,16 +2189,9 @@ function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = tr
     if (all && /(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_-])/i.test(text.replace(/`[^`]*`/g, ' '))) {   // round 2: @all-hands is a word, not a broadcast
       for (const m of list) if (m !== from) out.add(m);
     }
-    // The sender is a name of at most three words ("PigeonPete", "Ice Cream Kitty"), so a sentence that mentions an arrow is not a header.
-    const head = text.match(/^\s*[A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2}[ \t]*->[ \t]*([^\n:]{1,300}):/);
-    if (head) {
-      const nameKey = require('./agentnames').nameKey;
-      for (const part of head[1].split(',')) {
-        const who = part.replace(/\([^)]*\)/g, ' ').trim();
-        const key = nameKey(who);
-        if (key.length < 2) continue;
-        for (const m of mentionedMembers('@' + key, list, roster).mentioned) out.add(m);
-      }
+    const head = postHeader(text);
+    if (head && (!head.word || nameResolves(head.sender, from === undefined || from === null ? [] : [String(from)], roster).length)) {
+      for (const part of head.targets) for (const m of nameResolves(part, list, roster)) out.add(m);
     }
   } catch { /* the @-names alone */ }
   return out;
@@ -2532,8 +2567,19 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      post @-names it. It stays a member, but a post it was not sent is not logged as
      sent to it, so an @-name later tells it what it missed. */
   const offHere = new Set(recipients.filter((n) => !namedHere.has(n) && offInProject.has(String(n))));
-  /* #3564: the post is charged for the members it is sent to. */
-  const charged = recipients.length - offHere.size;
+  /* B: a reply wakes its author only when the post it answers asked someone something (a person's post, or a post that
+     addressed at least one member), so an acknowledgement of a post that asked nothing wakes no one. */
+  /* Round 1: asked THIS replier (the person's post, or one that addressed the sender), so a bystander's +1 wakes no one. */
+  const answeredAddressed = answered && Array.isArray(answered.addressed) ? answered.addressed : (answered && Array.isArray(answered.mentioned) ? answered.mentioned : []);   // rows before slice 2 have no `addressed`
+  const answeredAsked = Boolean(answered && (answered.operator === true || answeredAddressed.includes(from)));
+  /* C, decided once per post (round 1): the whole post is quiet or none of it, so an @all never stops partway. */
+  const loopPaused = operator !== true && require('./roomloop').paused(projectId);
+  const asksMember = (name) => mentioned.has(name) || Boolean(answeredAsked && answered.operator !== true && answered.from === name);
+  /* #3564: the post is charged for the members it is sent to. kosmos#7246 slice 2 (round 3): an agent's post is charged
+     only for the members it will wake (addressed, not switched off here, the project not paused), as reachedCount
+     counts it once logged, so a post that addresses one member is not held as if it reached the whole room. */
+  const charged = operator === true ? recipients.length - offHere.size
+    : (loopPaused ? 0 : recipients.filter((n) => !offHere.has(n) && asksMember(n)).length);
   /* #4786: WORK MOVING EARNS MORE ROOM, BOUNDED. A pipeline of agents handing tasks along fills the budget as fast
      as a loop does, and was held until the person stepped in (daily feedback, 2026-09-30). So each first-time step
      forward in this project since countFrom (engine/taskchat.js progressTimes: a task made, a part added, a first
@@ -2835,15 +2881,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      not typed, not held, the post in the room for them to read. */
   let quiet = 0;
   let loopPausedHere = false;
-  /* B: a reply wakes its author only when the post it answers asked someone something (a person's post, or a post that
-     addressed at least one member), so an acknowledgement of a post that asked nothing wakes no one. */
-  /* Round 1: asked THIS replier (the person's post, or one that addressed the sender), so a bystander's +1 wakes no one. */
-  const answeredAddressed = answered && Array.isArray(answered.addressed) ? answered.addressed : (answered && Array.isArray(answered.mentioned) ? answered.mentioned : []);   // rows before slice 2 have no `addressed`
-  const answeredAsked = Boolean(answered && (answered.operator === true || answeredAddressed.includes(from)));
-  /* C, decided once per post (round 1): the whole post is quiet or none of it, so an @all never stops partway. */
-  const loopPaused = operator !== true && require('./roomloop').paused(projectId);
   let wokeSomeone = false;
-  const asksMember = (name) => mentioned.has(name) || Boolean(answeredAsked && answered.operator !== true && answered.from === name);
   const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
   const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line
   const deliverOne = (name) => {
@@ -3084,14 +3122,15 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
    */
   /* kosmos#7246 slice 2: quiet members were never to be typed into; a post that addressed nobody is recorded, not refused. */
   if (wokeSomeone) require('./roomloop').noteWake(projectId);   // one per post that woke anyone (round 1)
+  if (operator === true) require('./roomloop').clear(projectId);   // round 3: the person is here, so the count starts over
   if (loopPausedHere) {
     const note = require('./roomloop').pauseNote(projectId);
     if (note) {
       roomNote(projectId, note);
-      try { process.stdout.write('room-loop: ' + projectId + ' paused agent-to-agent wake-ups (' + require('./roomloop').LOOP_CAP + ' in an hour)\n'); } catch { /* the note stands */ }
+      try { process.stdout.write('room-loop: ' + projectId + ' paused agent-to-agent wake-ups (' + require('./roomloop').liveCap() + ' in an hour)\n'); } catch { /* the note stands */ }
     }
   }
-  if (!reached && charged - quiet > 0) {
+  if (!reached && charged > 0) {   // round 3: `charged` is already the members this post was to wake
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule). */

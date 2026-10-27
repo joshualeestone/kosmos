@@ -3,7 +3,8 @@
 /**
  * kosmos#7246 slice 2 (C): a backstop for agents waking each other in a room. Per project, at most LOOP_CAP agent posts
  * that woke anyone in any rolling LOOP_WINDOW_MS (counted per post, so an @all is one). Past it, agent-to-agent delivery in that project is
- * quiet until the window has room; the caller says so once per pause. A person's posts never come here.
+ * quiet until the window has room; the caller says so once per pause. A person's posts are never counted, and one
+ * clears its project's count (clear): the person is there, so what the agents do next is theirs to see.
  *
  * In memory, on the board: a restart starts every window over. Never throws.
  */
@@ -50,7 +51,7 @@ function pauseNote(projectId, now = Date.now()) {
     said.set(p, until);
     const hhmm = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
     return 'Kosmos paused agents waking each other in this project until about ' + hhmm + ': they woke each other '
-      + LOOP_CAP + ' times in the last hour without you. Your own messages still reach them.';
+      + cap + ' times in the last hour without you. Your own messages still reach them.';
   } catch { return ''; }
 }
 
@@ -62,8 +63,16 @@ function senderNote(projectId, now = Date.now()) {
   } catch { return 'your post is in the room, but it woke no one: agents waking each other is paused in this project'; }
 }
 
+/* Round 3: a person posted in `projectId`, so its count starts over and the next pause is said again. */
+function clear(projectId) {
+  try { const p = String(projectId); wakes.delete(p); said.delete(p); } catch { /* the window ages out instead */ }
+}
+
+/* The cap in force (LOOP_CAP unless a test set it), for the board's log line. */
+function liveCap() { return cap; }
+
 /* A test that is about something else (the room valve) and sends many posts sets this high. */
 function setCapForTests(n) { cap = n; }
 function resetForTests() { wakes.clear(); said.clear(); cap = LOOP_CAP; }
 
-module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, freesAt, pauseNote, senderNote, setCapForTests, resetForTests };
+module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, setCapForTests, resetForTests };
