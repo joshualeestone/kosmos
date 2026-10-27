@@ -240,8 +240,13 @@ function keptRoots(sessionName, roster, { win = false, real = '' } = {}) {
     if (win) {
       const spelled = create.recordedDirSpelling(key);
       const away = spelled ? elsewhereOf(spelled) : null;
-      if (away && !isNetworkSpelling(real)) continue;
-      if (away && away.share) { for (const f of KOSMOS_WRITES) keptShares.push(path.win32.join(away.share, f)); continue; }
+      /* Only when the share is NAMED (review 1 finding 2): a mapped drive whose share the redirector did not name may be
+         this computer, so its folder may hold a local file, and is read as before (fail closed). */
+      if (away && away.share) {
+        if (!isNetworkSpelling(real)) continue;
+        for (const f of KOSMOS_WRITES) keptShares.push(path.win32.join(away.share, f));
+        continue;
+      }
     }
     let own = null;
     try { own = create.workerDir(key); } catch { own = null; }
@@ -425,15 +430,16 @@ function otherFolderSkip(folder, fileShare) {
   /* A folder written as a local volume (\\?\Volume{GUID}\...) is walked too: it is on this computer, but a link below
      its root can still lead to a share (review 19 finding 1), so the volume spelling is accepted where the walk meets
      it and its parts are lstat'd like a drive path's. */
-  /* #7232 B1/B2: each path the walk reaches (the folder as written, then where each link leads) is placed by the drive
+  /* #7232 B1: each path the walk reaches (the folder as written, then where each link leads) is placed by the drive
      table before any of its parts is read: on a mapped drive of another computer it leads to that drive's share (null
-     when not named: fail closed); on a letter no drive has, nowhere (its realpath would only say ENOENT). */
+     when not named: fail closed). A letter the table calls absent is walked and resolved as before (review 1 finding
+     4): the table can be a minute old (subst made since), and a drive root that really is missing fails at once with no
+     server to contact, so skipping it saved nothing and could let a nested folder's files through. */
   const onPath = (reached) => {
     if (isLocalVolumeSpelling(reached)) return null;
     const why = winSpellingRefusal(reached, null);
     if (why) return why;
     const place = windrives.placeOf(driveOf(reached));
-    if (place && place.absent) return DEAD_LINK;
     if (place && place.remote) { leadsTo = place.share ? onShareOf(place.share, reached) : null; return ON_NETWORK; }
     return null;
   };

@@ -13,7 +13,11 @@ const os = require('node:os');
 const { execFileSync, execFile } = require('node:child_process');
 
 const REFRESH_MS = 60 * 1000;
+/* #7232 review 1 finding 1: Windows PowerShell writes its output in the console's OEM code page, and this reads UTF-8,
+   so a share named \\srv\Données arrived as Donn\uFFFDes, matched nothing, and let a nested file through. The output is
+   UTF-8 first (try: a process with no console may refuse it, and parse fails such a share closed anyway). */
 const SCRIPT = [
+  'try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}',
   '$ErrorActionPreference = "Stop"',
   '$net = @{}',
   'try { $e = (New-Object -ComObject WScript.Network).EnumNetworkDrives(); for ($i = 0; $i -lt $e.Count; $i += 2) { $net[$e.Item($i).TrimEnd(":").ToUpper()] = $e.Item($i + 1) } } catch {}',
@@ -25,8 +29,18 @@ let learnedAt = 0;
 let failedAt = 0;      // a learn that failed: not tried again in the foreground for REFRESH_MS
 let testTable = null;  // set by tests only
 let learning = null;
-let relearned = new Set();   // letters an attach re-learned for since the last refresh (once each)
+/* Review 1 finding 6: ONE blocking re-learn per refresh in total, not one per letter, so an attach naming many unused
+   letters cannot stall the board for several 3 s calls. */
+let relearned = false;
+let testLearn = null;  // tests only: { now, run } in place of the clock and the PowerShell call
+const now = () => (testLearn && testLearn.now ? testLearn.now() : Date.now());
 
+/* A share as \\host\share, nothing more; anything else (a U+FFFD from a mis-decoded name, a path below the share, an
+   empty part) is a share this cannot name, so null: callers then fail closed (review 1 finding 1). */
+function cleanShare(s) {
+  const v = String(s || '').trim();
+  return /^\\\\[^\\/\uFFFD]+\\[^\\/\uFFFD]+$/.test(v) ? v : null;
+}
 /* DriveType 4 is Network; 0 (Unknown) and 1 (NoRootDirectory) are absent; anything else is local to this computer. */
 function parse(out) {
   const t = new Map();
@@ -35,17 +49,18 @@ function parse(out) {
     if (!/^[A-Z]$/.test(letter || '')) continue;
     const n = Number(type);
     const kind = n === 4 ? 'remote' : n === 0 || n === 1 ? 'absent' : 'local';
-    t.set(letter, { kind, share: kind === 'remote' && share ? share.trim() : null });
+    t.set(letter, { kind, share: kind === 'remote' ? cleanShare(share) : null });
   }
   return t.size ? t : null;
 }
 function took(t) {
-  if (t) { table = t; learnedAt = Date.now(); relearned = new Set(); }
-  else failedAt = Date.now();
+  if (t) { table = t; learnedAt = now(); relearned = false; }
+  else failedAt = now();
 }
 
 /* Learn the table now (blocking, bounded). Only on Windows; elsewhere the table stays unknown. */
 function learnSync(timeoutMs = 3000) {
+  if (testLearn) { try { took(parse(testLearn.run())); } catch { took(null); } return table; }
   if (process.platform !== 'win32') return null;
   try {
     took(parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SCRIPT], { encoding: 'utf8', timeout: timeoutMs, windowsHide: true })));
@@ -55,6 +70,7 @@ function learnSync(timeoutMs = 3000) {
 
 /* Learn it in the background (board start, and the periodic refresh). */
 function learnSoon() {
+  if (testLearn) { learnSync(); return; }
   if (process.platform !== 'win32' || learning) return;
   learning = new Promise((resolve) => {
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SCRIPT], { encoding: 'utf8', timeout: 10000, windowsHide: true }, (err, out) => {
@@ -83,10 +99,13 @@ function driveInfo(letter) {
   if (!/^[A-Z]$/.test(L)) return null;
   if (testTable === UNKNOWN) return null;
   if (testTable) return testTable.get(L) || { kind: 'absent', share: null };
-  if (!table) { if (Date.now() - failedAt > REFRESH_MS) learnSync(); }
-  else if (Date.now() - learnedAt > REFRESH_MS) learnSoon();
+  /* Review 1 finding 3: a table whose last good learn is older than two refreshes is dropped, so refreshes that keep
+     failing fall back to before #7232 instead of trusting an old table for ever (the plan's one window stays 60 s). */
+  if (table && now() - learnedAt > 2 * REFRESH_MS) table = null;
+  if (!table) { if (now() - failedAt > REFRESH_MS) learnSync(); }
+  else if (now() - learnedAt > REFRESH_MS) learnSoon();
   if (!table) return null;
-  if (!table.has(L) && !relearned.has(L)) { relearned.add(L); learnSync(); }
+  if (!table.has(L) && !relearned) { learnSync(); relearned = true; }   // after: a successful learn clears it
   return (table && table.get(L)) || { kind: 'absent', share: null };
 }
 
@@ -105,9 +124,15 @@ function isThisComputer(host) {
   if (six === '0:0:0:0:0:0:0:0' || six === '0:0:0:0:0:0:0:1' || (six && /^0:0:0:0:0:ffff:7f/.test(six))) return true;   // ::, ::1, ::ffff:127.x
   const first = h.split('.')[0];
   if (first === 'localhost' || /^127\./.test(h) || /^0+\./.test(h)) return true;
-  let me = '';
-  try { me = os.hostname().toLowerCase().split('.')[0]; } catch { me = ''; }
-  if (me && first === me) return true;
+  /* Review 1 finding 5: WSL's shares (\\wsl$\<distro>, \\wsl.localhost\<distro>) are served by this computer, and a
+     distro's \mnt\c is this computer's C:. */
+  if (h === 'wsl$' || h === 'wsl.localhost' || first === 'wsl$') return true;
+  /* This computer's names: its host name and its NetBIOS name (COMPUTERNAME), which differ when the host name is longer
+     than 15 characters (review 1 finding 5). */
+  const names = [];
+  try { names.push(os.hostname().toLowerCase().split('.')[0]); } catch { /* none */ }
+  if (process.env.COMPUTERNAME) names.push(String(process.env.COMPUTERNAME).toLowerCase().split('.')[0]);
+  if (names.some((n) => n && first === n)) return true;
   /* A host made only of digits, dots and hex marks that is not a plain four-part address is read by Windows as a
      number in some other form, so it may be 127.0.0.1. */
   if (/^[0-9a-fx.]+$/.test(h) && !/[g-wyz]/.test(h)) {
@@ -120,6 +145,8 @@ function isThisComputer(host) {
       for (const a of list || []) {
         const addr = String(a.address).toLowerCase().replace(/%.*$/, '');
         if (addr === h || (six && canonical6(addr) === six)) return true;
+        /* An IPv4 address of this computer written IPv4-mapped (::ffff:a.b.c.d, or its ipv6-literal.net spelling). */
+        if (six && a.family !== 'IPv6' && a.family !== 6 && canonical6('::ffff:' + addr) === six) return true;
       }
     }
   } catch { return true; }
@@ -158,8 +185,9 @@ function placeOf(letter) {
   const info = driveInfo(letter);
   if (!info || info.kind === 'local') return null;
   if (info.kind === 'absent') return { absent: true };
-  if (info.share && isThisComputer(hostOf(info.share))) return null;
-  return { remote: true, share: info.share || null };
+  const share = cleanShare(info.share);   // review 1 finding 1: a share that cannot be named fails closed
+  if (share && isThisComputer(hostOf(share))) return null;
+  return { remote: true, share };
 }
 
 /* Tests only: a fixed table (a Map or an object of letter -> {kind, share}), false for a table that could not be
@@ -172,4 +200,13 @@ function setTableForTests(t) {
   testTable = t == null ? null : (t instanceof Map ? t : new Map(Object.entries(t).map(([k, v]) => [k.toUpperCase(), v])));
 }
 
-module.exports = { known, placeOf, isThisComputer, hostOf, startRefreshing, setTableForTests, parseForTests: parse };
+/* Tests only (review 1 findings 3 and 6): a clock (`now`) and a learner (`run`, returning what the PowerShell call
+   would print, or throwing as a failed call does) in place of the real ones, with the learned state forgotten; null
+   goes back to the real ones, forgetting it again. Gated like setTableForTests. */
+function setLearnForTests(seam) {
+  if (!require('./store').isTestProcess(process.env)) throw new Error('setLearnForTests is for tests only');
+  testLearn = seam || null;
+  table = null; learnedAt = 0; failedAt = 0; relearned = false;
+}
+
+module.exports = { known, placeOf, isThisComputer, hostOf, startRefreshing, setTableForTests, setLearnForTests, parseForTests: parse, scriptForTests: SCRIPT };

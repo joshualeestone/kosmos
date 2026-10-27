@@ -1277,16 +1277,20 @@ test('#7232 B1: a file on the mapped drive\'s share, inside another agent\'s fol
   assert.equal(mine.r.ok, true, JSON.stringify(mine.r));
 });
 
-test('#7232 B2: another agent\'s project on a letter no drive has is passed over untouched', winOnly, () => {
-  const own = ownProject('own7232-absent');
+test('#7232 review 1-4: another agent\'s folder on a letter the table calls absent is still resolved, and keeps its files', winOnly, () => {
+  /* The table is a minute old: Z: was made since (subst), so the drive table says absent while Z:\secret is the folder
+     C:\...\zbacking\secret. Skipped as absent, the nested project stopped protecting its files. */
+  const backing = path.join(SANDBOX, 'zbacking');
+  fs.mkdirSync(path.join(backing, 'secret'), { recursive: true });
+  fs.writeFileSync(path.join(backing, 'secret', 'x.txt'), 'not for the outer project\n');
   PROJECTS = [
-    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
-    { id: 'p-z', name: 'Gone', folder: 'Z:\\gone', agents: ['someone-else'] },
+    { id: 'p-own', name: 'Outer', folder: fs.realpathSync.native(backing), agents: [WHO] },
+    { id: 'p-z', name: 'Secret', folder: 'Z:\\secret', agents: ['someone-else'] },
   ];
   windrives.setTableForTests(zTable(null));
-  const { r, touches } = attachIn({}, path.join(own, 'f.txt'));
-  assert.equal(r.ok, true, JSON.stringify(r));
-  assert.equal(touches.z, 0);
+  const { r, touches } = attachIn({ alive: true }, path.join(fs.realpathSync.native(backing), 'secret', 'x.txt'));
+  assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], JSON.stringify(r));
+  assert.ok(touches.z > 0, 'the folder on Z: was resolved, as before #7232');
 });
 
 test('#7232 B3: a file in no project of the agent\'s touches no other agent\'s folder', winOnly, () => {
@@ -1403,4 +1407,95 @@ test('#7232 scale: 200 projects, one on a dead mapped drive, answers in under a 
   t.diagnostic('reads ' + calls + ', ' + ms.toFixed(0) + ' ms');
   assert.ok(calls < 200 * (depth + 8), 'reads: ' + calls + ' for depth ' + depth);
   assert.ok(ms < 1000, 'answered in ' + ms.toFixed(0) + ' ms');
+});
+
+/* ---------- #7232 review 1 ---------- */
+
+test('#7232 review 1-1: a share name that was mis-decoded (U+FFFD) or is not \\\\host\\share is a share this cannot name', () => {
+  const t = windrives.parseForTests('Z\t4\t\\\\srv\\Donn\uFFFDes\r\nY\t4\t\\\\srv\\s\\below\r\nX\t4\tsrv\r\nW\t4\t\\\\srv\\Données\r\n');
+  assert.equal(t.get('Z').share, null, 'a U+FFFD in it');
+  assert.equal(t.get('Y').share, null, 'a path below a share');
+  assert.equal(t.get('X').share, null, 'no \\\\ start');
+  assert.equal(t.get('W').share, '\\\\srv\\Données', 'CONTROL: an accented name read right is kept');
+});
+
+test('#7232 review 1-1: a mapped drive whose share holds U+FFFD fails closed (OTHER_FOLDER_UNPLACED), untouched', winOnly, () => {
+  const own = ownProject('own7232-fffd');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-z', name: 'Far', folder: 'Z:\\far', agents: ['someone-else'] },
+  ];
+  windrives.setTableForTests(zTable({ kind: 'remote', share: '\\\\10.255.255.1\\Donn\uFFFDes' }));
+  const { r, touches } = attachIn({}, path.join(own, 'f.txt'));
+  assert.deepEqual([r.ok, r.because], [false, replyfile.OTHER_FOLDER_UNPLACED], JSON.stringify(r));
+  assert.equal(touches.z, 0);
+});
+
+test('#7232 review 1-1: the drive table script prints an accented share name as UTF-8', winOnly, () => {
+  /* The real script, with one line of its own shape appended naming a share \\srv\Données: what Windows PowerShell
+     prints for it must read back as that name, not Donn\uFFFDes. */
+  const { execFileSync } = require('node:child_process');
+  const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    windrives.scriptForTests + '; "Y`t4`t\\\\srv\\Donn$([char]0xE9)es"'], { encoding: 'utf8', timeout: 30000, windowsHide: true });
+  assert.equal(windrives.parseForTests(out).get('Y').share, '\\\\srv\\Donn\u00e9es', JSON.stringify(out.split(/\r?\n/).filter((l) => l.startsWith('Y'))));
+});
+
+test('#7232 review 1-2: an agent folder on a mapped drive whose share is not named is read as before, and keeps its files', winOnly, () => {
+  /* Z: is a network drive the redirector named no share for, so it may be this computer: here it is (Z:\victim is
+     C:\...\zbacking\victim). A local path into that agent's Files is Kosmos's own, and must be refused. */
+  const backing = fs.realpathSync.native(path.join(SANDBOX, 'zbacking'));
+  fs.mkdirSync(path.join(backing, 'victim', 'Files'), { recursive: true });
+  fs.writeFileSync(path.join(backing, 'victim', 'Files', 'f.txt'), 'kept\n');
+  store.writeProfile('zvictim', { dir: 'Z:\\victim' });
+  PROJECTS = [{ id: 'p-own', name: 'Outer', folder: backing, agents: [WHO] }];
+  windrives.setTableForTests(zTable({ kind: 'remote', share: null }));
+  const { r, touches } = attachIn({ alive: true }, path.join(backing, 'victim', 'Files', 'f.txt'), [{ sessionName: 'zvictim' }]);
+  assert.deepEqual([r.ok, r.because], [false, replyfile.KEPT_FOR_KOSMOS], JSON.stringify(r));
+  assert.ok(touches.z > 0, 'the agent folder on Z: was read');
+});
+
+test('#7232 review 1-3: a table whose refreshes keep failing is dropped after two refreshes; review 1-6: one re-learn per refresh', (t) => {
+  let clock = 1000000;
+  let fail = false;
+  let runs = 0;
+  const C_ONLY = 'C\t3\t\r\n';
+  windrives.setLearnForTests({ now: () => clock, run: () => { runs++; if (fail) throw new Error('powershell failed'); return C_ONLY; } });
+  t.after(() => windrives.setLearnForTests(null));
+  assert.equal(windrives.known(), true, 'learned');
+  // finding 6: letters the table does not list cost ONE blocking re-learn between refreshes, not one each
+  const before = runs;
+  for (const L of ['Q', 'R', 'S', 'T']) assert.deepEqual(windrives.placeOf(L), { absent: true });
+  assert.equal(runs - before, 1, 'one re-learn for four unlisted letters');
+  // finding 3: every refresh fails from now on
+  fail = true;
+  clock += 61 * 1000;
+  assert.equal(windrives.known(), true, 'one failed refresh: the table is still used, inside the plan\'s one window');
+  clock += 60 * 1000;
+  assert.equal(windrives.known(), false, 'past two refreshes with none succeeding: unknown, as before #7232');
+  // CONTROL: a refresh that succeeds again brings it back
+  fail = false;
+  clock += 61 * 1000;
+  assert.equal(windrives.known(), true);
+});
+
+test('#7232 review 1-5: WSL, the NetBIOS name and IPv4-mapped spellings of this computer\'s addresses are this computer', () => {
+  assert.equal(windrives.isThisComputer('wsl$'), true);
+  assert.equal(windrives.isThisComputer('wsl.localhost'), true);
+  assert.equal(windrives.isThisComputer('WSL.LOCALHOST'), true);
+  const saved = process.env.COMPUTERNAME;
+  process.env.COMPUTERNAME = 'KOSMOSNETBIOS7232';
+  try {
+    assert.equal(windrives.isThisComputer('kosmosnetbios7232'), true, 'the NetBIOS name');
+    assert.equal(windrives.isThisComputer('KOSMOSNETBIOS7232.corp.example'), true);
+  } finally { if (saved === undefined) delete process.env.COMPUTERNAME; else process.env.COMPUTERNAME = saved; }
+  const v4 = [].concat(...Object.values(os.networkInterfaces()).map((l) => l || [])).filter((a) => a.family === 'IPv4' || a.family === 4).map((a) => a.address);
+  assert.ok(v4.length > 0, 'this computer has an IPv4 address');
+  for (const a of v4) {
+    assert.equal(windrives.isThisComputer('::ffff:' + a), true, '::ffff:' + a);
+    const [p, q, r, s] = a.split('.').map(Number);
+    const literal = '--ffff-' + ((p << 8) | q).toString(16) + '-' + ((r << 8) | s).toString(16) + '.ipv6-literal.net';
+    assert.equal(windrives.isThisComputer(literal), true, literal);
+  }
+  // CONTROL: another computer's mapped address is not this one
+  assert.equal(windrives.isThisComputer('::ffff:10.255.255.1'), false);
 });

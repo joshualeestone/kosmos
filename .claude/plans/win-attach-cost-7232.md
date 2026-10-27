@@ -87,3 +87,21 @@ attach (subst, net use /d); a missing or partial table (must fall back to today)
 GetDrives calls remote (must fail closed, not local); the own-first early exit vs the deepest-folder rule.
 
 ## Review rounds
+
+### Review 1 (decided, all fixed; each with a test that fails on c0c0671feb)
+1. BLOCKER, share names mis-decoded: Windows PowerShell printed in the OEM code page, so \\srv\Données read as
+   Donn\uFFFDes and let another agent's nested file on that share through. SCRIPT now sets [Console]::OutputEncoding to
+   UTF-8, and parse (and placeOf, for any table) keeps a share only when it is exactly \\host\share with no U+FFFD;
+   anything else is null, so it fails closed.
+2. BLOCKER, keptRoots skipped an agent on a remote letter whose share is unknown: now it skips, or keeps by share
+   spelling, only when the share is named; otherwise workerDir as before.
+3. BLOCKER/WARNING, a table kept for ever while refreshes fail: a table whose last good learn is older than two
+   refreshes (120 s) is dropped (unknown, as before #7232).
+4. WARNING, a letter the table calls absent but made since (subst): otherFolderSkip no longer treats absent as
+   "leads nowhere"; such a folder is walked and resolved as before (a really missing root fails at once, no server).
+   drivesReached keeps the absent stop, where it only refuses more.
+5. WARNING, this computer's names: \\wsl$ and \\wsl.localhost, COMPUTERNAME (the NetBIOS name), and the IPv4-mapped
+   IPv6 spellings of this computer's IPv4 addresses (ipv6-literal.net included) are this computer. DNS aliases stay
+   not covered.
+6. NIT: one blocking re-learn per refresh in total, not one per letter.
+Seams added: windrives.setLearnForTests (clock and learner), scriptForTests; both excused in engine.reachable.
