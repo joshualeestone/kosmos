@@ -376,12 +376,8 @@ struct ChatView: View {
                             }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         else if searching && rows.isEmpty && !loaded.isEmpty { noMatch }
-                        // kosmos#7265: the newest rows are drawn as one eager stack, so their real heights are known and the
-                        // jump to "end" on open lands on the newest message. With every row lazy their heights were estimated
-                        // and a long chat of long messages opened mid-thread. Older rows stay lazy.
-                        // An exact cut: a cut in steps of 20 (fewer rebuilds) measured short again, 0 of 10 against 10 of 10
-                        // (rounds 16 and 17). So each new message moves one row from the eager stack to the lazy rows, which
-                        // rebuilds it and drops any state it held (a stated limit).
+                        // kosmos#7265: on iOS 16 the newest rows are one eager stack (real heights, so the jump to "end"
+                        // lands); on iOS 17+ every row is lazy and the id anchor holds the place (see idAnchor).
                         chatRows(items)
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
@@ -419,7 +415,8 @@ struct ChatView: View {
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
-                    if eagerFrom == nil, !items.isEmpty { eagerFrom = items[max(0, items.count - Self.eagerTail)].id }
+                    let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
+                    if eagerFrom == nil, firstEager < items.count { eagerFrom = items[firstEager].id }
                     goNewest(proxy)
                     #if DEBUG
                     // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
@@ -459,7 +456,7 @@ struct ChatView: View {
                     Self.trace("keepAtEnd scrollTo end")
                     if Self.idAnchor { goNewest(proxy); return }
                     if !Self.sampleNoKeep {
-                        // Debug arm: after the new rows have laid out, and once more a beat later.
+                        // iOS 16: after the new rows have laid out, and once more a beat later (the else is the debug control).
                         DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo("end", anchor: .bottom) }
                     } else {
@@ -525,17 +522,6 @@ struct ChatView: View {
         }
     }
 
-    // New messages come in at the bottom; if the person has scrolled up, the view stays and the capsule offers a jump.
-    // Not while searching: the person is reading what matched, and a new message may not even be among it (the
-    // board's convPause, #5624).
-    // kosmos#7265 debug: KOSMOS_SAMPLE_TRACE=1 prints the chat's scroll state to the console (simctl launch --console-pty).
-    static let sampleNoAnchor: Bool = {
-        #if DEBUG
-        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOANCHOR"] == "1"
-        #else
-        return false
-        #endif
-    }()
     // kosmos#7265 debug: KOSMOS_SAMPLE_EAGERALL=1 draws every row eagerly, to see whether estimated heights move the reader.
     static let sampleEagerAll: Bool = {
         #if DEBUG
@@ -544,14 +530,7 @@ struct ChatView: View {
         return false
         #endif
     }()
-    static let samplePinAsync: Bool = {
-        #if DEBUG
-        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PINASYNC"] == "1"
-        #else
-        return false
-        #endif
-    }()
-    // The lazy older rows, then the newest as one eager stack (kosmos#7265, see the comment where this is drawn).
+    // The lazy older rows, then the newest as one eager stack where eagerStartIndex says (kosmos#7265).
     @ViewBuilder private func chatRows(_ items: [Board.ChatItem]) -> some View {
         let tailStart = eagerStartIndex(items)
         ForEach(items[..<tailStart]) { item in row(item) }
@@ -597,6 +576,7 @@ struct ChatView: View {
     // kosmos#7265: iOS 18 reports the scroll phase, which tells the person's scroll from rows moving under them.
     static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
 
+    // kosmos#7265 debug: KOSMOS_SAMPLE_TRACE=1 appends the chat's scroll state to Documents/trace.txt.
     static func trace(_ line: @autoclosure () -> String) {
         #if DEBUG
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1" {
@@ -609,6 +589,9 @@ struct ChatView: View {
         #endif
     }
 
+    // New messages come in at the bottom; if the person has scrolled up, the view stays and the capsule offers a jump.
+    // Not while searching: the person is reading what matched, and a new message may not even be among it (the
+    // board's convPause, #5624).
     private func follow(_ proxy: ScrollViewProxy) {
         if searching { return }
         if atBottom { goNewest(proxy, animated: true) } else { unseenNew = true }
@@ -1252,12 +1235,14 @@ struct ChatView: View {
 
     // Words, or files with no words (their names go as the words). Not with files while another is still on its way
     // (the message would go without it); words alone go, as on the board.
-    // kosmos#7346 review: with no arrow to grey out, a Send that cannot go says why, on screen and to VoiceOver.
+    // kosmos#7346 review: with no arrow to grey out, a Send that cannot go says why (the note line announces itself
+    // to VoiceOver).
     private func sendOrSayWhy() {
         if canSend { send(); return }
-        guard !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedHere.isEmpty else { return }
-        let why = dictation.finishing ? "Waiting for the last words." : dictation.busy ? "Stop dictating first." : uploadingHere > 0 ? Board.stillAddingLine : nil
-        if let why { composerNote = why; UIAccessibility.post(notification: .announcement, argument: why) }
+        if let why = Board.dmSendBlocked(said: Board.sendWords(draftText, files: attachedHere), files: attachedHere.count,
+                                         uploading: uploadingHere, dictating: dictation.busy, finishing: dictation.finishing) {
+            composerNote = why
+        }
     }
 
     private var canSend: Bool {

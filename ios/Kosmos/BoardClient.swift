@@ -432,7 +432,6 @@ final class BoardClient: ObservableObject {
     func thread(for session: String) async -> Board.ThreadRead {
         #if DEBUG
         if var sample = sampleThreads[session] {
-            #if DEBUG
             // kosmos#7265, KOSMOS_SAMPLE_GROW=1: every read of Dana's chat brings one new message and drops the oldest, as a
             // busy chat at the Mac's 200-row window does, to check that an open chat keeps its place.
             if session == "dana", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_GROW"] == "1", let last = sample.rows.last {
@@ -443,7 +442,6 @@ final class BoardClient: ObservableObject {
                 sample = Board.Thread(rows: Array(sample.rows.dropFirst()) + [row], olderCount: sample.olderCount + 1, choices: sample.choices)
                 sampleThreads[session] = sample
             }
-            #endif
             return .thread(sample)
         }
         #endif
