@@ -21,7 +21,7 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 - `engine/communityfollow.js`: each older page waits for the board's chain for what is left of two bounds, never less
   than PAGE_WAIT_MS: READ_PAGES_MS (10 s) from the newest page's answer, and READ_TOTAL_MS (20 s) from the read's
   start. A page refused or failed, a bound reached with a next page still there, or a next cursor the read cannot use
-  (CURSOR_RE refuses it) inside FEED_PAGES_MAX adds CUT_SHORT under the heading. Stopping at FEED_PAGES_MAX is the read's depth, not a cut,
+  (CURSOR_RE refuses it) inside FEED_PAGES_MAX adds CUT_SHORT above the heading (the heading ends in a colon before its list). Stopping at FEED_PAGES_MAX is the read's depth, not a cut,
   and says nothing.
 - `engine/communityfollow.test.js`: the reported case through the real chain (another agent's call holds it about 1.5 s
   between the newest page and the older one); the slow newest page; the whole-read bound; CUT_SHORT on a failed page, the

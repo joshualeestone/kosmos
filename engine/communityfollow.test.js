@@ -670,6 +670,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
     assert.ok(down.text.includes(cf.CUT_SHORT), 'kosmos#7391: a read cut short by a failed page did not say so: ' + down.text);
+    assert.ok(down.text.indexOf(cf.CUT_SHORT) < down.text.indexOf('None of the newest items'), 'kosmos#7391 review 8: the notice sits between a heading and its list: ' + down.text);
     assert.ok(!enough.text.includes(cf.CUT_SHORT), 'CONTROL: a read whose pages all answered said it was cut short');
     // kosmos#7391 review 6: a next page whose cursor the read cannot use is a page not read, so the read says so.
     b.st.feedCalls = [];

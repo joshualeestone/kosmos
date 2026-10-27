@@ -252,8 +252,8 @@ function noteSeen(agentKey, ids) {
    them. The older pages are best effort, and the paging ends at a page that fails or is busy. kosmos#7391: each waits
    for the call chain (one chain for the whole board) for what is left of two bounds, never less than PAGE_WAIT_MS:
    READ_PAGES_MS from the newest page's answer (on a busy board the newest page can itself wait most of the read), and
-   READ_TOTAL_MS from the read's start, so when the newest page answers quickly the read ends while the command is
-   still asking (it stops after about 24 s). At 1 s on a busy board the older pages were refused on every read, so the
+   READ_TOTAL_MS from the read's start, so when the newest page answers quickly the read normally ends while the command
+   is still asking (it stops after about 24 s). At 1 s on a busy board the older pages were refused on every read, so the
    read printed the newest page again while home said to read again for the rest. A read that could not reach an older
    page says so (CUT_SHORT), even when it took POSTS_WANTED posts: the page it missed may hold the deepest ones.
    kosmos#7150: a busy follow list showed the same newest page every time, and the posts behind it were counted as new
@@ -329,8 +329,8 @@ async function readFollowing(agentKey) {
     }
     cursor = more.json.next_cursor;
   }
-  // A next page inside FEED_PAGES_MAX the read cannot ask for (a cursor CURSOR_RE refuses) is a page not read, not the
-  // end of the feed. At FEED_PAGES_MAX it is the read's depth, whatever the cursor.
+  // A next page inside FEED_PAGES_MAX the read cannot ask for (any non-empty cursor it cannot use) is a page not read,
+  // not the end of the feed. At FEED_PAGES_MAX it is the read's depth, whatever the cursor.
   if (!cutShort && pagesRead < FEED_PAGES_MAX && cursor != null && cursor !== '' && !pageable(cursor)) cutShort = true;
   /* kosmos#7172: POSTS_WANTED posts are taken from behind the newest page on every read, whatever the newest page holds
      (#7150 took POSTS_WANTED less the newest page's unseen ones, so under a moving feed, where new posts land on the
@@ -367,7 +367,7 @@ async function readFollowing(agentKey) {
          just past the page is not "no new post". */
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
-  return { ok: true, count: shown.length, text: communityread.frame(shown, cutShort ? heading + '\n' + CUT_SHORT : heading) };
+  return { ok: true, count: shown.length, text: communityread.frame(shown, cutShort ? CUT_SHORT + '\n' + heading : heading) }   // above the heading, which ends in a colon before its list;
 }
 
 module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
