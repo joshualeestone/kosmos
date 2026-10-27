@@ -17,7 +17,9 @@
  * this card is for, so a fresh 401 is "signed out" whatever it says. Unreachable, a check still running, or no account
  * row is "not known", and the card keeps slice 2's reason. A connected answer clears the live check's "none" at once
  * (`heard`; for a stored key only from the reader that tries the key), and a "none" from a check that started
- * before it is ignored. In memory, on the board. Never throws.
+ * before it was heard, or a request seen before it, is ignored. (Heard is stamped when the connected answer arrives, so
+ * a slow connected check can hide a newer "none" until the next hour: the safe direction, stated.) In memory, on the
+ * board. Never throws.
  */
 
 const CHECK_EVERY_MS = 60 * 60 * 1000;
@@ -85,7 +87,9 @@ function outBy(card, rec, now) {
   const observed = require('./observed');
   const a = card.sessionName ? observed.read(observed.PROVIDER.ANTHROPIC, String(card.sessionName)) : null;
   const d = card.account && card.account.dir ? observed.readDir(observed.PROVIDER.ANTHROPIC, card.account.dir) : null;
-  const obs = a && d ? (d.at >= a.at ? d : a) : (a || d);
+  let obs = a && d ? (d.at >= a.at ? d : a) : (a || d);
+  // Review 4: a request seen before a connected answer was heard is older than the sign-in, so it does not outrank it.
+  if (obs && obs.at <= rec.connectedAt) obs = null;
   const v = observed.verdict({ checkLiveState: rec.state, observedOutcome: obs && obs.outcome, observedAt: obs && obs.at, now });
   return v.badge === 'rejected' || v.badge === 'signed_out';
 }

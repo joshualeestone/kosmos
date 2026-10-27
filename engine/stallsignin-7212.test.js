@@ -229,10 +229,11 @@ test('review 3: a refused key is cleared only by the reader that tries the key',
 
 test('review 3: subscription.checkLive clears only the account it checked, default included', async () => {
   counting(STATE.NONE);
+  const T = Date.now() - 1000;   // review 4: checkLive stamps real time, so this test runs on it
   const dflt = card({ sessionName: 'd', account: { dir: '/x/.claude', isDefault: true } });
-  stallsignin.overlay(card(), T0); stallsignin.overlay(dflt, T0); await settle(); await settle();
-  assert.equal(stallsignin.overlay(card(), T0 + 1).deliveryStall.signedOut, true);
-  assert.equal(stallsignin.overlay(dflt, T0 + 1).deliveryStall.signedOut, true);
+  stallsignin.overlay(card(), T); stallsignin.overlay(dflt, T); await settle(); await settle();
+  assert.equal(stallsignin.overlay(card(), T + 1).deliveryStall.signedOut, true);
+  assert.equal(stallsignin.overlay(dflt, T + 1).deliveryStall.signedOut, true);
   sub.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true, subscriptionType: 'max' }), err: null }));
   await sub.checkLive({ configDir: '/x/.claude-b' });
   assert.equal(stallsignin.overlay(card(), Date.now()).deliveryStall.signedOut, undefined, 'the checked folder was not cleared');
@@ -243,11 +244,22 @@ test('review 3: subscription.checkLive clears only the account it checked, defau
 
 test('review 3: accounts.checkRowLive tells stallsignin, as the reader that tried the row', async () => {
   counting(STATE.NONE);
-  stallsignin.overlay(card(), T0); await settle(); await settle();
+  stallsignin.overlay(card(), Date.now() - 1000); await settle(); await settle();
   sub.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true, subscriptionType: 'max' }), err: null }));
   stallsignin.setDepsForTests(null);
   const r = await accounts.checkRowLive({ dir: '/x/.claude-b', isDefault: false });
   assert.equal(r.connection.state, STATE.CONNECTED);
   stallsignin.setDepsForTests({ list: () => ROWS, checkRow: () => new Promise(() => {}) });
   assert.equal(stallsignin.overlay(card(), Date.now()).deliveryStall.signedOut, undefined);
+});
+
+test('review 4: a sign-in heard after a 401 clears the card; a 401 seen after the sign-in brings it back', async () => {
+  counting(STATE.CONNECTED);
+  stallsignin.overlay(card(), T0); await settle();
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'ada', observed.OUTCOME.REJECTED, T0 + 1000);
+  assert.equal(stallsignin.overlay(card(), T0 + 2000).deliveryStall.signedOut, true, 'control: the 401 says signed out');
+  stallsignin.heard({ dir: '/x/.claude-b', isDefault: false }, STATE.CONNECTED, T0 + 30000);   // the person signed in again
+  assert.equal(stallsignin.overlay(card(), T0 + 31000).deliveryStall.signedOut, undefined, 'the card said sign in again after the sign-in');
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'ada', observed.OUTCOME.REJECTED, T0 + 40000);
+  assert.equal(stallsignin.overlay(card(), T0 + 41000).deliveryStall.signedOut, true, 'a newer 401 did not count');
 });

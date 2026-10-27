@@ -71,3 +71,13 @@ checked and the card says what slice 2 says, which is the safe direction.
   Kosmos does not launch the default account that way.
 - Weakest premise now: that the 401s observed.js records reach it for a stuck agent (they come from its own requests
   or a Check now). With neither, the live check alone decides, and it can say logged in for a revoked account.
+
+## Review round 4 (sonnet): 0 blocker, 1 major, 2 minor, 1 nit
+- MAJOR fixed: a fresh 401 outranked a sign-in heard after it, so the card said "Sign in again" for up to five minutes
+  after the person did. A request seen at or before the last connected answer no longer counts; a newer 401 does.
+  Mutant red.
+- MINOR fixed: the two tests whose code stamps real time run on a real-time base.
+- MINOR stated: several accounts starting a check on the same tick each read accounts.list() (a readdir and a small
+  file read per folder), once an hour per account; not worth a second cache.
+- NIT stated in the header: heard is stamped on arrival, so a slow connected check can hide a newer "none" until the
+  next hour (the safe direction).
