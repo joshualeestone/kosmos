@@ -1288,8 +1288,14 @@ struct ChatView: View {
             // kosmos#7265 (Josh 10-27): rows this read slid out of the latest window stay, so nothing above the reader
             // vanishes and the conversation does not jump (carryDropped).
             if fresh != thread {
+                // kosmos#7265 (Josh 10-27): whether the reader is at the newest message is read BEFORE the new rows land:
+                // a message appended under the end marker pushes it off screen, and its onDisappear cleared atBottom before
+                // follow() ran, so a reader at the bottom was left behind with "New messages" (measured on the simulator).
+                // Until the open has settled (the end not yet shown) the reader is still being taken there.
+                let pinned = !Self.sampleNoKeep && (atBottom || !endSeen) && !searching
                 if !Self.sampleNoKeep { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh) }   // NOKEEP: the control
                 thread = fresh; recomputeHiddenHeads()
+                if pinned { keepAtEnd = true }
             }
             fillGap(fresh)
             // A moved reset leaves the top in view with nothing loading: the next read asks again.
