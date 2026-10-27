@@ -43,3 +43,13 @@ waits, not before the hold. The docs line and the promote hint are what reach th
    - NITs: the early quiet run keeps prod-check's reason for a 4 to itself (a 3's reason still shows; both arms
      mutation-proven); the refusal says to fast-forward when the build is already on origin/main; the docs say where
      the check runs (not "at its very start") and what every prod-check exit means.
+2. (sonnet, 10:3x CDT) 0 BLOCKERs, 2 WARNINGs, 2 NITs; all actionable ones applied.
+   - (W) tools.release-gate.test.js's "#3955/#5713 ... stops the cut at 1b-ii" arms now stop at the early check, so
+     deleting 1b-ii's refusal stayed green. They are retitled and assert the early stop; a new #7349 arm moves prod on
+     between the two reads (a stand-in curl for the prod pointer's URL only, every other URL to the real curl) and the
+     cut stops AT 1b-ii. Mutation-proven: 1b-ii's `|| exit 1` made `|| true` reaches step 1c and reds it.
+   - (W) The early refusal's pool-build advice is said for a stale pool only, with "otherwise fix what it names".
+   - NIT: whats-new-check can print a note on stderr when it passes; the early run keeps it (the check now sits behind
+     _whats_new_check, like prod-check). The #3955 pins follow: the helper's exact command, both branches refuse on it,
+     and the #5224 platform pin reads a call inside a one-line function. Both new arms mutation-proven.
+   - NIT 2 (the reviewer verified the marker-count control can fail): nothing to change.
