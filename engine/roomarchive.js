@@ -25,6 +25,8 @@ const ARCHIVE_KEEP = 1000;
 const ARCHIVE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function fileFor() { return path.join(store.ROOT, 'roomarchive.json'); }
+// Set on a strict read's table when the file did not parse and was copied aside, so the writer replaces it.
+const SET_ASIDE = Symbol('setAside');
 
 /* Null-prototype, so a project id such as "__proto__" is an own key like any other. A file that cannot be read or
    parsed reads as no markers: the room then shows only what the automatic rule archives, the safe direction (more
@@ -44,7 +46,7 @@ function readAll({ strict = false, now = Date.now() } = {}) {
       got = JSON.parse(raw);
       if (!got || typeof got !== 'object' || Array.isArray(got)) throw new Error('roomarchive.json is not a table');
     } catch (err) {
-      if (strict) { fs.copyFileSync(fileFor(), fileFor() + '.broken-' + now); return out; }
+      if (strict) { fs.copyFileSync(fileFor(), fileFor() + '.broken-' + now); out[SET_ASIDE] = true; return out; }
       throw err;
     }
     for (const k of Object.keys(got)) {
@@ -95,11 +97,13 @@ function setMarker(projectId, before, now = Date.now()) {
   return { ok: true, marker };
 }
 
-/* Undo: the room's own marker goes; the automatic rule still applies. */
+/* Undo: the room's own marker goes; the automatic rule still applies. Also called when a project is removed, since a
+   freed project id is reused. */
 function clearMarker(projectId) {
   const all = readAll({ strict: true });
   const had = Object.prototype.hasOwnProperty.call(all, String(projectId));
-  if (had) { delete all[String(projectId)]; writeAll(all); }
+  if (had) delete all[String(projectId)];
+  if (had || all[SET_ASIDE]) writeAll(all);
   return { ok: true, cleared: had };
 }
 

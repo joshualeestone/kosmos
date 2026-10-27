@@ -21900,6 +21900,8 @@ const server = http.createServer(async (req, res) => {
       try { fedseal.forgetRoom(id); } catch { /* create clears it too */ }
       // #4649: and its outside invites, so a later project of the same id lists none of them.
       try { fedmembers.forget(id); } catch { /* create clears it too */ }
+      // kosmos#7365: and its archive marker, so a later project of the same id archives only by the automatic rule.
+      try { roomarchive.clearMarker(id); } catch { /* an unreadable marker file keeps it; the read side then ignores the file */ }
     } catch (err) {
       // #1994: honour an explicit status (remove now throws a 409 when the
       // project still has sub-projects -- it exists, so a 404 would be wrong).

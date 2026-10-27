@@ -192,6 +192,13 @@ test('#7365: a marker file that will not parse is moved aside, bytes kept, and A
     assert.equal(fs.readFileSync(path.join(dir, broken()[0]), 'utf8'), cut, 'the bytes set aside are not the original');
     assert.deepEqual(Object.keys(roomarchive.readAll()), [room.routes], 'the new table holds only the new marker');
     assert.equal((await post(room.routes, '/undo')).code, 200);
+    // Undo on a broken file with nothing to undo still replaces it, so presses do not pile up copies.
+    fs.writeFileSync(file, cut);
+    assert.equal((await post(room.routes, '/undo')).code, 200);
+    assert.equal((await post(room.routes, '/undo')).code, 200);
+    assert.equal(broken().length, 2, 'Undo left the broken file in place, so each press copies it aside again');
+    // An empty table is written as no file at all.
+    assert.equal(fs.existsSync(file), false, 'Undo did not replace the broken file');
   } finally {
     fs.writeFileSync(file, kept);
     for (const f of broken()) fs.rmSync(path.join(dir, f));
@@ -249,6 +256,15 @@ test('#7365: archiving "up to now" leaves the last day live, so an ask still bei
   const r = await get(pid);
   assert.deepEqual(r.json.rows.filter((x) => x.archived).map((x) => x.id), ['rc-old'], 'the hour-old ask was archived');
   assert.match((await get(pid, '?as=text')).text, /\[rc-new\]/);
+});
+
+test('#7365: removing a project drops its marker, since a freed project id is reused', async () => {
+  const pid = projects.create({ name: 'Archive gone' }).id;
+  assert.equal(roomarchive.setMarker(pid, '2024-06-01T00:00:00.000Z').ok, true);
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(pid)}`, { method: 'DELETE' });
+  assert.ok(res.status < 300, 'the project was not removed: ' + res.status + ' ' + await res.text());
+  assert.equal(roomarchive.markerFor(pid), null, 'the removed project\'s marker is still there');
+  assert.notEqual(roomarchive.markerFor(room.small), null, 'CONTROL: another room\'s marker went too');
 });
 
 // LAST: enforcement on, so both routes are proven to be outside every auth-exempt set.
