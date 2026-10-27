@@ -2,69 +2,108 @@
 pre_challenge: true
 method: challenge-loop
 branch: cmdwords-7262
-diff_hash: 39db5b95e28d4db1636e23cee14b421d1e85f6b5d45309b4d1f79c46fc823ca0
+diff_hash: 773fc1125164a5bf52dfdad94f23ecf70ca6326fcdc2257124165b973aeac1a2
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-27T07:30:28Z
-iterations: 2
+timestamp: 2026-10-27T08:36:47Z
+iterations: 7
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2 (default, sonnet)
-**Converged:** Yes (round 2: no new BLOCKERs, WARNINGs or CONVENTIONs)
-**Total findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 8 NITs
-**Fixed:** 1 WARNING and 4 NITs | **Deferred:** 3 NITs (1 a repeat of round 1's) | **Asked (awaiting user):** 0
+**Iterations:** 7 (default, sonnet, default, sonnet, default, sonnet, default)
+**Converged:** Yes (round 7: no new BLOCKERs, WARNINGs or CONVENTIONs)
+**Total findings:** 1 BLOCKER, 7 WARNINGs, 2 CONVENTIONs, 29 NITs (counted from the per-iteration lists below)
+**Fixed:** the BLOCKER, all 7 WARNINGs, 1 CONVENTION, 11 NITs (and 1 into the PR body) | **Deferred:** 1 CONVENTION and 17 NITs, round 7's nine filed as #7320 | **Asked (awaiting user):** 0
 
-Evidence: test-support.tool-guard-4326.test.js and tools.windows-tests-schtasks-7247.test.js pass unchanged, plus
-tools.command-words-7262.test.js: 47 of 47. The 25 test files that name the touched code or tools/lib: 541 pass, 0
-fail, 9 skipped (each a Windows-only or opt-in skip). Mutations, each red and restored: M1 tool-guard back on its own
-reader; M2 the env branch dropped (11 red); M3 schtasks-call back on its own reader; M4 the quoted-substitution read
-off; M5 no sudo option clusters. Round 1's reviewer ran random differentials (200,000 schtasks lines, 100,000
-tool-guard lines, spawn calls) and found no call either guard refused before and allows now, except
-`bash ['script.sh', '-c', ...]`, which really runs the script file. Full validation (tools/run-tests.sh) passed at
-the hash above (head 11abd2b6fa, 02:29 CDT), on the branch rebased onto main after #7300 merged. #7300's files on
-main are byte-identical to the base this was reviewed on, and this branch's files are byte-identical across the rebase.
+Rounds 1 and 2 converged first. The proof was then reopened twice: once for Homer's Windows run of the PR, and once when a fresh round on the new head found more (rounds 3 to 7).
+
+Evidence:
+- **Tests:** test-support.tool-guard-4326.test.js and tools.windows-tests-schtasks-7247.test.js pass unchanged. With tools.command-words-7262.test.js that is 47 of 47 on the Mac.
+- **Windows selection guard:** engine/windows-tests-1777.test.js passes 23 of 23, and is measured red without this file's ALSO_ROOT entry.
+- **Windows box (Homer, at 78a50df434):** 56 pass, 1 skip, 0 fail.
+- **Mutations M1 to M17:** each red, and each restored. Two copies of the line-join logic each covered for the other, so one was removed and the other is now mutation-proven.
+- **Differentials:** each round compared the readers on origin/main with the branch, up to 350,000 random exec lines and 200,000 random spawn calls in round 7. No realistic call that main's guards refused is allowed now. Every shape main refused and the branch allows is one a real shell would not run that way.
+- **Full validation** (tools/run-tests.sh) passed at the hash above, head f9dd5a35d4, 03:36 CDT.
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1
 **Reviewer model:** default
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 5 NITs
-**Self-generated:** 0 of the above (no loop commit existed yet)
-- [WARNING] tools/lib/command-words.cjs:31: a $( ) or backtick inside double quotes (TOKEN="$(gh auth token)") was not read, by the old readers or the new one --> FIXED (9d91b0b0e2): read in a POSIX or exec line
-- [NIT] tools/lib/command-words.cjs:34: not-seen list still named a quoted path to a prefix word, now seen --> FIXED (9d91b0b0e2)
-- [NIT] tools/lib/command-words.cjs:58: sudo option clusters ending in a value-taking letter (-iu root) --> FIXED (9d91b0b0e2)
-- [NIT] tools.command-words-7262.test.js:68: no bare-name PATH case for tool-guard --> FIXED (9d91b0b0e2): a test with a control
-- [NIT] test-support/tool-guard.js:151: fileCheck checks the file twice --> DEFERRED: harmless, and the shell: true case needs the separate check
-- [NIT] tools/no-schtasks-preload.cjs:30: an out-of-tree copy of the preload needs lib/command-words.cjs too --> noted in the PR body
+**Self-generated:** 0 of the above
+- [WARNING] tools/lib/command-words.cjs: a $( ) or backtick inside double quotes was not read --> FIXED
+- [NIT] stale not-seen clause; sudo clusters; a bare-name PATH test --> FIXED
+- [NIT] tool-guard.js: the file is checked twice --> DEFERRED: harmless, and the shell: true case needs the separate check
+- [NIT] an out-of-tree copy of the preload needs lib/command-words.cjs --> in the PR body
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-**Duplicates of prior findings (confirmed resolved):** 1 (the double file check)
-- [NIT] test-support/tool-guard.js:34: the NOT SEEN comment broken mid-sentence by a line edit --> FIXED (9eb890a94b, 11abd2b6fa)
-- [NIT] tools/lib/command-words.cjs:66: keyword words (if, then, {) are returned --> DEFERRED: documented in the header; both guards ignore words they do not know
+- [NIT] tool-guard.js: a comment left broken by a line edit --> FIXED
+- [NIT] keyword words (if, then, {) are returned --> DEFERRED: documented; both guards ignore words they do not know
+**Converged** at this point. Then reopened: Homer's Windows run found two tool-guard arms of the new test failing there, so those arms skip on win32, the file joins ALSO_ROOT, and the proof had to be redone.
+
+#### Iteration 3
+**Reviewer model:** default
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 1 of the above (the skip reason I had just written)
+- [WARNING] the win32 skip's reason was false: run-tests.sh preloads tool-guard on Windows too --> FIXED: the reason is corrected, and #7318 is filed for tool-guard's Windows verdict
+- [NIT] the test header misstated who missed sudo; on win32 the tool-guard verdict was computed and then discarded --> FIXED
+
+#### Iteration 4
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 2 NITs
+**Self-generated:** 0 of the above
+- [WARNING] a POSIX backslash was not an escape (`echo "a \" b"; gh` hid gh) --> FIXED
+- [NIT] a leading backslash (`\gh`) --> FIXED
+- [CONVENTION] #7318 cannot be checked from the tree --> DEFERRED: it is the card filed in round 3
+- [NIT] an unterminated apostrophe in a POSIX line --> DEFERRED: a real shell runs nothing
+
+#### Iteration 5
+**Reviewer model:** default
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 6 NITs
+**Self-generated:** 1 of the above (my round-1 sudo rule)
+- [WARNING] `sudo -uroot gh`: the cluster rule read the last letter of the attached value --> FIXED
+- [WARNING] `pwsh -Exec Bypass -Command gh`, refused on main, was missed --> FIXED: -Command is also looked for anywhere after the program
+- [NIT] fish -C; time -a; a quoted `)` inside $( ); the header's account of what each reader missed --> FIXED
+- [NIT] the double file check; one red seen once and never named --> DEFERRED
+
+#### Iteration 6
+**Reviewer model:** sonnet
+**New findings:** 1 BLOCKER, 2 WARNINGs, 1 CONVENTION, 1 NIT
+**Self-generated:** 1 of the above (the BLOCKER, from my round-4 escape)
+- [BLOCKER] `bash -c 'a && \<newline>gh x'` hid gh, which main refused --> FIXED: a backslash before a line end joins the lines, as bash does
+- [WARNING] $'...' quoting; env -P --> FIXED
+- [CONVENTION] rows for those shapes --> FIXED
+- [NIT] a quoted path is pushed whole --> DEFERRED: no false positive found
+
+#### Iteration 7
+**Reviewer model:** default
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 9 NITs (8 older than this branch, 1 contrived)
+**Self-generated:** 0 of the above
+- [NIT] bash -c --, eval and coproc, sudo -R, $'gh' and g\h, prev after an escape, a quadratic unclosed "$(, two header wordings, the base 64 commits behind main (no touched file changed) --> DEFERRED: filed as #7320, routed with #7299
 **Converged**: no new actionable findings.
 
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
-| 1 | 1 | WARNING | tools/lib/command-words.cjs:31 | BRANCH | $( ) and backticks in double quotes not read | FIXED | 9d91b0b0e2 |
+| 1 | 1 | WARNING | tools/lib/command-words.cjs | BRANCH | $( ) in double quotes not read | FIXED | iteration 1 commit |
+| 2 | 3 | WARNING | tools.command-words-7262.test.js | SELF | false win32 skip reason | FIXED | 8a7669c787 |
+| 3 | 4 | WARNING | tools/lib/command-words.cjs | BRANCH | backslash not an escape | FIXED | 0ea63922d2 |
+| 4 | 5 | WARNING | tools/lib/command-words.cjs | SELF | sudo -uroot | FIXED | acda2556c7 |
+| 5 | 5 | WARNING | tools/lib/command-words.cjs | BRANCH | pwsh unlisted switch before -Command | FIXED | acda2556c7 |
+| 6 | 6 | BLOCKER | tools/lib/command-words.cjs | SELF | backslash-newline hid the next command | FIXED | f9dd5a35d4 |
+| 7 | 6 | WARNING | tools/lib/command-words.cjs | BRANCH | $'...' quoting | FIXED | f9dd5a35d4 |
+| 8 | 6 | WARNING | tools/lib/command-words.cjs | BRANCH | env -P | FIXED | f9dd5a35d4 |
 
 ### NITs (non-blocking, across all iterations)
-- [NIT] tools/lib/command-words.cjs:34: stale not-seen clause (iteration 1, fixed)
-- [NIT] tools/lib/command-words.cjs:58: sudo clusters (iteration 1, fixed)
-- [NIT] tools.command-words-7262.test.js:68: bare-name PATH test (iteration 1, fixed)
-- [NIT] test-support/tool-guard.js:151: double file check (iterations 1 and 2, deferred)
-- [NIT] tools/no-schtasks-preload.cjs:30: out-of-tree preload copy (iteration 1, PR body)
-- [NIT] test-support/tool-guard.js:34: comment wrap (iteration 2, fixed)
-- [NIT] tools/lib/command-words.cjs:66: keyword words returned (iteration 2, deferred)
+- [NIT] 11 fixed and 1 to the PR body (iterations 1 to 5), 17 deferred with reasons above; round 7's nine are #7320
 
 ### Strengths (across all iterations)
-- The walker moved with no change in what it reads beyond the intended sudo and prefix-program branches; the "read both ways" rule survives as "return the words of every reading" (iteration 1)
-- The agreement table runs both guards over one set of call shapes, a real guard against the readers drifting again (iterations 1 and 2)
-- refusedCall lets the guard's own tests drive the file-plus-argv path, including a bare name judged by the call's PATH (iteration 2)
+- One reader, with each guard keeping its own verdict; schtasks-call.cjs is now a 20-line verdict
+- The agreement table runs every call shape through both guards; its true rows fail if the reader returns nothing
+- Reading an ambiguous call every way and returning all its words keeps both guards on the refusing side
