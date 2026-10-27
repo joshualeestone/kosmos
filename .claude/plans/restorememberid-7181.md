@@ -58,3 +58,6 @@ Card kosmos#7181. Built on #5536 slice 4b (branch restoreworld-5536, PR #7240); 
   names the narrow-switcher risk and leaves the full-name title to 4c.
 - Rebased onto main after #7240 (4b) merged as 54760596fc. The duplicate 4b commits dropped and the two #7181 commits
   applied cleanly.
+
+## Round 4 (blind, sonnet, 20:5x CDT)
+- No new findings. Converged.
