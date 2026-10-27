@@ -90,7 +90,7 @@ test('a re-made project\'s room does not show the deleted project\'s room rows',
   assert.match(fs.readFileSync(messages.LOG, 'utf8'), /room line from the first project/, 'the old line is still in the log');
 });
 
-test('when the projects file cannot be read, a project\'s rows are left out rather than shown', () => {
+test('#7367: when the projects file cannot be read, a project\'s rows are still shown (fails open)', () => {
   const id = projects.create({ name: 'Unreadable ' + Math.random().toString(36).slice(2) }).id;
   const n = tasks.create(id, { sentence: 'Task' }).number;
   assert.ok(taskchat.record(id, n, { kind: 'said', text: 'private words' }));
@@ -102,9 +102,10 @@ test('when the projects file cannot be read, a project\'s rows are left out rath
   fs.writeFileSync(f, good.toString('utf8') + ' not json');   // damaged: readAll throws, so the stamps cannot be known
   try {
     assert.throws(() => projects.readAll(), /cannot make sense/, 'CONTROL: the projects file really is unreadable now');
-    assert.deepEqual(taskchat.read(id, n), [], 'unreadable: nothing is shown, so no other project\'s words can be');
-    assert.deepEqual(roomTexts(id), [], 'and nothing from the room');
-    assert.equal(messages.record().ok, false, 'and the record says it could not be read, so careful callers fail closed rather than read it as empty');
+    assert.deepEqual(said(id, n), ['private words'], 'unreadable: the task conversation still reads (one damaged file must not silence every task)');
+    assert.deepEqual(roomTexts(id), ['private room line'], 'and the room');
+    assert.equal(messages.record().ok, true, 'the record reads');
+    assert.equal(messages.record().stampsUnknown, true, 'and says the stamps are unknown, so a receipt is not kept from it');
   } finally {
     fs.writeFileSync(f, good);
   }
