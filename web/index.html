@@ -7309,6 +7309,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    a bodyless row has none. */
 .msg:hover .msg-bd { background-image: linear-gradient(rgba(120,120,128,.08), rgba(120,120,128,.08)); }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
+/* kosmos#7365 slice 3: a search hit from the room's archive. A word, not a colour alone. */
+.msg-archived { display: inline-block; margin-right: .5em; padding: 0 .4em; border: 1px solid var(--k-rule); border-radius: 4px; font-size: .7rem; }
 /* #5406 part 2 slice C: a question's choices, inside its bubble (Josh #3419: no box, no banner). The old answer buttons'
    tokens (AA on both themes); labels wrap, never nowrap (an agent's words are unbounded, and a nowrap button stretches
    the row sideways). No primary: two equal answers, and emphasising one would recommend it. */
@@ -75957,8 +75959,10 @@ function pjWinNoteReactions(project, postId, list, claim) {
   // The newest page too: an earlier page's paint, a search's end or a gap read builds from it before the next poll.
   if (Array.isArray(PJ_WIN.newest)) PJ_WIN.newest = PJ_WIN.newest.map(fix);
 }
-async function pjWinRead(pid, n, cursor) {
-  const q = 'n=' + n + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+/* kosmos#7365 slice 3: `archive` false reads the live part (every window read), true the archive view's pages. Both
+   share one set of cursors on the board, and every page says how many rows are archived. */
+async function pjWinRead(pid, n, cursor, archive) {
+  const q = 'n=' + n + '&archive=' + (archive ? '1' : '0') + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
   // The '?' inside the literal, so web.api-routes-3957 can read the route this fetches.
   const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room?' + q);
   const body = await res.json();
@@ -77824,7 +77828,9 @@ function pjRoomRow(m, p, hideHeader) {
       ? '<span class="msg-replyto gone">Original message is further back</span>'
       : '<span class="msg-replyto gone">Original message unavailable</span>';
   }
-  const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';
+  // kosmos#7365 slice 3: a row from the archive (a search's whole-room read marks them) says so beside its time.
+  const tag = m.archived === true ? '<span class="msg-archived">Archived</span>' : '';
+  const timeEl = whenStr || tag ? '<span class="msg-t">' + tag + whenStr + '</span>' : '';
   const closingEl = pjClosingTag(m);   // #6925
   const hasBubble = bd;
   /* #3743: data-mid, as a DM row has, so an unread post can be found after the paint and given its edge. */

@@ -634,8 +634,8 @@ test('#5800: Reopen posts the release for the room it was pressed in, then rerea
 
   await scope.pjHeldReopenClick(ev);
   assert.deepEqual(calls[0], ['/api/project/proj-1/room/reopen', 'POST'], 'the release did not go to this room\'s reopen route: ' + JSON.stringify(calls));
-  // kosmos#7365: the room is read as its newest page (?n=200), the window the board draws.
-  assert.deepEqual(calls[1], ['/api/project/proj-1/room?n=200', 'GET'], 'the room was not read again after the release: ' + JSON.stringify(calls));
+  // kosmos#7365: the room is read as its newest page of the live part (?n=200&archive=0), the window the board draws.
+  assert.deepEqual(calls[1], ['/api/project/proj-1/room?n=200&archive=0', 'GET'], 'the room was not read again after the release: ' + JSON.stringify(calls));
   assert.equal(msg.textContent, '', 'a successful release left a message beside the button');
 
   calls.length = 0;

@@ -80,7 +80,8 @@ test('#7365: a poll reads only the newest page, and paints it', async () => {
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();
-  assert.match(room.calls[0], /\/room\?n=200$/, 'the poll asks for the newest page, not the whole room');
+  // kosmos#7365 slice 3: and of the live part only (archive=0), as every window read is.
+  assert.match(room.calls[0], /\/room\?n=200&archive=0$/, 'the poll asks for the newest page of the live room, not the whole room');
   assert.deepEqual(ids(h.painted.at(-1)), range(801, 1000));
   assert.equal(h.api.PJ_WIN.olderCount, 800);
 });
@@ -92,7 +93,7 @@ test('#7365: scrolling back reads each earlier page by cursor, anchors the reade
   for (let k = 0; k < 10 && h.api.PJ_WIN.olderCount > 0; k++) await h.api.pjWinEarlier(true);
   const last = h.painted.at(-1);
   assert.deepEqual(ids(last), range(1, 1000), 'every post, in order, once');
-  assert.ok(room.calls.slice(1).every((u) => /\?n=200&cursor=/.test(u)), 'earlier pages are read by cursor');
+  assert.ok(room.calls.slice(1).every((u) => /\?n=200&archive=0&cursor=/.test(u)), 'earlier pages are read by cursor');
   assert.equal(h.anchors.taken, 4, 'one anchor per earlier page');
   assert.equal(h.anchors.restored, 4);
   const before = room.calls.length;
@@ -109,7 +110,7 @@ test('#7365: a poll after scrolling back keeps the earlier pages, and reads a ga
   for (let i = 0; i < 50; i++) room.add();   // 50 new posts: the newest page now starts at 851, a gap of 801 to 850
   await h.api.loadRoom();
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1050), 'the earlier pages, the gap and the newest page, contiguous');
-  assert.ok(room.calls.some((u) => /\?n=51&cursor=/.test(u)), 'the gap is read by the newest page\'s cursor');
+  assert.ok(room.calls.some((u) => /\?n=51&archive=0&cursor=/.test(u)), 'the gap is read by the newest page\'s cursor');
   assert.equal(h.anchors.restored, 2, 'the scrolled-up reader is anchored when the gap lands above them');
   // CONTROL: with no new rows, a poll reads one page and adds nothing.
   const n = room.calls.length;
@@ -322,7 +323,7 @@ test('#7365 review 6: an earlier page whose cursor moved while it was read is dr
   await h.api.pjWinEarlier(false);   // a self-read page: 601 to 800
   let release; const gate = new Promise((r) => { release = r; });
   const real = room.fetch;
-  room.fetch = async (u) => { if (/n=200&cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
+  room.fetch = async (u) => { if (/n=200&archive=0&cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
   const second = h.api.pjWinEarlier(false);   // 401 to 600, held back
   for (let i = 0; i < 10; i++) room.add();
   await h.api.loadRoom();   // the gap trims the self-read front and moves the cursor
