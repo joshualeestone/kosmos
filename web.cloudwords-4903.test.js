@@ -114,7 +114,33 @@ test('#4903 seam G: the first-run Connect list offers Claude alone on a cloud ma
   const rows = [...pane.matchAll(/<div ((?:data-cloud-hide )?)class="llm[ "][^>]*><span class="llm-m[^"]*" data-pmark="([a-z]+)"/g)]
     .map((m) => [m[2], m[1] !== '']);
   assert.ok(rows.length >= 10, 'fewer provider rows than the list has: ' + JSON.stringify(rows));
+  assert.deepEqual(rows.filter(([prov]) => prov === 'claude'), [['claude', false]], 'no shown Claude row was found; the loop below could pass with Claude gone');
   for (const [prov, hidden] of rows) assert.equal(hidden, prov !== 'claude', prov + (hidden ? ' is hidden' : ' is shown') + ' on a cloud machine');
+  // Review 1: each hidden provider's panels and status box go too (its painters still run on entering the step).
+  for (const id of ['openai-confirm', 'openai-pick', 'openai-sub-step', 'openai-flow', 'openai-msg', 'gemini-confirm', 'gemini-pick',
+    'gemini-sub-step', 'gemini-flow', 'gemini-msg', 'grok-confirm', 'grok-pick', 'grok-sub-step', 'grok-flow', 'grok-msg', 'muse-flow', 'muse-msg']) {
+    assert.match(pane, new RegExp('<div data-cloud-hide (?:class="dhint" )?id="fr-' + id + '"'), 'fr-' + id + ' is shown on a cloud machine');
+  }
+  assert.doesNotMatch(pane, /<div (?!data-cloud-hide)[^>]*id="fr-(?:openai|gemini|grok|muse)-(?:confirm|pick|sub-step|flow|msg)"/, 'a provider panel is outside the cloud hide');
+  // Review 2: the age line naming OpenAI and Grok is hidden; a cloud machine says Claude's rule alone.
+  assert.match(pane, /<p class="fr-age" data-cloud-only>Claude needs you to be 18 or over\. Age rules vary by country\.<\/p>\n\s*<p class="fr-age" id="fr-age" data-cloud-hide>/);
+  assert.match(PAGE, /html:not\(\[data-kosmos-cloud\]\) \[data-cloud-only\] \{ display: none !important; \}/);
+});
+
+test('#4903 seam H review 3: the found list (hidden there) does not scan on a cloud machine; the Show again list stays empty', async () => {
+  const wrap = { innerHTML: 'OLD' };
+  let scanned = 0;
+  await run(['populateFoundImports'], 'return populateFoundImports();', {
+    onCloudMachine: () => true, document: { getElementById: (id) => (id === 'import-found' ? wrap : null) },
+    fetch: async () => { scanned += 1; return { ok: false, json: async () => ({}) }; }, FR_IMPORT_POP_GEN: 0,
+  });
+  assert.equal(scanned, 0, 'a cloud machine still scanned for agent files');
+  assert.equal(wrap.innerHTML, '');
+  const box = { hidden: false }; const list = { innerHTML: 'OLD' };
+  run(['paintSurvivalHidden'], 'paintSurvivalHidden({ hidden: ["a"] });', {
+    cloudHidesRestart: () => true, document: { getElementById: (id) => (id === 'survival-hidden-box' ? box : id === 'survival-hidden-list' ? list : null) },
+  });
+  assert.deepEqual([box.hidden, list.innerHTML], [true, ''], 'the Show again list of restart notices showed on a cloud machine');
 });
 
 test('#4903 seam H: the page\'s own "this computer" sentences on the agent, its files and the create flow go through thisMachine', () => {
@@ -129,6 +155,9 @@ test('#4903 seam H: the page\'s own "this computer" sentences on the agent, its 
     "'This agent has no folder of its own on ' + " + T + " + ', so there is no Files list.'",
     "'Kosmos has no folder for ' + name + ' on ' + " + T + " + ', so it has nowhere to write.'",
     "const head = " + TC + " + ' restarted ' + down;",
+    "account this agent runs on is no longer on ' + " + T + " + ', so it cannot run. '",
+    "' running on ' + " + T + " + '.'",
+    'Your agents run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.',
     "'It keeps trying each time your cloud machine starts. If it appears under Agents, you can remove it there.'",
     'where they live on <span data-cloud-copy="thisMachine">this computer</span>',
     '(cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at)',
