@@ -7031,7 +7031,7 @@ const MODEL_NAMES = {
    "Haiku 4 5"); so an id with two number-only parts side by side, or a date part, stays raw, and only then. Ids that
    write their version with a dot (gemini-3.8-flash, grok-4.6, gpt-5.6-sol) read cleanly: "Gemini 3.8 Flash",
    "Grok 4.6", "GPT 5.6 Sol". PURE; exported for its test. */
-const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano',
+const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', deepseek: 'DeepSeek', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano',
   oss: 'OSS', vl: 'VL', hd: 'HD', tts: 'TTS', ai: 'AI' };   // acronyms, so they are not read as words ("Oss")
 function readableModelId(id) {
   const parts = String(id || '').split('-');
