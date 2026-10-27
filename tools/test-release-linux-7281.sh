@@ -211,11 +211,13 @@ case "$out" in *lockstep*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: 
 # 0.7.71 cut: release.sh drops KOSMOS_CUT_LINUX once decided, BEFORE step 3, or the suite inherits it and every nested
 # release.sh in it tries to cut the Linux family (9 reds in tools.release-gate.test.js, the cut aborted).
 unset_order() {
+  # The unset must be a top-level line within three lines of the decision (not in a branch further down), and before
+  # the FIRST place the suite starts: the parallel path (KOSMOS_CUT_PARALLEL=1) runs yarn test before step 3's marker.
   local d u s
   d="$(grep -n "^release_linux_decide " "$HERE/tools/release.sh" | head -1 | cut -d: -f1)"
   u="$(grep -nx "unset KOSMOS_CUT_LINUX" "$HERE/tools/release.sh" | head -1 | cut -d: -f1)"
-  s="$(grep -nF "step \"== 3. the whole suite" "$HERE/tools/release.sh" | head -1 | cut -d: -f1)"
-  [ -n "$d" ] && [ -n "$u" ] && [ -n "$s" ] && [ "$d" -lt "$u" ] && [ "$u" -lt "$s" ]
+  s="$(grep -nE "^[^#]*(yarn test|step \"== 3)" "$HERE/tools/release.sh" | head -1 | cut -d: -f1)"
+  [ -n "$d" ] && [ -n "$u" ] && [ -n "$s" ] && [ "$d" -lt "$u" ] && [ $((u - d)) -le 3 ] && [ "$u" -lt "$s" ]
 }
 chk "release.sh unsets KOSMOS_CUT_LINUX after deciding and before the suite" unset_order
 
