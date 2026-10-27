@@ -57,3 +57,10 @@ Challenge loop to convergence. Merge on green (beta rule).
   so the person is not told twice.
 - Review 2: a refused redirect is marked as said (no second message on its cancel); the Getting lines stack, so a
   download still on its way is shown again with its Cancel when another ends.
+- Review 3: what is shown waits its turn (a queue: alerts and share sheets one at a time, a presentation that does
+  not happen is retried, never dropped), so every file that arrived gets its sheet and every failure is said; a
+  refusal still follows the Mac's guard. Cancel cleans up at once (WebKit need not report a cancel it was asked
+  for); the said-already set holds the downloads weakly. A redirect is judged against where the download started.
+- Departure from the Mac, decided: "it stopped before it began" is said as a failure (always), where the Mac counts
+  it as a refusal under its guard. On the phone it is the only sign a tap did anything, and it cannot repeat on its
+  own (each one needs a tap).

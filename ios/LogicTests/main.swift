@@ -4412,6 +4412,9 @@ do {
           "the Files lists' own routes say a refusal on the page, so the app says nothing")
     check(Download.pageSaysRefusal(filesDl) && Download.pageSaysRefusal(URL(string: "https://s.kosmosplus.com/api/project/p1/file-download")!)
           && !Download.pageSaysRefusal(dl), "the routes whose page says it themselves (the Mac's pageSaysDownloadRefusal)")
+    check(Download.pageSaysRefusal(URL(string: "https://s.kosmosplus.com/api/agent/dana/files/download-folder?path=x")!),
+          "review 3: the folder download (#6724) says its refusals on the page too")
+    check(Download.redirectedElsewhere == "The file pointed somewhere Kosmos does not save from, so it was not saved.", "a redirect elsewhere in the Mac's words")
     // The name.
     check(Download.fileName("report.pdf") == "report.pdf" && Download.fileName(nil) == "download" && Download.fileName("../../etc/x") == "-..-etc-x"
           && Download.fileName(".hidden") == "hidden" && Download.fileName("   ") == "download", "the name is safe for a file")
