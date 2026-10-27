@@ -132,8 +132,13 @@ case "$FAMILY" in
     [ -z "$NAMED_VERSION" ] || { echo "promote-channel: --version is for the Mac promote only; a Windows promote names its build with --approved-version/--approved-sha" >&2; exit 1; }
     [ "$FORCE" = 0 ] || { echo "promote-channel: --force is refused for --family win - neither Josh's go nor the Windows verification record can be forced." >&2; exit 1; }
     [ -z "$PORT" ] || { echo "promote-channel: --family win takes no [port] (its gate reads the verification record, not a board)" >&2; exit 1; } ;;
+  linux) echo "promote-channel: the Linux family is not promoted on its own: a Mac promote moves latest-linux.json with latest.json, to the same version (kosmos#7281 lockstep). Run it without --family." >&2; exit 1 ;;
   *) echo "promote-channel: --family must be 'mac' or 'win' (got '$FAMILY')" >&2; exit 1 ;;
 esac
+# kosmos#7281 slice C2: the marker tools/lib/release-linux.sh reads (grep -x) to allow a PROD Linux cut. It says this
+# script moves the Linux pointer with the Mac one (promote_linux_* below). Keep it exactly as written, on its own line.
+PROMOTE_MOVES_LINUX=1
+. "$(cd "$(dirname "$0")" && pwd)/lib/promote-linux.sh" || { echo "promote-channel: cannot load tools/lib/promote-linux.sh" >&2; exit 1; }
 SITE="${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
 [ -z "$NAMED_VERSION" ] || [[ "$NAMED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "promote-channel: --version must be a version such as 0.7.64 (got '$NAMED_VERSION')" >&2; exit 1; }
 [ "$ALLOW_OLDER" = 0 ] || [ -n "$NAMED_VERSION" ] || { echo "promote-channel: --allow-older goes with --version" >&2; exit 1; }
@@ -170,7 +175,7 @@ STMP=""
 _kl_dir=""   # #6609: the served release key list, read from the site's origin/main
 _pc_qlog=""  # #6922: the agent-spawn gate's queue log; a promote killed while the gate waits in the queue must not leave it
 NAMED_DIR="" # kosmos#7005: the named version's installer pair, read from its commit
-trap 'rm -f "$SNAP" ${PTMP:+"$PTMP"} ${STMP:+"$STMP"}; [ -z "$_kl_dir" ] || rm -rf "$_kl_dir"; [ -z "$_pc_qlog" ] || [ "$_pc_qlog" = /dev/null ] || rm -f "$_pc_qlog"; [ -z "$NAMED_DIR" ] || rm -rf "$NAMED_DIR"' EXIT   # a signal mid-promote must not leak a temp
+trap 'promote_linux_cleanup; rm -f "$SNAP" ${PTMP:+"$PTMP"} ${STMP:+"$STMP"}; [ -z "$_kl_dir" ] || rm -rf "$_kl_dir"; [ -z "$_pc_qlog" ] || [ "$_pc_qlog" = /dev/null ] || rm -f "$_pc_qlog"; [ -z "$NAMED_DIR" ] || rm -rf "$NAMED_DIR"' EXIT   # a signal mid-promote must not leak a temp
 [ -n "$NAMED_VERSION" ] || cp "$STAGING" "$SNAP" || { echo "promote-channel: could not snapshot $STAGING" >&2; exit 1; }
 
 # Read a pointer's fields via node (exact JSON, never a sed heuristic). read_field reads the
@@ -308,6 +313,8 @@ V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$
 # corruption threat model -- anyone who can write the pointer can write latest.json -- but cheap.
 reject_pathy() { case "$2" in *"/"*|*".."*) echo "promote-channel: $PTR_WORDS's $1 ('$2') is not a bare filename - refusing" >&2; exit 1 ;; esac; }
 reject_pathy "$ARTIFACT_FIELD" "$ARTIFACT"
+# kosmos#7281: the Linux family moves with the Mac pointer or the promote refuses, decided before any gate or write.
+if [ "$FAMILY" = mac ]; then promote_linux_prepare "$SITE" "$V" "$NAMED_VERSION" || exit 1; fi
 # kosmos#6149 point 1 (after the bare-filename check, before any write): prod must never be pointed at a Mac build older than the setup floor; the installer prod serves beside it is checked below.
 if [ "$FAMILY" = mac ]; then
   . "$(dirname "$0")/lib/setup-floor.sh" || { echo "promote-channel: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }
@@ -706,6 +713,7 @@ fi
 
 # THE STAGING POINTER MUST NOT HAVE MOVED. The gates passed for the snapshot's build; if a
 # staging publish landed meanwhile, refuse rather than promote something nobody re-checked.
+[ "$FAMILY" != mac ] || promote_linux_unchanged "$SITE" || exit 1   # kosmos#7281
 [ -n "$NAMED_VERSION" ] || cmp -s "$STAGING" "$SNAP" || { echo "promote-channel: REFUSING - $STAGING_NAME changed while the promote ran (a new staging publish?). The gates passed for the build it named at the start ($V), not for what it names now. Nothing was written; re-run the promote for the build you mean." >&2; exit 1; }
 
 if [ "$FAMILY" = win ]; then
@@ -742,6 +750,8 @@ if ! cmp -s "$SNAP" "$PTMP" || [ "$(read_pointer_field "$PTMP" "$ARTIFACT_FIELD"
 fi
 mv "$PTMP" "$SITE/dist/$PROD_NAME" || { echo "promote-channel: could not write $PROD_NAME" >&2; exit 1; }
 PTMP=""
+# kosmos#7281: the Linux pointer, right behind latest.json (checked and snapshotted before any write).
+[ "$FAMILY" != mac ] || promote_linux_write "$SITE" || exit 1
 # #3940: the prod pointer now names this build, so from here on the promote has HAPPENED even if a
 # later step (the read-back, the alias) fails and exits. Log it now, not at the end: a promote
 # refused BEFORE this line leaves nothing, one that changed prod always leaves its line.
@@ -831,6 +841,7 @@ fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
 [ -n "$SETUP_STAGING" ] && echo "promote-channel: COMMIT setup and setup.sha256 together with $PROD_NAME (#5032): a deploy serves the committed site, and deploy-site.sh refuses a committed /setup that does not hash to the pointer's setup_sha256."
+[ "$PROMOTE_LINUX" != yes ] || echo "promote-channel: COMMIT dist/latest-linux.json in the same commit as $PROD_NAME (kosmos#7281 lockstep)."
 
 if [ "$FAMILY" = win ]; then
   win_append_approval_line "$(date -u +%FT%TZ) family=win path=promote version=$V sha256=$SHA approval_ref=$APPROVAL_REF promoted=yes" \

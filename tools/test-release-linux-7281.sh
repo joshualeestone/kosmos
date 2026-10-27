@@ -72,7 +72,7 @@ printf '# moves the Linux pointer with the Mac one\nPROMOTE_MOVES_LINUX=1\n' > "
 out="$(KOSMOS_CUT_LINUX=1 release_linux_decide "$S" prod 2>&1; echo "rc=$? cut=$CUT_LINUX file=$LINUX_POINTER_FILE")"
 chk "CONTROL: with C2's marker line, prod cuts it" [ "${out##*rc=}" = "0 cut=yes file=latest-linux.json" ]
 rm -f "$T/tools/promote-channel.sh"
-chk "the shipped promote-channel.sh has no marker yet, so prod stays refused today" not grep -qx 'PROMOTE_MOVES_LINUX=1' "$HERE/tools/promote-channel.sh"
+chk "the shipped promote-channel.sh moves the Linux pointer (slice C2's marker), so prod may cut it" grep -qx 'PROMOTE_MOVES_LINUX=1' "$HERE/tools/promote-channel.sh"
 printf '{}\n' > "$S/dist/latest-linux-staging.json"
 out="$(unset KOSMOS_CUT_LINUX; release_linux_decide "$S" staging 2>&1; echo "rc=$?")"
 chk "a channel with a Linux pointer on disk refuses a cut without it (lockstep)" [ "${out##*rc=}" = 1 ]
