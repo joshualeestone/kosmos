@@ -97,10 +97,20 @@ const SHAPES = [
   [['git', ['grep', 'P']], false],
   [['P x', [], { shell: true }], true],
 ];
+/* One pass, so an ENC(...) row's base64 is never scanned for P again: a temp path whose base64 held a capital P was
+   rewritten after encoding and the row failed about 4% of runs (Homer, measured on his box and in 2,000 paths). */
 const fill = (shape, p) => {
-  const one = (s) => s.replace(/ENC\(([^)]*)\)/, (m, inner) => b64(inner.replace(/P/g, p))).replace(/P/g, p);
+  const one = (s) => s.replace(/ENC\(([^)]*)\)|P/g, (m, inner) => (inner === undefined ? p : b64(inner.replace(/P/g, p))));
   return typeof shape === 'string' ? one(shape) : [one(shape[0]), shape[1].map(one), shape[2]];
 };
+
+test('#7262: fill substitutes the program once, so an encoded row survives a base64 that contains P', () => {
+  // A temp-shaped path whose encoded row holds a capital P (found by search; about 1 in 26 such paths does).
+  const p = '/tmp/aw-cmdwords-7262-Oa/gh';
+  assert.ok(b64(`${p} x`).includes('P'), 'the planted path no longer encodes with a capital P, so this test proves nothing');
+  const [, args] = fill(['pwsh', ['-EncodedCommand', 'ENC(P x)']], p);
+  assert.equal(Buffer.from(args[1], 'base64').toString('utf16le'), `${p} x`);
+});
 
 test('#7262: tool-guard judges a BARE name by the call\'s PATH through the shared reader (review 1)', { skip: !TOOL_GUARD_HOST && 'tool-guard does not judge Windows paths or executables (#7318)' }, () => {
   const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cmdwords-7262-path-'));
