@@ -2138,8 +2138,10 @@ function mentionedMembers(cleaned, recipients, roster) {
    "Renet for Baron: ...", "**Ada -> Basil:** ...". The header ends at the first ':' outside parentheses; the sender is a
    name of at most three words ("Ice Cream Kitty"), so a sentence that mentions an arrow is not a header; the connector
    is "->", "→", or the word "to" or "for" (`word`, and then the sender must name the poster, since "Thanks to Angel:"
-   is a sentence). Targets split on ',', ' and ' and '&', with anything in parentheses dropped first. null when the
-   post has no header. */
+   is a sentence). Targets split on ',', ' and ' and '&', with anything in parentheses dropped first.
+   Round 5: the word form can be read more than one way ("Ada to Basil for review"), so every split whose sender is a
+   name of at most three words is offered, in order, and the caller takes the first whose sender names the poster.
+   Returns the readings ([] when the post has no header). */
 function postHeader(text) {
   const line = String(text || '').replace(/^\s+/, '').replace(/^\*{1,2}/, '').split('\n')[0].slice(0, 400);
   let depth = 0;
@@ -2150,14 +2152,28 @@ function postHeader(text) {
     else if (c === ')') depth = Math.max(0, depth - 1);
     else if (c === ':' && depth === 0) { colon = i; break; }
   }
-  if (colon < 0) return null;
+  if (colon < 0) return [];
   const head = line.slice(0, colon).replace(/\*+\s*$/, '');
-  let m = head.match(/^([A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2})[ \t]*(?:->|\u2192)[ \t]*(.+)$/);
-  let word = false;
-  if (!m) { m = head.match(/^([A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2})[ \t]+(?:to|for)[ \t]+(.+)$/); word = Boolean(m); }
-  if (!m) return null;
-  const targets = m[2].replace(/\([^)]*\)/g, ' ').split(/,|&|[ \t]+and[ \t]+/).map((p) => p.trim()).filter(Boolean);
-  return { sender: m[1], targets, word };
+  const targetsOf = (rest) => rest.replace(/\([^)]*\)/g, ' ').split(/,|&|[ \t]+and[ \t]+/).map((p) => p.trim()).filter(Boolean);
+  const arrow = head.match(/^([A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2})[ \t]*(?:->|\u2192)[ \t]*(.+)$/);
+  if (arrow) return [{ sender: arrow[1], targets: targetsOf(arrow[2]), word: false }];
+  const out = [];
+  for (const m of head.matchAll(/[ \t]+(?:to|for)[ \t]+/g)) {
+    const sender = head.slice(0, m.index);
+    const rest = head.slice(m.index + m[0].length);
+    if (/^[A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2}$/.test(sender) && rest.trim()) out.push({ sender, targets: targetsOf(rest), word: true });
+  }
+  return out;
+}
+/* Round 5: a target part is its longest leading run of one to three words that names a member, so the words after a
+   name ("Mona Lisa on m702", "Angel re #12", "Angel about the cut") do not lose the name. [] when no run names one. */
+function targetResolves(part, members, roster) {
+  const words = String(part).split(/\s+/).filter(Boolean);
+  for (let k = Math.min(3, words.length); k >= 1; k -= 1) {
+    const hit = nameResolves(words.slice(0, k).join(' '), members, roster);
+    if (hit.length) return hit;
+  }
+  return [];
 }
 /* The members a header name means: by the @ rule (mentionedMembers on "@" + its key: a session name or a whole display
    name, "Mona Lisa" is monalisa), or, for a one-word name, the one member whose display name has that word ("Renet" is
@@ -2191,12 +2207,13 @@ function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = tr
     if (all && /(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_-])/i.test(text.replace(/`[^`]*`/g, ' '))) {   // round 2: @all-hands is a word, not a broadcast
       for (const m of list) if (m !== from) out.add(m);
     }
-    const head = postHeader(text);
-    if (head && (!head.word || nameResolves(head.sender, from === undefined || from === null ? [] : [String(from)], roster).length)) {
+    const poster = from === undefined || from === null ? [] : [String(from)];
+    const head = postHeader(text).find((h) => !h.word || nameResolves(h.sender, poster, roster).length);
+    if (head) {
       for (const part of head.targets) {
         // Round 4: "Ada -> all:" or "-> everyone:" is the header's @all (and, like @all, not with { all: false }).
         if (/^(all|everyone)$/i.test(part)) { if (all) for (const m of list) if (m !== from) out.add(m); continue; }
-        for (const m of nameResolves(part, list, roster)) out.add(m);
+        for (const m of targetResolves(part, list, roster)) out.add(m);
       }
     }
   } catch { /* the @-names alone */ }
@@ -2904,7 +2921,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     }
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
        is held rather than typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
-    if (roomhold.shouldHold({ name, operator, mentioned, answersAuthor: answeredAsked && answered.operator !== true ? answered.from : null,
+    /* Round 5: an @all wakes a busy member when it is next idle (held), as an unaddressed post did; an @-name or a header
+       name is typed at once. So the hold reads the names without @all (namedHere), not the wake set. */
+    if (roomhold.shouldHold({ name, operator, mentioned: namedHere, answersAuthor: answeredAsked && answered.operator !== true ? answered.from : null,
       reachable: chat.addressable(name, roster).ok === true, readReport: (n) => require('./selfreport').read(n),
       now: Date.now(), decayMs: require('./status').REPORT_WORKING_DECAY_MS, env: process.env })
       && roomhold.hold(name, projectId, id)) {

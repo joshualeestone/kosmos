@@ -99,3 +99,13 @@ test('kosmos#7246 slice 2: install/kosmos says when a post left members quiet, a
   const nested = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'placed' }, held: { because: 'fake reason' } });
   assert.doesNotMatch(nested.stdout, /fake reason/, 'round 3: a nested because was printed as the board\'s');
 });
+
+test('kosmos#7246 round 5: a post that woke no one says so, and a folded retry of a quiet post never says everyone has it', async () => {
+  const none = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'quiet', april: 'quiet' } });
+  assert.match(none.stdout, /Posted to proj\. It woke no one: it addresses no member, so it is only in the room\. To reach someone/);
+  const dup = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'placed', april: 'quiet' }, duplicate: true });
+  assert.match(dup.stdout, /It reached only the members it addresses/);
+  assert.doesNotMatch(dup.stdout, /Everyone on it has it waiting/, 'a folded quiet post claimed everyone has it');
+  const dupAll = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'placed' }, duplicate: true });
+  assert.match(dupAll.stdout, /it was not posted twice/, 'CONTROL: a folded post that reached everyone keeps its sentence');
+});

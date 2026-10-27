@@ -377,3 +377,18 @@ test('#4624 round 1: removal forgets what was held; a "__proto__" project id is 
   assert.equal(roomhold.forget('mara'), true);
   assert.deepEqual(roomhold.heldProjects('mara'), []);
 });
+
+test('kosmos#7246 slice 2 (round 5): an @all waits for a working member to be idle; its @-name or header name does not', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'working');
+    armSender('leo-discord');
+    let tmux = arm();
+    const all = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@all status: the lease draft is green' }, board.agents, MEMBERS);
+    assert.deepEqual(typedTo(tmux, sessionOf(board, 'mara')), [], 'an @all was typed into a member mid-turn');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [all.id], 'the @all must be held for her, not dropped');
+    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'CONTROL: a never-reported member is typed the @all');
+    tmux = arm();
+    messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'Leo -> Mara: can you check clause 4' }, board.agents, MEMBERS);
+    assert.equal(typedTo(tmux, sessionOf(board, 'mara')).length, 1, 'a header name is a request, typed at once');
+  });
+});
