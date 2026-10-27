@@ -223,6 +223,9 @@ async function project7196(page, name, agent) {
 /* The posts go straight into the store's log, as the seed writes the sample room (the room's POST refuses on this
    board: the design-shots run's first pass showed both rooms empty, "Nothing here yet"). Once per project id. */
 const SEEDED_7196 = new Set();
+/* Review 3: the seeded rows stay in the log after `after` deletes their project, and an agent's own pages list every row
+   it sent, so they come from a name no other screen opens, never from data.chatAgent. */
+const SENDER_7196 = 'shots7196';
 function seedPosts7196({ id: pid, createdAt }, from, texts) {
   /* By id AND createdAt: a project's id comes from its name, so the throwaway made again for the next size has the same
      id, and keyed by id alone it was never seeded again (the third run's empty rooms). */
@@ -238,7 +241,7 @@ function seedPosts7196({ id: pid, createdAt }, from, texts) {
 }
 async function busyProject7196(page, agent) {
   const made = await project7196(page, BUSY_7196, agent);
-  seedPosts7196(made, agent, Array.from({ length: 24 }, (_, i) => 'Room busy 7196 post ' + (i + 1) + ': a line or two of ordinary project talk, so the room scrolls.'));
+  seedPosts7196(made, SENDER_7196, Array.from({ length: 24 }, (_, i) => 'Room busy 7196 post ' + (i + 1) + ': a line or two of ordinary project talk, so the room scrolls.'));
   return made.id;
 }
 async function roomFloor7196(page) {
@@ -1085,7 +1088,7 @@ const SCREENS = [
   after: async (page) => { await throwawayProjectGone(page, BUSY_7196); } },
   { name: 'room-short-7196', owner: 'Angel', go: async (page, data) => {
     const made = await project7196(page, 'Short room', data.chatAgent);
-    seedPosts7196(made, data.chatAgent, ['Just one message so far.']);
+    seedPosts7196(made, SENDER_7196, ['Just one message so far.']);
     const id = made.id;
     await SCREENS.find((s) => s.name === 'project-room').go(page, { ...data, projectId: id });
     await roomFloor7196(page);
