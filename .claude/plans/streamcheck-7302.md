@@ -5,44 +5,43 @@ server.attachment-stream-6734's "a 64 MB file held by a paused client costs the 
 CI twice on 2026-10-26 on unrelated PRs (#7279, #7291), and passed alone both times. One red was the instrument's own
 control: a 64 MB Buffer.alloc raised arrayBuffers by less than 60 MB.
 
-## Cause (reasoned from the code; the red was not reproduced on demand)
-Both readings are differences of process.memoryUsage().arrayBuffers, and garbage is collected when the runtime chooses.
-storedOf(64 MB) leaves a 64 MB source Buffer as garbage; a collection landing between "before" and "after" frees it
-while the control allocates 64 MB, so the difference reads near zero. The same drift can leave earlier buffers in the
-paused download's peak. A busy runner moves when collections land, which is why it appears only in CI.
+## Cause (corrected in review 1; reasoned, with the mechanism measured in probes, not the CI red itself)
+Both readings are differences of process.memoryUsage().arrayBuffers. A baseline taken while an earlier 64 MB Buffer is
+still counted (CONTROL 1's own `held` after `held = null`, or a just-closed server's buffer) already includes 64 MB.
+- A collection that frees it while a new 64 MB is allocated makes the allocation read as near zero: the CONTROL red.
+- A board that buffers can hide the same way: the old check passed a board reading the file whole with fs.readSync.
+- One forced gc() does not settle it. Measured by the reviewer: a dropped 64 MB Buffer was still counted after gc() in
+  up to 7 of 10 tries, and a closed server's buffer stayed reachable for tens of ms.
+(My first account blamed a 64 MB source Buffer written by storedOf. Wrong: storedOf writes 1 MB blocks. My second blamed
+late sampling alone. Also wrong: late sampling still sees a buffering server; the dirty baseline is what hides it.)
 
 ## The call (test only)
-- A full collection on demand before every baseline (v8.setFlagsFromString('--expose-gc'), then vm's gc), so earlier
-  garbage cannot cancel or inflate a reading.
-- A second control in the same process: a tiny server that DOES buffer the same file (readFileSync then res.end),
-  measured with the same paused-client helper under the same load. It must hold at least 48 MB, which proves the
-  instrument sees buffering right now.
-- The board's download must hold under 24 MB (as before) AND under a third of the buffering server's figure.
-- The readFileSync spy stays.
+- `settled()`: collect, wait 10 ms, collect again, until two readings agree within 1 MB; every baseline uses it.
+- The board is measured FIRST and the buffering control second, so a leftover in a baseline can only make the control
+  read low, which fails red.
+- A buffering server in the same process (readFileSync then res.end), measured the same way just after the board, must
+  hold at least 48 MB: the instrument can see buffering on this run.
+- The board must hold under 8 MB and under an eighth of the control (it measures 0 to about 1 MB). The old 24 MB bound
+  passed a board buffering 20 MB.
+- Sampling every 2 ms from before the request. The readFileSync spy stays. A guard fails clearly if gc() is unavailable.
 
 ## Rejected
-- Raising the 24 MB ceiling: hides a partial-buffer regression and does not touch the control's failure.
-- Retrying the test: makes a real regression intermittent instead of red.
-- Sampling starts BEFORE the request goes out, every 2 ms. Found while proving the negative arm (below).
-
-## Found while proving the negative arm: the old check could not see a buffering download
-A mutation that makes the board read the whole range into one Buffer (fs.readSync, not readFileSync, so the spy
-does not catch it) and send it with res.end PASSED the old check and my first version of this one. Logged: the board's
-arrayBuffers went 65 -> 129 MB at the allocation, and back to 66 MB by the end. Sampling started in the client's
-response callback, and by its first sample the 64 MB had been handed on and collected, so the peak read 0 MB. Sampled
-from before the request, the same mutation reads 64 MB held (the board streaming reads 1 MB), and the test goes red:
-"the board held 64 MB for a paused 64 MB download (a buffering server held 64 MB)".
+- Raising the ceiling, or retrying the test: either makes a real regression pass or intermittent.
 
 ## Proof
-- The file: 33 of 33. Twenty runs on the final shape: 20 of 20, at 1-minute load 4.2 to 5.4 (this Mac with other
-  agents' work; not a full suite beside it, which the queue forbids here; CI is where the load case is met).
-- Negative arm: the board buffering through fs.readSync reds the memory assert (64 MB against 64 MB buffered).
-  Restored, cmp-checked.
-- Both controls hold: Buffer.alloc 64 MB seen (>= 60 MB); the buffering server measured 64 MB.
+- The file: 33 of 33, once at load 53. Twenty runs on the final shape: 20 of 20 at 1-minute load 8.7 to 35.2.
+- Mutations, each red and restored:
+  - the board reads the whole range into one Buffer (fs.readSync, unseen by the spy): "the board held 64.3 MB";
+  - the board buffers its first 20 MB and streams the rest: "the board held 20.4 MB" (the old bounds passed this).
+- Both controls hold (Buffer.alloc 64 MB seen; the buffering server held 64 MB).
 
 ## Weakest premise
-That the CI reds were garbage-collection timing, not something else on the runner. It is reasoned from the code and
-the control's failure shape, not reproduced. The forced collection removes that cause; the same-process buffered
-control makes any remaining load effect hit both sides.
+That a settled baseline (two readings within 1 MB) is reached on a busy runner within its 40 tries. If it is not, the
+last reading is used and a red is still possible; CI over the coming days is the measurement. The control is measured
+just after the board, not at the same moment, so it shares the run's conditions, not each instant's.
 
 ## Review rounds
+1. (default model, 23:4x CDT) 2 BLOCKERs, 2 WARNINGs, 3 NITs, all applied: a baseline could still hold the control's
+   64 MB (board now first, control second); one gc() does not settle (settled() polls); a 20 MB partial buffer passed
+   (now under 8 MB and an eighth); my cause and false-pass explanations were wrong (corrected above); the "both sides"
+   overclaim, a gc() guard, and a leftover `void held` line.
