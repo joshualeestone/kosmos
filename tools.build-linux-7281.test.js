@@ -120,6 +120,7 @@ function fixtures() {
   connector(d, 'tunnel-freebsd', elf('', { interp: null, osabi: 9 }));
   connector(d, 'tunnel-musl', elf('', { interp: '/lib/ld-musl-x86_64.so.1' }));
   connector(d, 'tunnel-cargo-path', elf('\0/home/runner/.cargo/registry/src/x.rs\0'));
+  connector(d, 'tunnel-docker-cargo', elf('\0/usr/local/cargo/registry/src/x.rs\0'));
   connector(d, 'tunnel-static', elf('\0GLIBC_2.99 in a message, not a symbol\0', { interp: null }));
   connector(d, 'tunnel-dirty', elf(), { commit: 'a'.repeat(40) + '-dirty' });
   connector(d, 'tunnel-macho', macho());
@@ -163,6 +164,7 @@ test('review 1: a connector without its provenance, from a dirty tree, or needin
     ['tunnel-freebsd', /is not built for Linux/],
     ['tunnel-musl', /needs a loader a stock Ubuntu does not have/],
     ['tunnel-cargo-path', /names a build machine's cargo or rustup home/],
+    ['tunnel-docker-cargo', /names a build machine's cargo or rustup home/],
   ];
   for (const [name, why] of cases) {
     const r = build(f, path.join(f.d, name), path.join(f.d, 'out-' + name));
@@ -184,7 +186,7 @@ test('review 1 and 2: an unchecked node, and a different glibc floor, are test b
   const unchecked = run({ KOSMOS_NODE_UNCHECKED: '1', NODE_LINUX_SOURCE: f.nodeTar });
   assert.notEqual(unchecked.status, 0);
   assert.match(unchecked.stderr, want(/an unchecked node is for a test build only/));
-  const floor = run({ KOSMOS_LINUX_GLIBC_FLOOR: '2.99' });
+  const floor = run({ KOSMOS_LINUX_GLIBC_FLOOR: '2.99', NODE_LINUX_SOURCE: f.nodeTar });   // review 3: never the network
   assert.notEqual(floor.status, 0);
   assert.match(floor.stderr, want(/KOSMOS_LINUX_GLIBC_FLOOR=2\.99 is for a test build only/));
 });
