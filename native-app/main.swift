@@ -3892,7 +3892,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     fileprivate var allowedDownloadHosts: Set<String> = []
     private var refusedDownloadHosts: Set<String> = []
     fileprivate func resetDownloadAsks() { refusedDownloadHosts = [] }   // the selftest, between its arms
-    private var downloadAsks: [String: [(Bool) -> Void]] = [:]
+    fileprivate var downloadAsks: [String: [(Bool) -> Void]] = [:]   // fileprivate: the selftest sees a question pending
     fileprivate var pageCommits = 0   // main-frame commits; the Allow answer counts only for the page that asked
 
     fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {
@@ -6480,14 +6480,25 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             click("modalvoid") {
                 d.resetDownloadAsks()
                 answer = { true }
-                /* Review 3: the question waits while a download alert is on screen. One stands up here for a second;
-                   the question must not be asked while it is, and must be asked once it is gone. */
+                /* Review 3: the question waits while a download alert is on screen. One stands up here until the
+                   question has been REQUESTED (review 4: a timer started before the page load could pass before the
+                   question existed), then for half a second more; it must not be asked meanwhile, and must be asked,
+                   and save, once the alert is gone. Requested-but-never-seen fails the row rather than passing it. */
                 let askedBefore = modalAsked
                 d.alertsOnScreen = 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    questionWaited = modalAsked == askedBefore
-                    d.alertsOnScreen = 0
+                func holdUntilRequested(_ tries: Int) {
+                    if d.downloadAsks["127.0.0.1"] != nil {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            questionWaited = modalAsked == askedBefore && d.downloadAsks["127.0.0.1"] != nil
+                            d.alertsOnScreen = 0
+                        }
+                    } else if tries > 0 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { holdUntilRequested(tries - 1) }
+                    } else {
+                        d.alertsOnScreen = 0   // never requested: questionWaited stays false and the row fails
+                    }
                 }
+                holdUntilRequested(80)
                 click("modalyes", expect: "modal-yes.txt") {
                     AppDelegate.askAboutHostForSelftest = nil
                     AppDelegate.allowAnswerForSelftest = nil
