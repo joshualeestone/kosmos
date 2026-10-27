@@ -419,7 +419,14 @@ final class RoomStore: ObservableObject {
     #if DEBUG
     // The sample Projects tab (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), for screenshots.
     static var sample: Bool { ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" }
-    static let sampleProjects = #"{"agentsUnreadable":false,"projects":[{"id":"springcatalogue","name":"Spring catalogue","description":"The print catalogue for March.","unread":3,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-20T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo","needsYouHere":"question","needsYouKey":"question:Which cover photo should we use?","because":"Which cover photo should we use?"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli","needsYouHere":"trust","needsYouKey":"trust"}],"folderState":{"state":"readable"},"summary":{"needsYou":2,"needsYouQuestions":1,"working":1}},{"id":"covershoot","name":"Cover shoot","description":"","unread":0,"parent":"springcatalogue","archived":false,"paused":false,"createdAt":"2026-10-21T10:00:00.000Z","agents":[{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"website","name":"Website","description":"Shipping and returns pages.","unread":0,"parent":null,"archived":false,"paused":true,"createdAt":"2026-10-18T10:00:00.000Z","agents":[{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"oldlaunch","name":"Old launch","description":"","unread":0,"parent":null,"archived":true,"archivedAt":"2026-09-01T12:00:00.000Z","paused":false,"createdAt":"2026-08-01T10:00:00.000Z","agents":[],"folderState":{"state":"readable"},"summary":{}}]}"#
+    // kosmos#7269: KOSMOS_SAMPLE_CROWD=1 adds a project of 15 members with sub-projects of 3 and 12 (and one deeper), for
+    // the faces' "+N" and the connector lines in design shots.
+    static var sampleProjects: String {
+        guard ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CROWD"] == "1" else { return sampleBase }
+        return sampleBase.replacingOccurrences(of: #""projects":["#, with: #""projects":"# + String(sampleCrowd.dropLast()) + ",")
+    }
+    static let sampleCrowd = #"[{"id":"retail","name":"Retail rollout","description":"Every store, one launch day.","unread":0,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-24T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"},{"sessionName":"farah","name":"Farah"},{"sessionName":"gus","name":"Gus"},{"sessionName":"iris","name":"Iris"},{"sessionName":"jun","name":"Jun"},{"sessionName":"kai","name":"Kai"},{"sessionName":"lena","name":"Lena"},{"sessionName":"milo","name":"Milo"},{"sessionName":"nia","name":"Nia"},{"sessionName":"otto","name":"Otto"},{"sessionName":"pia","name":"Pia"},{"sessionName":"rex","name":"Rex"},{"sessionName":"suki","name":"Suki"}],"folderState":{"state":"readable"},"summary":{"working":3}},{"id":"signage","name":"Store signage","description":"","unread":0,"parent":"retail","archived":false,"paused":false,"createdAt":"2026-10-24T11:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"training","name":"Staff training","description":"Guides and the first week.","unread":0,"parent":"retail","archived":false,"paused":false,"createdAt":"2026-10-24T12:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"},{"sessionName":"farah","name":"Farah"},{"sessionName":"gus","name":"Gus"},{"sessionName":"iris","name":"Iris"},{"sessionName":"jun","name":"Jun"},{"sessionName":"kai","name":"Kai"},{"sessionName":"lena","name":"Lena"},{"sessionName":"milo","name":"Milo"},{"sessionName":"nia","name":"Nia"},{"sessionName":"otto","name":"Otto"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"weekone","name":"Week one","description":"","unread":0,"parent":"training","archived":false,"paused":false,"createdAt":"2026-10-24T13:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{}}]"#
+    static let sampleBase = #"{"agentsUnreadable":false,"projects":[{"id":"springcatalogue","name":"Spring catalogue","description":"The print catalogue for March.","unread":3,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-20T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo","needsYouHere":"question","needsYouKey":"question:Which cover photo should we use?","because":"Which cover photo should we use?"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli","needsYouHere":"trust","needsYouKey":"trust"}],"folderState":{"state":"readable"},"summary":{"needsYou":2,"needsYouQuestions":1,"working":1}},{"id":"covershoot","name":"Cover shoot","description":"","unread":0,"parent":"springcatalogue","archived":false,"paused":false,"createdAt":"2026-10-21T10:00:00.000Z","agents":[{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"website","name":"Website","description":"Shipping and returns pages.","unread":0,"parent":null,"archived":false,"paused":true,"createdAt":"2026-10-18T10:00:00.000Z","agents":[{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"oldlaunch","name":"Old launch","description":"","unread":0,"parent":null,"archived":true,"archivedAt":"2026-09-01T12:00:00.000Z","paused":false,"createdAt":"2026-08-01T10:00:00.000Z","agents":[],"folderState":{"state":"readable"},"summary":{}}]}"#
     // The sample hold: one lift time for the launch, and gone for good once reopened (review 3: re-reads brought it back).
     static let sampleHeldUntil = Date().addingTimeInterval(40 * 60)
     static var sampleReopened: Set<String> = []
@@ -564,9 +571,15 @@ struct ProjectsView: View {
                         Section {
                             ForEach(tree) { row in
                                 Button { openProject = row.project } label: {
-                                    ProjectRowView(project: row.project, depth: row.depth, unreadable: list.agentsUnreadable, store: store)
+                                    ProjectRowView(project: row.project, depth: row.depth, lastKid: row.lastKid, hasKids: row.hasKids, through: row.through,
+                                                   parentName: row.depth > 0 ? list.projects.first { $0.id == row.project.parent }?.name : nil, unreadable: list.agentsUnreadable, store: store)
                                 }
                                 .buttonStyle(.plain)
+                                // kosmos#7269: the row draws its own top and bottom space, so its connector line reaches
+                                // the cell's edges and meets the next row's; no separator crosses a family's line.
+                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                                .listRowSeparator(row.depth > 0 ? .hidden : .automatic, edges: .top)
+                                .listRowSeparator(row.depth > 0 && !row.lastKid ? .hidden : .automatic, edges: .bottom)
                             }
                         }
                     }
@@ -604,7 +617,12 @@ struct ProjectsView: View {
 struct ProjectRowView: View {
     let project: Board.ProjectRow
     let depth: Int
+    var lastKid = false
+    var hasKids = false
+    var through: [Int] = []
+    var parentName: String? = nil
     let unreadable: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject var store: RoomStore
 
     private var word: Board.ProjectWord? { Board.projectWord(project, agentsUnreadable: unreadable) }
@@ -612,7 +630,9 @@ struct ProjectRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(1)
+                // Review 2: at the largest sizes a sub-project's indent leaves little room, so the name may wrap.
+                Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble) }
                 Spacer(minLength: 8)
                 if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
@@ -625,13 +645,62 @@ struct ProjectRowView: View {
                 Text(problem + ".").font(.footnote).foregroundColor(Palette.dangerWord)
             }
         }
-        .padding(.leading, CGFloat(depth) * 16)
-        .frame(minHeight: 64)   // the spec's row: slice 1 geometry
+        .padding(.vertical, 10)   // the list's own row inset, drawn by the row (kosmos#7269: see listRowInsets)
+        .padding(.leading, CGFloat(depth) * indent)
+        // Top-aligned (review 1: centred, a short row's name sat below the elbow drawn at the name's height).
+        .frame(minHeight: 64, alignment: .topLeading)   // the spec's row: slice 1 geometry
+        .background(alignment: .topLeading) { connector }
+        // Every separator starts at the card's text edge, so the one that closes a family is not indented with its
+        // last child (review 1).
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the room")
+    }
+
+    // kosmos#7269 (Josh: "show nesting with a connector line, light and maybe dashed, like the desktop"): the board's
+    // file-tree rails (.pj-row.child::before/::after, #5712) as a light dashed line. A sub-project draws a vertical line
+    // under its parent's first face, down from the top of its row, and an elbow across to its own name; the last sub-project's
+    // line stops at its elbow. Unlike the board (one line at the row's own level), a deeper row also carries the lines of
+    // ancestors that run on past it (`through`), so a line never breaks where a sub-project has sub-projects of its own.
+    // Scaled with the faces (review 1: a fixed indent let the scaled line run through a sub-project's name at the
+    // largest text sizes).
+    @ScaledMetric(relativeTo: .footnote) private var indent: CGFloat = 28
+    // The middle of the name's line (the row's 10pt top space plus half a callout line), scaled with the text.
+    @ScaledMetric(relativeTo: .callout) private var nameMid: CGFloat = 10.5
+    private static let rail = Palette.pair(0xbdb8ae, 0x4a4e55)
+    @ViewBuilder private var connector: some View {
+        if depth > 0 || !through.isEmpty || hasKids {
+            GeometryReader { g in
+                Path { path in
+                    // A parent: the line's start, from under its last line (faces, name or folder problem) down to its
+                    // row's bottom space, which no text is in.
+                    if hasKids {
+                        let px = CGFloat(depth) * indent + face / 2 + 1.5
+                        path.move(to: CGPoint(x: px, y: g.size.height - 10 + 2))
+                        path.addLine(to: CGPoint(x: px, y: g.size.height))
+                    }
+                    // An ancestor's line passing this row on to that ancestor's later sibling: the whole row's height.
+                    for level in through {
+                        let ax = CGFloat(level - 1) * indent + face / 2 + 1.5
+                        path.move(to: CGPoint(x: ax, y: 0))
+                        path.addLine(to: CGPoint(x: ax, y: g.size.height))
+                    }
+                    guard depth > 0 else { return }
+                    // Under the centre of the parent's first face (its ring included), at the parent's own indent.
+                    let x = CGFloat(depth - 1) * indent + face / 2 + 1.5
+                    let mid = 10 + nameMid
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: lastKid ? mid : g.size.height))
+                    path.move(to: CGPoint(x: x, y: mid))
+                    path.addLine(to: CGPoint(x: CGFloat(depth) * indent - 4, y: mid))
+                }
+                .stroke(Self.rail, style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [3, 3]))
+            }
+            .accessibilityHidden(true)
+        }
     }
 
     private func wordColor(_ w: Board.ProjectWord) -> Color {
@@ -643,83 +712,52 @@ struct ProjectRowView: View {
         }
     }
 
+    // kosmos#7269 (Josh, 2026-10-26: "remove the '5 agents' text and just show the members as small avatar bubbles",
+    // "design the truncation, the first N then +3"): the members as overlapping faces, each ringed in the row's colour so
+    // the overlap reads, then "+N" for the rest (Board.faceBubbles: 12 members are 9 faces and +3). Fewer faces at the
+    // largest text sizes and on deep sub-projects, so the row never runs past its edge. No count and no model marks.
+    @ScaledMetric(relativeTo: .footnote) private var face: CGFloat = 24
     @ViewBuilder private var faces: some View {
         if !project.members.isEmpty {
-            // The tally beside the count when it fits, else on its own line under it (review 1: a narrow phone or a large
-            // text size squeezed the numbers to "…"; the board's tally wraps its items).
-            // Last (review 2): when even that does not fit (the largest text on a narrow phone, a nested sub-project), the
-            // faces, the count (allowed to wrap) and the tally entries (wrapping, as the board's flex-wrap) each take
-            // what room there is, so nothing runs past the row's edge.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 4) { facesAndCount; providerTally(hairline: true) }
-                VStack(alignment: .leading, spacing: 4) { facesAndCount; providerTally(hairline: false) }
-                VStack(alignment: .leading, spacing: 4) {
-                    faceRow
-                    countText.lineLimit(2)
-                    providerTally(hairline: false, wrap: true)
-                }
+                faceRow(room: 10)
+                faceRow(room: 6)
+                faceRow(room: 4)
+                faceRow(room: 2)
             }
             .accessibilityHidden(true)
         }
     }
-
-    // kosmos#7114: the board's provider tally beside the count (pjProviderTally, .pjtally): a hairline, then each
-    // provider's mark and its number, quiet; the faces stay as they are. Marks at the caption's size, scaled with text.
-    @ScaledMetric(relativeTo: .footnote) private var markSize: CGFloat = 13
-    @ViewBuilder private func providerTally(hairline: Bool, wrap: Bool = false) -> some View {
-        let tally = Board.providerTally(project.members)
-        if !tally.isEmpty {
-            // A hairline only beside the count; on a line of its own it would stand against nothing (review 2).
-            if wrap {
-                TallyFlow(spacing: 8, lineSpacing: 4) { ForEach(tally) { t in tallyEntry(t) } }
-            } else {
-                HStack(spacing: 8) {
-                    if hairline { Rectangle().fill(Palette.separator).frame(width: 1, height: markSize + 2) }
-                    ForEach(tally) { t in tallyEntry(t) }
-                }
-                .padding(.leading, hairline ? 4 : 0)
+    private func faceRow(room: Int) -> some View {
+        let fit = Board.faceBubbles(project.members.count, room: room)
+        return HStack(spacing: -face * 0.25) {
+            ForEach(project.members.prefix(fit.faces), id: \.session) { m in
+                AgentAvatar(name: m.name, picture: store.picture(m.session), tone: nil, size: face)
+                    .padding(1.5)
+                    .background(Circle().fill(Palette.card))
+            }
+            if fit.more > 0 {
+                Text("+\(fit.more)")
+                    .font(.system(size: face * 0.42, weight: .semibold)).monospacedDigit()
+                    .foregroundColor(Palette.secondary)
+                    .padding(.horizontal, face * 0.22)
+                    .frame(minWidth: face, minHeight: face)
+                    .background(Capsule().fill(Palette.avatarFill))
+                    .padding(1.5)
+                    .background(Capsule().fill(Palette.card))
+                    .fixedSize()
             }
         }
-    }
-    private func tallyEntry(_ t: Board.TallyEntry) -> some View {
-        HStack(spacing: 3) {
-            if let mark = t.mark {
-                Image(mark).resizable().scaledToFit().frame(width: markSize, height: markSize)
-                    .foregroundColor(Palette.primary)
-                    // As the board's: the OpenAI glyph fills about half its viewBox, so it is drawn larger.
-                    .scaleEffect(mark == "MarkOpenAI" ? 1.5 : 1)
-            } else {
-                // The board's .pcombo-chip: a filled rule-coloured square, the letter bold in the second ink.
-                Text(t.initial).font(.system(size: markSize * 0.62, weight: .bold)).foregroundColor(Palette.secondary)
-                    .frame(width: markSize, height: markSize)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(Palette.separator))
-            }
-            Text("\(t.n)").font(.footnote).foregroundColor(Palette.secondary).fixedSize()
-        }
-    }
-
-    private var faceRow: some View {
-        HStack(spacing: 4) {
-            ForEach(project.members.prefix(5), id: \.session) { m in
-                AgentAvatar(name: m.name, picture: store.picture(m.session), tone: nil, size: 22)
-            }
-        }
-    }
-    private var countText: some View {
-        Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
-            .font(.footnote).foregroundColor(Palette.secondary)
-    }
-    private var facesAndCount: some View {
-        HStack(spacing: 4) { faceRow; countText.padding(.leading, 2).lineLimit(1).fixedSize() }
     }
 
     private var spoken: String {
         var parts = [project.name]
+        if let parentName { parts.append("in " + parentName) }   // kosmos#7269 review 1: the nesting, said
         if let word { parts.append(Board.projectWordText(word)) }
         if let u = project.unread, u > 0 { parts.append("\(u) unread") }
         if !project.description.isEmpty { parts.append(project.description) }
-        parts.append((project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
-                     + Board.providerTallySpoken(Board.providerTally(project.members)))   // kosmos#7114
+        // kosmos#7269: the faces are hidden from VoiceOver, so it hears the count the row no longer prints.
+        parts.append(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
         return parts.joined(separator: ", ")
     }
 }
@@ -747,39 +785,5 @@ struct ArchivedRow: View {
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-// kosmos#7114 review 2: the tally's entries wrapped onto as many lines as they need (the board's .pjtally flex-wrap), for
-// a row too narrow for them on one line.
-struct TallyFlow: Layout {
-    var spacing: CGFloat
-    var lineSpacing: CGFloat
-    // Both methods break lines with Board.flowLines (tested) AT THE SAME WIDTH, the proposal the size was measured from
-    // (review 4: placing at bounds.width, which is the reported width, re-broke the lines differently), so what is
-    // measured is what is placed.
-    // (review 5) The widths reported are the ones flowLayout summed as it compared, so a parent that places this at its
-    // reported width (as with no width proposed) replays the same lines.
-    private func lines(_ subviews: Subviews, width: CGFloat?) -> (sizes: [CGSize], lines: [[Int]], widths: [Double]) {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let laid = Board.flowLayout(sizes.map { Double($0.width) }, width: Double(width ?? .infinity), spacing: Double(spacing))
-        return (sizes, laid.lines, laid.widths)
-    }
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let (sizes, rows, widths) = lines(subviews, width: proposal.width)
-        let heights = rows.map { r in r.map { sizes[$0].height }.max() ?? 0 }
-        return CGSize(width: CGFloat(widths.max() ?? 0), height: heights.reduce(0, +) + lineSpacing * CGFloat(max(0, rows.count - 1)))
-    }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let (sizes, rows, _) = lines(subviews, width: proposal.width ?? bounds.width)
-        var y = bounds.minY
-        for r in rows {
-            var x = bounds.minX
-            for i in r {
-                subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(sizes[i]))
-                x += sizes[i].width + spacing
-            }
-            y += (r.map { sizes[$0].height }.max() ?? 0) + lineSpacing
-        }
     }
 }
