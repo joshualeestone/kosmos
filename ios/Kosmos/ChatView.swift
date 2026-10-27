@@ -429,7 +429,10 @@ struct ChatView: View {
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
                         // Twice: the first reaches the top and loads a page; the second shows what landed above.
                         for at in [3.0, 6.0] {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + at) { withAnimation { proxy.scrollTo("top", anchor: .top) } }
+                            // With the id anchor a person's scroll moves the anchor, so the hook moves it too.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+                                if Self.idAnchor { positionId = "top"; atBottom = false } else { withAnimation { proxy.scrollTo("top", anchor: .top) } }
+                            }
                         }
                     }
                     #endif
