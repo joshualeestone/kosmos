@@ -54,6 +54,11 @@ struct RoomView: View {
     @State private var olderShowing = false
     @State private var pendingCount = 0
     @FocusState private var typing: Bool
+    // kosmos#7268: the emoji panel (in the keyboard's place while open), the glyph waiting to go in at the cursor, and
+    // dictation into the box.
+    @State private var emojiOpen = false
+    @State private var emojiInsert: ComposerExtras.Pick?
+    @StateObject private var dictation = Dictation()
     // kosmos#7096: the room's search, as the chat's (#7089, Mona Lisa's design): the magnifier opens the row, it stays
     // while it holds words, and its x or Cancel empties it and puts it away.
     @State private var query = ""
@@ -214,6 +219,7 @@ struct RoomView: View {
         // Signed out, another account or another Mac: the files this room showed belong to the one before (the chat's
         // reset, review 1).
         .onChange(of: client.chatEpoch) { _ in
+            dictation.reset(); emojiOpen = false   // kosmos#7268: another account's room starts clean
             clears += 1   // a clear's delayed steps belong to the account before
             if filteredInMode { settledAtBottom = false }   // the next room settles as on opening, as onDisappear does
             filteredInMode = false
@@ -860,7 +866,8 @@ struct RoomView: View {
     private var postWords: String { Board.roomPostWords(draft, files: attachedHere, replyMention: replyMention) }
     private var canPost: Bool {
         // Not before the room's first read: with nothing read, an older post with the same words could settle it.
-        store.rows[project.id] != nil && !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then post.
+        !dictation.busy && store.rows[project.id] != nil && !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !Board.isOnlyMention(postWords, mention: replyMention) && (attachedHere.isEmpty || uploadingHere == 0)
             && attachedHere.count <= Board.maxFiles
     }
@@ -965,12 +972,22 @@ struct RoomView: View {
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }
             HStack(alignment: .bottom, spacing: 8) {
                 addButton
-                TextField("Write something or @name to message someone…", text: $draft, axis: .vertical)
-                    .lineLimit(1...5)
-                    .focused($typing)
-                    .accessibilityFocused($composerFocused)
-                    .accessibilityLabel("Post to everyone on this project")
-                    .padding(.vertical, 10).padding(.horizontal, 14)
+                // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end (the board's
+                // .emojibtn sits inside its input); the box's text runs up to them.
+                HStack(alignment: .bottom, spacing: 0) {
+                    CursorField(placeholder: "Write something or @name to message someone…", text: $draft, focus: $typing, insert: $emojiInsert)
+                        .lineLimit(1...5)
+                        .accessibilityFocused($composerFocused)
+                        .accessibilityLabel("Post to everyone on this project")
+                        .padding(.vertical, 10).padding(.leading, 14)
+                    ComposerEmojiButton(open: emojiOpen) {
+                        if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
+                    }
+                    ComposerMicButton(dictation: dictation) {
+                        dictation.toggle(base: draft, current: { draft }) { draft = $0 }
+                    }
+                    .padding(.trailing, 2)
+                }
                     .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator))
                     .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
@@ -987,10 +1004,31 @@ struct RoomView: View {
                 .disabled(!canPost)
                 .opacity(canPost ? 1 : 0.5)
                 .accessibilityLabel("Post")
+                .accessibilityHint(dictation.finishing ? "Waiting for the last words" : dictation.busy ? "Stop dictating first" : "")   // kosmos#7268 review 5: why it waits
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
+            if let line = ComposerExtras.micLine(dictation.state) {
+                Text(line).font(.footnote).foregroundColor(Palette.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 6)
+            }
+            // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it.
+            if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) } }
         }
         .background(Palette.ground)
+        .onChange(of: typing) { focused in if focused { emojiOpen = false } }
+        // Review 8: the search field's keyboard closes the panel too, or it sits on top of it and hides the results.
+        .onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }
+        // The panel stands in for the keyboard, which covers the tab bar; so does the panel, or its last rows sit
+        // under the bar.
+        .toolbar(emojiOpen ? .hidden : .automatic, for: .tabBar)
+        #if DEBUG
+        // KOSMOS_SAMPLE_EMOJI=open (with the room samples): the panel open, for the design shots.
+        .onAppear { if RoomStore.sample, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
+        #endif
+        // Leaving the room lets go of the microphone and closes the panel (the board's: the panel belongs to the composer
+        // being left).
+        .onDisappear { dictation.reset(); emojiOpen = false }
+        .onChange(of: draft) { dictation.boxChanged(to: $0) }
         // Each picker on a host of its own, as the chat's (two presentations on one view can leave one that never opens).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
                                              maxSelectionCount: max(1, Board.maxFiles - countedFiles),
@@ -1079,6 +1117,7 @@ struct RoomView: View {
     // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
     private func send() {
         guard canPost else { return }
+        dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         let text = postWords
         let reply = replying
         let files = attachedHere
