@@ -43,7 +43,7 @@ test('a run of failures is a stall only once it is half an hour old AND has thre
   ds.note('a', refused, T0 + 2 * MIN);
   assert.equal(ds.stallOf('a', { now: T0 + 29 * MIN }), null, 'three tries, but under half an hour');
   const st = ds.stallOf('a', { now: T0 + 30 * MIN });
-  assert.deepEqual(st, { since: new Date(T0).toISOString(), count: 3, lastWhy: 'refused', words: ds.WHY_WORDS.refused });
+  assert.deepEqual(st, { since: new Date(T0).toISOString(), count: 3, lastWhy: 'refused', words: ds.WHY_WORDS.refused, next: ds.NEXT_WORDS.refused });
 });
 
 test('PLACED ends the streak; a busy window is not counted; UNCONFIRMED counts (Enter swallowed looks like that)', () => {
@@ -195,12 +195,20 @@ test('round 1 W2: a refusal of the message itself (empty, too long, a bad attach
   assert.equal(ds.stallOf('flagged', { now: T0 + 40 * MIN }), null);
 });
 
-test('round 1 W1: a card that reads stopped or restarting starts its streak over, so the agent that comes back is not stalled', () => {
-  for (const state of ['stopped', 'restarting']) {
+test('rounds 1 and 3: the sweep starts the streak of a self-speaking card over, so the agent back at idle is not stalled', () => {
+  for (const state of ['stopped', 'restarting', 'needs_you', 'needs_trust', 'rate_limited', 'auth_failed', 'connection_lost', 'blocked']) {
     const at = Date.now() - 40 * MIN;
     for (let i = 0; i < 3; i += 1) ds.note('back', refused, at + i * MIN);
-    assert.equal(status.deliveryStallOf({ name: 'back' }, { state }), null);
-    assert.equal(status.deliveryStallOf({ name: 'back' }, { state: 'idle' }), null, state + ': refusals while it was down are gone');
+    assert.equal(status.deliveryStallOf({ name: 'back' }, { state }), null, state + ': not shown while it says itself');
+    assert.ok(status.deliveryStallOf({ name: 'back' }, { state: 'idle' }), state + ': a READ changes nothing (round 3)');
+    ds.settleFor({ sessionName: 'back', state });
+    assert.equal(status.deliveryStallOf({ name: 'back' }, { state: 'idle' }), null, state + ': the sweep started it over');
+  }
+  for (const state of ['idle', 'working', 'unknown']) {
+    const at = Date.now() - 40 * MIN;
+    for (let i = 0; i < 3; i += 1) ds.note('kept-' + state, refused, at + i * MIN);
+    ds.settleFor({ sessionName: 'kept-' + state, state });
+    assert.ok(status.deliveryStallOf({ name: 'kept-' + state }, { state: 'idle' }), state + ' is not a reason to forget');
   }
   // CONTROL: the same refusals on a card that never left idle are a stall.
   const at = Date.now() - 40 * MIN;
@@ -247,4 +255,22 @@ test('round 2: UNCONFIRMED interleaved with PLACED never stalls; only a run with
   assert.equal(ds.stallOf('slow', { now: T0 + 50 * MIN }), null, 'a landed line between them ends each run');
   for (let i = 0; i < 3; i += 1) ds.note('swallowed', { state: 'unconfirmed' }, T0 + i * 15 * MIN);
   assert.ok(ds.stallOf('swallowed', { now: T0 + 30 * MIN }), 'CONTROL: unconfirmed with nothing placed for half an hour is a stall');
+});
+
+test('round 3: shared-quota holds alone are a planned pause like a usage limit; the advice fits the reason', () => {
+  for (let i = 0; i < 3; i += 1) ds.note('agy', held('quota'), T0 + i * MIN);
+  assert.equal(ds.stallOf('agy', { now: T0 + 40 * MIN, limitShown: true }), null, 'the card shows the quota');
+  for (let i = 0; i < 2; i += 1) ds.note('mix', held('quota'), T0 + i * MIN);
+  ds.note('mix', held('limit'), T0 + 2 * MIN);
+  assert.equal(ds.stallOf('mix', { now: T0 + 40 * MIN, limitShown: true }), null, 'quota and limit together are still the pause');
+  ds.note('mix', held('menu'), T0 + 3 * MIN);
+  assert.ok(ds.stallOf('mix', { now: T0 + 40 * MIN, limitShown: true }), 'CONTROL: a menu in the run is not the pause');
+  for (let i = 0; i < 3; i += 1) ds.note('out', held('limit', { heldFor: 'signin' }), T0 + i * MIN);
+  const st = ds.stallOf('out', { now: T0 + 40 * MIN });
+  assert.equal(st.next, 'Reconnect its account in Settings, AI Models', 'a restart does not help a sign-in');
+  const page = require('../test-support/page');
+  const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8'));
+  const stateReason = new Function(page.lift(SCRIPT, 'stateReason') + '\nreturn stateReason;')();
+  assert.match(stateReason({ name: 'Ada', state: 'idle', deliveryStall: { ...st, since: new Date(Date.now() - 45 * MIN).toISOString() } }),
+    /^No message has reached Ada for about 45 minutes\. It is signed out\. Reconnect its account in Settings, AI Models\.$/);
 });

@@ -1151,6 +1151,7 @@ async function pressRememberedNow(target, card) {
     const mine = still && still.id === kept.id;
     if (outcome === 'sent') {
       if (mine) forgetUnsent(target);   // only the line this retry pressed
+      deliverystreak.note(name, { state: DELIVERY.PLACED });   // #7212 slice 2 round 3: a line Kosmos sent through ends the streak
       if (kept.seq != null) tellEarlierSubmitted(kept.seq);
       return 'sent';
     }

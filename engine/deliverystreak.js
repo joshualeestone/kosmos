@@ -24,6 +24,12 @@ const RESAY_MS = 24 * 60 * 60 * 1000;
    no longer knows it is stuck (round 2). It is not cleared either; the next failure carries it on. */
 const FRESH_MS = 2 * 60 * 60 * 1000;
 
+/* The card states that say what is wrong themselves (or that a person is already answering): a streak built while the
+   card read one of these is not a stall of the agent that comes back to idle (round 3). Not 'unknown': a screen that
+   could not be read is not a reason to forget. */
+const SPEAKS_FOR_ITSELF = new Set(['stopped', 'restarting', 'needs_you', 'needs_trust', 'rate_limited', 'auth_failed',
+  'connection_lost', 'blocked']);
+
 /* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string> } */
 const streaks = new Map();
 
@@ -66,8 +72,10 @@ function noted(name, v) {
 function stallOf(name, { now = Date.now(), limitShown = false } = {}) {
   const s = streaks.get(name);
   if (!s || s.count < STALL_MIN_FAILS || now - s.since < STALL_MS || now - s.lastAt > FRESH_MS) return null;
-  if (limitShown && s.kinds.size === 1 && s.kinds.has('limit')) return null;
-  return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy, words: WHY_WORDS[s.lastWhy] || WHY_WORDS.unknown };
+  // A run of usage-limit or shared-quota holds alone is a planned pause the card already shows (round 3: quota too).
+  if (limitShown && [...s.kinds].every((k) => k === 'limit' || k === 'quota')) return null;
+  const why = Object.hasOwn(WHY_WORDS, s.lastWhy) ? s.lastWhy : 'unknown';
+  return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy, words: WHY_WORDS[why], next: NEXT_WORDS[why] };
 }
 
 /* True when a card shows a usage limit itself (its limit reset, a limitFrom reading, or an Antigravity quota or pool
@@ -109,6 +117,14 @@ const WHY_WORDS = {
   refused: 'Kosmos could not type into it',
   unknown: 'Kosmos could not tell why',
 };
+/* What the person can do, the card's last sentence (round 3: a restart does not help a sign-in, a limit or a quota). */
+const LOOK = 'Open it to see what it shows, or restart it';
+const NEXT_WORDS = {
+  input: LOOK, menu: LOOK, unconfirmed: LOOK, refused: LOOK, unknown: LOOK,
+  signin: 'Reconnect its account in Settings, AI Models',
+  limit: 'Kosmos sends them once its usage resets',
+  quota: 'Kosmos sends them once the shared quota resets',
+};
 /* The board log's line for one stall. */
 function stallLine(s) {
   return 'delivery-stall: no message has been seen to reach ' + s.name + ' since ' + s.since + ' (' + s.count
@@ -119,6 +135,12 @@ function stallLine(s) {
    the agent that comes back). */
 function reset(name) { streaks.delete(name); }
 
+/* The minute sweep's call for each card on the board: a card reading a state that says itself starts its streak over.
+   Here, not in the card field's getter, so reading a card never changes anything (round 3). */
+function settleFor(card) {
+  try { if (card && typeof card.sessionName === 'string' && SPEAKS_FOR_ITSELF.has(card.state)) reset(card.sessionName); } catch { /* next minute */ }
+}
+
 /* Agents no longer on the board lose their streaks, so one coming back under the name starts over. */
 function sweep(names) {
   const present = new Set(Array.from(names || [], String));
@@ -127,4 +149,4 @@ function sweep(names) {
 
 function resetForTests() { streaks.clear(); }
 
-module.exports = { reset, limitShownOn, note, noted, stallOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, WHY_WORDS };
+module.exports = { reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, WHY_WORDS };

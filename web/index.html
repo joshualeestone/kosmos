@@ -22286,7 +22286,8 @@ function stateReason(a, opts) {
     const mins = Number.isFinite(since) ? Math.max(30, Math.round((Date.now() - since) / 60000)) : 30;
     const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + mins + ' minutes';
     const who = (typeof a.name === 'string' && a.name) ? a.name : 'this agent';
-    return 'No message has reached ' + who + ' for ' + when + '. ' + a.deliveryStall.words + '. Open it to see what it shows, or restart it.';
+    const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Open it to see what it shows, or restart it';
+    return 'No message has reached ' + who + ' for ' + when + '. ' + a.deliveryStall.words + '. ' + next + '.';
   }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists

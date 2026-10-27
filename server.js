@@ -7372,9 +7372,8 @@ const server = http.createServer(async (req, res) => {
                 ownBound: null,
                 /* #7212 slice 2: and deliveryStall, so the two needs-the-person rules read it here without a strict-shape
                    miss. Always null here: the card carries a stall only while it reads idle or working, and this row is
-                   an agent with no live session. Its streak starts over too: lines refused while it is down are not a
-                   stall of the agent that comes back. */
-                deliveryStall: (() => { try { require('./engine/deliverystreak').reset(k.name); } catch { /* none to reset */ } return null; })(),
+                   an agent with no live session (the minute sweep forgets its streak: it is not on the roster). */
+                deliveryStall: null,
                 /* kosmos#5957 slice 2: a stopped agent is the likeliest to be far behind, so its offline row says so too. */
                 rulesBehind: require('./engine/doctrine').rulesBehind(k.name, profile),
                 /* kosmos#5957 slice 3: and how long it has gone without running, once that is two weeks or more
@@ -26161,6 +26160,7 @@ function start(port = PORT) {
           if (!Array.isArray(r) || !r.length) return;
           const names = r.map((c) => c && c.sessionName).filter((n) => typeof n === 'string' && n);
           ds.sweep(names);
+          for (const c of r) ds.settleFor(c);   // a card that says itself starts its streak over (round 3)
           const byName = new Map(r.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */

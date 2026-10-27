@@ -57,6 +57,20 @@ whatever the cause.
 - A refusal of the message itself (`contentRefused`: empty, too long, a bad attachment name) never counts.
 - The board log says a stall only for a card that carries one (one rule with the card).
 
+## Round 2 and 3 changes
+- A stall is said only while failures are still arriving (the newest within FRESH_MS, 2 h).
+- The minute sweep (deliverystreak.settleFor) starts over the streak of a card reading a state that says itself
+  (stopped, restarting, needs_you, needs_trust, rate_limited, auth_failed, connection_lost, blocked), so the agent back
+  at idle is not stalled by what happened meanwhile. Not 'unknown'. The card field's getter changes nothing: a read
+  stays a read. A state shorter than a minute can slip between two sweeps (stated).
+- Shared-quota holds join usage-limit holds as a planned pause when the card shows it.
+- The last sentence is the engine's per reason (NEXT_WORDS): a restart does not help a sign-in, a limit or a quota.
+- The #6436 retry that presses a line left unsent notes PLACED when it confirms.
+
+## Untested, said in the PR
+- server.js: the board-log line, the sweep's settleFor and sweep calls, and the offline row's null.
+- engine/chat.js pressRememberedNow's PLACED note: the function needs a tmux pane and has no direct test anywhere.
+
 ## Built (local, branch heldwarn2-7212; merge hold on)
 4ad318dfc5 engine recorder + wiring; 9b850fa6ef golden card re-capture; 621502920e card field gate, needsPerson,
 page sentence; 672b1bfe0a offline row + paneless card carry deliveryStall null (web.not-running went 14 red

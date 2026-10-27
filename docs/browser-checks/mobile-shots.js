@@ -963,6 +963,7 @@ const SCREENS = [
     await at(page, '');
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
+    await page.waitForSelector('.lrow.attn[data-agent="' + data.chatAgent + '"]', { timeout: 8000 });   // the stalled row drawn
   } },
   { name: 'agent-stall-7212-page', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
     await stallRoute(page, data);

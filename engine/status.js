@@ -1779,8 +1779,8 @@ function deliveryStallOf(pane, status) {
   try {
     const st = status || {};
     const ds = require('./deliverystreak');
-    /* Lines refused while it was down are not a stall of the agent that comes back (round 1 W1). */
-    if (st.state === STATE.STOPPED || st.state === 'restarting') ds.reset(pane && pane.name);
+    /* A read stays a read: the minute sweep starts a stopped or otherwise self-speaking card's streak over
+       (deliverystreak.settleFor), never this getter. */
     /* Only a card that reads idle or working: those look fine while nothing reaches them (Josh's read Idle for a
        week). A stopped agent refuses lines by design, and needs_you, a sign-in or a limit already say themselves. */
     if (st.state !== STATE.IDLE && st.state !== STATE.WORKING) return null;
