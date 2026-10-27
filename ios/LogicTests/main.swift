@@ -3859,9 +3859,13 @@ do {
           "and a server error or a bad request says try again")
     check(SignIn.reviewAnswer(status: 401, json: [:] as [String: Any]) == .refused(SignIn.reviewRefused), "with no sentence from Kosmos+, the phone's own")
     check(SignIn.reviewAnswer(status: 404, json: nil) == .closed, "a 404 is the door closed since the link showed")
-    check(SignIn.reviewDropsKey(.signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: nil, hasComputer: true))),
-          "m733: an admitted review sign-in drops a key kept by an earlier code sign-in (its device is the server's review-*)")
-    check(!SignIn.reviewDropsKey(.refused(message: "x", proofRefused: false)) && !SignIn.reviewDropsKey(.unknown), "CONTROL: nothing is dropped when nobody was signed in")
+    // m733: on the very value the password step switches on (SignIn.reviewAnswer), from the server's answers.
+    let admittedReview = SignIn.reviewAnswer(status: 200, json: ["token": "t", "device_status": "pending", "device_id": "review-1"] as [String: Any])
+    check(SignIn.reviewDropsKey(admittedReview), "m733: an admitted review sign-in drops a key kept by an earlier code sign-in (its device is the server's review-*)")
+    check(SignIn.reviewDropsKey(.answered(.second(kind: "totp", challenge: "c", sentTo: nil))), "and so would one going on to a second step, should the door ever ask")
+    check(!SignIn.reviewDropsKey(SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"])), "CONTROL: a wrong password keeps the key")
+    check(!SignIn.reviewDropsKey(SignIn.reviewAnswer(status: 404, json: nil)), "CONTROL: a closed door keeps the key")
+    check(!SignIn.reviewDropsKey(SignIn.reviewAnswer(status: 200, json: ["nothing": true] as [String: Any])), "CONTROL: an answer this cannot read keeps the key")
     check(SignIn.reviewAnswer(status: 200, json: ["token": "t", "device_status": "pending"] as [String: Any]) == .answered(.signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: nil, hasComputer: false))),
           "an admitted sign-in goes on to the Allow")
 }

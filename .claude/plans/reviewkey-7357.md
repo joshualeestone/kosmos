@@ -13,7 +13,8 @@ The review door makes the session's device itself (review-<hex>) and never uses 
 after sign-in carries the phone's own id (push register, unregister, sign-out and the Allow watch all read the
 device from the session token), so today there is no mismatch. #7337, once merged, proves the KEPT key at a
 computer's gate; on a phone that once signed in with a code and then used the review door, that would prove an
-older key under a review-* session. A fresh review install keeps no key, so this is the narrow case.
+older key under a review-* session. A key can survive deleting and reinstalling the app (the keychain keeps it), so
+a review phone that ever ran the app with a code sign-in can hold one.
 
 ## Decided
 
@@ -28,3 +29,9 @@ LogicTests (with a control: nothing dropped when nobody was signed in), iOS 16 s
 ## Review bound
 
 Challenge loop to convergence. Merge on green.
+
+## Review 1
+- The rule takes the ReviewAnswer the password step switches on, and is called there before the switch; tested on
+  the server's own answers with controls (wrong password, closed door, unreadable answer). A second step or setup
+  answer would drop the key too, should the door ever ask for one.
+- The old code-sign-in device stays on the Mac's allowed list, never proved again; harmless (no lock-out).

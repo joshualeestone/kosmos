@@ -33,9 +33,14 @@ enum SignIn {
     static let reviewClosed = "Password sign-in is not open now. Sign in with a code instead."
     // Ice Cream Kitty, m733: a review sign-in's session is a device the server made (review-*), never this phone's key, so
     // a key kept by an earlier code sign-in is dropped when one is admitted (never proved under it, #7337).
-    static func reviewDropsKey(_ answer: Answer) -> Bool {
-        if case .signedIn = answer { return true }
-        return false
+    // Any answer that goes on to a review session counts (a second step or a setup too, should the door ever ask for
+    // one; today the review account has none); a refusal, a closed door or an answer this cannot read keeps the key.
+    static func reviewDropsKey(_ answer: ReviewAnswer) -> Bool {
+        guard case .answered(let a) = answer else { return false }
+        switch a {
+        case .signedIn, .second, .needsSetup: return true
+        default: return false
+        }
     }
     static func reviewAnswer(status: Int, json: Any?) -> ReviewAnswer {
         if status == 404 { return .closed }
