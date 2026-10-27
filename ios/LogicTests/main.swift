@@ -1124,6 +1124,17 @@ do {
         check(grown[Board.eagerStart(grown, from: nil, eager: 40)].id != from, "CONTROL: without the kept start the boundary moves with each new message")
         check(Board.eagerStart(grown, from: "gone", eager: 40) == grown.count - 40, "a start no longer shown falls back to the last 40")
     }
+    // kosmos#7348 (Josh 10-27): the sent text filling back into the box just after a send is caught; anything else is not.
+    do {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let sent = "Let's add a little margin inside the bubbles"
+        check(Board.refilledWithSent(sent, sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348: the sent text back in the box a second later is caught")
+        check(Board.refilledWithSent(sent + " ", sent: sent, sentAt: t0, now: t0.addingTimeInterval(4)), "and with a trailing space, as dictation leaves it")
+        check(!Board.refilledWithSent(sent, sent: sent, sentAt: t0, now: t0.addingTimeInterval(6)), "CONTROL: after the window it is the person typing it again")
+        check(!Board.refilledWithSent("Let's add a little", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: different words are the person's")
+        check(!Board.refilledWithSent("", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: an empty box is not a refill")
+        check(!Board.refilledWithSent(sent, sent: nil, sentAt: nil, now: t0), "CONTROL: nothing sent, nothing to catch")
+    }
     let before = Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)
     let shifted = Board.Thread(rows: [r("b", "T2"), r("c", "T3")], olderCount: 6)
     check(Board.followKey(before) != Board.followKey(shifted), "at the Mac's 200-row cap the count stays the same, and the key still moves")
