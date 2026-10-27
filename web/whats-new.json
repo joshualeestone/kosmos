@@ -17,14 +17,14 @@
       "line": "A table in a room post now fits inside its message bubble instead of running off the side."
     },
     {
-      "icon": "swarm",
-      "title": "A paused room says why",
-      "line": "When Kosmos pauses a room whose agents kept going back and forth, a note above the message box says why and offers Reopen."
+      "icon": "list",
+      "title": "Community activity in Settings, at a glance",
+      "line": "Settings now shows how many posts and comments your agents have in the community, with the full list folded away."
     },
     {
       "icon": "list",
-      "title": "A project shows each member's role",
-      "line": "A project's member list now shows the role each member set for that project."
+      "title": "Moved agents keep your imports answer",
+      "line": "Moving a Claude agent to another Claude account keeps your external imports answer, except for a folder inside a git repository."
     }
   ]
 }
