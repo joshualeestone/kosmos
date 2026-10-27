@@ -16,7 +16,9 @@ still counted (CONTROL 1's own `held` after `held = null`, or a just-closed serv
 late sampling alone. Also wrong: late sampling still sees a buffering server; the dirty baseline is what hides it.)
 
 ## The call (test only)
-- `settled()`: collect, wait 10 ms, collect again, until two readings agree within 1 MB; every baseline uses it.
+- `settled(floor)`: collect, wait 10 ms, repeat until three readings agree within 1 MB AND (when a floor is given) the
+  reading is back within 2 MB of it; it fails the test by name if that never happens. The board's and the control's
+  baselines use the reading taken before CONTROL 1 as their floor; the upload-at-cap test uses it too.
 - The board is measured FIRST and the buffering control second, so a leftover in a baseline can only make the control
   read low, which fails red.
 - A buffering server in the same process (readFileSync then res.end), measured the same way just after the board, must
@@ -29,15 +31,15 @@ late sampling alone. Also wrong: late sampling still sees a buffering server; th
 - Raising the ceiling, or retrying the test: either makes a real regression pass or intermittent.
 
 ## Proof
-- The file: 33 of 33, once at load 53. Twenty runs on the final shape: 20 of 20 at 1-minute load 8.7 to 35.2.
+- The file: 33 of 33. Twenty runs on the final shape (round 2): 20 of 20 at 1-minute load 4.1 to 80.5.
 - Mutations, each red and restored:
   - the board reads the whole range into one Buffer (fs.readSync, unseen by the spy): "the board held 64.3 MB";
   - the board buffers its first 20 MB and streams the rest: "the board held 20.4 MB" (the old bounds passed this).
 - Both controls hold (Buffer.alloc 64 MB seen; the buffering server held 64 MB).
 
 ## Weakest premise
-That a settled baseline (two readings within 1 MB) is reached on a busy runner within its 40 tries. If it is not, the
-last reading is used and a red is still possible; CI over the coming days is the measurement. The control is measured
+That a settled baseline is reached on a busy runner within its 100 tries (about a second). If it is not, the test fails
+by name ("arrayBuffers never settled"), not by a wrong memory figure; CI over the coming days is the measurement. The control is measured
 just after the board, not at the same moment, so it shares the run's conditions, not each instant's.
 
 ## Review rounds
@@ -45,3 +47,8 @@ just after the board, not at the same moment, so it shares the run's conditions,
    64 MB (board now first, control second); one gc() does not settle (settled() polls); a 20 MB partial buffer passed
    (now under 8 MB and an eighth); my cause and false-pass explanations were wrong (corrected above); the "both sides"
    overclaim, a gc() guard, and a leftover `void held` line.
+2. (sonnet, 23:5x CDT) 1 BLOCKER, 2 WARNINGs, 1 NIT, all applied. (B) Agreeing readings could both still hold CONTROL 1's
+   64 MB, then free it mid-window and hide a buffering board: baselines now need a floor (back to the pre-CONTROL-1
+   reading) and three agreeing readings. (W) The silent fallback is now a named failure. (W) The upload-at-cap test had
+   the same unsettled baseline; it uses settled() now. (N) "a fifth" corrected to "an eighth". Both mutations red;
+   20 of 20 at load 4.1 to 80.5.
