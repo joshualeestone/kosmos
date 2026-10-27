@@ -79,3 +79,11 @@ behaviour unchanged); release when the probe reads HEALTHY (control: still held 
 - The API-key guard covers the default account (CLAUDE_CONFIG_DIR, else ~/.claude).
 - Recorded, not this card: the stdin flush callback can land after a locally made refusal, marking the token busy (an
   older race this card makes more visible).
+
+## Review rounds (blind challenge loop)
+- Round 1: no blocker. [WARNING] held on the label alone: a stale HEALTHY re-check (UNCHECKED) flapped healthy agents into the hold --> FIXED: hold only on a positive EXPIRED, test. [WARNING] a Mac agent printing live 401s over a HEALTHY account was held --> FIXED by the same rule. [NIT] quote and token-error controls --> FIXED: tests.
+- Round 2: no blocker. [WARNING] Windows card flickered to Sign-in Issue on each 30 s re-check after sign-in --> FIXED: cleared refusals remembered, each refusal stamped anew, test. [WARNING] underlying idle lacks liveToken --> DECLINED (#5949 withholds it from Windows Claude idle on purpose). [NIT] dead export --> ACCEPTED (test probe, commented).
+- Round 3: no blocker. [WARNING] a fresh HEALTHY from before a new sign-out could clear it for good --> FIXED: only a check that began after the refusal clears it (authprobe records starts), race test. [NIT] restart flicker --> ACCEPTED, documented.
+- Round 4: no blocker. [WARNING] API-key accounts read logged in whenever a key exists --> FIXED: not checkable, shown never held, test. [WARNING] 401 fallback read a field the real stream lacks --> FIXED: real markers (authentication_failed, api_error_status), captured-shape test. [NIT] cleared memory keyed by since only --> FIXED: name + since.
+- Round 5: no blocker. [WARNING] the per-turn refusal flag outlived its turn --> FIXED: cleared at every result, token-level test. [NIT] default-account API key --> FIXED. [NIT] stdin flush after a local refusal marks busy --> RECORDED (older race).
+- Round 6: no blocker, no warning. [NIT] unreachable bare-since fallback --> FIXED: removed. [NIT] checkable is a test probe --> FIXED: commented. [NIT] a false EXPIRED from the Mac credential store would hold until it reads right --> ACCEPTED (needs a false EXPIRED; release follows the next true check).

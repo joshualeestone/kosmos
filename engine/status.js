@@ -8111,7 +8111,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        before it (another agent on the account, or this one's earlier clear) shows the plain state for this tick only,
        and the next check, asked after the refusal, decides. */
     if (under && typeof scraped.authSince === 'string' && Number(scraped.authCheckStartedAt) > Date.parse(scraped.authSince)) {
-      noteWin32AuthCleared(typeof scraped.authKey === 'string' ? scraped.authKey : scraped.authSince);
+      if (typeof scraped.authKey === 'string') noteWin32AuthCleared(scraped.authKey);
     }
     const reentry = under
       ? { state: under.state, confidence: CONFIDENCE.SCRAPED, because: under.because }
@@ -8906,6 +8906,7 @@ function noteWin32AuthCleared(since) {
   if (WIN32_AUTH_CLEARED.size > 200) WIN32_AUTH_CLEARED.delete(WIN32_AUTH_CLEARED.values().next().value);
 }
 
+/* A probe of the guard set, kept for the tests that pin it: the hold itself decides through claudeSignedOutConfirmed. */
 const PROBE_ASKED = Symbol('probe-asked');
 function claudeSignInCheckable(name) {
   try {
