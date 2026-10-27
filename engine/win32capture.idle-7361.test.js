@@ -86,7 +86,7 @@ test('#7361 END TO END: a fresh automatic working from a turn that has ended rea
 });
 
 test('#7361 CONTROL: the same report over an `agents --json` idle stays working (it also reads idle while waiting)', () => {
-  const a = agent('ben', 'idle');
+  const a = agent('roo', 'idle');
   firstTurnWithoutStop(a);
   const card = onBoard(a);
   assert.ok(card, 'the agent is on the board');
