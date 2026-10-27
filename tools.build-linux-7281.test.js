@@ -66,11 +66,22 @@ test('one node version for the Mac, Windows and Linux bundles (two runtimes drif
 
 /* ---- the builder, run ---------------------------------------------------------------------------------------- */
 
-function elf() {   // the smallest header `file` calls "ELF 64-bit LSB executable, x86-64"
+function elf(extra = '') {   // the smallest header `file` calls "ELF 64-bit LSB executable, x86-64", then `extra` text
   const b = Buffer.alloc(64);
   b.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0], 0);
   b.writeUInt16LE(2, 16); b.writeUInt16LE(0x3e, 18); b.writeUInt32LE(1, 20); b.writeUInt16LE(64, 52);
-  return b;
+  return Buffer.concat([b, Buffer.from(extra)]);
+}
+const sha = (buf) => require('node:crypto').createHash('sha256').update(buf).digest('hex');
+/* A connector with the sidecars kosmos-relay's build writes (tools/lib/connector-provenance.sh checks them). */
+function connector(dir, name, bytes, { commit = 'a'.repeat(40), sidecars = true } = {}) {
+  const f = path.join(dir, name);
+  fs.writeFileSync(f, bytes, { mode: 0o755 });
+  if (sidecars) {
+    fs.writeFileSync(f + '.commit', commit + '\n');
+    fs.writeFileSync(f + '.sha256', sha(bytes) + '  ' + name + '\n');
+  }
+  return f;
 }
 function macho() {   // "Mach-O 64-bit executable x86_64": what the Mac build ships as its connector
   const b = Buffer.alloc(32);
@@ -88,9 +99,11 @@ function fixtures() {
   const nodeTar = path.join(d, `node-v${VER}-linux-x64.tar.gz`);
   const t = spawnSync('tar', ['-czf', nodeTar, '-C', d, `node-v${VER}-linux-x64`], { encoding: 'utf8' });
   assert.equal(t.status, 0, t.stderr);
-  fs.writeFileSync(path.join(d, 'tunnel-elf'), elf(), { mode: 0o755 });
-  fs.writeFileSync(path.join(d, 'tunnel-elf.commit'), 'abc1234\n');
-  fs.writeFileSync(path.join(d, 'tunnel-macho'), macho(), { mode: 0o755 });
+  connector(d, 'tunnel-elf', elf('\0GLIBC_2.17\0GLIBC_2.34\0'));
+  connector(d, 'tunnel-new-glibc', elf('\0GLIBC_2.17\0GLIBC_2.39\0'));
+  connector(d, 'tunnel-bare', elf(), { sidecars: false });
+  connector(d, 'tunnel-dirty', elf(), { commit: 'a'.repeat(40) + '-dirty' });
+  connector(d, 'tunnel-macho', macho());
   return { d, nodeTar };
 }
 function build(f, tunnel, out) {
@@ -105,7 +118,13 @@ function build(f, tunnel, out) {
 test('the builder refuses a connector that is not ELF x86-64 (the Mac\'s Mach-O is the defect this ends), before any download', () => {
   const f = fixtures();
   const out = path.join(f.d, 'out-macho');
-  const r = build(f, path.join(f.d, 'tunnel-macho'), out);
+  // Review 1 (N4): no local node and a version nodejs.org has never published, so a refusal that came AFTER the
+  // node fetch would fail with a download error instead of the connector's own words.
+  const r = spawnSync('bash', [path.join(ROOT, 'tools', 'build-kosmos-linux.sh'), out], {
+    encoding: 'utf8',
+    env: { ...process.env, KOSMOS_ALLOW_DIRTY: '1', KOSMOS_NODE_VERSION: '0.0.0', KOSMOS_TUNNEL_LINUX_BIN: path.join(f.d, 'tunnel-macho') },
+    timeout: 60000,
+  });
   assert.notEqual(r.status, 0, 'a Mach-O connector was packed into the Linux bundle');
   assert.match(r.stderr, /must be an ELF 64-bit x86-64 executable/);
   assert.equal(fs.existsSync(path.join(out, 'kosmos-linux-x64.tar.gz')), false);
@@ -113,6 +132,35 @@ test('the builder refuses a connector that is not ELF x86-64 (the Mac\'s Mach-O 
     encoding: 'utf8', env: { ...process.env, KOSMOS_TUNNEL_LINUX_BIN: '' }, timeout: 60000 });
   assert.notEqual(none.status, 0);
   assert.match(none.stderr, /KOSMOS_TUNNEL_LINUX_BIN is not set/, 'a bundle without a connector was not refused');
+});
+
+test('review 1: a connector without its provenance, from a dirty tree, or needing a newer glibc than the floor is refused', () => {
+  const f = fixtures();
+  const cases = [
+    ['tunnel-bare', /connector_provenance: no .*\.commit beside the connector/],
+    ['tunnel-dirty', /built from a DIRTY tree/],
+    ['tunnel-new-glibc', /needs glibc 2\.39, newer than the supported floor 2\.35/],
+  ];
+  for (const [name, why] of cases) {
+    const r = build(f, path.join(f.d, name), path.join(f.d, 'out-' + name));
+    assert.notEqual(r.status, 0, name + ' was packed');
+    assert.match(r.stderr, why, name + ': ' + r.stderr);
+  }
+});
+
+test('review 1: an unchecked node is a test build only, and the manifest says so', () => {
+  const f = fixtures();
+  const env = { ...process.env, KOSMOS_NODE_UNCHECKED: '1', NODE_LINUX_SOURCE: f.nodeTar, KOSMOS_TUNNEL_LINUX_BIN: path.join(f.d, 'tunnel-elf') };
+  delete env.KOSMOS_ALLOW_DIRTY;
+  const r = spawnSync('bash', [path.join(ROOT, 'tools', 'build-kosmos-linux.sh'), path.join(f.d, 'out-unchecked')], { encoding: 'utf8', env, timeout: 60000 });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /refusing to package a -dirty tree|an unchecked node is for a test build only/);
+});
+
+test('review 1: the odd-names check is the Mac builder\'s, word for word (the signed manifest\'s rule, #6468)', () => {
+  const body = (src) => { const i = src.indexOf('kosmos_bundle_odd_names() {'); return src.slice(i, src.indexOf('\n}\n', i)); };
+  assert.ok(body(MAC).length > 200, 'the Mac function moved');
+  assert.equal(body(LINUX), body(MAC));
 });
 
 test('CONTROL: with an ELF connector it packs the bundle, and its manifest lists exactly the tarball\'s files', () => {
@@ -133,7 +181,10 @@ test('CONTROL: with an ELF connector it packs the bundle, and its manifest lists
   assert.equal(m.arch, 'x64');
   assert.equal(m.artifact, 'kosmos-linux-x64.tar.gz');
   assert.equal(m.node.version, 'v' + VER);
-  assert.equal(m.connector.commit, 'abc1234', 'the connector\'s commit sidecar was not recorded');
+  assert.match(m.node.download_sha256, /^unchecked:[0-9a-f]{64}$/, 'a test build\'s node was recorded as a checked download');
+  assert.equal(m.connector.commit, 'a'.repeat(40), 'the connector\'s commit sidecar was not recorded');
+  assert.equal(m.connector.glibc, '2.34', 'the glibc the connector needs was not recorded');
+  assert.equal(m.connector.signed_sha256, m.connector.input_sha256);
   assert.ok(m.pinned_keys.length >= 1, 'no pinned keys: the next cut would refuse its own key');
   assert.deepEqual(m.files.map((x) => x.path).sort(), list.sort(), 'the manifest does not describe the tarball file for file');
   const sidecar = fs.readFileSync(tarball + '.sha256', 'utf8').trim().split(/\s+/);
