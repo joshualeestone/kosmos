@@ -29,8 +29,8 @@ preloads it there. Its verdict on each word was POSIX-shaped. Stacked on #7316 (
   extensionless stubs); not selected for Windows CI; out of scope.
 
 ## Weakest part
-cwd-first lookup and PATHEXT are libuv's and cmd's rules respectively; libuv itself tries only .com and .exe without a
-shell, so reading every PATHEXT extension is a superset (refuses gh.bat where node alone would not run it). Refusing is
+Each lookup (node, cmd, Git Bash) is judged by its own first find; refusing when ANY is real over-refuses a cmd call
+whose fake .cmd comes first while a real .exe sits later (node and bash would run the .exe). Refusing is
 the safe side for a guard against real CLIs.
 
 ## Review rounds
@@ -42,3 +42,12 @@ the safe side for a guard against real CLIs.
   under a mixed 8.3/long temp path is refused (conservative); a Git Bash /c/... path resolves to C:\c\... (pre-existing).
   Reviewer confirmed POSIX unchanged and the real gh.exe on this box refused in every ordinary shape. Negative control:
   the new test fails against round 0. 59/59.
+- Round 2: 1 BLOCKER, 3 WARNINGs, 1 NIT. BLOCKER FIXED: PATH lookup tried every PATHEXT extension per directory, but
+  node without a shell tries only .com/.exe (measured: node ran the real git past a fake git.cmd first on PATH), so a
+  fake gh.cmd ahead of the real gh.exe hid it. onPath now returns the first find of each lookup (node: .com/.exe and cwd
+  unless this process has NoDefaultCurrentDirectoryInExePath; cmd: the child env's PATHEXT and its copy of that
+  variable; Git Bash: name then .exe, PATH only) and any real one refuses. The "Weakest part" claim that every-PATHEXT
+  was a safe superset was wrong. WARNINGs FIXED: the NoDefaultCurrentDirectoryInExePath cwd skip (above); a URL cwd no
+  longer throws; cmd's %VAR% is expanded on Windows. NIT noted: test-support.tool-guard-4326.test.js still fails 12 on
+  Windows at base (POSIX fixtures); not this card. Negative control: the new test fails against round 1. 60/60; 87 win32
+  files with both preloads: 1588 tests, 0 fail, 0 refusals.

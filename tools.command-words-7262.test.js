@@ -296,3 +296,31 @@ test('#7318 review 1: PATH and Path in one env are read as node reads them; no P
     fs.rmSync(stub, { recursive: true, force: true });
   }
 });
+
+test('#7318 review 2: each Windows lookup (node, cmd, Git Bash) is judged; a URL cwd; cmd\'s %VAR%', { skip: !WIN && 'Windows lookup rules' }, () => {
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-7318r2-'));
+  try {
+    const realBin = path.join(stub, 'real');
+    const fakeCmd = path.join(stub, 'fakecmd');
+    const fakeExe = path.join(stub, 'fakeexe');
+    for (const d of [realBin, fakeCmd, fakeExe]) fs.mkdirSync(d);
+    fs.writeFileSync(path.join(realBin, 'gh.exe'), '');
+    fs.writeFileSync(path.join(fakeCmd, 'gh.cmd'), '@echo off\r\n');
+    fs.writeFileSync(path.join(fakeExe, 'gh.exe'), '');
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = realBin;
+    // node without a shell skips .cmd, so a fake gh.cmd ahead of a real gh.exe hides nothing (node ran the real git
+    // past a fake git.cmd, measured)
+    assert.equal(refusedCall('gh', [], { env: { PATH: fakeCmd + ';' + realBin } }), 'gh');
+    assert.equal(refusedCall('bash', ['-c', 'gh auth status'], { env: { PATH: fakeCmd + ';' + realBin } }), 'gh');
+    // CONTROL: a fake gh.exe first is what every lookup finds, so it is allowed
+    assert.equal(refusedCall('gh', [], { env: { PATH: fakeExe + ';' + realBin } }), null);
+    assert.equal(realToolInScript('gh x', undefined, { PATH: fakeExe + ';' + realBin }), null);
+    // a URL cwd (node accepts one) does not throw
+    assert.equal(refusedCall('gh', [], { cwd: new URL('file:///' + stub.replace(/\\/g, '/') + '/'), env: { PATH: fakeExe } }), null);
+    // cmd expands %VAR% in a shell string
+    assert.equal(realToolInScript('"%GHDIR%\\gh.exe" --version', stub, { GHDIR: realBin, PATH: fakeExe }), 'gh');
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
+});

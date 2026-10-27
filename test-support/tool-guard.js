@@ -43,6 +43,7 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const util = require('node:util');
+const url = require('node:url');
 
 const TOOLS = {
   gh: 'Point AGENT_WORKFORCE_GH_BIN at a fake (tools/run-tests.sh exports test-support/fake-cli-signed-out.sh).',
@@ -90,48 +91,59 @@ const within = (where, root) => {
 // One command word: is it a real tool? `cwd` resolves a relative path the way the spawn will.
 function realToolIn(word, cwd, env) {
   if (typeof word !== 'string' || !word) return null;
-  // Expand $VAR / ${VAR} from the call's env (else this process's) and drop quotes, so a fake
-  // reached as "$TMPDIR"/fake/gh resolves where the shell will put it.
+  if (cwd != null && typeof cwd !== 'string') cwd = cwd instanceof URL ? url.fileURLToPath(cwd) : String(cwd);   // node takes a URL
+  // Expand $VAR / ${VAR} (and cmd's %VAR% on Windows) from the call's env (else this process's) and drop quotes, so a
+  // fake reached as "$TMPDIR"/fake/gh resolves where the shell will put it.
   const vars = env || process.env;
-  const w = word.replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (m, k) => (envVar(vars, k) != null ? String(envVar(vars, k)) : m))
-    .replace(/['"]/g, '').replace(/^\(+|[);]+$/g, '');
+  const expand = (m, k) => (envVar(vars, k) != null ? String(envVar(vars, k)) : m);
+  let w = word.replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, expand);
+  if (WIN) w = w.replace(/%([A-Za-z_][A-Za-z0-9_()]*)%/g, expand);
+  w = w.replace(/['"]/g, '').replace(/^\(+|[);]+$/g, '');
   const name = toolName(path.basename(w), vars);
   if (!name) return null;
-  let where;
-  if (!isPathWord(w)) {
-    // A bare name runs whatever the CALL's PATH finds first. Refuse only if that is a real
-    // install; a PATH-stub dir of fakes (the standard pattern) is allowed, and a name found
-    // nowhere would not run at all.
-    const found = onPath(w, envVar(vars, 'PATH'), vars, cwd);
-    if (!found) return null;
-    where = real(found);
-  } else {
-    where = real(path.resolve(cwd || process.cwd(), w));
-  }
   // Test seam (the guard's own test only): dirs whose tools count as REAL installs even under the
   // temp dir, so the refusal can be proven with a harmless stand-in instead of the operator's CLI.
   const realDirs = String(process.env.KOSMOS_TOOL_GUARD_REAL_DIRS || '').split(path.delimiter).filter(Boolean).map(real);
-  if (realDirs.some((r) => within(where, r))) return name;
-  if (ALLOWED_ROOTS.some((r) => within(where, r))) return null;
-  return name;
+  const isReal = (where) => realDirs.some((r) => within(where, r)) || !ALLOWED_ROOTS.some((r) => within(where, r));
+  if (isPathWord(w)) return isReal(real(path.resolve(cwd || process.cwd(), w))) ? name : null;
+  // A bare name runs whatever the CALL's PATH finds first. Refuse only if that is a real install; a PATH-stub dir of
+  // fakes (the standard pattern) is allowed, and a name found nowhere would not run at all. On Windows the file found
+  // first depends on who looks (node, cmd or bash, review 2 of #7318), so each one's first find is judged, and any real
+  // one refuses.
+  return onPath(w, envVar(vars, 'PATH'), vars, cwd).some((found) => isReal(real(found))) ? name : null;
 }
+/* The files a bare name runs, as a list: on Windows the first find of each one that may look it up, since each looks
+   differently (measured, review 2 of #7318): node without a shell tries the name as given when it has an extension,
+   else .com then .exe, in the current directory unless this process has NoDefaultCurrentDirectoryInExePath, then PATH;
+   cmd tries the child env's PATHEXT, in the current directory unless the child env has that variable; Git Bash tries
+   the name and then .exe, on PATH only. So a fake gh.cmd ahead of a real gh.exe on PATH hides nothing: node runs the
+   gh.exe. Elsewhere, the one file PATH finds. Any regular file runs on Windows (no execute bit). */
 function onPath(name, pathVar, vars, cwd) {
   if (WIN) {
-    // Windows: the current directory first, then PATH; a name with no PATHEXT extension is tried with each one, and
-    // what runs is any regular file (no execute bit there).
+    const dirs = String(pathVar || '').split(';').map((d) => d.replace(/^"|"$/g, '')).filter(Boolean);
+    const here = cwd || process.cwd();
     const exts = pathExts(vars || {});
     const lower = name.toLowerCase();
-    const tries = exts.some((e) => lower.endsWith(e)) ? [name] : exts.map((e) => name + e);
-    for (const dir of [cwd || process.cwd()].concat(String(pathVar || '').split(';'))) {
-      const d = dir.replace(/^"|"$/g, '');
-      if (!d) continue;
-      for (const t of tries) {
-        const p = path.join(d, t);
-        try { if (fs.statSync(p).isFile()) return p; } catch { /* next */ }
+    const hasExt = /\.[^.\\/]+$/.test(name);
+    const first = (tries, ds) => {
+      for (const d of ds) {
+        for (const t of tries) {
+          const p = path.join(d, t);
+          try { if (fs.statSync(p).isFile()) return p; } catch { /* next */ }
+        }
       }
-    }
-    return null;
+      return null;
+    };
+    const finds = [
+      first(hasExt ? [name] : [name + '.com', name + '.exe'], (process.env.NoDefaultCurrentDirectoryInExePath ? [] : [here]).concat(dirs)),
+      first(exts.some((e) => lower.endsWith(e)) ? [name] : exts.map((e) => name + e), (envVar(vars || {}, 'NoDefaultCurrentDirectoryInExePath') ? [] : [here]).concat(dirs)),
+      first(hasExt ? [name] : [name, name + '.exe'], dirs),
+    ];
+    return finds.filter(Boolean);
   }
+  return [onPosixPath(name, pathVar)].filter(Boolean);
+}
+function onPosixPath(name, pathVar) {
   for (const dir of String(pathVar || '').split(path.delimiter)) {
     if (!dir) continue;
     const p = path.join(dir, name);
