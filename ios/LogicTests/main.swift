@@ -3620,6 +3620,26 @@ if let w {
     }
     check(PhoneNotice.pictureRequest(PhoneNotice.Words(kind: "report", session: "irma", agent: "Irma", text: "x", picture: nil), userInfo: pushed, stored: savedMac) == nil, "no picture: no request")
 }
+// kosmos#7345: a "ready" (work waiting for the person's check) has no words to ask for, and still shows its agent's picture.
+do {
+    let ready: [AnyHashable: Any] = ["id": "built:p1:4:1793000000000", "address": "m-abc123.kosmosplus.com", "session": "irma", "kind": "ready", "agent": "Irma"]
+    check(PhoneNotice.wordsRequest(userInfo: ready, stored: savedMac) == nil, "kosmos#7345: a ready push has no words to ask for (its id is not askable)")
+    check(PhoneNotice.pictureOnlyRequest(userInfo: ready, stored: savedMac)?.url?.absoluteString == "https://m-abc123.kosmosplus.com/api/agent/irma/avatar",
+          "its picture comes from the same computer's avatar route, for the session the push names")
+    check(PhoneNotice.pictureOnlyRequest(userInfo: ready, stored: savedMac)?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin", "and says it is the board's own")
+    for bad in ["../x", "Irma", "", "a/b", "a.b", "a%2Fb", String(repeating: "a", count: 65)] {
+        var b = ready; b["session"] = bad
+        check(PhoneNotice.pictureOnlyRequest(userInfo: b, stored: savedMac) == nil, "CONTROL: a session the app would not accept is never asked for: \(bad)")
+    }
+    var other = ready; other["address"] = "m-other.kosmosplus.com"
+    check(PhoneNotice.pictureOnlyRequest(userInfo: other, stored: savedMac) == nil, "CONTROL: never another computer's")
+    check(PhoneNotice.pictureOnlyRequest(userInfo: ready, stored: nil) == nil, "CONTROL: nothing without the app's kept session")
+    // The extension's copy of the app's session rule agrees with the app's on every case here.
+    for s in ["irma", "a-b_c", "9x", "Irma", "-a", "_a", "a.b", "", String(repeating: "a", count: 64), String(repeating: "a", count: 65)] {
+        check(PhoneNotice.isAgentSession(s) == PushBridge.isAgentSession(s), "the extension's session rule matches the app's: \(s.prefix(10))")
+    }
+    check(PhoneNotice.soundName == "bubble-pop.caf", "the notification sound is the bubble pop shipped in the app")
+}
 check(PhoneNotice.pictureData(status: 200, contentType: "image/png", data: Data([1, 2, 3])) != nil, "a 200 image is shown")
 check(PhoneNotice.pictureData(status: 200, contentType: "text/html", data: Data([1])) == nil && PhoneNotice.pictureData(status: 404, contentType: "image/png", data: Data([1])) == nil, "anything else is not")
 

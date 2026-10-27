@@ -147,6 +147,28 @@ enum PhoneNotice {
         return w
     }
 
+    // kosmos#7345 (Josh 10-27): a notice the computer has no words for ("has work ready for you", a task marked built)
+    // still shows its agent's picture: the board's own avatar route for the session the push names, on the same computer.
+    // nil when the push names no session the app would accept (PushBridge.isAgentSession's rule), or for another computer.
+    static func pictureOnlyRequest(userInfo: [AnyHashable: Any], stored: String?) -> URLRequest? {
+        guard let session = userInfo["session"] as? String, isAgentSession(session),
+              let address = userInfo["address"] as? String, let s = saved(stored, forAddress: address),
+              var r = request(host: address.lowercased(), path: "/api/agent/\(session)/avatar", query: nil, cookie: s.cookie)
+        else { return nil }
+        r.setValue("image/*", forHTTPHeaderField: "Accept")
+        return r
+    }
+    // The app's rule for an agent's session (PushBridgeLogic.swift isAgentSession): this extension does not compile it.
+    static func isAgentSession(_ s: String) -> Bool {
+        guard (1...64).contains(s.count), let first = s.unicodeScalars.first,
+              ("a"..."z").contains(first) || ("0"..."9").contains(first) else { return false }
+        return s.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" || $0 == "_" }
+    }
+
+    // kosmos#7345 (Josh 10-27): the Mac's "bubble pop" (web/index.html playBubblePop), rendered to a sound file in the app
+    // (ios/tools/make-bubble-pop.js). A notice that came with a sound plays this one instead; a silent one stays silent.
+    static let soundName = "bubble-pop.caf"
+
     // The request for the agent's picture: only the board's own avatar route, on the same computer.
     static func pictureRequest(_ w: Words, userInfo: [AnyHashable: Any], stored: String?) -> URLRequest? {
         guard let path = w.picture, path.hasPrefix("/api/agent/"), path.hasSuffix("/avatar"), !path.contains(".."),
