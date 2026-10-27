@@ -225,28 +225,23 @@ function keptRoots(sessionName, roster, { win = false, real = '' } = {}) {
   const workersId = idOf(workers);
   const named = [store.ROOT, workers, path.join(home, '.config'), path.join(home, '.ssh')];
   if (legacy) named.push(legacy);
-  /* #7232 B4: what Kosmos writes in an agent folder on ANOTHER computer, by its share spelling, matched with mayHold
-     (erring toward yes) since it is never stat'd. */
-  const keptShares = [];
   /* One pass over the agents, one folder each, and everything else derived from that folder: review r5 finding 3.
      #7232 B4: the folder is create.workerDir (what instructions.fileFor's dirname always was), not fileFor, which also
-     read the agent's launch job (schtasks on a cold cache) for a brief name this never used. On Windows the recorded
-     folder's SPELLING is read first, with no lstat: one on another computer (a share, or a mapped drive whose server is
-     not this one) holds no file on this computer, so for a local file the agent is passed over without touching it;
-     for a file on a share, Kosmos's own files there are kept by spelling. Where the share cannot be named, as before. */
+     read the agent's launch job (schtasks on a cold cache) for a brief name this never used. On Windows, for a LOCAL
+     file, the recorded folder's SPELLING is read first, with no lstat: one on another computer (a share, or a mapped
+     drive whose server is not this one) holds no file on this computer, so the agent is passed over without touching
+     it. Only when the share is NAMED (review 1 finding 2): one the redirector did not name may be this computer. For a
+     file on the network the attach has already reached a server, so every folder is read by identity as before (review
+     2 finding 1: two shares of one server can reach one folder, \\nas\data\team and \\nas\team, which no spelling
+     compare sees). */
+  const fileLocal = win && !isNetworkSpelling(real);
   for (const name of agentNames(sessionName, roster)) {
     let key;
     try { key = store.safeKey(name); } catch { continue; }
-    if (win) {
+    if (fileLocal) {
       const spelled = create.recordedDirSpelling(key);
       const away = spelled ? elsewhereOf(spelled) : null;
-      /* Only when the share is NAMED (review 1 finding 2): a mapped drive whose share the redirector did not name may be
-         this computer, so its folder may hold a local file, and is read as before (fail closed). */
-      if (away && away.share) {
-        if (!isNetworkSpelling(real)) continue;
-        for (const f of KOSMOS_WRITES) keptShares.push(path.win32.join(away.share, f));
-        continue;
-      }
+      if (away && away.share) continue;
     }
     let own = null;
     try { own = create.workerDir(key); } catch { own = null; }
@@ -266,7 +261,6 @@ function keptRoots(sessionName, roster, { win = false, real = '' } = {}) {
     mobileDocsId: idOf(path.join(lib, 'Mobile Documents')),
     cloudStorageId: idOf(path.join(lib, 'CloudStorage')),
     kept: new Set(named.map(idOf).filter(Boolean)),
-    keptShares,
   };
 }
 
@@ -352,7 +346,7 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
        as a local volume (\\?\Volume{GUID}\) is walked like a drive path and resolved unless its links lead to a share
        (review 19 finding 1). */
     if (win) {
-      const skipped = otherFolderSkip(p.folder, fileShare);
+      const skipped = otherFolderSkip(p.folder, fileShare, !isNetworkSpelling(real));
       if (skipped) { skippedOthers.push(skipped); continue; }
     }
     /* A project of another agent nearer the file than every one of the agent's own is the deepest, and not the agent's:
@@ -391,7 +385,6 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
   if (rootHolds(k.home, k.homeId) || rootHolds(k.data, k.dataId) || rootHolds(k.workers, k.workersId)
     || heldBelowRoot(k.homeId) || heldBelowRoot(k.dataId) || heldBelowRoot(k.workersId)) return { refused: WIDE_PROJECT };
   if (chain.some((c) => c.id && k.kept.has(c.id))) return { refused: KEPT_FOR_KOSMOS };
-  if (k.keptShares.some((f) => mayHold(f, given, real))) return { refused: KEPT_FOR_KOSMOS };   // #7232 B4, by spelling
   const hidden = hiddenRefusal(given, chain, best.depth, k);
   if (hidden) return { refused: hidden };
   if (k.libraryId && chain.some((c, n) => n > 0 && c.id === k.libraryId) && !libraryOpen(chain, k, best.depth)) return { refused: IN_LIBRARY };
@@ -403,7 +396,7 @@ function allowedRoot(sessionName, real, roster, given, { filesDir, projectList, 
    folder whose links lead to a share (or toward one this cannot name); a dead junction; a chain longer than Windows
    follows. `leadsTo` is the share path a link to a plain share names (the rest of the folder's path joined on), so a
    skipped folder is judged by where it goes, never by its own spelling alone (review 16 finding 1). */
-function otherFolderSkip(folder, fileShare) {
+function otherFolderSkip(folder, fileShare, fileLocal) {
   /* Only the namespaces on winpath's allow-list hold no files (a pipe, a mailslot, a DOS device: \\.\pipe\..., \\.\COM1):
      such a folder leads nowhere, so it cannot make another agent's attach refuse (reviews 12 and 23). Any other
      namespace that names no share may name a drive (\\?\GLOBALROOT\...), so it stays unknown and fails closed. */
@@ -413,13 +406,6 @@ function otherFolderSkip(folder, fileShare) {
     if (holdsNoFiles(folder)) return { folder, kind: 'nowhere', leadsTo: null };
     return { folder, kind: 'share', leadsTo: shareOf(folder) ? asShareSpelling(folder) : null };
   }
-  /* #7232 B1: a folder written on a mapped drive of ANOTHER computer is the share that drive maps to, read from the
-     drive table with nothing touched (its lstat walk and its realpath were the contact that stalled an attach on a dead
-     server): left unresolved and judged by where it leads, as a link to that share is below. Its share not known ->
-     leadsTo null -> 'unplaced', fail closed. Resolved as before when the file is on that same share (the server just
-     answered for it), as a folder written as that share is above. */
-  const away = isLocalVolumeSpelling(folder) ? null : elsewhereOf(folder);
-  if (away && fileShare && away.share && shareOf(away.share) === fileShare) return null;
   let leadsTo = null;
   let leadsNowhere = false;
   const noteShare = (cur, to, rest) => {
@@ -430,16 +416,20 @@ function otherFolderSkip(folder, fileShare) {
   /* A folder written as a local volume (\\?\Volume{GUID}\...) is walked too: it is on this computer, but a link below
      its root can still lead to a share (review 19 finding 1), so the volume spelling is accepted where the walk meets
      it and its parts are lstat'd like a drive path's. */
-  /* #7232 B1: each path the walk reaches (the folder as written, then where each link leads) is placed by the drive
-     table before any of its parts is read: on a mapped drive of another computer it leads to that drive's share (null
-     when not named: fail closed). A letter the table calls absent is walked and resolved as before (review 1 finding
+  /* #7232 B1: for a LOCAL file, each path the walk reaches (the folder as written, then where each link leads) is
+     placed by the drive table before any of its parts is read (its lstat walk and its realpath were the contact that
+     stalled an attach on a dead server): on a mapped drive of another computer it leads to that drive's share, judged
+     by where it leads as a link to that share is (null when not named: 'unplaced', fail closed). For a file on the
+     network the attach has already reached a server, so the folder is walked and resolved by identity as before
+     (review 2 finding 1: two shares of one server can reach one folder, which no spelling compare sees). A letter the
+     table calls absent is walked and resolved as before (review 1 finding
      4): the table can be a minute old (subst made since), and a drive root that really is missing fails at once with no
      server to contact, so skipping it saved nothing and could let a nested folder's files through. */
   const onPath = (reached) => {
     if (isLocalVolumeSpelling(reached)) return null;
     const why = winSpellingRefusal(reached, null);
     if (why) return why;
-    const place = windrives.placeOf(driveOf(reached));
+    const place = fileLocal ? windrives.placeOf(driveOf(reached)) : null;
     if (place && place.remote) { leadsTo = place.share ? onShareOf(place.share, reached) : null; return ON_NETWORK; }
     return null;
   };

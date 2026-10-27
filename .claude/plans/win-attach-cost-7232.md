@@ -105,3 +105,18 @@ GetDrives calls remote (must fail closed, not local); the own-first early exit v
    not covered.
 6. NIT: one blocking re-learn per refresh in total, not one per letter.
 Seams added: windrives.setLearnForTests (clock and learner), scriptForTests; both excused in engine.reachable.
+
+### Review 2 (decided, all fixed; each with a test that fails on 1c007c50d9)
+1. WARNING, two shares of one server reaching one folder (\\nas\data\team and \\nas\team as Z:) let a file through
+   that main refused by identity. Skipping by spelling now happens ONLY for a local file (the stall the card is about):
+   for a file on the network the attach has already reached a server, so other agents' folders on remote letters are
+   walked and resolved, and agent folders read with workerDir, by identity as main does. keptShares and the same-share
+   exemption are gone (both were spelling compares for a network file). Cost: an attach of a file on the network still
+   reads every other agent's folder on a mapped drive, a dead one included (as main).
+2. WARNING, a remembered mapping whose server is unavailable: the script also prints EnumNetworkDrives letters
+   GetDrives did not list, and parse calls any letter with a share remote whatever its DriveType.
+3. NIT: learnedAt is when the learn STARTED, and a result from a learn that started before the current table's is
+   dropped (a slow background learn cannot overwrite a newer foreground one).
+4. NIT: the 60 s re-learn and the 120 s drop run on performance.now (monotonic), through the clock seam.
+5. NIT: the scale bound is base (measured, own project alone) + the sum of (path parts + 6) per folder; a second walk
+   of each folder (measured 21 reads a folder against 13) fails it.

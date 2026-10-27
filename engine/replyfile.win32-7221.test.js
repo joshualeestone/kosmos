@@ -1106,6 +1106,8 @@ const ZSHARE = '\\\\10.255.255.1\\zshare';
 const HERE = WIN ? winpath.driveOf(SANDBOX) : 'C';
 const zTable = (z) => ({ [HERE]: { kind: 'local', share: null }, ...(z ? { Z: z } : {}) });
 const Z_REMOTE = { kind: 'remote', share: ZSHARE };
+const DSHARE = '\\\\10.255.255.1\\data';
+const isDshare = (s) => s.toLowerCase() === DSHARE.toLowerCase() || s.toLowerCase().startsWith(DSHARE.toLowerCase() + '\\');
 let zWorld = null;
 function zMap(p) {
   if (!zWorld || (typeof p !== 'string' && !(p instanceof Buffer))) return null;
@@ -1113,6 +1115,14 @@ function zMap(p) {
   let rest = null;
   if (/^(?:\\\\\?\\)?[Zz]:/.test(s)) { zWorld.touches.z++; rest = s.replace(/^(?:\\\\\?\\)?[Zz]:/, ''); }
   else if (s.toLowerCase().startsWith(ZSHARE.toLowerCase())) { zWorld.touches.share++; rest = s.slice(ZSHARE.length); }
+  else if (isDshare(s)) {
+    /* Review 2 finding 1: a second share of the same server, \\10.255.255.1\data, whose \team folder IS zshare's root
+       (one server folder reached through two shares). Its other folders are a sandbox folder of their own. */
+    zWorld.touches.share++;
+    const below = s.slice(DSHARE.length);
+    if (/^\\team(?:\\|$)/i.test(below)) rest = below.slice('\\team'.length);
+    else return path.join(path.dirname(zWorld.backing), 'ddata', below || '\\');
+  }
   else return null;
   if (!zWorld.alive) {
     const until = Date.now() + zWorld.stallMs;
@@ -1132,7 +1142,14 @@ function zWorldOn({ alive = false, stallMs = 0 } = {}) {
   }
   const realNative = fs.realpathSync.native;
   const toShare = (r) => (r.toLowerCase().startsWith(zWorld.backing.toLowerCase()) ? ZSHARE + r.slice(zWorld.backing.length) : r);
-  fs.realpathSync.native = (p, ...rest) => { zWorld.calls++; const m = zMap(p); return m === null ? realNative(p, ...rest) : toShare(realNative(m, ...rest)); };
+  fs.realpathSync.native = (p, ...rest) => {
+    zWorld.calls++;
+    const m = zMap(p);
+    if (m === null) return realNative(p, ...rest);
+    const r = realNative(m, ...rest);
+    // a path on the data share resolves on the server, so it reads back as written there (one level of names only)
+    return isDshare(String(p)) ? path.win32.normalize(String(p)).replace(/\\$/, '') : toShare(r);
+  };
   const folderState = projects.folderState;
   projects.folderState = (folder) => (zMap(folder) === null ? folderState(folder) : { real: fs.realpathSync.native(folder) });
   return () => {
@@ -1351,7 +1368,7 @@ test('#7232 B3: the agent\'s own project on a dead mapped drive is not resolved 
   assert.equal(touches.z, 0);
 });
 
-test('#7232 B4: an agent folder on a mapped drive is passed over for a local file, and keeps Kosmos\'s files on its share', winOnly, () => {
+test('#7232 B4: an agent folder on a mapped drive is passed over for a local file, and still keeps Kosmos\'s files on its share', winOnly, () => {
   const own = ownProject('own7232-b4');
   store.writeProfile('zagent', { dir: 'Z:\\agentdir' });
   const roster = [{ sessionName: 'zagent' }];
@@ -1367,7 +1384,7 @@ test('#7232 B4: an agent folder on a mapped drive is passed over for a local fil
   PROJECTS = [{ id: 'p-share', name: 'Whole share', folder: ZSHARE, agents: [WHO] }];
   const kept = attachIn({ alive: true }, ZSHARE + '\\agentdir\\Files\\f.txt', roster);
   assert.deepEqual([kept.r.ok, kept.r.because], [false, replyfile.KEPT_FOR_KOSMOS], JSON.stringify(kept.r));
-  assert.equal(kept.touches.z, 0, 'judged by its share spelling, not by reading Z:');
+  assert.ok(kept.touches.z > 0, 'a file on the network: the agent folder is read by identity, as before (review 2 finding 1)');
 });
 
 test('#7232 B5: an own project on a dead mapped drive is not walked to learn which drives the roots reach', winOnly, (t) => {
@@ -1398,14 +1415,21 @@ test('#7232 scale: 200 projects, one on a dead mapped drive, answers in under a 
   PROJECTS.push({ id: 'p-dead', name: 'Dead', folder: 'Z:\\dead\\proj', agents: ['agent-dead'] });
   assert.equal(PROJECTS.length, 200);
   windrives.setTableForTests(zTable(Z_REMOTE));
+  /* Review 2 finding 5: a bound that walking every folder twice breaks. `base` is measured: an attach with the agent's
+     own project alone. A single walk of another agent's folder is one lstat per part of its path, then its resolve
+     and its id, a few reads more (6 allowed); so the full attach stays under base + the sum of (parts + 6). Measured
+     on the Windows box: about 13 reads for a folder of 9 parts, where a second walk of each made it 21 and failed. */
+  const all = PROJECTS;
+  PROJECTS = [all[0]];
+  attachIn({}, path.join(own, 'f.txt'));   // the first attach of a run reads a few things once (the ledger)
+  const base = attachIn({}, path.join(own, 'f.txt')).calls;
+  PROJECTS = all;
   const { r, touches, calls, ms } = attachIn({ stallMs: 2000 }, path.join(own, 'f.txt'));
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(touches.z + touches.share, 0, 'the dead drive was never touched');
-  /* The exact guard, so a slow runner cannot flake it: each of the 198 local folders costs a bounded number of reads
-     (its walk lstats each part of its path, then its resolve and its id), the rest of the attach a fixed number. */
-  const depth = scale.split(/[\\/]+/).filter(Boolean).length + 2;
-  t.diagnostic('reads ' + calls + ', ' + ms.toFixed(0) + ' ms');
-  assert.ok(calls < 200 * (depth + 8), 'reads: ' + calls + ' for depth ' + depth);
+  const bound = base + all.slice(1, 199).reduce((n, p) => n + p.folder.split(/[\\/]+/).filter(Boolean).length + 6, 0);
+  t.diagnostic('reads ' + calls + ' (base ' + base + ', bound ' + bound + '), ' + ms.toFixed(0) + ' ms');
+  assert.ok(calls < bound, 'reads: ' + calls + ', more than the ' + bound + ' one walk of each folder costs');
   assert.ok(ms < 1000, 'answered in ' + ms.toFixed(0) + ' ms');
 });
 
@@ -1498,4 +1522,97 @@ test('#7232 review 1-5: WSL, the NetBIOS name and IPv4-mapped spellings of this 
   }
   // CONTROL: another computer's mapped address is not this one
   assert.equal(windrives.isThisComputer('::ffff:10.255.255.1'), false);
+});
+
+/* ---------- #7232 review 2 ---------- */
+
+test('#7232 review 2-1: a file on one share is judged by identity against a folder on a mapped drive of another share of the same server', winOnly, () => {
+  /* \\10.255.255.1\data\team is the same server folder as \\10.255.255.1\zshare (Z:). Agent B's project Z:\b and agent
+     B's own folder Z:\b; WHO's project is the whole data share. By spelling the two shares never meet, so B's files
+     went through; main refused them by identity, and so must this. */
+  const backing = fs.realpathSync.native(path.join(SANDBOX, 'zbacking'));
+  fs.mkdirSync(path.join(SANDBOX, 'ddata'), { recursive: true });
+  fs.mkdirSync(path.join(backing, 'b'), { recursive: true });
+  fs.writeFileSync(path.join(backing, 'b', 'x.txt'), 'agent B\'s project file\n');
+  fs.writeFileSync(path.join(backing, 'b', 'CLAUDE.md'), 'agent B\'s brief\n');
+  windrives.setTableForTests(zTable(Z_REMOTE));
+  // B's nested project
+  PROJECTS = [
+    { id: 'p-data', name: 'Data', folder: DSHARE, agents: [WHO] },
+    { id: 'p-b', name: 'B', folder: 'Z:\\b', agents: ['agent-b'] },
+  ];
+  const nested = attachIn({ alive: true }, DSHARE + '\\team\\b\\x.txt');
+  assert.deepEqual([nested.r.ok, nested.r.because], [false, replyfile.NOT_YOURS], JSON.stringify(nested.r));
+  // B's own folder, kept for Kosmos
+  store.writeProfile('agent-b', { dir: 'Z:\\b' });
+  PROJECTS = [{ id: 'p-data', name: 'Data', folder: DSHARE, agents: [WHO] }];
+  const kept = attachIn({ alive: true }, DSHARE + '\\team\\b\\CLAUDE.md', [{ sessionName: 'agent-b' }]);
+  assert.deepEqual([kept.r.ok, kept.r.because], [false, replyfile.KEPT_FOR_KOSMOS], JSON.stringify(kept.r));
+  // CONTROL: for a LOCAL file the same folder and agent folder on Z: are still passed over untouched
+  const own = ownProject('own7232-r2');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-b', name: 'B', folder: 'Z:\\b', agents: ['agent-b'] },
+  ];
+  const local = attachIn({}, path.join(own, 'f.txt'), [{ sessionName: 'agent-b' }]);
+  assert.equal(local.r.ok, true, JSON.stringify(local.r));
+  assert.equal(local.touches.z, 0);
+});
+
+test('#7232 review 2-2: a mapping the redirector names is a network drive whatever GetDrives says of it', () => {
+  const t = windrives.parseForTests('C\t3\t\r\nY\t1\t\\\\10.255.255.1\\gone\r\nX\t1\t\\\\10.255.255.1\\only\r\nW\t0\t\\\\srv\\s\r\nV\t1\t\r\n');
+  assert.deepEqual(t.get('Y'), { kind: 'remote', share: '\\\\10.255.255.1\\gone' }, 'DriveType 1 with a share');
+  assert.deepEqual(t.get('X'), { kind: 'remote', share: '\\\\10.255.255.1\\only' }, 'a share-only line (missing from GetDrives)');
+  assert.deepEqual(t.get('W'), { kind: 'remote', share: '\\\\srv\\s' });
+  assert.deepEqual(t.get('V'), { kind: 'absent', share: null }, 'CONTROL: no share named is still absent');
+  // the script prints the redirector's letters GetDrives missed
+  assert.ok(windrives.scriptForTests.includes('$net.Keys'), 'the script lists EnumNetworkDrives letters GetDrives did not');
+});
+
+test('#7232 review 2-2: a remembered mapping GetDrives does not list is not touched for a local file', winOnly, (t) => {
+  /* What the script prints for a remembered mapping whose server is unavailable: Z missing from GetDrives, printed by
+     the EnumNetworkDrives pass with DriveType 1 and its share. */
+  windrives.setTableForTests(null);
+  windrives.setLearnForTests({ run: () => HERE + '\t3\t\r\nZ\t1\t' + ZSHARE + '\r\n' });
+  t.after(() => windrives.setLearnForTests(null));
+  const own = ownProject('own7232-remembered');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-z', name: 'Far', folder: 'Z:\\far', agents: ['someone-else'] },
+  ];
+  const { r, touches } = attachIn({ stallMs: 2000 }, path.join(own, 'f.txt'));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(touches.z, 0, 'the remembered mapping was not walked');
+});
+
+test('#7232 review 2-3: a slow background learn that started before a newer one does not overwrite its table', (t) => {
+  let clock = 1000;
+  let table = 'C\t3\t\r\n';
+  let runs = 0;
+  const later = [];
+  windrives.setLearnForTests({ now: () => clock, run: () => { runs++; return table; }, runLater: (done) => later.push(done) });
+  t.after(() => windrives.setLearnForTests(null));
+  assert.equal(windrives.known(), true, 'learned in the foreground');
+  clock += 61 * 1000;
+  assert.equal(windrives.placeOf('C'), null, 'C is local; the table is due a refresh, so a background learn starts');
+  assert.equal(later.length, 1, 'one background learn in flight');
+  clock += 1000;
+  table = 'C\t3\t\r\nQ\t4\t\\\\srv\\q\r\n';   // Q mapped since: an unlisted letter re-learns in the foreground, newer
+  assert.deepEqual(windrives.placeOf('Q'), { remote: true, share: '\\\\srv\\q' });
+  later[0](null, 'C\t3\t\r\n');   // the slow background learn finishes now, with what it read BEFORE Q was mapped
+  const before = runs;
+  assert.deepEqual(windrives.placeOf('Q'), { remote: true, share: '\\\\srv\\q' }, 'the older result was dropped');
+  assert.equal(runs, before, 'Q answered from the newer table, not from a re-learn after the older one overwrote it');
+});
+
+test('#7232 review 2-4: the refresh clock is monotonic: a wall-clock jump neither drops nor re-learns the table', (t) => {
+  let runs = 0;
+  windrives.setLearnForTests({ run: () => { runs++; return 'C\t3\t\r\n'; } });   // no `now`: the module's own clock
+  const realNow = Date.now;
+  t.after(() => { Date.now = realNow; windrives.setLearnForTests(null); });
+  assert.equal(windrives.known(), true);
+  const after = runs;
+  Date.now = () => realNow() + 10 * 60 * 1000;   // the wall clock jumps ten minutes (a time sync, a resume)
+  assert.equal(windrives.known(), true, 'the table is still in use');
+  assert.equal(runs, after, 'and was not learned again');
 });

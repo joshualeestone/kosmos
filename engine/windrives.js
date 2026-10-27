@@ -21,19 +21,26 @@ const SCRIPT = [
   '$ErrorActionPreference = "Stop"',
   '$net = @{}',
   'try { $e = (New-Object -ComObject WScript.Network).EnumNetworkDrives(); for ($i = 0; $i -lt $e.Count; $i += 2) { $net[$e.Item($i).TrimEnd(":").ToUpper()] = $e.Item($i + 1) } } catch {}',
-  'foreach ($d in [IO.DriveInfo]::GetDrives()) { $l = $d.Name.Substring(0, 1).ToUpper(); "{0}`t{1}`t{2}" -f $l, [int]$d.DriveType, $net[$l] }',
+  '$seen = @{}',
+  'foreach ($d in [IO.DriveInfo]::GetDrives()) { $l = $d.Name.Substring(0, 1).ToUpper(); $seen[$l] = 1; "{0}`t{1}`t{2}" -f $l, [int]$d.DriveType, $net[$l] }',
+  /* Review 2 finding 2: a remembered mapping whose server is unavailable (HKCU\Network\Y) is listed by
+     EnumNetworkDrives but may be missing from GetDrives; it is printed too, so it is never read as absent. */
+  'foreach ($k in $net.Keys) { if (-not $seen[$k]) { "{0}`t1`t{1}" -f $k, $net[$k] } }',
 ].join('; ');
 
 let table = null;      // Map, or null when unknown
-let learnedAt = 0;
-let failedAt = 0;      // a learn that failed: not tried again in the foreground for REFRESH_MS
+let learnedAt = -Infinity;   // when the learn that made `table` STARTED (review 2 finding 3)
+let failedAt = -Infinity;    // a learn that failed: not tried again in the foreground for REFRESH_MS
 let testTable = null;  // set by tests only
 let learning = null;
 /* Review 1 finding 6: ONE blocking re-learn per refresh in total, not one per letter, so an attach naming many unused
    letters cannot stall the board for several 3 s calls. */
 let relearned = false;
-let testLearn = null;  // tests only: { now, run } in place of the clock and the PowerShell call
-const now = () => (testLearn && testLearn.now ? testLearn.now() : Date.now());
+let testLearn = null;  // tests only: { now, run, runLater } in place of the clock and the PowerShell call
+/* Review 2 finding 4: a monotonic clock, so the 60 s re-learn and the 120 s drop are not moved by the wall clock
+   (a time sync, a sleep, a person changing the date). */
+const { performance } = require('node:perf_hooks');
+const now = () => (testLearn && testLearn.now ? testLearn.now() : performance.now());
 
 /* A share as \\host\share, nothing more; anything else (a U+FFFD from a mis-decoded name, a path below the share, an
    empty part) is a share this cannot name, so null: callers then fail closed (review 1 finding 1). */
@@ -41,43 +48,53 @@ function cleanShare(s) {
   const v = String(s || '').trim();
   return /^\\\\[^\\/\uFFFD]+\\[^\\/\uFFFD]+$/.test(v) ? v : null;
 }
-/* DriveType 4 is Network; 0 (Unknown) and 1 (NoRootDirectory) are absent; anything else is local to this computer. */
+/* DriveType 4 is Network; 0 (Unknown) and 1 (NoRootDirectory) are absent; anything else is local to this computer.
+   Review 2 finding 2: a letter the redirector names a share for is a network drive whatever its DriveType (a remembered
+   mapping whose server is unavailable can read 1, or be missing from GetDrives and printed with 1 above); its share is
+   kept only when it can be named (cleanShare), else null, so it fails closed. */
 function parse(out) {
   const t = new Map();
   for (const line of String(out).split(/\r?\n/)) {
     const [letter, type, share] = line.split('\t');
     if (!/^[A-Z]$/.test(letter || '')) continue;
     const n = Number(type);
-    const kind = n === 4 ? 'remote' : n === 0 || n === 1 ? 'absent' : 'local';
+    const named = !!String(share || '').trim();
+    const kind = n === 4 || named ? 'remote' : n === 0 || n === 1 ? 'absent' : 'local';
     t.set(letter, { kind, share: kind === 'remote' ? cleanShare(share) : null });
   }
   return t.size ? t : null;
 }
-function took(t) {
-  if (t) { table = t; learnedAt = now(); relearned = false; }
+/* A learn's result, `started` when it began. Review 2 finding 3: a result from a learn that started before the one that
+   made the current table (a slow background learn finishing after a newer foreground one) is dropped. */
+function took(t, started) {
+  if (t) { if (started < learnedAt) return; table = t; learnedAt = started; relearned = false; }
   else failedAt = now();
 }
 
 /* Learn the table now (blocking, bounded). Only on Windows; elsewhere the table stays unknown. */
 function learnSync(timeoutMs = 3000) {
-  if (testLearn) { try { took(parse(testLearn.run())); } catch { took(null); } return table; }
+  const started = now();
+  if (testLearn) { try { took(parse(testLearn.run()), started); } catch { took(null); } return table; }
   if (process.platform !== 'win32') return null;
   try {
-    took(parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SCRIPT], { encoding: 'utf8', timeout: timeoutMs, windowsHide: true })));
+    took(parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SCRIPT], { encoding: 'utf8', timeout: timeoutMs, windowsHide: true })), started);
   } catch { took(null); /* unknown: callers behave as before */ }
   return table;
 }
 
 /* Learn it in the background (board start, and the periodic refresh). */
 function learnSoon() {
-  if (testLearn) { learnSync(); return; }
-  if (process.platform !== 'win32' || learning) return;
+  if (testLearn && !testLearn.runLater) { learnSync(); return; }
+  if ((process.platform !== 'win32' && !testLearn) || learning) return;
+  const started = now();
   learning = new Promise((resolve) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SCRIPT], { encoding: 'utf8', timeout: 10000, windowsHide: true }, (err, out) => {
-      took(err ? null : parse(out));
+    const done = (err, out) => {
+      took(err ? null : parse(out), started);
       learning = null;
       resolve(table);
-    });
+    };
+    if (testLearn) testLearn.runLater(done);
+    else execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SCRIPT], { encoding: 'utf8', timeout: 10000, windowsHide: true }, done);
   });
 }
 
@@ -200,13 +217,15 @@ function setTableForTests(t) {
   testTable = t == null ? null : (t instanceof Map ? t : new Map(Object.entries(t).map(([k, v]) => [k.toUpperCase(), v])));
 }
 
-/* Tests only (review 1 findings 3 and 6): a clock (`now`) and a learner (`run`, returning what the PowerShell call
-   would print, or throwing as a failed call does) in place of the real ones, with the learned state forgotten; null
+/* Tests only (review 1 findings 3 and 6, review 2 findings 3 and 4): a clock (`now`, the monotonic one when left out)
+   and a learner (`run`, returning what the PowerShell call would print, or throwing as a failed call does; and
+   optionally `runLater(done)`, the background learn, answered when the test calls done(err, out)) in place of the
+   real ones, with the learned state forgotten; null
    goes back to the real ones, forgetting it again. Gated like setTableForTests. */
 function setLearnForTests(seam) {
   if (!require('./store').isTestProcess(process.env)) throw new Error('setLearnForTests is for tests only');
   testLearn = seam || null;
-  table = null; learnedAt = 0; failedAt = 0; relearned = false;
+  table = null; learnedAt = -Infinity; failedAt = -Infinity; relearned = false; learning = null;
 }
 
 module.exports = { known, placeOf, isThisComputer, hostOf, startRefreshing, setTableForTests, setLearnForTests, parseForTests: parse, scriptForTests: SCRIPT };
