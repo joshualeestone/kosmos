@@ -1075,8 +1075,9 @@ test('#7250: a Files folder that is ITSELF a link to a share is refused without 
      Files folder included; realOf then contacted the share before filesRoot refused the linked Files folder. A
      share-backed PROJECT is the person's own choice, but the Files folder is one Kosmos always makes as a real folder,
      so a Files folder that is a link to a share is never legitimate. ownShareProject now gates on projectFolders, so
-     this is refused by spelling, unresolved. Before #7250 the walk went onto the unroutable share: this arm went red
-     by its realpath count or its timing. The positive counterpart is the review 11-2 arm above (a drive-written
+     this is refused by spelling, unresolved. Before #7250 the walk followed onto the unroutable share and contacted
+     it, so this arm failed one of its assertions (the ON_NETWORK sentence, the zero-realpath count, or the timing)
+     instead of the clean unresolved refusal. The positive counterpart is the review 11-2 arm above (a drive-written
      PROJECT folder that is a link to a share still attaches, because projectFolders still includes it): together they
      pin that the narrowing refuses only the Files link, not a legitimate project link. */
   const filesLink = path.join(SANDBOX, 'files-as-share-link');

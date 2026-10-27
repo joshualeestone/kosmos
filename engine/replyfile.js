@@ -476,7 +476,9 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    and winRealRefusal a share real path only there (review 1 finding 2, narrowed in review 2 finding 2 from the bare
    drive letter, which on a box with Files and projects all on C: let every attach through). The agent's Files folder
    is one of these folders too: a CONNECTED agent's Files sits beside its own working folder, which may be on a
-   mapped drive or a share, and those files attached on main (review 17 finding 1). */
+   mapped drive or a share, and those files attached on main (review 17 finding 1). One asymmetry, so a later reader
+   does not "fix" it: `ownShareProject`'s link-follow exemption in winLinkRefusal gates on projectFolders, NOT folders,
+   because a Files folder that is itself a drive-written link to a share is never legitimate (#7250). */
 function agentRoots(sessionName, filesDir, projectList) {
   const drives = new Set();
   const folders = [];          // every folder of the agent's, Files included: rule 1's share exception
@@ -592,9 +594,9 @@ function winLinkRefusal(p, roots) {
     /* #7250: projectFolders, not folders. A share-written PROJECT folder is the person's own choice (a project may
        live on a share), but the Files folder is one Kosmos always makes as a real folder, so a Files folder that is
        itself a drive-written link to a share is never legitimate: filesRoot refuses it anyway. Gating on folders
-       (Files included) let that link be followed onto the share, so realOf contacted the share before that refusal.
-       projectFolders excludes Files, so such a link is refused unresolved (ON_NETWORK), with no SMB contact (reviews
-       25, 26, 28). */
+       (Files included) let that link be followed onto the share, so the walk contacted the share (its lstat, then
+       realOf) before that refusal. projectFolders excludes Files, so such a link is refused unresolved (ON_NETWORK),
+       with no SMB contact (reviews 25, 26, 28). */
     if (!view || !isPlainShare(to) || !roots.projectFolders.some((f) => !!driveOf(f) && sameWrittenPath(linkPath, f))) return false;
     view.folders.push(to);
     return true;
