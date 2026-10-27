@@ -65,3 +65,19 @@ session has second=false and the hosted gate refuses it), Claude Code sign-in on
 - NIT FIXED: the Settings updater fails closed when frConnActive is missing.
 - NIT RECORDED: engine/connect.js still has one stuck detail saying "use Terminal" (it predates this branch); a
   cloud-machine person may read it on the stuck card. Follow-up.
+
+## Review 3 (2026-10-26 20:1x): no blockers
+- WARNING FIXED: review 2's "no link while finishing" held on first run for one paint only: the page repaints every
+  second, and the repeat path called frConnPaintUrl(st.url) unchecked (the engine keeps the url in the completing
+  state). The link to show is now decided once at the top of frPaintConnect (shownUrl) and used by all three paths.
+  Test paints the completing state twice; the old code reds on the second.
+- NIT FIXED: the comments said a second press "would start a second sign-in"; reopening the same link does not
+  (Claude Code waits on the one sign-in). The true reason: the screen says it is finishing, so the link is no longer
+  the next step.
+- CHECKED: no other board path deletes the latch (clearStateDir's two callers only; everything else removes named
+  files). A rejected code during finishing returns to signin-awaiting-code with the link, so the link comes back.
+- ASSUMPTION RAISED ON THE CARD (Kitty, coordinator side): keeping the latch on Remove is safe only if the coordinator
+  signs `hosted` for a computer id registered by a cloud token (`setup cloud`), never for an account. Otherwise a
+  removed box signed in the ordinary way would be admitted with no Allow. Needs a coordinator-side test.
+- FOLLOW-UP CARD: Remove on a cloud machine locks the person out of their board entirely (it is reached only through
+  the relay); offering it there at all, or warning first, needs its own decision.

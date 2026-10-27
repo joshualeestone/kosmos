@@ -1078,8 +1078,11 @@ test('kosmos#4903 S5: on a cloud machine the sign-in screen leads with the link,
     assert.match(mac.els['fr-conn-url'].innerHTML, /Browser did not open\?/, phase);
   }
   // Review 2: while Claude is finishing, a cloud machine offers no link (it is the primary button there); the Mac keeps its fallback.
-  assert.equal(connectHarness({ phase: 'signin-completing', url: URL }, { cloud: true }).els['fr-conn-url'].innerHTML, '',
-    'the link stayed while Claude was finishing');
+  const finishing = connectHarness({ phase: 'signin-completing', url: URL }, { cloud: true });
+  assert.equal(finishing.els['fr-conn-url'].innerHTML, '', 'the link stayed while Claude was finishing');
+  // Review 3: the page repaints every second, and a repeat of the same phase takes its own path; it must agree.
+  finishing.paint({ phase: 'signin-completing', url: URL });
+  assert.equal(finishing.els['fr-conn-url'].innerHTML, '', 'the link came back on the next poll while Claude was finishing');
   assert.match(connectHarness({ phase: 'signin-completing', url: URL }).els['fr-conn-url'].innerHTML, /Browser did not open\?/, 'CONTROL: the Mac fallback changed');
   // The code step on a cloud machine says where the code comes from.
   const code = connectHarness({ phase: 'signin-awaiting-code', url: URL }, { cloud: true });

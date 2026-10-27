@@ -30585,7 +30585,8 @@ function acctClaudePaintUrl(st) {
   const openA = document.getElementById('acct-claude-open');
   if (!openRow || !openA) return;
   const phase = st && st.phase;
-  /* Review 2: closed by default, and not while Claude is finishing (a second press would start a second sign-in). */
+  /* Review 2: closed by default, and not while Claude is finishing: the screen says it is finishing, so the link (the
+     primary button on a cloud machine) is no longer the next step. */
   const live = typeof frConnActive === 'function' && frConnActive(phase) && phase !== 'signin-completing';
   const url = live && typeof onCloudMachine === 'function' && onCloudMachine()
     && st && typeof st.url === 'string' && /^https:\/\//.test(st.url) ? st.url : '';
@@ -84891,6 +84892,10 @@ function frPaintConnect(st) {
   const box = document.getElementById('fr-sub');
   const msg = document.getElementById('fr-sub-msg');
   const phase = st && st.phase;
+  /* kosmos#4903 S5 (review 3): the link this paint shows, decided ONCE for every path (the repeat-paint path below
+     too, which runs every second): on a cloud machine none while Claude is finishing, since the link is the primary
+     button there and the screen says it is finishing. The Mac keeps its fallback link, as before. */
+  const shownUrl = phase === 'signin-completing' && (typeof onCloudMachine === 'function' && onCloudMachine()) ? null : (st && st.url);
   // #2236 (Josh 0.6.42 re-test): Mona Lisa's "Sweep" loading spinner (the dots-trail she
   // designed and Josh chose 2026-09-05; installkosmos.com/design/loading-indicators, variant D).
   // #11 wrongly used the .kspin Kosmos MARK here (a tiny Kosmos icon), which Josh flagged as the
@@ -84923,7 +84928,7 @@ function frPaintConnect(st) {
     // engine writes it late for exactly that case), and a full rebuild here
     // would empty the code input mid-typing -- so the link gets its own
     // targeted updater, like the progress numbers.
-    frConnPaintUrl(st && st.url);
+    frConnPaintUrl(shownUrl);
     return;
   }
   FR_CONN_LAST = paintKey;
@@ -84980,9 +84985,7 @@ function frPaintConnect(st) {
         : (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Open the sign-in page (its link appears below) and sign in there. This screen will update when it is done.'
           : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
-    /* kosmos#4903 S5 review 2: on a cloud machine the link is the primary button, so it is not offered while Claude
-       is finishing: a second press would start a second sign-in. (The Mac keeps its fallback link, as before.) */
-    frConnPaintUrl(phase === 'signin-completing' && (typeof onCloudMachine === 'function' && onCloudMachine()) ? null : (st && st.url));
+    frConnPaintUrl(shownUrl);
     frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
@@ -85014,7 +85017,7 @@ function frPaintConnect(st) {
       // code AND click Continue.
       if (e.key === 'Enter') { e.stopPropagation(); if (!(go && go.disabled)) frConnSubmitCode(); }
     };
-    frConnPaintUrl(st && st.url);
+    frConnPaintUrl(shownUrl);
     frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
