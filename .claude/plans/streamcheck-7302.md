@@ -58,3 +58,4 @@ just after the board, not at the same moment, so it shares the run's conditions,
    (it takes a settled baseline with none); a comment said two readings (three). Not raised, reasoned: the floor itself
    can hold a small leftover, but nothing before it leaves more than about 6 MB, short of the 12 MB that would hide the
    20 MB mutation.
+4. (sonnet, 00:0x CDT 10-27) No new findings. Converged.
