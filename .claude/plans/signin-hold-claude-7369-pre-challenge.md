@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: signin-hold-claude-7369
-diff_hash: 9cc9492b6f258d13615936f86462f7ee5e93d34b1a8a33a11a2f65d0898938a2
-validation: windows suites green (win32authfail 16, signinhold-claude 8, signinhold-5948 8, authprobe 7, win32limit 30); live auth status checked
+diff_hash: 0e8f0bd67caf737cdb8bf79f695ad86f7edf41eb915c73028a1730b5920a5155
+validation: windows suites green; engine.reachable green; Mac 8/8 + 8/8 by Baron at 98cd5c1122 (tests since edited to the shared path)
 subdir_audit: passed
-timestamp: 2026-10-27T18:49:18Z
+timestamp: 2026-10-27T19:12:01Z
 iterations: 6
 converged: true
 ---
