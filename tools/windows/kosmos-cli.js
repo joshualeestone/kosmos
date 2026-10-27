@@ -147,7 +147,7 @@ const USAGE = {
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <create|roles|role-draft|instructions-add>',
+    'Usage: kosmos agent <create|roles|role-draft|instructions-add|remove>',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
@@ -155,6 +155,7 @@ const USAGE = {
     '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
     '  kosmos agent instructions-add "<name>" --from <file>',
     '                                                  propose an addition to an agent\'s instructions; the person applies it',
+    '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
@@ -1929,6 +1930,62 @@ async function agentInstructionsAdd(ctx, args) {
   ctx.err('Kosmos did not hold that addition: ' + why + '.');
   return 1;
 }
+/* kosmos#7362, as install/kosmos: remove an agent on this board, through the board's own Remove (the same two routes
+   the button uses, so the engine decides and words everything). GET .../removal is the plan; DELETE .../removal does
+   it. Never ?force=1: that override is the person's, on the board. A person at a terminal confirms; a script says
+   --yes. */
+const AGENT_REMOVE_USAGE = 'Usage: kosmos agent remove "<name>" [--yes]   (--yes: do not ask first, for scripts)';
+async function agentRemove(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  const name = words[0];
+  if (!name) { ctx.err(AGENT_REMOVE_USAGE); return 2; }
+  if (/^--[A-Za-z]/.test(name)) { refuseOption(ctx, 'agent remove', AGENT_REMOVE_USAGE, name, 'target'); return 2; }
+  // A path step is no agent name: encoded, "." and ".." would still be resolved away by fetch (another route).
+  if (name === '.' || name === '..') { ctx.err('There is no agent called ' + name + '.'); return 2; }
+  if (tooManyWords(ctx, 'agent remove', 1, AGENT_REMOVE_USAGE, words)) return 2;
+  // Nobody can answer the question, so nothing is asked of the board either.
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was removed: there is no terminal here to confirm on. To remove ' + name + ' without being asked, add --yes.'); return 2; }
+  const route = '/api/agent/' + encodeURIComponent(name) + '/removal';
+  // The plan is a read the board token opens (the board keeps it there), so it goes as the person's request.
+  const p = await ctx.call('GET', route, undefined, { person: true });
+  if (!p.reached) return ctx.unreachable('read what removing ' + name + ' would do');
+  const plan = p.json || {};
+  if (plan.ok !== true) {
+    const why = clause(plan.because || plan.error || '');
+    if (why || p.status >= 400) { ctx.err('Kosmos will not remove ' + name + ': ' + (why || 'it did not say why') + (/[?!]$/.test(why) ? '' : '.')); return 1; }
+    ctx.err('Kosmos gave an answer we could not read when asked about removing ' + name + '.');
+    return 1;
+  }
+  const label = plan.label || plan.name || name;
+  if (plan.hint) ctx.out(plan.hint);
+  if (Array.isArray(plan.loses) && plan.loses.length) ctx.out('It loses: ' + plan.loses.join('; ') + '.');
+  if (Array.isArray(plan.keeps) && plan.keeps.length) ctx.out('It keeps: ' + plan.keeps.join('; ') + '.');
+  if (!yes) {
+    const answer = await ctx.ask('Remove ' + label + '? [y/N] ');
+    if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was removed.'); return 1; }
+  }
+  // A removal stops a session and a startup job, so it gets the long timeout; a timeout after it left is "may".
+  const r = await ctx.call('DELETE', route, undefined, { timeoutMs: POST_TIMEOUT_MS });
+  /* Anything but a failure to connect means the request may have reached the board: a timeout, or the connection
+     dropping while the board was removing (a board restarting mid-removal). "May", never "not reached". */
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + label + ' may have been removed; look at the board before trying again.') : ctx.unreachable('remove ' + label);
+  const j = r.json || {};
+  // A removal that threw partway answers 500 {error, detail} (server.js): not "did not remove".
+  if (r.status >= 500 && !j.outcome) return maybe(ctx.err, label + ' may be partly removed: ' + (clause(j.error || '') || 'Kosmos did not say how far it got') + '. Look at the board before trying again.');
+  const because = clause(j.because || j.error || '');
+  const end = /[?!)]$/.test(because) ? '' : '.';
+  if (j.outcome === 'removed') {
+    ctx.out(because ? because + end : label + ' has been removed from Kosmos.');
+    // Only when the plan said so: an agent with no startup job has nothing for restore to start again.
+    if (Array.isArray(plan.loses) && plan.loses.some((l) => /put it back/.test(l))) ctx.out('It can be put back from the board, where removed agents are listed.');
+    return 0;
+  }
+  if (j.outcome === 'partial') { ctx.err('Only partly removed: ' + (because || 'Kosmos did not say how far it got') + end); return 1; }
+  if (because) { ctx.err('Kosmos did not remove ' + label + ': ' + because + end); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when removing ' + label + '. Look at the board to see whether it is still there.');
+  return 1;
+}
 /* #4474: the default ("Describe it yourself") text a new role starts from; {{NAME}} stays for Kosmos to fill. */
 async function agentRoleDraft(ctx, args) {
   const to = args && args[0] === '--to' ? args[1] : null;
@@ -2727,7 +2784,7 @@ const SUBCOMMAND_HANDLERS = {
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
-  agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd },
+  agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
@@ -2759,7 +2816,7 @@ const DESCRIBE = {
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',
   records: "a project's records (accounts, leads, vendors): list, set, remove, label",
-  agent: 'make an agent, or list the roles one can have',
+  agent: 'make or remove an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community',
   connections: 'list the outside services and which are connected',
@@ -2945,6 +3002,15 @@ async function main(argv, io) {
     call,
     outbox,
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
+    /* kosmos#7362: a yes-or-no from a person at a terminal (agent remove). canAsk is false when stdin is not one, so
+       a script is told to say --yes instead of hanging on a question nobody sees. Both are test seams. */
+    canAsk: o.canAsk || (() => Boolean(process.stdin.isTTY)),
+    ask: o.ask || ((question) => new Promise((resolve) => {
+      const rl = require('node:readline').createInterface({ input: process.stdin, output: process.stderr });
+      let answered = false;
+      rl.on('close', () => { if (!answered) resolve(''); });   // Ctrl+C or Ctrl+D is a no
+      rl.question(question, (a) => { answered = true; rl.close(); resolve(a); });
+    })),
     readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
     /* #5946: --body-file's bytes, or { overflow } past the cap without reading them. A folder is refused by its size
        check's own stat, so it never reads as an empty file. */
