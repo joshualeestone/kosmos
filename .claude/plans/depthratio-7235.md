@@ -61,3 +61,9 @@ touch it.
   median 3.54 to 3.98, 12 of 12 under 7.5; per-pair spread 2.94 to 4.97. Whole file 24 of 24. This is close to the
   loaded condition the card failed under, which the earlier measurements were not. Printed from an untracked copy, as
   before, which was deleted afterwards.
+- Round 4 (blind, sonnet, 19:5x CDT): no BLOCKER or WARNING. NITs applied:
+  (1) alternation alone left 3 shallow samples and 2 deep after a deep run. The warm-up now runs deep then shallow, which
+  makes it 2 and 2, and the comment says exactly that.
+  (2) the failure message lists the pairs in the order taken, not sorted.
+  (3) the comment cites the round-3 range (3.54 to 3.98 at load 38).
+  (4) review-round narration was trimmed from the code.
