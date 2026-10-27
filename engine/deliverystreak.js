@@ -116,6 +116,8 @@ const WHY_WORDS = {
   unconfirmed: 'Kosmos typed its messages but did not see them sent',
   refused: 'Kosmos could not type into it',
   unknown: 'Kosmos could not tell why',
+  /* #7212 slice 3: not a delivery verdict; engine/stallsignin.js sets it when a live check found the account signed out. */
+  signedout: 'Its Claude account is signed out',
 };
 /* What the person can do, the card's last sentence (round 3: a restart does not help a sign-in, a limit or a quota). */
 const LOOK = 'Open it to see what it shows, or restart it';
@@ -124,6 +126,7 @@ const NEXT_WORDS = {
   signin: 'Reconnect its account in Settings, AI Models',
   limit: 'Kosmos sends them once its usage resets',
   quota: 'Kosmos sends them once the shared quota resets',
+  signedout: 'Sign in again in Settings, AI Models',   // #7212 slice 3
 };
 /* The board log's line for one stall. */
 function stallLine(s) {

@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setCheckerForTests: 'test seam (#7212 slice 3): engine/stallsignin.js\'s live account check, so engine/stallsignin-7212.test.js can answer it without asking Anthropic. Production checks the row with accounts.checkRowLive.',
   winSpellingRefusalForTests: 'test seam (#7221): engine/replyfile.js\'s Windows spelling rule, so engine/replyfile.win32-7221.test.js can check every spelling without a disk or a Windows box. Production reaches it through attach.',
   setRecordMaxBytesForTests: 'test seam (#5536 slice 3): engine/restoresink.js\'s cap on the resume record, which engine/restoreresume-5536.test.js lowers to reach the dropped-record path without writing 256 MB. Production keeps the cap.',
   setTokenFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s path for agy\'s sign-in file, so engine/agyusage-6176.test.js and server.agyusage-6176.test.js can stand a file in for it; production checks the real path in the person\'s home folder.',

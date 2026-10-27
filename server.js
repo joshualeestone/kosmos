@@ -7205,6 +7205,9 @@ const server = http.createServer(async (req, res) => {
           : { state: 'unknown', editable: false, version: null, startedAt: null, because: 'we cannot tie this pane to an agent by name' },
       }));
       attachPluginReach(agents); // #5309 slice 2: per-agent plugin-reach notice signal (see the function)
+      /* #7212 slice 3: a stuck Claude agent whose own account was last seen signed out says so. The tick only reads what
+         engine/stallsignin.js learned; its one live check per stall and hour runs in the background. */
+      for (let i = 0; i < agents.length; i += 1) agents[i] = require('./engine/stallsignin').overlay(agents[i]);
       // ⚠️ THE COUNTS DESCRIBE THE CARDS THAT ARE LEFT. Computed over the
       // unfiltered snapshot they put "12 agents" above 11 cards, and can put
       // "1 needs you" on screen with no card anywhere to click. Recomputed with
@@ -26180,6 +26183,7 @@ function start(port = PORT) {
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
           const shown = names.filter((n) => { const c = byName.get(n); return !!(c && c.deliveryStall); });
+          require('./engine/stallsignin').sweep(shown);   // #7212 slice 3: an agent no longer stuck is checked afresh next time
           for (const st of ds.stallsToSay(shown, stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
         } catch { /* said next minute */ }
       };
