@@ -240,7 +240,11 @@ test('#5805 3b review 7: an older row the board saw late does not hide a newer l
   read(t14, oldBlock + STATUS_LINE, 'rate_limited', (card) => assert.equal(card.limitUntil, null, 'CONTROL: the row seen late has no time'));
   // 17:00 CDT: woken, it worked and hit a new limit (9pm) under the old row; the board captured all along.
   const t17 = Date.parse('2026-10-10T22:00:00Z');
-  for (let t = t14 + 60e3; t < t17; t += 60e3) read(t, oldBlock + STATUS_LINE, 'rate_limited', () => {});
+  // kosmos#7264: the row seen late is timed from that sighting for retiring, so it is retired at its own 4pm reset
+  // (21:00Z, plus the minute's grace) and the agent reads idle until the newer limit at 17:00. Before #7264 a late row
+  // was never retired, and this loop asked for rate_limited all the way to 17:00.
+  const oldReset = Date.parse('2026-10-10T21:00:00Z') + 60e3;
+  for (let t = t14 + 60e3; t < t17; t += 60e3) read(t, oldBlock + STATUS_LINE, t < oldReset ? 'rate_limited' : 'idle', () => {});
   read(t17, both, 'rate_limited', (card, roster) => {
     assert.ok(card.limitUntil && Date.parse(card.limitUntil) === Date.parse('2026-10-11T02:00:00Z'), 'the newer limit\'s reset was hidden: ' + card.limitUntil);
     const v = chat.limitHeldVerdict('casey', roster, t17);
@@ -277,4 +281,45 @@ test('#5805 3b review 9: a quoted limit line ending a turn is never timed, so a 
   status.noteLimitRows('kim', STATUS_LINE, t0 - 30e3);
   status.noteLimitRows('kim', '❯ hello\n' + `  ⎿  ${quoted}\n` + '✻ Cooked for 3s · done 11:02 AM\n' + STATUS_LINE, t0);
   assert.equal(status.limitFirstSeenOf('kim', quoted), t0, 'CONTROL: a real limit under the prompt was not timed');
+});
+
+test('kosmos#7264: a dateless row the board saw late (on its first capture after a restart) is retired, not kept for good', () => {
+  const real = Date.now;
+  const read = (ms, screen, state, fn) => {
+    Date.now = () => ms;
+    try {
+      const board = fleet.install([fleet.agent('camille', { state, runner: 'claude', command: 'claude', screen })]);
+      try { return fn(board.agents.find((c) => c.sessionName === 'camille'), board.agents); } finally { board.restore(); }
+    } finally { Date.now = real; }
+  };
+  const row = `You've hit your session limit · resets 6pm ${Z}`;
+  const screen = '❯ hello\n' + `  ⎿  ${row}\n` + FOOTER + STATUS_LINE;
+  // Josh's laptop, 10-26: the limit at 17:32 CDT, reset 6pm, the board restarting at 19:20 with the row still on an idle
+  // agent's screen. The next 6pm is beyond a session limit's span, so the reset was the one before the sighting: idle.
+  const restart = Date.parse('2026-10-27T00:20:00Z');
+  read(restart, screen, 'idle', (card, roster) => {
+    assert.equal(card.state, status.STATE.IDLE, 'a late row whose reset had passed kept the card capped (Rate Limit for good)');
+    assert.equal(chat.limitHeldVerdict('camille', roster, restart), null, 'a message to it is held');
+  });
+  // A late row whose reset is still ahead: seen at 17:40 CDT, before 6pm. Capped until 18:00 (plus the grace), idle after.
+  status.resetLimitFirstSeenForTests();
+  const early = Date.parse('2026-10-26T22:40:00Z');
+  read(early, screen, 'rate_limited', (card, roster) => {
+    assert.equal(card.limitUntil, null, 'CONTROL: a late row still has no limitUntil, so delivery is not held on it');
+    assert.equal(chat.limitHeldVerdict('camille', roster, early), null, 'CONTROL: and a message to it is typed');
+  });
+  const bound = Date.parse('2026-10-26T23:00:00Z') + 60e3;
+  for (let t = early + 60e3; t < bound; t += 60e3) read(t, screen, 'rate_limited', () => {});
+  read(bound + 60e3, screen, 'idle', (card) => assert.equal(card.state, status.STATE.IDLE, 'the late row was not retired at its reset'));
+});
+
+test('kosmos#7264: the bound never retires a late row early: the retire time is no earlier than the reset of a row that appeared before the sighting', () => {
+  const row = `You've hit your session limit · resets 6pm ${Z}`;
+  const screen = '❯ hello\n' + `  ⎿  ${row}\n` + FOOTER + STATUS_LINE;
+  const sighting = Date.parse('2026-10-26T22:40:00Z');   // 17:40 CDT, before 6pm: the true reset is that day's 6pm
+  // CONTROL: timed from the sighting, the row is still capped at 17:59 CDT and retired after 18:01.
+  assert.ok(status.retireResetLimits(screen, Date.parse('2026-10-26T22:59:00Z'), () => sighting).includes('session limit'), 'retired before its reset');
+  assert.ok(!status.retireResetLimits(screen, Date.parse('2026-10-26T23:02:00Z'), () => sighting).includes('session limit'), 'CONTROL: not retired after its reset');
+  // And with no first sighting at all (none recorded), kept, as before.
+  assert.ok(status.retireResetLimits(screen, Date.parse('2026-10-28T00:00:00Z'), () => null).includes('session limit'), 'a row with no sighting was retired');
 });

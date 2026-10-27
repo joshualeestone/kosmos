@@ -3210,6 +3210,17 @@ function limitFirstSeenOf(agent, text) {
   const seen = key ? limitFirstSeen.get(key) : null;
   return seen && !seen.late ? seen.at : null;   // a row seen late is not timed
 }
+/* kosmos#7264: when to time `agent`'s dateless limit row from for RETIRING it, or null: as limitFirstSeenOf, except that
+   a row seen late (on the board's first capture after a restart, or back after a redraw) is timed from that sighting
+   too. The line cannot have appeared after the board first saw it, so the reset read from that sighting is never
+   earlier than the true one: the row is retired no sooner than it should be, and at most one span late, where before it
+   was never retired and an idle agent read Rate Limit for good. Only retiring uses this: limitUntil, and so the
+   delivery hold, keeps limitFirstSeenOf, so a message to such an agent is still typed (it is what clears the line). */
+function limitRetireFromOf(agent, text) {
+  const key = limitRowKey(agent, text);
+  const seen = key ? limitFirstSeen.get(key) : null;
+  return seen ? { at: seen.at, late: seen.late === true } : null;
+}
 /* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
    this can read. A dated line is read as limitResetAt reads it; a dateless one from when the screen pass first saw it
    (null when it has not: the board saw it late, or it is not on the screen). */
@@ -3305,7 +3316,21 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
     if (resetAt === null && typeof firstSeenOf === 'function') {
       let first = null;
       try { first = firstSeenOf(row); } catch { first = null; }
-      if (Number.isFinite(first)) resetAt = limitResetTimeOnlyAt(row, first);
+      // A number, or (limitRetireFromOf) { at, late }.
+      const late = first !== null && typeof first === 'object' && first.late === true;
+      const at = first !== null && typeof first === 'object' ? first.at : first;
+      if (Number.isFinite(at)) {
+        resetAt = limitResetTimeOnlyAt(row, at);
+        /* kosmos#7264: a row seen late whose clock time does not come round again within its span after the sighting
+           cannot be waiting for that one (it was on screen before the sighting, and no limit lasts longer than its
+           span), so its reset was the occurrence before the sighting: retired now. Read as the reset timed from one
+           span before the sighting, so a row this cannot read at all (an unknown zone) still gets null and is kept. */
+        if (resetAt === null && late) {
+          const span = /\bsession limit\b/i.test(row) ? SESSION_LIMIT_SPAN_MS : DAY_LIMIT_SPAN_MS;
+          const before = limitResetTimeOnlyAt(row, at - span);
+          if (before !== null && before <= at) resetAt = before;
+        }
+      }
     }
     if (!superseded && (resetAt === null || now < resetAt + RESET_GRACE_MS)) return;
     /* Up to the footer, or to the NEXT limit row of any wording if one shares this footer (review rounds 2 and 3): an
@@ -8983,7 +9008,7 @@ function snapshot() {
        'Working now' beside a wait): a held reading is a memory, not a turn seen this tick. */
     const scrapedNow = !(readNote && readNote.held);
     noteLimitRows(pane.name, text, Date.now());   // #5805 slice 3b: before retiring, so a first sighting never retires
-    let scrapedStatus = classify(pane, retireResetLimits(text, Date.now(), (row) => limitFirstSeenOf(pane.name, row)));   // #5031
+    let scrapedStatus = classify(pane, retireResetLimits(text, Date.now(), (row) => limitRetireFromOf(pane.name, row)));   // #5031; kosmos#7264: a late row too
     /* #5949: a HELD idle is a memory of an earlier look, not the per-turn supervisor's state file read this tick, so it
        never carries classify's `liveToken` (which lets an idle end a stale automatic "working" in reconcileReport). */
     if (!scrapedNow && scrapedStatus.liveToken === true) {
