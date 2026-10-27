@@ -128,13 +128,16 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
   }
   # _kosmos_win_cmdline <pid>: the command line from /proc/<pid>/cmdline, its words joined by single spaces as ps shows
   # them, into _KOSMOS_WIN_CMD. Returns 1 when there is no such process (or no words).
+  # Review 1: every word's backslashes read as slashes, so a suite started as `bash C:\...\tools\run-tests.sh` matches
+  # the guards' ([^ ]*/)?tools/run-tests\.sh like one started with slashes (unread, it was a live suite no check saw).
+  # Every reader here gets the same form, so a marker's recorded command still compares equal to a live one.
   _kosmos_win_cmdline() {
     local w first=1 c=""
     _KOSMOS_WIN_CMD=""
     [ -r "/proc/$1/cmdline" ] || return 1
     while IFS= read -r -d '' w || [ -n "$w" ]; do
       if [ "$first" = 1 ]; then _kosmos_win_argv0 "$w"; w="$_KOSMOS_WIN_A0"; first=0; c="$w"
-      else c="$c $w"; fi
+      else c="$c ${w//\\//}"; fi
     done 2>/dev/null < "/proc/$1/cmdline" || return 1
     [ -n "$c" ] || return 1
     _KOSMOS_WIN_CMD="$c"
@@ -198,9 +201,14 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
   # fails (no PowerShell, no WMI, a pid gone) leaves the list short or empty, which reads as "no node --test ancestor":
   # counted as a real run, the side every guard here takes. Kept per process (pid and start) for this shell, since a
   # suite check walks every subshell of another suite up to the same top process: a check asks Windows once per tree.
+  # Review 1: and in a file, because the checks that ask (_kosmos_drop_test_fixtures) run on the right of a pipe and the
+  # wait asks each poll in a $( ), so a shell-only cache died with each one and every 30 s poll paid the call again.
+  # The file is <marker dir>/winanc/<msys pid>.<windows pid>.<start in ms since boot>: a process's ancestry when it
+  # started cannot change, and a recycled pid has another start, so another name. A file whose MSYS pid is gone is
+  # removed whenever one is written. A file this cannot read is asked again, never trusted.
   declare -gA _KOSMOS_WIN_ANC_SEEN 2>/dev/null || true
   _kosmos_win_native_ancestors() {
-    local pid="$1" n="$2" wp key out rc line a0 rest
+    local pid="$1" n="$2" wp key out rc line a0 rest dir f g b got=0
     local -a st=()
     _KOSMOS_WIN_ANC=""
     case "$pid" in ''|*[!0-9]*) return 1 ;; esac
@@ -212,6 +220,18 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
     if [ -n "${_KOSMOS_WIN_ANC_SEEN[$key]+set}" ]; then
       _KOSMOS_WIN_ANC="${_KOSMOS_WIN_ANC_SEEN[$key]}"; _kosmos_win_anc_first "$n"; return 0
     fi
+    # The same place as cut-guard.sh's _kosmos_marker_dir, spelled out here because heavy-gate.sh sources this file alone.
+    dir="${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}/winanc"
+    f=""; case "${st[21]:-}" in ''|*[!0-9]*) ;; *) f="$dir/$pid.$wp.${st[21]}" ;; esac
+    if [ -n "$f" ] && [ -f "$f" ]; then
+      while IFS= read -r line; do
+        _KOSMOS_WIN_ANC="${_KOSMOS_WIN_ANC}${_KOSMOS_WIN_ANC:+$'\n'}$line"
+      done 2>/dev/null < "$f" && got=1
+    fi
+    if [ "$got" = 1 ]; then
+      _KOSMOS_WIN_ANC_SEEN[$key]="$_KOSMOS_WIN_ANC"; _kosmos_win_anc_first "$n"; return 0
+    fi
+    _KOSMOS_WIN_ANC=""
     out="$(MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-CimInstance Win32_Process -Filter 'ProcessId=$wp'; for (\$i = 0; \$i -lt 10 -and \$p; \$i++) { \$q = Get-CimInstance Win32_Process -Filter ('ProcessId=' + \$p.ParentProcessId); if (-not \$q -or \$q.CreationDate -gt \$p.CreationDate) { break }; \$c = \$q.CommandLine; if (-not \$c) { \$c = \$q.Name }; [Console]::Out.WriteLine((\$c -replace '[\r\n]+', ' ')); \$p = \$q }" 2>/dev/null </dev/null)"; rc=$?
     while IFS= read -r line; do
       line="${line%$'\r'}"
@@ -228,7 +248,19 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
       _KOSMOS_WIN_ANC="${_KOSMOS_WIN_ANC}${_KOSMOS_WIN_ANC:+$'\n'}$_KOSMOS_WIN_A0${rest:+ $rest}"
     done <<< "$out"
     # Kept only when PowerShell answered, so a failed call is asked again next time.
-    [ "$rc" = 0 ] && _KOSMOS_WIN_ANC_SEEN[$key]="$_KOSMOS_WIN_ANC"
+    if [ "$rc" = 0 ]; then
+      _KOSMOS_WIN_ANC_SEEN[$key]="$_KOSMOS_WIN_ANC"
+      if [ -n "$f" ] && mkdir -p "$dir" 2>/dev/null; then
+        for g in "$dir"/*.*.*; do
+          [ -e "$g" ] || continue
+          b="${g##*/}"; b="${b%%.*}"
+          case "$b" in ''|*[!0-9]*) continue ;; esac
+          [ -e "/proc/$b" ] || rm -f "$g" 2>/dev/null
+        done
+        { [ -z "$_KOSMOS_WIN_ANC" ] || printf '%s\n' "$_KOSMOS_WIN_ANC"; } > "$f.tmp.${BASHPID:-$$}" 2>/dev/null \
+          && mv -f "$f.tmp.${BASHPID:-$$}" "$f" 2>/dev/null || rm -f "$f.tmp.${BASHPID:-$$}" 2>/dev/null
+      fi
+    fi
     _kosmos_win_anc_first "$n"
     return 0
   }

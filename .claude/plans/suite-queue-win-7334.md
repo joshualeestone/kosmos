@@ -92,6 +92,29 @@ real programs, so it is as before.
   use, so not answered here), copies of run-tests.sh without tools/windows-tests.js (#7247), and 60 s stand-ins that
   outlive their window on this slower box.
 
+## Review 1 (decided)
+1. shell-parallel.sh's stop now really TERMs, then KILLs, a live shard's group on Windows. Kept (the Mac behaviour,
+   and `ppid == $$` keeps it to this shell's own children). New arm: in a shell that sourced the lib, the stop ends this
+   shell's own group-leading child and leaves a group-leading process this shell did not start, though both are in
+   the list. Fails with origin/main's lib (the own shard is not stopped).
+2. The Windows ancestor answer is now also kept in a file, `<marker dir>/winanc/<msys pid>.<windows pid>.<start ms>`,
+   because the fixture filter runs on the right of a pipe and each wait poll runs its check in a `$( )`, so the
+   shell-only cache died every poll. Keyed by the process's start, so a recycled pid never reads another's answer;
+   files of gone pids are removed whenever one is written (no EXIT trap, so no caller's trap is touched). Chosen over
+   computing verdicts before the pipe, which would mean editing the shared Mac pipeline in cut-guard.sh. New arm: a
+   stand-in powershell.exe is asked once across two subshells (twice without the file), and a gone pid's file is
+   removed. Measured, kosmos_refuse_if_suite_live with one foreign suite, four polls each in its own `$( )`:
+   before 4117 / 3052 / 3199 / 3216 ms, after 3836 / 2844 / 2772 / 2716 ms (the PowerShell call, about 0.4 to 0.5 s,
+   is gone from every poll after the first; the rest is the shared code's per-hop ps forks, which Git Bash makes slow).
+   Weakest part: a same-user process could plant a file saying a real suite is under node --test, so it is not
+   counted; the same user can already set KOSMOS_TESTS_IGNORE_SUITE=1, so it opens nothing new.
+3. Every word of a command line now reads backslashes as slashes (not only argv[0]), so `bash C:\...\tools\run-tests.sh`
+   is a suite the name arm sees. New arm: such a stand-in is seen; without the change it is missed.
+4. A failing PowerShell walk for a bash under node --test leaves the list short, so that run counts as real (a fixture
+   counted as a live suite: the guards over-refuse, the safe direction). Partly mitigated by the kt-sandbox cwd rule,
+   which now reads /proc/<pid>/cwd through the lsof function, so a fixture working in a run-tests.sh sandbox is still
+   dropped.
+
 ## Not covered
 - A Mac or Linux run of the shell tests: not available from this box. The Mac path is unchanged by construction (see
   Design) and the new test file checks the gate.

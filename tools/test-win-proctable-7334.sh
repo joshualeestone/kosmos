@@ -117,5 +117,48 @@ if [ -n "$NODE" ]; then
   fi
 fi
 
+# --- review 1 -------------------------------------------------------------------
+# A suite started with a backslashed Windows path to its script is still seen (only argv[0] was read as a path before).
+WS="$(cygpath -w "$T/tools/run-tests.sh")"
+start bash "$WS"; S=$!
+shows "$S" "bash */tools/run-tests.sh" || bad "FIXTURE: the backslash stand-in never showed: [$(ps -ww -o command= -p "$S")]"
+case " $(_kosmos_suite_candidates | awk '{print $1}' | tr '\n' ' ')" in
+  *" $S "*) ok "a suite started as bash C:\\...\\tools\\run-tests.sh is seen by the suite name arm" ;;
+  *) bad "a backslashed suite path was missed: [$(ps -ww -o command= -p "$S")]" ;; esac
+kill "$S" 2>/dev/null; wait "$S" 2>/dev/null
+
+# The Windows ancestor answer is kept in a file, so a check in another subshell (each poll of a wait is one, and the
+# fixture filter runs on the right of a pipe) does not ask PowerShell again. A stand-in powershell.exe counts the calls.
+mkdir -p "$T/fakeps"
+printf '#!/bin/bash\necho x >> "%s/fakeps/calls"\necho "\\"C:\\\\nodejs\\\\node.exe\\" --test fake.test.js"\n' "$T" > "$T/fakeps/powershell.exe"
+chmod +x "$T/fakeps/powershell.exe"
+a1="$(PATH="$T/fakeps:$PATH"; _kosmos_win_native_ancestors "$$" 10; printf '%s' "$_KOSMOS_WIN_ANC")"
+a2="$(PATH="$T/fakeps:$PATH"; _kosmos_win_native_ancestors "$$" 10; printf '%s' "$_KOSMOS_WIN_ANC")"
+calls="$(grep -c x "$T/fakeps/calls" 2>/dev/null)"
+[ "$a1" = "node --test fake.test.js" ] && [ "$a2" = "$a1" ] && [ "$calls" = 1 ] \
+  && ok "a second check in another subshell reads the kept answer (PowerShell asked once, not twice)" \
+  || bad "the Windows ancestor cache: calls=$calls(1) first=[$a1] second=[$a2]"
+ls "$KOSMOS_RUN_MARKER_DIR/winanc/$$".* >/dev/null 2>&1 && ok "it is kept as winanc/<pid>.<winpid>.<start> in the marker dir" \
+  || bad "no winanc file for $$ in $KOSMOS_RUN_MARKER_DIR"
+printf 'node --test planted\n' > "$KOSMOS_RUN_MARKER_DIR/winanc/$DEAD.1.1"
+( PATH="$T/fakeps:$PATH"; rm -f "$KOSMOS_RUN_MARKER_DIR/winanc/$$".*; _kosmos_win_native_ancestors "$$" 10 )
+[ ! -e "$KOSMOS_RUN_MARKER_DIR/winanc/$DEAD.1.1" ] && ok "a kept answer for a gone pid is removed when one is written" \
+  || bad "a winanc file for a gone pid was left"
+
+# shell-parallel.sh's stop, in a shell that sourced this lib (as run-tests.sh does): ps -o ppid= now answers, so a live
+# shard (this shell's child, leading its own group) is stopped, and a process this shell did not start is left alone,
+# though it leads a group of its own and is named in the same list.
+. tools/lib/shell-parallel.sh
+start perl -e 'setpgrp(0, 0); select(undef, undef, undef, 60)'; OWN=$!
+FOREIGN="$(bash -c 'perl -e "setpgrp(0, 0); select(undef, undef, undef, 60)" </dev/null >/dev/null 2>&1 & echo $!')"; PIDS="$PIDS $FOREIGN"
+shows "$OWN" "perl *" && shows "$FOREIGN" "perl *" || bad "FIXTURE: the shard stand-ins never showed"
+[ "$(ps -o ppid= -p "$FOREIGN")" != "$$" ] || bad "FIXTURE: the foreign stand-in is this shell's child"
+KOSMOS_SHELL_PARALLEL_PIDS=" $OWN $FOREIGN"; KOSMOS_SHELL_PARALLEL_DONE=""; KOSMOS_SHELL_PARALLEL_DIR=""
+kosmos_shell_parallel_stop 2>/dev/null
+k=0; while kill -0 "$OWN" 2>/dev/null && [ "$k" -lt 30 ]; do sleep 0.1; k=$((k + 1)); done
+if ! kill -0 "$OWN" 2>/dev/null && kill -0 "$FOREIGN" 2>/dev/null; then ok "shell-parallel's stop ends this shell's own shard and leaves a process it did not start"
+else bad "shell-parallel stop: own shard $OWN alive=$(kill -0 "$OWN" 2>/dev/null && echo yes || echo no)(no), foreign $FOREIGN alive=$(kill -0 "$FOREIGN" 2>/dev/null && echo yes || echo no)(yes)"; fi
+kill "$FOREIGN" 2>/dev/null
+
 echo "test-win-proctable-7334: $FAILS failed"
 [ "$FAILS" = 0 ]
