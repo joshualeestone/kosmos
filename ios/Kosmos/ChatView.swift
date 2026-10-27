@@ -359,7 +359,7 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 // kosmos#7265: the thread opens on its newest message whatever the rows' heights (iOS 18 and later).
-                .modifier(OpensAtBottom(active: opening && !searchMode, touched: { opening = false }))
+                .modifier(OpensAtBottom(long: rows.count >= OpensAtBottom.longThread, active: opening && !searchMode, touched: { opening = false }))
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
@@ -1672,15 +1672,19 @@ extension Palette {
    anchor is off, so a row growing or arriving never moves what the person is reading, and a short chat is not
    bottom-aligned. iOS 18's role-scoped forms; iOS 16 and 17 open as before (a stated limit). */
 private struct OpensAtBottom: ViewModifier {
+    // Review 3: only a long thread lands short (its rows below are estimated); a short one is drawn whole and the one jump
+    // to "end" on open already lands, as on main. The anchors on a short thread put its first line 346 px lower than main
+    // (measured 10-26, and the alignment role did not undo it), so a short thread is left exactly as main has it.
+    static let longThread = 30
+    let long: Bool
     let active: Bool
     // Review 2: the person's own scroll (a drag; .interacting) ends the opening window, so no jump pulls them back.
     let touched: () -> Void
     func body(content: Content) -> some View {
+        // `long` picks the anchors, never the branch: a thread that grows past the threshold as older pages load must not
+        // swap the view (that would rebuild the scroll view and lose the reader's place).
         if #available(iOS 18.0, *), !ChatView.sampleNoFix {
-            content.defaultScrollAnchor(.bottom, for: .initialOffset).defaultScrollAnchor(active ? .bottom : nil, for: .sizeChanges)
-                // Review 2: a chat shorter than the screen starts at the top as before (measured: the bottom anchors put a
-                // short chat's first line 346 px lower than main).
-                .defaultScrollAnchor(.top, for: .alignment)
+            content.defaultScrollAnchor(long ? .bottom : nil, for: .initialOffset).defaultScrollAnchor(long && active ? .bottom : nil, for: .sizeChanges)
                 .onScrollPhaseChange { _, phase in if phase == .interacting { touched() } }
         } else {
             content
