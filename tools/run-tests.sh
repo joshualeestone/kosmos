@@ -646,13 +646,10 @@ _rt_suite_max_now() {
 }
 _rt_suite_check=1
 { [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
-# #7257: on Windows the live-suite and install-harness checks cannot answer: they read the process table with ps -A and
-# pgrep, which Git Bash's ps does not take, so they exit "could not tell" and refuse every run. They are not run there.
+# #7334: on Windows these checks read Git Bash's own process table (/proc) through the reader in
+# tools/lib/process-fixture.sh, so the suite queue, its cap and the harness check run there as on a Mac (#7257 had
+# switched them off there, when Git Bash's ps could not answer them).
 _rt_harness_check=1
-if [ "${_RT_WIN:-0}" = 1 ]; then
-  _rt_suite_check=0; _rt_harness_check=0
-  echo "run-tests: the live-suite and install-harness checks, and so the suite queue and its cap, are not run on Windows (#7257: Git Bash's ps cannot answer them; #7334 tracks a Windows reader)" >&2
-fi
 _rt_box_clear() {
   kosmos_refuse_if_machine_claimed "this test run" || return 1
   if [ "$_rt_suite_check" = 1 ]; then
