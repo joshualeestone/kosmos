@@ -40,9 +40,14 @@ enum Board {
     // nonce this computer issued, signed with the key over its host, the nonce, the token's hash and the key's id.
     struct GateProof: Equatable { let nonce: String; let key: String; let sig: String }
 
+    // Review 3: the gate names the device on the Mac's Allow card from the User-Agent (relay gatev2.rs ua_class), and
+    // only one holding "iPhone" reads as an iPhone; the system's own (CFNetwork, Darwin) reads as "another browser".
+    static let gateUserAgent = "Kosmos (iPhone)"
+
     static func nonceRequest(mac: URL) -> URLRequest {
         var r = URLRequest(url: URL(string: "/_kosmos/nonce", relativeTo: mac)!.absoluteURL)
         r.timeoutInterval = 8
+        r.setValue(gateUserAgent, forHTTPHeaderField: "User-Agent")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
     }
@@ -73,6 +78,7 @@ enum Board {
         r.timeoutInterval = 8
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue(gateUserAgent, forHTTPHeaderField: "User-Agent")
         var body: [String: Any] = ["token": handoffToken]
         if let proof { body["nonce"] = proof.nonce; body["key"] = proof.key; body["sig"] = proof.sig }
         r.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -203,7 +209,18 @@ enum Board {
         case resign
         // kosmos#7337: 503 retry: counted as a session that got no answer.
         case busy
+        // Review 3: a 403 with paused or keep, or a 429: the computer is not taking new sign-ins now (a certificate warning
+        // unread, sign-ins it cannot check, too many waiting). Nothing is wrong with this sign-in; the gate page stops,
+        // shows `because` and keeps the token, and so does the app (no fresh handoffs).
+        case held(because: String?)
         case refused(because: String?)
+    }
+
+    // Review 3: the gate's `because` as a sentence on the phone (a capital and a stop).
+    static func gateSentence(_ s: String) -> String {
+        guard let first = s.first else { return s }
+        let capital = first.uppercased() + s.dropFirst()
+        return ".!?".contains(capital.last!) ? capital : capital + "."
     }
 
     // The gate page's own rules (kosmos-relay crates/tunnel/src/gate.html).
@@ -218,8 +235,10 @@ enum Board {
         if waiting && status == 400 { return .retry }
         if status == 409, obj?["retry"] as? Bool == true { return .resign }
         // kosmos#7337: a gate too busy to take the sign-in now (503 retry): the gate page's miss, never a new handoff.
-        // A session 429 and a 403 paused or keep stay refusals, as before (gate.html keeps the token on them too).
         if status == 503, obj?["retry"] as? Bool == true { return .busy }
+        if (status == 403 && (obj?["paused"] as? Bool == true || obj?["keep"] as? Bool == true)) || status == 429 {
+            return .held(because: (obj?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+        }
         return .refused(because: obj?["because"] as? String)
     }
 

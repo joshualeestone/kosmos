@@ -30,6 +30,9 @@ final class BoardClient: ObservableObject {
         case macRefused(mac: String)
         // kosmos#4903: a Kosmos cloud machine, which takes only a recent sign-in, and this one is not.
         case signInAgain(mac: String)
+        // Review 3: the computer is not taking new sign-ins right now; nothing is wrong with this one. `because` is its own
+        // sentence when it gave one.
+        case macHeld(mac: String, because: String?)
         case live(mac: Board.Mac)
     }
 
@@ -1397,6 +1400,8 @@ final class BoardClient: ObservableObject {
                 await env.sleep(3)
             case .denied:
                 set(.denied(mac: mac.name), gen); return false
+            case .held(let because):
+                set(.macHeld(mac: mac.name, because: because), gen); return false
             case .refused:
                 // Refused handoffs are retried a few times: one expires during a long wait for Allow, and a Mac that
                 // has just started refuses until it knows its account again (gate.rs ACCOUNT_NOT_KNOWN_YET).
@@ -1550,7 +1555,7 @@ extension BoardClient.Phase {
     var macName: String? {
         switch self {
         case .waitingForAllow(let mac, _), .connecting(let mac), .denied(let mac), .unreachable(let mac), .macRefused(let mac),
-             .signInAgain(let mac):
+             .signInAgain(let mac), .macHeld(let mac, _):
             return mac
         case .live(let mac):
             return mac.name

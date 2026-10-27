@@ -34,3 +34,15 @@ fresh handoff.
 That sending a key proof to a MAC changes nothing a person sees there. A Mac with the v2 marker answers a keyed knock
 with its keyed code (the code the phone already shows for Allow); an already-allowed phone should stay admitted. Not
 measured on a real Mac.
+
+## Review 3 (Angel, 10-27 afternoon, after the rebase onto main)
+- A session 429, and a 403 with paused or keep, are their own answer (`held`): the computer is not taking new sign-ins
+  now, nothing is wrong with this one. As gate.html: stop, show the gate's own `because`, keep the token, no fresh
+  handoffs. Before, they were refusals retried with new handoffs until "did not accept this iPhone's sign-in".
+- The nonce and session requests send a User-Agent holding "iPhone", so the Mac's Allow card names the device
+  (relay gatev2.rs ua_class); the system's own User-Agent read as "another browser".
+- A busy gate (503 retry) is a miss for every phone, with a key or without, as gate.html's missOne; before this
+  branch a key-less phone treated it as a refusal and asked for fresh handoffs. Deliberate: it matches the gate page,
+  and a busy computer is not a verdict on the sign-in.
+- No Sign in button on "Sign in again to open <name>": the board's openBoard keeps the same, not recent, sign-in, so a
+  button there would not do what it says. A one-tap way needs a log out wired into the Agents screen (follow-up).
