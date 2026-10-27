@@ -40,8 +40,8 @@ padding; opening the keyboard at the newest message keeps it in view. Not "solve
 
 ## Verify
 
-LogicTests run.sh (1391), run-composer.sh (59), run-room.sh (425), typecheck for iOS 16 simulator, all green after
-the rebase onto dmkeep a934f5f2e1. Each branch was blind-reviewed when built.
+LogicTests run.sh (1405), run-composer.sh (65), run-room.sh (425), typecheck for iOS 16 simulator, all green after
+the rebase onto dmkeep a934f5f2e1 and the review rounds. Each branch was blind-reviewed when built.
 
 ## Review bound
 

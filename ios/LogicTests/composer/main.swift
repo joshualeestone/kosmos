@@ -37,6 +37,7 @@ check(ComposerExtras.typedReturn(was: "abc", now: "abc\nok") == nil, "review: CO
 check(ComposerExtras.typedReturn(was: "helo\nworld", now: "hello\nworld\n") == "hello\nworld", "review: a correction before an earlier pasted break takes out the new Return, not the old break")
 check(ComposerExtras.typedReturn(was: "hello there\nworld", now: "hello\n there\nworld") == "hello there\nworld", "review: Send with the caret in an earlier paragraph takes out the new Return, not the break after it")
 check(ComposerExtras.typedReturn(was: "ab\ncd", now: "ab\n\ncd") == "ab\ncd", "a Return beside an old break leaves one break")
+check(ComposerExtras.typedReturn(was: "abc\nxyz", now: "abc\nok\nxyz") == nil, "review: CONTROL: a short paste mid-text, before an older break, keeps its breaks and does not send")
 check(ComposerExtras.typedReturn(was: "abc", now: "a\n") == nil, "CONTROL: text shrinking around a new line is not a Return")
 check(ComposerExtras.typedReturn(was: "see you tomorow", now: "see you tomorrow\n") == "see you tomorrow", "review: autocorrect landing with Send still sends, corrected")
 check(ComposerExtras.typedReturn(was: "im here", now: "I'm here\n") == "I'm here", "and a correction earlier in the text too")
@@ -91,7 +92,7 @@ for name in ["ChatView", "RoomView"] {
     // Inside the guard itself (review 5), not anywhere in the file. kosmos#7346: the guard reads the shared reason rule,
     // which takes dictation.busy right after it.
     let guardBody = src.components(separatedBy: name == "ChatView" ? "private var canSend: Bool {" : "private var canPost: Bool {").dropFirst().first.map { String($0.prefix(600)) } ?? ""
-    check(guardBody.contains("== nil") && guardBody.contains("dictating: dictation.busy"), "\(name): Send waits while dictating or finishing")
+    check(guardBody.contains(name == "ChatView" ? "sendBlocked == nil" : "postBlocked == nil") && guardBody.contains("dictating: dictation.busy"), "\(name): Send waits while dictating or finishing")
 }
 // Review 5: dictation's own setup changes the category and the route; only headphones in or out may stop it, and an
 // interruption only when it begins.
