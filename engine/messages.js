@@ -1388,6 +1388,13 @@ function staleHeld(projectId, ids, log, now, member) {
    (or nobody to deliver to) is placed; anything else is unconfirmed.
    #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
    the folded retry of one (it reports the first copy's outcomes). */
+/* kosmos#7246 slice 2: the arrivals a post charged against the room's valve: its `to`, less the members it left quiet
+   (in the room, never typed). A post that woke no one costs the valve nothing. */
+function reachedCount(m) {
+  if (!m || !Array.isArray(m.to)) return 0;
+  const oc = m.outcomes && typeof m.outcomes === 'object' ? m.outcomes : null;
+  return oc ? m.to.filter((n) => oc[n] !== roomhold.QUIET).length : m.to.length;
+}
 function aggregateState(outcomes) {
   const states = Object.values(outcomes || {});
   // kosmos#7246 slice 2: a quiet member (the post did not address it) is placed too: the post is in the room.
@@ -2133,12 +2140,13 @@ function mentionedMembers(cleaned, recipients, roster) {
      name that is not a member addresses no one. Only the start of the post, before its first colon;
    - @all or @everyone: every member but the sender.
    A Set. Never throws (on a fault it is the @-names alone). */
-function addressedMembers(cleaned, recipients, roster, atNamed, from) {
+function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = true } = {}) {
   const out = new Set(atNamed || []);
   try {
     const text = String(cleaned || '');
     const list = Array.isArray(recipients) ? recipients : [];
-    if (/(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_])/i.test(text)) {
+    // Round 1: an @all inside `code` is quoted, not a broadcast.
+    if (all && /(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_])/i.test(text.replace(/`[^`]*`/g, ' '))) {
       for (const m of list) if (m !== from) out.add(m);
     }
     // The sender is a name of at most three words ("PigeonPete", "Ice Cream Kitty"), so a sentence that mentions an arrow is not a header.
@@ -2485,7 +2493,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // thirty-nine is over the budget, not under it.
   const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator && m.closing !== true   // #6920: not charged
     && m.project === projectId && Date.parse(m.at) >= countFrom)
-    .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
+    .reduce((n, m) => n + reachedCount(m), 0);
   const cleaned = chat.cleanMessage(text);
   /* Addressed is an @mention naming a member. The TOKENIZER carries two
      boundary rules the charset alone gets wrong: a left boundary, because
@@ -2519,14 +2527,17 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const { ambiguous, ambiguousWords, shown, namedAt } = atNamed;
   /* kosmos#7246 slice 2: who the post addresses: its @-names, plus the fleet's leading `Sender -> Name:` header and @all
      (addressedMembers). The page's @ highlight keeps to mentionedMembers. */
-  const mentioned = addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from);
+  /* A person's post keeps its @-names alone, as before (round 1): the header and @all are for agents' posts. */
+  const mentioned = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from);
+  /* Round 1: @all is a broadcast, not a request to each member, so a swarm switched off here still needs its own name. */
+  const namedHere = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from, { all: false });
   const note4653 = ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
      post @-names it. It stays a member, but a post it was not sent is not logged as
      sent to it, so an @-name later tells it what it missed. */
-  const offHere = new Set(recipients.filter((n) => !mentioned.has(n) && offInProject.has(String(n))));
+  const offHere = new Set(recipients.filter((n) => !namedHere.has(n) && offInProject.has(String(n))));
   /* #3564: the post is charged for the members it is sent to. */
   const charged = recipients.length - offHere.size;
   /* #4786: WORK MOVING EARNS MORE ROOM, BOUNDED. A pipeline of agents handing tasks along fills the budget as fast
@@ -2832,7 +2843,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   let loopPausedHere = false;
   /* B: a reply wakes its author only when the post it answers asked someone something (a person's post, or a post that
      addressed at least one member), so an acknowledgement of a post that asked nothing wakes no one. */
-  const answeredAsked = Boolean(answered && (answered.operator === true || (Array.isArray(answered.mentioned) && answered.mentioned.length > 0)));
+  /* Round 1: asked THIS replier (the person's post, or one that addressed the sender), so a bystander's +1 wakes no one. */
+  const answeredAsked = Boolean(answered && (answered.operator === true || (Array.isArray(answered.mentioned) && answered.mentioned.includes(from))));
+  /* C, decided once per post (round 1): the whole post is quiet or none of it, so an @all never stops partway. */
+  const loopPaused = operator !== true && require('./roomloop').paused(projectId);
+  let wokeSomeone = false;
   const asksMember = (name) => mentioned.has(name) || Boolean(answeredAsked && answered.operator !== true && answered.from === name);
   const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
   const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line
@@ -2842,9 +2857,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        agent-wake cap is used up (engine/roomloop.js). A person's post is never quiet. */
     if (operator !== true) {
       const asked = asksMember(name);
-      if (asked && require('./roomloop').paused(projectId)) loopPausedHere = true;
-      if (!asked || loopPausedHere) { outcomes[name] = roomhold.QUIET; quiet += 1; return null; }
-      require('./roomloop').noteWake(projectId);
+      if (asked && loopPaused) loopPausedHere = true;
+      if (!asked || loopPaused) { outcomes[name] = roomhold.QUIET; quiet += 1; return null; }
+      wokeSomeone = true;
     }
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
        is held rather than typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
@@ -2943,7 +2958,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        received do not count as missed. */
     const missed = log.filter((m) => m && m.kind === 'post' && m.project === projectId
       && Date.parse(m.at) >= windowFrom && m.from !== name
-      && Array.isArray(m.to) && !m.to.includes(name)).length;
+      && Array.isArray(m.to) && (!m.to.includes(name) || (m.outcomes && m.outcomes[name] === roomhold.QUIET))).length;   // #7246 slice 2: a quiet post did not reach it either
     const catchUp = mentioned.has(name) && missed > 0
       ? ' [This room has been talking without you: ' + missed + ' earlier post'
         + (missed === 1 ? '' : 's') + ' this hour did not reach you.'
@@ -3073,6 +3088,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
    * The person reads the room from the record, and the record is written below.
    */
   /* kosmos#7246 slice 2: quiet members were never to be typed into; a post that addressed nobody is recorded, not refused. */
+  if (wokeSomeone) require('./roomloop').noteWake(projectId);   // one per post that woke anyone (round 1)
   if (loopPausedHere) {
     const note = require('./roomloop').pauseNote(projectId);
     if (note) {
@@ -3145,7 +3161,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-    return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+    return { state, because: loopPausedHere ? require('./roomloop').senderNote(projectId) : null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
       ...(closing ? { closing: true } : {}),   // #6920: landed as this member's one post through a held room
       /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
          `posted` seam needs from here (the route has no other way to know; the person is never an @mention).
@@ -4134,7 +4150,7 @@ function roomHeldRead(projectId, at, lim, rows, charge, progressFrom, roomRecipi
     const t = Date.parse(m.at);
     if (!Number.isFinite(t) || t > at || t < countFrom) continue;
     if (m.kind === 'valve' && (!band || t >= band.t)) band = { t, at: m.at, because: m.because || null };
-    else if (m.kind === 'post' && !m.operator && m.closing !== true) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
+    else if (m.kind === 'post' && !m.operator && m.closing !== true) counted.push({ t, n: reachedCount(m) });
   }
   counted.sort((a, b) => a.t - b.t);
   const size = Number.isInteger(charge) && charge > 0 ? charge : Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
@@ -4387,5 +4403,5 @@ module.exports = {
   suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
-  setRunner, resetForTests, mentionedMembers, addressedMembers, ambiguousNote,
+  setRunner, resetForTests, mentionedMembers, addressedMembers, reachedCount, ambiguousNote,
 };

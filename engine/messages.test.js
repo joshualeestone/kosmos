@@ -2609,7 +2609,8 @@ test('a member brought in later is told what the room said without them, and onl
     const tmux3 = arm([]);
     messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara same question' }, board.agents, ['leo', 'mara', 'april']);
     const toMara3 = tmux3.pastedMessages().find((t) => typeof t === 'string' && t.startsWith('[message'));
-    assert.doesNotMatch(toMara3, /talking without you/, 'a member who missed nothing was told she missed something');
+    // kosmos#7246 slice 2: mara was quiet for "@april are you there?", so she did miss one post, and is told so.
+    assert.match(toMara3, /talking without you: 1 earlier post this hour did not reach you/, 'a quiet post was not counted as missed');
   });
 });
 
@@ -4193,6 +4194,9 @@ test('#4580: an outside party speaking in a federated room (an external row) bre
 });
 
 test('#4786: work moving in the project earns the room a bounded allowance; talk, old work and another room\'s work earn none, and a loop that makes tasks is still held', () => {
+  /* kosmos#7246 slice 2: an agent post reaches (and charges the valve for) only whom it addresses, so these posts say
+     @all; the agent-wake cap is a separate guard (roomloop-7246.test.js), raised here so it does not stop the valve's posts. */
+  require('./roomloop').setCapForTests(Infinity);
   const taskchat = require('./taskchat');
   withFleet(room3(), (board) => {
     try {
@@ -4208,7 +4212,7 @@ test('#4786: work moving in the project earns the room a bounded allowance; talk
       }
       let seq = 0;   // each post its own words: the same words again within minutes are one post, not a new arrival
       const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]); seq += 1;
-        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step ' + seq }, board.agents, MEMBERS); };
+        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all next step ' + seq }, board.agents, MEMBERS); };
       /* Posts until the room is held; how many got through. Each post costs 2 arrivals (3 members). */
       const through = () => { let n = 0; while (n < 200 && post().state === chat.DELIVERY.PLACED) n += 1; return n; };
       // CONTROL: over its budget with no work moving, the room is held (the loop the valve exists for).
@@ -4291,6 +4295,9 @@ function agedProject(name) {
 }
 
 test('#5260: a file changed in the project folder earns the room the same bounded allowance as a task step; old files, dot-files and rewrites earn nothing more, and a loop that writes files is still held', () => {
+  /* kosmos#7246 slice 2: an agent post reaches (and charges the valve for) only whom it addresses, so these posts say
+     @all; the agent-wake cap is a separate guard (roomloop-7246.test.js), raised here so it does not stop the valve's posts. */
+  require('./roomloop').setCapForTests(Infinity);
   const taskchat = require('./taskchat');
   const { pid, folder, longAgo } = agedProject('Fact Check Room');
   assert.ok(folder && fs.existsSync(folder), 'the project has no folder, so nothing below proves anything');
@@ -4309,7 +4316,7 @@ test('#5260: a file changed in the project folder earns the room the same bounde
       }
       let seq = 0;
       const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]); seq += 1;
-        return messages.sendPost({ fromPane: '%7', project: pid, text: 'corrections applied ' + seq }, board.agents, MEMBERS); };
+        return messages.sendPost({ fromPane: '%7', project: pid, text: '@all corrections applied ' + seq }, board.agents, MEMBERS); };
       const through = () => { let n = 0; while (n < 200 && post().state === chat.DELIVERY.PLACED) n += 1; return n; };
       const held = () => messages.record().rows.filter((m) => m.kind === 'post' && !m.operator
         && m.project === pid).reduce((n, m) => n + m.to.length, 0);
@@ -4766,6 +4773,9 @@ test('#6420: a six-member room is not held at the post count a three-member room
    the dial's; a 5-arrival post lands on 200 and goes through; the next one is held. Under the dial's budget every step
    here would be held, so this tells the scaled budget from the old one at its exact edge. */
 test('#6420: a six-member room is held exactly at its scaled budget, and roomHeld reads it at the room\'s size', () => {
+  /* kosmos#7246 slice 2: an agent post reaches (and charges the valve for) only whom it addresses, so these posts say
+     @all; the agent-wake cap is a separate guard (roomloop-7246.test.js), raised here so it does not stop the valve's posts. */
+  require('./roomloop').setCapForTests(Infinity);
   withFleet(room6(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -4778,10 +4788,10 @@ test('#6420: a six-member room is held exactly at its scaled budget, and roomHel
     assert.ok(messages.roomHeld('henderson-lease', now + 1, 1), 'CONTROL: at the dial\'s budget (80) the same room reads held');
     armSender('leo-discord');
     arm([ok(), ok(), ok(), ok(), ok()]);
-    const fits = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the last one that fits' }, board.agents, MEMBERS6);
+    const fits = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all the last one that fits' }, board.agents, MEMBERS6);
     assert.notEqual(fits.code, 'room_held', 'a post landing exactly on the budget (200) was held');
     arm([]);
-    const over = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one past the budget' }, board.agents, MEMBERS6);
+    const over = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one past the budget' }, board.agents, MEMBERS6);
     assert.equal(over.code, 'room_held', 'the scaled budget did not hold at 205 arrivals');
     assert.ok(messages.roomHeld('henderson-lease', Date.now() + 2, 5), 'the page does not read the room held past its own budget');
   });
@@ -4837,6 +4847,9 @@ test('#6420: past the ceiling, a post bigger than the whole budget is refused wi
 /* #6420: the progress allowance and the clear time follow the room's scaled budget too. A six-member room's budget is
    200; one step of work earns a quarter of THAT (50), not of the dial's (20). Each post costs 5 arrivals. */
 test('#6420: in a six-member room one step of work earns a quarter of the scaled budget', () => {
+  /* kosmos#7246 slice 2: an agent post reaches (and charges the valve for) only whom it addresses, so these posts say
+     @all; the agent-wake cap is a separate guard (roomloop-7246.test.js), raised here so it does not stop the valve's posts. */
+  require('./roomloop').setCapForTests(Infinity);
   const taskchat = require('./taskchat');
   withFleet(room6(), (board) => {
     try {
@@ -4850,7 +4863,7 @@ test('#6420: in a six-member room one step of work earns a quarter of the scaled
       }
       let seq = 0;
       const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([ok(), ok(), ok(), ok(), ok()]); seq += 1;
-        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step ' + seq }, board.agents, MEMBERS6); };
+        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all next step ' + seq }, board.agents, MEMBERS6); };
       const through = () => { let n = 0; while (n < 200 && post().state !== chat.DELIVERY.COULD_NOT) n += 1; return n; };
       assert.equal(post().code, 'room_held', 'CONTROL: at its scaled budget with no work moving, the room is held');
       assert.equal(taskchat.record('henderson-lease', 2, { kind: 'closed' }), true);
