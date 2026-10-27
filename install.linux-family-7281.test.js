@@ -97,9 +97,13 @@ test('#7281 review 2: a computer below glibc 2.35, or on musl, keeps the portabl
   assert.equal(family({ libc: null, files: { 'latest-linux.json': PTR } }), '|latest.json', 'a musl computer took the glibc build');
   assert.equal(family({ libc: '2.35', files: { 'latest-linux.json': PTR } }), 'yes|latest-linux.json', 'CONTROL: the floor itself');
   assert.equal(family({ libc: '3.0', files: { 'latest-linux.json': PTR } }), 'yes|latest-linux.json', 'CONTROL: a newer major');
-  // An installed Linux-family copy on a C library below the floor refuses rather than be swapped for the portable bundle.
-  assert.match(family({ libc: '2.31', files: { 'latest-linux.json': PTR }, home: homeWithNode(false), expectStatus: 9 }), /DIE: .*glibc 2\.35/);
-  assert.equal(family({ libc: '2.31', files: { 'latest-linux.json': PTR }, home: homeWithNode(true) }), '|latest.json', 'CONTROL: a portable install');
+  // Real distros suffix the version; the floor reads only major.minor.
+  assert.equal(family({ libc: '2.35-ubuntu', files: { 'latest-linux.json': PTR } }), 'yes|latest-linux.json');
+  assert.equal(family({ libc: '2.39.9000', files: { 'latest-linux.json': PTR } }), 'yes|latest-linux.json');
+  assert.equal(family({ libc: '2.3', files: { 'latest-linux.json': PTR } }), '|latest.json', '2.3 read as 2.30 or more');
+  // Review 3: an installed Linux-family copy below the floor cannot run its own node, so the portable bundle repairs it
+  // (no refusal), the same answer whether or not its pointer can be read.
+  assert.equal(family({ libc: '2.31', files: { 'latest-linux.json': PTR }, home: homeWithNode(false) }), '|latest.json');
 });
 
 test('#7281 review 2: a Linux staging install is stamped staging (its pointer is latest-linux-staging.json)', () => {
