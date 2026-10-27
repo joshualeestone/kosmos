@@ -25,13 +25,20 @@ release_linux_pointer_file() {
   esac
 }
 
+# Does this tree's promote-channel.sh move the Linux pointer? (It names it once slice C2 lands.)
+release_linux_promote_in_lockstep() {
+  grep -qF 'latest-linux.json' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/promote-channel.sh" 2>/dev/null
+}
+
 release_linux_decide() {
   local site="$1" channel="$2"
   LINUX_POINTER_FILE="$(release_linux_pointer_file "$channel")" || { echo "release-linux: no Linux pointer for channel '$channel'" >&2; return 1; }
   if [ "${KOSMOS_CUT_LINUX:-}" = 1 ]; then
     # Review 1 (W4): prod only once promote-channel.sh moves the Linux pointer with the Mac one (slice C2). Until then a
     # prod Linux pointer would stay put while the next promote moved latest.json alone: the state lockstep forbids.
-    if [ "$channel" = prod ] && [ "${RELEASE_LINUX_PROMOTE_LOCKSTEP:-}" != 1 ]; then
+    # Review 2 (W1): read from promote-channel.sh itself, never an operator's variable, so it cannot be bypassed by hand
+    # and C2 lifts it simply by landing.
+    if [ "$channel" = prod ] && ! release_linux_promote_in_lockstep; then
       echo "release-linux: the Linux family is cut on the staging channel only until promote-channel.sh moves its pointer with the Mac one (kosmos#7281 slice C2)" >&2
       return 1
     fi

@@ -62,8 +62,13 @@ chk "KOSMOS_CUT_LINUX=1 cuts it on staging" [ "${out##*rc=}" = "0 cut=yes file=l
 # Review 1 (W4): prod only once promote-channel.sh moves the Linux pointer too (slice C2).
 out="$(CUT_LINUX=; KOSMOS_CUT_LINUX=1 release_linux_decide "$S" prod 2>&1; echo "rc=$?")"
 chk "a prod Linux cut is refused until the promote keeps lockstep" [ "${out##*rc=}" = 1 ]
-out="$(KOSMOS_CUT_LINUX=1 RELEASE_LINUX_PROMOTE_LOCKSTEP=1 release_linux_decide "$S" prod 2>&1; echo "rc=$? cut=$CUT_LINUX file=$LINUX_POINTER_FILE")"
-chk "CONTROL: with the promote in lockstep, prod cuts it" [ "${out##*rc=}" = "0 cut=yes file=latest-linux.json" ]
+out="$(CUT_LINUX=; KOSMOS_CUT_LINUX=1 RELEASE_LINUX_PROMOTE_LOCKSTEP=1 release_linux_decide "$S" prod 2>&1; echo "rc=$?")"
+chk "and no variable lifts that by hand (review 2 W1)" [ "${out##*rc=}" = 1 ]
+printf '# moves latest-linux.json with latest.json\n' > "$T/tools/promote-channel.sh"
+out="$(KOSMOS_CUT_LINUX=1 release_linux_decide "$S" prod 2>&1; echo "rc=$? cut=$CUT_LINUX file=$LINUX_POINTER_FILE")"
+chk "CONTROL: once promote-channel.sh moves the Linux pointer, prod cuts it" [ "${out##*rc=}" = "0 cut=yes file=latest-linux.json" ]
+rm -f "$T/tools/promote-channel.sh"
+chk "the shipped promote-channel.sh does not move it yet, so prod stays refused today" not grep -qF latest-linux.json "$HERE/tools/promote-channel.sh"
 printf '{}\n' > "$S/dist/latest-linux-staging.json"
 out="$(unset KOSMOS_CUT_LINUX; release_linux_decide "$S" staging 2>&1; echo "rc=$?")"
 chk "a channel with a Linux pointer on disk refuses a cut without it (lockstep)" [ "${out##*rc=}" = 1 ]
@@ -164,11 +169,21 @@ chk "the publish exits on failure" wired 'release_linux_publish "$REPO/dist" "$S
 chk "the site commit takes the Linux paths" wired '_site_paths="$_site_paths $(release_linux_site_paths "$V")"'
 chk "step 6 refuses a Linux bundle that is not V" wired 'THE LINUX BUNDLE IS NOT $V"; exit 1'
 chk "step 8 refuses an export without the Linux pair" wired 'shasum -a 256 --status -c "kosmos-$V-linux-x64.tar.gz.sha256"'
+chk "step 8 refuses a committed Linux pointer that names other bytes" wired 'does not name the Linux tarball the export carries'
 chk "the abort trap passes the Linux pair record" wired '"$_staging_ptr_had" "$_linux_pair_had";'
 # The post-commit cleanup's line is identical to the /setup-staging one above it, so it is checked as the line after
 # its own loop head, not by text alone.
 linux_cleanup() { grep -A1 -F 'for _p in $(release_linux_site_paths "$V"); do' "$RS" | grep -qF 'ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"'; }
 chk "after the site commit, the untracked Linux paths are removed so the next pull is not refused" linux_cleanup
+
+# ---- publish-staging-pointer.sh refuses to move the Mac staging pointer alone (review 2 W2) ----
+S="$(newsite psp)"; printf '{}\n' > "$S/dist/latest-linux-staging.json"
+out="$(bash "$HERE/tools/publish-staging-pointer.sh" "$S" 9.9.9 2>&1; echo "rc=$?")"
+chk "publish-staging-pointer refuses while a Linux staging pointer exists" [ "${out##*rc=}" = 1 ]
+case "$out" in *lockstep*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: publish-staging-pointer refused for another reason: $out" >&2 ;; esac
+rm -f "$S/dist/latest-linux-staging.json"
+out="$(bash "$HERE/tools/publish-staging-pointer.sh" "$S" 9.9.9 2>&1; echo "rc=$?")"
+case "$out" in *lockstep*) FAIL=$((FAIL+1)); echo "FAIL: CONTROL: it refused on lockstep with no Linux pointer" >&2 ;; *) PASS=$((PASS+1)) ;; esac
 
 echo "test-release-linux-7281: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
