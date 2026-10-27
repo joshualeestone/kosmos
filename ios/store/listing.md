@@ -157,8 +157,8 @@ Projects, with each project's shared room; Tasks, grouped by project, and a
 page per task; Settings, including account deletion (Guideline 5.1.1(v)); push
 notifications that open the agent or room that asked, with Allow and Deny on a
 permission question. A few deeper pages show the person's own board (on
-their own computer) in an in-app view; links to any other site open in
-Safari.
+their own computer), and their Kosmos+ account pages such as Delete account,
+in an in-app view; links to any other site open in Safari.
 
 To review it you need two things we provide: the demo account below, and a
 computer running Kosmos on that account that we keep online for the whole

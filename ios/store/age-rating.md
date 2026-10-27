@@ -20,7 +20,8 @@ rating).
 | Simulated gambling, contests | None | nothing of the kind in the app |
 | Gambling with real money | No | nothing is sold or wagered |
 | Loot boxes | No | as above |
-| Unrestricted web access | **No** | the in-app view shows only the person's own board, on their own computer; every other link opens in Safari |
+| Advertising | No | the app shows no ads |
+| Unrestricted web access | **No** | there is no general browser: the in-app view shows the person's own board (on their own computer) and their Kosmos+ account pages, such as Delete account; every other link opens in Safari |
 | Parental controls, age assurance | No | the app has none |
 | Messaging and chat | **Yes** | a shared project room shows messages from people outside the person's own Kosmos (`RoomRow.Kind.external`, `fromKind` person, in ios/Kosmos/BoardRoom.swift) |
 | User-generated content | **Yes** | the same shared rooms. Only people a room was shared with can post; nothing is public and there is no way to reach strangers |
