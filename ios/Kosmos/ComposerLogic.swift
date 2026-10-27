@@ -14,6 +14,37 @@ enum ComposerExtras {
         "💡", "📌", "📝", "🐛", "🔧", "🔒", "⏳", "📈", "☕", "🎯", "🧠", "🍕", "🐢", "🎈", "📎", "🗂️",
     ]
 
+    // kosmos#7346 (Josh 10-27): no send arrow; the keyboard's Send key sends. The box is a multi-line field, so the key
+    // arrives as one new line typed into the text, and this is the text without it; nil when the change is not that.
+    // The keyboard can fix the word before the caret in the same change (autocorrect), so a change of a few characters
+    // holding one more new line also counts, but only when everything after that new line was already there: the key
+    // goes in at the caret, after any correction. A pasted "\nok" adds words after its new line, so it is not a send.
+    static let returnSlack = 4
+    static func typedReturn(was: String, now: String) -> String? {
+        let a = Array(was), b = Array(now)
+        let newLine: Set<Character> = ["\n", "\r\n"]
+        let added = b.count - a.count
+        guard added >= 1, added <= returnSlack,
+              b.filter({ newLine.contains($0) }).count == a.filter({ newLine.contains($0) }).count + 1 else { return nil }
+        // The last changed character must be the new line, lined up from the left and from the right alike: with older
+        // breaks around it the two can disagree, and then it is a paste, not the key.
+        func lastChanged(leftFirst: Bool) -> Int {
+            var prefix = 0, suffix = 0
+            if leftFirst {
+                while prefix < a.count && a[prefix] == b[prefix] { prefix += 1 }
+                while suffix < a.count - prefix && a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
+            } else {
+                while suffix < a.count && a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
+            }
+            return b.count - 1 - suffix
+        }
+        let at = lastChanged(leftFirst: true)
+        guard newLine.contains(b[at]), newLine.contains(b[lastChanged(leftFirst: false)]) else { return nil }
+        var out = b
+        out.remove(at: at)
+        return String(out)
+    }
+
     // The board's pjEmojiInsert: the glyph replaces the selection (or goes in at the cursor), and the cursor lands
     // after it. `selection` is in Characters of `text`; nil (no cursor known: older iOS, or the box not focused) puts
     // it at the end. Returns the new text and the cursor's place in Characters.

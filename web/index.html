@@ -22315,6 +22315,19 @@ function stateReason(a, opts) {
     const mins = Number.isFinite(since) ? Math.max(3, Math.round((Date.now() - since) / 60000)) : 3;
     return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes, and Kosmos\'s messages to it may wait behind it. Open it to send it with Enter.';
   }
+  /* kosmos#7368 (Mona Lisa's design): a Windows agent on one step for over an hour with messages waiting behind it. The
+     messages did arrive, so this is not "no message has reached it": it names the step and how many wait. */
+  if (a && a.deliveryStall && a.deliveryStall.lastWhy === 'turn' && typeof a.deliveryStall.since === 'string') {
+    const since = Date.parse(a.deliveryStall.since);
+    const mins = Number.isFinite(since) ? Math.max(60, Math.round((Date.now() - since) / 60000)) : 60;
+    const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + mins + ' minutes';
+    const who = (typeof a.name === 'string' && a.name) ? a.name : 'This agent';
+    const step = typeof a.deliveryStall.step === 'string' && a.deliveryStall.step ? ': ' + a.deliveryStall.step : '';
+    const n = Number.isInteger(a.deliveryStall.count) && a.deliveryStall.count > 0 ? a.deliveryStall.count : 1;
+    const waiting = n === 1 ? '1 message is waiting behind it' : n + ' messages are waiting behind it';
+    const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Restart it to free it (the waiting messages will need sending again), or wait if it is a long job';
+    return who + ' has been on one step for ' + when + step + '. ' + waiting + '. ' + next + '.';
+  }
   /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause (engine/deliverystreak.js).
      The card only carries it while it reads idle or working, the states that look fine. The reason is the engine's
      words (one copy). After the unsent-text sentence above, which names the sharper cause when it is the box. */

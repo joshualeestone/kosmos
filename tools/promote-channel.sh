@@ -842,6 +842,11 @@ if [ "$FAMILY" = win ]; then
 else
   echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
   [ "${PLUS_UNVERIFIED:-0}" = 1 ] && echo "promote-channel: NOTE a first Kosmos+ sign-in was NOT verified on $V (#3940); see ${PLUS_LOG:-the output above}."
+  # kosmos#7349: the What's New pool records what prod SERVES (#5713), so it falls behind the moment this promote is
+  # deployed, and the next cut stops on it before it claims the machine. Said here, where the promoter can act on it.
+  # Not on a rollback (--allow-older): prod then serves older than the pool records, which prod-check passes, and a build
+  # has nothing to record.
+  [ "$ALLOW_OLDER" = 1 ] || echo "promote-channel: NEXT, once the deploy serves $V: node tools/whats-new-pool.js build <the next cut's version> on a branch, merged to main. It records $V's highlights as shown; until it merges, the next cut stops at its What's New check (kosmos#7349)."
 fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."

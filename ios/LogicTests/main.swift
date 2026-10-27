@@ -1094,6 +1094,68 @@ do {
 section("native chat: what follows a new message down")
 do {
     func r(_ id: String, _ at: String?) -> Board.ChatRow { Board.ChatRow(id: id, atRaw: at, at: Board.isoDate(at), text: id, who: .agent) }
+    // kosmos#7265 (Josh 10-27): an open chat keeps the rows a read slides out of the latest window (carryDropped), and its
+    // eager stack starts where it started at opening (eagerStart), so nothing above the reader moves.
+    do {
+        func rows(_ ids: ClosedRange<Int>) -> [Board.ChatRow] { ids.map { r("m\($0)", nil) } }
+        let before = Board.Thread(rows: rows(10...14), olderCount: 10)   // m10..m14 at positions 10..14
+        let slid = Board.Thread(rows: rows(12...16), olderCount: 12)     // two new messages pushed m10, m11 out
+        let kept = Board.carryDropped(Board.Earlier(), previous: before, fresh: slid)
+        check(kept.open && kept.rows.map(\.id) == ["m10", "m11"] && kept.before == 10 && kept.end == 12,
+              "kosmos#7265: rows a read slid out are kept above the window (\(kept.rows.map(\.id)), \(kept.before)..<\(kept.end))")
+        check(Board.shownRows(kept, thread: slid).map(\.id) == (10...16).map { "m\($0)" }, "and the chat still shows every row it showed, in order")
+        check(!Board.hasGap(end: kept.end, olderCount: slid.olderCount), "with no gap left for a page to fetch")
+        // Open already (a page loaded up to the window): only the new part is added, never a duplicate.
+        var open = Board.Earlier(); open.open = true; open.rows = rows(5...9); open.before = 5; open.end = 10
+        let more = Board.carryDropped(open, previous: before, fresh: slid)
+        check(more.rows.map(\.id) == (5...11).map { "m\($0)" } && more.end == 12, "an open chat appends only what left: \(more.rows.map(\.id))")
+        // CONTROLS: reads that do not overlap by id, a window that did not slide, and a page in flight change nothing.
+        let other = Board.Thread(rows: [r("x1", nil), r("x2", nil)], olderCount: 12)
+        check(Board.carryDropped(Board.Earlier(), previous: before, fresh: other) == Board.Earlier(), "CONTROL: reads that do not overlap carry nothing")
+        check(Board.carryDropped(Board.Earlier(), previous: before, fresh: before) == Board.Earlier(), "CONTROL: an unchanged window carries nothing")
+        var loading = Board.Earlier(); loading.loading = true
+        check(Board.carryDropped(loading, previous: before, fresh: slid) == loading, "CONTROL: nothing is carried while a page is loading")
+        check(Board.carryDropped(Board.Earlier(), previous: nil, fresh: slid) == Board.Earlier(), "CONTROL: nothing before the first read")
+        // The eager stack keeps its first row as messages arrive: no row moves back to the lazy rows above the reader.
+        let items = Board.chatItems(rows(1...50), now: Date(), calendar: .current)
+        let from = items[Board.eagerStart(items, from: nil, eager: 40)].id
+        let grown = Board.chatItems(rows(1...53), now: Date(), calendar: .current)
+        check(grown[Board.eagerStart(grown, from: from, eager: 40)].id == from, "kosmos#7265: new messages leave the eager stack's first row where it was")
+        check(grown[Board.eagerStart(grown, from: nil, eager: 40)].id != from, "CONTROL: without the kept start the boundary moves with each new message")
+        check(Board.eagerStart(grown, from: "gone", eager: 40) == grown.count - 40, "a start no longer shown falls back to the last 40")
+    }
+    // kosmos#7346 review: with no send arrow, a Send that cannot go says why; nothing to send says nothing.
+    do {
+        let long = String(repeating: "word ", count: 2500)
+        check(Board.dmSendBlocked(said: long, files: 0, uploading: 0, dictating: false, finishing: false) == Board.tooLongLine, "kosmos#7346: a message over the board's limit says it is too long")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 0, dictating: false, finishing: false) == nil, "CONTROL: a message that can go has no reason")
+        check(Board.dmSendBlocked(said: "  ", files: 0, uploading: 0, dictating: false, finishing: false) == nil, "an empty box says nothing")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 0, dictating: true, finishing: false) == Board.sendStopDictating, "dictating says stop first")
+        check(Board.dmSendBlocked(said: "a.png", files: 1, uploading: 1, dictating: false, finishing: false) == Board.stillAddingLine, "a file on its way says so")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 1, dictating: false, finishing: false) == nil, "CONTROL: words alone go while another upload runs (no file of theirs waits)")
+        check(Board.roomPostBlocked(words: "@ann ", mentionOnly: true, read: true, files: 0, uploading: 0, dictating: false, finishing: false) == Board.roomOnlyMentionLine, "a room post of only the @name asks for words")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: false, files: 0, uploading: 0, dictating: false, finishing: false) == Board.roomNotReadLine, "a room not read yet says it is loading")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: Board.maxFiles + 1, uploading: 0, dictating: false, finishing: false) != nil, "too many files says so")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: 1, uploading: 0, dictating: false, finishing: false) == nil, "CONTROL: a room post that can go has no reason")
+        check(Board.roomPostBlocked(words: "", mentionOnly: false, read: false, files: 0, uploading: 0, dictating: false, finishing: false) == nil, "an empty room box says nothing")
+        check(Board.dmSendBlocked(said: long, files: 1, uploading: 1, dictating: true, finishing: true) == Board.sendWaitWords, "the last words landing comes first, before every other reason")
+        check(Board.roomPostBlocked(words: "hi", mentionOnly: true, read: false, files: 1, uploading: 1, dictating: true, finishing: true) == Board.sendWaitWords, "and in a room")
+        check(Board.roomPostBlocked(words: "hi", mentionOnly: true, read: false, files: 1, uploading: 1, dictating: true, finishing: false) == Board.sendStopDictating, "then dictating")
+    }
+    // kosmos#7348 (Josh 10-27): the sent text filling back into the box just after a send is caught; anything else is not.
+    do {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let sent = "Let's add a little margin inside the bubbles"
+        check(Board.refilledWithSent(sent, was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348: the sent text back in the box a second later is caught")
+        check(Board.refilledWithSent(sent + " ", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(4)), "and with a trailing space, as dictation leaves it")
+        check(!Board.refilledWithSent(sent, was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(6)), "CONTROL: after the window it is the person typing it again")
+        check(!Board.refilledWithSent("Let's add a little", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: different words are the person's")
+        check(!Board.refilledWithSent("", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: an empty box is not a refill")
+        check(!Board.refilledWithSent(sent, was: "", sent: nil, sentAt: nil, now: t0), "CONTROL: nothing sent, nothing to catch")
+        // Review: typing a longer word that begins with the sent text passes through it one letter at a time.
+        check(!Board.refilledWithSent("ok", was: "o", sent: "ok", sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348 review: typing through the sent text is not a refill")
+        check(Board.refilledWithSent("ok", was: "", sent: "ok", sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: the same text from an empty box in one change is")
+    }
     let before = Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)
     let shifted = Board.Thread(rows: [r("b", "T2"), r("c", "T3")], olderCount: 6)
     check(Board.followKey(before) != Board.followKey(shifted), "at the Mac's 200-row cap the count stays the same, and the key still moves")
@@ -3631,6 +3693,41 @@ do {
     check(SignIn.startBody(email: "a@b.co", deviceID: key.id, deviceName: "n").count == 3, "start sends the email, the id and the name only")
 }
 
+section("sign-in: the App Store review door (kosmos#7357)")
+do {
+    check(SignIn.reviewDoorOpen(status: 405) == true, "open: the door takes POST only, so a GET answers 405 (kosmos-relay review.rs)")
+    check(SignIn.reviewDoorOpen(status: 404) == false, "closed: it answers like a path that does not exist")
+    check(SignIn.reviewDoorOpen(status: 200) == nil && SignIn.reviewDoorOpen(status: 429) == nil && SignIn.reviewDoorOpen(status: 503) == nil,
+          "CONTROL: any other answer is not read as open (no password sign-in on a guess)")
+    let body = SignIn.reviewBody(email: "review@example.com", password: "p", deviceName: "iPhone")
+    check(body.count == 3 && body["email"] as? String == "review@example.com" && body["password"] as? String == "p"
+          && body["device_name"] as? String == "iPhone", "the review sign-in sends the email, the password and the name only")
+    check(body["device_id"] == nil, "and no device id: the server makes its own review device")
+    check(SignIn.reviewPath == "/v1/signin/review", "the door's path")
+    // Its answer is verify's: a session that waits for the computer's Allow, and the server's device id is ignored.
+    let admitted = SignIn.answer(status: 200, json: ["token": "t", "device_status": "pending", "match_code": "K7Q2",
+                                                     "addresses": ["a"], "device_id": "review-1"] as [String: Any])
+    check(admitted == .signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "K7Q2", hasComputer: true)),
+          "an admitted review sign-in waits for the review computer's Allow, as any sign-in does")
+    // Review 1: a refusal stays on the password step (never the code step: no code was sent), a 404 is the door closed.
+    // The server's real bodies (kosmos-relay review.rs REFUSED, ratelimit::code_sends_refused).
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"]) == .refused("That email and password do not match."),
+          "a wrong password stays on the password step, in Kosmos+'s words as a sentence")
+    check(SignIn.reviewAnswer(status: 429, json: ["error": "too many codes asked for from this network; wait a moment and try again", "retry_after_secs": 20] as [String: Any]) == .refused(SignIn.reviewTooMany),
+          "review 3: the door's rate limit says wait, never the code limiter's words about codes")
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "this account is being deleted"]) == .refused("This account is being deleted."),
+          "CONTROL: a 401 that is not about the password keeps its own sentence")
+    check(SignIn.sentence("Done already.") == "Done already." && SignIn.sentence("") == "", "a sentence that already ends is left as it is")
+    check(SignIn.reviewAnswer(status: 403, json: ["error": "this account signs in through its company"]) == .refused("This account signs in through its company."),
+          "and so does any other refusal")
+    check(SignIn.reviewAnswer(status: 503, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer) && SignIn.reviewAnswer(status: 400, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer),
+          "and a server error or a bad request says try again")
+    check(SignIn.reviewAnswer(status: 401, json: [:] as [String: Any]) == .refused(SignIn.reviewRefused), "with no sentence from Kosmos+, the phone's own")
+    check(SignIn.reviewAnswer(status: 404, json: nil) == .closed, "a 404 is the door closed since the link showed")
+    check(SignIn.reviewAnswer(status: 200, json: ["token": "t", "device_status": "pending"] as [String: Any]) == .answered(.signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: nil, hasComputer: false))),
+          "an admitted sign-in goes on to the Allow")
+}
+
 section("sign-in: what was typed")
 for (e, ok) in [("ada@example.com", true), ("  ada@example.com ", true), ("ada@example", false), ("ada example.com", false), ("@example.com", false), ("ada@@example.com", false), ("ada@.com", false), ("ada@example.", false), ("", false)] {
     check(SignIn.looksLikeEmail(e) == ok, "\(e.isEmpty ? "(empty)" : e): \(ok ? "an email" : "not an email")")
@@ -3844,6 +3941,77 @@ do {
     let boardPage = (try? String(contentsOf: page, encoding: .utf8)) ?? ""
     check(boardPage.contains("const NEARLY_FULL = 80;") && boardPage.contains("const WARM = 60;"),
           "the board's bands are still 60 and 80 (read from web/index.html)")
+    // kosmos#7341: the avatar dot's presence table is the board's CARD_ST pres, state for state (read from web/index.html).
+    do {
+        var board: [String: Board.Presence] = [:]
+        if let start = boardPage.range(of: "const CARD_ST = {"), let end = boardPage.range(of: "\n};", range: start.upperBound..<boardPage.endIndex) {
+            let block = String(boardPage[start.upperBound..<end.lowerBound])
+            let rx = try! NSRegularExpression(pattern: #"^\s*([a-z_]+):\s*\{[^}]*pres:\s*'(on|off|unsure)'"#, options: [.anchorsMatchLines])
+            for m in rx.matches(in: block, range: NSRange(block.startIndex..., in: block)) {
+                let key = String(block[Range(m.range(at: 1), in: block)!]), pres = String(block[Range(m.range(at: 2), in: block)!])
+                board[key] = pres == "on" ? .on : pres == "off" ? .off : .unsure
+            }
+        }
+        check(board.count >= 10, "kosmos#7341: the board's CARD_ST was read (\(board.count) states)")
+        check(board == Board.presenceOf, "kosmos#7341: the phone's presence table is the board's CARD_ST pres for every state")
+        func a(_ state: String, running: Bool = true, trust: Bool = false, failed: Bool = false) -> Board.Agent {
+            var x = Board.Agent(session: "s", name: "S", role: nil, state: state, task: nil, needsYou: false)
+            x.running = running; x.needsTrust = trust; x.restartFailed = failed
+            return x
+        }
+        check(Board.presence(a("idle")) == .on && Board.presence(a("working")) == .on && Board.presence(a("needs_you")) == .on,
+              "kosmos#7341: idle, working and stuck agents that run are green (Josh: every agent looked red or grey)")
+        check(Board.presence(a("stopped")) == .off, "a stopped agent is grey")
+        check(Board.presence(a("working", running: false)) == .off, "an agent not running is grey whatever its last state")
+        check(Board.presence(a("restarting", running: false)) == .on, "CONTROL: except while restarting")
+        check(Board.presence(a("idle", trust: true)) == .unsure, "an agent waiting on a trust prompt is hollow, never green")
+        check(Board.presence(a("idle", running: false, trust: true)) == .unsure, "and the trust prompt comes before not running")
+        check(Board.presence(a("needs_you", failed: true)) == .off, "a failed restart is grey (the board's CARD_ST_FAILED_RESTART)")
+        check(Board.presence(a("working", failed: true)) == .on, "CONTROL: only on needs_you, as the board")
+        check(Board.presence(a("unknown")) == .unsure && Board.presence(a("something_new")) == .unsure,
+              "unknown, and a state the phone does not know, are hollow")
+        let parsed = Board.parseAgents(Data(#"{"agents":[{"sessionName":"f","state":"needs_you","disruption":{"failed":true}}]}"#.utf8))
+        check(parsed?.first?.restartFailed == true, "kosmos#7341: disruption.failed is read from /api/status")
+        // kosmos#7342: a pill only when there is something to see; its colour follows the state the word comes from.
+        func q(_ x: Board.Agent, _ f: (inout Board.Agent) -> Void) -> Board.Agent { var y = x; f(&y); return y }
+        check(Board.pill(a("idle")) == nil, "kosmos#7342: Idle shows no pill (Josh: no pill means all is well)")
+        check(Board.pill(a("working")) == .working, "working is the green pill with the Sweep")
+        check(Board.pill(q(a("needs_you")) { $0.reportedByAgent = true }) == .asks, "an agent's question is blue")
+        check(Board.pill(q(a("needs_you")) { $0.awaitingApproval = true }) == .asks, "a permission waiting is blue")
+        check(Board.pill(a("needs_you")) == .problem, "CONTROL: a plain needs_you (the board's Issue) is a real problem, red")
+        check(Board.pill(a("idle", running: false, trust: true)) == .asks, "a trust prompt is the person's to answer: blue")
+        check(Board.pill(a("rate_limited")) == .held && Board.pill(a("blocked")) == .held && Board.pill(a("restarting", running: false)) == .held,
+              "rate limited, waiting and restarting are amber: held by something outside the agent")
+        check(Board.pill(a("idle", running: false)) == .problem && Board.pill(a("stopped")) == .problem, "not running is red")
+        check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
+        check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
+        check(Board.pill(a("unknown")) == .cantTell && Board.pill(a("something_new")) == .cantTell, "unknown and unrecognised states are grey")
+        check(Board.presenceWords(.off, word: "Issue") == "not running", "review: a grey dot beside another word is spoken")
+        check(Board.presenceWords(.off, word: "Not running") == nil, "CONTROL: not said twice when the word says it")
+        check(Board.presenceWords(.unsure, word: "Idle") != nil && Board.presenceWords(.on, word: "Idle") == nil, "a hollow dot is spoken; a green one adds nothing")
+        // Review: the pill is never calmer than what the board counts as needing the person.
+        func needing(_ s: String) -> Board.Agent { Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: true) }
+        check(Board.pill(needing("connection_lost")) == .problem, "review: a reconnect that gave up is red, not amber")
+        check(Board.pill(a("connection_lost")) == .held, "CONTROL: a connection still being retried stays amber")
+        check(Board.pill(needing("rate_limited")) == .problem, "review: a rate limit stuck on its error is red")
+        check(Board.pill(needing("idle")) == .problem, "review: an idle agent whose helper gave up shows a red pill, not none")
+        check(Board.pill(q(a("working")) { $0.macWord = "Messages stuck"; $0.macTone = .needsYou }) == .problem,
+              "review: a word the Mac counts as needs you (Messages stuck) is red, not a green Working pill")
+        check(Board.pill(q(a("unknown")) { $0.macWord = "Can't tell"; $0.macTone = .needsYou }) == .cantTell,
+              "review: Can't tell stays grey though the Mac's tone for it is needs you")
+        check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true; $0.macWord = "Can't tell"; $0.macTone = .needsYou }) == .cantTell,
+              "review: and so does a job Kosmos cannot see, as a current Mac sends it")
+        check(Board.pill(q(a("rate_limited")) { $0.macTone = .needsYou }) == .held, "CONTROL: the Mac's needs-you tone leaves a held state amber")
+        check(Board.pill(q(needing("needs_you")) { $0.reportedByAgent = true }) == .asks,
+              "CONTROL: an agent's question stays blue though the board counts it as needing the person")
+        // kosmos#7343: the Agents list's order, its own or by name (ties keep the list's order).
+        let ord = [Board.Agent(session: "b", name: "bea", role: nil, state: "idle", task: nil, needsYou: false),
+                   Board.Agent(session: "a", name: "Al", role: nil, state: "idle", task: nil, needsYou: false),
+                   Board.Agent(session: "c", name: "al", role: nil, state: "idle", task: nil, needsYou: false)]
+        check(Board.agentOrder(ord, byName: false).map(\.session) == ["b", "a", "c"], "kosmos#7343: Needs you first keeps the computer's order")
+        check(Board.agentOrder(ord, byName: true).map(\.session) == ["a", "c", "b"], "Name sorts without case, ties in the computer's order")
+        check(abs(Board.sweepOpacity(0.24) - 1) < 0.001 && abs(Board.sweepOpacity(1.0) - 0.25) < 0.001, "the Sweep peaks at 20% of 1.2 s and rests after 70%")
+    }
 }
 
 await boardLoopTests()

@@ -22128,6 +22128,20 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const rec = messages.record();
+      /* kosmos#7365: each post's reaction rows, grouped ONCE per request (log order kept). reactionsFor and claimOf
+         each walk the rows they are given for this post's reaction events, so handing them the whole log made a read
+         O(posts x log): 76% of a 5,500-post room's read time. They see exactly the rows they keep, in the same order
+         (rowShaped makes every post id and reaction `of` a non-empty string, so String() keys them alike). Not grouped
+         by project: a reaction from another room on a shared post id counted before and still does. */
+      const reactionRowsOf = new Map();
+      for (const x of rec.rows) {
+        if (!x || x.kind !== 'reaction') continue;
+        const k = String(x.of);
+        let list = reactionRowsOf.get(k);
+        if (!list) { list = []; reactionRowsOf.set(k, list); }
+        list.push(x);
+      }
+      const NO_REACTIONS = [];
       let claimMembers;   // #6946: the room's members for claims, read once per request and only if a post has a 🙋
       let youClaimAt;     // #6974: post id -> when the person's live 🙋 on it was given (null once taken off), one pass per request
       const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
@@ -22169,7 +22183,9 @@ const server = http.createServer(async (req, res) => {
                  reactor whose own pills get marked (`mine`). Only attached when
                  there is at least one live reaction, so a post with none carries
                  no field (byte-identical to before for the common case). */
-              const reactions = messages.reactionsFor(m.id, rec.rows, 'you');
+              // kosmos#7365: this post's own reaction rows (NO_REACTIONS is shared: neither callee mutates its rows).
+              const own = reactionRowsOf.get(String(m.id)) || NO_REACTIONS;
+              const reactions = messages.reactionsFor(m.id, own, 'you');
               return { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
                 text: m.text, at: m.at, outcomes: m.outcomes || {},
                 // #460: the only thing a renderer may style as quoted.
@@ -22192,7 +22208,7 @@ const server = http.createServer(async (req, res) => {
                 ...((() => {
                   if (!reactions.some((r) => messages.isClaimEmoji(r.emoji))) return {};
                   if (claimMembers === undefined) claimMembers = messages.claimMembers(roomRecord && roomRecord.agents);
-                  const c = messages.claimOf(m.id, rec.rows, claimMembers);
+                  const c = messages.claimOf(m.id, own, claimMembers);
                   if (!c) return {};
                   // #6957: whether the person's live 🙋 was given after this claim began (agrees with THIS holder).
                   if (youClaimAt === undefined) {
@@ -26170,6 +26186,8 @@ function start(port = PORT) {
       };
       /* #7212 slice 2: agents whose current delivery stall was already said, and when (deliverystreak.stallsToSay). */
       const stallSaid = new Map();
+      /* kosmos#7368: agents whose current stuck step was already said: name -> its clock and step, so each is said once. */
+      const turnSaid = new Map();
       /* #7212 slice 2: an agent no message has been seen to reach for half an hour, whatever the cause, is said once per
          stall and again each day it lasts. Agents gone from the board lose their streaks (not on an empty read). */
       const sayStalls = () => {
@@ -26184,7 +26202,10 @@ function start(port = PORT) {
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
           const shown = names.filter((n) => { const c = byName.get(n); return !!(c && c.deliveryStall); });
-          for (const st of ds.stallsToSay(shown, stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
+          /* kosmos#7368: each stuck step is said once (deliverystreak.turnsToSay); the streak lines keep their own rule. */
+          const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
+          for (const line of ds.turnsToSay(r, turnSaid)) process.stdout.write(line);
+          for (const st of ds.stallsToSay(shown.filter((n) => !isTurn(n)), stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
         } catch { /* said next minute */ }
       };
       const sweep = setInterval(() => {
@@ -26406,6 +26427,21 @@ function start(port = PORT) {
       });
       const stalereportSweep = setInterval(stalereportTick, Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (stalereportSweep && typeof stalereportSweep.unref === 'function') stalereportSweep.unref();
+      /* #7374: once a day, when today has no product-feedback report and sending is on, ONE idle agent (a Project
+         Manager or Director first) is asked to write it (engine/feedbacknudge.js, kept on disk). Same gating as the
+         sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_FEEDBACK_NUDGE_OFF=1, own timer, unref'd, best-effort. */
+      const FEEDBACKNUDGE_BOOK = new Map();
+      const feedbacknudgeTick = require('./engine/feedbacknudge').makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: FEEDBACKNUDGE_BOOK,
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`feedback-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+      });
+      const feedbacknudgeSweep = setInterval(feedbacknudgeTick, Number(process.env.AGENT_WORKFORCE_FEEDBACK_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_NUDGE_MS) : 10 * 60 * 1000); // the env is the test seam only
+      if (feedbacknudgeSweep && typeof feedbacknudgeSweep.unref === 'function') feedbacknudgeSweep.unref();
       /* #6209 part 2: an agent whose running summary is overdue while it has been working (projectview's freshness and
          rhythm; the work is the module's own workedSinceMs) is told ONCE per stale summary (kept on disk), typed into its session (engine/summarydue-nudge.js).
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
@@ -26967,7 +27003,11 @@ function start(port = PORT) {
           /* Review 5: nobody asked for this line (unlike the missed-run reviewer), so it waits for the Prompter like the
              reply nudge and the community turn: a person who turned the Prompter off gets no unprompted lines. */
           if (!allowed || heartbeatSetting.read().on !== true) return;
-          const rows = messages.readLog();
+          /* #7367: the rows with the stamps they were filtered by: read while the stamps were unknown, they hold a deleted
+             same-id project's posts, and the stamps can come back before owed() checks its own. */
+          const rec = messages.record();
+          if (rec.stampsUnknown) return;
+          const rows = rec.rows;
           const owed = holdstale.owed(projs, rows);
           if (!owed.length) return;
           const r = owed.some((x) => !x.swarmOff && x.members.includes(x.owner)) ? safeRoster() : null;

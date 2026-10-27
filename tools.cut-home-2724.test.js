@@ -54,8 +54,12 @@ function sandbox(prefix) {
 
 /* The env every arm runs under.
 
-   Two guards sit between the site check and the cut home and would otherwise stop
+   Three checks sit between the site check and the cut home and would otherwise stop
    every run here:
+
+   - the What's New check (kosmos#7349 runs step 1b-ii's checks before the cut marks
+     itself), which needs tools this sandbox does not copy: skipped with its own opt-out,
+     KOSMOS_CUT_NO_WHATS_NEW=1. tools/test-whats-new-early-7349.sh covers it.
 
    - the live-HARNESS refusal, bypassed with the script's own documented
      KOSMOS_CUT_IGNORE_HARNESS.
@@ -113,6 +117,7 @@ function envFor(dir, bin, extra) {
     if (k.startsWith('KOSMOS_') || k.startsWith('AGENT_WORKFORCE_')) delete env[k];
   }
   env.KOSMOS_CUT_IGNORE_HARNESS = '1';
+  env.KOSMOS_CUT_NO_WHATS_NEW = '1';   // kosmos#7349: see the comment above envFor
   env.KOSMOS_CUT_PROBE = path.join(dir, 'bin', 'no-cut-probe');
   env.KOSMOS_SITE = path.join(dir, 'site');
   /* Pinned rather than inherited: the cut guard refuses on EITHER the pgrep arm (which

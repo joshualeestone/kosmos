@@ -231,6 +231,8 @@ enum Board {
         var needsTrust = false
         var jobRunningUnseen = false
         var restartTimedOut = false
+        // kosmos#7341: a restart that failed (disruption.failed), which the board draws as stopped.
+        var restartFailed = false
         var hasAvatar = false
         var avatarVer = ""
         // #7004: the card's word and tone as the Mac sends them ready-made (cardWord, cardTone). nil from a Mac that
@@ -278,6 +280,7 @@ enum Board {
                          needsTrust: (row["needsTrust"] as? Bool) == true,
                          jobRunningUnseen: (row["jobRunningUnseen"] as? Bool) == true,
                          restartTimedOut: ((row["disruption"] as? [String: Any])?["timedOut"] as? Bool) == true,
+                         restartFailed: ((row["disruption"] as? [String: Any])?["failed"] as? Bool) == true,
                          hasAvatar: (row["hasAvatar"] as? Bool) == true,
                          avatarVer: (row["avatarVer"] as? NSNumber)?.stringValue ?? (row["avatarVer"] as? String) ?? "",
                          macWord: (row["cardWord"] as? String).flatMap { $0.isEmpty ? nil : $0 },
@@ -303,6 +306,60 @@ enum Board {
         "idle": "Idle", "restarting": "Restarting agent", "stopped": "Not running", "unknown": "Can't tell",
         "needs_trust": "Waiting on a trust prompt", "question": "Question", "approval": "Needs permission",
     ]
+
+    // kosmos#7342 (Josh 10-27, Mona Lisa's design): the Agents list's status is a small pill, only when there is
+    // something to see. Idle shows none. Green working, blue a question or a choice waiting for the person, amber held by
+    // something outside the agent, red only a real problem, grey when Kosmos cannot tell. The word is still the Mac's
+    // own (statusWord); the pill's colour comes from the same state the word does.
+    enum Pill: Equatable { case working, asks, held, problem, cantTell }
+    // Review: an agent the board counts as needing the person (needsPerson: a reconnect that gave up, a stuck error, a
+    // helper that gave up) is red whatever its state, unless it is asking; and when the Mac's own tone says needs you
+    // (a word the phone does not map, such as Messages stuck), a pill that would be Working or missing is red too.
+    // Grey stays grey (the Mac counts Can't tell as needs you; the design keeps it grey).
+    // So a Working pill or no pill never hides what the board counts as needing the person.
+    static func pill(_ a: Agent) -> Pill? {
+        let p = statePill(a)
+        if p == .asks { return p }
+        if a.needsYou { return .problem }
+        if a.macTone == .needsYou && (p == nil || p == .working) { return .problem }
+        return p
+    }
+    private static func statePill(_ a: Agent) -> Pill? {
+        if !a.running && a.state != "restarting" {
+            if a.needsTrust { return .asks }
+            return a.jobRunningUnseen ? .cantTell : .problem
+        }
+        if a.crashLooping || a.restartFailed { return .problem }
+        switch a.state {
+        case "idle": return nil
+        case "working": return .working
+        case "needs_you": return a.reportedByAgent || a.awaitingApproval ? .asks : .problem
+        case "question", "approval", "needs_trust": return .asks
+        case "rate_limited", "blocked", "connection_lost", "restarting": return .held
+        case "auth_failed", "stopped": return .problem
+        default: return .cantTell
+        }
+    }
+
+    // kosmos#7342: the Working pill's Sweep, the phone's own three-dot take on the board's sweepLite: over 1.2 s, up to
+    // full at 20%, back to a quarter by 70%, resting there after.
+    static func sweepOpacity(_ t: Double) -> Double {
+        let f = (t.truncatingRemainder(dividingBy: 1.2) + 1.2).truncatingRemainder(dividingBy: 1.2) / 1.2
+        if f < 0.2 { return 0.25 + 0.75 * f / 0.2 }
+        if f < 0.7 { return 1 - 0.75 * (f - 0.2) / 0.5 }
+        return 0.25
+    }
+
+    // kosmos#7343: the Agents list's order: the list's own (starred agents, then needs you first, Board.sorted), or by name.
+    enum AgentSort: String, CaseIterable { case board, name }
+    static func agentSortLabel(_ s: AgentSort) -> String { s == .board ? "Needs you first" : "Name" }
+    static func agentOrder(_ list: [Agent], byName: Bool) -> [Agent] {
+        guard byName else { return list }
+        return list.enumerated().sorted { l, r in
+            let c = l.element.name.localizedCaseInsensitiveCompare(r.element.name)
+            return c == .orderedSame ? l.offset < r.offset : c == .orderedAscending
+        }.map(\.element)
+    }
 
     static func statusWord(_ agent: Agent) -> String {
         if let word = agent.macWord { return word }
@@ -332,6 +389,32 @@ enum Board {
 
     // Mona Lisa's slice 1 spec (kosmos#6838): each status word has a tone, which sets the dot and the word's colour.
     enum Tone: Equatable { case needsYou, asked, working, quiet }
+
+    // kosmos#7341 (Josh 10-27): the avatar's dot says one thing, whether the agent is there: green while it runs, grey
+    // when stopped, hollow when Kosmos cannot tell. Its work state is the word beside it. The board's memberDotClass
+    // (web/index.html) with CARD_ST's pres, in its order: a trust prompt is unsure; not running (unless restarting) is
+    // off; then the state's own presence, where a failed restart is off (the grid card's cardStOf presence; the
+    // member dot alone would keep it green) and a state the phone does not know is unsure.
+    enum Presence: Equatable { case on, off, unsure }
+    static let presenceOf: [String: Presence] = [
+        "working": .on, "needs_you": .on, "question": .on, "rate_limited": .on, "auth_failed": .on,
+        "connection_lost": .on, "blocked": .on, "idle": .on, "restarting": .on,
+        "stopped": .off, "unknown": .unsure, "needs_trust": .unsure,
+    ]
+    static func presence(_ a: Agent) -> Presence {
+        if a.needsTrust || a.state == "needs_trust" { return .unsure }
+        if !a.running && a.state != "restarting" { return .off }
+        if a.state == "needs_you" && a.restartFailed { return .off }   // the board's CARD_ST_FAILED_RESTART
+        return presenceOf[a.state] ?? .unsure
+    }
+    // Review: the dot is colour (and fill) only, so VoiceOver hears what it says when the status word does not already.
+    static func presenceWords(_ p: Presence, word: String) -> String? {
+        switch p {
+        case .on: return nil
+        case .off: return word == "Not running" ? nil : "not running"
+        case .unsure: return word == "Can't tell" ? nil : "Kosmos can't tell if it is running"
+        }
+    }
 
     // The Mac's cardTone (engine/cardlabel.js toneOf). A name the phone does not know is nil, and the phone's own rule
     // decides, so a tone the Mac adds later never shows as something it is not.
@@ -558,6 +641,33 @@ enum Board {
     static func fitsBoard(_ text: String) -> Bool {
         let said = sameWords(text)
         return !said.isEmpty && said.utf16.count <= maxMessage
+    }
+
+    // kosmos#7346 review: with no send arrow to grey out, a Send key that cannot send says why. Nil when nothing stops
+    // it, or when there is nothing to send (an empty box says nothing). `said` is sendWords: the words, or the files' names.
+    static let tooLongLine = "This message is too long to send. Shorten it or send it in two."
+    static let sendWaitWords = "Waiting for the last words."
+    static let sendStopDictating = "Stop dictating first."
+    static func dmSendBlocked(said: String, files: Int, uploading: Int, dictating: Bool, finishing: Bool) -> String? {
+        guard !sameWords(said).isEmpty else { return nil }
+        if finishing { return sendWaitWords }
+        if dictating { return sendStopDictating }
+        if files > 0 && uploading > 0 { return stillAddingLine }
+        if !fitsBoard(said) { return tooLongLine }
+        return nil
+    }
+    static let roomNotReadLine = "The room is still loading. Try again in a moment."
+    static let roomOnlyMentionLine = "Add your words after the @name."
+    static func roomPostBlocked(words: String, mentionOnly: Bool, read: Bool, files: Int, uploading: Int,
+                                dictating: Bool, finishing: Bool) -> String? {
+        guard !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if finishing { return sendWaitWords }
+        if dictating { return sendStopDictating }
+        if files > 0 && uploading > 0 { return stillAddingLine }
+        if !read { return roomNotReadLine }
+        if mentionOnly { return roomOnlyMentionLine }
+        if files > maxFiles { return uploadRefusal(size: nil, waiting: maxFiles) }
+        return nil
     }
 
     // A message's words with every run of whitespace one space and the ends trimmed: how the board compares and counts
@@ -1601,6 +1711,52 @@ enum Board {
 
     // What the chat draws: the earlier rows, then the latest read's.
     static func shownRows(_ e: Earlier, thread: Thread) -> [ChatRow] { e.open ? e.rows + thread.rows : thread.rows }
+
+    // kosmos#7265 (Josh 10-27): a read that slid the latest window (a new message pushes the oldest out) took those rows
+    // off the top of an open chat, and a scroll view keeps its offset, so the conversation the person was reading jumped.
+    // The rows that left are kept in the loaded earlier rows from the previous read itself: only when the two reads
+    // overlap by id (the fresh window's first row is the previous one's row at the same position), and not while a page
+    // or a gap fill is in flight (they write the same rows). Otherwise unchanged, and fillGap fetches them as before.
+    static func carryDropped(_ e: Earlier, previous: Thread?, fresh: Thread) -> Earlier {
+        guard let previous, !e.loading, !e.filling else { return e }
+        let shift = fresh.olderCount - previous.olderCount
+        guard shift > 0, shift < previous.rows.count, let first = fresh.rows.first, previous.rows[shift].id == first.id else { return e }
+        let dropped = Array(previous.rows[..<shift])   // positions previous.olderCount ..< fresh.olderCount
+        var next = e
+        if !e.open {
+            next.open = true
+            next.rows = dropped
+            next.before = previous.olderCount
+            next.end = fresh.olderCount
+            return next
+        }
+        // Open: only what lies at or after the loaded rows' end, and only when they reach the previous window.
+        guard e.end >= previous.olderCount, e.end < fresh.olderCount else { return e }
+        let known = Set(e.rows.map(\.id))
+        next.rows = e.rows + dropped[(e.end - previous.olderCount)...].filter { !known.contains($0.id) }
+        next.end = fresh.olderCount
+        return next
+    }
+
+    // kosmos#7348 (Josh 10-27): the box filled back with exactly the text just sent, within a few seconds of the send (the
+    // keyboard's dictation or Writing Tools finishing after the box was cleared): one more tap would post it twice.
+    static let sentRefillWindow: TimeInterval = 5
+    // Only a jump from an empty box straight to the whole text (review: typing "okay" after sending "ok" passes through
+    // "ok" one letter at a time and must not be wiped).
+    static func refilledWithSent(_ box: String, was: String, sent: String?, sentAt: Date?, now: Date) -> Bool {
+        guard was.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard let sent, let sentAt, now.timeIntervalSince(sentAt) <= sentRefillWindow else { return false }
+        let b = box.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !b.isEmpty && b == sent.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // kosmos#7265: where the eager newest rows begin, kept by the row's id from the chat's opening, so a new message
+    // never moves a row from the eager stack back to the lazy rows above the reader (its height would be estimated
+    // again and the conversation jump). `from` nil, or a row no longer shown: the last `eager` rows, as at opening.
+    static func eagerStart(_ items: [ChatItem], from: String?, eager: Int) -> Int {
+        if let from, let at = items.firstIndex(where: { $0.id == from }) { return at }
+        return max(0, items.count - eager)
+    }
 
     // A read of the conversation: the conversation, the Mac's own reason it could not give one (a name it refuses, a
     // history it could not read), or no answer at all.

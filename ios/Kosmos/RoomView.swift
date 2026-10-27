@@ -16,6 +16,10 @@ struct RoomView: View {
     let openPage: (URL) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
+    // kosmos#7348: the box's text at the last post and when, so the box filling back with it is cleared again (as the chat).
+    @State private var lastSent: (text: String, at: Date)?
+    // kosmos#7346 review: the reason a Send could not post, and the box text it was about; any other text clears it.
+    @State private var blocked: (text: String, note: String)?
     @State private var replying: Board.RoomRow?
     // The @name the last Reply put at the front of the box, so the next Reply swaps it and Post refuses it alone.
     @State private var replyMention: String?
@@ -304,6 +308,7 @@ struct RoomView: View {
     private func takeReturned() {
         guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, replying == nil,
               let back = store.takeReturned(project.id) else { return }
+        lastSent = nil   // kosmos#7348: a refused post's words come back on purpose
         draft = back.text
         replying = back.replyTo
     }
@@ -864,12 +869,14 @@ struct RoomView: View {
     // Words to post: not empty, and not only the @name Reply put there. Files alone count, as their names (kosmos#7093,
     // the board's pjPostSend), once none is still on its way, so a post never leaves one behind.
     private var postWords: String { Board.roomPostWords(draft, files: attachedHere, replyMention: replyMention) }
-    private var canPost: Bool {
-        // Not before the room's first read: with nothing read, an older post with the same words could settle it.
-        // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then post.
-        !dictation.busy && store.rows[project.id] != nil && !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !Board.isOnlyMention(postWords, mention: replyMention) && (attachedHere.isEmpty || uploadingHere == 0)
-            && attachedHere.count <= Board.maxFiles
+    // Not before the room's first read: with nothing read, an older post with the same words could settle it.
+    // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then post. Read from the same
+    // rule that says why (roomPostBlocked), so a Send that cannot post always has a reason to show.
+    private var canPost: Bool { !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && postBlocked == nil }
+    private var postBlocked: String? {
+        Board.roomPostBlocked(words: postWords, mentionOnly: Board.isOnlyMention(postWords, mention: replyMention),
+                              read: store.rows[project.id] != nil, files: attachedHere.count, uploading: uploadingHere,
+                              dictating: dictation.busy, finishing: dictation.finishing)
     }
 
     // MARK: Adding files (kosmos#7093: the board's + on the room's composer, through the chat's upload, #7071)
@@ -892,12 +899,10 @@ struct RoomView: View {
             Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
                 .disabled(atFileLimit)
         } label: {
+            // kosmos#7346: a plain + inside the box, a 44 pt target.
             Image(systemName: "plus")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(Palette.primary)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Palette.card))
-                .overlay(Circle().stroke(Palette.separator, lineWidth: 0.5))
+                .font(.system(size: 19, weight: .regular))
+                .foregroundColor(Palette.secondary)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
@@ -970,26 +975,29 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
             }
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }
-            HStack(alignment: .bottom, spacing: 8) {
+            // kosmos#7346 (Josh 10-27, Mona Lisa's design): one floating box, + then the text then emoji and mic, and no
+            // Post arrow: the keyboard's Send key posts (typedReturn). The chat's box, in the room's own column.
+            HStack(alignment: .bottom, spacing: 0) {
                 addButton
                 // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end (the board's
                 // .emojibtn sits inside its input); the box's text runs up to them.
                 HStack(alignment: .bottom, spacing: 0) {
-                    CursorField(placeholder: "Write something or @name to message someone…", text: $draft, focus: $typing, insert: $emojiInsert)
-                        .lineLimit(1...5)
+                    CursorField(placeholder: "Message \(project.name)", text: $draft, focus: $typing, insert: $emojiInsert)
+                        .lineLimit(1...6)
+                        .submitLabel(.send)
                         .accessibilityFocused($composerFocused)
                         .accessibilityLabel("Post to everyone on this project")
-                        .padding(.vertical, 10).padding(.leading, 14)
+                        // With no Post arrow on screen, VoiceOver gets Post as an action on the box itself.
+                        .accessibilityAction(named: "Post") { postOrSayWhy() }
+                        .padding(.vertical, 13).padding(.leading, 2)
                     ComposerEmojiButton(open: emojiOpen) {
                         if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
                     }
                     ComposerMicButton(dictation: dictation) {
                         dictation.toggle(base: draft, current: { draft }) { draft = $0 }
                     }
-                    .padding(.trailing, 2)
+                    .padding(.trailing, 4)
                 }
-                    .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
-                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator))
                     .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
                     // VoiceOver hears the list open, once, not on every letter (the board's aria-activedescendant has
                     // no iOS form; review 1), queued behind the key echo (review 2).
@@ -997,16 +1005,12 @@ struct RoomView: View {
                         if closed { mentionRowsHeight = 0 }   // each open starts from its own estimate (review 3)
                         if !closed, let n = mentionOptions?.count { Self.say(Board.mentionOpened(n)) }
                     }
-                Button { send() } label: {
-                    Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundColor(Palette.sendGlyph)
-                        .frame(width: 44, height: 44).background(Circle().fill(Palette.sendFill))
-                }
-                .disabled(!canPost)
-                .opacity(canPost ? 1 : 0.5)
-                .accessibilityLabel("Post")
-                .accessibilityHint(dictation.finishing ? "Waiting for the last words" : dictation.busy ? "Stop dictating first" : "")   // kosmos#7268 review 5: why it waits
             }
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(minHeight: 48)
+            .background(RoundedRectangle(cornerRadius: 24).fill(Palette.card)
+                .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 3))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Palette.separator, lineWidth: 0.5))
+            .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
             if let line = ComposerExtras.micLine(dictation.state) {
                 Text(line).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 6)
@@ -1028,7 +1032,30 @@ struct RoomView: View {
         // Leaving the room lets go of the microphone and closes the panel (the board's: the panel belongs to the composer
         // being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
-        .onChange(of: draft) { dictation.boxChanged(to: $0) }
+        .onChange(of: draft) { [was = draft] now in
+            // kosmos#7346: the keyboard's Send key arrives as a lone new line: take it out, and post if there is something
+            // to post (canPost: as the arrow was, not while dictation finishes or a file is on its way).
+            if let without = ComposerExtras.typedReturn(was: was, now: now) {
+                draft = without
+                // With the @name list open, Send picks its first name, as Enter does on the board, rather than posting a
+                // half-typed name.
+                if let first = mentionOptions?.first, let text = Board.mentionPick(draft, key: first.session) { draft = text; return }
+                postOrSayWhy()
+                return
+            }
+            // The person changed what Send was refused for: the reason no longer applies to it.
+            if let b = blocked, now != b.text {
+                if client.attachLine[attachKey] == b.note { client.attachLine[attachKey] = nil }
+                blocked = nil
+            }
+            // kosmos#7348: the posted text came back into the box (the keyboard's dictation or Writing Tools finishing late).
+            if Board.refilledWithSent(now, was: was, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) {
+                draft = ""
+                takeReturned()   // review: a refused post's words that arrived in the same pass are taken now
+                return
+            }
+            dictation.boxChanged(to: now)
+        }
         // Each picker on a host of its own, as the chat's (two presentations on one view can leave one that never opens).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
                                              maxSelectionCount: max(1, Board.maxFiles - countedFiles),
@@ -1113,6 +1140,13 @@ struct RoomView: View {
         .accessibilityHint("Puts @" + m.session + " in your post")
     }
 
+    // kosmos#7346 review: with no arrow to grey out, a Send that cannot post says why, to VoiceOver and on screen, until
+    // the box changes.
+    private func postOrSayWhy() {
+        if canPost { send(); return }
+        if let why = postBlocked { client.attachLine[attachKey] = why; blocked = (draft, why); Self.say(why) }
+    }
+
     // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through
     // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
     private func send() {
@@ -1122,6 +1156,7 @@ struct RoomView: View {
         let reply = replying
         let files = attachedHere
         client.attachLine[attachKey] = nil
+        lastSent = (draft, Date())
         draft = ""; replying = nil; replyMention = nil
         if searching { sentWhileSearching = true }
         hiddenBySearch = false   // the post is the newest thing to say
@@ -1272,7 +1307,8 @@ struct RoomBubble: View {
                 .accessibilityLabel("Files: " + row.attachments.map(\.name).joined(separator: ", "))
             }
         }
-        .padding(.vertical, 8).padding(.horizontal, 12)
+        // kosmos#7347 (Josh 10-27, Mona Lisa): 10 pt by 14 pt around the words, the Mac board's proportion.
+        .padding(.vertical, 10).padding(.horizontal, 14)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
         // kosmos#7101: the board's .msg-flash, a gold-deep outline on the post a reply's header went to, fading out.
         // A 2 pt ring 2 pt out, as the board's outline-offset, its corners kept parallel to the bubble's (review 5).

@@ -1,0 +1,100 @@
+'use strict';
+/**
+ * kosmos#7352: App Store Connect refuses an upload (ITMS-91053) when the app uses a required-reason API that its
+ * privacy manifest (ios/Kosmos/PrivacyInfo.xcprivacy) does not declare. This reads the iPhone sources for each
+ * category's APIs and fails when one is used but the manifest does not name the category, so a new use is caught
+ * here rather than at upload.
+ *
+ *   node --test ios.privacy-manifest-7352.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const IOS = path.join(__dirname, 'ios');
+const MANIFEST = path.join(IOS, 'Kosmos', 'PrivacyInfo.xcprivacy');
+/* Apple's required-reason categories and the Swift spellings that use them. */
+const CATEGORIES = {
+  NSPrivacyAccessedAPICategoryUserDefaults: /UserDefaults\b|@AppStorage\b/,
+  NSPrivacyAccessedAPICategoryFileTimestamp: /\b(creationDate\w*|contentModificationDate\w*|contentAccessDate\w*|attributeModificationDate\w*|modificationDate\w*|fileModificationDate\w*|NSFileCreationDate|NSFileModificationDate|attributesOfItem|f?getattrlist\w*|st_mtime\w*|st_ctime\w*|st_atime\w*)\b|\b(f?stat|fstatat|lstat)\s*\(/,
+  NSPrivacyAccessedAPICategorySystemBootTime: /\b(systemUptime|mach_absolute_time|clock_gettime_nsec_np|CLOCK_UPTIME_RAW\w*|CLOCK_MONOTONIC_RAW\w*)\b/,
+  NSPrivacyAccessedAPICategoryDiskSpace: /\b(volumeAvailableCapacity\w*|volumeTotalCapacity\w*|systemFreeSize|systemSize|NSFileSystemFreeSize|NSFileSystemSize|f?statfs|f?statvfs|attributesOfFileSystem)\b/,
+  NSPrivacyAccessedAPICategoryActiveKeyboards: /\bactiveInputModes\b/,
+};
+
+function swiftFiles(dir) {
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) { if (e.name !== 'LogicTests' && !e.name.endsWith('.xcodeproj')) out.push(...swiftFiles(p)); }
+    else if (e.name.endsWith('.swift')) out.push(p);
+  }
+  return out;
+}
+
+/* Comments are removed first, so a comment naming an API is not a use of it. String literals are skipped over
+   (kept), so a "https://" inside one is not read as the start of a comment. */
+function code(file) {
+  const src = fs.readFileSync(file, 'utf8');
+  return src.replace(/"(?:\\.|[^"\\\n])*"|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => (m[0] === '"' ? m : ''));
+}
+
+/* A target's manifest without its XML comments, so a commented-out entry does not count as declared. A target with
+   no manifest reads as one declaring nothing. */
+function manifestText(file = MANIFEST) {
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, '') : '';
+}
+
+/* Apple checks each bundle's own manifest: the app, and the notification extension (KosmosNotice.appex). Each folder
+   is a synchronized group of its target, so its sources and its PrivacyInfo.xcprivacy go into that bundle. */
+const TARGETS = ['Kosmos', 'KosmosNotice'];
+
+test('kosmos#7352: every Swift folder under ios/ is a target checked here (a new extension cannot slip past)', () => {
+  const withSwift = fs.readdirSync(IOS, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== 'LogicTests' && !e.name.endsWith('.xcodeproj'))
+    .filter((e) => swiftFiles(path.join(IOS, e.name)).length > 0).map((e) => e.name).sort();
+  assert.deepEqual(withSwift, [...TARGETS].sort());
+});
+
+test('kosmos#7352: every required-reason API each target uses is declared in that target’s own privacy manifest', () => {
+  assert.ok(swiftFiles(path.join(IOS, 'Kosmos')).length > 20, 'the iPhone app sources were found');
+  for (const target of TARGETS) {
+    const file = path.join(IOS, target, 'PrivacyInfo.xcprivacy');
+    const manifest = manifestText(file);
+    const sources = swiftFiles(path.join(IOS, target)).map((f) => [f, code(f)]);
+    for (const [category, uses] of Object.entries(CATEGORIES)) {
+      const users = sources.filter(([, text]) => uses.test(text)).map(([f]) => path.relative(__dirname, f));
+      if (users.length) assert.ok(manifest.includes(`<string>${category}</string>`), `${category} is used (${users.join(', ')}) but not declared in ${path.relative(__dirname, file)}`);
+    }
+  }
+});
+
+test('kosmos#7352: UserDefaults is in use today, so the check is aimed at something real', () => {
+  const used = swiftFiles(IOS).some((f) => CATEGORIES.NSPrivacyAccessedAPICategoryUserDefaults.test(code(f)));
+  assert.ok(used, 'no UserDefaults use found: the category patterns may have stopped matching');
+});
+
+test('kosmos#7352: the UserDefaults reason is CA92.1 (this app only, no app-group suite)', () => {
+  const manifest = manifestText();
+  assert.match(manifest, /NSPrivacyAccessedAPICategoryUserDefaults<\/string>\s*<key>NSPrivacyAccessedAPITypeReasons<\/key>\s*<array>\s*<string>CA92\.1<\/string>/);
+  const suite = swiftFiles(IOS).filter((f) => /UserDefaults\(\s*suiteName/.test(code(f)));
+  assert.deepEqual(suite, [], 'an app-group UserDefaults suite needs reason 1C8F.1 added to the manifest');
+});
+
+test('kosmos#7352: the detector flags each spelling on the list, and ordinary words do not (a control)', () => {
+  const flagged = (s) => Object.entries(CATEGORIES).filter(([, r]) => r.test(s)).map(([c]) => c);
+  const uses = {
+    NSPrivacyAccessedAPICategoryUserDefaults: ['UserDefaults.standard', 'NSUserDefaults.standard', '@AppStorage("k")'],
+    NSPrivacyAccessedAPICategoryFileTimestamp: ['.contentModificationDateKey', '.creationDateKey', '.contentAccessDateKey', 'NSFileModificationDate', 'attributesOfItem(atPath: p)', 'stat(p, &s)', 'lstat(p, &s)', 'fgetattrlist(fd)', 's.st_mtimespec'],
+    NSPrivacyAccessedAPICategorySystemBootTime: ['ProcessInfo.processInfo.systemUptime', 'mach_absolute_time()', 'clock_gettime_nsec_np(CLOCK_UPTIME_RAW)'],
+    NSPrivacyAccessedAPICategoryDiskSpace: ['.volumeAvailableCapacityForImportantUsageKey', '.volumeTotalCapacityKey', 'NSFileSystemFreeSize', 'statvfs(p, &s)', 'fstatfs(fd, &s)'],
+    NSPrivacyAccessedAPICategoryActiveKeyboards: ['UITextInputMode.activeInputModes'],
+  };
+  for (const [category, samples] of Object.entries(uses)) {
+    for (const s of samples) assert.ok(flagged(s).includes(category), `${s} is not flagged as ${category}`);
+  }
+  for (const s of ['let stat = 3', 'stats.count', 'status', 'statusBar', 'stateful', '.fileSizeKey', 'Date()']) {
+    assert.deepEqual(flagged(s), [], `${s} is flagged but is not a required-reason API`);
+  }
+});

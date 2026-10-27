@@ -39,7 +39,7 @@ final class SignInModel: ObservableObject {
     init(client: SignInClient?) {
         self.client = client
         #if DEBUG
-        // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error|company|companyerror|passkey|passkeyerror.
+        // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error|company|companyerror|passkey|passkeyerror|review|password.
         if let sample = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] { show(sample: sample); return }
         #endif
     }
@@ -57,6 +57,46 @@ final class SignInModel: ObservableObject {
         case .offer?: passkeys = true
         case .off?: passkeys = false
         case .unusable?, nil: passkeys = false; passkeysAsked = false
+        }
+    }
+
+    /// kosmos#7357: the App Store review door is open (asked when the email step shows, like passkeys). Closed, which is
+    /// always outside a review window, nobody sees a password sign-in at all.
+    @Published private(set) var reviewDoor = false
+    private var reviewAsked = false
+    @Published var password = ""
+
+    func checkReviewDoor() async {
+        guard let client, !reviewAsked else { return }
+        reviewAsked = true
+        let gen = passkeysGen
+        let open = await client.reviewDoorOpen()
+        guard gen == passkeysGen else { return }   // signed out meanwhile: restart() asks again
+        if let open { reviewDoor = open } else { reviewDoor = false; reviewAsked = false }
+    }
+
+    func usePassword() { guard !busy else { return }; error = nil; password = ""; step = .password }
+
+    func passwordSignIn() {
+        guard !busy, case .password = step else { return }
+        let typed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard SignIn.looksLikeEmail(typed) else { error = "That does not look like an email address."; return }
+        guard !password.isEmpty else { error = "Enter the password."; return }
+        guard let client else { return }
+        attempt += 1; let mine = attempt
+        busy = true; error = nil
+        let secret = password
+        Task {
+            defer { if mine == attempt { busy = false } }
+            do {
+                let answer = try await client.reviewSignIn(email: typed, password: secret)
+                guard mine == attempt else { return }
+                switch answer {
+                case .closed: reviewDoor = false; reviewAsked = false; password = ""; step = .email; error = SignIn.reviewClosed
+                case .refused(let sentence): error = sentence   // stays here: no code was sent
+                case .answered(let signedIn): password = ""; take(signedIn, email: typed)
+                }
+            } catch { if mine == attempt { fail(error) } }
         }
     }
 
@@ -211,6 +251,7 @@ final class SignInModel: ObservableObject {
     func appReturned() {
         guard case .email = step else { return }
         Task { await checkPasskeys() }
+        Task { await checkReviewDoor() }   // kosmos#7357: an answer missed before (offline, a 429) is asked again too
     }
 
     /// kosmos#7050 slice C: sign in with a passkey, in Apple's passkey sheet. The grant finish brings back is spent at
@@ -266,7 +307,7 @@ final class SignInModel: ObservableObject {
 
     func differentEmail() {
         client?.cancelPasskey()   // a passkey sheet still open is closed, never left waiting
-        attempt += 1; busy = false; watch?.cancel(); code = ""; error = nil; step = .email
+        attempt += 1; busy = false; watch?.cancel(); code = ""; password = ""; error = nil; step = .email
         drop()
     }
 
@@ -280,6 +321,7 @@ final class SignInModel: ObservableObject {
         // The address goes too: the next sign-in here may be another person's (the web page clears it the same way).
         attempt += 1; busy = false; watch?.cancel(); email = ""; code = ""; error = nil; issued = nil; step = .email
         passkeysAsked = false; passkeys = false; passkeysGen += 1   // asked again when the email step shows: it may have changed
+        reviewAsked = false; reviewDoor = false; password = ""
         client?.cancelPasskey()
     }
 
@@ -347,7 +389,7 @@ final class SignInModel: ObservableObject {
 
     #if DEBUG
     private func show(sample: String) {
-        passkeysAsked = true   // a sample screen never asks the live coordinator
+        passkeysAsked = true; reviewAsked = true   // a sample screen never asks the live coordinator
         email = "ada@example.com"
         switch sample {
         case "code": step = .code(email: email)
@@ -357,6 +399,9 @@ final class SignInModel: ObservableObject {
         case "nomac": step = .allow(matchCode: nil, hasComputer: false)
         case "denied": step = .denied(asking: true)
         case "web": step = .web(reason: SignIn.webForCompany)
+        // kosmos#7357: the email step with the review door open, and the password step itself.
+        case "review": reviewDoor = true
+        case "password": reviewDoor = true; step = .password
         // kosmos#7050 slice C: the email step with passkey sign-in offered, and a passkey that was not used.
         case "passkey": passkeys = true
         case "passkeyerror": passkeys = true; error = SignIn.passkeyWords.notUsed
@@ -397,7 +442,7 @@ struct SignInView: View {
     @ViewBuilder private var content: some View {
         switch model.step {
         case .email:
-            title("Sign in to Kosmos+").task { await model.checkPasskeys() }
+            title("Sign in to Kosmos+").task { async let passkeys: Void = model.checkPasskeys(); await model.checkReviewDoor(); await passkeys }
             line("Use the email address of your Kosmos+ account. We will send you a six-digit code.")
             TextField("Email address", text: $model.email)
                 .textContentType(.username).keyboardType(.emailAddress)
@@ -409,6 +454,8 @@ struct SignInView: View {
             primary("Send code", action: model.sendCode)
             // kosmos#7050 slice C: a passkey signs in here, natively, when Kosmos+ offers it.
             if model.passkeys { link("Sign in with a passkey", action: model.passkeySignIn).disabled(model.busy) }
+            // kosmos#7357: only while the App Store review door is open (a review window); never otherwise.
+            if model.reviewDoor { link("Sign in with a password", action: model.usePassword).disabled(model.busy) }
             // Where Apple's sheet cannot take a company's sign-in (before iOS 17.4), the web page has it: say so here.
             if !model.companySheet { link("Sign in with your company's account", action: useWeb).disabled(model.busy) }
             footnote("New to Kosmos+? Make your account on your computer.")
@@ -428,6 +475,21 @@ struct SignInView: View {
                 link("Send the code again", action: model.sendCode).disabled(model.busy)
                 link("Use a different email", action: model.differentEmail)
             }
+        case .password:
+            title("Sign in with a password")
+            line("For the App Review account. Everyone else signs in with a code sent by email.")
+            TextField("Email address", text: $model.email)
+                .textContentType(.username).keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .field()
+                .onChange(of: model.email) { _ in model.error = nil }
+            SecureField("Password", text: $model.password)
+                .textContentType(.password).submitLabel(.go).onSubmit(model.passwordSignIn)
+                .focused($focused).field()
+                .onChange(of: model.password) { _ in model.error = nil }
+            errorLine
+            primary("Sign in", action: model.passwordSignIn)
+            link("Sign in with a code", action: model.differentEmail)
         case .second(_, let kind, _, let sentTo):
             title("One more step")
             line(SignIn.secondWords(kind: kind, sentTo: sentTo))

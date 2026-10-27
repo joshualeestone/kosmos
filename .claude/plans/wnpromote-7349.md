@@ -1,0 +1,95 @@
+# wnpromote-7349: the What's New pool, checked before the cut claims the machine (kosmos#7349)
+
+## Why
+A Mac prod promote leaves `release/whats-new-pool.json` behind what prod serves until someone runs
+`whats-new-pool.js build` again (#5713). The next cut found that at step 1b-ii, after it had marked itself, claimed the
+machine and (possibly) waited up to 100 minutes on a pre-push build. On 2026-10-27 the 0.7.71 re-cut stopped there with
+the fleet held.
+
+## The change (card option 3)
+1. `tools/release.sh`: step 1b-ii's two checks (whats-new-check for $V, then pool prod-check) become one function,
+   `whats_new_gate`. It runs once right after `pointer_freeze_refuse`, before `kosmos_mark_run`, the machine claim and
+   the waits, quietly (stdout dropped), refusing with a line that names the build to run. 1b-ii still runs it (the
+   checkout can move during the waits). Exit 4 (prod unreadable) goes on, noted only at 1b-ii. The hotfix opt-out
+   `KOSMOS_CUT_NO_WHATS_NEW=1` skips both.
+2. `tools/promote-channel.sh`: a Mac prod promote ends by naming the build to run once its deploy serves.
+3. `docs/releasing.md`: run `prod-check` yourself before holding merges for a cut.
+
+## Rejected
+- Printing an exact next version in the promote hint: the next cut's version is not the promoted patch plus one
+  (0.7.70 was promoted while 0.7.71 was being cut), so a computed number would often be wrong.
+- Having promote-channel.sh run the build itself: the build reads what prod SERVES, which changes only at the deploy
+  after the promote, and it writes files that must go through a PR.
+- Moving 1b-ii wholesale before the claim: the checkout can move during the waits, so the check at 1b-ii stays.
+
+## Proof plan
+`tools/test-whats-new-early-7349.sh` runs a copy of release.sh with stand-in tools that record how many run markers
+exist when they are called: pool behind prod, highlights not for $V, a broken tool all stop with no marker and no cut
+home; CONTROL a current pool goes on; exit 4 goes on with no early NOTE; the opt-out runs neither tool; 1b-ii and the
+promote hint pinned structurally. Mutation list in the commit history of this plan's rounds.
+`test-pointer-freeze.sh`'s release arm sets the opt-out (its sandbox has no What's New tools).
+`tools.whats-new-check-3955.test.js` pins follow the call into `whats_new_gate`.
+
+## Weakest premise
+The hold itself is sent by a person before release.sh runs, so (2) moves the discovery before the machine claim and the
+waits, not before the hold. The docs line and the promote hint are what reach the person; nothing enforces them.
+
+## Review rounds
+1. (default, 10:0x CDT) 1 BLOCKER, 1 WARNING, 3 NITs, all applied.
+   - (B) tools.cut-home-2724.test.js also runs a copied release.sh with no What's New tools: 8 of 11 red. It now sets
+     KOSMOS_CUT_NO_WHATS_NEW=1 (mutation-proven: without it, 8 fail). My own sweep had found only test-pointer-freeze.sh
+     because I searched shell tests for a sandboxed release.sh and not the node tests.
+   - (W) A direct prod cut moves prod too and never named the build; it now does, in its final prod block (pinned).
+   - NITs: the early quiet run keeps prod-check's reason for a 4 to itself (a 3's reason still shows; both arms
+     mutation-proven); the refusal says to fast-forward when the build is already on origin/main; the docs say where
+     the check runs (not "at its very start") and what every prod-check exit means.
+2. (sonnet, 10:3x CDT) 0 BLOCKERs, 2 WARNINGs, 2 NITs; all actionable ones applied.
+   - (W) tools.release-gate.test.js's "#3955/#5713 ... stops the cut at 1b-ii" arms now stop at the early check, so
+     deleting 1b-ii's refusal stayed green. They are retitled and assert the early stop; a new #7349 arm moves prod on
+     between the two reads (a stand-in curl for the prod pointer's URL only, every other URL to the real curl) and the
+     cut stops AT 1b-ii. Mutation-proven: 1b-ii's `|| exit 1` made `|| true` reaches step 1c and reds it.
+   - (W) The early refusal's pool-build advice is said for a stale pool only, with "otherwise fix what it names".
+   - NIT: whats-new-check can print a note on stderr when it passes; the early run keeps it (the check now sits behind
+     _whats_new_check, like prod-check). The #3955 pins follow: the helper's exact command, both branches refuse on it,
+     and the #5224 platform pin reads a call inside a one-line function. Both new arms mutation-proven.
+   - NIT 2 (the reviewer verified the marker-count control can fail): nothing to change.
+3. (default, 10:4x CDT) 1 BLOCKER, 1 WARNING, 5 NITs, all applied but one (Linux, below).
+   - (B) A hotfix cut exports KOSMOS_CUT_NO_WHATS_NEW=1 and its step 3 runs test-whats-new-early-7349.sh, which
+     inherited it: 4 arms red mid-cut. run() now drops every KOSMOS_* and AGENT_WORKFORCE_* first, as
+     tools.cut-home-2724.test.js does. Mutation-proven (without the drop, 4 FAIL under the exported opt-out).
+   - (W) A test-install.sh another agent runs would refuse the copy (as #3619 found in release-gate): the harness,
+     light-side and pre-push bypasses are now pinned. NOT mutation-proven: proving it needs a stand-in harness running
+     on the shared Mac, which would make other agents' cuts and tests refuse; it follows release-gate's measured fix.
+   - NITs applied: an opt-out prod cut's NEXT line adds the `shown $V --promoted --none` route; "every cut stops"
+     became "the next cut stops" (rollback promotes and opt-out cuts pass); the docs name both checks to run before a
+     hold; the #7349 release-gate arm cleans up in t.after and reads a missing call count as 0.
+   - NIT 5, not changed: the new shell test runs on Linux CI too (it is not macOS-only, like test-pointer-freeze.sh);
+     unmeasured there until the PR's CI runs. Watch the first run.
+4. (sonnet, 10:5x CDT) 0 BLOCKERs, 1 WARNING, 3 NITs.
+   - (W) Under macOS /bin/bash 3.2 with set -u, an empty `drop` array ("${drop[@]}") is unbound, so with no KOSMOS_*
+     exported the new test aborted. Reproduced with a script that unsets them all ("drop[@]: unbound variable"); the
+     array is now seeded with `-u KOSMOS_CUT_NO_WHATS_NEW`. After: ALL PASS scrubbed, normal, and with the opt-out
+     exported.
+   - NIT applied: a docs line run on into the next sentence, re-wrapped.
+   - NIT not taken: "prod serves $V now" on the prod cut's NEXT line is true where it prints: a prod cut deploys at
+     step 8 and verifies what is served at step 9 before it reaches its end.
+   - NIT not taken: the opt-out arm's empty-log assertion relies on the sandbox dying at step 1; if a future sandbox gets
+     past 1b-ii the arm reds loudly (the safe direction), so it is noted rather than changed.
+5. (default, 11:1x CDT) 0 BLOCKERs, 0 WARNINGs, 4 NITs. The reviewer re-proved six earlier claims by mutating a copy
+   (all red as recorded) and three of its own.
+   - NIT applied: no promote hint on a rollback (--allow-older), where prod-check passes and a build records nothing
+     (pinned; mutation-proven).
+   - NIT applied: the early refusal also says to check this checkout is an up-to-date main, since step 1 (which says
+     so) now comes after this check.
+   - NIT applied: the two 1b-ii pins skip a commented-out call (mutation-proven: commenting it out reds both).
+   - NIT not changed: the promote hint has only a structural pin; the promote fixtures never print that line. Said here
+     so nobody reads the pin as a behaviour test.
+6. (sonnet, 11:3x CDT) 0 BLOCKERs, 0 WARNINGs, 4 NITs. Second round in a row with only NITs: the loop stops here.
+   - NIT applied: the promote hint now has a behaviour test too (test-promote-named-7005.sh's rollback fixture: the
+     forward promote prints it, the --allow-older one does not; mutation-proven, the unguarded line reds the rollback
+     arm).
+   - NIT not changed: the hint is skipped on any --allow-older, also a forward promote that passes it needlessly. Rare,
+     and it errs toward silence; keying it on the comparison would need _cmp defaulted under set -u.
+   - NIT not changed: the early check now runs before the live-cut refusal, so a second cut attempt reads the prod
+     pointer first (capped at 20 s). Harmless, a slower refusal when offline.
+   - NIT not changed: the shell test's control relies on its sandbox dying at step 1 (noted in round 4).

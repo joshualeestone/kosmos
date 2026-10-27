@@ -443,6 +443,38 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # incident pin). Before the cut marks itself, so a frozen site refuses without registering a cut.
 . "$REPO/tools/lib/pointer-freeze.sh"
 pointer_freeze_refuse "$SITE" release.sh || exit 1
+# kosmos#7349: step 1b-ii's two What's New checks, in one function so the early run below and 1b-ii cannot drift.
+# 0 goes on; 1 stops (the tools say why on stderr). prod-check's 4 (prod could not be read) goes on; $1 = note says so,
+# and $1 = quiet keeps prod-check's reason for a 4 to itself too (it would read as an error with no "goes on" beside it).
+_whats_new_check() { node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" --platform=mac; }
+_whats_new_prod_check() { node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json"; }
+whats_new_gate() {
+  local pc=0 err
+  if [ "$1" = quiet ]; then   # the check's stderr only on a refusal: a pass can carry a note 1b-ii prints anyway
+    err="$(_whats_new_check 2>&1 >/dev/null)" || { printf '%s\n' "$err" >&2; return 1; }
+  else
+    _whats_new_check || return 1
+  fi
+  if [ "$1" = quiet ]; then
+    err="$(_whats_new_prod_check 2>&1 >/dev/null)" || pc=$?
+    [ "$pc" = 0 ] || [ "$pc" = 4 ] || printf '%s\n' "$err" >&2
+  else
+    _whats_new_prod_check || pc=$?
+  fi
+  case "$pc" in
+    0) ;;
+    4) [ "$1" != note ] || echo "NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on." ;;
+    *) return 1 ;;   # 3: prod is newer than the pool records; anything else: the pool or the tool is broken (#5713 review 2)
+  esac
+}
+# kosmos#7349: the same checks once more HERE, before the cut marks itself, claims the machine or waits on a pre-push
+# build (up to 100 minutes below). A prod promote leaves the pool behind until someone builds it again, and 1b-ii used
+# to be where that was found, with the machine claimed. Quiet when it passes (1b-ii prints the result); 1b-ii still runs,
+# since the checkout can move during the waits. KOSMOS_CUT_NO_WHATS_NEW=1 skips both, as before.
+if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ] && ! whats_new_gate quiet >/dev/null; then
+  echo "release: stopped before marking the cut or claiming the machine (kosmos#7349): step 1b-ii's What's New check refuses $V (above). If it says prod serves a newer version than the pool records (a prod promote since the last build): node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again (if that build is already on origin/main, fast-forward this checkout instead). Otherwise fix what it names, and check this checkout is an up-to-date main (step 1, which says so, comes after this check). Nothing was claimed, bumped or built." >&2
+  exit 1
+fi
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -763,17 +795,11 @@ whats_new_optout_note() {   # $1: the tree to read. Informs, never refuses.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
   whats_new_optout_note "$REPO"
 else
-  node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" --platform=mac || exit 1
   # #5713: the pool must record what Mac PROD serves, or this What's New can re-offer highlights prod already showed (a
   # promote since the last build, or a build made --offline). Read-only; refused when prod is newer, told (never
   # refused) when prod cannot be read, as a cut that cannot reach the site has bigger problems later anyway. A broken
-  # pool or tool refuses.
-  _pc=0; node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json" || _pc=$?
-  case "$_pc" in
-    0) ;;
-    4) echo "NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on." ;;
-    *) exit 1 ;;   # 3: prod is newer than the pool records; anything else: the pool or the tool is broken (review 2)
-  esac
+  # pool or tool refuses. Both checks are whats_new_gate (kosmos#7349), which also ran before the machine claim.
+  whats_new_gate note || exit 1
 fi
 
 step "== 1c. the signing key answers, before anything is bumped or built (#3579) =="
@@ -2170,6 +2196,11 @@ fi
 # live). Best-effort: the release already shipped, so a hook non-zero must not fail the cut.
 if [ "$CUT_CHANNEL" = prod ]; then
   echo ""
+  # kosmos#7349: a prod cut moves prod as a promote does, so the What's New pool is now behind what prod serves, and
+  # the next cut stops at its first What's New check until a fresh build merges. Said where the operator can act.
+  echo "NEXT: prod serves $V now, so node tools/whats-new-pool.js build <the next cut's version> on a branch, merged to main. It records $V's highlights as shown; until it merges, the next cut stops at its What's New check (kosmos#7349)."
+  # An opt-out cut may have shipped no What's New at all, and then the build refuses; the pool takes that as below.
+  [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ] || echo "      (this cut ran with KOSMOS_CUT_NO_WHATS_NEW=1: if $V shipped no highlights, record it first with node tools/whats-new-pool.js shown $V --promoted --none)"
   KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$MAIN_REPO/tools/post-release-notes.sh" "$V" --publish \
     || echo "post-release-notes: hook returned non-zero (the release still shipped; this is best-effort)"
 fi
