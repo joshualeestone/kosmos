@@ -549,6 +549,8 @@ extension Board {
         let session: String
         let name: String
         let hasAvatar: Bool
+        // The engine's provider family. Nothing on the phone reads it since #7269 took the tally off the row; kept
+        // parsed (and tested) for the agent page's AI Settings (#7267), planned.
         let provider: String?
         // kosmos#7106: why the projects route counts this member as needing the person on THIS project (null: not), the
         // key Dismiss sends back, and the agent's own reason (the board's pjNeedsNotice reads all three).

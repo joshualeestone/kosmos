@@ -115,6 +115,16 @@ let keptTiles = Tasks.tiles(keptPlaces, rosterUnknown: false).map { "\($0.label)
 check(keptTiles == ["Open=1", "Needs you=0", "Working=1", "Done=0"], "a task that moved while drawn counts where the list shows it: \(keptTiles)")
 check(Tasks.title(movedRead, drawn: keptPlaces, project: nil).hasPrefix("1 Task"), "the line under the tiles counts the same drawn rows (review 3): \(Tasks.title(movedRead, drawn: keptPlaces, project: nil))")
 check(Tasks.title(movedRead, project: nil).hasPrefix("0 Tasks"), "CONTROL: the read alone says 0, so the line above can fail")
+// Review 4: one project, all completed and drawn so; one reopens while the list stays. The title (counting what is drawn)
+// says "0 Tasks" and does not name the project, so the rows must keep theirs.
+let allDrawnDone = Tasks.sections(Board.TasksRead(tasks: [row(1, "closed"), row(2, "closed")], rosterUnknown: false), project: nil)
+let reopened = Tasks.keepingPlaces(allDrawnDone, with: Board.TasksRead(tasks: [row(1, "working"), row(2, "closed")], rosterUnknown: false), project: nil)
+check(Tasks.title(Board.TasksRead(tasks: [row(1, "working"), row(2, "closed")], rosterUnknown: false), drawn: reopened, project: nil) == "0 Tasks"
+      && !Tasks.leaveOutProjectLine(drawn: reopened, project: nil), "the title does not name the project, so the rows keep it")
+check(Tasks.leaveOutProjectLine(Board.TasksRead(tasks: [row(1, "working"), row(2, "closed")], rosterUnknown: false), project: nil),
+      "CONTROL: the newest read alone would hide it (the case review 4 found)")
+check(Tasks.leaveOutProjectLine(drawn: Tasks.sections(few, project: nil), project: nil) == Tasks.leaveOutProjectLine(few, project: nil),
+      "with nothing moved, the drawn rule and the board's agree")
 check(Tasks.title(mixed, drawn: Tasks.sections(mixed, project: nil), project: nil).hasPrefix("7 Tasks") && tileCounts(mixed).first == "Open=7",
       "an unknown state: the line and the Open tile agree (both count what is drawn)")
 check(pickedTiles == ["Open=1", "Needs you=1", "Working=0", "Done=1"], "the picked project's tasks only, as the list under them")

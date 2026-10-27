@@ -41,3 +41,7 @@ projects of 3, 12 and 15 members with nesting, and the tiles.
 - Round 3 (projlist-7269-review3.md): 0 blockers, 1 warning, 1 nit, both fixed. The "N Tasks on M Projects" line
   under the tiles counts the drawn rows by the group they are drawn in, as the tiles do (a moved row and an unknown
   state no longer split them; tested with a control). The marks test heading says the agent page is planned.
+- Round 4 (projlist-7269-review4.md): 0 blockers, 1 warning, 1 nit, both fixed. The rows' project line follows the
+  drawn rows too (leaveOutProjectLine(drawn:)), so it always agrees with the title (a task reopened while drawn under
+  Completed no longer leaves the project named nowhere; tested with a control). ProjectMember.provider says why it is
+  still parsed.

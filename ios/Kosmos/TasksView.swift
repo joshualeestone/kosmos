@@ -184,7 +184,7 @@ struct TasksView: View {
     }
 
     private func list(_ read: Board.TasksRead) -> some View {
-        let projectShown = !Tasks.leaveOutProjectLine(read, project: project)
+        let projectShown = !Tasks.leaveOutProjectLine(drawn: shown, project: project)
         return ScrollViewReader { scroller in List {
             // kosmos#7269: the count tiles, as a header with no inset, so their edges line up with the cards under them (in
             // the title's header they sat in its text inset, 20pt further in; as a row, the list clipped the outer tiles'

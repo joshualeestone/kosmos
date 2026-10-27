@@ -295,6 +295,11 @@ enum Tasks {
         let rows = scoped(read.tasks, project: project)
         return shareOneProject(rows) && (project != nil || rows.contains { $0.state != "closed" })
     }
+    // kosmos#7269 review 4: the same rule over the rows the list is drawing, open by the group each is drawn in, so it
+    // always agrees with the title (Tasks.title(_:drawn:project:)), which names the project exactly when this hides it.
+    static func leaveOutProjectLine(drawn: [Section], project: String?) -> Bool {
+        shareOneProject(drawn.flatMap(\.rows)) && (project != nil || drawn.contains { $0.group.key != "closed" && !$0.rows.isEmpty })
+    }
 
     // The picker: every project with a task, each with its open count, sorted by chain (pjChainCompare: each
     // sub-project after its parent). The words are pjChainOption's: "Ads (3), in Book A › Launch".
