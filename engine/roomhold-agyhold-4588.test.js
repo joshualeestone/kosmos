@@ -112,6 +112,7 @@ function poolReset() { agyquota.POOL_MEMO.bySession.clear(); agyquota.POOL_MEMO.
 test.beforeEach(() => {
   chat.resetForTests();
   messages.resetForTests();
+  require('./roomloop').resetForTests();   // kosmos#7246 slice 2: the per-project agent-wake cap starts empty
   poolReset();
   for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 });
@@ -149,9 +150,10 @@ test('#4588 B room: an un-addressed colleague post is held for the paused (idle-
     armSender('leo-discord');
     const tmux = arm();
     const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'thinking out loud' }, rosterOf(board, AHEAD()), MEMBERS);
-    assert.equal(sent.outcomes.mara, roomhold.HELD);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: not typed and not held, for the paused member as for any other.
+    assert.equal(sent.outcomes.mara, roomhold.QUIET);
     assert.deepEqual(typedTo(tmux, 'mara'), []);
-    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'an un-addressed post is kept unmarked');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'an un-addressed post is quiet, not kept');
   });
 });
 
@@ -237,7 +239,8 @@ test('#4588 B room: the async room path (sendPostAsync) holds a colleague post t
     report('mara', 'idle');
     armSender('leo-discord');
     const tmux = arm();
-    const sent = await messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@mara async?' }, rosterOf(board, AHEAD()), MEMBERS);
+    // kosmos#7246 slice 2: april is @-named too, so the CONTROL arm is typed (unaddressed, she would be quiet).
+    const sent = await messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@mara @april async?' }, rosterOf(board, AHEAD()), MEMBERS);
     assert.equal(sent.outcomes.mara, roomhold.HELD);
     assert.deepEqual(typedTo(tmux, 'mara'), []);
     assert.equal(typedTo(tmux, 'april').length, 1, 'CONTROL: the claude member is typed');
@@ -266,6 +269,10 @@ test('#4588 B idle flush: on a paused agy member it is held, nothing is typed, a
     arm();
     const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara look at this' }, rosterOf(board, AHEAD()), MEMBERS);
     const bg = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'and this, not for you' }, rosterOf(board, AHEAD()), MEMBERS);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now, not held: bg is held here as a post held before the upgrade (the plan keeps old
+    // holds), so the flush still has a plain id beside the addressed one.
+    assert.equal(bg.outcomes.mara, roomhold.QUIET);
+    assert.equal(roomhold.hold('mara', PROJECT, bg.id), true);
     const kept = [roomhold.addressedId(sent.id), bg.id];
     assert.deepEqual(roomhold.heldIn('mara', PROJECT), kept);
 
@@ -348,6 +355,7 @@ const AGY_STOPPED = { ...AGY, state: 'stopped', command: '-zsh' };
 function fresh() {
   chat.resetForTests();
   messages.resetForTests();
+  require('./roomloop').resetForTests();   // kosmos#7246 slice 2: the per-project agent-wake cap starts empty
   poolReset();
   for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 }
@@ -516,7 +524,8 @@ test('#4624 follow-up review 2: the production shape, a quota-paused agy member 
     armSender('leo-discord');
     arm();
     const plain = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'thinking out loud' }, rosterOf(board, AHEAD()), MEMBERS);
-    assert.equal(plain.outcomes.mara, roomhold.HELD);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now (it was held by the idle rule): not held, and so never retried.
+    assert.equal(plain.outcomes.mara, roomhold.QUIET);
     assert.equal(!!(plain.heldUntil && plain.heldUntil.mara), false, 'the idle rule held it, so no quota time applies');
     const asked = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara please' }, rosterOf(board, AHEAD()), MEMBERS);
     assert.equal(asked.outcomes.mara, roomhold.HELD);
@@ -551,6 +560,11 @@ test('#4588 ask 3: an idle agy member\'s #4624-held PLAIN post waits for its nex
         armSender('leo-discord');
         arm();
         const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, rosterOf(board, null), MEMBERS);
+        // kosmos#7246 slice 2: an unaddressed member is quiet now, not held: the plain id is held here as a post held before the upgrade (the
+        // plan keeps old holds), which is the only way a plain held post still arises.
+        assert.equal(sent.outcomes.mara, roomhold.QUIET);
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+        assert.equal(roomhold.hold('mara', PROJECT, sent.id), true);
         assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'fixture: the plain post is held for mara, unmarked');
         const tmux = arm();
         const r2 = rosterOf(board, null);
@@ -581,6 +595,11 @@ test('#4588 ask 3: a post the cap held is marked and the retry tells it once the
         const first = arm();
         const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, withZed(board, true), MEMBERS);
         assert.deepEqual(typedTo(first, 'mara'), [], 'fixture: the cap held the post');
+        // kosmos#7246 slice 2: an unaddressed member is quiet now: the post never reaches the cap for mara (an addressed one is marked asked,
+        // not capped), so the cap-marked id is held here as one held before the upgrade (the plan keeps old holds).
+        assert.equal(sent.outcomes.mara, roomhold.QUIET);
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+        assert.equal(roomhold.hold('mara', PROJECT, roomhold.cappedId(sent.id)), true);
         assert.deepEqual(roomhold.heldIn('mara', PROJECT), [roomhold.cappedId(sent.id)], 'the cap-held post carries the cap mark');
         if (!marked) {
           // CONTROL: the same held post, unmarked.
@@ -650,6 +669,11 @@ test('#4588 ask 3: a turn-end flush the cap refuses puts its posts back marked, 
         armSender('leo-discord');
         arm();
         const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, withZed(board, false, null), MEMBERS);
+        // kosmos#7246 slice 2: an unaddressed member is quiet now, not held for the working member: the plain id is held here as a post held
+        // before the upgrade (the plan keeps old holds), which is what the turn-end flush still tells.
+        assert.equal(sent.outcomes.mara, roomhold.QUIET);
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+        assert.equal(roomhold.hold('mara', PROJECT, sent.id), true);
         assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'fixture: the #4624 hold kept the post for the working member, unmarked');
         // Her turn ends (automatic idle); the turn-end line meets the cap (zed working) or the quota (a reset ahead).
         assert.equal(selfreport.record('mara', { state: 'idle', because: 'test', auto: true }).recorded, true);

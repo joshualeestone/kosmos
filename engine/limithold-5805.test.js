@@ -103,6 +103,7 @@ test.beforeEach(() => {
   status.resetLimitFirstSeenForTests();   // slice 3b: first-seen times are per test
   chat.resetForTests();
   messages.resetForTests();
+  require('./roomloop').resetForTests();   // kosmos#7246 slice 2: the per-project agent-wake cap starts empty each test
   for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -239,7 +240,10 @@ test('#5805 room CONTROL: a post that does not name an idle Claude member waits 
     messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
     arm('');
     const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, roomRoster(board, true), MEMBERS);
-    assert.deepEqual(roomhold.heldIn('april', PROJECT), [sent.id], 'a plain post took a mark');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: the plain post is neither typed nor held for april, so it
+    // cannot take a mark (it was held unmarked). The plain id below stands for a post held before the upgrade.
+    assert.equal(sent.outcomes.april, roomhold.QUIET, 'a plain post was not quiet for the unaddressed member');
+    assert.deepEqual(roomhold.heldIn('april', PROJECT), [], 'a plain post took a mark');
     roomhold.hold('april', PROJECT, 'plain-post-1');
     const tmux = arm('');
     const idle = roomRoster(board, false);

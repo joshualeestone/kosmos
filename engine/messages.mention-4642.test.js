@@ -25,6 +25,8 @@ const assert = require('node:assert/strict');
 const chat = require('./chat');
 const messages = require('./messages');
 const fleet = require('../test-support/fleet');
+const roomhold = require('./roomhold');
+const roomloop = require('./roomloop');
 
 const PROJECT = 'henderson-lease';
 const MEMBERS = ['leo', 'kano', 'subzero', 'mara'];
@@ -66,10 +68,15 @@ function post(text, agents = FLEET(), members = MEMBERS) {
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
     const who = (s) => (/=([a-z0-9_-]+)-discord:/.exec(s.target || '') || [])[1];
     const envelopes = typed().filter((s) => s.text.startsWith('['));
-    assert.equal(envelopes.length, members.length - 1, 'the room fans out to everyone but the sender');
+    /* kosmos#7246 slice 2: an agent's post reaches only the members it addresses; every other member but the sender
+       is quiet (not typed, not held). So "background" is now the quiet members, read from the outcomes. */
+    const others = members.filter((m) => m !== 'leo').sort();
+    assert.deepEqual(Object.keys(sent.outcomes || {}).sort(), others, 'every member but the sender has an outcome');
+    const addressed = envelopes.filter((s) => s.text.startsWith('[message from your colleague')).map(who).sort();
+    assert.equal(envelopes.length, addressed.length, 'only the addressed members are typed to');
     return {
-      addressed: envelopes.filter((s) => s.text.startsWith('[message from your colleague')).map(who).sort(),
-      background: envelopes.filter((s) => s.text.startsWith('[background from your colleague')).map(who).sort(),
+      addressed,
+      background: others.filter((m) => sent.outcomes[m] === roomhold.QUIET),
       row: messages.readLog().filter((m) => m && m.kind === 'post').pop(),
       note: sent.ambiguousNote,
       sent,
@@ -77,7 +84,8 @@ function post(text, agents = FLEET(), members = MEMBERS) {
   } finally { board.restore(); }
 }
 
-test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ } });
+// kosmos#7246 slice 2: roomloop.resetForTests, so the per-project agent-wake cap never quiets a later test's post.
+test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); roomloop.resetForTests(); try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ } });
 test.after(() => { chat.setRunner(null); chat.setDryRun(true); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 test('#4642: @Kano and @KANO address kano (the session name, any case)', () => {
