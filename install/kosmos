@@ -5306,7 +5306,7 @@ kosmos_command_list() {
   printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built\n'
   printf '  kosmos project       list, show, create or pause projects, or say your role on one\n'
   printf '  kosmos records       a project'"'"'s records (accounts, leads, vendors): list, set, remove, label\n'
-  printf '  kosmos agent         make an agent, or list the roles one can have\n'
+  printf '  kosmos agent         make or remove an agent, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos handoff       print facts for your handoff: your live state, artifact fingerprints, instruction and git status\n'
@@ -6614,7 +6614,7 @@ cmd_agent() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos agent <create|roles|role-draft|instructions-add>"
+      say "Usage: kosmos agent <create|roles|role-draft|instructions-add|remove>"
       say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
       say "  kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]"
       say "                                                  make one with a role you wrote, when none fits"
@@ -6622,7 +6622,23 @@ cmd_agent() {
       say "  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)"
       say "  kosmos agent instructions-add \"<name>\" --from <file>"
       say "                                                  propose an addition to an agent's instructions; the person applies it"
+      say "  kosmos agent remove \"<name>\" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)"
       exit 2 ;;
+    remove)
+      # kosmos#7362: the name, and --yes anywhere; an option-shaped name and extra words are refused before any request.
+      local _rmw=() _rma
+      local KOSMOS_RM_USAGE='Usage: kosmos agent remove "<name>" [--yes]   (--yes: do not ask first, for scripts)'
+      KOSMOS_RM_YES=""
+      for _rma in "$@"; do if [ "$_rma" = "--yes" ]; then KOSMOS_RM_YES=1; else _rmw+=("$_rma"); fi; done
+      [ -n "${_rmw[0]:-}" ] || { say "$KOSMOS_RM_USAGE"; exit 2; }
+      case "${_rmw[0]}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent remove" "$KOSMOS_RM_USAGE" "${_rmw[0]}" target ;; esac
+      _no_more_words "agent remove" 1 "$KOSMOS_RM_USAGE" "${_rmw[@]}"
+      # Nobody can answer the question, so nothing is asked of the board either.
+      if [ -z "$KOSMOS_RM_YES" ] && [ ! -t 0 ]; then
+        say "Nothing was removed: there is no terminal here to confirm on. To remove ${_rmw[0]} without being asked, add --yes."
+        exit 2
+      fi
+      set -- "${_rmw[0]}" ;;
     instructions-add)
       # kosmos#5293: only PROPOSES. The person applies it on that agent's page; nothing here can.
       { [ -n "${1:-}" ] && [ "${2:-}" = "--from" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos agent instructions-add \"<name>\" --from <file>   (the text to add, in a file)"; exit 2; }
@@ -6648,12 +6664,12 @@ cmd_agent() {
       # A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
       if [ "${1:-}" = "--to" ] && [ -e "$2" ]; then say "$2 already exists, and it may hold another role. Pick another name, or move it first."; exit 2; fi ;;
     *)
-      say "Unknown: kosmos agent $sub. Try: create, roles, role-draft, instructions-add"
+      say "Unknown: kosmos agent $sub. Try: create, roles, role-draft, instructions-add, remove"
       _kosmos_agent_list_hint "$sub"
       exit 2 ;;
   esac
   if ! healthy; then
-    say_not_up "an agent cannot be made"
+    if [ "$sub" = remove ]; then say_not_up "nothing can be removed"; else say_not_up "an agent cannot be made"; fi
     exit 1
   fi
   # The answer is read as JSON by the engine's own node (an agent's PATH may have none, #1911).
@@ -6763,6 +6779,61 @@ cmd_agent() {
         waiting) say "Not sent: ${ia_name} already has an addition waiting, asked by ${ia_who:-another agent}${ia_when:+ on $ia_when}. The person can apply or dismiss it on ${ia_name}'s page first."; exit 1 ;;
         *) while [[ "$ia_because" == *[.[:space:]] ]]; do ia_because="${ia_because%?}"; done
            say "Kosmos did not hold that addition: ${ia_because:-it did not say why}."; exit 1 ;;
+      esac
+      ;;
+    remove)
+      # kosmos#7362: through the board's own Remove, the two routes its button uses, so the engine decides and words
+      # everything: GET .../removal is the plan, DELETE .../removal does it. Never ?force=1: that override is the
+      # person's, on the board. The plan is a read the board token opens, so it goes with board_token whatever
+      # KOSMOS_AGENT_TOKEN_ONLY says; the removal goes as the agent, as the board's token-only rules expect.
+      local rm_name="$1" rm_path rm_plan rm_label rm_ok rm_why rm_back rm_parsed rm_out rm_because rm_end
+      local _rmparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
+      rm_path=$(KOSMOS_RM_NAME="$rm_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RM_NAME))') || { say "We could not use that name."; exit 1; }
+      body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 "$URL/api/agent/$rm_path/removal" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ]; then say_unreached "read what removing $rm_name would do" "$rc"; exit 1; fi
+      # Fields, tab-separated: ok, label, why (refused), whether it can be put back; then the lines to show, one each.
+      rm_plan=$(printf '%s' "$body" | "$_node" -e "$_rmparse"'const loses=Array.isArray(j.loses)?j.loses:[];const keeps=Array.isArray(j.keeps)?j.keeps:[];console.log([j.ok===true?"ok":"no",one(j.label||j.name),one(j.because||j.error),loses.some((l)=>/put it back/.test(l))?"back":""].join("\t"));if(j.ok!==true)return;if(j.hint)console.log(one(j.hint));if(loses.length)console.log("It loses: "+loses.map(one).join("; ")+".");if(keeps.length)console.log("It keeps: "+keeps.map(one).join("; ")+".")})') \
+        || { say "Kosmos gave an answer we could not read when asked about removing $rm_name."; exit 1; }
+      # cut, not `IFS=<tab> read`: a tab is whitespace to read, so an empty field would take the next one's value.
+      rm_ok=$(printf '%s\n' "$rm_plan" | head -n 1 | cut -f1); rm_label=$(printf '%s\n' "$rm_plan" | head -n 1 | cut -f2)
+      rm_why=$(printf '%s\n' "$rm_plan" | head -n 1 | cut -f3); rm_back=$(printf '%s\n' "$rm_plan" | head -n 1 | cut -f4)
+      if [ "$rm_ok" != ok ]; then
+        while [[ "$rm_why" == *[.[:space:]] ]]; do rm_why="${rm_why%?}"; done
+        rm_why="${rm_why:-it did not say why}"
+        case "$rm_why" in *[?!]) rm_end="" ;; *) rm_end="." ;; esac
+        say "Kosmos will not remove $rm_name: ${rm_why}${rm_end}"; exit 1
+      fi
+      rm_label="${rm_label:-$rm_name}"
+      printf '%s\n' "$rm_plan" | tail -n +2 | while IFS= read -r _l; do say "$_l"; done
+      if [ -z "$KOSMOS_RM_YES" ]; then
+        local rm_answer=""
+        printf '%sRemove %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$rm_label"
+        read -r rm_answer || rm_answer=""
+        case "$rm_answer" in y|Y|yes|Yes|YES) ;; *) say "Cancelled. Nothing was removed."; exit 1 ;; esac
+      fi
+      rc=0
+      body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 60 -X DELETE "$URL/api/agent/$rm_path/removal" 2>/dev/null) || rc=$?
+      # 28 is curl's timeout: the request left, so the agent may have been removed.
+      if [ "$rc" -eq 28 ]; then
+        say "Kosmos was slow to answer and we stopped waiting. $rm_label may have been removed; look at the board before trying again: $URL/"
+        exit 3
+      fi
+      if [ "$rc" -ne 0 ]; then say_unreached "remove $rm_label" "$rc" write; exit 1; fi
+      rm_parsed=$(printf '%s' "$body" | "$_node" -e "$_rmparse"'console.log([one(j.outcome),one(j.because||j.error)].join("\t"))})') \
+        || { say "Kosmos gave an answer we could not read when removing $rm_label. Look at the board to see whether it is still there: $URL/"; exit 1; }
+      rm_out=$(printf '%s' "$rm_parsed" | cut -f1); rm_because=$(printf '%s' "$rm_parsed" | cut -f2)
+      while [[ "$rm_because" == *[.[:space:]] ]]; do rm_because="${rm_because%?}"; done
+      case "$rm_because" in *[?!]) rm_end="" ;; *) rm_end="." ;; esac
+      case "$rm_out" in
+        removed)
+          say "${rm_because:-$rm_label has been removed from Kosmos}${rm_end}"
+          # Only when the plan said so: an agent with no startup job has nothing for restore to start again.
+          [ -z "$rm_back" ] || say "It can be put back from the board, where removed agents are listed."
+          ;;
+        partial) say "Only partly removed: ${rm_because:-Kosmos did not say how far it got}${rm_end}"; exit 1 ;;
+        *) if [ -n "$rm_because" ]; then say "Kosmos did not remove $rm_label: ${rm_because}${rm_end}"
+           else say "Kosmos gave an answer we could not read when removing $rm_label. Look at the board to see whether it is still there: $URL/"; fi
+           exit 1 ;;
       esac
       ;;
   esac
