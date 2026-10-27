@@ -18,7 +18,8 @@ late sampling alone. Also wrong: late sampling still sees a buffering server; th
 ## The call (test only)
 - `settled(floor)`: collect, wait 10 ms, repeat until three readings agree within 1 MB AND (when a floor is given) the
   reading is back within 2 MB of it; it fails the test by name if that never happens. The board's and the control's
-  baselines use the reading taken before CONTROL 1 as their floor; the upload-at-cap test uses it too.
+  baselines use the reading taken before CONTROL 1 as their floor; the upload-at-cap test takes a settled baseline (no
+  floor: that reading belongs to another test).
 - The board is measured FIRST and the buffering control second, so a leftover in a baseline can only make the control
   read low, which fails red.
 - A buffering server in the same process (readFileSync then res.end), measured the same way just after the board, must
@@ -52,3 +53,8 @@ just after the board, not at the same moment, so it shares the run's conditions,
    reading) and three agreeing readings. (W) The silent fallback is now a named failure. (W) The upload-at-cap test had
    the same unsettled baseline; it uses settled() now. (N) "a fifth" corrected to "an eighth". Both mutations red;
    20 of 20 at load 4.1 to 80.5.
+3. (default model, 23:5x CDT) 1 WARNING, 2 NITs, all applied: the gc() guard could never fire (vm's gc throws when the
+   flag is refused, at load), now wrapped so settled() reports it by name; the plan said the upload test used the floor
+   (it takes a settled baseline with none); a comment said two readings (three). Not raised, reasoned: the floor itself
+   can hold a small leftover, but nothing before it leaves more than about 6 MB, short of the 12 MB that would hide the
+   20 MB mutation.

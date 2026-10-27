@@ -151,13 +151,16 @@ test('#6734: a streamed download of a multi-MB file is byte-identical, with its 
 
 /* kosmos#7302: readings over a SETTLED baseline. One forced collection is not enough: measured (review 1), a dropped
    64 MB Buffer was still counted in arrayBuffers after gc() in up to 7 of 10 tries, and a closed server's buffer
-   stayed reachable for tens of milliseconds. So `settled` collects, waits, collects again, and returns only once two
-   readings agree to within 1 MB. Either effect left alone makes a baseline that already holds 64 MB: a 64 MB
+   stayed reachable for tens of milliseconds. So `settled` collects, waits, collects again, and returns only once three
+   readings agree to within 1 MB (and, given a floor, are back down to it). Either effect left alone makes a baseline that already holds 64 MB: a 64 MB
    allocation then reads as near zero once the old buffer goes (the CONTROL red seen in CI), and a board that buffers
    can hide behind it (how the old check passed a board reading the file whole with fs.readSync). */
 const v8 = require('node:v8');
 v8.setFlagsFromString('--expose-gc');
-const collect = require('node:vm').runInNewContext('gc');
+// Review 3: wrapped, so a Node that refuses the flag at run time fails the memory tests by name (in settled), not every
+// test in the file at load with a bare ReferenceError.
+let collect = null;
+try { collect = require('node:vm').runInNewContext('gc'); } catch { /* reported by settled() */ }
 /* Review 2: readings that agree can still both hold a buffer that frees later, so a baseline must also come back down to
    `floor` (a reading taken before the buffers this test made) when one is given, and three readings over 20 ms must
    agree. A baseline that never settles fails the test by name, never passes it on a doubtful reading. */
