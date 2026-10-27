@@ -82,6 +82,11 @@ struct ChatView: View {
     // Reply; the last reaction refusal shown (only it is cleared by the next reaction that goes); reactions in the air.
     @State private var replying: Board.ChatRow?
     @FocusState private var composerFocused: Bool
+    // kosmos#7268: the emoji panel (in the keyboard's place while open), the glyph waiting to go in at the cursor, and
+    // dictation into the box, as the project room's (RoomView).
+    @State private var emojiOpen = false
+    @State private var emojiInsert: String?
+    @StateObject private var dictation = Dictation()
     @State private var reactNote: String?
     @State private var reacting: Set<String> = []
     // kosmos#7089: the search field's words. The thread shows only the loaded rows they match (Board.chatFilter).
@@ -936,10 +941,23 @@ struct ChatView: View {
                 field
                 sendButton
             }
+            if let line = ComposerExtras.micLine(dictation.state) {
+                Text(line).font(.footnote).foregroundColor(Palette.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+            }
+            // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it. The tab bar is
+            // already hidden in a conversation, so nothing sits under the panel.
+            if emojiOpen { EmojiPanel { emojiInsert = $0 }.padding(.horizontal, -12) }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Palette.ground)
+        .onChange(of: composerFocused) { focused in if focused { emojiOpen = false } }
+        #if DEBUG
+        // KOSMOS_SAMPLE_EMOJI=open (with the agent samples): the panel open, for the design shots.
+        .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
+        #endif
+        .onDisappear { dictation.stop() }   // leaving the conversation lets go of the microphone
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
         // Each picker on a host of its own: two presentations on one view can leave one that never opens (iOS 16).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
@@ -1039,17 +1057,27 @@ struct ChatView: View {
         for url in urls { await client.attach(.file(url), epoch: epoch, to: agent) }
     }
 
+    // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end, as the project room's; the
+    // box's text runs up to them.
     private var field: some View {
-        TextField("", text: $draftText, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
-            .focused($composerFocused)
-            // As the board's aria-describedby: the reply is heard whenever the box is reached, not only when chosen.
-            .accessibilityHint(replying.map { replyingLine($0) } ?? "")
-            .accessibilityLabel("Message \(shown.name)")
-            .font(.body)
-            .foregroundColor(Palette.primary)
-            .lineLimit(1...5)
-            .padding(.vertical, 9)
-            .padding(.horizontal, 14)
+        HStack(alignment: .bottom, spacing: 0) {
+            CursorField(placeholder: "Message \(shown.name)", text: $draftText, focus: $composerFocused, insert: $emojiInsert)
+                // As the board's aria-describedby: the reply is heard whenever the box is reached, not only when chosen.
+                .accessibilityHint(replying.map { replyingLine($0) } ?? "")
+                .accessibilityLabel("Message \(shown.name)")
+                .font(.body)
+                .foregroundColor(Palette.primary)
+                .lineLimit(1...5)
+                .padding(.vertical, 9)
+                .padding(.leading, 14)
+            ComposerEmojiButton(open: emojiOpen) {
+                if emojiOpen { emojiOpen = false; composerFocused = true } else { emojiOpen = true; composerFocused = false }
+            }
+            ComposerMicButton(dictation: dictation) {
+                dictation.toggle(base: draftText) { draftText = $0 }
+            }
+            .padding(.trailing, 2)
+        }
             .background(Palette.card)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
