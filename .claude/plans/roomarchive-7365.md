@@ -88,3 +88,12 @@ page cost worse, which makes the window more urgent, not less.
    - NITs: convPause() before painting an earlier page (the DM does); learnedAt stamps old rows as "just spoke"
      (~77703) when an earlier page lands; the >200-new-rows reset lands a scrolled-up reader on an arbitrary row;
      tests for the race, the scroll listener, search transitions, reply headers, tied keys.
+2. (sonnet, 13:2x CDT) 0 BLOCKERs, 2 WARNINGs, 2 NITs + 1 low WARNING; all applied but N1.
+   - (W1) the search guard's counter was reset to 0, so a second search reused the first's number and a late first
+     read cleared the guard mid-second-read (a false no-match aloud). Now a ticket that only grows plus a pending
+     ticket; browser-checked with the reviewer's probe (renamed copy roomprof/revwin2-race-b.js): pending stays 2,
+     the mid-read keystroke is ignored, and the one announcement comes from the whole room and is true.
+   - (W2) a search read that a poll took over, or that failed, still announced a no-match from the window: loadRoom
+     now answers true only when it painted, and only then does the search speak (test).
+   - (W3, low) a reaction updated only the earlier pages' rows: the newest page's too (test).
+   - N2: pjRoomRow's PJ_WIN read is typeof-guarded like paintRoom's. N1 (the >200 reset) left, as recorded.

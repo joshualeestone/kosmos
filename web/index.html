@@ -75623,13 +75623,16 @@ document.getElementById('pj-room').addEventListener('scroll', (e) => {
    opened again, as a Direct conversation's earlier pages do. */
 function pjWinNoteReactions(project, postId, list, claim) {
   if (PJ_WIN.pid !== project || !postId || !Array.isArray(list)) return;
-  PJ_WIN.older = PJ_WIN.older.map((r) => {
+  const fix = (r) => {
     if (!r || r.kind !== 'post' || r.id !== postId) return r;
     const next = Object.assign({}, r);
     if (list.length) next.reactions = list; else delete next.reactions;
     if (claim) next.claim = claim; else delete next.claim;
     return next;
-  });
+  };
+  PJ_WIN.older = PJ_WIN.older.map(fix);
+  // The newest page too: an earlier page's paint, a search's end or a gap read builds from it before the next poll.
+  if (Array.isArray(PJ_WIN.newest)) PJ_WIN.newest = PJ_WIN.newest.map(fix);
 }
 async function pjWinRead(pid, n, cursor) {
   const q = '?n=' + n + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
@@ -77493,7 +77496,7 @@ function pjRoomRow(m, p, hideHeader) {
         + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig, pjReplyWho(p, orig))) + '</button>'
       /* kosmos#7365: the room draws its newest page and the earlier pages read so far, so an original not among them is
          FURTHER BACK while earlier rows are still unread (as a Direct conversation says, #5841), never "unavailable". */
-      : PJ_WIN.pid === PJ_CURRENT && PJ_WIN.olderCount > 0 && PJ_ROOM_QUERY.trim() === ''
+      : typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === PJ_CURRENT && PJ_WIN.olderCount > 0 && PJ_ROOM_QUERY.trim() === ''
       ? '<span class="msg-replyto gone">Original message is further back</span>'
       : '<span class="msg-replyto gone">Original message unavailable</span>';
   }
@@ -78018,7 +78021,11 @@ document.addEventListener('focusin', (e) => {
   if (!(row && e.target === row && row.querySelector('.rxns[data-post="' + CSS.escape(PJ_JUMP_FOCUS) + '"]'))) PJ_JUMP_FOCUS = null;
 });
 document.addEventListener('pointerdown', () => { PJ_JUMP_FOCUS = null; }, true);
-let PJ_SEARCH_READING = 0;   // kosmos#7365: a search's whole-room read is in flight (its keystroke number)
+/* kosmos#7365: a search's whole-room read. TICKET only ever grows, so a read that answers late can never match a newer
+   one (review 2: a counter reset to 0 handed the same number out twice); PENDING is the ticket of the read in flight,
+   0 when none. */
+let PJ_SEARCH_TICKET = 0;
+let PJ_SEARCH_PENDING = 0;
 document.getElementById('pj-room-search').addEventListener('input', async () => {
   const wasSearching = PJ_ROOM_QUERY.trim() !== '';
   PJ_ROOM_QUERY = document.getElementById('pj-room-search').value;
@@ -78033,12 +78040,17 @@ document.getElementById('pj-room-search').addEventListener('input', async () => 
      ENDING a search paints the window, not the whole room the search read (that paint is the freeze this card
      removes), and reads the newest page again. */
   if (!wasSearching && nowSearching) {
-    const mine = ++PJ_SEARCH_READING;
-    await loadRoom();
-    if (mine !== PJ_SEARCH_READING) return;   // cleared, or started again, while it read
-    PJ_SEARCH_READING = 0;
+    const mine = ++PJ_SEARCH_TICKET;
+    PJ_SEARCH_PENDING = mine;
+    const painted = await loadRoom();
+    if (PJ_SEARCH_PENDING !== mine) return;   // cleared, or started again, while it read
+    PJ_SEARCH_PENDING = 0;
+    /* Only a read that PAINTED the whole room can say "nothing matches". One a poll took over (the poll paints the
+       whole room itself, as a search is on) or one that failed (loadRoom says so beside the room) says nothing here
+       (review 2: it announced a no-match from the window). */
+    if (!painted) return;
   } else if (wasSearching && !nowSearching) {
-    PJ_SEARCH_READING = 0;
+    PJ_SEARCH_PENDING = 0;
     if (PJ_WIN.pid === PJ_CURRENT && Array.isArray(PJ_WIN.newest)) {
       box.__lastBody = Object.assign({}, box.__lastBody, { rows: pjWinMerge(PJ_WIN.older, PJ_WIN.newest) });
     }
@@ -78046,7 +78058,7 @@ document.getElementById('pj-room-search').addEventListener('input', async () => 
     loadRoom();
     PJ_SEARCH_WAS_EMPTY = false;
     return;
-  } else if (PJ_SEARCH_READING) {
+  } else if (PJ_SEARCH_PENDING) {
     return;   // the whole read is still in flight: its handler paints and speaks for the query as it is when it lands
   } else {
     paintRoom(box.__lastBody);
@@ -78130,6 +78142,7 @@ async function loadRoom() {
   roomEl.__lastBody = body;
   paintRoom(body);
   if (anchor) restoreThreadAnchor(roomEl, anchor);
+  return true;   // kosmos#7365: painted (every early return above answers undefined): a search's no-match reads this
 }
 
 /* #4653: the ambiguous-mention note last shown under the composer, so the next edit can take away that note
