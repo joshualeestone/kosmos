@@ -1744,10 +1744,26 @@ do {
 // A fake world: Kosmos+ answers the Mac list and handoffs, the Mac's gate admits (setting its cookie in the client's
 // jar, as a real Set-Cookie would), and /api/status answers from a queue. Waiting advances a fake clock, so the 15 s
 // grace and the 30 s reconnect gap are real arithmetic, not real seconds.
+extension Data {
+    // kosmos#7337: unpadded base64url, for checking a signature the client sent.
+    init?(base64URLForTests text: String) {
+        var b = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b.count % 4 != 0 { b += "=" }
+        self.init(base64Encoded: b)
+    }
+}
+
 final class FakeBoardWorld {
     var clock = Date(timeIntervalSince1970: 1_000_000)
     var requests: [String] = []
     var handoffAnswer: (Int, String) = (200, #"{"token":"hand"}"#)
+    // kosmos#7337: the gate's nonces (nil: the route answers 404, as an older tunnel), each one new; the session
+    // bodies posted; answers taken before sessionAnswer; and this iPhone's device key (nil: none).
+    var issuesNonces = false
+    var noncesIssued = 0
+    var sessionBodies: [[String: Any]] = []
+    var sessionQueue: [(Int, String)] = []
+    var deviceKey: SignIn.DeviceKey? = nil
     var handoffBodies: [[String: Any]] = []
     var macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":100}]}"#
     var sessionAnswer: (Int, String) = (200, #"{"ok":true}"#)
@@ -1850,9 +1866,15 @@ final class FakeBoardWorld {
             // kosmos#4903: each handoff's body, and an answer a test can set (a step-up refusal, say).
             handoffBodies.append(r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
             return answer(handoffAnswer.0, handoffAnswer.1)
+        case "/_kosmos/nonce":
+            guard issuesNonces else { return answer(404, "{}") }
+            noncesIssued += 1
+            return answer(200, #"{"nonce":"n\#(noncesIssued)"}"#)
         case "/_kosmos/session":
             if sessionNoAnswer { return nil }
             if sessionNoAnswerFirst > 0 { sessionNoAnswerFirst -= 1; return nil }
+            sessionBodies.append(r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
+            if !sessionQueue.isEmpty { let next = sessionQueue.removeFirst(); return answer(next.0, next.1) }
             if sessionAnswer.0 == 200 {
                 admitted += 1
                 cookies.setCookie(HTTPCookie(properties: [.name: Board.macCookieName, .value: "fresh-\(admitted)", .domain: (admitKeyedApart ? "." : "") + url.host!, .path: "/", .secure: "TRUE"])!)
@@ -1949,7 +1971,8 @@ func boardLoopTests() async {
                                                 for _ in 0..<world.uploadYields { await Task.yield() }
                                                 return world.upload(r, file)
                                             },
-                                            uploads: testUploads))
+                                            uploads: testUploads,
+                                            deviceKey: { world.deviceKey }))
         return (client, world, sessions, macs)
     }
     func settle(_ cond: () -> Bool) async -> Bool {
@@ -2184,6 +2207,54 @@ section("native board loop: connecting")
         check(c.agents.map(\.session) == ["wes", "dana"], "CONTROL: a pull that reads re-sorts, moving Wes first")
         check(c.sortEpoch == epoch + 1, "and Today is told of exactly that re-sort")
         c.stop()
+    }
+    do {
+        // kosmos#7337: with a device key, every session request carries the gate's proof, signed over exactly
+        // gateproof::message (relay crates/tunnel/src/gateproof.rs), and it verifies with the key sent beside it.
+        let k = P256.Signing.PrivateKey()
+        let (c, w, _, _) = make("kst1")
+        w.deviceKey = .software(k)
+        w.issuesNonces = true
+        c.start()
+        let live = await settle { isLive(c) }
+        check(live, "a keyed iPhone opens a computer whose gate issues nonces")
+        let b = w.sessionBodies.first ?? [:]
+        check(b["token"] as? String == "hand" && b["nonce"] as? String == "n1" && b["key"] as? String == SignIn.base64url(k.publicKey.derRepresentation),
+              "the session carries the token, the nonce and the key")
+        let tokenHash = SignIn.base64url(Data(SHA256.hash(data: Data("hand".utf8))))
+        let keyID = SignIn.deviceID(spki: k.publicKey.derRepresentation)
+        func verifies(_ text: String) -> Bool {
+            guard let sigText = b["sig"] as? String, let sig = Data(base64URLForTests: sigText),
+                  let signature = try? P256.Signing.ECDSASignature(rawRepresentation: sig) else { return false }
+            return k.publicKey.isValidSignature(signature, for: Data(text.utf8))
+        }
+        check(verifies("kosmos-gate-v2\nstudio.kosmosplus.com\nn1\n\(tokenHash)\n\(keyID)"), "the signature verifies over the gate's message")
+        check(!verifies("kosmos-gate-v2\nother.kosmosplus.com\nn1\n\(tokenHash)\n\(keyID)"), "CONTROL: and not over another computer's")
+        c.stop()
+        // A hosted box that has just allowed the key answers 409 retry: the iPhone signs again with a NEW nonce and is let in.
+        let (c2, w2, _, _) = make("kst1")
+        w2.deviceKey = .software(k)
+        w2.issuesNonces = true
+        w2.sessionQueue = [(409, #"{"retry":true}"#)]
+        c2.start()
+        let in2 = await settle { isLive(c2) }
+        check(in2, "after a 409 retry the iPhone signs again and is let in")
+        check(w2.sessionBodies.map { $0["nonce"] as? String ?? "" } == ["n1", "n2"], "each try signs a new nonce: \(w2.sessionBodies.map { $0["nonce"] as? String ?? "" })")
+        c2.stop()
+        // CONTROL: no key asks for no nonce and sends the token alone, as before #7337.
+        let (c3, w3, _, _) = make("kst1")
+        w3.issuesNonces = true
+        c3.start()
+        let in3 = await settle { isLive(c3) }
+        check(in3 && w3.count("/_kosmos/nonce") == 0 && w3.sessionBodies.first?.keys.sorted() == ["token"], "CONTROL: with no key, the token alone and no nonce asked")
+        c3.stop()
+        // An older tunnel with no nonce route (404): the token alone, still let in.
+        let (c4, w4, _, _) = make("kst1")
+        w4.deviceKey = .software(k)
+        c4.start()
+        let in4 = await settle { isLive(c4) }
+        check(in4 && w4.sessionBodies.first?.keys.sorted() == ["token"], "a gate that issues no nonce gets the token alone, as before")
+        c4.stop()
     }
     do {
         // kosmos#4903: a Kosmos cloud machine (hosted in the Mac list) is asked with a fresh handoff, and a step-up

@@ -39,7 +39,9 @@ extension BoardClient {
                           let answer = response as? HTTPURLResponse
                     else { return nil }
                     return (data, answer)
-                }
+                },
+                // kosmos#7337: the sign-in's kept key, never a new one.
+                deviceKey: { SignInClient.keptDeviceKey() }
             )
         )
     }
