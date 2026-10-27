@@ -10,7 +10,9 @@
  *
  * 🛑 WORDS AND FLOW ONLY, NEVER ADMISSION. Who may open this board is decided by kosmos-tunnel's gate, which needs
  * the latch AND a coordinator-signed claim AND a Linux build. Nothing on the board grants or refuses anyone on the
- * strength of this answer; a wrong answer here shows the wrong sentence, nothing more.
+ * strength of this answer. kosmos#7277: it does stop two actions that would cut a cloud machine's only way in
+ * (POST /api/remote/forget, and PUT /api/remote with on:false), so a wrong "yes" hides those two on a Linux box
+ * carrying the latch (the safe direction: nobody is locked out); otherwise a wrong answer shows the wrong sentence.
  */
 const fs = require('fs');
 const path = require('path');

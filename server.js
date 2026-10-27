@@ -11888,7 +11888,7 @@ const server = http.createServer(async (req, res) => {
     /* kosmos#7277: on a Kosmos cloud machine Kosmos+ is the person's only way in, so removing the machine from the
        account would leave them no way back to their board. The page offers no Remove there; this refuses the route
        too, so a stale page or a script cannot do it. The cloud answer is otherwise words-only (engine/cloudmachine.js),
-       and this is the one action it stops: a wrong "yes" only hides Remove on a Linux box carrying the installer's
+       and this is one of the two actions it stops (the other: switching remote access off, PUT /api/remote): a wrong "yes" only hides Remove on a Linux box carrying the installer's
        latch (undone by removing the latch), while a wrong "no" would lock a person out for good. */
     if (cloudMachine.isCloudMachine()) {
       sendJson(res, 409, { error: 'this is a Kosmos cloud machine, so it is not removed from here: you would have no way back to it. To stop using it, cancel it from your Kosmos+ account', cloud: true });

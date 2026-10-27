@@ -32,3 +32,5 @@ pane in the check is the control).
   removing your own browser in Devices (a lockout only if kosmos-tunnel's hosted gate does not let the owner back in;
   the tunnel is not in this repo) and an unreadable remote.json stopping the tunnel (older than this branch, no person
   triggers it).
+- Round 3 (cloudremove-7277-review3.md): 0 blockers, 0 warnings, 1 nit. CONVERGED. Fixed: the "words only" notes
+  (engine/cloudmachine.js, onCloudMachine, the forget route) name the two actions the cloud answer now stops.

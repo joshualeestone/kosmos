@@ -20807,7 +20807,8 @@ function onLinux(platform) {
 }
 /* kosmos#4903 S5: whether this board is a Kosmos cloud machine, reached only through a browser: no Terminal, no
    browser of its own, nobody at its keyboard. Read from the served meta only; an unstamped page (file://, a harness)
-   is not one. Words and flow only, never who may open the board. */
+   is not one. Words and flow only, never who may open the board (kosmos#7277: it also hides Remove this computer and
+   the Kosmos+ off switch, which would cut the only way in; the server refuses both too). */
 function onCloudMachine() {
   try {
     if (typeof document === 'undefined' || !document || typeof document.querySelector !== 'function') return false;
