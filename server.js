@@ -12279,6 +12279,20 @@ const server = http.createServer(async (req, res) => {
            away, so a local agent may still use them. ADVISORY (#3595), as above. */
         if (verb === 'allow' && !isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can allow a device.' }); return; }
         const id = typeof body.device_id === 'string' ? body.device_id : '';
+        /* kosmos#7285 item 1: on a Kosmos cloud machine, Remove or Not me on the very browser making the request would
+           take away the person's way in (Not me turns its key away for a day; Remove, until kosmos-relay S4, for good).
+           The tunnel names the requesting session's device and key in two headers it writes over any visitor's copy
+           (x-kosmos-session-device, x-kosmos-session-key; PigeonPete's tunnel branch for #7285). Trusting them costs
+           nothing here: a header can only make this refuse, never let a removal through, so a forged or missing one is
+           safe; without them (an older tunnel) nothing changes. Another device can still remove this one. */
+        if ((verb === 'remove' || verb === 'deny') && id && isRemoteRequest(req) && cloudMachine.isCloudMachine()) {
+          const own = (h) => { const v = req.headers[h]; return typeof v === 'string' && v !== '' && !v.includes(',') ? v : null; };
+          const sessKey = own('x-kosmos-session-key'); const sessDevice = own('x-kosmos-session-device');
+          if (id === sessKey || id === sessDevice) {
+            sendJson(res, 409, { code: 'own_device_cloud', cloud: true, error: 'This is the browser you are using to reach this Kosmos cloud machine, so it is not removed or turned away from here: you would have no way back. Use another phone or browser to remove it.' });
+            return;
+          }
+        }
         /* kosmos#6590 (S-7d branch c): under the board-v2 marker, Allow and Not me by id are for a computer the current
            snapshot lists (it pairs by its own code). A phone or a browser is let in only by the code its page shows, and
            is turned away by key, never by telling Kosmos+ to end its sign-in. Remove is unchanged. */
