@@ -11008,7 +11008,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    phone. The Mac's fallback link is a plain .btn and keeps its quiet look. */
 #firstrun #fr-conn-url .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); text-decoration: none; }
 #firstrun #fr-conn-url .btn.uprime:hover { background: var(--gold); border-color: var(--gold); }
-@media (max-width: 600px) { #firstrun #fr-conn-url .btn.uprime { flex: 1 1 100%; text-align: center; } }
+@media (max-width: 720px) { #firstrun #fr-conn-url .btn.uprime { flex: 1 1 100%; text-align: center; } }   /* the app's phone layout */
+/* S5 review: Settings' cloud sign-in link is gold already (no #firstrun rule outranks .btn.uprime there) but an <a>
+   keeps the browser's underline; it is a button. */
+#acct-claude-open { text-decoration: none; }
 /* #3731 (Josh, 0.6.94: "is there really a blue stroke around the buttons?"). When a download
    finishes, focus moves to "Sign in with Subscription" so a keyboard user lands on the choice,
    and the browser drew that focus in its own blue. The ring is Kosmos's now, the same ink ring as
@@ -30654,7 +30657,13 @@ function acctClaudePaintUrl(st) {
   const url = live && typeof onCloudMachine === 'function' && onCloudMachine()
     && st && typeof st.url === 'string' && /^https:\/\//.test(st.url) ? st.url : '';
   if (url && openA.href !== url) openA.href = url;
+  const changed = openRow.hidden !== !url;
   openRow.hidden = !url;
+  // S5 review: the link can arrive or go inside an unchanged phase (no repaint), so the sentence above it follows it.
+  const say = document.getElementById('acct-flow-say');
+  if (changed && say && live && typeof signinSay === 'function' && (phase === 'signin-browser-open' || phase === 'signin-awaiting-code')) {
+    say.textContent = signinSay(ACCT_FLOW_SAY, phase, !!url);
+  }
 }
 function acctFlowPaint(st) {
   const flow = document.getElementById('acct-flow');
@@ -30681,7 +30690,7 @@ function acctFlowPaint(st) {
     acctClaudeShowSub();
     flow.hidden = false;
     btn.disabled = true;
-    say.textContent = (typeof signinSay === 'function' ? signinSay(ACCT_FLOW_SAY, phase) : ACCT_FLOW_SAY[phase]) || 'Working…';
+    say.textContent = (typeof signinSay === 'function' ? signinSay(ACCT_FLOW_SAY, phase, !document.getElementById('acct-claude-open-row').hidden) : ACCT_FLOW_SAY[phase]) || 'Working…';
     const wantCode = phase === 'signin-awaiting-code';
     // Angel's contract: a rejected code does NOT move the polled state (the
     // POST answers alone, handled at the submit button). A because on this
@@ -85275,8 +85284,13 @@ const CLOUD_SIGNIN_SAY = {
   'signin-browser-open': 'Open the Claude sign-in page and sign in there. Its link appears here in a moment.',
   'signin-awaiting-code': 'Open the Claude sign-in page (its link appears here) and sign in. Claude then shows a code: paste it here.',
 };
-function signinSay(table, phase) {
-  return ((typeof onCloudMachine === 'function' && onCloudMachine()) && CLOUD_SIGNIN_SAY[phase]) || table[phase];
+function signinSay(table, phase, hasUrl) {
+  const cloud = typeof onCloudMachine === 'function' && onCloudMachine();
+  // S5 review: the spoken line (first run) and Settings' visible line say what the screen says, link or no link.
+  if (cloud && (phase === 'signin-browser-open' || phase === 'signin-awaiting-code') && typeof frCloudSigninDetail === 'function') {
+    return frCloudSigninDetail(phase, !!hasUrl);
+  }
+  return (cloud && CLOUD_SIGNIN_SAY[phase]) || table[phase];
 }
 /** One sentence per phase, spoken once on each phase CHANGE — the per-second
     progress numbers stay out of the live region on purpose. */
@@ -85342,7 +85356,7 @@ function frPaintConnect(st) {
   msg.textContent = '';
   const say = document.getElementById('fr-conn-say');
   if (say && Object.prototype.hasOwnProperty.call(FR_CONN_SAY, phase)) {
-    say.textContent = typeof signinSay === 'function' ? signinSay(FR_CONN_SAY, phase) : FR_CONN_SAY[phase];
+    say.textContent = typeof signinSay === 'function' ? signinSay(FR_CONN_SAY, phase, !!shownUrl) : FR_CONN_SAY[phase];
   }
 
   // Always a container, filled by frConnPaintUrl -- the one element that can
@@ -85409,7 +85423,7 @@ function frPaintConnect(st) {
       + (cloud ? '' : '<label class="fr-cdetail" for="fr-conn-code">If Claude gives you a code to paste, put it here:</label>')
       + '<div class="fr-code-row">'
       + '<input id="fr-conn-code" type="text" autocomplete="off" spellcheck="false" aria-label="Sign-in code"'
-      + (cloud ? ' placeholder="Paste the code from Claude"' : '') + '>'
+      + (cloud ? ' placeholder="Paste the code from Claude" aria-describedby="fr-conn-cloudsay-code"' : '') + '>'
       + '<button class="btn" id="fr-conn-code-go" type="button">Use code</button>'
       + '</div>';
     document.getElementById('fr-conn-code-go').onclick = frConnSubmitCode;

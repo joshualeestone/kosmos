@@ -43,7 +43,11 @@ async function arm(browser, { cloud, width }) {
       n.removeAttribute('hidden');
       if (getComputedStyle(n).display === 'none') n.style.display = 'block';
     }
-    frPaintConnect({ phase: 'signin-awaiting-code', url: URL });
+    // Review 1: first with no link yet (the sentence says one is coming), then the link arriving inside the phase.
+    frPaintConnect({ phase: 'signin-awaiting-code', url: null });
+    const before = host.textContent;
+    const linkBefore = !!document.querySelector('#fr-conn-url a');
+    frConnPaintUrl(URL);
     const box = document.getElementById('fr-conn-url');
     const link = box && box.querySelector('a.btn');
     if (!link) return { error: 'no sign-in link painted', html: box ? box.innerHTML.slice(0, 160) : null };
@@ -58,7 +62,7 @@ async function arm(browser, { cloud, width }) {
     const input = document.getElementById('fr-conn-code');
     return {
       bg: cs.backgroundColor, gold, deco: cs.textDecorationLine, linkW: lr.width, boxW: br.width,
-      sub: host.textContent, placeholder: input ? input.getAttribute('placeholder') : 'NO INPUT',
+      sub: host.textContent, before, linkBefore, placeholder: input ? input.getAttribute('placeholder') : 'NO INPUT',
       label: !!host.querySelector('label[for="fr-conn-code"]'),
     };
   }, { cloud, URL });
@@ -72,7 +76,7 @@ async function arm(browser, { cloud, width }) {
   try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
   catch (e) { console.error('could not launch chromium: ' + e.message); process.exit(1); }
   const WHITE = 'rgb(255, 255, 255)';
-  for (const width of [1280, 393]) {
+  for (const width of [1280, 700, 393]) {
     const c = await arm(browser, { cloud: true, width });
     if (c.error) { check(`cloud ${width}: the sign-in screen paints`, false, JSON.stringify(c)); continue; }
     check(`cloud ${width}: the sign-in link is gold (the card's --gold-bright), not white`, c.bg === c.gold && c.bg !== WHITE, `link ${c.bg}, gold ${c.gold}`);
@@ -80,7 +84,9 @@ async function arm(browser, { cloud, width }) {
     check(`cloud ${width}: the sentence says the link is below`, /sign-in page below/.test(c.sub) && !/in a moment|its link appears/i.test(c.sub), c.sub.slice(0, 140));
     check(`cloud ${width}: the code field has the placeholder and no second label`, c.placeholder === 'Paste the code from Claude' && !c.label, `${c.placeholder} / label ${c.label}`);
     check(`cloud ${width}: no page errors`, c.errors.length === 0, c.errors.join(' | '));
-    if (width < 600) check('cloud 393: the link is full width on a phone', c.linkW >= c.boxW - 1, `link ${Math.round(c.linkW)} of ${Math.round(c.boxW)}`);
+    check(`cloud ${width}: before the link arrives, no link and the sentence says it is coming`, !c.linkBefore && /in a moment/.test(c.before) && !/below/.test(c.before), c.before.slice(0, 120));
+    if (width <= 720) check(`cloud ${width}: the link is full width in the phone layout`, c.linkW >= c.boxW - 1, `link ${Math.round(c.linkW)} of ${Math.round(c.boxW)}`);
+    else check(`CONTROL cloud ${width}: on a desktop the link is not stretched`, c.linkW < c.boxW - 1, `link ${Math.round(c.linkW)} of ${Math.round(c.boxW)}`);
     const m = await arm(browser, { cloud: false, width });
     if (m.error) { check(`mac ${width}: the sign-in screen paints`, false, JSON.stringify(m)); continue; }
     check(`CONTROL mac ${width}: the fallback link stays quiet (white)`, m.bg === WHITE, m.bg);
