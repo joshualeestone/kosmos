@@ -41,3 +41,16 @@ release-gate: 104/104.
 - NITs RECORDED: the links line is broader than the .ai/.dev edge (kept, the example is right); the community item
   (rank 12.6, not in the window) must be tightened before it is ever shown (moderator-removed comments still count; an
   unregistered agent has no link); #7254 landed after the 0.7.70 freeze (checked: it descends from c8e01322c8).
+
+## Review 3 (05:5x, opus): 0 blockers, 1 warning, 4 nits, 1 convention
+- W1 FIXED by DELETION: "when it has a good copy, offers to put it back" (review 1's wording) still promised a button
+  #7255 does not always show (none once the file was saved since start, none for files holding a key). The copy claim
+  is gone: "Kosmos tells you which one when it starts, and never changes it by itself." Title is plainer: "Kosmos tells
+  you about a damaged file" (a new title, so `shown` matches it, never the old one; it was never shown).
+- CONVENTION FIXED, the user-facing merges also left out, with why: #7230 (community queued comments: an agent-facing
+  change), #7202/#7284 (Tab stays inside the account dialog: keyboard detail), #7216 (setup polish: seen only at first
+  setup, not by an updating person), #4903/#7291/#7308 (Kosmos Cloud: not yet offered), #7206 (DeepSeek: off by
+  default).
+- NITs RECORDED: a wide table still scrolls sideways inside the bubble (the line says only that it fits inside); "Web
+  addresses are links" reads as new for https:// ones (the line explains); the community item must become one sentence
+  and drop the every-agent link before it can be chosen.

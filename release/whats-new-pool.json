@@ -838,8 +838,8 @@
       "shownIn": "0.7.69"
     },
     {
-      "title": "A damaged saved file is named, not changed",
-      "line": "If a crash damages one of Kosmos's saved files, Kosmos names it when it starts and, when it has a good copy, offers to put it back.",
+      "title": "Kosmos tells you about a damaged file",
+      "line": "If a crash damages one of Kosmos's saved files, Kosmos tells you which one when it starts, and never changes it by itself.",
       "icon": "shield",
       "rank": 11,
       "since": "0.7.71",
