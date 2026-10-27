@@ -58,6 +58,15 @@ deploy_linux_carry() {
     [ "$name" = "kosmos-$ver-linux-x64.tar.gz" ] && printf '%s' "$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
       || { echo "deploy-site: the committed dist/$p does not name a kosmos-<version>-linux-x64.tar.gz ('$name') -- refusing (kosmos#7281)" >&2; return 1; }
     printf '%s' "$sha" | grep -qE '^[0-9a-f]{64}$' || { echo "deploy-site: the committed dist/$p names no sha256 -- refusing (kosmos#7281)" >&2; return 1; }
+    # LOCKSTEP backstop (kosmos#7281 C2 review 5): a channel's committed Mac pointer and Linux pointer name one version,
+    # or a board offers one release while setup.sh installs another. A promote that stopped between its two renames,
+    # or a commit of only latest.json, is refused here rather than deployed.
+    local mp mver
+    case "$p" in latest-linux.json) mp=latest.json ;; *) mp=latest-staging.json ;; esac
+    if git -C "$site" cat-file -e "$commit:dist/$mp" 2>/dev/null; then
+      mver="$(git -C "$site" show "$commit:dist/$mp" 2>/dev/null | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+      [ "$mver" = "$ver" ] || { echo "deploy-site: the committed dist/$mp names $mver but dist/$p names $ver; a channel's two pointers must name one version (kosmos#7281 lockstep) -- refusing" >&2; return 1; }
+    fi
     # Review 1 (W4): never move a Linux pointer backwards from what live serves (a checkout behind main); a deliberate
     # rollback names the version it rolls to in KOSMOS_LINUX_ROLLBACK.
     t="$(mktemp "${TMPDIR:-/tmp}/deploy-linux-live.XXXXXX")" || return 1

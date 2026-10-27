@@ -59,3 +59,20 @@ Test: 45 checks.
   symlinked pointer files are followed (trusted local checkout, as the Mac path); latest-linux.json lands 0600 as
   latest.json does; the promote-channel.sh wiring is checked by greps and order, not a driven promote.
 - The CONVENTION note (C3 must merge with or before this) is met: C3 merged 02:07 (e40f95e4d).
+
+## Review 5 (04:3x 10-27, opus): 0 blockers, 3 warnings, 4 nits, 1 convention
+- W1 FIXED: a named promote (--version, kosmos#7005) no longer refuses once staging publishes the Linux family; it takes
+  latest-linux-staging.json COMMITTED in the named commit (as it takes the Mac pointer), checks the versioned files in
+  the working tree (never replaced), and skips the working-tree pointer compare in unchanged. promote-channel.sh hands
+  prepare the commit (`${NAMED_VERSION:+$NAMED_COMMIT}`). Review 4's rollback-by-hand text is gone with the refusal.
+- W2 FIXED: deploy_linux_carry (C3's lib) refuses a commit whose Mac pointer and Linux pointer of one channel name two
+  versions (latest.json/latest-linux.json, latest-staging.json/latest-linux-staging.json), the backstop for a promote
+  stopped between its renames or a commit of latest.json alone. Checked only where the Mac pointer is committed.
+- W3 FIXED: a DRIVEN whole promote (copied promote-channel.sh + libs, signature and gates stubbed): both pointers move
+  (rc 0); a Linux version skew refuses with nothing written; a Linux write that does not take still runs /setup, then
+  refuses at the end. Mutant: drop promote_linux_commit -> 5 red.
+- Mutants: deploy guard removed -> 2 red; named path reads the working tree -> 1 red each arm.
+- RECORDED: field() leaks as a global function name (no other user); V is not format-checked here (the Mac pointer is
+  trusted, and a space splits safely); the staging Linux pointer is read from the working tree uncommitted, as the Mac
+  one; promote_linux_stage's failure branch has no test; no `bash -n` of the lib in test:shell (the test sources it).
+- PROCESS SLIP: I edited this worktree while its validation ran; that run is discarded and re-run on the commit.

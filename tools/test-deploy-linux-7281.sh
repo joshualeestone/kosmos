@@ -69,6 +69,14 @@ chk "CONTROL: no Linux pointer committed: nothing carried, no refusal" [ "$(carr
 S="$(newsite both latest-linux.json 1.7.0 "$SHA")"; cp "$S/dist/latest-linux.json" "$S/dist/latest-linux-staging.json"; git -C "$S" add dist/latest-linux-staging.json; git -C "$S" commit -q -m s
 chk "prod and staging on one build: carried once" [ "$(carry "$S" HEAD "$H1")" = "rc=0 arts=kosmos-1.7.0-linux-x64.tar.gz" ]
 chk "deploy_linux_pointers lists both" [ "$(deploy_linux_pointers "$S" HEAD | tr '\n' ' ')" = "latest-linux.json latest-linux-staging.json " ]
+# C2 review 5 (W2): the committed Mac pointer and Linux pointer of one channel must name one version, or the deploy
+# refuses (a promote stopped between its two renames, or a commit of only latest.json).
+S="$(newsite pair latest-linux.json 1.7.0 "$SHA")"; printf '{"version":"1.7.0","artifact":"kosmos-1.7.0-arm64.tar.gz"}\n' > "$S/dist/latest.json"; git -C "$S" add dist/latest.json; git -C "$S" commit -q -m mac
+chk "CONTROL: latest.json and latest-linux.json on one version: carried" [ "$(carry "$S" HEAD "$H1")" = "rc=0 arts=kosmos-1.7.0-linux-x64.tar.gz" ]
+printf '{"version":"1.8.0","artifact":"kosmos-1.8.0-arm64.tar.gz"}\n' > "$S/dist/latest.json"; git -C "$S" commit -qam "mac only"
+chk "latest.json moved on alone: refused (lockstep)" [ "$(carry "$S" HEAD "$H1")" = "rc=1 arts=" ]
+S="$(newsite spair latest-linux-staging.json 1.7.0 "$SHA")"; printf '{"version":"1.6.0"}\n' > "$S/dist/latest-staging.json"; git -C "$S" add dist/latest-staging.json; git -C "$S" commit -q -m mac
+chk "the staging pair on two versions: refused" [ "$(carry "$S" HEAD "$H1")" = "rc=1 arts=" ]
 # The COMMITTED pointer decides, not the working tree.
 S="$(newsite committed latest-linux.json 1.7.0 "$SHA")"; printf '{"version":"9.9.9"}\n' > "$S/dist/latest-linux.json"
 chk "an uncommitted edit to the pointer does not change what is carried" [ "$(carry "$S" HEAD "$H1")" = "rc=0 arts=kosmos-1.7.0-linux-x64.tar.gz" ]
