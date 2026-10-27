@@ -412,8 +412,9 @@ test('kosmos#7264 review 3: a gap, a footer that repeats, a footer that changes 
   const r = Date.parse('2026-10-27T00:20:00Z');
   // Review 4: the old row scrolls off, then a NEW limit with the same words AND the same footer text prints a minute
   // later: the absent capture moves the sighting, so it is capped until its reset, not lifted at once.
+  // Captured every minute, so the entry is still alive (gone under LIMIT_ROW_GONE_MS) when the new row arrives.
   status.resetLimitFirstSeenForTests();
-  read(ten, old + STATUS_LINE, 'idle');
+  for (let t = ten; t < day2 - 60e3; t += 60e3) read(t, old + STATUS_LINE, 'idle');
   read(day2 - 60e3, '❯ other work\n● Done.\n' + NEW_FOOTER + STATUS_LINE, 'idle');
   read(day2, block('do the report', FOOTER) + STATUS_LINE, 'rate_limited');
   // A laptop that sleeps: captures with long gaps and the same screen. Yesterday's row stays released on every wake.
