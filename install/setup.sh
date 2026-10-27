@@ -5527,10 +5527,19 @@ _kosmos_cloud_join() {
   fi
   mkdir -p "$_kcj_state" && chmod 700 "$_kcj_state" || { info "Could not make $_kcj_state."; return 1; }
   mkdir -p "$KOSMOS_HOME/logs" 2>/dev/null || true
-  if ! printf '%s' "$KOSMOS_PROVISIONING_TOKEN" | "$KOSMOS_HOME/app/bin/kosmos-tunnel" setup cloud --state-dir "$_kcj_state" > "$KOSMOS_HOME/logs/cloud-join.log" 2>&1; then
-    info "This cloud machine could not join its Kosmos+ account. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
-    return 1
-  fi
+  # Up to three tries, 10 seconds apart: a network hiccup can lose the coordinator's answer after it registered the
+  # box. kosmos-tunnel keeps the same identity key across re-runs, and the coordinator answers the same registration to
+  # the same token and key, so a retry is safe. Each try appends to the log.
+  : > "$KOSMOS_HOME/logs/cloud-join.log"
+  _kcj_try=1
+  until printf '%s' "$KOSMOS_PROVISIONING_TOKEN" | "$KOSMOS_HOME/app/bin/kosmos-tunnel" setup cloud --state-dir "$_kcj_state" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1; do
+    if [ "$_kcj_try" -ge 3 ]; then
+      info "This cloud machine could not join its Kosmos+ account. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
+      return 1
+    fi
+    _kcj_try=$((_kcj_try + 1))
+    sleep "${KOSMOS_CLOUD_JOIN_RETRY_SECS:-10}"
+  done
   unset KOSMOS_PROVISIONING_TOKEN
   if ! ( umask 077 && : > "$_kcj_state/hosted" ) || ! chmod 600 "$_kcj_state/hosted"; then
     info "This cloud machine joined its account but could not mark itself as a cloud machine ($_kcj_state/hosted)."
