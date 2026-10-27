@@ -313,3 +313,22 @@ test('#7369 review 4: an API-key account (key file in its folder) is shown signe
     assert.equal(status.claudeSignInCheckable('anyone'), true, 'CONTROL: the same folder without a key file is checkable');
   } finally { create.readJob = realRead; fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#7369 review 5: a refusal\'s flag ends with its turn: a next turn with no write that fails for another reason is not a new refusal', async () => {
+  const acct = account(subscription.STATE.NONE);
+  const b = box('winflag', 'sid-c2', 8202);
+  const live = { sessionId: 'sid-c2', pid: 8202 };
+  try {
+    b.pub.started(8202, 'sid-c2');
+    realShapeTurn(b.pub, 'Some future wording for a lapsed sign-in');
+    const first = win32streamstate.stateFor('winflag', live);
+    assert.match(first, /^auth \S+ \w+ Some future wording/,'CONTROL: the refusal is recorded: ' + first);
+    await new Promise((r) => setTimeout(r, 5));
+    // A turn that began with no write (a wake-up) and ended on a server error.
+    b.pub.event({ type: 'system', subtype: 'init' });
+    b.pub.event({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'API Error: 500 Internal server error', api_error_status: 500 });
+    const after = win32streamstate.stateFor('winflag', live);
+    assert.equal(after.split(' ')[1], first.split(' ')[1], 'the 500 was not stamped as a new refusal');
+    assert.doesNotMatch(after, /API Error: 500/, 'nor carries the 500 as the sign-in sentence');
+  } finally { b.done(); acct.restore(); }
+});

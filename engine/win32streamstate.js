@@ -525,6 +525,8 @@ function publisher(name, opts) {
          with its own time: status keeps a refusal the account check has read as stale cleared by that stamp, so a NEW
          refusal (signed out again before any good turn) must not carry an old, cleared one. */
       const signIn = signInAfterEvent(e, current.authRefused === true);
+      // Review 5: the flag is this turn's, and a result ends the turn (a turn can start with no write: a wake-up).
+      if (e && e.type === 'result') current.authRefused = false;
       let authChanged = false;
       if (signIn) {
         current.auth = { since: new Date().toISOString(), ...(signIn.line ? { line: signIn.line } : {}) };

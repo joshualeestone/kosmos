@@ -8882,7 +8882,11 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   /* #7369 review 4: nor an API-key account (#2420: a key file and an apiKeyHelper in the folder). `claude auth status`
      reads it logged in whenever a key is THERE, revoked or not (measured), so a HEALTHY answer could only hide the key's
      real refusal. auth_failed stands: the card says Sign-in Issue, and nothing is held (nothing could release it). */
-  try { if (job.configDir && require('node:fs').existsSync(require('./claudeaccounts').keyFile(job.configDir))) return undefined; } catch { return undefined; }
+  try {
+    // Review 5: the default account too (no configDir: CLAUDE_CONFIG_DIR, else ~/.claude), which may hold a key.
+    const dir = job.configDir || process.env.CLAUDE_CONFIG_DIR || require('node:path').join(require('node:os').homedir(), '.claude');
+    if (require('node:fs').existsSync(require('./claudeaccounts').keyFile(dir))) return undefined;
+  } catch { return undefined; }
   // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
   // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
   try { return verdictFn(job.configDir || null); } catch { return undefined; }

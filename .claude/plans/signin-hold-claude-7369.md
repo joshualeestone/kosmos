@@ -72,3 +72,10 @@ behaviour unchanged); release when the probe reads HEALTHY (control: still held 
   assistant message's `error: "authentication_failed"` (per turn, reset when the next message is written) and the
   result's `api_error_status: 401`, so a new wording still reads signed out. The phrase list stays as a second net.
 - The cleared memory is keyed by agent name and refusal time (two agents refused in the same millisecond stay apart).
+
+## Review 5 (decided)
+- The per-turn authentication_failed flag is cleared at every result too (a turn can start with no write, e.g. a wake-up),
+  so a later turn's other error is not stamped as a new refusal. Test reads the published token before and after.
+- The API-key guard covers the default account (CLAUDE_CONFIG_DIR, else ~/.claude).
+- Recorded, not this card: the stdin flush callback can land after a locally made refusal, marking the token busy (an
+  older race this card makes more visible).
