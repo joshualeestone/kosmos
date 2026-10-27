@@ -137,8 +137,8 @@ async function walkTip(page, tipId, { noScroll = false } = {}) {
     window.__tipScrolls = [];
     if (!window.__sbOrig) window.__sbOrig = window.scrollBy.bind(window);
     /* #7312: noScroll records the tour's scroll but does not move the page (the forced case's control). */
-    window.__tipScrollBy = [];   // #7312 review 2: how far each scroll asked to move (the card's shortfall, px), to print
-    window.scrollBy = function (...a) { const st = TIP_PLACES[TIP_STEP]; window.__tipScrolls.push(st ? st.title : '?'); window.__tipScrollBy.push(Math.abs(Math.round(Number(a[0] && typeof a[0] === 'object' ? a[0].top : a[1]) || 0))); return noScroll ? undefined : window.__sbOrig(...a); };
+    window.__tipScrollBy = [];   // #7312: each scroll's signed request (up is negative; its size is the card's shortfall)
+    window.scrollBy = function (...a) { const st = TIP_PLACES[TIP_STEP]; window.__tipScrolls.push(st ? st.title : '?'); window.__tipScrollBy.push(Math.round(Number(a[0] && typeof a[0] === 'object' ? a[0].top : a[1]) || 0)); return noScroll ? undefined : window.__sbOrig(...a); };
     const t = TIPS.find((x) => x.id === id); if (!t || !t.steps) return { error: 'no stepped ' + id + ' tip' };
     window.scrollTo(0, 0); tipShow(t); return { n: TIP_PLACES.length };
   }, [tipId, noScroll]);
@@ -156,7 +156,8 @@ async function walkTip(page, tipId, { noScroll = false } = {}) {
         cardOnScreen: C.top >= 0 && C.bottom <= vh && C.left >= 0 && C.right <= vw,
         areaInView: T.bottom > 0 && T.top < vh && T.right > 0 && T.left < vw,
         scrolledHere: (window.__tipScrolls || []).includes(st.title),
-        // #7312 review 4: the geometry the make-room step reads, so a declined-by-its-own-rules run can be told apart.
+        // #7312 review 4: the place and card geometry, read after the step's own scroll if any (so in the control, what
+        // the make-room step saw), so a declined-by-its-own-rules run can be told apart.
         y: Math.round(window.scrollY), top: Math.round(T.top), bottom: Math.round(T.bottom), cardH: Math.round(C.height) };
     }));
     await page.evaluate(() => { const go = document.querySelector('#tipcard .tip-go'); if (go) go.click(); });
@@ -344,7 +345,7 @@ function heightOf(page, sel) {
             if (w.error) { chk(false, `${tag} the project tip opens`, w.error); continue; }
             const held = await page.evaluate(() => { const room = document.getElementById('pj-room'); return { fit: room ? room.style.getPropertyValue('--pj-room-fit') : '?', height: room ? Math.round(room.getBoundingClientRect().height) : -1 }; });
             chk(held.fit === '' && held.height === off.height, `${tag} the forced layout held through the walk (no fit, same room height)`, JSON.stringify({ before: off.height, ...held }));
-            console.log(`MEASURE  ${tag} forced case: the tour asked to scroll ${JSON.stringify(w.scrollBy)}px for ${JSON.stringify(w.scrolled)} (the card's shortfall)`);
+            console.log(`MEASURE  ${tag} forced case: the tour asked to scroll ${JSON.stringify(w.scrollBy)}px for ${JSON.stringify(w.scrolled)} (negative is up; its size is the card's shortfall)`);
             if (!noScroll && w.scrolled.includes('Conversation')) forcedRoom.push(tag);
             chk(w.steps.length === 4, `${tag} the project tip walked all four steps`, String(w.steps.length));
             const conv = w.steps.find((s) => s.title === 'Conversation');
@@ -355,9 +356,13 @@ function heightOf(page, sel) {
                 chk(!st.error && st.pointing && st.cardOnScreen && st.areaInView,
                   `${tag} the project tip's ${st.title || '?'} step points at its area, fully on screen`, JSON.stringify(st));
               }
-            } else if (conv && !conv.pointing) {
+            } else if (!conv || conv.error) {
+              chk(false, `${tag} the control read its Conversation step`, JSON.stringify(conv));
+            } else if (!conv.pointing) {
               // The squeeze is there (the card is flat without the scroll), so the tour MUST have asked to make room.
-              chk(w.scrolled.includes('Conversation'), `${tag} the card is flat without the scroll, so the tour must ask to make room (it did not: the make-room step is broken or gone, or declined by its own rules: see scrollY and the place)`, JSON.stringify({ scrolled: w.scrolled, conv }));
+              const asked = w.scrolled.includes('Conversation');
+              chk(asked, `${tag} the card is flat without the scroll, so the tour asked to make room`,
+                asked ? JSON.stringify(w.scrolled) : 'it did not: the make-room step is broken or gone, or declined by its own rules (see y and the place): ' + JSON.stringify({ scrolled: w.scrolled, conv }));
             } else {
               /* The card points with no scrollBy at all: the layout no longer squeezes it, or the make-room step now moves
                  the page some other way than window.scrollBy. Either way make-room went unexercised this run. */
