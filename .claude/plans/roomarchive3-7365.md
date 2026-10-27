@@ -93,3 +93,8 @@ refusal each turn it red (scratchpad mut.sh). Room sweep (33 files that read roo
    - (N) roomarchive.js is on the #5434 list of owner-only writers (writeSecret at 0600, no hand rename). Deferred: a
      content-type check (the sibling Reopen route has none; cross-site writes are refused before routing), and a
      mixed time-format test (a row in another format ends the run early, the safe direction, as the header says).
+7. (opus, 16:0x CDT) 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 5 NITs: converged.
+   - Fixed after it, wording only: the comment and test titles said "moved aside" where the code copies.
+   - Not done: clearing a marker on project create as well as removal; a test pinning row alignment next to a
+     filtered agent note; skipping the held-list push when nothing is held; a stray copy left if a write fails after
+     copying a broken file aside.
