@@ -149,30 +149,65 @@ test('#6734: a streamed download of a multi-MB file is byte-identical, with its 
   assert.equal(fdsOn(rec.file), 0, 'a whole download or a HEAD left the file open');
 });
 
+/* kosmos#7302: a full collection on demand, so a reading is not decided by when garbage from earlier work (the 64 MB
+   source written by storedOf, earlier downloads) happens to be collected. Measured under a busy runner, a collection
+   landing between two readings cancelled a 64 MB allocation (the control failed) or left old buffers in the peak. */
+const v8 = require('node:v8');
+v8.setFlagsFromString('--expose-gc');
+const collect = require('node:vm').runInNewContext('gc');
+/** The most arrayBuffers memory grows, over a full-collection baseline, while a client that paused at once holds the
+ *  response from `url` for 400 ms: whatever the server read of the file is then held by the server. */
+async function pausedPeak(url) {
+  collect();
+  const base = process.memoryUsage().arrayBuffers;
+  let peak = 0;
+  const read = () => { peak = Math.max(peak, process.memoryUsage().arrayBuffers - base); };
+  /* Sampled from BEFORE the request goes out, every 2 ms. Measured (#7302): started in the response callback, a server
+     that read the whole 64 MB file into one Buffer had already handed it on and had it collected before the first
+     sample, and read as 0 MB held: the check passed a buffering download. */
+  const sample = setInterval(read, 2);
+  try {
+    await new Promise((resolve, reject) => {
+      const req = http.get(url, (res) => {
+        res.pause();   // the client stops reading: whatever the server has read is now held by it
+        read();
+        setTimeout(() => { req.destroy(); resolve(); }, 400);
+      });
+      req.on('error', (e) => { if (!/socket hang up|aborted|ECONNRESET/.test(String(e && e.message))) reject(e); });
+    });
+  } finally { clearInterval(sample); }
+  read();
+  return peak;
+}
+
 test('#6734: a download does not read the file into memory: a 64 MB file held by a paused client costs the board far less than 64 MB', async () => {
   const rec = storedOf(64 * MB);
-  /* CONTROL: the instrument sees 64 MB held in a Buffer. */
+  /* CONTROL 1: the instrument sees 64 MB held in a Buffer. */
+  collect();
   const before = process.memoryUsage().arrayBuffers;
   let held = Buffer.alloc(64 * MB, 1);
   assert.ok(process.memoryUsage().arrayBuffers - before >= 60 * MB, 'CONTROL: arrayBuffers did not see a 64 MB Buffer');
   held = null;
+  /* CONTROL 2 (kosmos#7302): a server in this same process that DOES buffer the same file, measured the same way and
+     under whatever load this run is under, holds most of it. So the instrument can see a buffered download right now,
+     and the board's figure below is compared with it, not only with a fixed ceiling. */
+  const buffering = http.createServer((req, res) => { res.end(fs.readFileSync(rec.file)); });
+  await new Promise((r) => buffering.listen(0, '127.0.0.1', r));
+  let bufferedPeak = 0;
+  try {
+    bufferedPeak = await pausedPeak({ host: '127.0.0.1', port: buffering.address().port, path: '/' });
+  } finally { buffering.closeAllConnections(); await new Promise((r) => buffering.close(r)); }
+  assert.ok(bufferedPeak >= 48 * MB, 'CONTROL: a buffering server measured only ' + Math.round(bufferedPeak / MB) + ' MB held for a paused 64 MB download');
   const readWhole = [];
   const realRead = fs.readFileSync;
   fs.readFileSync = function (p, ...rest) { if (String(p) === rec.file) readWhole.push(p); return realRead.call(this, p, ...rest); };
+  let peak = 0;
   try {
-    const base = process.memoryUsage().arrayBuffers;
-    let peak = 0;
-    await new Promise((resolve, reject) => {
-      const req = http.get({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id }, (res) => {
-        res.pause();   // the client stops reading: whatever the board has read is now held by it
-        const sample = setInterval(() => { peak = Math.max(peak, process.memoryUsage().arrayBuffers - base); }, 10);
-        setTimeout(() => { clearInterval(sample); req.destroy(); resolve(); }, 400);
-      });
-      req.on('error', (e) => { if (!/socket hang up|aborted|ECONNRESET/.test(String(e && e.message))) reject(e); });
-    });
-    assert.equal(readWhole.length, 0, 'the download read the whole file with readFileSync');
-    assert.ok(peak < 24 * MB, 'the board held ' + Math.round(peak / MB) + ' MB for a paused 64 MB download');
+    peak = await pausedPeak({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id });
   } finally { fs.readFileSync = realRead; void held; }
+  assert.equal(readWhole.length, 0, 'the download read the whole file with readFileSync');
+  assert.ok(peak < 24 * MB && peak * 3 < bufferedPeak,
+    'the board held ' + Math.round(peak / MB) + ' MB for a paused 64 MB download (a buffering server held ' + Math.round(bufferedPeak / MB) + ' MB)');
   assert.ok(await until(() => fdsOn(rec.file) === 0), 'the paused-then-dropped download left the file open');
 });
 
