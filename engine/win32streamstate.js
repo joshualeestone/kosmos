@@ -27,6 +27,12 @@
  * account on its extra usage, sent `rejected` with isUsingOverage, is room), and `stateFor` reports
  * `limit <until> <since|-> <kind|->[ <line>]` while the reset is ahead, which status reads as the Mac's rate_limited.
  *
+ * 🔑 AND IT SAYS WHEN THE SIGN-IN STOPPED WORKING (#7369). A turn refused for the sign-in ends in a `result` with
+ * is_error and Claude's own sentence ("Not logged in · Please run /login", "Invalid API key ..."). It read as idle, so a
+ * signed-out agent's card said nothing for days (#7366). It is kept as the agent's `auth` until a later turn reaches the
+ * model and succeeds, and `stateFor` reports `auth <since> <busy|idle>[ <line>]`, which status reads as the Mac's
+ * screen-read auth_failed ("Sign-in Issue"), cleared there too once the account's live check reads it signed in.
+ *
  * So a message written, or any in-turn event, is BUSY; a `result` is IDLE; a
  * start is IDLE. Nothing is counted: a counter that missed one event would be
  * wrong forever, while this reading corrects itself on the next event.
@@ -57,6 +63,9 @@ const IDLE = 'idle';
 const LIMIT = 'limit';
 /** A result's text kept with a limit is capped: it is the vendor's sentence on its way to a card, not a transcript. */
 const LIMIT_LINE_MAX = 300;
+/** #7369: the token's first word while the agent's last turn was refused for its sign-in; `stateFor` adds when, the
+    plain state under it, and Claude's sentence. */
+const AUTH = 'auth';
 
 /** Bumped if the file's shape ever changes, so a board never trusts a file it
     was not written to read. */
@@ -206,6 +215,35 @@ function isLimitToken(token) {
   return typeof token === 'string' && /^limit \S+ \S+ \S+/.test(token);
 }
 
+/** #7369: whether a state token is the signed-out one `stateFor` writes (`auth <since> <busy|idle>[ <line>]`). */
+function isAuthToken(token) {
+  return typeof token === 'string' && /^auth \S+ (?:busy|idle)(?: |$)/.test(token);
+}
+
+/**
+ * #7369: what one `result` event says about the sign-in. `undefined` for no claim, or `{ line }` when Claude Code ended
+ * the turn on a sign-in error (is_error, and its sentence is one of claudesignintext's). Only a result: the assistant
+ * message flagged is_api_error_message carries the same words a moment earlier, and the result is the turn's verdict.
+ * Clearing is the publisher's, on the limit's own rule: a turn that reached the model and ended without an error.
+ */
+function signInAfterEvent(event, turnAuthRefused = false) {
+  if (!event || typeof event !== 'object' || Array.isArray(event) || event.type !== 'result' || event.is_error !== true) return undefined;
+  /* Review 4: the real stream's own markers (see the event loop): this turn's assistant refusal said
+     authentication_failed, or the result carries api_error_status 401. Either is the sign-in, whatever the words. */
+  if (turnAuthRefused === true || event.api_error_status === 401) {
+    const said = typeof event.result === 'string' ? event.result : '';
+    return { line: said.replace(/\s+/g, ' ').trim().slice(0, LIMIT_LINE_MAX) || null };
+  }
+  const text = typeof event.result === 'string' ? event.result : '';
+  let apiErr = '';
+  try { apiErr = event.api_error && typeof event.api_error === 'object' ? JSON.stringify(event.api_error) : (typeof event.api_error === 'string' ? event.api_error : ''); } catch { apiErr = ''; }
+  const { isStreamSignInError } = require('./claudesignintext');
+  /* A 401 status on the api_error itself is the sign-in too, whatever its words. */
+  const status401 = !!event.api_error && typeof event.api_error === 'object' && (event.api_error.status === 401 || event.api_error.statusCode === 401);
+  if (!isStreamSignInError(text) && !isStreamSignInError(apiErr) && !status401) return undefined;
+  return { line: text.replace(/\s+/g, ' ').trim().slice(0, LIMIT_LINE_MAX) || null };
+}
+
 /** One stream line as an event, or null when it is not JSON. */
 function parseEvent(line) {
   try { return JSON.parse(line); } catch { return null; }
@@ -330,6 +368,15 @@ function stateFor(name, live, nowMs) {
       return LIMIT + ' ' + until + ' ' + since + ' ' + kind + line;
     }
   }
+  /* #7369: refused for its sign-in: `auth <since> <busy|idle>[ <line>]`, after the limit (as the Mac's classify reads a
+     usage limit before a dead token). The plain state rides along, so when the account's live check reads it signed in
+     again (status.reconcileReport, #1930) the card falls back to what the agent is doing, not to "can't tell". No
+     expiry of its own: only a later good turn (the publisher) or that live check ends it. */
+  const auth = rec.auth;
+  if (auth && typeof auth === 'object' && typeof auth.since === 'string' && Number.isFinite(Date.parse(auth.since))) {
+    const line = typeof auth.line === 'string' && auth.line ? ' ' + auth.line : '';
+    return AUTH + ' ' + auth.since + ' ' + base + line;
+  }
   return base;
 }
 
@@ -388,11 +435,13 @@ function publisher(name, opts) {
      the retry below -- or any transition that comes first -- is the second
      attempt, and a second failure in a row is what clears. */
   /* #5805: a refusal can arrive while the state token does not change, so a transition is the token AND the limit. */
-  function keyOf(c) { return c.state + '\u0000' + JSON.stringify(c.limit || null); }
+  /* #7369: and the sign-in record, which a result can set or clear while the token stays idle. */
+  function keyOf(c) { return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + JSON.stringify(c.auth || null); }
   function flush() {
     if (!current || written === keyOf(current)) { retrying = false; return; }
     const rec = { v: STATE_FILE_VERSION, state: current.state, sessionId: current.sessionId, pid: current.pid, at: new Date().toISOString() };
     if (current.limit) rec.limit = current.limit;
+    if (current.auth) rec.auth = current.auth;
     const r = write(rec);
     if (r && r.ok) { written = keyOf(current); retrying = false; return; }
     onProblem('we could not record its state (' + ((r && r.because) || 'unknown') + ')');
@@ -425,7 +474,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, state: IDLE, limit: null, reachedModel: false };
+      current = { pid, sessionId, state: IDLE, limit: null, auth: null, reachedModel: false };
       flush();
     },
     /** One parsed stream event. */
@@ -447,6 +496,10 @@ function publisher(name, opts) {
       const apiError = e && (e.is_api_error_message === true || e.isApiErrorMessage === true
         || (e.message && typeof e.message === 'object' && (e.message.is_api_error_message === true || e.message.isApiErrorMessage === true)));
       if (e && e.type === 'assistant' && !apiError) current.reachedModel = true;
+      /* #7369 review 4: the shape the installed Claude Code sends when signed out (captured): the refused assistant
+         message carries `error: "authentication_failed"`, and the result `api_error_status` (401, or null for "Not
+         logged in"). The flag is this turn's, reset when the next message is written. */
+      if (e && e.type === 'assistant' && apiError && e.error === 'authentication_failed') current.authRefused = true;
       let lim = limitAfterEvent(e);
       /* A refused turn's error arrives as an assistant message flagged is_api_error_message (so it does not count as
          reaching the model, above), and its result carries is_error true and api_error (Claude Code 2.1.303's schema).
@@ -466,11 +519,27 @@ function publisher(name, opts) {
         const line = e.result.replace(/\s+/g, ' ').trim().slice(0, LIMIT_LINE_MAX);
         if (line) current.limit = { ...current.limit, line };
       }
-      if (next || lim !== undefined || current.limit) flush();
+      /* #7369: a turn Claude Code ended on a sign-in error is kept as the agent's `auth`, and a later turn that reached
+         the model and ended without an error clears it (the limit's own rule above, and for the same reason: a local
+         command's result made no API request, so it says nothing about the sign-in). Review 2: each refusal is stamped
+         with its own time: status keeps a refusal the account check has read as stale cleared by that stamp, so a NEW
+         refusal (signed out again before any good turn) must not carry an old, cleared one. */
+      const signIn = signInAfterEvent(e, current.authRefused === true);
+      // Review 5: the flag is this turn's, and a result ends the turn (a turn can start with no write: a wake-up).
+      if (e && e.type === 'result') current.authRefused = false;
+      let authChanged = false;
+      if (signIn) {
+        current.auth = { since: new Date().toISOString(), ...(signIn.line ? { line: signIn.line } : {}) };
+        authChanged = true;
+      } else if (current.auth && e && e.type === 'result' && e.is_error !== true && !e.api_error && current.reachedModel === true) {
+        current.auth = null;
+        authChanged = true;
+      }
+      if (next || lim !== undefined || current.limit || authChanged) flush();
     },
     /** A message reached the agent's stdin. */
     wrote() {
-      if (current) { current.state = BUSY; current.reachedModel = false; flush(); }
+      if (current) { current.state = BUSY; current.reachedModel = false; current.authRefused = false; flush(); }
     },
     /** The agent process is gone. */
     stopped() {
@@ -499,4 +568,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, liveIdentity, isLimitToken, usageOfEvent, claudeAccountDirFor };
+module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, liveIdentity, isLimitToken, isAuthToken, usageOfEvent, claudeAccountDirFor };
