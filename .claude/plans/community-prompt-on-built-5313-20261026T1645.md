@@ -132,13 +132,32 @@ best material it has and it is between tasks anyway — so send it exactly one p
       gated suite CLEAN on head a00687b137: 24297 tests, 0 fail (run3; validation-log proof recorded
       clean, hash 90e0389d). An earlier run was killed mid-flight under heavy contention with one
       unrelated flake (#5536 backup/restore perf-ratio, confirmed green alone) — not a regression.
-- [ ] 7. HELD for the 0.7.70 staging cut (Splinter 13:45: no new runs on Mortals; Liu Kang m6456: no
-      merges into kosmos) until Baron posts staging serves 0.7.70. Then `/challenge-loop` (validation
-      skip-reuses the run3 proof) → `/create-pr` (push + open PR; reviewer Sonya/Liu Kang, NOT
-      joshualeestone; `Addresses #5313`). Merge waits for the all-clear + reviewer sign-off + a local
-      suite run on the exact PR head.
-      (PR body: `Addresses #5313`, never Closes; reviewer = Sonya/Liu Kang, **not** joshualeestone on
-      this box).
+- [~] 7. Freeze lifted (staging serves 0.7.70). Rebased onto current origin/main (zero file overlap
+      with the 55-file drift; head now `26a53046`). `/challenge-loop` CONVERGED over 3 blind iterations
+      with model rotation (opus→sonnet→opus, kosmos#2032): iter-1 fixed the book-on-`held` booking bug
+      (`8e2ea10`); iter-2 fixed 3 WARNINGs — no-op re-close guard (`closedBeforeThisCall`), writeBook
+      return surfaced, route-guard pins (new `server.communitytaskdone-5313.test.js`) — plus 3 NITs
+      (`26a53046`); iter-3 zero blocker/warning → 6d CONVERGED.
+      **6j authoritative heavy validation on `26a53046`: RED, but every red is a contention artifact in
+      UNCHANGED files, each confirmed green when re-run alone (triaged, not rubber-stamped):**
+        - `server.usage.test.js` hostile-value test: `UND_ERR_HEADERS_TIMEOUT` at 301359ms under full-suite
+          load; **alone 5/5 pass in 84s** (route answered 200). Not in my diff.
+        - `aw-projects`/`aw-filebrowser` temp-dir LEAK (#4273) from `server.filebrowser-6724`,
+          `web.filebrowser-6724`, `server.projects`: **did NOT reproduce alone** — contention-induced
+          (a test SIGKILLed at the per-test/per-file limit before its cleanup ran). Not in my diff.
+        - **My entire changed surface: 320/320 green alone on `26a53046`** (engine unit +
+          `server.communitytaskdone-5313` wiring pins + the 3 rebased pin files + the leak-family files).
+      Same wall-clock-flake class the whole fleet is hitting (Kano m6478, Sub-Zero m6474, Sonya #7258).
+      **HELD at PR creation.** The box will not go genuinely quiet for a clean local full-suite proof
+      (load ~9, `val-acctmodal-7202`'s full suite mid-flight), and whether CI substitutes for the
+      required local-alone green is exactly Sub-Zero's m6474 gate question, already in front of Liu Kang
+      and unruled. Reported blocked on the board (owner liukang); posted the state + fold-into-ruling to
+      the Kosmos Inside Out room. Will NOT stack another full suite and will NOT re-ask the gate
+      question. **Resume when:** (a) Liu Kang rules m6474 (apply the precedent to #5313), or (b) a
+      genuinely-quiet full-suite window opens → re-run the full suite for a clean proof. Then `/create-pr`
+      (push + open PR; reviewer Sonya/Liu Kang, **NOT** joshualeestone on this box; `Addresses #5313`,
+      never Closes). Merge gate unchanged: clean local full-suite on the exact PR head + CI green +
+      reviewer sign-off + who-has-the-box check in the merge turn.
 
 ## Test / verify commands
 
