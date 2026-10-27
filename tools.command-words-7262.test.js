@@ -266,3 +266,33 @@ test('#7318: tool-guard reads Windows names, paths and PATH lookup on Windows, a
     fs.rmSync(stub, { recursive: true, force: true });
   }
 });
+
+test('#7318 review 1: PATH and Path in one env are read as node reads them; no PATH falls back; .exe by path always counts', { skip: !WIN && 'Windows env and PATHEXT rules' }, () => {
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-7318r1-'));
+  try {
+    const realBin = path.join(stub, 'real');
+    const fakeBin = path.join(stub, 'fake');
+    fs.mkdirSync(realBin);
+    fs.mkdirSync(fakeBin);
+    fs.writeFileSync(path.join(realBin, 'gh.exe'), '');
+    fs.writeFileSync(path.join(fakeBin, 'gh.cmd'), '@echo off\r\n');
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = realBin;
+    // node sorts env keys and the child gets the first spelling: PATH before Path
+    assert.equal(refusedCall('gh', [], { env: { Path: realBin, PATH: fakeBin } }), null, 'the fake on PATH is what runs');
+    assert.equal(refusedCall('gh', [], { env: { Path: fakeBin, PATH: realBin } }), 'gh', 'the real gh on PATH is what runs');
+    // an explicit .exe path counts whatever PATHEXT says, and PATHEXT entries are trimmed
+    assert.equal(refusedCall(path.join(realBin, 'gh.exe'), [], { env: { PATH: fakeBin, PATHEXT: '.CMD' } }), 'gh');
+    assert.equal(refusedCall('gh', [], { env: { PATH: realBin, PATHEXT: '.COM; .EXE' } }), 'gh');
+    // an env with no PATH searches the parent's PATH
+    const saved = process.env.PATH;
+    process.env.PATH = realBin;
+    try {
+      assert.equal(refusedCall('gh', [], { env: { FOO: '1' } }), 'gh');
+    } finally {
+      process.env.PATH = saved;
+    }
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
+});

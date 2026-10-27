@@ -60,27 +60,31 @@ const WIN = process.platform === 'win32';
 // is still seen under it however the temp dir is spelled.
 const real = (p) => { try { return WIN ? fs.realpathSync.native(p) : fs.realpathSync(p); } catch { return path.resolve(p); } };
 const ALLOWED_ROOTS = [real(REPO), real(os.tmpdir()), path.resolve(os.tmpdir())];
-// A variable from an env object: on Windows names are case-insensitive, and a copy of process.env keeps "Path".
+// A variable from an env object. On Windows names are case-insensitive, and when an env holds two spellings (a copy of
+// process.env keeps "Path", a test adds "PATH") node sorts the keys and the child gets the first: so does this (review 1
+// of #7318). An env with no PATH at all still searches the parent's PATH, as node does.
 function envVar(vars, name) {
   if (!WIN) return vars[name];
-  const k = Object.keys(vars).find((x) => x.toUpperCase() === name.toUpperCase());
-  return k === undefined ? undefined : vars[k];
+  const k = Object.keys(vars).filter((x) => x.toUpperCase() === name.toUpperCase()).sort()[0];
+  if (k !== undefined) return vars[k];
+  return name.toUpperCase() === 'PATH' && vars !== process.env ? envVar(process.env, name) : undefined;
 }
 function pathExts(vars) {
-  return String(envVar(vars, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map((e) => e.toLowerCase());
+  return String(envVar(vars, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD').split(';').map((e) => e.trim().toLowerCase()).filter(Boolean);
 }
-// The tool a file name is, or null: exactly gh / vercel / cloudflared, or on Windows any case with a PATHEXT extension.
+// The tool a file name is, or null: exactly gh / vercel / cloudflared, or on Windows any case with a PATHEXT extension;
+// .exe and .com always count, since Windows runs one given by path whatever PATHEXT says.
 function toolName(base, vars) {
   if (!WIN) return Object.prototype.hasOwnProperty.call(TOOLS, base) ? base : null;
   const lower = base.toLowerCase();
-  const exts = pathExts(vars);
+  const exts = ['.exe', '.com'].concat(pathExts(vars));
   return Object.keys(TOOLS).find((n) => lower === n || exts.some((e) => lower === n + e)) || null;
 }
 const isPathWord = (w) => (WIN ? /[\\/]/.test(w) || /^[A-Za-z]:/.test(w) : w.includes('/'));
 const within = (where, root) => {
   const a = WIN ? where.toLowerCase() : where;
   const b = WIN ? root.toLowerCase() : root;
-  return a === b || a.startsWith(b + path.sep);
+  return a === b || a.startsWith(b.endsWith(path.sep) ? b : b + path.sep);   // a drive root (C:\) already ends in one
 };
 
 // One command word: is it a real tool? `cwd` resolves a relative path the way the spawn will.

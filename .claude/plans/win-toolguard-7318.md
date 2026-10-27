@@ -34,3 +34,11 @@ shell, so reading every PATHEXT extension is a superset (refuses gh.bat where no
 the safe side for a guard against real CLIs.
 
 ## Review rounds
+- Round 1: 1 BLOCKER, 2 WARNINGs, 3 NITs. BLOCKER FIXED: an env holding both PATH and Path was read by insertion order;
+  node sorts the keys and the child gets the first (PATH), so the standard fake-first setup on a Path-spelled box was
+  refused and the reverse let a real gh through (reviewer measured both); envVar now sorts the same way. WARNINGs FIXED:
+  an env with no PATH searches the parent's PATH, as node does; .exe and .com by path count whatever PATHEXT says, and
+  PATHEXT entries are trimmed. NIT FIXED: within() with a drive-root allowed dir. NITs ACCEPTED: a not-yet-existing file
+  under a mixed 8.3/long temp path is refused (conservative); a Git Bash /c/... path resolves to C:\c\... (pre-existing).
+  Reviewer confirmed POSIX unchanged and the real gh.exe on this box refused in every ordinary shape. Negative control:
+  the new test fails against round 0. 59/59.
