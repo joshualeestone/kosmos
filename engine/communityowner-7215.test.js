@@ -25,6 +25,8 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 // The fake community is on loopback, so the coordinator is overridden too: the board links only when both are the
 // defaults or both are overridden. Nothing reaches it: remote.macRequest is stubbed below.
 process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:9';
+// The sweep mints only when a test supplies its own tunnel; this path is never run (macRequest is stubbed).
+process.env.AGENT_WORKFORCE_TUNNEL_BIN = path.join(SANDBOX, 'no-tunnel');
 const communitystore = require('./communitystore');
 const feedpublish = require('./feedpublish');
 const remote = require('./remote');
@@ -245,11 +247,11 @@ test('a coordinator that fails for another reason (a 503): the pass waits 15 min
   assert.equal(R.mints.length, 1);
   await cs.sweep();
   assert.equal(R.mints.length, 1, 'inside the 15-minute pause nothing is asked');
-  cs._ownerLinkReset(0);   // ends the pause and makes the next one zero; an hour-long pause would not be touched
+  cs._ownerLinkReset(0);   // ends this pause and makes every later short pause zero (the hour stays an hour)
   await cs.sweep();
   assert.equal(R.mints.length, 2, 'asked again once the short pause is over');
   await cs.sweep();
-  assert.equal(R.mints.length, 3, 'a 503 sets the short pause, not the hour');
+  assert.equal(R.mints.length, 3, 'a 503 sets the short pause, not the hour');   // only this sweep tells the two apart
   cs._ownerLinkReset(15 * 60 * 1000);
 });
 

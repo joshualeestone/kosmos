@@ -1553,6 +1553,9 @@ function ownerLinkProdHost(address, defaults) {
 }
 async function sweepOwnerLink(keys, on) {
   if (!on || !switchOn() || !ownerLinkLive()) return;
+  // Under node's test runner nothing is minted unless the test supplies its own tunnel (the seam mac-standing.js and
+  // remote.test.js key on): a community test that lets a sweep run must never reach the real coordinator.
+  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) return;
   const mac = ownerLinkMac();
   if (!mac) return;
   const ep = endpointDir();
@@ -1669,7 +1672,8 @@ async function sweepOwnerLink(keys, on) {
       ownerLinkPassAt.set(ep, Date.now() + OWNER_LINK_RETRY_MS);
       stopHere();
       ownerLinkPassLog(ep, siteRefusal ? `the community refused the passes of two agents in one pass (${r.status}), so it likely no longer takes them; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`
-        : `the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
+        : `the community answered ${r.status || 'nothing'}; the pass waits ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`,
+        siteRefusal ? 'site refusals' : 'site ' + (r.status >= 500 ? '5xx' : r.status || 'none'));   // said once per kind
       break;
     }
   } finally {
