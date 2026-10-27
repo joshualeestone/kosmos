@@ -742,6 +742,9 @@ fi
 # the same dir + rename): latest.json is the prod pointer every install fetches, so an
 # interrupted write must never leave it truncated. rename(2) within one directory is atomic.
 # The temp copy is proven to BE the verified snapshot before it replaces prod.
+# kosmos#7281 review 1 (W1): the Linux pointer's temp copy is made and checked BEFORE latest.json moves, so all that is
+# left after it is one rename.
+[ "$FAMILY" != mac ] || promote_linux_stage "$SITE" || exit 1
 PTMP="$(mktemp "$SITE/dist/.$PROD_NAME.XXXXXX")" || { echo "promote-channel: could not make a temp file in $SITE/dist" >&2; exit 1; }
 cp "$SNAP" "$PTMP" || { echo "promote-channel: could not write $PROD_NAME" >&2; exit 1; }
 if ! cmp -s "$SNAP" "$PTMP" || [ "$(read_pointer_field "$PTMP" "$ARTIFACT_FIELD")" != "$ARTIFACT" ] || [ "$(read_pointer_field "$PTMP" sha256)" != "$SHA" ]; then
@@ -750,8 +753,9 @@ if ! cmp -s "$SNAP" "$PTMP" || [ "$(read_pointer_field "$PTMP" "$ARTIFACT_FIELD"
 fi
 mv "$PTMP" "$SITE/dist/$PROD_NAME" || { echo "promote-channel: could not write $PROD_NAME" >&2; exit 1; }
 PTMP=""
-# kosmos#7281: the Linux pointer, right behind latest.json (checked and snapshotted before any write).
-[ "$FAMILY" != mac ] || promote_linux_write "$SITE" || exit 1
+# kosmos#7281: the Linux pointer, one rename right behind latest.json. A failure does not exit here: the log line,
+# /setup and the alias below still run, and the promote refuses at the end (promote_linux_refuse_if_failed).
+[ "$FAMILY" != mac ] || promote_linux_commit "$SITE"
 # #3940: the prod pointer now names this build, so from here on the promote has HAPPENED even if a
 # later step (the read-back, the alias) fails and exits. Log it now, not at the end: a promote
 # refused BEFORE this line leaves nothing, one that changed prod always leaves its line.
@@ -829,6 +833,7 @@ sha256_publish_as "$SITE/dist/$ARTIFACT.sha256" "$SITE/dist/$ALIAS.sha256" "$ALI
 # versioned name held a moment ago.
 [ "$(awk 'NR==1{print $1}' "$SITE/dist/$ALIAS.sha256")" = "$SHA" ] || { echo "promote-channel: the refreshed alias $ALIAS does not hash to the promoted sha $SHA - refresh it by hand before any deploy" >&2; exit 1; }
 echo "   refreshed the prod alias $ALIAS to $V"
+[ "$FAMILY" != mac ] || promote_linux_refuse_if_failed || exit 1   # kosmos#7281 review 1 (W1)
 
 
 if [ "$FAMILY" = win ]; then
