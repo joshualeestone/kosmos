@@ -144,10 +144,23 @@ const SPLIT_JOINED = /^(?:-[iv0]*S|--([a-z-]+)=)([\s\S]+)$/;
    read as env's own arguments, and also read as a shell line (the shell in front may have cut it differently: env -S
    \';\schtasks, #7299). */
 function splitInto(strs, after, depth, out) {
+  const tail = after.map((w) => w.raw).join(' ');
   for (const str of strs) {
+    if (!once(out, 'S\0' + str + '\0' + tail, depth)) continue;
     walk([argWord('env')].concat(envSplit(str).map(argWord), after), 0, depth, 'posix', out);
-    lineInto([str].concat(after.map((w) => w.raw)).join(' '), depth, 'posix', out);
+    lineInto(str + ' ' + tail, depth, 'posix', out);
   }
+}
+
+/* Whether this piece of work is new for this call: each reading of a line or of an env -S string is done once, unless
+   it comes again at a shallower depth (which can read further). Nested env -S strings with several readings each
+   otherwise branched eight ways a level (review 3: 98 s for one line; now linear). The memo lives on out. */
+function once(out, key, depth) {
+  if (!out.memo) Object.defineProperty(out, 'memo', { value: new Map() });
+  const seen = out.memo.get(key);
+  if (seen !== undefined && seen <= depth) return false;
+  out.memo.set(key, depth);
+  return true;
 }
 
 /* A word as the shell will run it, where that differs from its text: a POSIX shell unescapes g\h and $'gh' (with
@@ -186,6 +199,7 @@ function unescaped(w, shell) {
         const v = parseInt(e.slice(1), 16);
         ch = v <= 0x10ffff ? String.fromCodePoint(v) : '';
       } else if (/^[0-7]/.test(e)) ch = String.fromCharCode(parseInt(e, 8) & 0xff);
+      else if ('abefnrtv'.includes(e)) ch = { a: '\x07', b: '\b', e: '\x1b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' }[e];   // C escapes
       if (ch === '\0') return out;   // the word ends at a NUL
       out += ch;
       continue;
@@ -199,6 +213,7 @@ function unescaped(w, shell) {
     }
     if (q === '"') { if (c === '"') q = null; else out += c; continue; }
     if (c === '$' && raw[k + 1] === "'") { q = 'ansi'; k += 1; continue; }
+    if (c === '$' && raw[k + 1] === '"') { q = '"'; k += 1; continue; }   // $"..." is bash's translated double quote
     if (c === "'" || c === '"') { q = c; continue; }
     out += c;
   }
@@ -520,6 +535,7 @@ function lineInto(text, depth, shell, out) {
   /* An exec line's shell is not known (cmd on Windows): read it with backtick cuts and without (review 5: a lone
      backtick, env A=`x schtasks, must not cut the command in two). */
   if (shell === undefined) { lineInto(text, depth, 'posix', out); lineInto(text, depth, 'other', out); return; }
+  if (!once(out, 'L' + shell + '\0' + text, depth)) return;
   for (const part of commands(text, shell)) walk(words(part.trim(), shell), 0, depth, shell, out);
 }
 

@@ -195,3 +195,18 @@ test('#7320 review 2: a flat chain of escaped prefixes; \\U and NUL in $\'...\';
   commandRuns('n\\ice '.repeat(16000) + 'schtasks');
   assert.ok(Date.now() - t0 < 2000, 'took ' + (Date.now() - t0) + ' ms');
 });
+
+test('#7320 review 3: nested env -S with escaped values stays cheap; $"..." quoting; C escapes in $\'...\'', () => {
+  // was 98 s at n = 4000 (each level branched eight ways); main took 0 ms
+  const line = 'env -S A=\\\\\'1\' '.repeat(6) + 'x '.repeat(4000);
+  const t0 = Date.now();
+  commandRuns(line);
+  callRuns('bash', ['-c', line]);
+  assert.ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms');
+  // and the memo does not hide a real one: the same nesting still finds schtasks at its end
+  assert.equal(commandRuns('env -S A=\\\\\'1\' '.repeat(3) + 'schtasks'), true);
+  // bash runs $"echo" HIT (checked live)
+  for (const cmd of ['$"schtasks" /q', 'sch$"t"asks /q']) assert.equal(commandRuns(cmd), true, cmd);
+  // CONTROL: \t in $'...' is a tab, so sch<TAB>asks is not schtasks
+  assert.equal(commandRuns("$'sch\\tasks' /q"), false);
+});

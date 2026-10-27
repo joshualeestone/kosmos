@@ -57,3 +57,10 @@ extra word, harmless for the same reason.
   checked from a file: no longer an assignment). ACCEPTED: carets in a PowerShell line read as cmd's (refusal of the
   guarded word only); g\h.exe in an exec line also read as gh.exe (same). Negative control: the new test fails against
   round 1. 65/65 (1 skip, #7318's); 87 win32 files 0 fail 0 refusals.
+- Round 3 (after rebasing onto main 2fbb0884c1): 1 BLOCKER (cost), 1 WARNING, 1 NIT; detection clean (two 200k fuzzes
+  vs main: every main-true/HEAD-false row checked runs nothing; 20/20 stable runs of both test files). BLOCKER FIXED:
+  nested env -S with a value that has several readings branched eight ways a level (the reviewer's input: 25.5 s at
+  1000 trailing words on round 2, 160 s in the test at 4000); each line reading and each -S split is now done once per
+  call unless it recurs shallower (once(), a memo on out): 26 ms at 4000, and detection on the reviewer's script
+  matches main row for row. The new timing test fails on round 2's reader (160 s). WARNING FIXED: $"..." is a double
+  quote (bash ran $"echo" HIT). NIT FIXED: C escapes in $'...' are control characters. 66/66 (1 skip).
