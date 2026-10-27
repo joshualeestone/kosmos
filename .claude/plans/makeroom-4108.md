@@ -1,4 +1,4 @@
-# chatbox-4108: render-chatbox-phone-4108 red on main since #7196
+# makeroom-4108: render-chatbox-phone-4108 red on main since #7196
 
 Card: kosmos#7196 (follow-up, Renet's bisect in comment 6435001751; Splinter routed it as a priority, 10-27 01:05).
 The check is in docs/browser-checks/gated.txt, so it blocks the 0.7.71 cut and reds any web PR that selects it.
