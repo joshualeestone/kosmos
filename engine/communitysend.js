@@ -1496,7 +1496,7 @@ async function sweepInstallGroup(keys, on) {
  *   a mint refused on this computer before it was sent (a register or a Forget is out): no pause.
  * The owner-link pauses are per endpoint, in memory; the #4953 limiter pause is per agent, as for posts.
  * Production passes go only to the production site: nothing is linked unless the community service and the Kosmos+
- * coordinator are both the defaults or both overridden (a board pointed at another community while signed in to the
+ * coordinator are both production or both not (it does not check that two non-production ones belong together) (a board pointed at another community while signed in to the
  * real Kosmos+ would hand that service a live pass for the person's account, which it could present at the real site
  * under a name it registers there).
  */
@@ -1559,7 +1559,7 @@ async function sweepOwnerLink(keys, on) {
   const prodSite = ownerLinkProdHost(endpoint(), [DEFAULT_ENDPOINT, ...Object.values(SAME_SERVICE)]);
   const prodCoordinator = ownerLinkProdHost(remote.COORDINATOR(), [remote.DEFAULT_COORDINATOR]);
   if (prodSite !== prodCoordinator) {
-    ownerLinkPassLog(ep, 'not linking: this community service and the Kosmos+ coordinator are not the same deployment (one is the default, one is overridden)', 'deployment mismatch');
+    ownerLinkPassLog(ep, 'not linking: one of the community service and the Kosmos+ coordinator is production and the other is not', 'deployment mismatch');
     return;
   }
   if ((ownerLinkPassAt.get(ep) || 0) > Date.now()) return;
@@ -1594,7 +1594,7 @@ async function sweepOwnerLink(keys, on) {
       if (mints >= OWNER_LINK_MINTS_PER_PASS) { resumeHere(); break; }   // no pause: the next sweep starts at this agent
       mints++;
       let minted;
-      try { minted = await require('./remote').macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name }); }
+      try { minted = await remote.macRequest('POST', OWNER_PASS_ROUTE, { agent: k.name }); }
       catch { minted = { ok: false, because: 'the request to Kosmos+ failed' }; }   // treated as no answer: the pass waits
       // Refused on this computer before anything was sent (remote.macRequest: a register or a Forget is out, or this
       // computer is not connected to Kosmos+, which ownerLinkLive rules out first): nothing was asked, so nothing
@@ -1602,7 +1602,7 @@ async function sweepOwnerLink(keys, on) {
       if (minted.notSent) return;
       // A Forget (or a sign-in) pressed during the mint: remote.forget() waits for this very request before it forgets,
       // so the identity has not changed yet and the check below cannot see it. Not sent; the next sweep looks again.
-      if (require('./remote').busy()) return;
+      if (remote.busy()) return;
       // A Forget and a new sign-in during the mint: this pass vouches for the account just forgotten. Not sent; the
       // next sweep links the agent under the new identity.
       if (ownerLinkMac() !== mac) return;
