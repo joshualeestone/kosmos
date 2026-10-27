@@ -34,3 +34,13 @@ removed; red at 700 with the old 600px breakpoint.
 - NITs: aria-describedby and its target asserted (mutant red); Settings' underline fix asserted in source (the
   browser check cannot open Settings' Add a provider panel, which Mona Lisa's script could not either). Settings'
   #acct-code keeps its own placeholder ("Sign-in code"), already without a second label.
+
+## Review 3 (2026-10-27 00:0x): 0 blockers, 1 warning, 2 nits. CONVERGED.
+- WARNING FIXED: a late link on first run updated the visible sentence but left the hidden live region saying the
+  link was coming (Settings already re-said it). frConnPaintUrl now sets #fr-conn-say too when it changes; tested by
+  painting with no link, then a link (mutant red).
+- Checked clean: Settings' equality guard compares against the right previous state; no page reason can equal a
+  generic sentence; an invalid then valid url keeps the row and the sentence in step.
+- NITs: the test's reason now has the page's own tail; the underline assertion catches deletion only (recorded).
+Web test set (every web.*.test.js plus server.connect, the browser-check index and wiring, engine.reachable,
+fixture-discipline): 3432 tests, 3432 pass.
