@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: agent-remove-7362
-diff_hash: d2d41e7bb2bd76c357aff761c42edc1f148cbfaddd69ddb4c38f83b0d35a25c9
-validation: windows 13/13 cli.agent-remove-7362; bash cases need a Mac
+diff_hash: 758829259434dd72d98749d737f1f5c1c3b1dcbbc5539e79c8f2699dfed84a6e
+validation: windows 13/13 cli.agent-remove-7362; Mac run 20/20 at a0f32aa167 (Ice Cream Kitty); dot test split after
 subdir_audit: passed
-timestamp: 2026-10-27T18:08:17Z
+timestamp: 2026-10-27T18:40:11Z
 iterations: 4
 converged: true
 ---
@@ -29,6 +29,8 @@ converged: true
 
 #### Iteration 4
 - Round 4: no blocker, no warning. [NIT] bash exits 1, Node 3, for a non-JSON 5xx from something in front of the board --> ACCEPTED (not from the removal handler; the board is on localhost).
+- CI fix (after round 4): the "." / ".." test branched on process.platform, which the repo's host-branch rule
+  (engine/windows-tests-1777) refuses unless listed; split into a Windows test and a Mac test like the others. Tests only.
 
 ### Final Ledger
 | Round | Blockers | Warnings | Outcome |
