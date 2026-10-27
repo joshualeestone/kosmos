@@ -205,7 +205,10 @@ final class BoardClient: ObservableObject {
         // A kept Mac session from another sign-in is never used, so it is not kept either. Not while no session can
         // be read: the sign-out deletes it itself.
         if session != nil, stored != nil, Board.usableSaved(stored, session: session, coordinator: coordinator) == nil { macStore.delete() }
+        // kosmos#7266 review 1: never the kept session of another computer than the one chosen in the switcher, or any later
+        // start (Try again, a return to the app, as when the person goes to press Allow) would undo the choice.
         if admitted == nil, !skipSaved, let session, let saved = Board.usableSaved(stored, session: session, coordinator: coordinator),
+           chosenMac == nil || saved.address == chosenMac,
            let url = Board.macURL(address: saved.address, coordinator: coordinator) {
             // The Mac's session from an earlier launch: tried first, and dropped by refresh() if the Mac has ended it.
             restoreCookie(saved.cookie, for: url)
@@ -1133,6 +1136,8 @@ final class BoardClient: ObservableObject {
         guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
             kosmosPlusFailed(status: status, gen); return nil
         }
+        // Review 1: a list that lands after a sign-out or another start is not this run's to show.
+        guard gen == generation else { return nil }
         self.macs = Board.reachableMacs(macs, coordinator: coordinator)
         guard let mac = Board.pickMac(self.macs, remembered: env.defaults.string(forKey: Board.rememberedMacKey),
                                       chosen: chosenMac) else {
