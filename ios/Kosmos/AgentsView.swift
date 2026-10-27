@@ -43,7 +43,7 @@ struct AgentsView: View {
                 // tab bar names the screen): the Kosmos mark, the computer switcher, then order and + in one capsule.
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+                    ToolbarItem(placement: .principal) { ScreenHeading(title: "Agents") }
                     ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
                     ToolbarItem(placement: .navigationBarLeading) { MacSwitcher(client: client) }
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
@@ -331,7 +331,6 @@ struct AgentRow: View {
     let stale: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var tone: Board.Tone { stale ? .quiet : Board.tone(agent) }
     private var word: String { Board.statusWord(agent) }
     private var large: Bool { typeSize.isAccessibilitySize }
 
@@ -538,7 +537,7 @@ enum Palette {
 }
 
 // kosmos#7343 (Mona Lisa's design): the Kosmos mark at the bar's left, a 44 pt gold circle (the app icon's gold) with
-// the icon's dotted K. Decoration with the label "Kosmos", not a button.
+// the icon's dotted K. Decoration only, so VoiceOver skips it.
 struct KosmosMark: View {
     var body: some View {
         ZStack {
@@ -547,9 +546,18 @@ struct KosmosMark: View {
         }
         .frame(width: 44, height: 44)
         .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-        .accessibilityElement()
-        .accessibilityLabel("Kosmos")
-        .accessibilityAddTraits(.isImage)
+        .accessibilityHidden(true)
+    }
+}
+
+// kosmos#7343: no title shows in the bar, but VoiceOver still hears the screen's name as its heading.
+struct ScreenHeading: View {
+    let title: String
+    var body: some View {
+        Color.clear.frame(width: 1, height: 1)
+            .accessibilityElement()
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -620,7 +628,8 @@ struct StatusPill: View {
         if reduceMotion {
             dots { i in i == 0 ? 1 : 0.25 }
         } else {
-            TimelineView(.animation) { context in
+            // 30 frames a second is smooth for a 1.2 s fade and costs less than the display's own rate.
+            TimelineView(.periodic(from: .now, by: 1.0 / 30)) { context in
                 let t = context.date.timeIntervalSinceReferenceDate
                 dots { i in Board.sweepOpacity(t - Double(i) * 0.2) }
             }

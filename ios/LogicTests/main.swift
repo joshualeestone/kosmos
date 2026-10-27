@@ -3889,7 +3889,18 @@ do {
         check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
         check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
         check(Board.pill(a("unknown")) == .cantTell && Board.pill(a("something_new")) == .cantTell, "unknown and unrecognised states are grey")
-        // kosmos#7343: the Agents list's order, as the computer sends it or by name (ties keep the computer's order).
+        // Review: the pill is never calmer than what the board counts as needing the person.
+        func needing(_ s: String) -> Board.Agent { Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: true) }
+        check(Board.pill(needing("connection_lost")) == .problem, "review: a reconnect that gave up is red, not amber")
+        check(Board.pill(a("connection_lost")) == .held, "CONTROL: a connection still being retried stays amber")
+        check(Board.pill(needing("rate_limited")) == .problem, "review: a rate limit stuck on its error is red")
+        check(Board.pill(needing("idle")) == .problem, "review: an idle agent whose helper gave up shows a red pill, not none")
+        check(Board.pill(q(a("working")) { $0.macWord = "Messages stuck"; $0.macTone = .needsYou }) == .problem,
+              "review: a word the Mac counts as needs you (Messages stuck) is red, not a green Working pill")
+        check(Board.pill(q(a("rate_limited")) { $0.macTone = .needsYou }) == .held, "CONTROL: the Mac's needs-you tone leaves a held state amber")
+        check(Board.pill(q(needing("needs_you")) { $0.reportedByAgent = true }) == .asks,
+              "CONTROL: an agent's question stays blue though the board counts it as needing the person")
+        // kosmos#7343: the Agents list's order, its own or by name (ties keep the list's order).
         let ord = [Board.Agent(session: "b", name: "bea", role: nil, state: "idle", task: nil, needsYou: false),
                    Board.Agent(session: "a", name: "Al", role: nil, state: "idle", task: nil, needsYou: false),
                    Board.Agent(session: "c", name: "al", role: nil, state: "idle", task: nil, needsYou: false)]
