@@ -182,3 +182,11 @@ test('#7386 review 5: a key split by U+FEFF (a zero-width no-break space JS coun
   // Control: shown as a space, as main shows it, when nothing secret is around it.
   assert.equal(stepVia('Bash', { command: 'echo a﻿b' }), 'running "echo a b"');
 });
+
+test('#7386 review 6: U+2028 and U+2029 are line breaks, treated as a newline is', () => {
+  const GHP = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
+  for (const br of ['\n', ' ', ' ']) {
+    const step = stepVia('Bash', { command: 'echo ' + split(GHP, 30, br) });
+    assert.ok(!leaks(step, GHP, 4), JSON.stringify(br) + ' let the key show: ' + JSON.stringify(step));
+  }
+});
