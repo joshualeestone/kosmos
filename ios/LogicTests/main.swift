@@ -4359,6 +4359,55 @@ do {
     check(n.pendingHost == nil, "#7266 review 6: the native tab clears it")
 }
 
+section("kosmos#7389: a Kosmos+ download, saved through the share sheet (the Mac's #5167 rules)")
+do {
+    let coord = URL(string: "https://login.kosmosplus.com")!
+    let page = URL(string: "https://studio.kosmosplus.com/?tab=files")!
+    let file = URL(string: "https://studio.kosmosplus.com/api/files/report.pdf")!
+    check(Download.isBoardPage(page, coordinator: coord), "a computer's Kosmos+ address is a board")
+    for bad in ["https://login.kosmosplus.com/", "https://www.kosmosplus.com/", "https://billing.kosmosplus.com/", "https://evil.example/",
+                "http://studio.kosmosplus.com/", "https://a.b.kosmosplus.com/", "https://studio.kosmosplus.com:8443/", "https://u@studio.kosmosplus.com/"] {
+        check(!Download.isBoardPage(URL(string: bad)!, coordinator: coord), "CONTROL: not a board: \(bad)")
+    }
+    check(!Download.isBoardPage(nil, coordinator: coord), "no page is not a board")
+    check(Download.isSameOrigin(file, page: page) && Download.isSameOrigin(URL(string: "https://studio.kosmosplus.com:443/x")!, page: page),
+          "the same origin, the default port written or not")
+    check(!Download.isSameOrigin(URL(string: "https://other.kosmosplus.com/x")!, page: page) && !Download.isSameOrigin(URL(string: "http://studio.kosmosplus.com/x")!, page: page),
+          "CONTROL: another computer or another scheme is not the same origin")
+    // A download the page asked for (<a download>).
+    check(Download.decideAction(target: file, page: page, coordinator: coord) == .save, "a board's own file is saved")
+    check(Download.decideAction(target: URL(string: "https://other.kosmosplus.com/x")!, page: page, coordinator: coord) == .refuse(Download.notFromThisBoard),
+          "CONTROL: a file from another address is refused, in the Mac's words")
+    check(Download.decideAction(target: file, page: URL(string: "https://evil.example/")!, coordinator: coord) == .refuse(Download.notABoard),
+          "CONTROL: a page that is not a board cannot save")
+    // A main-frame answer.
+    func resp(_ status: Int, attachment: Bool = true, canShow: Bool = false, target: URL? = file, page p: URL? = page, html: Bool = false) -> Download.ResponseDecision {
+        Download.decideResponse(status: status, attachment: attachment, canShow: canShow, target: target, page: p, coordinator: coord, signInPage: html)
+    }
+    check(resp(200) == .save, "an attachment from the board is saved")
+    check(resp(200, attachment: false, canShow: false) == .save, "a board file the window cannot show (a .zip) is saved")
+    check(resp(200, attachment: false, canShow: true) == .show, "CONTROL: a page the window can show is shown, not saved")
+    check(resp(204) == .show && resp(205) == .show, "a 204 or 205 has nothing to save")
+    check(resp(404) == .refuse(Download.couldNotGet) && resp(500) == .refuse(Download.couldNotGet), "an error answer is never saved as the file")
+    check(resp(200, html: true) == .refuse(Download.couldNotGet), "the sign-in page where the file should be is never saved")
+    check(resp(200, target: URL(string: "https://other.kosmosplus.com/x")!) == .refuse(Download.fromElsewhere), "an attachment from elsewhere is refused")
+    check(resp(200, page: URL(string: "https://evil.example/")!) == .refuse(Download.notABoard), "a page that is not a board cannot save")
+    check(resp(200, page: nil) == .refuse(nil), "no page yet (the app's own load): refused and not said")
+    check(Download.looksLikeSignInPage(mimeType: "text/html; charset=utf-8") && !Download.looksLikeSignInPage(mimeType: "application/pdf"), "an HTML answer reads as the sign-in page")
+    // The name.
+    check(Download.fileName("report.pdf") == "report.pdf" && Download.fileName(nil) == "download" && Download.fileName("../../etc/x") == "-..-etc-x"
+          && Download.fileName(".hidden") == "hidden" && Download.fileName("   ") == "download", "the name is safe for a file")
+    // The Mac's guard.
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
+    check(Download.shouldSay(up: false, lastAt: nil, now: t0, shownThisPage: 0), "the first refusal is said")
+    check(!Download.shouldSay(up: true, lastAt: nil, now: t0, shownThisPage: 0), "none while one is on screen")
+    check(!Download.shouldSay(up: false, lastAt: t0, now: t0.addingTimeInterval(5), shownThisPage: 1), "none within 10 s of the last, whatever its sentence")
+    check(Download.shouldSay(up: false, lastAt: t0, now: t0.addingTimeInterval(10), shownThisPage: 1), "CONTROL: said again after 10 s")
+    check(!Download.shouldSay(up: false, lastAt: nil, now: t0, shownThisPage: 2), "at most twice for one sentence on one page")
+    check(Download.getting("report.pdf") == "Getting report.pdf" && Download.failed("The network connection was lost.") == "The file could not be downloaded (The network connection was lost.).",
+          "Mona Lisa's words")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
