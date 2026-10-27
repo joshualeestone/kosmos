@@ -75546,6 +75546,7 @@ let PJ_ROOM_GEN = 0;
    which is read before painting so nothing falls between. While the room search box has text, the room is read
    whole and filtered as before, so search still finds every message. */
 const PJ_WIN_PAGE = 200;
+const PJ_WIN_HOLD_MAX = 1000;   // rows held as new posts arrive, at most (review 6); the live count Mona's design keeps
 const PJ_WIN = { pid: null, older: [], byReader: false, paintedAt: 0, letGo: 0, selfReads: 0, newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0 };
 function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1 }); pjWinOlderLine(); }
 /* The line over the room's top: "Loading earlier messages..." while a page is read; after a failed read, why, with Try
@@ -75583,6 +75584,7 @@ async function pjWinEarlier(byReader) {
      newestOlder on, and taking the boundary from that later value would claim the rows between as held when no read
      ever brought them (review 1: 30 rows lost for good). */
   const at = PJ_WIN.newestOlder;
+  const asked = PJ_WIN.cursor;   // a poll may trim the held front meanwhile and move the cursor on (review 6)
   PJ_WIN.loading = true;
   pjWinOlderLine();
   let page;
@@ -75595,6 +75597,10 @@ async function pjWinEarlier(byReader) {
   if (!page) PJ_WIN.because = 'We could not read the earlier messages.';
   pjWinOlderLine();
   if (!page || pid !== PJ_CURRENT || PJ_ROOM_QUERY.trim() !== '') return;
+  /* The held front moved while this page was read (a poll trimmed it): the page ends before rows no longer held, so
+     joining it would leave a hole nothing reads again (review 6). It is dropped; reaching the top again reads the page
+     before the new front. */
+  if (PJ_WIN.cursor !== asked) return;
   if (PJ_WIN.boundary === null) PJ_WIN.boundary = at;
   PJ_WIN.older = pjWinMerge(page.rows, PJ_WIN.older);
   if (byReader) PJ_WIN.byReader = true;   // the reader scrolled back for these: reaching the newest row may let them go
@@ -75626,8 +75632,9 @@ const PJ_WIN_NEAR_TOP = 300;   // px from the top of the loaded rows that asks f
 function pjWinNearTop() {
   if (typeof document === 'undefined') return;
   const box = document.getElementById('pj-room');
-  /* At most PJ_WIN_SELF_READS pages in a row this way after one paint (review 5: a room of folded lines would otherwise
-     read its whole history at once); the reader's own scroll reads on from there. */
+  /* At most PJ_WIN_SELF_READS pages in a row this way after one paint, so a room of folded lines reads two pages per poll
+     rather than its whole history at once (review 5). A throttle, not a bound: each paint allows two more until the room
+     can scroll (review 6). */
   if (box && box.clientHeight > 0 && box.scrollTop <= PJ_WIN_NEAR_TOP && (PJ_WIN.selfReads || 0) < PJ_WIN_SELF_READS) {
     PJ_WIN.selfReads = (PJ_WIN.selfReads || 0) + 1;
     pjWinEarlier(false);
@@ -78193,6 +78200,23 @@ async function loadRoom() {
       PJ_WIN.newest = body.rows;
       PJ_WIN.newestOlder = Number(body.olderCount) || 0;
       PJ_WIN.newestCursor = body.olderCursor || null;
+      /* A reader on the newest row lets the pages they scrolled back to go BEFORE the merge, so the return never paints
+         the whole held body first (review 6). */
+      if (!offFloor && PJ_WIN.byReader && PJ_WIN.older.length) {
+        Object.assign(PJ_WIN, { older: [], byReader: false, boundary: null, cursor: PJ_WIN.newestCursor, olderCount: PJ_WIN.newestOlder, because: null, letGo: PJ_WIN.letGo + 1 });
+      }
+      /* Rows kept or read in as new posts arrive are capped at PJ_WIN_HOLD_MAX (the room's live count, #7365): a reader
+         parked a few pixels up for an hour would otherwise hold the whole room again, the freeze this card removes
+         (review 6). Past it the window starts again on the newest page. Pages the reader scrolls back to themselves are
+         not capped here (pjWinEarlier). */
+      if ((gapFilled || PJ_WIN.boundary !== null) && PJ_WIN.older.length > PJ_WIN_HOLD_MAX) {
+        pjWinReset(PJ_CURRENT);
+        PJ_WIN.newest = body.rows;
+        PJ_WIN.newestOlder = Number(body.olderCount) || 0;
+        PJ_WIN.newestCursor = body.olderCursor || null;
+        PJ_WIN.cursor = PJ_WIN.newestCursor;
+        PJ_WIN.olderCount = PJ_WIN.newestOlder;
+      }
       body = Object.assign({}, body, { rows: pjWinMerge(PJ_WIN.older, body.rows) });
     }
   } catch {

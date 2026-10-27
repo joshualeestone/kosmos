@@ -16,6 +16,7 @@ const { scriptOf, liftAll, liftConst } = require('./test-support/page');
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 const SRC = [
   liftConst(SCRIPT, 'PJ_WIN_PAGE'),
+  liftConst(SCRIPT, 'PJ_WIN_HOLD_MAX'),
   liftConst(SCRIPT, 'PJ_WIN'),
   liftConst(SCRIPT, 'THREAD_BOTTOM_SLACK'),
   liftConst(SCRIPT, 'PJ_WIN_NEAR_TOP'),
@@ -309,4 +310,33 @@ test('#7365 review 5: letting go while a gap read is in flight leaves nothing he
   release(); await poll;
   room.fetch = real;
   assert.equal(h.api.PJ_WIN.older.length, 0, 'the gap rows had nothing to join and were not kept');
+});
+
+test('#7365 review 6: an earlier page whose cursor moved while it was read is dropped, never joined with a hole', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  h.box.scrollTop = 1000;
+  await h.api.pjWinEarlier(false);   // a self-read page: 601 to 800
+  let release; const gate = new Promise((r) => { release = r; });
+  const real = room.fetch;
+  room.fetch = async (u) => { if (/n=200&cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
+  const second = h.api.pjWinEarlier(false);   // 401 to 600, held back
+  for (let i = 0; i < 10; i++) room.add();
+  await h.api.loadRoom();   // the gap trims the self-read front and moves the cursor
+  release(); await second;
+  room.fetch = real;
+  const got = ids(h.painted.at(-1));
+  const first = Number(got[0].slice(1));
+  assert.deepEqual(got, range(first, 1010), 'contiguous from the first row painted to the newest: no hole');
+});
+
+test('#7365 review 6: a reader parked off the newest row does not hold more than PJ_WIN_HOLD_MAX rows as posts arrive', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  h.box.scrollTop = 1000;   // parked a little up, never coming back
+  for (let k = 0; k < 70; k++) { for (let i = 0; i < 20; i++) room.add(); await h.api.loadRoom(); }
+  assert.ok(h.api.PJ_WIN.older.length <= 1000, 'held rows stay capped: ' + h.api.PJ_WIN.older.length);
+  assert.ok(h.painted.at(-1).rows.length <= 1200);
 });

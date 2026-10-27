@@ -132,3 +132,14 @@ page cost worse, which makes the window more urgent, not less.
    - N1: speech stamping skips every row older than the newest page by time (a search's rows carry no key). N2: at most
      two self-started earlier reads in a row (PJ_WIN_SELF_READS). N3 (named scroll listener for lifted tests) and N4
      (document guards) left; pjWinNearTop got a typeof document guard.
+6. (sonnet, 14:1x CDT) 0 BLOCKERs, 2 WARNINGs, 5 NITs; both WARNINGs and NITs 2, 3 applied.
+   - (W1) a self-read earlier page landing after a poll trimmed the held front was joined with a hole (p601-p610
+     lost, reviewer's lifted test): the page is dropped when the cursor moved while it was read (test,
+     mutation-proven).
+   - (W2) a reader parked a few pixels up kept every row new posts pushed out (2,000 held after 100 polls): rows held
+     as posts arrive are capped at PJ_WIN_HOLD_MAX = 1,000 (the live count), past which the window starts again on the
+     newest page; pages the reader scrolls back to themselves are not capped (test, mutation-proven).
+   - NIT 3: the let-go is decided before the merge, so a return never paints the whole held body first. NIT 2: the
+     self-read comment says throttle, not bound. Left: NIT 1 (held rows are snapshots; the cap bounds it), NIT 4 (a
+     search ended before the first read paints the whole body once), NIT 5 (keyless rows, which the server never sends).
+   - Browser after: slide (reader unmoved), scroll-back (5 pages, unmoved), gap let-go (nothing held) all as before.
