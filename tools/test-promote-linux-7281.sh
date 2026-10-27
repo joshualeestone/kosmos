@@ -1,8 +1,8 @@
 #!/bin/bash
 # test-promote-linux-7281.sh -- kosmos#7281 slice C2. Unit-tests tools/lib/promote-linux.sh (a Mac promote moves the
-# Linux pointer in lockstep) against a fake site, and checks promote-channel.sh wires it. A whole promote runs gates
-# against a live board and is not driven here. The signature check is a stub: the lib is copied into a temp tools/lib,
-# so no seam is added to the shipped code.
+# Linux pointer in lockstep) against a fake site, checks promote-channel.sh wires it, and drives whole promotes with
+# the gates stubbed (the e2e section). The signature check is a stub: the lib (and, for the e2e, promote-channel.sh) is
+# copied into a temp tools/, so no seam is added to the shipped code.
 set -u
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"

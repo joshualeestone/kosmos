@@ -35,7 +35,7 @@ promote_linux_prepare() {
   PROMOTE_LINUX=no; PROMOTE_LINUX_NAMED="$named"
   # Review 7 (W1): a named promote's pointer is the committed one; staging has usually moved past it.
   if [ -n "$named" ]; then
-    PROMOTE_LINUX_RESTORE="write the pointer committed with it (git -C $site show $named:dist/latest-linux-staging.json > $site/dist/latest-linux.json)"
+    PROMOTE_LINUX_RESTORE="write the pointer committed with it (git -C '$site' show $named:dist/latest-linux-staging.json > '$site/dist/latest-linux.json')"
   else
     PROMOTE_LINUX_RESTORE="copy dist/latest-linux-staging.json onto dist/latest-linux.json"
   fi
@@ -97,7 +97,7 @@ promote_linux_prepare() {
     3) : ;;
     0)
       git -C "$site" fetch -q origin main 2>/dev/null || { echo "promote-linux: could not fetch the site to read the served release key list. Nothing was written." >&2; return 1; }
-      kl="$(mktemp -d)" || { echo "promote-linux: could not make a temp folder" >&2; return 1; }
+      kl="$(mktemp -d "${TMPDIR:-/tmp}/promote-linux-keys.XXXXXX")" || { echo "promote-linux: could not make a temp folder" >&2; return 1; }
       PROMOTE_LINUX_KL="$kl"
       git -C "$site" show "origin/main:dist/release-keys.json" > "$kl/release-keys.json" 2>/dev/null || rm -f "$kl/release-keys.json"
       git -C "$site" show "origin/main:dist/release-keys.json.sig" > "$kl/release-keys.json.sig" 2>/dev/null || rm -f "$kl/release-keys.json.sig"

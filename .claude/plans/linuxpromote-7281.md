@@ -105,3 +105,13 @@ Test: 45 checks.
   origin/main; field() global name; the deploy check is skipped when no Mac pointer is committed (deliberate: test
   sites, and a real site always commits latest.json).
 - Test: 73 checks.
+
+## Review 8 (05:2x 10-27, sonnet): 0 blockers, 1 warning, 5 nits. ROUND CAP REACHED.
+- W1 FIXED: the key-list temp folder is made under ${TMPDIR:-/tmp} with a template (tools/test-mktemp-template-4298.sh
+  rule), so a killed test cannot leave it in the per-user temp root. test-mktemp-template-4298: 0 failures.
+- NITs FIXED: the test header no longer says whole promotes are not driven; the named remedy quotes its paths; the
+  deploy refusal says "no version" for an unreadable Mac pointer.
+- NITs RECORDED: no `bash -n` of the lib/test in test:shell (both are run, so a syntax error reds); the marker line
+  could carry a shellcheck SC2034 disable.
+- STOPPED here by the standing review-loop rule (at most 8 rounds unless a BLOCKER is open). No round found a BLOCKER;
+  round 8's one warning is fixed. Not a natural convergence: the proof says converged: false.
