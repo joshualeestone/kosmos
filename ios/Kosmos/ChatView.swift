@@ -353,7 +353,7 @@ struct ChatView: View {
                         // The cut moves in steps of 20, so a row crosses from the eager stack to the lazy rows (and is
                         // rebuilt, losing any state it held) once per 20 new messages, not on every one (review).
                         let tailStart = Self.eagerTail == 0 ? items.count
-                            : Self.sampleV14 ? max(0, items.count - Self.eagerTail) : max(0, items.count - Self.eagerTail) / 20 * 20
+                            : Self.sampleExactCut ? max(0, items.count - Self.eagerTail) : max(0, items.count - Self.eagerTail) / 20 * 20
                         ForEach(items[..<tailStart]) { item in row(item) }
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(items[tailStart...]) { item in row(item) }
@@ -677,7 +677,7 @@ struct ChatView: View {
             // a reader stopped part way inside the newest rows as a page lands may still move).
             // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
             // reader is up there) rules it out.
-            if !Self.sampleV14, atBottom && endSeen && !topVisible { keepAtEnd = true }
+            if !Self.sampleNoKeep, atBottom && endSeen && !topVisible { keepAtEnd = true }
             else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
@@ -1686,10 +1686,12 @@ extension ChatView {
     // both arms.
     #if DEBUG
     static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
-    // Diagnosis only: round 14's form (an exact cut of 40, no keep-at-end on a page landing).
-    static let sampleV14 = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_V14"] == "1"
+    // Diagnosis only (round 16: round 14's form landed 10 of 10, the current one short): each review change alone.
+    static let sampleExactCut = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EXACTCUT"] == "1"
+    static let sampleNoKeep = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOKEEP"] == "1"
     #else
     static let sampleNoFix = false
-    static let sampleV14 = false
+    static let sampleExactCut = false
+    static let sampleNoKeep = false
     #endif
 }
