@@ -476,3 +476,31 @@ test('kosmos#7358: turnDoneAt reads the footer\'s clock as the latest such insta
   assert.equal(status.turnDoneAt('✻ Baked for 2s', at), null, 'no done time: null');
   assert.equal(status.turnDoneAt('✻ Baked for 2s · done 25:10', at), null, 'CONTROL: an impossible clock is null');
 });
+
+test('kosmos#7358 review 1: the night the clocks go back, an ambiguous done time is read as the later instant (never early)', () => {
+  const saved = process.env.TZ;
+  process.env.TZ = 'America/Chicago';
+  try {
+    // 2026-11-01: 1:30 AM happens twice (06:30Z in CDT, 07:30Z in CST). The turn ended at the second; the limit resets
+    // at 1am CST, 07:00Z, the NEXT night, 2026-11-02.
+    const sighting = Date.parse('2026-11-01T08:00:00Z');
+    assert.equal(status.turnDoneAt('✻ Sautéed for 3s · done 1:30 AM', sighting), Date.parse('2026-11-01T07:30:00Z'),
+      'the first 1:30 was taken; a reset after it would be read as already passed');
+    const row = `You've hit your weekly limit · resets 1am ${Z}`;
+    const screen = '❯ hello\n' + `  ⎿  ${row}\n` + '✻ Sautéed for 3s · done 1:30 AM\n' + STATUS_LINE;
+    assert.ok(status.retireResetLimits(screen, sighting, () => ({ at: sighting, late: true })).includes('weekly limit'),
+      'a weekly limit that still binds was released about a day early');
+    // CONTROL: a clock that happens once that night is read as before.
+    assert.equal(status.turnDoneAt('✻ Sautéed for 3s · done 2:30 AM', sighting), Date.parse('2026-10-31T07:30:00Z'),
+      'CONTROL: an unambiguous clock past the sighting is the day before');
+  } finally {
+    if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
+  }
+});
+
+test('kosmos#7358 review 1: a done time this cannot read for sure is not read (a clock with seconds)', () => {
+  const at = Date.parse('2026-10-27T00:20:00Z');
+  assert.equal(status.turnDoneAt('✻ Baked for 2s · done 5:32:10 PM', at), null, 'a clock with seconds was read (as 05:32, twelve hours off)');
+  assert.notEqual(status.turnDoneAt(`✻ Baked for 2s · done ${localClock(Date.parse('2026-10-26T22:32:00Z'))}`, at), null, 'CONTROL: h:mm AM/PM is read');
+  assert.notEqual(status.turnDoneAt('✻ Baked for 2s · done 17:32', at), null, 'CONTROL: a 24-hour h:mm is read');
+});
