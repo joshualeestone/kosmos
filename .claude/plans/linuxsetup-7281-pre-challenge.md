@@ -27,3 +27,25 @@ Validation, stated as it happened:
   a stock ubuntu:24.04.
 
 The per-round findings and decisions are in .claude/plans/linuxsetup-7281.md.
+
+### Per-Iteration Breakdown
+
+#### Iteration 1
+- [BLOCKER] a local copy (KOSMOS_SRC) took the network family; the Linux CI install would break on publish --> FIXED (KOSMOS_SRC and KOSMOS_BUNDLE_ARCH keep it off)
+- [WARNING] a failed read of the Linux pointer downgraded an installed family copy --> FIXED (refuses instead; portable keeps the fallback)
+- [WARNING] any "version" text turned the family on, and the pointer was fetched twice --> FIXED (a.b.c only, body reused)
+- [NIT] a first install has no signed check --> DOCUMENTED (same as a Mac curl|sh); [NIT] KOSMOS_BUNDLE_ARCH --> FIXED; [NIT] install_kosmos pinned by regexes --> ACCEPTED (slice E)
+
+#### Iteration 2
+- [WARNING] a Linux staging install was stamped prod --> FIXED (suffix match, tested)
+- [WARNING] a published pointer would move every glibc onto a 2.35 build --> FIXED (glibc 2.35 floor; older and musl keep the portable bundle)
+- [WARNING] the update path offers the Mac version while setup.sh installs the Linux one --> DECIDED (ordering rule on the card; slice D)
+- [NIT] the refusal sentence --> FIXED; [NIT] /usr/bin tool paths on Linux --> DOCUMENTED (merged-/usr; slice E); [NIT] behavioural install_kosmos test --> ACCEPTED (slice E)
+
+#### Iteration 3
+No blockers.
+- [WARNING] the below-floor refusal disagreed with the unreadable-pointer arm --> FIXED (refusal removed: the portable bundle repairs a copy whose node cannot start)
+- [NIT] suffixed getconf answers untested --> FIXED; [NIT] the info line was false without getconf --> FIXED
+
+### Final ledger
+Converged at iteration 3. Plan: .claude/plans/linuxsetup-7281.md.
