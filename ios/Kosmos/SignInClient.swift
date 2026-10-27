@@ -48,7 +48,8 @@ final class SignInClient {
         return made.key
     }
 
-    /// Forget the key (the coordinator refused its proof): the next sign-in makes a new one, which the Mac allows once.
+    /// Forget the key (the coordinator refused its proof, or a review sign-in made a session that is not this key's): the
+    /// next code sign-in makes a new one, which the Mac allows once.
     func forgetDeviceKey() { keyStore.delete() }
 
     private static func read(_ stored: String) -> SignIn.DeviceKey? {
