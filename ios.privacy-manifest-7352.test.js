@@ -17,9 +17,9 @@ const MANIFEST = path.join(IOS, 'Kosmos', 'PrivacyInfo.xcprivacy');
 /* Apple's required-reason categories and the Swift spellings that use them. */
 const CATEGORIES = {
   NSPrivacyAccessedAPICategoryUserDefaults: /UserDefaults\b|@AppStorage\b/,
-  NSPrivacyAccessedAPICategoryFileTimestamp: /\b(creationDate|contentModificationDate|modificationDate|fileModificationDate|attributesOfItem|f?getattrlist\w*|st_mtime\w*|st_ctime\w*)\b|\b(f?stat|fstatat|lstat)\s*\(/,
-  NSPrivacyAccessedAPICategorySystemBootTime: /\b(systemUptime|mach_absolute_time)\b/,
-  NSPrivacyAccessedAPICategoryDiskSpace: /\b(volumeAvailableCapacity\w*|volumeTotalCapacity\w*|systemFreeSize|systemSize|f?statfs|f?statvfs|attributesOfFileSystem)\b/,
+  NSPrivacyAccessedAPICategoryFileTimestamp: /\b(creationDate\w*|contentModificationDate\w*|contentAccessDate\w*|attributeModificationDate\w*|modificationDate\w*|fileModificationDate\w*|NSFileCreationDate|NSFileModificationDate|attributesOfItem|f?getattrlist\w*|st_mtime\w*|st_ctime\w*|st_atime\w*)\b|\b(f?stat|fstatat|lstat)\s*\(/,
+  NSPrivacyAccessedAPICategorySystemBootTime: /\b(systemUptime|mach_absolute_time|clock_gettime_nsec_np|CLOCK_UPTIME_RAW\w*|CLOCK_MONOTONIC_RAW\w*)\b/,
+  NSPrivacyAccessedAPICategoryDiskSpace: /\b(volumeAvailableCapacity\w*|volumeTotalCapacity\w*|systemFreeSize|systemSize|NSFileSystemFreeSize|NSFileSystemSize|f?statfs|f?statvfs|attributesOfFileSystem)\b/,
   NSPrivacyAccessedAPICategoryActiveKeyboards: /\bactiveInputModes\b/,
 };
 
@@ -66,4 +66,21 @@ test('kosmos#7352: the UserDefaults reason is CA92.1 (this app only, no app-grou
   assert.match(manifest, /NSPrivacyAccessedAPICategoryUserDefaults<\/string>\s*<key>NSPrivacyAccessedAPITypeReasons<\/key>\s*<array>\s*<string>CA92\.1<\/string>/);
   const suite = swiftFiles(IOS).filter((f) => /UserDefaults\(\s*suiteName/.test(code(f)));
   assert.deepEqual(suite, [], 'an app-group UserDefaults suite needs reason 1C8F.1 added to the manifest');
+});
+
+test('kosmos#7352: the detector flags each spelling on the list, and ordinary words do not (a control)', () => {
+  const flagged = (s) => Object.entries(CATEGORIES).filter(([, r]) => r.test(s)).map(([c]) => c);
+  const uses = {
+    NSPrivacyAccessedAPICategoryUserDefaults: ['UserDefaults.standard', 'NSUserDefaults.standard', '@AppStorage("k")'],
+    NSPrivacyAccessedAPICategoryFileTimestamp: ['.contentModificationDateKey', '.creationDateKey', '.contentAccessDateKey', 'NSFileModificationDate', 'attributesOfItem(atPath: p)', 'stat(p, &s)', 'lstat(p, &s)', 'fgetattrlist(fd)', 's.st_mtimespec'],
+    NSPrivacyAccessedAPICategorySystemBootTime: ['ProcessInfo.processInfo.systemUptime', 'mach_absolute_time()', 'clock_gettime_nsec_np(CLOCK_UPTIME_RAW)'],
+    NSPrivacyAccessedAPICategoryDiskSpace: ['.volumeAvailableCapacityForImportantUsageKey', '.volumeTotalCapacityKey', 'NSFileSystemFreeSize', 'statvfs(p, &s)', 'fstatfs(fd, &s)'],
+    NSPrivacyAccessedAPICategoryActiveKeyboards: ['UITextInputMode.activeInputModes'],
+  };
+  for (const [category, samples] of Object.entries(uses)) {
+    for (const s of samples) assert.ok(flagged(s).includes(category), `${s} is not flagged as ${category}`);
+  }
+  for (const s of ['let stat = 3', 'stats.count', 'status', 'statusBar', 'stateful', '.fileSizeKey', 'Date()']) {
+    assert.deepEqual(flagged(s), [], `${s} is flagged but is not a required-reason API`);
+  }
 });
