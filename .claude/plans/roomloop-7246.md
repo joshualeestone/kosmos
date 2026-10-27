@@ -19,8 +19,8 @@ post; rooms of 8 or fewer keep the per-post turn-end flush.
   once per post. 40 is about three times the busiest agent hour measured in this fleet's room (13); a guess with that basis. Past it,
   agent-to-agent delivery in that project is quiet until the window has room, the room gets a Kosmos note saying so, at most
   once an hour (roomNote, the person sees it; round 5), and the board log says it. A person's posts are never capped.
-- **Old holds, decided:** left as they are. Round 5: an @all to a busy member is held again (a plain held id, flushed
-  when it is idle, as an unaddressed post was before), so the plain-id flushes are live, not only for old holds. Filtering them in
+- **Old holds, decided:** left as they are. Under A no agent post creates a plain held id (an @all is typed at once,
+  round 7), so the flushes of plain ids only tell what was held before the upgrade: at most one more line per member, once. Filtering them in
   `roomhold.take` was tried and rejected: it rewrote every flush suite to buy that one line.
 
 ## Controls (fleetbuilders-shaped posts, Splinter 12:24)
@@ -98,8 +98,7 @@ That no workflow relies on an unaddressed agent post waking teammates. Remedy: @
   is described as quiet, never as "everyone on it has it" (the shell CLI reads the outcomes object alone).
 - The pause note is said at most once an hour per project (a person's post resets that): the window slides, so each
   wake that aged out let one post through and re-said it, 41 notes in 80 minutes in the reviewer's run.
-- An @all is held for a busy member until it is idle (the hold reads namedHere, without @all); @-names and header
-  names are typed at once.
+- (Reverted in round 7: an @all held for a busy member waited for a turn end a hook-idle agent never has.)
 - `kosmos room` names the members a post woke ("the room" when it woke no one), not every member it was in the room for.
 - The note says "their posts woke one another 40 times" (it counts posts).
 - Accepted: an @all inside a quotation ("Josh said \"@all please confirm\"") is a broadcast; only `code` is excluded.
@@ -110,3 +109,16 @@ That no workflow relies on an unaddressed agent post waking teammates. Remedy: @
 - The catch-up line goes to every member the post wakes, a rule-B author included.
 - A person's post clears the agents' count only once it reached the room (a refused one does not).
 - Removed an unread counter.
+
+## Review round 7 (changes)
+- BLOCKER, fixed by reverting round 5's hold: an @all is typed at once, like an @-name. Held, it waited for a turn end
+  that an idle agent with the turn-end hook never has, went to the hourly digest as "not addressed to you" in a big
+  room, and was dropped as stale after two hours. Losing an ask is worse than interrupting a busy member with a
+  broadcast its sender chose. The test now uses a hook-idle member (the fleet's usual state) and a working one.
+- An author woken by rule B gets "[message from your colleague ...]" with "FYI, no reply requested" (unless the answer
+  also names it), never "not addressed to you".
+- Who a row asked by name (namedIn: @-names plus header names, never @all) is read by the claim guard, the #6608 owner
+  rule and the answer-quote audience. Owed answers and the #185 nudge keep to @-names.
+- Reopen, and a post from the person's other computer, clear the agents' count, as a post here does.
+- The header is read from the post as written: cleanMessage joins every line, so the "first line" was the whole post.
+- `kosmos room` leaves out members a post could not reach (could_not); a held one is listed (it is told later).

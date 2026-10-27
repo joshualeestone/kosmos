@@ -22313,9 +22313,10 @@ const server = http.createServer(async (req, res) => {
           const answering = typeof m.replyTo === 'string' && /^m\d+$/.test(m.replyTo) ? ' (answering [' + m.replyTo + '])' : '';
           // #6925: a post that went through a held room as its agent's one summary says so, as the page labels it.
           const closingNote = m.closing === true ? ' (its one summary while the room was held)' : '';
-          /* kosmos#7246 slice 2 (round 5): the members it woke, not every member it was in the room for: a quiet member was
-             never typed to, and listing it made an FYI read as if it had asked everyone. Woke no one: the room. */
-          const woke = Array.isArray(m.to) ? m.to.filter((n) => !(m.outcomes && m.outcomes[n] === 'quiet')) : [];
+          /* kosmos#7246 slice 2 (round 5): the members it reached or will reach (a held one is told later), not every member
+             it was in the room for: a quiet member was never typed to, and listing it made an FYI read as if it had asked
+             everyone. Round 7: nor one it could not reach. Reached no one: the room. */
+          const woke = Array.isArray(m.to) ? m.to.filter((n) => !(m.outcomes && (m.outcomes[n] === 'quiet' || m.outcomes[n] === 'could_not'))) : [];
           const line = when + '  [' + m.id + '] ' + who + closingNote + answering + ' -> ' + (woke.length ? woke.join(', ') : 'the room') + ': ' + flatText;
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
