@@ -1113,6 +1113,11 @@ function zMap(p) {
   if (!zWorld || (typeof p !== 'string' && !(p instanceof Buffer))) return null;
   const s = String(p);
   let rest = null;
+  /* A local folder that is a link onto the dead Z: (review 3 finding 3): anything read BELOW it follows the link. */
+  if (zWorld.deadUnder && s.toLowerCase().startsWith(zWorld.deadUnder)) {
+    zWorld.touches.z++;
+    throw Object.assign(new Error('touched through a link ' + s), { code: 'EHOSTUNREACH' });
+  }
   if (/^(?:\\\\\?\\)?[Zz]:/.test(s)) { zWorld.touches.z++; rest = s.replace(/^(?:\\\\\?\\)?[Zz]:/, ''); }
   else if (s.toLowerCase().startsWith(ZSHARE.toLowerCase())) { zWorld.touches.share++; rest = s.slice(ZSHARE.length); }
   else if (isDshare(s)) {
@@ -1131,10 +1136,10 @@ function zMap(p) {
   }
   return path.join(zWorld.backing, rest || '\\');
 }
-function zWorldOn({ alive = false, stallMs = 0 } = {}) {
+function zWorldOn({ alive = false, stallMs = 0, deadUnder = null } = {}) {
   const backing = path.join(SANDBOX, 'zbacking');
   fs.mkdirSync(backing, { recursive: true });
-  zWorld = { alive, stallMs, touches: { z: 0, share: 0 }, calls: 0, backing: fs.realpathSync.native(backing) };
+  zWorld = { alive, stallMs, touches: { z: 0, share: 0 }, calls: 0, backing: fs.realpathSync.native(backing), deadUnder: deadUnder ? deadUnder.toLowerCase() + '\\' : null };
   const saved = {};
   for (const name of ['lstatSync', 'statSync', 'readlinkSync', 'readdirSync', 'openSync', 'accessSync']) {
     saved[name] = fs[name];
@@ -1596,8 +1601,11 @@ test('#7232 review 2-3: a slow background learn that started before a newer one 
   clock += 61 * 1000;
   assert.equal(windrives.placeOf('C'), null, 'C is local; the table is due a refresh, so a background learn starts');
   assert.equal(later.length, 1, 'one background learn in flight');
-  clock += 1000;
-  table = 'C\t3\t\r\nQ\t4\t\\\\srv\\q\r\n';   // Q mapped since: an unlisted letter re-learns in the foreground, newer
+  /* The background learn hangs. Past two refreshes the table is dropped and learned again in the foreground, newer,
+     after Q was mapped (review 3 finding 4 made the unlisted-letter re-learn a background one, so this is the path a
+     newer foreground learn takes now). */
+  clock += 60 * 1000;
+  table = 'C\t3\t\r\nQ\t4\t\\\\srv\\q\r\n';
   assert.deepEqual(windrives.placeOf('Q'), { remote: true, share: '\\\\srv\\q' });
   later[0](null, 'C\t3\t\r\n');   // the slow background learn finishes now, with what it read BEFORE Q was mapped
   const before = runs;
@@ -1615,4 +1623,86 @@ test('#7232 review 2-4: the refresh clock is monotonic: a wall-clock jump neithe
   Date.now = () => realNow() + 10 * 60 * 1000;   // the wall clock jumps ten minutes (a time sync, a resume)
   assert.equal(windrives.known(), true, 'the table is still in use');
   assert.equal(runs, after, 'and was not learned again');
+});
+
+/* ---------- #7232 review 3 ---------- */
+
+test('#7232 review 3-1: a share the redirector remembers for a letter GetDrives calls a drive of this computer is stale: local', () => {
+  const t = windrives.parseForTests('Z\t3\t\\\\nas\\x\r\nU\t2\t\\\\nas\\u\r\nR\t5\t\\\\nas\\r\r\nM\t6\t\\\\nas\\m\r\nY\t1\t\\\\nas\\y\r\nW\t0\t\\\\nas\\w\r\n');
+  for (const L of ['Z', 'U', 'R', 'M']) assert.deepEqual(t.get(L), { kind: 'local', share: null }, L + ': a fixed, removable, CD or RAM drive holds the letter now');
+  // CONTROL: review 2-2's cases stay network drives
+  assert.deepEqual(t.get('Y'), { kind: 'remote', share: '\\\\nas\\y' });
+  assert.deepEqual(t.get('W'), { kind: 'remote', share: '\\\\nas\\w' });
+});
+
+test('#7232 review 3-1: a local drive holding a stale mapping\'s letter is still walked, and its nested project refuses', winOnly, (t) => {
+  /* A subst drive (a local drive, no admin) whose letter the redirector still remembers for \\nas\x: the other
+     agent's nested project is written on that letter, the file by its C: path. Read as remote it was skipped by
+     spelling, and the nested project's file attached. */
+  const { execFileSync } = require('node:child_process');
+  const outer = ownProject('own7232-r3-outer');
+  fs.mkdirSync(path.join(outer, 'nested'), { recursive: true });
+  fs.writeFileSync(path.join(outer, 'nested', 'secret.txt'), 'not for the outer project\n');
+  const letter = 'QRSTUVWXY'.split('').find((d) => !fs.existsSync(d + ':' + path.sep));
+  if (!letter) { setupSkip(t, 'no free drive letter from Q to Y'); return; }
+  try { execFileSync('subst', [letter + ':', outer], { stdio: 'ignore' }); } catch { setupSkip(t, 'subst is not available here'); return; }
+  const unsubst = () => { try { execFileSync('subst', [letter + ':', '/D'], { stdio: 'ignore' }); } catch { /* already gone */ } };
+  process.once('exit', unsubst);
+  try {
+    windrives.setTableForTests(windrives.parseForTests(HERE + '\t3\t\r\n' + letter + '\t3\t\\\\10.255.255.1\\x\r\n'));
+    PROJECTS = [
+      { id: 'p-outer', name: 'Outer', folder: outer, agents: [WHO] },
+      { id: 'p-nested', name: 'Nested', folder: letter + ':\\nested', agents: ['someone-else'] },
+    ];
+    const r = replyfile.attach(WHO, path.join(outer, 'nested', 'secret.txt'), { platform: 'win32' });
+    assert.deepEqual([r.ok, r.because], [false, replyfile.NOT_YOURS], JSON.stringify(r));
+  } finally { unsubst(); }
+});
+
+test('#7232 review 3-2: the redirector not answering makes the whole table unknown, and attach behaves as before', (t) => {
+  assert.equal(windrives.parseForTests('!ENUM_FAILED\r\nC\t3\t\r\nZ\t4\t\r\n'), null, 'the marker: unknown');
+  assert.ok(windrives.scriptForTests.includes('!ENUM_FAILED'), 'the script prints the marker when the COM call fails');
+  windrives.setLearnForTests({ run: () => '!ENUM_FAILED\r\n' + HERE + '\t3\t\r\nZ\t4\t\r\n' });
+  t.after(() => windrives.setLearnForTests(null));
+  assert.equal(windrives.known(), false);
+  if (!WIN) return;
+  windrives.setTableForTests(null);
+  const own = ownProject('own7232-enumfail');
+  PROJECTS = [
+    { id: 'p-own', name: 'Own', folder: own, agents: [WHO] },
+    { id: 'p-z', name: 'Far', folder: 'Z:\\far', agents: ['someone-else'] },
+  ];
+  const { r, touches } = attachIn({ alive: true }, path.join(own, 'f.txt'));
+  assert.equal(r.ok, true, 'attaches as main does, not refused OTHER_FOLDER_UNPLACED: ' + JSON.stringify(r));
+  assert.ok(touches.z > 0, 'the Z: folder was resolved, as main resolves it');
+});
+
+test('#7232 review 3-3: an agent folder written locally under a link onto a dead mapped drive is not read for a local file', linkOnly, () => {
+  const via = path.join(SANDBOX, 'via7232');
+  fs.symlinkSync('Z:\\', via, 'dir');
+  try {
+    store.writeProfile('zlinked', { dir: path.join(via, 'agentdir') });
+    const own = ownProject('own7232-r3-link');
+    PROJECTS = [{ id: 'p-own', name: 'Own', folder: own, agents: [WHO] }];
+    windrives.setTableForTests(zTable(Z_REMOTE));
+    const { r, touches } = attachIn({ deadUnder: via }, path.join(own, 'f.txt'), [{ sessionName: 'zlinked' }]);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(touches.z, 0, 'nothing below the link onto Z: was read');
+  } finally { fs.rmSync(via, { force: true }); }
+});
+
+test('#7232 review 3-4: a letter the table does not list is re-learned in the background, never blocking the attach', (t) => {
+  let runs = 0;
+  const later = [];
+  windrives.setLearnForTests({ run: () => { runs++; return 'C\t3\t\r\n'; }, runLater: (done) => later.push(done) });
+  t.after(() => windrives.setLearnForTests(null));
+  assert.equal(windrives.known(), true);
+  const before = runs;
+  assert.deepEqual(windrives.placeOf('Q'), { absent: true }, 'absent for now');
+  assert.equal(runs, before, 'no blocking learn');
+  assert.equal(later.length, 1, 'one background learn instead');
+  assert.deepEqual(windrives.placeOf('R'), { absent: true });
+  assert.equal(later.length, 1, 'and only one');
+  later[0](null, 'C\t3\t\r\nQ\t4\t\\\\srv\\q\r\n');
+  assert.deepEqual(windrives.placeOf('Q'), { remote: true, share: '\\\\srv\\q' }, 'the next attach has the new table');
 });

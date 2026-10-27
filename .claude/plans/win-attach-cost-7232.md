@@ -120,3 +120,20 @@ Seams added: windrives.setLearnForTests (clock and learner), scriptForTests; bot
 4. NIT: the 60 s re-learn and the 120 s drop run on performance.now (monotonic), through the clock seam.
 5. NIT: the scale bound is base (measured, own project alone) + the sum of (path parts + 6) per folder; a second walk
    of each folder (measured 21 reads a folder against 13) fails it.
+
+### Review 3 (decided, all fixed; each with a test that fails on a032392553)
+1. BLOCKER, a stale remembered share on a letter a USB disk or subst has since taken: a share makes a letter remote
+   only when GetDrives says 0, 1 or 4 (or omits it); 2, 3, 5, 6 stay local, so the letter is walked and resolved.
+2. WARNING, the redirector failing: the script prints !ENUM_FAILED and parse returns null (unknown, as main). Doing
+   this exposed a Part A bug: `$e.Count` is a METHOD on the WshCollection, so the comparison threw and the swallowed
+   catch meant NO share was ever read on this box (every mapped letter would have been remote with no share, refusing
+   every project file board-wide whenever another agent had a project on a mapped drive). Now `$e.Count()`. Checked
+   with no mappings (Count() = 0); a real mapping could not be made on this box (net use to the admin share: error 67),
+   so Item() on a live mapping is unverified here.
+3. WARNING, an agent folder written locally under a link onto a share or a dead mapped drive: keptRoots (for a local
+   file) now places it with otherFolderSkip's walk (lstat and readlink only) and passes the agent over only when the
+   walk reaches a NAMED share on another computer; a dead link, a share it cannot name, or this computer: read as
+   before. Cost: one link walk per connected agent with a recorded folder, per local project-file attach. (A recorded
+   folder that is ITSELF a link was already refused by create.usableRecordedDir, which lstats it.)
+4. NIT, the blocking re-learn for an unlisted letter: now a background learn (learnSoon), once per refresh; the attach
+   reads the letter as absent (walked as main). Header: the remap window is up to 120 s, not 60 s.

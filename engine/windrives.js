@@ -16,11 +16,16 @@ const REFRESH_MS = 60 * 1000;
 /* #7232 review 1 finding 1: Windows PowerShell writes its output in the console's OEM code page, and this reads UTF-8,
    so a share named \\srv\Données arrived as Donn\uFFFDes, matched nothing, and let a nested file through. The output is
    UTF-8 first (try: a process with no console may refuse it, and parse fails such a share closed anyway). */
+const ENUM_FAILED = '!ENUM_FAILED';
 const SCRIPT = [
   'try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}',
   '$ErrorActionPreference = "Stop"',
   '$net = @{}',
-  'try { $e = (New-Object -ComObject WScript.Network).EnumNetworkDrives(); for ($i = 0; $i -lt $e.Count; $i += 2) { $net[$e.Item($i).TrimEnd(":").ToUpper()] = $e.Item($i + 1) } } catch {}',
+  /* Review 3 finding 2: when the redirector cannot be asked, say so (ENUM_FAILED), and the whole table is unknown:
+     every mapped letter read as a network drive with no share would refuse every project file board-wide. */
+  /* Count is a METHOD on this COM collection: `$e.Count` is the method itself, and comparing to it threw, which the old
+     catch {} swallowed, so no share was ever read (found by review 3 finding 2's marker on the Windows box). */
+  'try { $e = (New-Object -ComObject WScript.Network).EnumNetworkDrives(); for ($i = 0; $i -lt $e.Count(); $i += 2) { $net[$e.Item($i).TrimEnd(":").ToUpper()] = $e.Item($i + 1) } } catch { "' + ENUM_FAILED + '" }',
   '$seen = @{}',
   'foreach ($d in [IO.DriveInfo]::GetDrives()) { $l = $d.Name.Substring(0, 1).ToUpper(); $seen[$l] = 1; "{0}`t{1}`t{2}" -f $l, [int]$d.DriveType, $net[$l] }',
   /* Review 2 finding 2: a remembered mapping whose server is unavailable (HKCU\Network\Y) is listed by
@@ -49,17 +54,21 @@ function cleanShare(s) {
   return /^\\\\[^\\/\uFFFD]+\\[^\\/\uFFFD]+$/.test(v) ? v : null;
 }
 /* DriveType 4 is Network; 0 (Unknown) and 1 (NoRootDirectory) are absent; anything else is local to this computer.
-   Review 2 finding 2: a letter the redirector names a share for is a network drive whatever its DriveType (a remembered
-   mapping whose server is unavailable can read 1, or be missing from GetDrives and printed with 1 above); its share is
-   kept only when it can be named (cleanShare), else null, so it fails closed. */
+   Review 2 finding 2: a letter the redirector names a share for is a network drive when GetDrives says it is not a
+   drive of this computer (0 or 1: a remembered mapping whose server is unavailable reads 1, or is missing from
+   GetDrives and printed with 1 above); review 3 finding 1: never when GetDrives reports a drive of this computer (2, 3,
+   5, 6): a USB disk or a subst that has taken the letter of a stale mapping is local, and read as remote it was
+   skipped by spelling. A share is kept only when it can be named (cleanShare), else null, so it fails closed. The
+   redirector not answering (ENUM_FAILED) makes the whole table unknown (review 3 finding 2). */
 function parse(out) {
   const t = new Map();
   for (const line of String(out).split(/\r?\n/)) {
+    if (line.trim() === ENUM_FAILED) return null;
     const [letter, type, share] = line.split('\t');
     if (!/^[A-Z]$/.test(letter || '')) continue;
     const n = Number(type);
     const named = !!String(share || '').trim();
-    const kind = n === 4 || named ? 'remote' : n === 0 || n === 1 ? 'absent' : 'local';
+    const kind = n === 4 || (named && (n === 0 || n === 1)) ? 'remote' : n === 0 || n === 1 ? 'absent' : 'local';
     t.set(letter, { kind, share: kind === 'remote' ? cleanShare(share) : null });
   }
   return t.size ? t : null;
@@ -108,8 +117,8 @@ function startRefreshing() {
   if (refreshing.unref) refreshing.unref();
 }
 
-/* The entry for a drive letter, or null when the table is unknown. A letter the table does not list is learned again
-   once (a drive mapped since the last refresh); still unlisted -> 'absent'. A learn that failed is not tried again in
+/* The entry for a drive letter, or null when the table is unknown. A letter the table does not list is 'absent' now, and
+   learned again once, in the background (a drive mapped since the last refresh). A learn that failed is not tried again in
    the foreground for REFRESH_MS, so a broken PowerShell costs one attach at most 3 s a minute, never every attach. */
 function driveInfo(letter) {
   const L = String(letter || '').toUpperCase();
@@ -117,12 +126,15 @@ function driveInfo(letter) {
   if (testTable === UNKNOWN) return null;
   if (testTable) return testTable.get(L) || { kind: 'absent', share: null };
   /* Review 1 finding 3: a table whose last good learn is older than two refreshes is dropped, so refreshes that keep
-     failing fall back to before #7232 instead of trusting an old table for ever (the plan's one window stays 60 s). */
+     failing fall back to before #7232 instead of trusting an old table for ever (the one window a stale table is trusted is at most 2 x REFRESH_MS, 120 s). */
   if (table && now() - learnedAt > 2 * REFRESH_MS) table = null;
   if (!table) { if (now() - failedAt > REFRESH_MS) learnSync(); }
   else if (now() - learnedAt > REFRESH_MS) learnSoon();
   if (!table) return null;
-  if (!table.has(L) && !relearned) { learnSync(); relearned = true; }   // after: a successful learn clears it
+  /* Review 3 finding 4: in the BACKGROUND. A letter no drive has (a project left on an unplugged disk) is unlisted on
+     every refresh, and a blocking learn for it froze the board up to 3 s a minute. This attach reads it as absent (walked
+     as before #7232); the next one has the new table. */
+  if (!table.has(L) && !relearned) { learnSoon(); relearned = true; }   // after: a learn that finishes clears it
   return (table && table.get(L)) || { kind: 'absent', share: null };
 }
 

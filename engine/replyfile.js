@@ -73,6 +73,20 @@ function elsewhereOf(p) {
   const place = windrives.placeOf(driveOf(p));
   return place && place.remote ? { share: place.share ? onShareOf(place.share, p) : null } : null;
 }
+/* #7232 review 3 finding 3: whether an agent's recorded folder is on ANOTHER computer, by its spelling or by where the
+   links on its way lead (C:\Users\x\work written locally, with C:\Users\x\work or a folder above it a link onto a share
+   or a dead mapped drive: its kept paths' stat followed that link and stalled every local attach). Placed as another
+   agent's project folder is (otherFolderSkip, lstat and readlink only), and true only when where it leads is NAMED and
+   is not this computer; anything else (a local folder, a dead link, a share that cannot be named) is read as before. */
+function awayByLinks(spelled) {
+  const away = elsewhereOf(spelled);
+  if (away) return !!away.share;
+  if (isNetworkSpelling(spelled) || !windrives.known()) return false;
+  const skipped = otherFolderSkip(spelled, null, true);
+  if (!skipped || skipped.kind !== 'share' || !skipped.leadsTo) return false;
+  const there = elsewhereOf(skipped.leadsTo);
+  return !!(there && there.share);
+}
 
 /* The type a stored file is described by, from its extension. The page words the
    card from it (pjFileWord) and the download carries it with nosniff, an attachment
@@ -240,8 +254,7 @@ function keptRoots(sessionName, roster, { win = false, real = '' } = {}) {
     try { key = store.safeKey(name); } catch { continue; }
     if (fileLocal) {
       const spelled = create.recordedDirSpelling(key);
-      const away = spelled ? elsewhereOf(spelled) : null;
-      if (away && away.share) continue;
+      if (spelled && awayByLinks(spelled)) continue;
     }
     let own = null;
     try { own = create.workerDir(key); } catch { own = null; }
@@ -528,8 +541,8 @@ function hiddenRefusal(given, chain, rootDepth, k) {
    mapped drive of another computer (engine/windrives.js, the drive table, learned without contacting a server) is
    no longer walked or resolved, nor is an agent's recorded folder there for a local file, and another agent's
    folders are not touched at all unless one of the agent's own projects holds the file. Still open: a letter
-   remapped between table refreshes (a remote letter that became local inside the 60 s window is the one narrow
-   fail-open), a mount the table calls local that is not (WinFsp, cloud drives), the table unknown (all as before),
+   remapped between table refreshes (a remote letter that became local inside the window, up to 120 s when a refresh
+   fails, is the one narrow fail-open), a mount the table calls local that is not (WinFsp, cloud drives), the table unknown (all as before),
    the cost on local disks still growing with the number of projects, and the folders Kosmos
    itself made (the Files folder and its parent, each agent's folder, ~/.ssh, ~/.config), which a person or a
    process of this user would have to replace with a link to a share; (c) a share is
