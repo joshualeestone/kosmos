@@ -17,7 +17,7 @@ const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'
 const SRC = [
   liftConst(SCRIPT, 'PJ_WIN_PAGE'),
   liftConst(SCRIPT, 'PJ_WIN'),
-  liftAll(SCRIPT, ['pjWinReset', 'pjWinMerge', 'pjWinRead', 'pjWinEarlier', 'loadRoom']),
+  liftAll(SCRIPT, ['pjWinReset', 'pjWinOlderLine', 'pjWinMerge', 'pjWinRead', 'pjWinEarlier', 'loadRoom']),
 ].join('\n');
 
 /* A room of `n` posts, one second apart (so every key is "<at>|0"), paged as the server pages it. */
@@ -160,4 +160,21 @@ test('#7365 review 1: a poll landing while the first earlier page is in flight l
   release(); await earlier;
   for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));   // the read pjWinEarlier starts when the page moved
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1030), 'every row from the first earlier page to the newest, none lost');
+});
+
+test('#7365 review 1: a failed earlier read is said once and not asked again until Try again', async () => {
+  const room = fakeRoom(1000);
+  const h = harness(room);
+  await h.api.loadRoom();
+  const real = room.fetch;
+  room.fetch = async (u) => (/cursor=/.test(u) ? { ok: false, json: async () => ({ error: 'down' }) } : real(u));
+  await h.api.pjWinEarlier();
+  assert.equal(h.api.PJ_WIN.because, 'We could not read the earlier messages.');
+  const n = room.calls.length;
+  for (let i = 0; i < 5; i++) await h.api.pjWinEarlier();   // the reader keeps scrolling at the top
+  assert.equal(room.calls.length, n, 'no request until the person asks again');
+  room.fetch = real;
+  h.api.PJ_WIN.because = null;   // what Try again does
+  await h.api.pjWinEarlier();
+  assert.deepEqual(ids(h.painted.at(-1)), range(601, 1000), 'Try again reads the page');
 });
