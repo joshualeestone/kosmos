@@ -4381,29 +4381,50 @@ do {
     check(Download.decideAction(target: file, page: URL(string: "https://evil.example/")!, coordinator: coord) == .refuse(Download.notABoard),
           "CONTROL: a page that is not a board cannot save")
     // A main-frame answer.
-    func resp(_ status: Int, attachment: Bool = true, canShow: Bool = false, target: URL? = file, page p: URL? = page, html: Bool = false) -> Download.ResponseDecision {
-        Download.decideResponse(status: status, attachment: attachment, canShow: canShow, target: target, page: p, coordinator: coord, signInPage: html)
+    func resp(_ status: Int, attachment: Bool = true, canShow: Bool = false, target: URL? = file, page p: URL? = page) -> Download.ResponseDecision {
+        Download.decideResponse(status: status, attachment: attachment, canShow: canShow, target: target, page: p, coordinator: coord)
     }
     check(resp(200) == .save, "an attachment from the board is saved")
     check(resp(200, attachment: false, canShow: false) == .save, "a board file the window cannot show (a .zip) is saved")
     check(resp(200, attachment: false, canShow: true) == .show, "CONTROL: a page the window can show is shown, not saved")
     check(resp(204) == .show && resp(205) == .show, "a 204 or 205 has nothing to save")
-    check(resp(404) == .refuse(Download.couldNotGet) && resp(500) == .refuse(Download.couldNotGet), "an error answer is never saved as the file")
-    check(resp(200, html: true) == .refuse(Download.couldNotGet), "the sign-in page where the file should be is never saved")
     check(resp(200, target: URL(string: "https://other.kosmosplus.com/x")!) == .refuse(Download.fromElsewhere), "an attachment from elsewhere is refused")
-    check(resp(200, page: URL(string: "https://evil.example/")!) == .refuse(Download.notABoard), "a page that is not a board cannot save")
+    check(resp(200, attachment: false, target: URL(string: "https://other.kosmosplus.com/x")!) == .refuse(Download.notOpenedElsewhere),
+          "review 1: a file the window cannot show, from elsewhere, is said as not opened or saved (the Mac's words)")
+    check(resp(200, page: URL(string: "https://evil.example/")!) == .refuse(Download.notABoard)
+          && resp(200, attachment: false, page: URL(string: "https://evil.example/")!) == .refuse(Download.notOpenedNotABoard),
+          "a page that is not a board cannot save, in the Mac's two wordings")
     check(resp(200, page: nil) == .refuse(nil), "no page yet (the app's own load): refused and not said")
-    check(Download.looksLikeSignInPage(mimeType: "text/html; charset=utf-8") && !Download.looksLikeSignInPage(mimeType: "application/pdf"), "an HTML answer reads as the sign-in page")
+    // Review 1: every board download is an <a download>, which never reaches the response policy: what arrives is judged
+    // at its destination (Download.decideDestination), the Mac's decideDestinationUsing.
+    let dl = URL(string: "https://studio.kosmosplus.com/api/attachments/a1")!
+    let filesDl = URL(string: "https://studio.kosmosplus.com/api/agent/dana/files/download?path=x")!
+    check(Download.decideDestination(status: 200, mimeType: "application/pdf", attachment: true, url: dl) == .keep, "a file that arrived is kept")
+    check(Download.decideDestination(status: 204, mimeType: nil, attachment: false, url: dl) == .drop(nil),
+          "review 1: a 204 (the board refused the download and its page says why) keeps nothing and says nothing")
+    check(Download.decideDestination(status: 404, mimeType: "application/json", attachment: false, url: dl) == .drop(Download.couldNotGet),
+          "an error answer is never kept as the file, and is said")
+    check(Download.decideDestination(status: 200, mimeType: "text/html", attachment: false, url: dl) == .drop(Download.couldNotGet),
+          "review 1: a web page where a file was expected (a signed-out computer's sign-in page) is never kept")
+    check(Download.decideDestination(status: 200, mimeType: "text/html", attachment: true, url: dl) == .keep,
+          "review 1: CONTROL: a web page sent as an attachment IS the file (an agent's .html attachment)")
+    check(Download.decideDestination(status: 500, mimeType: "text/html", attachment: false, url: filesDl) == .drop(nil),
+          "the Files lists' own routes say a refusal on the page, so the app says nothing")
+    check(Download.pageSaysRefusal(filesDl) && Download.pageSaysRefusal(URL(string: "https://s.kosmosplus.com/api/project/p1/file-download")!)
+          && !Download.pageSaysRefusal(dl), "the routes whose page says it themselves (the Mac's pageSaysDownloadRefusal)")
     // The name.
     check(Download.fileName("report.pdf") == "report.pdf" && Download.fileName(nil) == "download" && Download.fileName("../../etc/x") == "-..-etc-x"
           && Download.fileName(".hidden") == "hidden" && Download.fileName("   ") == "download", "the name is safe for a file")
     // The Mac's guard.
     let t0 = Date(timeIntervalSince1970: 1_000_000)
-    check(Download.shouldSay(up: false, lastAt: nil, now: t0, shownThisPage: 0), "the first refusal is said")
-    check(!Download.shouldSay(up: true, lastAt: nil, now: t0, shownThisPage: 0), "none while one is on screen")
-    check(!Download.shouldSay(up: false, lastAt: t0, now: t0.addingTimeInterval(5), shownThisPage: 1), "none within 10 s of the last, whatever its sentence")
-    check(Download.shouldSay(up: false, lastAt: t0, now: t0.addingTimeInterval(10), shownThisPage: 1), "CONTROL: said again after 10 s")
-    check(!Download.shouldSay(up: false, lastAt: nil, now: t0, shownThisPage: 2), "at most twice for one sentence on one page")
+    check(Download.shouldSay(up: false, refusal: true, lastAt: nil, now: t0, shownThisPage: 0), "the first refusal is said")
+    check(!Download.shouldSay(up: true, refusal: true, lastAt: nil, now: t0, shownThisPage: 0), "none while one is on screen")
+    check(!Download.shouldSay(up: false, refusal: true, lastAt: t0, now: t0.addingTimeInterval(5), shownThisPage: 1), "none within 10 s of the last, whatever its sentence")
+    check(Download.shouldSay(up: false, refusal: true, lastAt: t0, now: t0.addingTimeInterval(10), shownThisPage: 1), "CONTROL: said again after 10 s")
+    check(!Download.shouldSay(up: false, refusal: true, lastAt: nil, now: t0, shownThisPage: 2), "at most twice for one sentence on one page")
+    check(Download.shouldSay(up: false, refusal: false, lastAt: t0, now: t0.addingTimeInterval(1), shownThisPage: 5), "review 1: a failure is always said, as on the Mac")
+    check(!Download.shouldSay(up: true, refusal: false, lastAt: nil, now: t0, shownThisPage: 0), "but never over another message")
+    check(Download.fileName("photo\u{202E}gpj.exe") == "photogpj.exe" && Download.fileName("a\u{2028}b") == "ab", "review 1: no direction or separator characters in a name")
     check(Download.getting("report.pdf") == "Getting report.pdf" && Download.failed("The network connection was lost.") == "The file could not be downloaded (The network connection was lost.).",
           "Mona Lisa's words")
     check(Download.isFailure(Download.couldNotGet) && Download.isFailure(Download.failed("x")) && !Download.isFailure(Download.notFromThisBoard) && !Download.isFailure(Download.notABoard),
