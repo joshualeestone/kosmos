@@ -12295,11 +12295,13 @@ const server = http.createServer(async (req, res) => {
            off its key's list while its session lives on by the key, and removing a SIBLING row held by the same key
            locks it out just the same. One id can be held by several keys, and removing it deletes every key that holds it, so a
            row is refused when ANY of its keys (the tunnel's list) equals the key header. A row with no keys, or no key
-           header, falls back to the device id alone. A list that cannot be read when a key
+           header, falls back to the device id alone. Not atomic with the removal: a sign-in by this same browser that adds
+           the id to its key between the read and the remove is not seen (a tunnel spawn long; accepted). A list that cannot be read when a key
            header is there refuses: here we cannot tell, and refusing only stops a removal. */
         if ((verb === 'remove' || verb === 'deny') && id && isRemoteRequest(req) && cloudMachine.isCloudMachine()) {
           // Every piece of a comma-joined copy counts (review 1): a header can only make this refuse, so more is safer.
-          const own = (h) => { const v = req.headers[h]; return typeof v === 'string' ? v.split(',').map((x) => x.trim()).filter(Boolean) : []; };
+          // The whole value counts too (review 3): a comma inside one value must not split it into pieces that match nothing.
+          const own = (h) => { const v = req.headers[h]; return typeof v === 'string' ? [v.trim()].concat(v.split(',').map((x) => x.trim())).filter(Boolean) : []; };
           const ownKeys = own('x-kosmos-session-key');
           let sameKey = false;
           if (ownKeys.length && !ownKeys.includes(id) && !own('x-kosmos-session-device').includes(id)) {

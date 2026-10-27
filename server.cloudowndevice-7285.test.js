@@ -97,6 +97,13 @@ test('#7285 follow-up (PigeonPete): a row held by the requesting session\'s KEYS
   for (const verb of ['remove', 'deny']) {
     assert.equal((await post(verb, 'd-shared', { ...VIA_PLUS, ...SESSION })).status, 409, verb + ': a row this key holds, not first');
   }
+  // Two rows for one id (review 3): the second holds this browser's key, and it still counts.
+  LIST = { ok: true, data: { devices: [{ device_id: 'd-twice', keys: ['k1.someone'] }, { device_id: 'd-twice', keys: ['k1.mine'] }] } };
+  assert.equal((await post('remove', 'd-twice', { ...VIA_PLUS, ...SESSION })).status, 409, 'the second row with the id');
+  // A comma inside one key value is compared whole as well as in pieces (review 3).
+  LIST = { ok: true, data: { devices: [{ device_id: 'd-comma', keys: ['k1.a,b'] }] } };
+  assert.equal((await post('remove', 'd-comma', { ...VIA_PLUS, 'x-kosmos-session-key': 'k1.a,b' })).status, 409, 'a key with a comma in it');
+  LIST = { ok: true, data: { devices: [{ device_id: 'd-sibling', keys: ['k1.mine'] }, { device_id: 'd-other', keys: ['k1.someone'] }] } };
   // The key alone carries the refusal: the device header names a listed row held by ANOTHER key, and the row picked
   // is held by the session's key.
   assert.equal((await post('remove', 'd-sibling', { ...VIA_PLUS, 'x-kosmos-session-key': 'k1.mine', 'x-kosmos-session-device': 'd-other' })).status, 409);
@@ -114,7 +121,11 @@ test('#7285 follow-up CONTROLS: a different key, a row with no key, and no key h
   listReads = 0;
   assert.equal((await post('remove', 'd-sibling', { ...VIA_PLUS, 'x-kosmos-session-device': 'd-mine' })).status, 200, 'no key header: the device id alone decides');
   assert.equal(listReads, 0, 'the list is not read without a key header');
-  assert.deepEqual(calls, [['remove', 'd-other'], ['remove', 'd-nokey'], ['remove', 'd-nokeys'], ['remove', 'd-unlisted'], ['remove', 'd-sibling']]);
+  // Review 3: nor when the headers already refuse, nor for a local request.
+  assert.equal((await post('remove', 'd-mine', { ...VIA_PLUS, ...SESSION })).status, 409, 'refused by the device header');
+  assert.equal((await post('remove', 'd-sibling', { ...PAGE, ...SESSION })).status, 200, 'a local request');
+  assert.equal(listReads, 0, 'the list was read for a request that did not need it');
+  assert.deepEqual(calls, [['remove', 'd-other'], ['remove', 'd-nokey'], ['remove', 'd-nokeys'], ['remove', 'd-unlisted'], ['remove', 'd-sibling'], ['remove', 'd-sibling']]);
 });
 
 test('#7285 follow-up: a list that cannot be read, with a key header, refuses and says it could not check', async () => {
