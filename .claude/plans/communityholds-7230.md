@@ -72,3 +72,7 @@ Card kosmos#7230 (from agent feedback, filed by Splinter). Three asks.
    ⚠️ Correction: this entry first said the reachability guard passed. I wrote that before reading the result, and it
    was red: round 2's _pauseEnded export is tested but reached from nowhere. It is now excused in engine.reachable's
    triage as INTERNAL (tickOnce calls pauseEnded inside the module). Re-run: reachability and comment-deferral 10 of 10.
+4. (sonnet, 21:2x CDT) No new findings. Converged. Confirmed: no race between commentsInFlight and the record (no
+   await between the save and the add, or between the delete and the settle); no import cycle; the swap test is red
+   with the production line reverted. One NIT declined: the pause-over sentence is also put in front of a lineFor
+   override line (the owed-replies line). It reads correctly and says nothing false there.
