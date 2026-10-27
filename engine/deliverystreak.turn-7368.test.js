@@ -93,6 +93,43 @@ test('#7368 review 2 (measured on Claude Code 2.1.311): messages written during 
   assert.equal(r.last().queued, 1, 'CONTROL: a message behind a step that has not ended is still counted');
 });
 
+test('#7368 review 3 W1: a second message sent while idle still waits after the first turn starts', () => {
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.wrote();               // A starts the turn
+  r.pub.wrote();               // B, sent right after, waits
+  r.pub.event(init);           // the turn's start does not take B (measured)
+  assert.equal(r.last().queued, 1, 'B still waits after the turn starts');
+  r.pub.event(toolUse('Bash', { command: 'hang' }));
+  r.pub.event({ type: 'assistant', message: { content: [{ type: 'text', text: 'thinking' }] } });
+  assert.equal(r.last().queued, 1, 'and still waits while the first step hangs');
+});
+
+test('#7368 review 3 W2: a subagent\'s tool result is not a boundary for the person\'s messages', () => {
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.wrote(); r.pub.event(init);
+  r.pub.event(toolUse('Task', { description: 'research' }));
+  r.pub.wrote();
+  const sub = { type: 'user', parent_tool_use_id: 'toolu_x', message: { content: [{ type: 'tool_result', content: 'sub step' }] } };
+  r.pub.event(sub);
+  assert.equal(r.last().queued, 1, 'the subagent\'s own tool result leaves the person\'s message waiting');
+  r.pub.event(toolResult);
+  assert.equal(r.last().queued, undefined, 'CONTROL: the main agent\'s tool result takes it');
+});
+
+test('#7368 review 3 W3: while a message waits, the card names the step that is running, never one that finished', () => {
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.wrote(); r.pub.event(init);
+  r.pub.event(toolUse('Bash', { command: 'first' }));
+  r.pub.event(toolResult);                               // first ends
+  r.pub.wrote();                                         // a message arrives between steps
+  assert.equal(r.last().step, undefined, 'no step is named between steps');
+  r.pub.event(toolUse('Bash', { command: 'second' }));   // the step that hangs
+  assert.equal(r.last().step, 'running "second"', 'the running step reaches disk while something waits');
+});
+
 test('#7368 review 2 W2: the step clock moves on activity, in buckets, so a busy agent writes about once per bucket, not per tool', () => {
   const r = recording();
   r.pub.started(4242, 'sid-1');
@@ -150,13 +187,28 @@ test('#7368: an hour with no activity AND a message queued is a stall that names
   assert.equal(ds.turnStuckOf('ada', null, { now }), null);
 });
 
+test('#7368 review 2 W4: the board masks the step again with the person\'s own secrets', () => {
+  const sm = require('./secretmask');
+  const secret = 'zq-person-secret-7368-' + 'Xy9Kp2Lm4Nq';
+  sm.setKnownSecrets([secret]);
+  try {
+    const st = ds.turnStuckOf('ada', { since: new Date(Date.now() - 2 * HOUR).toISOString(), step: 'running "deploy ' + secret + '"', queued: 1 });
+    assert.ok(st && st.step && !st.step.includes(secret), 'a known secret in the step never reaches the card: ' + (st && st.step));
+  } finally { sm.setKnownSecrets([]); }
+});
+
 test('#7368: the card carries it for a Windows Claude agent reading Working, ahead of the streak; not for other runners or states', () => {
   const dir = path.join(store.ROOT, 'win32-state');
   fs.mkdirSync(dir, { recursive: true });
   const since = new Date(Date.now() - 2 * HOUR).toISOString();
   fs.writeFileSync(path.join(dir, store.safeKey('dee') + '.json'), JSON.stringify({ v: 1, state: 'busy', sessionId: 's', pid: process.pid, at: since, stepSince: since, step: 'running "x"', queued: 2 }));
   const win = { name: 'dee', command: 'claude.exe', runner: 'claude' };
-  assert.equal(status.deliveryStallOf(win, { state: 'working' }).lastWhy, 'turn', 'a Windows Claude card reading Working carries the stuck step');
+  ds.resetForTests();
+  const now = Date.now();
+  for (const m of [40, 35, 2]) ds.note('dee', { state: 'could_not', because: 'x' }, now - m * MIN);   // a #7212 streak too
+  assert.ok(ds.stallOf('dee'), 'CONTROL: the streak alone would be said');
+  assert.equal(status.deliveryStallOf(win, { state: 'working' }).lastWhy, 'turn', 'review 3 W4: with both, the stuck step is said (it names the step)');
+  ds.resetForTests();   // the controls below are about the step alone
   assert.equal(status.deliveryStallOf(win, { state: 'idle' }), null, 'CONTROL: an idle card is not on a step');
   assert.equal(status.deliveryStallOf({ ...win, runner: 'codex' }, { state: 'working' }), null, 'not for another runner\'s supervisor');
   assert.equal(status.deliveryStallOf({ name: 'dee', command: 'claude' }, { state: 'working' }), null, 'not for a Mac pane');
@@ -169,9 +221,9 @@ test('#7368: the page says it in its own sentence, naming the step and how many 
   const card = (mins, count, step) => ({ name: 'Ada', state: 'working', deliveryStall: { since: new Date(Date.now() - mins * MIN).toISOString(), count,
     lastWhy: 'turn', step, words: ds.WHY_WORDS.turn, next: ds.turnNext(count) } });
   assert.equal(stateReason(card(125, 3, 'running "npm install"')),
-    'Ada has been on one step for about 2 hours: running "npm install". 3 messages are waiting behind it. Restart it to free it, then send them again.');
+    'Ada has been on one step for about 2 hours: running "npm install". 3 messages are waiting behind it. Restart it to free it, then send them again, or wait if it is a long job.');
   assert.equal(stateReason(card(70, 1, null)),
-    'Ada has been on one step for about 70 minutes. 1 message is waiting behind it. Restart it to free it, then send that message again.');
+    'Ada has been on one step for about 70 minutes. 1 message is waiting behind it. Restart it to free it, then send that message again, or wait if it is a long job.');
   assert.match(stateReason({ name: 'Ada', state: 'idle', deliveryStall: { since: new Date(Date.now() - 45 * MIN).toISOString(), count: 4, lastWhy: 'menu', words: ds.WHY_WORDS.menu } }),
     /^No message has reached Ada/, 'CONTROL: the #7212 stall keeps its own sentence');
 });

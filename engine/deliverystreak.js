@@ -104,7 +104,10 @@ function turnStuckOf(name, turn, { now = Date.now() } = {}) {
   } catch { return null; }
 }
 /* The way out, worded for how many wait (review 1: "them" for one message). */
-function turnNext(count) { return count === 1 ? 'Restart it to free it, then send that message again' : 'Restart it to free it, then send them again'; }
+function turnNext(count) {
+  return (count === 1 ? 'Restart it to free it, then send that message again' : 'Restart it to free it, then send them again')
+    + ', or wait if it is a long job';   // review 3: an out for an agent that is simply busy (Josh's voice: give the reader an out)
+}
 
 /* True when a card shows a usage limit itself (its limit reset, a limitFrom reading, or an Antigravity quota or pool
    pause): the one rule both the card field and the board log use. Never throws. */
@@ -157,7 +160,7 @@ const NEXT_WORDS = {
   quota: 'Kosmos sends them once the shared quota resets',
   /* kosmos#7368: a restart ends the process, and what it had queued goes with it, so they must be sent again
      (turnNext words it for one message). */
-  turn: 'Restart it to free it, then send them again',
+  turn: 'Restart it to free it, then send them again, or wait if it is a long job',
 };
 /* The board log's line for one stall. */
 function stallLine(s) {

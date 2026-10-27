@@ -26166,7 +26166,7 @@ function start(port = PORT) {
       };
       /* #7212 slice 2: agents whose current delivery stall was already said, and when (deliverystreak.stallsToSay). */
       const stallSaid = new Map();
-      /* kosmos#7368: agents whose current stuck step was already said: name -> its step and queue, so each is said once. */
+      /* kosmos#7368: agents whose current stuck step was already said: name -> its clock and step, so each is said once. */
       const turnSaid = new Map();
       /* #7212 slice 2: an agent no message has been seen to reach for half an hour, whatever the cause, is said once per
          stall and again each day it lasts. Agents gone from the board lose their streaks (not on an empty read). */

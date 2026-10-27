@@ -28,7 +28,8 @@
  * `limit <until> <since|-> <kind|->[ <line>]` while the reset is ahead, which status reads as the Mac's rate_limited.
  *
  * So a message written, or any in-turn event, is BUSY; a `result` is IDLE; a
- * start is IDLE. Nothing is counted: a counter that missed one event would be
+ * start is IDLE. The state is not counted (kosmos#7368's `queued` is, but it resets to 0 at every boundary, so a missed
+ * event cannot carry forward): a counter that missed one event would be
  * wrong forever, while this reading corrects itself on the next event.
  *
  * 🔑 THE BOARD IS ANOTHER PROCESS, so the state crosses as a small file per agent,
@@ -106,8 +107,8 @@ function stepOfEvent(event) {
        log. Control characters go; the cut is by character, never inside one. */
     const one = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '');
     const cut = (v) => {
-      let t = v;
-      try { t = require('./secretmask').mask(v).text; } catch { t = ''; }
+      let t = Array.from(v).slice(0, STEP_MAX * 3).join('');   // review 3: never mask megabytes on the supervisor's loop
+      try { t = require('./secretmask').mask(t).text; } catch { t = ''; }
       const chars = Array.from(t);
       return chars.length > STEP_MAX ? chars.slice(0, STEP_MAX - 1).join('') + '\u2026' : t;
     };
@@ -443,7 +444,9 @@ function publisher(name, opts) {
      once per bucket, not once per tool. */
   function keyOf(c) {
     const clock = c.stepSince ? Math.floor(Date.parse(c.stepSince) / STEP_CLOCK_MS) : '';
-    return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + clock + '\u0000' + (c.queued || 0);
+    /* Review 3 W3: while something is queued the step IS part of the key, so the card never names a finished step. */
+    return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + clock + '\u0000' + (c.queued || 0)
+      + '\u0000' + ((c.queued || 0) > 0 ? (c.step || '') : '');
   }
   function setState(next) {
     if (next === BUSY && current.state !== BUSY) { current.step = null; current.stepSince = new Date(nowMs()).toISOString(); }
@@ -510,11 +513,17 @@ function publisher(name, opts) {
       /* kosmos#7368 (review 2, measured on Claude Code 2.1.311): a message written in while a step runs is taken at the
          agent's next boundary (a tool result, a new turn, or the turn's result), inside the same turn. So the queue is the
          writes since the last such point: it can never drift, and it is exactly what a step that never ends holds. */
-      if (e && (e.type === 'user' || e.type === 'result' || (e.type === 'system' && e.subtype === 'init'))) current.queued = 0;
+      /* Review 3 (measured): only the MAIN agent's tool result is a boundary (a subagent's carries parent_tool_use_id and
+         does not take the person's messages), and a turn's start is not one (a second message sent while idle waits for
+         the first tool result too; every later start follows a result, which already emptied it). */
+      const mainToolResult = e && e.type === 'user' && !e.parent_tool_use_id && e.message && Array.isArray(e.message.content)
+        && e.message.content.some((c) => c && c.type === 'tool_result');
+      if (mainToolResult || (e && e.type === 'result')) { current.queued = 0; current.step = null; }
       /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
          turn's start: an agent calling a new tool every minute is never on one step for an hour. */
       if (current.state === BUSY && e && (e.type === 'assistant' || e.type === 'user' || e.type === 'system')) current.stepSince = new Date(nowMs()).toISOString();
-      const step = stepOfEvent(e);
+      /* The step is the MAIN agent's latest call (a subagent's own calls are inside the step that started it). */
+      const step = e && e.parent_tool_use_id ? null : stepOfEvent(e);
       if (step !== null && current.state === BUSY) current.step = step;
       const stepChanged = before !== keyOf(current);
       /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
