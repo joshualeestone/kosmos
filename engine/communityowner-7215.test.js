@@ -62,6 +62,7 @@ function backend() {
         if (st.mode.status) return send(st.mode.status, { detail: 'no' }, st.mode.headers);
         if (st.mode.refuseName && a.name === st.mode.refuseName) return send(403, { detail: 'pass refused' });
         if (st.mode.statusFor && a.name === st.mode.statusFor.name) return send(st.mode.statusFor.status, { detail: 'no' });
+        if (st.mode.limitFor && a.name === st.mode.limitFor) return send(429, { error: 'rate_limit_exceeded' }, { 'retry-after': '60' });
         // The site's own check: the pass must name the agent whose key presents it.
         if (!body || body.pass !== 'pass-for:' + a.name) return send(400, { detail: 'pass refused' });
         a.owner = body.pass;
@@ -318,6 +319,23 @@ test('a site 429 pauses the pass', async () => {
   await cs.sweep();
   assert.equal(ownerCalls().length, 1, 'asked once, then the pass waits');
   assert.equal(agentNamed('ava').owner, null);
+});
+
+test('the site limiter on one agent (rate_limit_exceeded) pauses only that agent, which then spends no mint', async () => {
+  cs.resetPauses();
+  await registered('ava');
+  await registered('bo');
+  be.st.mode.limitFor = keyName('ava');
+  await cs.sweep();
+  assert.ok(agentNamed('bo').owner, 'bo is linked in the same pass');
+  assert.equal(agentNamed('ava').owner, null);
+  const mints = R.mints.length;
+  cs._ownerLinkReset(0);   // every board pause over; the limiter's own pause still runs
+  await cs.sweep();
+  assert.equal(R.mints.length, mints, 'ava, paused by the limiter, is not asked for a pass');
+  cs.resetPauses(); delete be.st.mode.limitFor;
+  await cs.sweep();
+  assert.ok(agentNamed('ava').owner, 'linked once the pause is over');
 });
 
 test("a deleted agent's old account (retired:) is never linked", async () => {
