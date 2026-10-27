@@ -97,6 +97,9 @@ test('#7365 3b review 1: the live read leaves the archive count to loadRoom, aft
   const gen = load.indexOf('win !== PJ_WIN.gen) return;');
   const set = load.indexOf('PJ_WIN.archivedCount = Number(body.archivedCount)');
   assert.ok(gen > 0 && set > gen, 'the count is stored after the generation check');
+  // and after the gap block, whose reset would zero it for a poll (review 2; review 3 found this pin missing)
+  const reset = load.lastIndexOf('pjWinReset(PJ_CURRENT)');
+  assert.ok(reset > 0 && set > reset, 'the count is stored after the last window reset in loadRoom');
 });
 
 test('#7365 3b review 1: paintRoom keeps its state and hold strip running while the archive is open, and skips only the rows', () => {
@@ -139,8 +142,8 @@ function archPage({ reads }) {
     pjWinRead: (pid, n, cursor, archive) => { const r = reads.shift(); return typeof r === 'function' ? r({ pid, n, cursor, archive }) : r; },
   });
   vm.runInContext([liftConst(SCRIPT, 'PJ_WIN'), liftConst(SCRIPT, 'PJ_ARCH'),
-    liftAll(SCRIPT, ['pjArchReset', 'pjArchShowing', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine'])].join('\n')
-    + '\nthis.PJ_WIN = PJ_WIN; this.PJ_ARCH = PJ_ARCH; this.pjArchOpen = pjArchOpen; this.pjArchEarlier = pjArchEarlier; this.pjArchClose = pjArchClose;', ctx);
+    liftAll(SCRIPT, ['pjArchReset', 'pjArchShowing', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine', 'pjWinNoteReactions'])].join('\n')
+    + '\nthis.PJ_WIN = PJ_WIN; this.PJ_ARCH = PJ_ARCH; this.pjArchOpen = pjArchOpen; this.pjArchEarlier = pjArchEarlier; this.pjArchClose = pjArchClose; this.pjWinNoteReactions = pjWinNoteReactions;', ctx);
   el('pj-room').__lastBody = { rows: [{ text: 'live' }] };
   return { ctx, el, doc, said, toasts, painted, restored };
 }
@@ -194,4 +197,29 @@ test('#7365 3b review 2: a failed earlier archive page says so on the line with 
   assert.equal(h.ctx.PJ_ARCH.rows.length, 2);
   assert.equal(h.el('pj-room-older-show').hidden, true);
   assert.match(h.el('pj-room').innerHTML, /This is the start of the room\./);
+});
+
+test('#7365 3b review 3: a reaction made inside the archive is still on its row after the next archive page lands', async () => {
+  const h = archPage({ reads: [page1, { rows: [{ kind: 'post', id: 'a0', text: 'earlier one' }], olderCount: 0 }] });
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1', older: [], newest: [] });
+  await h.ctx.pjArchOpen();
+  h.ctx.pjWinNoteReactions('p1', 'a1', [{ emoji: 'x', by: ['you'] }], null);
+  await h.ctx.pjArchEarlier();
+  const row = h.ctx.PJ_ARCH.rows.find((r) => r.id === 'a1');
+  assert.deepEqual(row.reactions, [{ emoji: 'x', by: ['you'] }]);
+  assert.ok(h.ctx.PJ_ARCH.posts.get('a1').reactions, 'and the archive post map a reply reads');
+});
+
+test('#7365 3b review 3: what Archive says depends on the count before and after, never on the total alone', () => {
+  const ctx = vm.createContext({ Date, Number });
+  vm.runInContext(liftAll(SCRIPT, ['pjRoomArchWhen', 'pjArchReceipt', 'pjArchOutcome']) + '\nthis.f = pjArchOutcome;', ctx);
+  const t = new Date(2026, 9, 26, 16, 10).toISOString();
+  assert.match(ctx.f(0, 260, t), /^Messages before .+, .+ are archived\. Undo is in the archive\.$/);
+  assert.match(ctx.f(260, 0, t), /^Messages before .+ are archived; newer ones you had archived are back in the room\.$/);
+  assert.match(ctx.f(260, 260, t), /^Nothing more in this room was old enough to archive \(before .+\)\.$/);
+  assert.equal(ctx.f(0, 0, undefined), 'Nothing more in this room was old enough to archive.');
+  assert.equal(ctx.f(0, 5, undefined), 'Older messages are archived. Undo is in the archive.');
+  assert.equal(ctx.f(NaN, 5, undefined), 'The archive is set. Undo is in the archive.');
+  assert.match(ctx.f(NaN, NaN, t), /^Messages before .+ are archived\. Undo is in the archive\.$/);
+  for (const x of [ctx.f(0, 0, undefined), ctx.f(NaN, 3, ''), ctx.f(1, 2, 'bad')]) assert.doesNotMatch(x, /  |\( /, 'no hole where a time would be: ' + x);
 });

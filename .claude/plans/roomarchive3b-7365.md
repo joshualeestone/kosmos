@@ -101,3 +101,26 @@ map. Fixed by moving the return to just before the rows are written.
    - Found by me while fixing: my new pjArchWhen replaced the archived-projects list's own pjArchWhen (a function
      declared twice; the later wins with no error). Renamed pjRoomArchWhen, and a new test asserts every top-level
      function in the page is declared once (mutation: a second pjArchWhen reds it).
+3. (general-purpose, 18:3x CDT) 1 BLOCKER, 7 WARNINGs, 1 CONVENTION, 5 NITs; all applied.
+   - (B) the browser check read the receipt from the body before the page wrote it (the page reads the count after
+     closing the confirm, and the toast writes 60 ms late): it waits on #msg-toast's own words.
+   - (W) Undo read focus after disabling the focused button (focus goes to the body; WebKit never focuses a clicked
+     button): it reads focus first and passes it to pjArchClose, which also counts focus on the body as "from the header".
+   - (W) a slow Archive could act on a confirm opened later for another project: a per-opening token; a closed opening's
+     answer touches nothing, and the choice is locked while a request is out. Its result then shows nowhere: the person
+     moved to another project, and the archive is set; noted as the weakest part of this fix.
+   - (W) on a phone the archive header pushed the thread's newest rows under the composer: pjFitRoomPhone runs after
+     paintArch and pjArchReset; the 390 px arm opens the archive and asserts the thread ends above the composer.
+   - (W) the 390 px assertion passed when the button was not rendered: split into "no sideways scroll" and "the button
+     is shown inside its header".
+   - (W) the gap-block fix had no pin: the count is asserted after the LAST pjWinReset in loadRoom (mutation reds it).
+   - (W) "nothing archived" compared the total against 0: pjArchOutcome compares the count before and after (receipt,
+     "back in the room" for an earlier cutoff, "nothing more" for the same one), with no hole where a time is missing;
+     unit test and two browser arms.
+   - (W) the archive reaction fix had no test: a vm test, mutation reds it.
+   - (C) the README row now lists every arm.
+   - NITs: labels match their assertions (the live count is asserted); "Opening the archive..." is a flag
+     pjWinOlderLine honours; the confirm is checked to paint on top (elementFromPoint at the middle and two corners);
+     the CSS comment describes its rules, and the archive's bubbles are quieter by opacity, not a filter; the poll's
+     no-repaint stamp includes the archive count, so an archive set elsewhere draws the boundary row.
+   - Also: 3a's two room-read pin fixes (roomRows) are applied here, since this branch merges 3a.

@@ -102,6 +102,23 @@ function findUnder(dir, name) {
       await p.locator('#pj-list').getByText('Archive check', { exact: true }).first().click();
       await p.waitForFunction(() => document.querySelectorAll('#pj-room .msg').length > 0, null, { timeout: 15000 });
     };
+    // The toast's own words, once they match (the toast writes them a moment after it appears).
+    const toastSays = async (re) => {
+      try {
+        await p.waitForFunction((src) => new RegExp(src).test((document.getElementById('msg-toast') || {}).textContent || ''), re.source, { timeout: 5000 });
+      } catch { /* the match below reports what was there */ }
+      return p.evaluate((src) => ((document.getElementById('msg-toast') || {}).textContent || '').match(new RegExp(src)), re.source);
+    };
+    // Archive with one choice, through the confirm; answers what the toast said.
+    const archiveWith = async (choice, re) => {
+      await p.click('#pj-arch-ask');
+      await p.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 5000 });
+      await p.selectOption('#pjarch-when', choice);
+      await p.click('#pjarch-go');
+      await p.waitForSelector('#pjarch-modal', { state: 'hidden', timeout: 5000 });
+      const m = await toastSays(re);
+      return m ? m[0] : await p.evaluate(() => (document.getElementById('msg-toast') || {}).textContent || '');
+    };
     // Scroll the room to its top until the window holds the live history back to its start (or 20 tries).
     const scrollToStart = async () => {
       for (let i = 0; i < 20; i++) {
@@ -131,6 +148,8 @@ function findUnder(dir, name) {
     // It sits inside the room's section (no spare body row); position:fixed must still make it cover the whole window.
     const cover = await p.evaluate(() => { const r = document.getElementById('pjarch-modal').getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight }; });
     chk(cover.x === 0 && cover.y === 0 && cover.w === cover.vw && cover.h === cover.vh, 'the confirm\'s backdrop covers the whole window, though it sits inside the room\'s section', JSON.stringify(cover));
+    const onTop = await p.evaluate(() => [[innerWidth / 2, innerHeight / 2], [4, 4], [innerWidth - 4, innerHeight - 4]].map(([x, y]) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#pjarch-modal')); }));
+    chk(onTop.every(Boolean), 'the confirm paints above everything: the middle and two corners of the window are the confirm', JSON.stringify(onTop));
     await p.screenshot({ path: path.join(OUT, 'confirm.png') });
     await p.keyboard.press('Escape');
     await p.waitForTimeout(300);
@@ -156,7 +175,8 @@ function findUnder(dir, name) {
     await p.unroute('**/room/archive');
     await p.click('#pjarch-go');
     await p.waitForSelector('#pjarch-modal', { state: 'hidden', timeout: 5000 });
-    const receipt = await p.evaluate(() => document.body.textContent.match(/Messages before [^.]+ are archived\. Undo is in the archive\./));
+    // The page closes the confirm, then reads the count, then writes the toast (60 ms after its first): wait for the words.
+    const receipt = await toastSays(/Messages before [^.]+ are archived\. Undo is in the archive\./);
     chk(!!receipt, 'Archive answers with a receipt naming the time the server used', String(receipt && receipt[0]));
     const marked = await (await fetch(base + '/api/project/' + pid + '/room?n=1&archive=0')).json();
     const usedMs = marked.archiveMarker ? Date.parse(marked.archiveMarker.before) : NaN;
@@ -193,7 +213,7 @@ function findUnder(dir, name) {
         n: msgs.length, last: msgs.length ? msgs[msgs.length - 1].textContent : '', on: box.classList.contains('pj-arch-on'),
         start: !!box.querySelector('.pj-arch-edge') && /start of the room/.test(box.textContent), live: /live post/.test(box.textContent) };
     });
-    chk(/^Archive 260 messages Undo Back to the room$/.test(arch.head) && arch.undo, 'the archive header reads "Archive · 260 messages · Undo · Back to the room"', arch.head);
+    chk(/^Archive 260 messages Undo Back to the room$/.test(arch.head) && arch.undo, 'the archive header reads Archive, 260 messages, Undo, Back to the room', arch.head);
     chk(arch.on && arch.n === 200 && /archived post 259/.test(arch.last) && !arch.live, 'the archive shows its newest page, the newest archived post at the bottom, and no live post', JSON.stringify({ n: arch.n, live: arch.live }));
     chk(!arch.start, 'CONTROL: on the first archive page the start-of-room line is not shown yet');
     chk(await p.locator('#pj-room .msg-archived').count() === 0, 'inside the archive view no row carries the Archived tag (the header says it)');
@@ -268,20 +288,37 @@ function findUnder(dir, name) {
     await p.waitForTimeout(300);
     chk(await p.locator('#pj-arch-head').isHidden() && await p.locator('#pj-arch-open').count() === 0, 'after Undo the start of the room has no boundary row (and the archive is not on screen)');
     // "everything older than a day": the receipt names a time 24 hours back, the time the server keeps live from.
-    await p.click('#pj-arch-ask');
-    await p.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 5000 });
-    await p.selectOption('#pjarch-when', 'day');
-    await p.click('#pjarch-go');
-    await p.waitForSelector('#pjarch-modal', { state: 'hidden', timeout: 5000 });
+    const daySaid = await archiveWith('day', /Messages before [^.]+ are archived\. Undo is in the archive\./);
     const dayM = await (await fetch(base + '/api/project/' + pid + '/room?n=1&archive=0')).json();
     const dayMs = dayM.archiveMarker ? Date.parse(dayM.archiveMarker.before) : NaN;
-    chk(Math.abs(dayMs - (Date.now() - DAY)) < 5 * 60 * 1000 && Number(dayM.archivedCount) === ARCHIVED, '"everything older than a day" archives up to 24 hours ago, and the 230 posts from today stay live', JSON.stringify({ before: dayM.archiveMarker && dayM.archiveMarker.before, archived: dayM.archivedCount }));
+    const live = Number(dayM.olderCount) + dayM.rows.length;
+    chk(Math.abs(dayMs - (Date.now() - DAY)) < 5 * 60 * 1000 && Number(dayM.archivedCount) === ARCHIVED && live === LIVE + 1,
+      '"everything older than a day" archives up to 24 hours ago, and today\'s posts (230, and the one posted meanwhile) stay live', JSON.stringify({ before: dayM.archiveMarker && dayM.archiveMarker.before, archived: dayM.archivedCount, live, said: daySaid }));
+    // What Archive says follows the count before and after: an earlier cutoff brings rows back; the same one archives nothing more.
+    const backSaid = await archiveWith('month', /are archived; newer ones you had archived are back in the room\./);
+    chk(/are archived; newer ones you had archived are back in the room\.$/.test(backSaid), 'a cutoff earlier than the room\'s last one says the newer archived messages are back', backSaid);
+    const sameSaid = await archiveWith('month', /^Nothing more in this room was old enough to archive/);
+    chk(/^Nothing more in this room was old enough to archive \(before .+\)\.$/.test(sameSaid), 'the same cutoff again says nothing more was old enough, not a receipt', sameSaid);
     // Phone width: the header holds read-aloud, the archive button and search; none of it may push the page sideways.
     await p.setViewportSize({ width: 390, height: 844 });
     await p.waitForTimeout(400);
-    const narrow = await p.evaluate(() => { const b = document.getElementById('pj-arch-ask').getBoundingClientRect(); return { sw: document.documentElement.scrollWidth, vw: innerWidth, left: Math.round(b.left), right: Math.round(b.right), w: Math.round(b.width) }; });
+    const narrow = await p.evaluate(() => { const b = document.getElementById('pj-arch-ask').getBoundingClientRect(); const h = document.getElementById('pj-arch-ask').closest('.pjmidhead').getBoundingClientRect(); return { sw: document.documentElement.scrollWidth, vw: innerWidth, left: Math.round(b.left), right: Math.round(b.right), w: Math.round(b.width), headRight: Math.round(h.right) }; });
     await p.screenshot({ path: path.join(OUT, 'phone-header.png') });
-    chk(narrow.sw <= narrow.vw && (narrow.w === 0 || (narrow.left >= 0 && narrow.right <= narrow.vw)), 'at 390px the page does not scroll sideways and the archive button stays on screen', JSON.stringify(narrow));
+    chk(narrow.sw <= narrow.vw, 'at 390px the page does not scroll sideways', JSON.stringify(narrow));
+    chk(narrow.w > 0 && narrow.left >= 0 && narrow.right <= Math.min(narrow.vw, narrow.headRight), 'at 390px the archive button is shown, inside the window and inside its header', JSON.stringify(narrow));
+    // And the archive view at 390px: its header above the thread must not push the newest archived post under the composer.
+    await p.fill('#pj-room-search', '');
+    await p.waitForTimeout(300);
+    await archiveWith('day', /are archived/);
+    await scrollToStart();
+    await p.waitForSelector('#pj-arch-open', { timeout: 5000 }).catch(() => null);
+    await p.click('#pj-arch-open');
+    await p.waitForSelector('#pj-arch-head:not([hidden])', { timeout: 5000 });
+    await p.waitForTimeout(500);
+    const fit = await p.evaluate(() => { const msgs = document.querySelectorAll('#pj-room .msg'); const last = msgs[msgs.length - 1]; const comp = document.getElementById('pj-post'); const box = document.getElementById('pj-room').getBoundingClientRect();
+      return { lastBottom: last ? Math.round(Math.min(last.getBoundingClientRect().bottom, box.bottom)) : null, roomBottom: Math.round(box.bottom), composerTop: comp ? Math.round(comp.getBoundingClientRect().top) : null }; });
+    await p.screenshot({ path: path.join(OUT, 'phone-archive.png') });
+    chk(fit.lastBottom !== null && fit.composerTop !== null && fit.roomBottom <= fit.composerTop + 1, 'at 390px the archive\'s thread ends above the composer, so its newest post is not hidden under it', JSON.stringify(fit));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     if (browser) await browser.close();

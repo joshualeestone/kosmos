@@ -69,7 +69,7 @@ const ESCAPES_VIA = {
   'rst-modal':      /Escape[\s\S]{0,300}rst-modal/,
   'chg-modal':      /const onEsc = \(e\) => \{\n\s*if \(e\.key !== 'Escape'/,
   /* kosmos#7365 slice 3b: Escape closes the archive confirm while the choice is still the person's (not while Archive runs). */
-  'pjarch-modal':   /getElementById\('pjarch-modal'\)[\s\S]{0,2000}const onEsc = \(e\) => \{\n\s*if \(back\.hidden\) return;\n\s*if \(e\.key === 'Escape' && !go\.disabled\) \{ close\(\); return; \}/,
+  'pjarch-modal':   /getElementById\('pjarch-modal'\)[\s\S]{0,2000}const onEsc = \(e\) => \{\n\s*if \(back\.hidden \|\| ask !== PJ_ARCH_ASK_GEN\) return;\n\s*if \(e\.key === 'Escape' && !go\.disabled\) \{ close\(\); return; \}/,
   'nt-modal':       /Escape[\s\S]{0,300}nt-modal/,
   'mem-modal':      /mem-modal'\)\.hidden\) return;/,
   'acct-add-modal': /Escape[\s\S]{0,300}acct-add-modal/,
