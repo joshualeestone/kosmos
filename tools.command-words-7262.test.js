@@ -19,11 +19,16 @@ const { callRuns, commandRuns } = require('./tools/lib/schtasks-call.cjs');
 const { realToolInScript, refusedCall } = require('./test-support/tool-guard');
 
 const b64 = (s) => Buffer.from(s, 'utf16le').toString('base64');
-/* tool-guard's verdict is POSIX-shaped: a word is a path only when it has a '/', its name must be exactly gh, vercel
-   or cloudflared (so gh.exe never matches), and a bare name resolves only to an executable file on PATH. It does not
-   judge Windows paths, although tools/run-tests.sh preloads it on Windows too (#7318). So on win32 its arms here are
-   skipped and the schtasks arms still run (measured on Homer's box, 10-27). */
-const TOOL_GUARD_HOST = process.platform !== 'win32';
+/* The stand-in for a real gh: a POSIX script with an execute bit, or on Windows gh.cmd, which is what PATH and PATHEXT
+   find there (#7318: tool-guard reads Windows paths, extensions and PATH lookup). */
+const WIN = process.platform === 'win32';
+const GH = WIN ? 'gh.cmd' : 'gh';
+const writeGh = (dir) => {
+  const p = path.join(dir, GH);
+  fs.writeFileSync(p, WIN ? '@echo off\r\n' : '#!/bin/sh\n');
+  fs.chmodSync(p, 0o755);
+  return p;
+};
 
 test('#7262: the words a call runs are the ones in command position, not its arguments', () => {
   assert.deepEqual(lineWords('X=1 nohup gh auth status'), ['nohup', 'gh']);
@@ -123,10 +128,9 @@ test('#7262: fill substitutes the program once, so an encoded row survives a bas
   assert.equal(Buffer.from(args[1], 'base64').toString('utf16le'), `${p} x`);
 });
 
-test('#7262: tool-guard judges a BARE name by the call\'s PATH through the shared reader (review 1)', { skip: !TOOL_GUARD_HOST && 'tool-guard does not judge Windows paths or executables (#7318)' }, () => {
+test('#7262: tool-guard judges a BARE name by the call\'s PATH through the shared reader (review 1)', () => {
   const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cmdwords-7262-path-'));
-  fs.writeFileSync(path.join(stub, 'gh'), '#!/bin/sh\n');
-  fs.chmodSync(path.join(stub, 'gh'), 0o755);
+  writeGh(stub);
   try {
     const env = { PATH: stub };
     // Without the stand-in marked real, a PATH-stub fake is allowed: the CONTROL.
@@ -145,9 +149,7 @@ test('#7262: tool-guard judges a BARE name by the call\'s PATH through the share
 
 test('#7262: both guards give the same answer for every call shape (the readers cannot drift)', () => {
   const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cmdwords-7262-'));
-  const gh = path.join(stub, 'gh');
-  fs.writeFileSync(gh, '#!/bin/sh\n');
-  fs.chmodSync(gh, 0o755);
+  const gh = writeGh(stub);
   process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = stub;   // the stand-in counts as a real install
   try {
     for (const [shape, runs] of SHAPES) {
@@ -156,7 +158,6 @@ test('#7262: both guards give the same answer for every call shape (the readers 
       const t = fill(shape, gh);
       const sched = typeof s === 'string' ? commandRuns(s) : callRuns(s[0], s[1], s[2]);
       assert.equal(sched, runs, `schtasks guard on ${label}`);
-      if (!TOOL_GUARD_HOST) continue;   // nothing tool-guard does on Windows is measured here (#7318)
       const tool = (typeof t === 'string' ? realToolInScript(t) : refusedCall(t[0], t[1], t[2])) === 'gh';
       assert.equal(tool, runs, `tool guard on ${label}`);
     }
@@ -228,4 +229,125 @@ test('#7320 review 4: the env -S memo tells apart word lists that join to the sa
   assert.equal(callRuns('env', ['-S', 'env -S -u', 'x" "schtasks']), true);
   // CONTROL: the one-argument form alone runs nothing
   assert.equal(callRuns('env', ['-S', '-u', 'x" "schtasks']), false);
+});
+
+test('#7318: tool-guard reads Windows names, paths and PATH lookup on Windows, and only there', () => {
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-7318-'));
+  try {
+    if (!WIN) {
+      // CONTROL: the POSIX reading is unchanged; gh.exe is not gh, and a backslash is not a path separator.
+      assert.equal(refusedCall('/opt/x/gh.exe', []), null);
+      assert.equal(refusedCall('/opt/x/gh', []), 'gh');
+      return;
+    }
+    const bin = path.join(stub, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh.exe'), '');
+    fs.writeFileSync(path.join(bin, 'vercel.cmd'), '@echo off\r\n');
+    fs.writeFileSync(path.join(bin, 'cloudflared.ps1'), '');   // not on PATHEXT: not something PATH lookup runs
+    // Not real yet: a stand-in under the temp dir is a fake (the CONTROL), whichever way it is spelled.
+    assert.equal(refusedCall(path.join(bin, 'gh.exe'), []), null);
+    assert.equal(refusedCall(path.join(bin, 'gh.exe').toUpperCase(), []), null, 'the allowed roots compare case-insensitively');
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = bin;
+    // A path with a backslash or a drive letter, any case, any PATHEXT extension.
+    assert.equal(refusedCall(path.join(bin, 'gh.exe'), ['auth', 'status']), 'gh');
+    assert.equal(refusedCall(path.join(bin, 'GH.EXE'), []), 'gh');
+    assert.equal(refusedCall(path.join(bin, 'vercel.cmd'), ['whoami']), 'vercel');
+    assert.equal(realToolInScript('"' + path.join(bin, 'gh.exe') + '" auth status'), 'gh');
+    // A bare name through PATH plus PATHEXT, with PATH spelled as a copy of process.env spells it (Path).
+    assert.equal(refusedCall('gh', ['x'], { env: { Path: bin, PATHEXT: '.COM;.EXE;.BAT;.CMD' } }), 'gh');
+    assert.equal(refusedCall('vercel', ['x'], { env: { PATH: bin } }), 'vercel', 'PATHEXT defaults when the env has none');
+    assert.equal(realToolInScript('cmd /c "vercel whoami"', undefined, { PATH: bin }), 'vercel');
+    // CONTROL: a name PATH plus PATHEXT does not find, and a tool named only in an argument.
+    assert.equal(refusedCall('cloudflared', [], { env: { PATH: bin } }), null);
+    assert.equal(refusedCall('git', ['commit', '-m', 'fix gh.exe'], { env: { PATH: bin } }), null);
+    assert.equal(refusedCall('gh', ['x'], { env: { PATH: path.join(stub, 'empty') } }), null, 'a name found nowhere runs nothing');
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
+});
+
+test('#7318 review 1: PATH and Path in one env are read as node reads them; no PATH falls back; .exe by path always counts', { skip: !WIN && 'Windows env and PATHEXT rules' }, () => {
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-7318r1-'));
+  try {
+    const realBin = path.join(stub, 'real');
+    const fakeBin = path.join(stub, 'fake');
+    fs.mkdirSync(realBin);
+    fs.mkdirSync(fakeBin);
+    fs.writeFileSync(path.join(realBin, 'gh.exe'), '');
+    fs.writeFileSync(path.join(fakeBin, 'gh.cmd'), '@echo off\r\n');
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = realBin;
+    // node sorts env keys and the child gets the first spelling: PATH before Path
+    assert.equal(refusedCall('gh', [], { env: { Path: realBin, PATH: fakeBin } }), null, 'the fake on PATH is what runs');
+    assert.equal(refusedCall('gh', [], { env: { Path: fakeBin, PATH: realBin } }), 'gh', 'the real gh on PATH is what runs');
+    // an explicit .exe path counts whatever PATHEXT says, and PATHEXT entries are trimmed
+    assert.equal(refusedCall(path.join(realBin, 'gh.exe'), [], { env: { PATH: fakeBin, PATHEXT: '.CMD' } }), 'gh');
+    assert.equal(refusedCall('gh', [], { env: { PATH: realBin, PATHEXT: '.COM; .EXE' } }), 'gh');
+    // an env with no PATH searches the parent's PATH
+    const saved = process.env.PATH;
+    process.env.PATH = realBin;
+    try {
+      assert.equal(refusedCall('gh', [], { env: { FOO: '1' } }), 'gh');
+    } finally {
+      process.env.PATH = saved;
+    }
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
+});
+
+test('#7318 review 2: each Windows lookup (node, cmd, Git Bash) is judged; a URL cwd; cmd\'s %VAR%', { skip: !WIN && 'Windows lookup rules' }, () => {
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-7318r2-'));
+  try {
+    const realBin = path.join(stub, 'real');
+    const fakeCmd = path.join(stub, 'fakecmd');
+    const fakeExe = path.join(stub, 'fakeexe');
+    for (const d of [realBin, fakeCmd, fakeExe]) fs.mkdirSync(d);
+    fs.writeFileSync(path.join(realBin, 'gh.exe'), '');
+    fs.writeFileSync(path.join(fakeCmd, 'gh.cmd'), '@echo off\r\n');
+    fs.writeFileSync(path.join(fakeExe, 'gh.exe'), '');
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = realBin;
+    // node without a shell skips .cmd, so a fake gh.cmd ahead of a real gh.exe hides nothing (node ran the real git
+    // past a fake git.cmd, measured)
+    assert.equal(refusedCall('gh', [], { env: { PATH: fakeCmd + ';' + realBin } }), 'gh');
+    assert.equal(refusedCall('bash', ['-c', 'gh auth status'], { env: { PATH: fakeCmd + ';' + realBin } }), 'gh');
+    // CONTROL: a fake gh.exe first is what every lookup finds, so it is allowed
+    assert.equal(refusedCall('gh', [], { env: { PATH: fakeExe + ';' + realBin } }), null);
+    assert.equal(realToolInScript('gh x', undefined, { PATH: fakeExe + ';' + realBin }), null);
+    // a URL cwd (node accepts one) does not throw
+    assert.equal(refusedCall('gh', [], { cwd: new URL('file:///' + stub.replace(/\\/g, '/') + '/'), env: { PATH: fakeExe } }), null);
+    // cmd expands %VAR% in a shell string
+    assert.equal(realToolInScript('"%GHDIR%\\gh.exe" --version', stub, { GHDIR: realBin, PATH: fakeExe }), 'gh');
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
+});
+
+test('#7318 review 3: PATH undefined falls back; a relative PATH entry is the call\'s; a bad cwd URL does not throw', { skip: !WIN && 'Windows lookup rules' }, () => {
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-7318r3-'));
+  try {
+    const realBin = path.join(stub, 'real');
+    fs.mkdirSync(realBin);
+    fs.writeFileSync(path.join(realBin, 'gh.exe'), '');
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = realBin;
+    const saved = process.env.PATH;
+    process.env.PATH = realBin;
+    try {
+      // node drops PATH: undefined and searches the parent's PATH (measured)
+      assert.equal(refusedCall('gh', [], { env: { PATH: undefined, Path: path.join(stub, 'nothing') } }), 'gh');
+    } finally {
+      process.env.PATH = saved;
+    }
+    // PATH 'real' relative to the call's cwd (node ran rel\bin\probe1.exe for PATH 'bin', measured)
+    assert.equal(refusedCall('gh', [], { cwd: stub, env: { PATH: 'real' } }), 'gh');
+    assert.equal(refusedCall('gh', [], { cwd: path.join(stub, 'real'), env: { PATH: 'nothing' } }), 'gh', 'the cwd itself, as node looks there');
+    // a non-file URL is node's to reject, not a throw in the guard
+    assert.doesNotThrow(() => refusedCall('gh', [], { cwd: new URL('http://example.invalid/'), env: { PATH: path.join(stub, 'nothing') } }));
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
 });
