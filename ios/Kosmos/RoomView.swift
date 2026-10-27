@@ -869,12 +869,14 @@ struct RoomView: View {
     // Words to post: not empty, and not only the @name Reply put there. Files alone count, as their names (kosmos#7093,
     // the board's pjPostSend), once none is still on its way, so a post never leaves one behind.
     private var postWords: String { Board.roomPostWords(draft, files: attachedHere, replyMention: replyMention) }
-    private var canPost: Bool {
-        // Not before the room's first read: with nothing read, an older post with the same words could settle it.
-        // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then post.
-        !dictation.busy && store.rows[project.id] != nil && !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !Board.isOnlyMention(postWords, mention: replyMention) && (attachedHere.isEmpty || uploadingHere == 0)
-            && attachedHere.count <= Board.maxFiles
+    // Not before the room's first read: with nothing read, an older post with the same words could settle it.
+    // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then post. Read from the same
+    // rule that says why (roomPostBlocked), so a Send that cannot post always has a reason to show.
+    private var canPost: Bool { !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && postBlocked == nil }
+    private var postBlocked: String? {
+        Board.roomPostBlocked(words: postWords, mentionOnly: Board.isOnlyMention(postWords, mention: replyMention),
+                              read: store.rows[project.id] != nil, files: attachedHere.count, uploading: uploadingHere,
+                              dictating: dictation.busy, finishing: dictation.finishing)
     }
 
     // MARK: Adding files (kosmos#7093: the board's + on the room's composer, through the chat's upload, #7071)
@@ -1142,10 +1144,7 @@ struct RoomView: View {
     // the box changes.
     private func postOrSayWhy() {
         if canPost { send(); return }
-        let why = Board.roomPostBlocked(words: postWords, mentionOnly: Board.isOnlyMention(postWords, mention: replyMention),
-                                        read: store.rows[project.id] != nil, files: attachedHere.count, uploading: uploadingHere,
-                                        dictating: dictation.busy, finishing: dictation.finishing)
-        if let why { client.attachLine[attachKey] = why; blocked = (draft, why); Self.say(why) }
+        if let why = postBlocked { client.attachLine[attachKey] = why; blocked = (draft, why); Self.say(why) }
     }
 
     // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through
