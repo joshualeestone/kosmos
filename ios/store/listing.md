@@ -165,11 +165,14 @@ computer running Kosmos on that account that we keep online for the whole
 review. On first sign-in the computer is asked to allow the new phone; we
 approve it from our side, so nothing is needed from you beyond signing in.
 
-Signing in: (OPEN, kosmos #7352: the reviewer cannot read the demo account's
-email or its second step, so this line waits on how the review account gets
-its codes to the reviewer.)
+Signing in: enter the demo email and press Continue. The six-digit code
+arrives in the demo inbox (its login is below). For the second step, add the
+setup key below to any authenticator app and enter the code it shows.
 
-Demo account: (Josh to fill in: see kosmos #7352, the review account)
+Demo account, demo inbox password and authenticator setup key: entered in App
+Store Connect's sign-in fields only, never in this file (kosmos #7352 reuses
+the Play review account and review computer from kosmos #4090).
+
 Contact during review: (Josh to fill in)
 
 Face ID: the build carries a Face ID purpose string for a lock that is built
