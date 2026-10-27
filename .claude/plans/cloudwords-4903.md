@@ -29,8 +29,9 @@ board shows exactly what it shows today.
 - The age line naming OpenAI or Grok is hidden on a cloud machine; a cloud-only line says Claude's rule alone
   (`data-cloud-only`). Wording is Mona Lisa's to change.
 - The found list stays hidden (Mona Lisa's table says Hidden), and its disk scan is not run there.
-- Three nearby "this computer" sentences (pane 5's subscription line, a keyed account gone, Kosmos cannot find X
-  running) go through thisMachine.
+- Two nearby "this computer" sentences (a keyed account gone, Kosmos cannot find X running) go through thisMachine.
+  Not taken: pane 5's "Your agents run on your own subscription, on this computer." (pane 5 was outside Mona Lisa's
+  sweep by instruction, and #6521 pins it): a follow-up for her.
 - The Show again list of restart notices stays empty on a cloud machine.
 - Tests: a shown Claude row is asserted present; the browser check's cloud arm is Linux plus cloud.
 

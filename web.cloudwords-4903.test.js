@@ -157,7 +157,6 @@ test('#4903 seam H: the page\'s own "this computer" sentences on the agent, its 
     "const head = " + TC + " + ' restarted ' + down;",
     "account this agent runs on is no longer on ' + " + T + " + ', so it cannot run. '",
     "' running on ' + " + T + " + '.'",
-    'Your agents run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.',
     "'It keeps trying each time your cloud machine starts. If it appears under Agents, you can remove it there.'",
     'where they live on <span data-cloud-copy="thisMachine">this computer</span>',
     '(cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at)',
