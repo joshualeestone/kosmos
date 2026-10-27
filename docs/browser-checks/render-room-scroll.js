@@ -685,7 +685,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         const kb = await look();
         if (!kb.phoneTab || !kb.kbUp || !kb.focusIn) bad('#7272 the arm has the phone tab layout, the keyboard up and focus in the composer', JSON.stringify(kb));
         else if (kb.headShown) bad('#7272 typing with the keyboard up on an SE: the room header steps aside', JSON.stringify(kb));
-        else if (kb.lastBottom <= kb.composerTop && kb.covered.length === 0) ok('#7272 typing with the keyboard up on an SE: the header steps aside and the newest row sits above the composer (' + kb.lastBottom + ' <= ' + kb.composerTop + ')');
+        else if (kb.lastBottom <= kb.composerTop && kb.composerTop - kb.lastBottom < 40 && kb.covered.length === 0) ok('#7272 typing with the keyboard up on an SE: the header steps aside and the newest row sits above the composer (' + kb.lastBottom + ' <= ' + kb.composerTop + ')');
         else bad('#7272 typing with the keyboard up on an SE: the newest row sits above the composer and nothing is under it', JSON.stringify(kb));
         // CONTROL: the header forced back at this size, and the same read must see a control under the composer or the
         // newest row hidden (the card's screen).
@@ -718,6 +718,41 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         await ph.focus('#pj-post');
         await ph.setViewportSize({ width: 375, height: 667 - 336 });
         await ph.waitForTimeout(500);
+        // From the search box to the composer with the keyboard already up (the keyboard stays, so no resize fires): the
+        // header hides, and the thread must take the freed space, not keep the cap it had under the header. A stale cap
+        // shows as the composer floating above the keyboard with a blank band under it (measured: 150px, the composer's
+        // bottom at 366 of 516 visible), since the composer follows the thread; so the composer must end at the visible
+        // bottom, and the newest row must sit just above it. On a 393x852 phone: on the SE the fit under the header is
+        // already at its 96px floor, so a stale fit cannot show there.
+        await ph.evaluate(() => { document.activeElement.blur(); });
+        await ph.setViewportSize({ width: 393, height: 852 });
+        await ph.waitForTimeout(400);
+        await ph.focus('#pj-room-search');
+        await ph.setViewportSize({ width: 393, height: 852 - 336 });
+        await ph.waitForTimeout(500);
+        await ph.focus('#pj-post');
+        await ph.waitForTimeout(400);
+        const hop = await ph.evaluate(async () => {
+          const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer'), h = document.querySelector('#pj-one-view .pjmidhead');
+          room.scrollTop = room.scrollHeight;
+          await new Promise((r) => setTimeout(r, 200));
+          const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
+          const last = rows[rows.length - 1];
+          return { headShown: !!h && h.getBoundingClientRect().height > 0, lastBottom: Math.round(last ? last.getBoundingClientRect().bottom : 0),
+            composerTop: Math.round(comp.getBoundingClientRect().top), composerBottom: Math.round(comp.getBoundingClientRect().bottom),
+            visible: Math.round(window.visualViewport ? window.visualViewport.height : innerHeight), fit: room.style.getPropertyValue('--pj-room-fit'),
+            kbUp: document.documentElement.classList.contains('kosmos-keyboard-up') };
+        });
+        const band = hop.composerTop - hop.lastBottom;   // the newest row's gap above the composer, as in the first arm
+        await ph.evaluate(() => { document.activeElement.blur(); });
+        await ph.setViewportSize({ width: 375, height: 667 });
+        await ph.waitForTimeout(400);
+        await ph.focus('#pj-post');
+        await ph.setViewportSize({ width: 375, height: 667 - 336 });
+        await ph.waitForTimeout(500);
+        if (!hop.kbUp || hop.headShown) bad('#7272 the search-to-composer arm has the keyboard up and the header hidden', JSON.stringify(hop));
+        else if (band >= 0 && band < 40 && Math.abs(hop.visible - hop.composerBottom) <= 4) ok('#7272 on a 393x852 phone, from the search box to the composer with the keyboard up, the thread takes the freed space (gap ' + band + 'px)');
+        else bad('#7272 on a 393x852 phone, from the search box to the composer with the keyboard up, the thread takes the freed space', JSON.stringify({ band, hop }));
         // Focus leaves (a tap on the thread): the header comes back, keyed on the focus alone. Then the keyboard closes, as
         // it does on a phone when the box loses focus, and the thread re-fits under the returned header: the newest row
         // above the composer. (With the header back AND the keyboard up, an SE has no room for a thread at all; that is
