@@ -158,3 +158,12 @@ page cost worse, which makes the window more urgent, not less.
      held set are all unchanged does not repaint while pages are held. Test, mutation-proven.
    - N5: a keystroke paints only from a whole-room body (body.__whole). N6: the let-go measures the floor after the gap
      read's await.
+8. (sonnet, 14:3x CDT, the LAST round under the fleet's 8-round cap) 0 BLOCKERs, 1 WARNING, 3 NITs; the WARNING and
+   NITs 1, 2 applied. The loop stops here, with no BLOCKER open.
+   - (W) the no-repaint and past-cap returns skipped clearing "We cannot read this room right now", so after one failed
+     poll it stayed up on a quiet room: cleared as soon as a paged read works (test, mutation-proven).
+   - NIT 1: window bodies built from __lastBody set __whole: false, so a whole-room flag never leaks into them.
+   - NIT 2: a hidden box counts as off the newest row (nothing let go), and keeps no rows (test, mutation-proven).
+   - NIT 3 left, recorded: past the cap, the reader's own new post shows only once they reach the newest row (it needs
+     1,000 rows to arrive while they are parked).
+   - Browser after: scroll-back (5 pages, reader unmoved), slide (unmoved), search (first paint 247 ms, clear 40 ms).

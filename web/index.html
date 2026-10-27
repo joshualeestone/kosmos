@@ -75606,7 +75606,7 @@ async function pjWinEarlier(byReader) {
   if (byReader) PJ_WIN.byReader = true;   // the reader scrolled back for these: reaching the newest row may let them go
   PJ_WIN.cursor = page.olderCursor || null;
   PJ_WIN.olderCount = Number(page.olderCount) || 0;
-  const body = Object.assign({}, box.__lastBody, { rows: pjWinMerge(PJ_WIN.older, PJ_WIN.newest) });
+  const body = Object.assign({}, box.__lastBody, { rows: pjWinMerge(PJ_WIN.older, PJ_WIN.newest), __whole: false });
   convPause();   // old rows are not news to read aloud (as a Direct conversation's earlier page does)
   const anchor = threadAnchor(box);
   box.__lastBody = body;
@@ -75654,7 +75654,7 @@ function pjWinLetGoOfEarlier() {
   if (wasFull) { loadRoom(); return; }   // polls stopped folding posts in while they read: catch up now
   const box = typeof document !== 'undefined' ? document.getElementById('pj-room') : null;
   if (box && box.__lastBody && Array.isArray(PJ_WIN.newest)) {
-    box.__lastBody = Object.assign({}, box.__lastBody, { rows: PJ_WIN.newest });
+    box.__lastBody = Object.assign({}, box.__lastBody, { rows: PJ_WIN.newest, __whole: false });
     paintRoom(box.__lastBody);
     PJ_WIN.paintedAt = Date.now();
   }
@@ -78103,7 +78103,7 @@ document.getElementById('pj-room-search').addEventListener('input', async () => 
   } else if (wasSearching && !nowSearching) {
     PJ_SEARCH_PENDING = 0;
     if (PJ_WIN.pid === PJ_CURRENT && Array.isArray(PJ_WIN.newest)) {
-      box.__lastBody = Object.assign({}, box.__lastBody, { rows: pjWinMerge(PJ_WIN.older, PJ_WIN.newest) });
+      box.__lastBody = Object.assign({}, box.__lastBody, { rows: pjWinMerge(PJ_WIN.older, PJ_WIN.newest), __whole: false });
     }
     paintRoom(box.__lastBody);
     loadRoom();
@@ -78150,15 +78150,20 @@ async function loadRoom() {
       const win = PJ_WIN.gen;
       body = await pjWinRead(PJ_CURRENT, PJ_WIN_PAGE, null);
       if (mine !== PJ_ROOM_GEN || win !== PJ_WIN.gen) return;
+      /* The read worked: a "could not read" line from an earlier poll goes now, before the returns below that paint
+         nothing (no change, or a reader past the cap), or it would stay up on a quiet room (review 8). */
+      const failMsg = document.getElementById('pj-room-msg');
+      if (failMsg && failMsg.textContent === 'We cannot read this room right now. What is shown may be behind.') failMsg.textContent = '';
       const box0 = document.getElementById('pj-room');
-      const offFloorNow = () => !!box0 && box0.clientHeight > 0 && (box0.scrollHeight - box0.scrollTop - box0.clientHeight) > THREAD_BOTTOM_SLACK;
+      // A hidden box (no height) counts as off the newest row: nothing is let go or folded while the room is not shown.
+      const offFloorNow = () => !!box0 && (box0.clientHeight <= 0 || (box0.scrollHeight - box0.scrollTop - box0.clientHeight) > THREAD_BOTTOM_SLACK);
       const offFloor = offFloorNow();
       /* A reader off the newest row who already holds PJ_WIN_HOLD_MAX rows that new posts pushed in: this poll folds in
          nothing more and paints nothing, so they stay on their message (review 7: a reset threw them to the newest
          rows); reaching the newest row lets go and reads the room at once (pjWinLetGoOfEarlier). */
       if (offFloor && PJ_WIN.arrived >= PJ_WIN_HOLD_MAX) return;
       const grew = Number(body.olderCount) - PJ_WIN.newestOlder;
-      if (!PJ_WIN.older.length && offFloor && Array.isArray(PJ_WIN.newest) && PJ_WIN.newest.length && grew > 0) {
+      if (!PJ_WIN.older.length && offFloor && box0 && box0.clientHeight > 0 && Array.isArray(PJ_WIN.newest) && PJ_WIN.newest.length && grew > 0) {
         /* A reader scrolled up inside the newest page: the rows the new posts push out of it stay, held as if they had
            scrolled back to them, so what they are reading never leaves the screen and the window only grows while they
            read (review 5: a pixel offset slid them one message forward per new post). Held for the reader, so reaching
