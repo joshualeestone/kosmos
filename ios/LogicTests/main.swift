@@ -2367,8 +2367,8 @@ section("native board loop: connecting")
         w4.macsBody = w.macsBody
         w4.sessionAnswer = (403, noKey)
         c4.start()
-        let signAgain = await settle { c4.phase == .signInAgain(mac: "Your cloud machine") }
-        check(signAgain && w4.handoffBodies.count == 1, "review 4: a hosted refusal of a key-less phone says sign in again after one handoff (\(w4.handoffBodies.count) asked, phase \(c4.phase))")
+        let signAgain = await settle { c4.phase == .signInHere(mac: "Your cloud machine") }
+        check(signAgain && w4.handoffBodies.count == 1, "review 5: a hosted refusal of a key-less phone says sign in on this iPhone (not recent) after one handoff (\(w4.handoffBodies.count) asked, phase \(c4.phase))")
         c4.stop()
         // CONTROL: a Mac's same refusal still gets the fresh handoffs it always did.
         let (c7, w7, _, _) = make("kst1")

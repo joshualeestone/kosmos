@@ -41,7 +41,8 @@ enum Board {
     struct GateProof: Equatable { let nonce: String; let key: String; let sig: String }
 
     // Review 3: the gate names the device on the Mac's Allow card from the User-Agent (relay gatev2.rs ua_class), and
-    // only one holding "iPhone" reads as an iPhone; the system's own (CFNetwork, Darwin) reads as "another browser".
+    // one holding "iPhone" (or "iPad") reads as "iPhone or iPad"; the system's own (CFNetwork, Darwin) reads as
+    // "another browser".
     static let gateUserAgent = "Kosmos (iPhone)"
 
     static func nonceRequest(mac: URL) -> URLRequest {
