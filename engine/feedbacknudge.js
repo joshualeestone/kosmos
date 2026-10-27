@@ -15,7 +15,8 @@
  *  - a Project Manager first (its instructions already carry the four questions), then a Project Director (it holds the
  *    picture across projects), else roster order. A card's role is the one its instruction file states ("You are
  *    **X**, a project manager."), so the match ignores case and a leading article;
- *  - an agent whose delivery is held (a menu, a usage limit, signed out, text in its box) passes the ask to the next.
+ *  - an agent whose delivery is held (a menu, a usage limit, signed out, text in its box) or refused passes the ask to
+ *    the next, in the same tick. Quiet hours and the usage cap hold for everyone, so they stop the tick and cost no try.
  * When, all of:
  *  - sending is on and its setting reads (feedbacksend.read: on and ok). Switched off, or unreadable, nobody is asked, so
  *    an install that said no is never spent a turn on a report it will not send;
@@ -25,7 +26,8 @@
  *    (no_source): an install nobody used today is not billed a turn to describe nothing. Accepted cost: an install
  *    with an Antigravity or Muse agent is asked every evening, used or not, since Kosmos cannot see their work.
  * How often: once a day, kept on disk (askedFile), so a restart or an update does not ask again. A delivery that reached
- * nothing is retried on later ticks, up to MAX_TRIES (that count is in memory, so a restart allows three more).
+ * nothing is retried on later ticks, up to MAX_TRIES ticks in which every candidate refused (that count is in memory,
+ * so a restart allows three more).
  *
  * What it costs the person: one turn of the asked agent, on their own AI account; the line says so. What leaves the
  * machine is unchanged: only the report itself, scrubbed, sent by feedbacksend.js as before. This adds no ping.
@@ -43,28 +45,33 @@ const NUDGE_HOUR = 17;
 /* The role keys asked first, in order (engine/roles.js). */
 const FIRST_ROLES = ['pm', 'director'];
 
-/* The day last asked: { date: 'YYYY-MM-DD', session }. Under the data root, so a sandboxed test never reads the live one.
-   Unreadable or absent reads as never asked, so an ask is then possible again, never refused. */
+/* The record: { date: the day last asked, session: who, workedOn: the last day an agent was seen working }. Under the
+   data root, so a sandboxed test never reads the live one. Unreadable or absent reads as never asked and never seen, so
+   an ask is then possible again, never refused. `workedOn` is kept because the board's own record of who worked lives in
+   memory (status.lastWorkedOf), so an afternoon restart (every update) would otherwise forget a full day's work (review 2). */
 function askedFile() { return path.join(require('./store').ROOT, 'feedbacknudge.json'); }
 function fileAsked() {
   const file = askedFile();
+  const read = () => { try { const v = JSON.parse(fs.readFileSync(file, 'utf8')); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } };
+  /* Returns false when the write failed: the caller logs an ask's failure, since that record is what stops a repeat
+     after a restart. */
+  const write = (patch) => {
+    const tmp = file + '.' + process.pid + '.tmp';
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(tmp, JSON.stringify({ ...read(), ...patch }) + '\n', { mode: 0o600 });
+      fs.renameSync(tmp, file);
+      return true;
+    } catch {
+      try { fs.unlinkSync(tmp); } catch { /* none was left */ }
+      return false;   // the in-memory book still stops a repeat this run
+    }
+  };
   return {
-    get: () => {
-      try { const v = JSON.parse(fs.readFileSync(file, 'utf8')); return v && typeof v.date === 'string' ? v.date : null; } catch { return null; }
-    },
-    /* Returns false when the write failed: the caller logs it, since this record is what stops a repeat after a restart. */
-    set: (date, session) => {
-      const tmp = file + '.' + process.pid + '.tmp';
-      try {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(tmp, JSON.stringify({ date, session }) + '\n', { mode: 0o600 });
-        fs.renameSync(tmp, file);
-        return true;
-      } catch {
-        try { fs.unlinkSync(tmp); } catch { /* none was left */ }
-        return false;   // the in-memory book still stops a repeat this run
-      }
-    },
+    get: () => { const v = read(); return typeof v.date === 'string' ? v.date : null; },
+    set: (date, session) => write({ date, session }),
+    workedOn: () => { const v = read(); return typeof v.workedOn === 'string' ? v.workedOn : null; },
+    markWorked: (date) => write({ workedOn: date }),
   };
 }
 
@@ -114,7 +121,8 @@ function workedToday(roster, today, dateKey) {
   });
 }
 
-function guideDefault(session) { return require('./setup-assistant').isGuideFolder(session); }
+/* Fails closed (review 2): a guide check that cannot tell throws, and candidates() leaves that card out. */
+function guideDefault(session) { return require('./setup-assistant').isGuideFolderStrict(session); }
 /* The cards that may be asked, in the order to ask them: idle cards of ours, not the guide, the first roles first, then
    roster order (the sort is stable). Empty when none. */
 function candidates(roster, labels, isGuide = guideDefault) {
@@ -126,7 +134,8 @@ function candidates(roster, labels, isGuide = guideDefault) {
 }
 
 /*
- * The day's decision. o = { roster, send ({ on, ok }), today, hour, hasReport, askedDate, entry, labels, dateKey, isGuide }.
+ * The day's decision. o = { roster, send ({ on, ok }), today, hour, hasReport, askedDate, entry, labels, dateKey, isGuide,
+ * workedOn (the day the record last saw an agent working) }.
  * Returns { act: 'none' | 'nudge', because, cards? } (cards: who to ask, in order).
  */
 function plan(o) {
@@ -138,7 +147,7 @@ function plan(o) {
   }
   if (o.hasReport) return { act: 'none', because: 'today already has a report' };
   if (!(o.hour >= NUDGE_HOUR)) return { act: 'none', because: 'before ' + NUDGE_HOUR + ':00' };
-  if (!workedToday(o.roster, o.today, o.dateKey)) return { act: 'none', because: 'no agent worked today' };
+  if (o.workedOn !== o.today && !workedToday(o.roster, o.today, o.dateKey)) return { act: 'none', because: 'no agent worked today' };
   const cards = candidates(o.roster, o.labels, o.isGuide);
   if (!cards.length) return { act: 'none', because: 'no idle agent to ask' };
   return { act: 'nudge', cards, because: 'today has no report' };
@@ -165,42 +174,71 @@ function sweepOnce(o) {
     let askedDate = null;
     try { askedDate = asked.get(); } catch { askedDate = null; }
     const entry = book.get('day');
+    /* Seen working today: kept on disk on every tick that sees it, from the morning on, so a restart later in the day
+       does not forget it (review 2). Only written when it changes. */
+    let workedOn = null;
+    try { workedOn = typeof asked.workedOn === 'function' ? asked.workedOn() : null; } catch { workedOn = null; }
+    if (workedOn !== today && workedToday(o.roster, today, dateKey)) {
+      workedOn = today;
+      try { if (typeof asked.markWorked === 'function') asked.markWorked(today); } catch { /* the roster still says so this tick */ }
+    }
     const p = plan({
-      roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey,
+      roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey, workedOn,
       labels: Array.isArray(o.labels) ? o.labels : firstLabels(), isGuide: typeof o.isGuide === 'function' ? o.isGuide : undefined,
     });
     if (p.act !== 'nudge') return { result: { act: 'none', because: p.because } };
-    /* Held (deliverAutomatic's holds: a menu, a usage limit, a signed-out account, text in its box): nothing typed and
-       no try spent, and the next candidate is asked; when every one is held, a later tick asks again. */
-    const heldOnes = [];
-    let session = null;
-    let name = null;
-    let state = null;
-    for (const card of p.cards) {
-      session = card.sessionName;
-      name = card.name || session;
-      let held = false;
-      let heldBy = null;
-      state = null;
-      try { const r = o.deliver(session, nudgeText(), o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = (r && r.heldBy) || null; }
-      catch (err) { state = 'threw: ' + String((err && err.message) || err); }
-      if (!held) break;
-      heldOnes.push(name + (heldBy ? ' (' + heldBy + ')' : ''));
-      session = null;
-    }
-    if (session === null) return { result: { act: 'held', delivery: state, because: p.because + '; every agent that could be asked is held: ' + heldOnes.join(', ') } };
+    /* Each candidate in turn, in one tick:
+       - held (deliverAutomatic's holds: a menu, a usage limit, a signed-out account, text in its box): nothing typed, the
+         next is asked;
+       - quiet hours or the usage cap (chat's `quiet` / `capped`): nothing typed, and it holds for every agent, so the tick
+         stops and no try is spent; a later tick asks again;
+       - refused (COULD_NOT, or a throw): nothing typed, the next is asked (review 2: one agent's refusal must not lose the
+         day for the others);
+       - placed or unconfirmed: asked, and the day is done.
+       A try is spent only when every candidate refused, and then one try for the tick, not one per candidate. */
     const D = o.DELIVERY || {};
-    const delivered = D.PLACED != null && state === D.PLACED;
-    const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
-    const tries = ((entry && entry.date === today && Number.isInteger(entry.tries)) ? entry.tries : 0) + 1;
-    book.set('day', { date: today, nudgedAt: mayHaveReached ? now.getTime() : null, tries });
+    const heldOnes = [];
+    const refused = [];
+    let reached = null;
+    let paused = null;
+    for (const card of p.cards) {
+      const session = card.sessionName;
+      const name = card.name || session;
+      let r = null;
+      let state = null;
+      try { r = o.deliver(session, nudgeText(), o.roster); state = r && r.state; }
+      catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+      if (r && (r.quiet === true || r.capped === true)) { paused = (r.quiet === true ? 'quiet hours' : 'the usage cap') + (r.because ? ': ' + r.because : ''); break; }
+      if (r && r.held === true) { heldOnes.push(name + (r.heldBy ? ' (' + r.heldBy + ')' : '')); continue; }
+      const delivered = D.PLACED != null && state === D.PLACED;
+      if (delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED)) { reached = { session, name, delivered, delivery: state }; break; }
+      refused.push(name + ' (' + (state || 'no answer') + ')');
+    }
+    /* Nothing typed and no try spent. Said once a day, so a person asking why no report came finds the reason. */
+    if (!reached && (paused || !refused.length)) {
+      const because = p.because + '; ' + (paused ? 'not asked during ' + paused : 'every agent that could be asked is held: ' + heldOnes.join(', '));
+      if (!entry || entry.date !== today || !entry.holdSaid) {
+        book.set('day', { ...(entry && entry.date === today ? entry : { date: today, nudgedAt: null, tries: 0 }), holdSaid: true });
+        say({ name: '-', session: '-', act: 'held', delivery: null, because });
+      }
+      return { result: { act: 'held', because } };
+    }
+    const mayHaveReached = Boolean(reached);
+    const session = reached ? reached.session : null;
+    const name = reached ? reached.name : null;
+    const delivered = reached ? reached.delivered : false;
+    const state = reached ? reached.delivery : refused.join(', ');
+    const prior = entry && entry.date === today ? entry : null;
+    const tries = (prior && Number.isInteger(prior.tries) ? prior.tries : 0) + (mayHaveReached ? 0 : 1);
+    book.set('day', { date: today, nudgedAt: mayHaveReached ? now.getTime() : null, tries, holdSaid: Boolean(prior && prior.holdSaid) });
     if (mayHaveReached) {
       let kept = false;
       try { kept = asked.set(today, session) !== false; } catch { kept = false; }
       if (!kept) say({ name, session, act: 'record', delivered, delivery: state, because: 'asked, but the record of it could not be written, so a board restart may ask again today' });
     }
-    const because = (!mayHaveReached && tries >= MAX_TRIES) ? p.because + '; nothing reached the pane in ' + tries + ' tries, so today is left alone' : p.because;
-    const result = { act: 'nudge', session, name, delivered, delivery: state, because };
+    const because = mayHaveReached ? p.because
+      : p.because + '; every agent that could be asked refused it: ' + state + (tries >= MAX_TRIES ? '; nothing reached a pane in ' + tries + ' tries, so today is left alone' : '');
+    const result = { act: 'nudge', session: session || '-', name: name || '-', delivered, delivery: mayHaveReached ? state : 'could_not', because };
     if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say(result);
     return { result };
   } catch { return null; }

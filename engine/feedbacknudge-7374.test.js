@@ -47,10 +47,11 @@ const noGuide = () => false;
 /* The roster comes back in the board's order, not the order given, so a card is found by its name. */
 const by = (cards, name) => cards.find((c) => c.sessionName.startsWith(name)).sessionName;
 /* An asked-record that lives in memory, so tests do not share the sandbox file unless they mean to. */
-function memAsked(start = null) {
+function memAsked(start = null, worked = null) {
   let d = start;
+  let w = worked;
   const sets = [];
-  return { get: () => d, set: (date, session) => { d = date; sets.push([date, session]); return true; }, sets };
+  return { get: () => d, set: (date, session) => { d = date; sets.push([date, session]); return true; }, sets, workedOn: () => w, markWorked: (date) => { w = date; return true; } };
 }
 function run(cards, extra = {}) {
   const sent = [];
@@ -141,7 +142,7 @@ test('the record on disk is written and read back through the real file', () => 
   const real = { get: undefined };   // not a reader: sweepOnce falls back to the file
   assert.equal(run(cards, { asked: real }).sent.length, 1);
   const saved = JSON.parse(fs.readFileSync(nudge.askedFile(), 'utf8'));
-  assert.deepEqual(saved, { date: TODAY, session: cards[0].sessionName });
+  assert.deepEqual(saved, { workedOn: TODAY, date: TODAY, session: cards[0].sessionName });
   assert.equal(run(cards, { asked: real }).sent.length, 0, 'asked again from the file');
 });
 
@@ -153,7 +154,7 @@ test('a delivery that reached nothing is retried up to MAX_TRIES; a hold spends 
   const held = () => { calls++; return { state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu' }; };
   for (let i = 0; i < 5; i++) run(cards, { book, asked, deliver: held });
   assert.equal(calls, 5, 'a hold is tried again each tick');
-  assert.equal(book.get('day'), undefined, 'a hold spent no try');
+  assert.equal(book.get('day').tries, 0, 'a hold spent no try');
   const fail = () => { calls++; return { state: DELIVERY.COULD_NOT }; };
   calls = 0;
   for (let i = 0; i < 5; i++) run(cards, { book, asked, deliver: fail });
@@ -204,4 +205,60 @@ test('the setup guide is never the agent asked', () => {
   assert.equal(run(only, { isGuide: () => true }).sent.length, 0);
   // A guide check that throws leaves that card out, rather than ask a guide.
   assert.equal(run(only, { isGuide: () => { throw new Error('x'); } }).sent.length, 0);
+});
+
+test('one agent refusing does not lose the day: the next is asked, and one try is spent only when all refuse', () => {
+  const cards = roster([['pia', { displayName: 'Pia', role: templateRole('pm') }], ['bo']]).map((c) => worked(c));
+  const tried = [];
+  const book = new Map();
+  const asked = memAsked();
+  const pmRefuses = (s) => { tried.push(s); return s === by(cards, 'pia') ? { state: DELIVERY.COULD_NOT } : { state: DELIVERY.PLACED }; };
+  const { out } = run(cards, { deliver: pmRefuses, book, asked });
+  assert.deepEqual(tried, [by(cards, 'pia'), by(cards, 'bo')]);
+  assert.equal(out.result.session, by(cards, 'bo'));
+  assert.equal(book.get('day').tries, 0);
+  // All refuse: one try for the tick, not one per candidate.
+  const book2 = new Map();
+  let calls = 0;
+  run(cards, { deliver: () => { calls++; return { state: DELIVERY.COULD_NOT }; }, book: book2, asked: memAsked() });
+  assert.equal(calls, 2);
+  assert.equal(book2.get('day').tries, 1);
+  // One held, the next refuses: still exactly one try.
+  const book3 = new Map();
+  run(cards, { deliver: (s) => (s === by(cards, 'pia') ? { state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu' } : { state: DELIVERY.COULD_NOT }), book: book3, asked: memAsked() });
+  assert.equal(book3.get('day').tries, 1);
+});
+
+test('quiet hours and the usage cap spend no try and stop the tick', () => {
+  const cards = roster([['abe'], ['bo']]).map((c) => worked(c));
+  for (const flag of ['quiet', 'capped']) {
+    const book = new Map();
+    let calls = 0;
+    for (let i = 0; i < 5; i++) run(cards, { book, asked: memAsked(), deliver: () => { calls++; return { state: DELIVERY.COULD_NOT, [flag]: true }; } });
+    assert.equal(calls, 5, flag + ': one call a tick, the tick stops at the first');
+    assert.equal(book.get('day').tries, 0, flag + ' spent a try');
+    // Control: once it lifts, the same day is asked.
+    assert.equal(run(cards, { book, asked: memAsked() }).sent.length, 1);
+  }
+});
+
+test('an unconfirmed delivery counts as asked and is recorded, so it is never asked twice', () => {
+  const cards = roster([['mara']]).map((c) => worked(c));
+  const asked = memAsked();
+  const book = new Map();
+  const r = run(cards, { asked, book, deliver: () => ({ state: DELIVERY.UNCONFIRMED }) });
+  assert.equal(r.out.result.delivered, false);
+  assert.deepEqual(asked.sets, [[TODAY, cards[0].sessionName]]);
+  assert.equal(run(cards, { asked, book: new Map() }).sent.length, 0);
+});
+
+test('work seen in the morning survives a restart that forgets it', () => {
+  const asked = memAsked();
+  const morning = roster([['mara']]).map((c) => worked(c));
+  run(morning, { asked, now: new Date(2026, 9, 27, 10, 0, 0) });   // before NUDGE_HOUR: nobody asked, the work is kept
+  assert.equal(asked.workedOn(), TODAY);
+  const afterRestart = roster([['mara']]).map((c) => ({ ...c, lastWorked: { at: null, why: 'not_seen' } }));
+  assert.equal(run(afterRestart, { asked }).sent.length, 1);
+  // Control: with no record of the morning, the same roster is not asked.
+  assert.equal(run(afterRestart, { asked: memAsked() }).sent.length, 0);
 });
