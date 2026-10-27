@@ -1341,8 +1341,19 @@ final class BoardClient: ObservableObject {
         var fresh = 0
         var misses = 0
         var resigned = 0
+        let key = env.deviceKey()   // read once per connect, not on every 3 s Allow poll
         while !Task.isCancelled && gen == generation {
-            let proof = await gateProof(url: url, token: token)
+            var proof: Board.GateProof? = nil
+            switch await gateProof(url: url, token: token, key: key) {
+            case .proof(let p): proof = p
+            case .unproven: break
+            case .miss:
+                // kosmos#7337: the gate page's miss (no nonce now): counted as a session that got no answer, and no post.
+                guard gen == generation else { return false }
+                misses += 1
+                if misses < 3 { await env.sleep(3); continue }
+                set(.unreachable(mac: mac.name), gen); return false
+            }
             guard gen == generation else { return false }
             let result = await env.send(Board.sessionRequest(mac: url, handoffToken: token, proof: proof))
             let status = result?.1.statusCode ?? 0
@@ -1354,8 +1365,11 @@ final class BoardClient: ObservableObject {
                 if misses < 3 { await env.sleep(3); continue }
                 set(.unreachable(mac: mac.name), gen); return false
             }
-            misses = 0
-            switch Board.classifySession(status: status, body: result?.0, waiting: waiting) {
+            let answer = Board.classifySession(status: status, body: result?.0, waiting: waiting)
+            // A busy gate and a run of re-signs are misses of their own; any other answer means the gate is answering.
+            if answer != .busy && answer != .resign { misses = 0 }
+            if answer != .resign { resigned = 0 }
+            switch answer {
             case .admitted:
                 return true
             case .pending(let code):
@@ -1365,11 +1379,20 @@ final class BoardClient: ObservableObject {
                 await env.sleep(3)
             case .retry:
                 await env.sleep(3)
+            case .busy:
+                misses += 1
+                if misses >= 3 { set(.unreachable(mac: mac.name), gen); return false }
+                await env.sleep(3)
             case .resign:
-                // kosmos#7337: a spent nonce, or a hosted box that has just allowed this key: sign again at once, a few
-                // times (as gate.html), then as a slow answer.
+                // kosmos#7337: a spent nonce, or a hosted box that has just allowed this key: sign again with a new nonce
+                // shortly, five times in a row at most (as gate.html), then counted as a miss, so a gate that never stops
+                // answering it ends at "not answering" rather than "Connecting" for ever.
                 resigned += 1
-                if resigned > 5 { resigned = 0; await env.sleep(3) }
+                if resigned <= 5 { await env.sleep(0.3); continue }
+                resigned = 0
+                misses += 1
+                if misses >= 3 { set(.unreachable(mac: mac.name), gen); return false }
+                await env.sleep(3)
             case .denied:
                 set(.denied(mac: mac.name), gen); return false
             case .refused:
@@ -1392,14 +1415,18 @@ final class BoardClient: ObservableObject {
         return false
     }
 
-    // kosmos#7337: the proof for one session request, or nil to send it as before: no key, or a computer whose gate
-    // issues no nonce (an older tunnel answers 404). A nonce that does not come is the next try's to ask for again.
-    private func gateProof(url: URL, token: String) async -> Board.GateProof? {
-        guard let key = env.deviceKey(), let host = url.host else { return nil }
-        guard let (data, answer) = await env.send(Board.nonceRequest(mac: url)), (200...299).contains(answer.statusCode)
-        else { return nil }
-        guard let nonce = Board.parseNonce(data) else { return nil }
-        return Board.gateProof(host: host, nonce: nonce, token: token, key: key)
+    // kosmos#7337: what one session request carries. `unproven` sends the token alone, as before: no key, a key that
+    // cannot sign, or a gate that has no nonce route (an older tunnel: a 404, or a 200 page that is not a nonce).
+    // `miss` is the gate page's miss: no answer, or a gate that would not give a nonce now (busy, full, starting).
+    enum ProofOutcome { case proof(Board.GateProof), unproven, miss }
+
+    private func gateProof(url: URL, token: String, key: SignIn.DeviceKey?) async -> ProofOutcome {
+        guard let key, let host = url.host else { return .unproven }
+        guard let (data, answer) = await env.send(Board.nonceRequest(mac: url)) else { return .miss }
+        if answer.statusCode == 404 { return .unproven }
+        guard (200...299).contains(answer.statusCode) else { return .miss }
+        guard let nonce = Board.parseNonce(data) else { return .unproven }
+        return Board.gateProof(host: host, nonce: nonce, token: token, key: key).map { .proof($0) } ?? .unproven
     }
 
     // #7034: the person's stars on this Mac, or nil when they cannot be read.

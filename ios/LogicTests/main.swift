@@ -1761,6 +1761,9 @@ final class FakeBoardWorld {
     // bodies posted; answers taken before sessionAnswer; and this iPhone's device key (nil: none).
     var issuesNonces = false
     var noncesIssued = 0
+    // The nonce route's other answers: none at all, or this status (nil: as issuesNonces says).
+    var nonceNoAnswer = false
+    var nonceStatus: Int? = nil
     var sessionBodies: [[String: Any]] = []
     var sessionQueue: [(Int, String)] = []
     var deviceKey: SignIn.DeviceKey? = nil
@@ -1867,6 +1870,8 @@ final class FakeBoardWorld {
             handoffBodies.append(r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
             return answer(handoffAnswer.0, handoffAnswer.1)
         case "/_kosmos/nonce":
+            if nonceNoAnswer { return nil }
+            if let code = nonceStatus { return answer(code, #"{"retry":true}"#) }
             guard issuesNonces else { return answer(404, "{}") }
             noncesIssued += 1
             return answer(200, #"{"nonce":"n\#(noncesIssued)"}"#)
@@ -2248,6 +2253,30 @@ section("native board loop: connecting")
         let in3 = await settle { isLive(c3) }
         check(in3 && w3.count("/_kosmos/nonce") == 0 && w3.sessionBodies.first?.keys.sorted() == ["token"], "CONTROL: with no key, the token alone and no nonce asked")
         c3.stop()
+        // Review 1: a nonce that gets no answer, or a 503, is a miss: no session post, and three end at not answering.
+        for (label, configure) in [("no answer", { (w: FakeBoardWorld) in w.nonceNoAnswer = true }),
+                                   ("a 503", { (w: FakeBoardWorld) in w.nonceStatus = 503 })] {
+            let (cm, wm, _, _) = make("kst1")
+            wm.deviceKey = .software(k)
+            configure(wm)
+            cm.start()
+            let gone = await settle { cm.phase == .unreachable(mac: "Studio") }
+            check(gone && wm.count("/_kosmos/session") == 0, "a nonce with \(label) is a miss: no session sent, and it says not answering (phase \(cm.phase))")
+            cm.stop()
+        }
+        // Review 1: a gate that answers 409 retry for ever, or 503 busy for ever, ends at not answering, not Connecting.
+        for (label, code, body) in [("409 retry", 409, #"{"retry":true}"#), ("503 busy", 503, #"{"retry":true}"#)] {
+            let (cl, wl, _, _) = make("kst1")
+            wl.deviceKey = .software(k)
+            wl.issuesNonces = true
+            wl.sessionAnswer = (code, body)
+            cl.start()
+            let stopped = await settle { cl.phase == .unreachable(mac: "Studio") }
+            check(stopped, "a gate answering \(label) for ever ends at not answering (phase \(cl.phase))")
+            cl.stop()
+        }
+        check(Board.classifySession(status: 409, body: Data(#"{"because":"no"}"#.utf8), waiting: false) == .refused(because: "no"),
+              "CONTROL: a 409 without retry is still a refusal")
         // An older tunnel with no nonce route (404): the token alone, still let in.
         let (c4, w4, _, _) = make("kst1")
         w4.deviceKey = .software(k)
