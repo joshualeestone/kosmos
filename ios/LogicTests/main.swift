@@ -4007,14 +4007,16 @@ do {
         check(Board.pill(a("unknown")) == .cantTell && Board.pill(a("something_new")) == .cantTell, "unknown and unrecognised states are grey")
         // kosmos#7354: the red count on each avatar is the Mac's waiting total (engine/status.js waitingTotal), agent by agent.
         do {
-            let rows = Board.parseAgents(Data(#"{"agents":[{"sessionName":"a","state":"needs_you","dmUnread":2},{"sessionName":"b","state":"idle","dmUnread":3},{"sessionName":"g","state":"idle","dmUnread":4,"isGuide":true},{"sessionName":"c","state":"working","dmUnread":null},{"sessionName":"d","state":"idle"}]}"#.utf8)) ?? []
-            check(rows.map(\.dmUnread) == [2, 3, 4, 0, 0] && rows.map(\.isGuide) == [false, false, true, false, false],
+            let rows = Board.parseAgents(Data(#"{"agents":[{"sessionName":"a","state":"needs_you","dmUnread":2},{"sessionName":"b","state":"idle","dmUnread":3},{"sessionName":"g","state":"needs_you","dmUnread":4,"isGuide":true},{"sessionName":"c","state":"working","dmUnread":null},{"sessionName":"d","state":"idle"},{"sessionName":"e","state":"working","deliveryStall":{"since":"2026-10-27T10:00:00Z"}},{"sessionName":"f","state":"idle","deliveryStall":null}]}"#.utf8)) ?? []
+            check(rows.map(\.dmUnread) == [2, 3, 4, 0, 0, 0, 0] && rows.map(\.isGuide) == [false, false, true, false, false, false, false],
                   "kosmos#7354: dmUnread and isGuide are read; a null or missing count is 0")
-            check(rows.map(Board.noticeCount) == [3, 3, 0, 0, 0], "needs you counts one, plus unread replies; the guide's replies are not counted")
-            // The Mac's own sum over the same rows, less the rooms' unread: needsYou (agents needing the person) + dmUnread
-            // of agents that are not the guide.
-            let macSum = rows.filter(\.needsYou).count + rows.filter { !$0.isGuide }.reduce(0) { $0 + $1.dmUnread }
-            check(rows.map(Board.noticeCount).reduce(0, +) == macSum, "the rows add up to the Mac's total for agents")
+            // Expected values written out from the Mac's rules (engine/status.js needsPerson and waitingTotal, server.js
+            // countAgents over non-guide rows), not from the phone's own needsYou: a needs_you agent counts 1, each unread
+            // reply 1, a stalled delivery 1, the guide nothing, a null stall nothing.
+            check(rows.map(Board.noticeCount) == [3, 3, 0, 0, 0, 1, 0], "review: each avatar's count is its share of the Mac's total (\(rows.map(Board.noticeCount)))")
+            check(rows.map(Board.noticeCount).reduce(0, +) == 7, "the rows add up to the Mac's total for agents: 7")
+            check(Board.jsTruthy(["since": "x"]) && !Board.jsTruthy(NSNull()) && !Board.jsTruthy(nil) && !Board.jsTruthy(false) && !Board.jsTruthy(0) && !Board.jsTruthy(""),
+                  "a field reads as the Mac's Boolean() reads it")
             check(Board.noticeCount(Board.Agent(session: "x", name: "x", role: nil, state: "idle", task: nil, needsYou: false)) == 0,
                   "CONTROL: an agent with nothing waiting shows no count")
             check(Board.noticeWords(3) == "3 waiting" && Board.noticeWords(0) == nil, "VoiceOver hears the count, never a zero")
