@@ -9,9 +9,11 @@
  * directions, in Chromium AND WebKit (the Mac app is a WKWebView, whose default Tab skips buttons, so
  * a trap that acts only at the ends leaks between them there and not in Chromium). On three pages (the
  * board's Agents tab, an agent's own page, Settings > AI Models), for five openers (openAcctAdd, openAcctReauth,
- * openAcctReauthOpenai, openAcctReauthGrok, and kosmos#7198's Refresh login on a login notice, loginAdvGo, for an
- * account the page lists; the trap keys on the dialog being open, so the others, Gemini's and Meta's Sign in again
- * and the Model tab's Connect an API key, share it). Per arm:
+ * openAcctReauthOpenai, openAcctReauthGrok, and loginAdvGo, the path kosmos#7198's Refresh login takes into the
+ * dialog: on Settings, where the page has read its list, for a row it lists. It ends in openAcctReauth, so its walk
+ * repeats the Claude dialog; what it adds is that loginAdvGo opens the dialog and hands focus back to the control
+ * passed as its opener. The notice's own button is render-refreshlogin-5407's (D4). The trap keys on the dialog being
+ * open, so the others, Gemini's and Meta's Sign in again and the Model tab's Connect an API key, share it). Per arm:
  *   - before opening, focus is on a page control outside the dialog (asserted, so the arm cannot pass
  *     with focus already inside);
  *   - one Tab goes INTO the dialog (Sign in again for OpenAI opens without moving focus);
@@ -95,16 +97,18 @@ const focusNow = (p) => p.evaluate(() => {
   return { at: window.__stops7202().indexOf(a), name: String((a && (a.id || a.className || a.tagName)) || '').slice(0, 50) };
 });
 
-const OPENERS = ['Add a provider', 'Sign in again (Claude)', 'Sign in again (OpenAI)', 'Sign in again (Grok)', 'Refresh login on a login notice'];
-const REFRESH_LOGIN = OPENERS.length - 1;
-/* kosmos#7284: the login notice's Refresh login (loginAdvGo, kosmos#7198) opens the dialog only for an account the page
-   lists, so the page is handed one listed row through its own accountsRead, as render-refreshlogin-5407 does, and the
-   control that had focus is passed as the opener, as the notice's button passes itself. */
+const OPENERS = ['Add a provider', 'Sign in again (Claude)', 'Sign in again (OpenAI)', 'Sign in again (Grok)', 'Refresh login (loginAdvGo)'];
+const REFRESH_LOGIN = OPENERS.indexOf('Refresh login (loginAdvGo)');
+/* kosmos#7284: loginAdvGo (kosmos#7198's Refresh login) opens the dialog only for a row the page lists once it has read
+   its list (Settings), so the page is handed one listed row through its own accountsRead, as render-refreshlogin-5407
+   does, and the control that had focus is passed as the opener. The page's own account state is saved first and put
+   back after the arm (restoreAccounts7284), so no later arm or opener inherits the row. */
 const open = (p, i) => p.evaluate((n) => [() => openAcctAdd(),
   () => openAcctReauth('/nonexistent/acct-7202', 'someone@example.com'),
   () => openAcctReauthOpenai('/nonexistent/acct-7202', 'someone@example.com'),
   () => openAcctReauthGrok('/nonexistent/acct-7202', 'someone@example.com'),
   () => {
+    window.__acct7284 = { a: ACCOUNTS, l: ACCOUNTS_LOADED, u: typeof ACCOUNTS_UNREADABLE !== 'undefined' ? ACCOUNTS_UNREADABLE : undefined };
     accountsRead([{ provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'someone@example.com', label: 'someone@example.com',
       dir: '/nonexistent/acct-7284', organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
       connection: { state: 'connected', badge: 'working', observedFrom: 'login', checkedLive: true, plan: null, loginExpiresInDays: 2 } }]);
@@ -207,9 +211,11 @@ async function walk(p) {
             await p.waitForTimeout(300);
             say(await p.isHidden('#acct-add-modal'), tag + ': Escape closes the dialog');
             if (i === REFRESH_LOGIN) {
-              // The notice's button is handed back focus when the dialog closes (ACCT_ADD_RETURN_FOCUS, kosmos#7198).
-              const back = await p.evaluate(() => !!window.__opener7284 && document.activeElement === window.__opener7284);
-              say(back, tag + ': closing the dialog gives focus back to the control that opened it');
+              // loginAdvGo records the control passed as its opener (ACCT_ADD_RETURN_FOCUS, kosmos#7198) and closing hands
+              // focus back to it. Not Add a provider's own button: that is where closing falls back to.
+              const back = await p.evaluate(() => !!window.__opener7284 && window.__opener7284.id !== 'acct-add-open' && document.activeElement === window.__opener7284);
+              say(back, tag + ': closing the dialog gives focus back to the control passed to loginAdvGo as its opener');
+              await p.evaluate(() => { const s = window.__acct7284; if (!s) return; ACCOUNTS = s.a; ACCOUNTS_LOADED = s.l; if (s.u !== undefined) ACCOUNTS_UNREADABLE = s.u; window.__acct7284 = null; });
             }
           }
         }
