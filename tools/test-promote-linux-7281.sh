@@ -79,8 +79,11 @@ chk "prod's current Linux manifest unreadable refuses (cannot tell)" [ "$(prep "
 # check itself is never reached.
 S="$(newsite list 1.4.0)"; O="$T/origin-list.git"; git init -q --bare "$O"
 git -C "$S" init -q -b main; git -C "$S" config user.email t@t; git -C "$S" config user.name t
-printf '{"keys":[]}\n' > "$S/dist/release-keys.json"; printf 'list-sig\n' > "$S/dist/release-keys.json.sig"
+printf '{"keys":[]}\n' > "$S/dist/release-keys.json"; printf 'stale-old-list\n' > "$S/dist/release-keys.json.sig"
 git -C "$S" add dist/release-keys.json dist/release-keys.json.sig; git -C "$S" commit -q -m keys; git -C "$S" remote add origin "$O"; git -C "$S" push -q origin main
+# Review 3: the served list moves on from ANOTHER clone, so this checkout's origin/main is stale until it fetches.
+CL="$T/clone-list"; git clone -q "$O" "$CL"; git -C "$CL" config user.email t@t; git -C "$CL" config user.name t
+printf 'list-sig\n' > "$CL/dist/release-keys.json.sig"; git -C "$CL" commit -qam "served list"; git -C "$CL" push -q origin main
 # Review 3: the working tree's copy now disagrees with origin, so only a read of origin/main after the fetch can pass.
 printf 'working-tree-not-served\n' > "$S/dist/release-keys.json.sig"
 chk "CONTROL: key-list check ON, a good signature passes (the check ran and agreed)" [ "$(STUB_NEEDS_LIST=0 prep "$S" 1.4.0)" = "rc=0 linux=yes" ]
