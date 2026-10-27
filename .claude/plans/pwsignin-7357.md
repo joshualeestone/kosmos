@@ -17,7 +17,7 @@ day) nobody sees anything new.
 2. SignInClient: reviewDoorOpen() (a GET) and reviewSignIn(email:password:), answered by SignIn.answer like verify.
 3. SignInModel: asks about the door when the email step shows, like passkeys; asked again after a sign-out; sample
    screens never ask. passwordSignIn ends in take(), so the Allow watch and session hand-over are verify's own.
-4. SignInView: the link on the email step, and the password step (email, password, Sign in, Use a code instead).
+4. SignInView: the link on the email step, and the password step (email, password, Sign in, Sign in with a code).
 5. LogicTests: the door rule with a control, the body, an admitted answer, a refusal.
 
 ## Decided

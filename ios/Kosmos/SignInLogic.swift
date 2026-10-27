@@ -35,9 +35,12 @@ enum SignIn {
         if status == 404 { return .closed }
         let answer = answer(status: status, json: json)
         if case .refused(let message, _) = answer {
-            // Kosmos+'s own sentence when it gave one; otherwise only a 401 says the password is wrong.
+            // A 429 gets this screen's own sentence: the door's 429 is the code-send limiter's, whose words are about
+            // codes this person never asked for. Any other refusal (a wrong password, an account being deleted, a
+            // company sign-in required) is Kosmos+'s own sentence; with none, only a 401 says the password is wrong.
+            if status == 429 { return .refused(reviewTooMany) }
             if let message { return .refused(message) }
-            return .refused(status == 401 ? reviewRefused : status == 429 ? reviewTooMany : reviewNoAnswer)
+            return .refused(status == 401 ? reviewRefused : reviewNoAnswer)
         }
         return .answered(answer)
     }
