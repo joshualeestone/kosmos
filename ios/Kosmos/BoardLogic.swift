@@ -314,13 +314,14 @@ enum Board {
     enum Pill: Equatable { case working, asks, held, problem, cantTell }
     // Review: an agent the board counts as needing the person (needsPerson: a reconnect that gave up, a stuck error, a
     // helper that gave up) is red whatever its state, unless it is asking; and when the Mac's own tone says needs you
-    // (a word the phone does not map, such as Messages stuck), a pill that would be calm or missing is red too. So the
-    // pill never reads calmer than the word in it, nor than the list's order.
+    // (a word the phone does not map, such as Messages stuck), a pill that would be Working or missing is red too.
+    // Grey stays grey (the Mac counts Can't tell as needs you; the design keeps it grey).
+    // So a Working pill or no pill never hides what the board counts as needing the person.
     static func pill(_ a: Agent) -> Pill? {
         let p = statePill(a)
         if p == .asks { return p }
         if a.needsYou { return .problem }
-        if a.macTone == .needsYou && (p == nil || p == .working || p == .cantTell) { return .problem }
+        if a.macTone == .needsYou && (p == nil || p == .working) { return .problem }
         return p
     }
     private static func statePill(_ a: Agent) -> Pill? {
@@ -340,8 +341,8 @@ enum Board {
         }
     }
 
-    // kosmos#7342: the Working pill's Sweep, the board's @keyframes sweep over 1.2 s: up to full at 20%, back to a
-    // quarter by 70%, resting there after.
+    // kosmos#7342: the Working pill's Sweep, the phone's own three-dot take on the board's sweepLite: over 1.2 s, up to
+    // full at 20%, back to a quarter by 70%, resting there after.
     static func sweepOpacity(_ t: Double) -> Double {
         let f = (t.truncatingRemainder(dividingBy: 1.2) + 1.2).truncatingRemainder(dividingBy: 1.2) / 1.2
         if f < 0.2 { return 0.25 + 0.75 * f / 0.2 }
