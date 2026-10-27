@@ -2962,7 +2962,7 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    is --gold-bright too, which clears 3:1 on the dark tiles by itself. */
 .astar.on { color: #9c741b; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .astar.on { color: var(--gold-bright); } }
-.astar.on svg path { fill: var(--gold-bright); }
+.astar.on svg path { fill: var(--gold-bright); stroke-width: 1; }   /* a thin edge: at 18px the 1.6px outline took enough of the star to read dingy again */
 .astar:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .lname { position: relative; }
 /* Review 15: the room for the star only where there is one (another computer's agent has none). */
