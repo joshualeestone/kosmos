@@ -3181,6 +3181,9 @@ function noteLimitRows(agent, text, nowMs) {
     // A row back from the gone list keeps that window (`until`), so returning again never extends it.
     const here = footers.get(key) || new Set();
     if (!seen) { limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture || limitRowGone.has(key), until: limitRowGone.get(key), footers: here }); continue; }
+    // kosmos#7264 (review 4): the previous capture did not show this key (its row had left the screen), read before
+    // `last` moves.
+    const wasAbsent = Number.isFinite(prevCapture) && seen.last < prevCapture;
     seen.last = Math.max(seen.last, now);
     const newFooter = [...here].some((f) => !seen.footers.has(f));
     for (const f of here) seen.footers.add(f);
@@ -3190,9 +3193,12 @@ function noteLimitRows(agent, text, nowMs) {
        capture gap too) the sighting moves to now. A gap alone moves nothing: an unchanged screen printed no new limit,
        and a laptop that slept must not re-cap yesterday's row on every wake. It only ever moves LATER and the entry stays late, so this can delay a release
        (at most one span, on a redraw or a footer that changes in place) but never lift a binding limit, and it never
-       gives a late row a time to hold messages on (limitFirstSeenOf still ignores it). Residual: a new limit whose
-       footer text repeats an older one, in the same capture the older row scrolls off, cannot be told apart. */
-    if (seen.late && (newFooter || count > seen.count)) {
+       gives a late row a time to hold messages on (limitFirstSeenOf still ignores it). A row back on screen after the
+       previous capture lacked it moves it too (review 4), so a new limit printed after the old row scrolled off is
+       timed from its arrival. The gone-list window (`at` plus the span) moves with it, which only makes a returning
+       row late (typed, not held). Residual: a new limit whose footer text repeats an older one, in the very capture the
+       older row scrolls off, cannot be told apart. */
+    if (seen.late && (newFooter || count > seen.count || wasAbsent)) {
       seen.at = now;
       seen.count = count;
       continue;

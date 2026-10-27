@@ -393,19 +393,29 @@ test('kosmos#7264 review 3: a gap, a footer that repeats, a footer that changes 
   read(Date.parse('2026-10-27T18:00:00Z'), old + STATUS_LINE, 'idle');
   read(day2, old + block('do the report', NEW_FOOTER) + STATUS_LINE, 'rate_limited');
   read(after - 60e3, old + block('do the report', NEW_FOOTER) + STATUS_LINE, 'rate_limited');
+  read(after, old + block('do the report', NEW_FOOTER) + STATUS_LINE, 'idle');   // released at its own reset
   // A footer that repeats the old one's text exactly: the extra row still moves the sighting, so it is capped.
   status.resetLimitFirstSeenForTests();
   read(ten, old + STATUS_LINE, 'idle');
   read(day2, old + block('again', FOOTER) + STATUS_LINE, 'rate_limited');
-  // A footer that changes in place (the background-agents row, then the turn's own): never a hold, and capped at most
-  // until the next reset, here released at once (yesterday's row, the next 6pm beyond the span from 19:20).
+  // A footer that changes in place (the background-agents row, then the turn's own), seen late at 16:00 CDT: capped
+  // until 18:01 at most, never a hold (no limitUntil), and released at the reset.
   status.resetLimitFirstSeenForTests();
-  const r = Date.parse('2026-10-27T00:20:00Z');
-  read(r, block('hello', '✻ Waiting for 1 background agent to finish\n') + STATUS_LINE, 'working');   // its agent still running
-  read(r + 60e3, old + STATUS_LINE, 'idle', (card, roster) => {
+  const four = Date.parse('2026-10-27T21:00:00Z');
+  read(four, block('hello', '✻ Waiting for 1 background agent to finish\n') + STATUS_LINE, 'rate_limited');   // the limit binds until 6pm
+  read(four + 60e3, old + STATUS_LINE, 'rate_limited', (card, roster) => {
     assert.equal(card.limitUntil, null, 'a footer that changed in place gave the row a time');
-    assert.equal(chat.limitHeldVerdict('camille', roster, r + 60e3), null, 'and a message to it was held');
+    assert.equal(chat.limitHeldVerdict('camille', roster, four + 60e3), null, 'and a message to it was held');
   });
+  read(after - 60e3, old + STATUS_LINE, 'rate_limited');
+  read(after, old + STATUS_LINE, 'idle');
+  const r = Date.parse('2026-10-27T00:20:00Z');
+  // Review 4: the old row scrolls off, then a NEW limit with the same words AND the same footer text prints a minute
+  // later: the absent capture moves the sighting, so it is capped until its reset, not lifted at once.
+  status.resetLimitFirstSeenForTests();
+  read(ten, old + STATUS_LINE, 'idle');
+  read(day2 - 60e3, '❯ other work\n● Done.\n' + NEW_FOOTER + STATUS_LINE, 'idle');
+  read(day2, block('do the report', FOOTER) + STATUS_LINE, 'rate_limited');
   // A laptop that sleeps: captures with long gaps and the same screen. Yesterday's row stays released on every wake.
   status.resetLimitFirstSeenForTests();
   for (const t of [r, Date.parse('2026-10-27T14:00:00Z'), Date.parse('2026-10-27T16:30:00Z'), Date.parse('2026-10-27T17:55:00Z')]) {
