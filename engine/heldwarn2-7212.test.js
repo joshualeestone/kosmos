@@ -82,6 +82,7 @@ test('said once per streak, again a day later, and again at once for a new strea
   for (let i = 0; i < 3; i += 1) ds.note('a', refused, T0 + i * MIN);
   assert.equal(ds.stallsToSay(['a'], said, { now: T0 + 30 * MIN }).length, 1);
   assert.equal(ds.stallsToSay(['a'], said, { now: T0 + 31 * MIN }).length, 0, 'not every minute');
+  ds.note('a', refused, T0 + ds.RESAY_MS);   // still failing a day on (a stall nobody tries is not said: round 2)
   assert.equal(ds.stallsToSay(['a'], said, { now: T0 + 30 * MIN + ds.RESAY_MS }).length, 1, 'again a day on');
   ds.note('a', { state: 'placed' }, T0 + 2 * ds.RESAY_MS);
   const T1 = T0 + 2 * ds.RESAY_MS + MIN;
@@ -229,4 +230,21 @@ test('Mona Lisa\'s design: the pill reads Messages stuck with the issue look, on
   const cardlabel = require('./cardlabel');
   assert.equal(cardlabel.labelOf({ state: 'idle', deliveryStall: stall }), 'Messages stuck', 'the phone reads the same word');
   assert.equal(cardlabel.labelOf({ state: 'idle', deliveryStall: null }), 'Idle');
+});
+
+test('round 2: a stall is said only while failures are still arriving (newest within FRESH_MS), and the next one brings it back', () => {
+  for (let i = 0; i < 3; i += 1) ds.note('quiet', refused, T0 + i * MIN);
+  assert.ok(ds.stallOf('quiet', { now: T0 + 2 * MIN + ds.FRESH_MS }), 'at the edge: still said');
+  assert.equal(ds.stallOf('quiet', { now: T0 + 2 * MIN + ds.FRESH_MS + MIN }), null, 'nobody has tried since: not said');
+  ds.note('quiet', refused, T0 + 2 * MIN + ds.FRESH_MS + 2 * MIN);
+  const st = ds.stallOf('quiet', { now: T0 + 2 * MIN + ds.FRESH_MS + 3 * MIN });
+  assert.ok(st, 'a new failure carries the same streak on');
+  assert.equal(st.since, new Date(T0).toISOString(), 'from its first failure');
+});
+
+test('round 2: UNCONFIRMED interleaved with PLACED never stalls; only a run with nothing placed does', () => {
+  for (let i = 0; i < 10; i += 1) ds.note('slow', i % 2 ? { state: 'placed' } : { state: 'unconfirmed' }, T0 + i * 5 * MIN);
+  assert.equal(ds.stallOf('slow', { now: T0 + 50 * MIN }), null, 'a landed line between them ends each run');
+  for (let i = 0; i < 3; i += 1) ds.note('swallowed', { state: 'unconfirmed' }, T0 + i * 15 * MIN);
+  assert.ok(ds.stallOf('swallowed', { now: T0 + 30 * MIN }), 'CONTROL: unconfirmed with nothing placed for half an hour is a stall');
 });

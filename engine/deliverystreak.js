@@ -20,6 +20,9 @@
 const STALL_MS = 30 * 60 * 1000;
 const STALL_MIN_FAILS = 3;   // one refused line followed by silence is not a stall
 const RESAY_MS = 24 * 60 * 60 * 1000;
+/* A streak whose newest failure is older than this is not said: nobody has tried to reach the agent since, so Kosmos
+   no longer knows it is stuck (round 2). It is not cleared either; the next failure carries it on. */
+const FRESH_MS = 2 * 60 * 60 * 1000;
 
 /* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string> } */
 const streaks = new Map();
@@ -62,7 +65,7 @@ function noted(name, v) {
    only of usage-limit holds is then not a stall to warn about (the card already says it). */
 function stallOf(name, { now = Date.now(), limitShown = false } = {}) {
   const s = streaks.get(name);
-  if (!s || s.count < STALL_MIN_FAILS || now - s.since < STALL_MS) return null;
+  if (!s || s.count < STALL_MIN_FAILS || now - s.since < STALL_MS || now - s.lastAt > FRESH_MS) return null;
   if (limitShown && s.kinds.size === 1 && s.kinds.has('limit')) return null;
   return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy, words: WHY_WORDS[s.lastWhy] || WHY_WORDS.unknown };
 }
@@ -124,4 +127,4 @@ function sweep(names) {
 
 function resetForTests() { streaks.clear(); }
 
-module.exports = { reset, limitShownOn, note, noted, stallOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, WHY_WORDS };
+module.exports = { reset, limitShownOn, note, noted, stallOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, WHY_WORDS };
