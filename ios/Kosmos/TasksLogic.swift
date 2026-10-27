@@ -309,7 +309,8 @@ enum Tasks {
         var byId: [String: (chain: [String], open: Int)] = [:]
         for t in read.tasks {
             if byId[t.projectId] == nil { order.append(t.projectId); byId[t.projectId] = (chain(t), 0) }
-            if t.state != "closed" { byId[t.projectId]!.open += 1 }
+            // kosmos#7269 review 5: open by the states the list draws, as the title and the Open tile count.
+            if t.state != "closed" && groups.contains(where: { $0.key == t.state }) { byId[t.projectId]!.open += 1 }
         }
         return order.map { PickerProject(id: $0, chain: byId[$0]!.chain, open: byId[$0]!.open) }
             .enumerated().sorted { a, b in

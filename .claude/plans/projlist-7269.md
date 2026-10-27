@@ -45,3 +45,6 @@ projects of 3, 12 and 15 members with nesting, and the tiles.
   drawn rows too (leaveOutProjectLine(drawn:)), so it always agrees with the title (a task reopened while drawn under
   Completed no longer leaves the project named nowhere; tested with a control). ProjectMember.provider says why it is
   still parsed.
+- Round 5 (projlist-7269-review5.md): 0 blockers, 0 warnings, 2 nits. CONVERGED. Fixed: the picker's open count
+  leaves out a state the list does not draw, as the title does. KEPT: a parent with no description and no members
+  starts its line 8pt above its row's bottom (a gap under a bare name; rare, and the line still reads as joining).

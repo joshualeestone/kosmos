@@ -123,6 +123,7 @@ check(Tasks.title(Board.TasksRead(tasks: [row(1, "working"), row(2, "closed")], 
       && !Tasks.leaveOutProjectLine(drawn: reopened, project: nil), "the title does not name the project, so the rows keep it")
 check(Tasks.leaveOutProjectLine(Board.TasksRead(tasks: [row(1, "working"), row(2, "closed")], rosterUnknown: false), project: nil),
       "CONTROL: the newest read alone would hide it (the case review 4 found)")
+check(Tasks.pickerProjects(mixed).first?.open == 7, "the picker's open count leaves out a state the list does not draw, as the title does (review 5)")
 check(Tasks.leaveOutProjectLine(drawn: Tasks.sections(few, project: nil), project: nil) == Tasks.leaveOutProjectLine(few, project: nil),
       "with nothing moved, the drawn rule and the board's agree")
 check(Tasks.title(mixed, drawn: Tasks.sections(mixed, project: nil), project: nil).hasPrefix("7 Tasks") && tileCounts(mixed).first == "Open=7",
