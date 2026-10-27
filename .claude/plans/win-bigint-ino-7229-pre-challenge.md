@@ -3,9 +3,9 @@ pre_challenge: true
 method: challenge-loop
 branch: win-bigint-ino-7229
 diff_hash: da35371f9d931c9af708c858fdcb23193e41af42f1ade0962b1b2e5342daca38
-validation: engine/bigint-ino.win32-7229.test.js 11/11 with real colliding NTFS ids on the Windows box (0 skipped), filehash-6761; 87 win32 files + filehash + filepreview 1609 tests 0 fail; end to end through the board routes (review 5): main serves a swapped colliding file on download/preview/zip, the branch refuses; engine/projects*.test.js fails the same 11 on main and here (POSIX-only fixtures); full suite via CI
+validation: engine/bigint-ino.win32-7229.test.js 11/11 with real colliding NTFS ids on the Windows box (0 skipped), filehash-6761 (rebased onto main after the 0.7.71 hold); 87 win32 files + filehash + filepreview 1609 tests 0 fail; end to end (review 5): main serves a swapped colliding file on download/preview/zip, the branch refuses; full suite via CI
 subdir_audit: passed
-timestamp: 2026-10-27T13:11:21Z
+timestamp: 2026-10-27T15:14:32Z
 iterations: 6
 converged: true
 ---
