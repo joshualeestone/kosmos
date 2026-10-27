@@ -269,7 +269,8 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
 
 test('#4926 N7: ROOM_READ_KINDS is the list of row kinds the server room read keeps', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const at = src.indexOf('const rows = guideMaskedRows(rec.rows, null)');
+  // kosmos#7365 slice 3: the room read masks into roomRows, then filters into rows (the archive split sits between).
+  const at = src.indexOf('const roomRows = guideMaskedRows(rec.rows, null)');
   assert.notEqual(at, -1, 'the room read\'s row filter was not found');
   // Only the first .filter of the chain: a later one names some kinds again. It guards a kind added on either side.
   const end = src.indexOf('/* A note written for the agents', at);
