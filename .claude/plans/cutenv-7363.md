@@ -16,8 +16,8 @@ them. `${a[@]+...}` keeps an empty list safe under set -u on macOS bash 3.2.
 - Unsetting the variables in release.sh before step 3 (the #7340 shape): some are read after step 3 (KOSMOS_CUT_PARALLEL
   decides the path itself; the renew settings run all cut long), so they cannot be unset in the cut's own shell.
 - A list of names: it is the per-variable shape that let each new one through; the prefix closes the class.
-- Stripping the 3b page layer's environment as well: the card names the suite, and 3b already runs under its own env
-  exclusion (#2724); widened only if a 3b test is shown to read a KOSMOS_CUT_*.
+- Stripping the 3b page layer's environment as well: 3b reads no KOSMOS_CUT_* (none in tools/browser-checks.sh or
+  docs/browser-checks, checked in review 1), and runs no nested release.sh; widened only if that changes.
 
 ## Proof
 tools/test-cut-suite-env-7363.sh: the helper lifted from release.sh and run under /bin/bash 3.2 with set -u (a sentinel
@@ -29,3 +29,14 @@ That no test in the suite NEEDS a KOSMOS_CUT_* from the cut. None should (the su
 validation run will show it; a test that did would have been reading the operator's environment, which is the defect.
 
 ## Review rounds
+1. (default, 14:5x CDT) 0 BLOCKERs, 1 WARNING, 2 NITs; all applied.
+   - (W) step 3's isolation rerun (#2006, kosmos_isolation_rerun_verdict, which decides whether a red suite stops the
+     cut) re-ran tests in the cut's own environment, KOSMOS_CUT_* included: the same leak one call down. It now runs as
+     `$(cut_suite_unset; kosmos_isolation_rerun_verdict ...)`, which clears them in that subshell only (test pins the
+     call and runs the helper; mutation-proven).
+   - NIT: the call-site pin matches the wrap's shape (`cut_suite_env [nice -n 19 ]yarn test >"$_suite_log"`), so a fake
+     wrap (`cut_suite_env true && yarn test`) reds it (mutation-proven).
+   - NIT: the plan's 3b reason now says what was checked (3b reads no KOSMOS_CUT_* and runs no nested release.sh).
+   - The reviewer checked: nothing the suite needs is stripped (self-exclusion uses KOSMOS_MACHINE_CLAIM_COOKIE and
+     KOSMOS_RUN_COOKIE_*, run-tests.sh reads no KOSMOS_CUT_*), env finds the same yarn/nice, and 126/127 still reach the
+     "could not run" branch.
