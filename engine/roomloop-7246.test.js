@@ -1,0 +1,160 @@
+'use strict';
+
+/**
+ * kosmos#7246 slice 2: agents in a room never wake each other in a loop. A person's busy room burned the person's whole
+ * provider allowance: agents read posts, replied that they had read them, and the replies woke the others again.
+ * An agent's post now wakes only the members it ADDRESSES (an @-name, the fleet's leading "Sender -> Name:" header,
+ * @all), a reply wakes its author only when the post it answers asked something, and a per-project cap backstops the
+ * rest. The controls are fleetbuilders-shaped posts (Splinter, 12:24): what addresses a member today must still wake it.
+ *
+ *   node --test engine/roomloop-7246.test.js
+ */
+const os = require('node:os');
+const path = require('node:path');
+
+const SANDBOX = path.join(os.tmpdir(), 'kosmos-roomloop-test-' + process.pid);
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+delete process.env.AGENT_WORKFORCE_ROOM_HOLD_OFF;
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+
+const chat = require('./chat');
+const messages = require('./messages');
+const selfreport = require('./selfreport');
+const roomhold = require('./roomhold');
+const roomloop = require('./roomloop');
+const fleet = require('../test-support/fleet');
+
+function withFleet(specs, fn) {
+  const board = fleet.install(specs);
+  try { return fn(board); } finally { board.restore(); }
+}
+function ok(out) { return { ran: true, spawnFailed: false, status: 0, out: out || '', err: '' }; }
+function fakeTmux() {
+  const calls = [];
+  const fn = (args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    return ok();
+  };
+  fn.pastedSends = () => {
+    const out = [];
+    let cur = ''; let target = null; let has = false;
+    for (const a of calls) {
+      if (a[0] === 'set-buffer') { cur += a[a.length - 1]; has = true; }
+      else if (a[0] === 'paste-buffer') { target = a[a.length - 1]; }
+      else if (a[0] === 'send-keys' && a[a.length - 1] === 'Enter' && has) { out.push({ text: cur, target }); cur = ''; target = null; has = false; }
+    }
+    if (has) out.push({ text: cur, target });
+    return out;
+  };
+  return fn;
+}
+function arm() { const tmux = fakeTmux(); chat.setRunner(tmux); chat.setDryRun(false); return tmux; }
+function armSender(session) { messages.setRunner(() => ({ ok: true, session })); }
+function typedTo(tmux, session) {
+  const t = (s) => String(s.target || '');
+  return tmux.pastedSends().filter((s) => t(s).startsWith('=' + session + ':') || t(s).startsWith('=' + session + '-discord:')).map((s) => s.text);
+}
+
+/* A fleetbuilders-shaped room: a handle, and a display name with a space in it. */
+function room() {
+  return [fleet.agent('pigeonpete', { state: 'idle', displayName: 'PigeonPete' }),
+    fleet.agent('monalisa', { state: 'idle', displayName: 'Mona Lisa' }),
+    fleet.agent('angel', { state: 'idle', displayName: 'Angel' })];
+}
+const MEMBERS = ['pigeonpete', 'monalisa', 'angel'];
+const PROJECT = 'fleetbuilders';
+
+test.beforeEach(() => {
+  chat.resetForTests();
+  messages.resetForTests();
+  roomloop.resetForTests();
+  for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
+});
+test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+function post(board, from, text, extra = {}) {
+  armSender(from + '-discord');
+  const tmux = arm();
+  const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text, ...extra }, board.agents, MEMBERS);
+  return { sent, tmux, woke: MEMBERS.filter((m) => typedTo(tmux, m).length > 0) };
+}
+
+test('CONTROL (fleetbuilders shape): "Sender -> Name:" wakes that member only, display names included', () => {
+  withFleet(room(), (board) => {
+    const a = post(board, 'pigeonpete', 'PigeonPete -> Mona Lisa, on m702: #7212 re-shot as you asked.');
+    assert.deepEqual(a.woke, ['monalisa'], 'the arrow header must wake its target and nobody else');
+    assert.equal(a.sent.outcomes.angel, roomhold.QUIET);
+    assert.equal(a.sent.state, chat.DELIVERY.PLACED, 'a quiet member must not make the sender re-post');
+    const b = post(board, 'monalisa', 'Mona Lisa -> PigeonPete, Angel (both): the design is approved.');
+    assert.deepEqual(b.woke.sort(), ['angel', 'pigeonpete']);
+  });
+});
+
+test('CONTROL: @name and @all still wake their members; @all never wakes its sender', () => {
+  withFleet(room(), (board) => {
+    assert.deepEqual(post(board, 'angel', 'taken, @monalisa: shots next').woke, ['monalisa']);
+    assert.deepEqual(post(board, 'angel', '@all the cut is on staging').woke.sort(), ['monalisa', 'pigeonpete']);
+  });
+});
+
+test('A: an agent post that addresses no one wakes no one, and is still in the room', () => {
+  withFleet(room(), (board) => {
+    for (const text of ['read it, nothing to do from me', 'Renet for Baron: measured on Agent1s', 'Angel: noted, thanks']) {
+      const p = post(board, 'angel', text);
+      assert.deepEqual(p.woke, [], 'an unaddressed post woke someone: ' + text);
+      assert.equal(p.sent.state, chat.DELIVERY.PLACED, 'refused instead of recorded: ' + text);
+      assert.ok(messages.record().rows.some((m) => m.id === p.sent.id), 'not in the room: ' + text);
+      for (const m of ['pigeonpete', 'monalisa']) assert.deepEqual(roomhold.heldIn(m, PROJECT), [], 'held for later instead of quiet');
+    }
+  });
+});
+
+test('CONTROL: a person\'s post that names no one still reaches every member', () => {
+  withFleet(room(), (board) => {
+    const tmux = arm();
+    const sent = messages.sendPost({ operator: true, project: PROJECT, text: 'how is everyone doing' }, board.agents, MEMBERS);
+    assert.equal(sent.state, chat.DELIVERY.PLACED);
+    for (const m of MEMBERS) assert.equal(typedTo(tmux, m).length, 1, m + ' did not get the person\'s post');
+  });
+});
+
+test('B: a reply wakes its author only when the post it answers asked something', () => {
+  withFleet(room(), (board) => {
+    const ask = post(board, 'monalisa', 'Mona Lisa -> Angel: can you build #7346?');
+    const answer = post(board, 'angel', 'yes, after #7265', { replyTo: ask.sent.id });
+    assert.deepEqual(answer.woke, ['monalisa'], 'the answer to a question must reach its asker');
+    const fyi = post(board, 'monalisa', 'shots are in the folder');
+    const ack = post(board, 'angel', 'read it, nothing to do', { replyTo: fyi.sent.id });
+    assert.deepEqual(ack.woke, [], 'an acknowledgement of an FYI woke its author: the loop');
+  });
+});
+
+test('C: past the per-project cap, agent posts wake no one, the person is told once, and the person still gets through', () => {
+  withFleet(room(), (board) => {
+    let n = 0;
+    while (n < roomloop.LOOP_CAP) { post(board, 'angel', '@monalisa ping ' + n); n += 1; }
+    const over = post(board, 'angel', '@monalisa ping over');
+    assert.deepEqual(over.woke, [], 'the capped post still woke someone');
+    assert.equal(over.sent.outcomes.monalisa, roomhold.QUIET);
+    post(board, 'angel', '@monalisa ping over again');
+    const notes = messages.record().rows.filter((m) => m.kind === 'note' && /paused agents waking each other/.test(m.text));
+    assert.equal(notes.length, 1, 'the person must be told once per pause, not once per post');
+    const tmux = arm();
+    messages.sendPost({ operator: true, project: PROJECT, text: '@monalisa are you there' }, board.agents, MEMBERS);
+    assert.equal(typedTo(tmux, 'monalisa').length, 1, 'the cap held back the person\'s own post');
+  });
+});
+
+
+test('addressedMembers: the header only at the start, names that are not members ignored', () => {
+  const r = MEMBERS;
+  assert.deepEqual([...messages.addressedMembers('Angel -> PigeonPete, #7324 step 1 is measured: x', r, [], new Set(), 'angel')], ['pigeonpete']);
+  assert.deepEqual([...messages.addressedMembers('a note that says Angel -> PigeonPete: later', r, [], new Set(), 'angel')], [], 'mid-text arrows address no one');
+  assert.deepEqual([...messages.addressedMembers('Angel -> Nobody: x', r, [], new Set(), 'angel')], []);
+  assert.deepEqual([...messages.addressedMembers('email me at a@all.example', r, [], new Set(), 'angel')], [], '@all inside a word is not a broadcast');
+});

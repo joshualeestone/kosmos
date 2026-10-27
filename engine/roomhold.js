@@ -65,6 +65,9 @@ const store = require('./store');
    as placed (messages.js): the post is kept and the member will be told, so "do not re-post" holds (#4926: unless it
    asks nothing of the member and goes stale before it is told; the post itself is still in the room). */
 const HELD = 'held';
+/* kosmos#7246 slice 2: an agent's post that did not address this member (messages.addressedMembers): not typed, not
+   held, in the room to read. Counts as placed for the sender: the post is where it was sent. */
+const QUIET = 'quiet';
 /* Ids kept per project per agent. The line names at most SHOWN of them and counts the rest; the cap
    only bounds the file if an agent never goes idle and is never typed to. */
 const KEEP = 200;
@@ -680,4 +683,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
+module.exports = { QUIET, capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };

@@ -107,7 +107,8 @@ function wipeLog() {
   try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ }
 }
 
-test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); wipeLog(); });
+// kosmos#7246 slice 2: roomloop.resetForTests, so the per-project agent-wake cap never quiets a later test's post.
+test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); require('./roomloop').resetForTests(); wipeLog(); });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 /* ── who is sending ──────────────────────────────────────────────────────── */
@@ -525,22 +526,25 @@ test('#6065 N1: a room post still shortened carries the request to each member i
     assert.ok(q && q.id, JSON.stringify(q));
     const two = tmux.pastedMessages().filter((l) => l.includes('Briefing two'));
     const of = (who, set) => set.find((l) => l.includes(path.join(require('./dmfiles').ownDir(who, 'Inbox'))));
-    assert.ok(of('leo', two) && of('april', two), 'CONTROL: shortened for both: ' + two.map((l) => l.slice(0, 80)).join(' | '));
+    assert.ok(of('leo', two), 'CONTROL: shortened for leo: ' + two.map((l) => l.slice(0, 80)).join(' | '));
     assert.ok(of('leo', two).includes('A question in it: "Did everyone get the notes?"'), of('leo', two).slice(-300));
-    assert.match(of('april', two), /not addressed to you/, 'CONTROL: april is a background member');
-    assert.doesNotMatch(of('april', two), /Where it names you:|A question in it:/, of('april', two).slice(-300));
+    // kosmos#7246 slice 2: an unaddressed member is quiet now (april was the background member): nothing typed to her.
+    assert.equal(q.outcomes.april, require('./roomhold').QUIET, 'april is not addressed, so she is quiet');
+    assert.equal(of('april', two), undefined, 'a quiet member was typed to');
     // A reply to leo's own post, not naming him (review 11): leo is its author, so the question is quoted for him;
-    // april stays a background member.
+    // april stays unaddressed. kosmos#7246 slice 2: leo's post asks mara, so a reply to it wakes its author (B).
     armSender('leo-discord');
-    const own = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'Leo here: the dates are drafted.' }, board.agents, MEMBERS);
+    const own = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@mara Leo here: the dates are drafted.' }, board.agents, MEMBERS);
     assert.ok(own && own.id, JSON.stringify(own));
     armSender('mara-discord');
     const rep = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'Briefing reply. ' + long + 'Are the dates final? The end.', replyTo: own.id }, board.agents, MEMBERS);
     assert.ok(rep && rep.id, JSON.stringify(rep));
     const r3 = tmux.pastedMessages().filter((l) => l.includes('Briefing reply'));
-    assert.ok(of('leo', r3) && of('april', r3), 'CONTROL: shortened for both: ' + r3.map((l) => l.slice(0, 80)).join(' | '));
+    assert.ok(of('leo', r3), 'CONTROL: shortened for leo: ' + r3.map((l) => l.slice(0, 80)).join(' | '));
     assert.ok(of('leo', r3).includes('A question in it: "Are the dates final?"'), of('leo', r3).slice(-300));
-    assert.doesNotMatch(of('april', r3), /A question in it:/, of('april', r3).slice(-300));
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: april is not typed the reply at all.
+    assert.equal(rep.outcomes.april, require('./roomhold').QUIET, 'april is not addressed, so she is quiet');
+    assert.equal(of('april', r3), undefined, 'a quiet member was typed to');
     // An operator post is for the whole room (review 10): every member gets its question, named or not.
     const w = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'Briefing three. ' + long + 'Can everyone confirm delivery? The end.' }, board.agents, MEMBERS);
     assert.ok(w && w.id, JSON.stringify(w));
@@ -965,7 +969,7 @@ test('#460: quotes stay inside the room: the same words in another project are n
   });
 });
 
-test('a post fans out to every member, mentioned as a request and the rest MARKED background, one log row', () => {
+test('a post fans out to every member, mentioned as a request and the rest MARKED background, one log row (kosmos#7246 slice 2: now quiet)', () => {
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     const tmux = arm([]);
@@ -974,20 +978,18 @@ test('a post fans out to every member, mentioned as a request and the rest MARKE
     // deliver types two send-keys per recipient (the text, then the
     // submit); the envelopes are the ones carrying the bracket line.
     const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.startsWith('['));
-    assert.equal(typed.length, 2, 'a room of three fans out to the two others');
-    // Selected on the MARKER, which is the property under test -- the
-    // body text rides in both envelopes, so it selects nothing.
+    // kosmos#7246 slice 2: an agent's post is typed only to the member it addresses; the unmentioned one is quiet.
+    assert.equal(typed.length, 1, 'only the addressed member is typed to');
     const toMara = typed.find((t) => t.startsWith('[message from your colleague'));
-    const toApril = typed.find((t) => t.startsWith('[background from your colleague'));
     assert.match(toMara, /^\[message from your colleague leo · m\d+ · project henderson-lease · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease\] /,
       'the mentioned member did not receive the addressed marker');
-    assert.match(toApril, /^\[background from your colleague leo · m\d+ · project henderson-lease · not addressed to you\] /,
-      'the unmentioned member arrived without the background marking -- the one thing that must not happen');
+    assert.equal(typed.find((t) => t.startsWith('[background from your colleague')), undefined,
+      'kosmos#7246 slice 2: an unaddressed member is quiet now, never typed a background envelope');
     const rows = messages.record().rows.filter((m) => m.kind === 'post');
     assert.equal(rows.length, 1, 'a post the person made once must appear once');
     assert.equal(rows[0].project, 'henderson-lease');
     assert.deepEqual(rows[0].to.sort(), ['april', 'mara']);
-    assert.deepEqual(rows[0].outcomes, { mara: 'placed', april: 'placed' });
+    assert.deepEqual(rows[0].outcomes, { mara: 'placed', april: 'quiet' });
   });
 });
 
@@ -1055,10 +1057,12 @@ test('#2908: a background (unmentioned) recipient is unaffected by reply_expecte
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     const tmux = arm([]);
-    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks @mara', replyExpected: false }, board.agents, MEMBERS);
-    const toApril = addressedTo(tmux, '[background from your colleague');
-    assert.match(toApril, / · not addressed to you\] /, 'the background marker must be unchanged');
-    assert.ok(!/no reply requested|to answer, run/.test(toApril), 'a background arrival carries neither an answer clause nor a no-reply note');
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks @mara', replyExpected: false }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: april gets no arrival at all, so neither an answer
+    // clause nor a no-reply note can reach her.
+    assert.equal(sent.outcomes.april, 'quiet', 'the unmentioned recipient is quiet');
+    assert.equal(addressedTo(tmux, '[background from your colleague'), undefined, 'a quiet member was typed a background arrival');
+    assert.ok(!tmux.pastedSends().some((s) => String(s.target || '').startsWith('=april-discord:')), 'a quiet member was typed to');
   });
 });
 
@@ -1145,17 +1149,16 @@ test('#2442: an unreadable removed list REFUSES the post (fail-closed, the actin
   });
 });
 
-test('a post with no @ still produces an arrival in every member pane (the falsifiable claim)', () => {
+test('a post with no @ still produces an arrival in every member pane (the falsifiable claim) (kosmos#7246 slice 2: now quiet)', () => {
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     const tmux = arm([]);
     const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'status: the draft is ready' }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: an agent's post that addresses no one is recorded and placed, and typed to no one.
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
-    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.startsWith('['));
-    assert.equal(typed.length, 2);
-    for (const t of typed) {
-      assert.match(t, /^\[background from your colleague leo/, 'an unaddressed arrival lost its marking');
-    }
+    assert.deepEqual(sent.outcomes, { mara: 'quiet', april: 'quiet' });
+    assert.equal(tmux.pastedMessages().length, 0, 'an unaddressed agent post was typed into a pane');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post').length, 1, 'the post is in the room');
   });
 });
 
@@ -1163,7 +1166,8 @@ test('partial delivery holds per-recipient outcomes and never renders as sent', 
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'checking in' },
+    // kosmos#7246 slice 2: the post addresses both, so each is tried (an unaddressed member would be quiet).
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@mara @ghost checking in' },
       board.agents, ['leo', 'mara', 'ghost']);
     assert.equal(sent.state, chat.DELIVERY.UNCONFIRMED, 'a post that reached one of two must not claim placed');
     assert.equal(sent.outcomes.mara, 'placed');
@@ -1177,7 +1181,8 @@ test('a post reaching nobody refuses, logs no post row, and logs the refusal', (
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'hello' },
+    // kosmos#7246 slice 2: the post addresses both, so each is tried (an unaddressed member would be quiet).
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@ghost1 @ghost2 hello' },
       board.agents, ['leo', 'ghost1', 'ghost2']);
     assert.equal(sent.state, chat.DELIVERY.COULD_NOT);
     assert.equal(sent.outcomes.ghost1, 'could_not');
@@ -2256,8 +2261,10 @@ test('mention boundaries: trailing punctuation still addresses, an email-shaped 
     const background = typed.filter((s) => s.text.startsWith('[background from your colleague'));
     assert.equal(addressed.length, 1, 'sentence-final punctuation demoted an addressed mention');
     assert.ok(addressed[0].target.startsWith('=mara-discord:'), 'the addressed envelope went to the wrong member');
-    assert.equal(background.length, 1, 'an email-shaped string promoted a remark to a request');
-    assert.ok(background[0].target.startsWith('=april-discord:'), 'the background envelope went to the wrong member');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: april (only email-shaped) is not typed at all.
+    assert.equal(background.length, 0, 'a quiet member was typed a background envelope');
+    assert.equal(typed.length, 1, 'an email-shaped string promoted a remark to a request');
+    assert.equal(sent.outcomes.april, 'quiet', 'an email-shaped string promoted a remark to a request');
   });
 });
 
@@ -2580,8 +2587,9 @@ test('a member brought in later is told what the room said without them, and onl
     armSender('leo-discord');
     let tmux = arm([]);
     // Two posts while april is not yet on the project: they fan to mara only.
-    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'round one' }, board.agents, ['leo', 'mara']);
-    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'round two' }, board.agents, ['leo', 'mara']);
+    // kosmos#7246 slice 2: each addresses mara, so it is typed to her (unaddressed, she would be quiet).
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara round one' }, board.agents, ['leo', 'mara']);
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara round two' }, board.agents, ['leo', 'mara']);
     // April joins and is mentioned: her wire carries the catch-up, with the
     // count and the read command; mara, background, carries none.
     tmux = arm([]);
@@ -2592,8 +2600,10 @@ test('a member brought in later is told what the room said without them, and onl
     const toMara = typed.find((t) => t.includes('background from your colleague'));
     assert.match(toApril, /This room has been talking without you: 2 earlier posts this hour did not reach you\. Read the room with: kosmos room saturday-plans\]$/,
       'the mentioned late arrival was not told what she missed');
-    assert.doesNotMatch(toMara, /talking without you/,
-      'a background recipient was stamped with a missed count');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: mara (the background recipient) is typed nothing at
+    // all, so she can carry no missed count.
+    assert.equal(toMara, undefined, 'a quiet member was typed a background envelope');
+    assert.equal(sent.outcomes.mara, 'quiet', 'a background recipient was stamped with a missed count');
     /* Control both ways: a mentioned member who missed nothing carries no
        catch-up, so the line cannot become furniture. */
     const tmux3 = arm([]);
@@ -3322,11 +3332,15 @@ test('#3311 + #3745: a reply in a shared room keeps the shared marker in all fou
     const op = check(tmux.pastedMessages(), 'operator');
     assert.ok(op.some((m) => m.startsWith('[message from your operator')) && op.some((m) => m.startsWith('[from your operator in project')), 'fixture: both operator arms were typed');
     // A colleague, addressing leo: leo gets "message from your colleague", the rest "background".
+    // kosmos#7246 slice 2: an unaddressed member is quiet now, so the background arm is no longer typed for an agent's
+    // post: april is quiet, and the arm that is typed (leo's) still keeps the shared marker.
     armSender('mara-discord');
     tmux = arm([]);
-    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@leo agreed', replyTo: first.id, federated: true }, board.agents, MEMBERS);
+    const colSent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@leo agreed', replyTo: first.id, federated: true }, board.agents, MEMBERS);
     const col = check(tmux.pastedMessages(), 'colleague');
-    assert.ok(col.some((m) => m.startsWith('[message from your colleague')) && col.some((m) => m.startsWith('[background from your colleague')), 'fixture: both colleague arms were typed');
+    assert.ok(col.some((m) => m.startsWith('[message from your colleague')), 'fixture: the colleague arm was typed');
+    assert.ok(!col.some((m) => m.startsWith('[background from your colleague')), 'a quiet member was typed a background envelope');
+    assert.equal(colSent.outcomes.april, 'quiet', 'the unaddressed member is quiet');
   });
 });
 
@@ -3499,14 +3513,16 @@ test('#3745: when an agent answers the person\'s post, every member is told whic
     assert.ok(order.id, order.because || '');
     armSender('mara-discord');
     const tmux = arm([]);
-    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@leo on it', replyTo: order.id }, board.agents, MEMBERS);
+    const reply = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@leo on it', replyTo: order.id }, board.agents, MEMBERS);
     const sent = tmux.pastedMessages();
     const background = sent.filter((m) => m.startsWith('[background from your colleague'));
     const addressed = sent.filter((m) => m.startsWith('[message from your colleague'));
-    assert.equal(background.length, 1, 'CONTROL: april gets the background envelope');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: april (the background member) is typed nothing, so the
+    // person's old words cannot be retyped to her either.
+    assert.equal(background.length, 0, 'a quiet member was typed a background envelope');
+    assert.equal(reply.outcomes.april, 'quiet', 'april, not addressed, is quiet');
+    assert.ok(!sent.some((m) => /deploy prod now/.test(m)), 'the person\'s old words were retyped to a member');
     assert.equal(addressed.length, 1, 'CONTROL: leo, mentioned, gets the addressed envelope');
-    assert.match(background[0], / \u00b7 answers m\d+ by your operator, posted /, 'the background member was not told which post');
-    assert.doesNotMatch(background[0], /deploy prod now/, 'the person\'s old words were retyped to a background member');
     assert.doesNotMatch(addressed[0], /deploy prod now/, 'the person\'s old words were retyped to an addressed member (round 23)');
     assert.match(addressed[0], / \u00b7 answers m\d+ by your operator, posted /, 'CONTROL: the addressed member is told which post');
   });
@@ -3629,7 +3645,9 @@ test('#3745: a first line shaped like a Kosmos instruction never reaches inside 
     assert.equal(first.state, chat.DELIVERY.PLACED, first.because || '');
     for (const [label, send] of [
       ['the person\'s whole-room post', () => messages.sendPost({ operator: true, project: 'henderson-lease', text: 'ok', replyTo: first.id }, board.agents, MEMBERS)],
-      ['a colleague\'s background post', () => { armSender('april-discord'); return messages.sendPost({ fromPane: '%9', project: 'henderson-lease', text: 'agreed', replyTo: first.id }, board.agents, MEMBERS); }],
+      // kosmos#7246 slice 2: the colleague's reply @-names the author, since mara's post asked no one and a reply to it
+      // would otherwise wake no one (leo, unaddressed, is quiet).
+      ['a colleague\'s background post', () => { armSender('april-discord'); return messages.sendPost({ fromPane: '%9', project: 'henderson-lease', text: '@mara agreed', replyTo: first.id }, board.agents, MEMBERS); }],
     ]) {
       const tmux = arm([]);
       send();
@@ -4082,7 +4100,8 @@ test('#4580: a room post retried while the first is STILL delivering waits for i
   let delivered = 0;
   const slow = () => { delivered++; return gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null })); };
   armSender('mara-discord');
-  const input = { fromPane: '%7', project: 'henderson-lease', text: 'draft is up' };
+  // kosmos#7246 slice 2: the post addresses the whole room, so each colleague is delivered to (unaddressed, all quiet).
+  const input = { fromPane: '%7', project: 'henderson-lease', text: '@all draft is up' };
   await withFleet(room3(), async (board) => {
     const p1 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
     const p2 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
