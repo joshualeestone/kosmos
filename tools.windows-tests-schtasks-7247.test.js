@@ -386,3 +386,15 @@ test('#7270 review 3: a quoted path is read both as a path and as a line, and ei
     'command -p -v schtasks', 'env --split-string="node x.js"'])
     assert.equal(commandRuns(cmd), false, cmd);
 });
+
+test('#7270 review 4: cmd drops the first and last quote after /c, which can move an & out of quotes', () => {
+  // each one runs its last command under cmd (checked live with echo in place of schtasks)
+  for (const args of [
+    ['/c', 'echo a b', 'x & schtasks'], ['/c', 'echo x y', 'z', '& schtasks'], ['/d', '/s', '/c', 'echo a b', 'x & schtasks'],
+    ['/c', 'C:\\Program Files\\x\\tool.exe', 'arg & schtasks /End'],
+  ]) assert.equal(callRuns('cmd', args), true, JSON.stringify(args));
+  assert.equal(commandRuns('cmd /c "a b" "x & schtasks" /End'), true);
+  // CONTROL: one quoted argument after a plain word still only echoes, and a tool path with a space runs that tool
+  assert.equal(callRuns('cmd', ['/c', 'echo', 'a & schtasks']), false);
+  assert.equal(callRuns('cmd', ['/c', 'C:\\Program Files\\x\\tool.exe', 'arg']), false);
+});

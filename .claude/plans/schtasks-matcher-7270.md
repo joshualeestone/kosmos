@@ -19,7 +19,8 @@ tools/no-schtasks-preload.cjs (tools/lib/schtasks-call.cjs) missed common prefix
 - words: `<` and `>` end a word; the redirect's target and the 2 of `2>` are not words.
 - wordsRun: NAME=value and a leading @ skipped; nohup/exec/command/builtin/time/nice/then/else/do/! read past their
   options; timeout read past its duration (Windows' `timeout /t` runs nothing); cmd's if forms; env -S read as the line.
-- cmd /c: if the line starts with `""`, also read it with the outer pair dropped, as cmd does.
+- cmd /c: a line that starts with a quote is read as written AND with its first and last quote dropped, as cmd does
+  (review 4); either one running schtasks is enough.
 - callRuns: each launcher read as it reads its arguments: cmd gets the line node builds (nodeQuote, libuv rules: quote on
   space, tab, double quote or empty; \" inside), plus the as-written line when an argument holds a double quote;
   PowerShell gets the arguments joined, as it joins what follows -Command; a POSIX shell or env gets each argument as
@@ -66,3 +67,9 @@ holds each one.
   NIT ACCEPTED (leak on main too): echo "`schtasks`" in POSIX double quotes; a quoted path to nohup. Both reviewers'
   harnesses rerun: every HEAD-false/main-true case is the intended one-quoted-argument read (truth: does not run).
   Negative control: both new tests fail against round 2. 80/80 with windows-tests-1777 and win32job.
+- Round 4: 1 BLOCKER, 2 NITs. BLOCKER FIXED: cmd drops the first and last quote after /c in the general case, not only
+  `""path"`, which moves an & out of quotes (cmd /c "echo a b" "x & schtasks"; reviewer proved it live). The line is
+  read both ways now; the exec-line NIT is fixed by the same change. NIT ACCEPTED: refusals that need the word schtasks
+  (x"&schtasks to cmd, PowerShell syntax errors). Reviewer harnesses rerun on the fix: live cmd proof matches truth on
+  every row; fuzz differentials 0 leak regressions. 300k-call fuzz: nothing throws. Negative control: the new test fails
+  against round 3. 81/81 with windows-tests-1777 and win32job.

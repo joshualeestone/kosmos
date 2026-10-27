@@ -126,9 +126,13 @@ function wordsRun(ws, i, depth, shell) {
     if (CMD.test(b)) {
       for (i += 1; i < ws.length && /^\//.test(ws[i].text); i += 1) {
         if (/^\/[ckr]$/i.test(ws[i].text)) {
-          const line = rest(i + 1);
-          /* cmd /c ""C:\Program Files\x\schtasks.exe" /End": cmd drops the first and last quote (#7270). */
-          return lineRuns(line, depth + 1, 'other') || (/^""/.test(line) && /"$/.test(line) && lineRuns(line.slice(1, -1), depth + 1, 'other'));
+          const line = rest(i + 1).trim();
+          /* A line after /c that starts with a quote: unless it is exactly one quoted program, cmd drops that quote and
+             the LAST quote on the line, which can move an & out of quotes (cmd /c "a b" "x & schtasks"; review 4, seen
+             live). It is read both as written and stripped, and either one running schtasks is enough. */
+          const last = line.lastIndexOf('"');
+          const stripped = line.startsWith('"') && last > 0 ? line.slice(1, last) + line.slice(last + 1) : null;
+          return lineRuns(line, depth + 1, 'other') || (stripped !== null && lineRuns(stripped, depth + 1, 'other'));
         }
       }
       continue;   // cmd with no /c: what follows is read as the command
