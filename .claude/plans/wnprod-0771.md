@@ -22,3 +22,12 @@ whats-new-check 0.7.71: 5 highlights (mac 5, windows 5). `whats-new-pool.js prod
   agent moved to another account is no longer stuck on a question you already answered, unless its folder is in a git
   repository." (the exception #6085 keeps). It was never shown, so the title change cannot break a `shown` match.
 - NITs RECORDED: the community line does not name where in Settings it is; it counts moderator-removed comments too.
+
+## Added: engine/tasks.repeat-4787.test.js steps days with nextAfter (DST)
+Found by this branch's validation (1 red, red alone twice, red on main too): the #4787 slice 2 test added days as
+86400000 ms. From 09:00 CDT on 2026-10-27 its later steps cross the Nov 1 daylight-saving change, so in America/Chicago
+(Mortals' zone, and the Agent1s CI runners') a run lands an hour off its 09:00 slot. Red in Chicago and New York, green
+in UTC, Tokyo and London; it passed at 07:17 because before 09:00 its slots stopped short of Nov 1. It would have
+aborted the 0.7.71 re-cut at step 3. The product already follows the clock (taskrepeat.nextAfter); only the test
+assumed a 24-hour day. Fix: day2 and day3 are taken with nextAfter. 25/25 in all five zones. Carried in this PR so the
+re-cut needs one CI cycle, not two.
