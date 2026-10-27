@@ -88,6 +88,8 @@ check(said(#"{"renamed":{"changed":true,"ok":true,"was":"Bob"}}"#, running: fals
 check(said(#"{"renamed":{"changed":false,"ok":false,"because":"we could not update its instructions"}}"#) == "Saved here, but we could not update its instructions.", "a partial save says so")
 check(said(#"{"reports":{"state":"told"}}"#, typed: "Bob") == "Saved. They are running on what they read when they started, so restart them to use it now. You can restart them from your computer." && said(#"{"reports":{"state":"told"}}"#, running: false, typed: "Bob") == "Saved.", "reports-to told: restart only while running")
 check(said(#"{"reports":{"state":"could_not","because":"its file is locked"}}"#, typed: "Bob") == "Saved here, but its file is locked.", "reports-to could not")
+check(said(#"{"renamed":{"changed":false,"ok":false,"because":"a"},"reports":{"state":"could_not","because":"b"}}"#, typed: "Bob") == "Saved here, but b.", "both could not: the reports-to reason last, as the board (review 5)")
+check(said(#"{"renamed":{"changed":false,"ok":false,"because":"a"},"reports":{"state":"told"}}"#, running: false, typed: "Bob") == "Saved.", "the board's order: reports told while stopped ends on Saved.")
 let boardSave = boardPage.components(separatedBy: .newlines).joined(separator: " ")
 for phrase in ["'Saved. Its instructions say the new name too, so restart it when you are ready and it will know.'", "'Saved. It will know its new name when it next starts.'",
                "'Saved here, but ' + ren.because + '.'", "' will not answer to '", "' until you restart it. '",

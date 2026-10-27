@@ -171,20 +171,26 @@ extension Board {
         if changed && running && edited && !was.isEmpty && was != renameTo {
             return "Saved. \(was) will not answer to \(renameTo) until you restart it. You can restart it from your computer."
         }
+        // As the board: the rename's sentence first, then the reports-to half overrides it unless the rename changed the
+        // file (review 5: both could-not ends on the reports-to reason there).
+        var line = "Saved."
         if let ren {
             if changed {
-                return running ? "Saved. Its instructions say the new name too, so restart it when you are ready and it will know."
+                line = running ? "Saved. Its instructions say the new name too, so restart it when you are ready and it will know."
                                : "Saved. It will know its new name when it next starts."
+            } else if (ren["ok"] as? Bool) == false, let why = ren["because"] as? String, !why.isEmpty {
+                line = "Saved here, but \(why)."
             }
-            if (ren["ok"] as? Bool) == false, let why = ren["because"] as? String, !why.isEmpty { return "Saved here, but \(why)." }
         }
-        if let rep = saved["reports"] as? [String: Any] {
-            if rep["state"] as? String == "told" && running {
-                return "Saved. They are running on what they read when they started, so restart them to use it now. You can restart them from your computer."
+        if let rep = saved["reports"] as? [String: Any], !changed {
+            if rep["state"] as? String == "told" {
+                line = running ? "Saved. They are running on what they read when they started, so restart them to use it now. You can restart them from your computer."
+                               : "Saved."
+            } else if rep["state"] as? String == "could_not", let why = rep["because"] as? String, !why.isEmpty {
+                line = "Saved here, but \(why)."
             }
-            if rep["state"] as? String == "could_not", let why = rep["because"] as? String, !why.isEmpty { return "Saved here, but \(why)." }
         }
-        return "Saved."
+        return line
     }
 
     // MARK: Instructions and skills, read only here

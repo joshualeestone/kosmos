@@ -47,3 +47,8 @@ and dark, and never the conversation again.
   put in a request path says its settings are changed on the computer's board (never "could not reach"); an unreadable
   200 says it cannot tell whether it saved; the row reads "More on your computer's board"; the info button's label
   uses the agent's current name. KEPT: the segmented control at accessibility sizes (a system control).
+- Round 5 (agentinfo-7267-review5.md): 0 blockers, 1 warning, 3 nits, all fixed. The last row reads "Open on your
+  computer's board" and says the board opens on the conversation with AI Settings beside it (the board reads ?sec=
+  only for Settings; the deep link to AI Settings is filed as #7280); the segmented control is hidden for an agent the
+  page cannot load; the fields are locked until the first read; the after-save sentence follows the board's order when
+  both halves could not. Shots retaken at this commit.

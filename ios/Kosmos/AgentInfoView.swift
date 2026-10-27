@@ -85,11 +85,13 @@ struct AgentInfoView: View {
                 }
             }
             .accessibilityElement(children: .combine)
+            if Board.isAgentSession(agent.session) {   // review 5: nothing to switch between for an agent it cannot load
             Picker("Section", selection: $part) {
                 ForEach(Part.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
             .padding(.top, 6)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
@@ -100,7 +102,9 @@ struct AgentInfoView: View {
     @ViewBuilder private var profile: some View {
         Section {
             TextField("What you call them", text: $nameText)
-                .disabled(saving)   // review 2: typing during a save would be marked saved, then overwritten
+                // Review 2: typing during a save would be marked saved, then overwritten. Review 5: and before the first read,
+                // what was typed would be overwritten by it.
+                .disabled(saving || details == nil)
                 .onChange(of: nameText) { v in let c = Board.capped(v); if c != v { nameText = c } }
                 .textInputAutocapitalization(.words)
                 .foregroundColor(Palette.primary)
@@ -109,7 +113,7 @@ struct AgentInfoView: View {
         }
         Section {
             TextField("Executive Assistant, Bookkeeper, Researcher…", text: $roleText)
-                .disabled(saving)
+                .disabled(saving || details == nil)
                 .onChange(of: roleText) { v in let c = Board.capped(v); if c != v { roleText = c } }
                 .foregroundColor(Palette.primary)
         } header: { label("What they do") } footer: {
@@ -213,14 +217,16 @@ struct AgentInfoView: View {
         Section {
             Button(action: openOnBoard) {
                 HStack {
-                    Text("More on your computer\u{2019}s board").foregroundColor(Palette.primary)
+                    Text("Open on your computer\u{2019}s board").foregroundColor(Palette.primary)
                     Spacer()
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(Palette.tertiary)
                 }
             }
         } footer: {
             // Not "open its Terminal": from a phone the board refuses that (it opens on the computer itself; review 3).
-            Text("Change the model or the account it runs on, restart it, or remove it.")
+            // Review 5: the board opens an agent's page on its conversation (it reads ?sec= only for Settings), so this
+            // says where the rest is rather than promising to land there; the deep link is a follow-up (#7280).
+            Text("Its page there opens on the conversation. AI Settings, beside it, changes the model or the account it runs on, restarts it, or removes it.")
         }
     }
 
