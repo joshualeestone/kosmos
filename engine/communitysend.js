@@ -1494,7 +1494,7 @@ async function sweepInstallGroup(keys, on) {
  *   anything else (no answer, a 5xx, a 401 logging in again did not clear): the pass pauses 15 minutes (a 503's
  *   Retry-After is not honoured: the 15 minutes is longer, so safe, and a linked page can wait that long);
  *   a mint refused on this computer before it was sent (a register or a Forget is out): no pause.
- * Pauses are per endpoint, in memory.
+ * The owner-link pauses are per endpoint, in memory; the #4953 limiter pause is per agent, as for posts.
  * Production passes go only to the production site: nothing is linked unless the community service and the Kosmos+
  * coordinator are both the defaults or both overridden (a board pointed at another community while signed in to the
  * real Kosmos+ would hand that service a live pass for the person's account, which it could present at the real site
@@ -1543,14 +1543,21 @@ function ownerLinkPassLog(ep, why, reason = why) {   // reason: what makes it th
   ownerLinkPassLogged.set(ep, reason);
   log(`owner link: ${why}`);
 }
+/* Whether an address is a production one, judged by its host name (case, a trailing slash or a port do not make
+   production read as an override). An address that cannot be read counts as production: the safe side for both. */
+function ownerLinkProdHost(address, defaults) {
+  const host = (u) => { try { return new URL(String(u)).hostname.toLowerCase(); } catch { return null; } };
+  const h = host(address);
+  return h === null || defaults.some((d) => host(d) === h);
+}
 async function sweepOwnerLink(keys, on) {
   if (!on || !switchOn() || !ownerLinkLive()) return;
   const mac = ownerLinkMac();
   if (!mac) return;
   const ep = endpointDir();
-  const prodSite = serviceId() === (SAME_SERVICE[DEFAULT_ENDPOINT] || DEFAULT_ENDPOINT);
   const remote = require('./remote');
-  const prodCoordinator = remote.COORDINATOR() === remote.DEFAULT_COORDINATOR;
+  const prodSite = ownerLinkProdHost(endpoint(), [DEFAULT_ENDPOINT, ...Object.values(SAME_SERVICE)]);
+  const prodCoordinator = ownerLinkProdHost(remote.COORDINATOR(), [remote.DEFAULT_COORDINATOR]);
   if (prodSite !== prodCoordinator) {
     ownerLinkPassLog(ep, 'not linking: this community service and the Kosmos+ coordinator are not the same deployment (one is the default, one is overridden)', 'deployment mismatch');
     return;
@@ -1621,7 +1628,9 @@ async function sweepOwnerLink(keys, on) {
           : st === 400 ? 'Kosmos+ refused the request for two agents in one pass (400), so the request itself is likely wrong'
           : st === 403 ? 'Kosmos+ does not let this computer vouch for agents (403: not allowed on the account, or it lapsed)'
             : 'Kosmos+ did not answer as expected' + (st ? ` (${st})` : '') + (minted.because ? `: ${String(minted.because).slice(0, 200)}` : '');
-        ownerLinkPassLog(ep, `${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
+        // Said once per kind of failure: the reason's own words can differ from one call to the next.
+        const said = unknown ? 'unknown route' : epoch ? 'wrong epoch' : 'coordinator ' + st;
+        ownerLinkPassLog(ep, `${what}; trying again in ${unknown ? 'an hour' : ownerLinkWait(OWNER_LINK_RETRY_MS)}`, said);
         break;
       }
       const r = await asAgent(agentKey, keys, 'POST', '/agents/me/owner', { pass: minted.data.pass });

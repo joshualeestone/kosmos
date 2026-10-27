@@ -82,6 +82,8 @@ function backend() {
 
 // remote, stubbed: signed in with Kosmos+ on, a mac id, and a coordinator that vouches by name.
 const real = { enrolled: remote.enrolled, read: remote.read, macIdHere: remote.macIdHere, macRequest: remote.macRequest, busy: remote.busy };
+// The stubs below replace these; the sweep calls the real ones in the product, so they must exist there.
+for (const [k, f] of Object.entries(real)) assert.equal(typeof f, 'function', 'remote.' + k + ' is not a function');
 let R;
 function stubRemote() {
   R = { enrolled: true, on: true, mac: 'mac-1', mints: [], mint: null, busy: null };
@@ -337,6 +339,18 @@ test('production passes only to the production site: a loopback community with t
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was; }
   await cs.sweep();
   assert.ok(agentNamed('ava').owner, 'control: with both overridden it links');
+});
+
+test('the production coordinator spelled another way (case, a trailing slash, a port) is still production', async () => {
+  await registered('ava');
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  try {
+    for (const spelled of ['https://login.kosmosplus.com/', 'https://LOGIN.kosmosplus.com', 'https://login.kosmosplus.com:443']) {
+      process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = spelled;
+      await cs.sweep();
+      assert.equal(R.mints.length, 0, spelled + ' read as an override, and a production pass was asked for a loopback community');
+    }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was; }
 });
 
 test('the site limiter on one agent (rate_limit_exceeded) pauses only that agent, which then spends no mint', async () => {
