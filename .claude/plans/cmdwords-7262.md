@@ -59,5 +59,14 @@ All 87 engine win32 tests and tools.windows-tests-schtasks-7247 pass with the sh
 tool-guard arms of tools.command-words-7262.test.js failed there: tool-guard's verdict is POSIX-shaped (a path needs a
 '/'; a bare name needs an executable file on PATH, and the stub is a #!/bin/sh file). Windows runs never preload
 tool-guard (tools/windows-tests.js loads only the schtasks preload), so this is a test-only gap, not a guard gap there.
+**Correction (review round 3, measured):** that last sentence is wrong. tools/run-tests.sh line 852 preloads
+tool-guard on every platform, so a Windows `npm test` loads it, and it never refuses a real gh.exe there (a path needs
+a '/', and the name must be exactly gh). That gap is older than this branch; it is #7318, not fixed here.
 Call (Homer's suggestion): those arms skip on win32, the schtasks arms run there, and the file is added to ALSO_ROOT.
 engine/windows-tests-1777.test.js requires that entry: measured, removing it reds that test naming this file.
+3. (default, 02:5x CDT) 1 WARNING, 3 NITs. (W) the win32 skip's reason was false: run-tests.sh preloads tool-guard on
+   Windows too (line 852). Applied: the test comment, the skip reason and the ALSO_ROOT comment now say tool-guard does
+   not judge Windows paths, the plan carries the correction above, and #7318 is filed (unclaimed, for Homer). (N) the
+   test header misstated who missed sudo; corrected. (N) on win32 the tool-guard verdict was still computed and
+   discarded; now it is not computed. Deferred: (N) the double file check (as rounds 1 and 2). The reviewer's
+   differential (60,000 lines, 40,000 calls, old readers from origin/main) found no realistic shape either guard lost.
