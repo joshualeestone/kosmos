@@ -25,3 +25,10 @@ refused (Remove until kosmos-relay S4 ships; Not me always), or shown not to be 
   machine (it would stop removing a lost phone).
 - Weakest premise: that the page shows the route's error sentence when a Remove is refused (it shows the route's
   error for other refusals); no page change here.
+
+## Review
+- Round 1 (cloudlock-7285-review1.md): 1 blocker, 1 warning, 2 nits, all fixed. BLOCKER: the keep-on did not stick (a
+  missing file reads as a readable off, and the next ordinary save wrote off into it): the file is now repaired to on
+  there and then, as the switch repairs it on a Mac. The test proves the repair holds after a save and pins that
+  ensure() uses cloudKeepsOn; a comma-joined header counts every piece; the log line says missing or damaged and
+  whether the file was written again.

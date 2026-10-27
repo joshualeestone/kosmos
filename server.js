@@ -12286,9 +12286,9 @@ const server = http.createServer(async (req, res) => {
            nothing here: a header can only make this refuse, never let a removal through, so a forged or missing one is
            safe; without them (an older tunnel) nothing changes. Another device can still remove this one. */
         if ((verb === 'remove' || verb === 'deny') && id && isRemoteRequest(req) && cloudMachine.isCloudMachine()) {
-          const own = (h) => { const v = req.headers[h]; return typeof v === 'string' && v !== '' && !v.includes(',') ? v : null; };
-          const sessKey = own('x-kosmos-session-key'); const sessDevice = own('x-kosmos-session-device');
-          if (id === sessKey || id === sessDevice) {
+          // Every piece of a comma-joined copy counts (review 1): a header can only make this refuse, so more is safer.
+          const own = (h) => { const v = req.headers[h]; return typeof v === 'string' ? v.split(',').map((x) => x.trim()).filter(Boolean) : []; };
+          if (own('x-kosmos-session-key').includes(id) || own('x-kosmos-session-device').includes(id)) {
             sendJson(res, 409, { code: 'own_device_cloud', cloud: true, error: 'This is the browser you are using to reach this Kosmos cloud machine, so it is not removed or turned away from here: you would have no way back. Use another phone or browser to remove it.' });
             return;
           }

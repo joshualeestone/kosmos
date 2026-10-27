@@ -57,6 +57,8 @@ test('#7285: on a cloud machine, Remove or Not me on the requesting browser itse
     assert.equal(got.body.code, 'own_device_cloud');
     assert.match(got.body.error, /no way back/);
   }
+  // A comma-joined copy: any piece counts (review 1).
+  assert.equal((await post('remove', 'k1.mine', { ...VIA_PLUS, 'x-kosmos-session-key': 'k1.other, k1.mine' })).status, 409);
   assert.deepEqual(calls, [], 'a refused request reached the engine');
 });
 

@@ -1068,7 +1068,9 @@ function setRelay(relay) {
 /* kosmos#7285 item 2: on a Kosmos cloud machine the tunnel is the person's only way in, and the switch that would
    repair a damaged remote.json is reachable only through it. So there, a settings file that cannot be read (or is
    gone) keeps the tunnel wanted instead of reading as off, which on a Mac is the safe answer and here is a lockout.
-   Switching it off on purpose is refused there anyway (server.js PUT /api/remote, kosmos#7277). Said once in the log. */
+   Switching it off on purpose is refused there anyway (server.js PUT /api/remote, kosmos#7277). Review 1: the file is
+   REPAIRED to on there and then, as the switch repairs it on a Mac, because a missing file reads as a readable off and
+   the next ordinary save (a standing refresh, within a poll) would write off into it. Said once in the log. */
 let cloudKeptOnSaid = false;
 function cloudKeepsOn() {
   let s;
@@ -1078,9 +1080,12 @@ function cloudKeepsOn() {
   let cloud = false;
   try { cloud = require('./cloudmachine').isCloudMachine(); } catch { cloud = false; }
   if (!cloud) return false;
+  let repaired = false;
+  try { repaired = write({ on: true }, { repair: true }).ok === true; } catch { repaired = false; }
   if (!cloudKeptOnSaid) {
     cloudKeptOnSaid = true;
-    process.stderr.write('remote: remote.json cannot be read on this Kosmos cloud machine; keeping remote access on, the only way in\n');
+    process.stderr.write('remote: remote.json is missing or damaged on this Kosmos cloud machine; remote access is kept wanted, the only way in'
+      + (repaired ? ', and the file is written again with it on\n' : ', but the file could not be written again\n'));
   }
   return true;
 }
