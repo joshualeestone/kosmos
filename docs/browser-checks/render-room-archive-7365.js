@@ -84,9 +84,10 @@ function findUnder(dir, name) {
     fs.writeFileSync(projFile, JSON.stringify(list.map((q) => (q.id === pid ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q))));
     const now = Date.now();
     const lines = [];
-    const row = (id, atMs, text) => lines.push({ kind: 'post', id, project: pid, from: 'roomer', to: [], text, at: new Date(atMs).toISOString(), outcomes: {} });
-    for (let i = 0; i < ARCHIVED; i++) row('a' + i, now - 10 * DAY + i * 60000, (i === 7 ? 'needle-old ' : '') + 'archived post ' + i);
-    for (let i = 0; i < LIVE; i++) row('l' + i, now - 5 * 60 * 60000 + i * 60000, (i === 9 ? 'needle-new ' : '') + 'live post ' + i);
+    const row = (id, atMs, text, replyTo) => lines.push({ kind: 'post', id, project: pid, from: 'roomer', to: [], text, at: new Date(atMs).toISOString(), outcomes: {}, ...(replyTo ? { replyTo } : {}) });
+    // a250 answers a249 (both archived); l1 answers a3 (an archived original, seen from the live room).
+    for (let i = 0; i < ARCHIVED; i++) row('a' + i, now - 10 * DAY + i * 60000, (i === 7 ? 'needle-old ' : '') + 'archived post ' + i, i === 250 ? 'a249' : null);
+    for (let i = 0; i < LIVE; i++) row('l' + i, now - 5 * 60 * 60000 + i * 60000, (i === 9 ? 'needle-new ' : '') + 'live post ' + i, i === 1 ? 'a3' : null);
     const logDir = path.dirname(projFile);
     fs.appendFileSync(path.join(logDir, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 
@@ -123,10 +124,13 @@ function findUnder(dir, name) {
     await p.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 5000 });
     const ask = await p.evaluate(() => ({ title: document.getElementById('pjarch-title').textContent.replace(/\s+/g, ' ').trim(),
       small: document.getElementById('pjarch-small').textContent.trim(), focus: document.activeElement && document.activeElement.id }));
-    chk(/^Archive messages older than this week/.test(ask.title) && /this month/.test(ask.title) && /everything before today/.test(ask.title)
+    chk(/^Archive messages older than this week/.test(ask.title) && /this month/.test(ask.title) && /everything older than a day/.test(ask.title)
       && /^They leave this room and what agents read here\. You can still search and open them, and undo this from the archive\.$/.test(ask.small),
       'the confirm reads "Archive messages older than [this week]?" with the three choices and what it does', JSON.stringify(ask));
     chk(ask.focus === 'pjarch-when', 'the confirm opens with the choice focused', String(ask.focus));
+    // It sits inside the room's section (no spare body row); position:fixed must still make it cover the whole window.
+    const cover = await p.evaluate(() => { const r = document.getElementById('pjarch-modal').getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight }; });
+    chk(cover.x === 0 && cover.y === 0 && cover.w === cover.vw && cover.h === cover.vh, 'the confirm\'s backdrop covers the whole window, though it sits inside the room\'s section', JSON.stringify(cover));
     await p.screenshot({ path: path.join(OUT, 'confirm.png') });
     await p.keyboard.press('Escape');
     await p.waitForTimeout(300);
@@ -159,10 +163,14 @@ function findUnder(dir, name) {
     chk(edge.archived === ARCHIVED, 'the live read says 260 posts are archived', String(edge.archived));
     chk(await p.locator('#pj-room .msg').filter({ hasText: /^archived post|archived post \d/ }).count() === 0, 'no archived post is in the live room');
     await p.screenshot({ path: path.join(OUT, 'boundary-row.png') });
+    const liveReply = await p.evaluate(() => { const r = [...document.querySelectorAll('#pj-room .msg')].find((m) => /live post 1\b/.test(m.textContent) && !/live post 1\d/.test(m.textContent)); const h = r && r.querySelector('.msg-replyto'); return h ? h.textContent.trim() : null; });
+    chk(liveReply === 'Original message may be in the archive', 'a live reply whose original is archived says it may be in the archive, not "unavailable"', String(liveReply));
+    const placeBefore = await p.evaluate(() => { const b = document.getElementById('pj-arch-open'); const box = document.getElementById('pj-room'); if (!b) return null; const r = b.getBoundingClientRect(), q = box.getBoundingClientRect(); return r.top >= q.top - 1 && r.bottom <= q.bottom + 1; });
 
     // View archive.
     await p.click('#pj-arch-open');
     await p.waitForSelector('#pj-arch-head:not([hidden])', { timeout: 5000 });
+    chk(await p.evaluate(() => document.activeElement && document.activeElement.id) === 'pj-arch-back', 'opening the archive moves focus to its header (Back to the room)');
     const arch = await p.evaluate(() => {
       const box = document.getElementById('pj-room');
       const msgs = [...box.querySelectorAll('.msg')];
@@ -173,6 +181,15 @@ function findUnder(dir, name) {
     chk(/^Archive 260 messages Undo Back to the room$/.test(arch.head) && arch.undo, 'the archive header reads "Archive · 260 messages · Undo · Back to the room"', arch.head);
     chk(arch.on && arch.n === 200 && /archived post 259/.test(arch.last) && !arch.live, 'the archive shows its newest page, the newest archived post at the bottom, and no live post', JSON.stringify({ n: arch.n, live: arch.live }));
     chk(!arch.start, 'CONTROL: on the first archive page the start-of-room line is not shown yet');
+    const archReply = await p.evaluate(() => { const r = [...document.querySelectorAll('#pj-room .msg')].find((m) => /archived post 250\b/.test(m.textContent)); if (!r) return null; const h = r.querySelector('.msg-replyto'); const vh = r.querySelector('.vh'); return { header: h ? h.textContent.trim() : null, heard: vh ? vh.textContent.trim() : null }; });
+    chk(!!archReply && !/unavailable/.test(JSON.stringify(archReply)) && /archived post 249/.test(JSON.stringify(archReply)), 'an archived reply names its archived original, not "unavailable"', JSON.stringify(archReply));
+    // A poll lands while the archive is open, with a new post in the live room: the archive stays as it is.
+    const sent = await fetch(base + '/api/project/' + pid + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'posted while the archive was open' }) });
+    chk(sent.ok, 'CONTROL: a post reached the live room while the archive was open', String(sent.status));
+    await p.waitForTimeout(6500);   // longer than the room's 5-second poll
+    const kept = await p.evaluate(() => ({ head: !document.getElementById('pj-arch-head').hidden, n: document.querySelectorAll('#pj-room .msg').length,
+      leaked: /posted while the archive was open|live post/.test(document.getElementById('pj-room').textContent) }));
+    chk(kept.head && kept.n >= 200 && !kept.leaked, 'a poll that lands while the archive is open leaves the archive on screen and paints no live row over it', JSON.stringify(kept));
     await p.screenshot({ path: path.join(OUT, 'archive-view.png') });
     for (let i = 0; i < 10 && !(await p.evaluate(() => PJ_ARCH.olderCount === 0)); i++) {
       await p.evaluate(() => { const b = document.getElementById('pj-room'); b.scrollTop = 0; b.dispatchEvent(new Event('scroll')); });
@@ -188,6 +205,10 @@ function findUnder(dir, name) {
     const back = await p.evaluate(() => ({ head: document.getElementById('pj-arch-head').hidden, on: document.getElementById('pj-room').classList.contains('pj-arch-on'),
       live: /live post 229/.test(document.getElementById('pj-room').textContent), arch: /archived post/.test(document.getElementById('pj-room').textContent) }));
     chk(back.head && !back.on && back.live && !back.arch, 'Back to the room hides the archive header and paints the live room', JSON.stringify(back));
+    chk(await p.evaluate(() => /posted while the archive was open/.test(document.getElementById('pj-room').textContent)), 'Back shows the post that arrived while the archive was open');
+    chk(await p.evaluate(() => document.activeElement && document.activeElement.id) === 'pj-post', 'Back moves focus to the room\'s message box');
+    const placeAfter = await p.evaluate(() => { const b = document.getElementById('pj-arch-open'); const box = document.getElementById('pj-room'); if (!b) return null; const r = b.getBoundingClientRect(), q = box.getBoundingClientRect(); return r.top >= q.top - 1 && r.bottom <= q.bottom + 1; });
+    chk(placeBefore === true && placeAfter === true, 'Back puts the reader back where they were (the boundary row they left from is in view)', JSON.stringify({ placeBefore, placeAfter }));
 
     // Search covers both, and an archived hit says so.
     await p.fill('#pj-room-search', 'needle');
@@ -206,6 +227,7 @@ function findUnder(dir, name) {
     await p.waitForSelector('#pj-arch-open', { timeout: 5000 }).catch(() => null);
     await p.click('#pj-arch-open');
     await p.waitForSelector('#pj-arch-undo:not([hidden])', { timeout: 5000 });
+    await p.focus('#pj-arch-undo');
     await p.click('#pj-arch-undo');
     await p.waitForFunction(() => document.getElementById('pj-arch-head').hidden, null, { timeout: 5000 }).catch(() => null);
     await p.waitForTimeout(800);
@@ -215,7 +237,16 @@ function findUnder(dir, name) {
     chk(undone.head && undone.count === 0, 'after Undo the page leaves the archive and counts nothing archived', JSON.stringify(undone));
     await scrollToStart();
     await p.waitForTimeout(300);
-    chk(await p.locator('#pj-arch-open').count() === 0, 'after Undo the start of the room has no boundary row');
+    chk(await p.locator('#pj-arch-head').isHidden() && await p.locator('#pj-arch-open').count() === 0, 'after Undo the start of the room has no boundary row (and the archive is not on screen)');
+    // "everything older than a day": the receipt names a time 24 hours back, the time the server keeps live from.
+    await p.click('#pj-arch-ask');
+    await p.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 5000 });
+    await p.selectOption('#pjarch-when', 'day');
+    await p.click('#pjarch-go');
+    await p.waitForSelector('#pjarch-modal', { state: 'hidden', timeout: 5000 });
+    const dayM = await (await fetch(base + '/api/project/' + pid + '/room?n=1&archive=0')).json();
+    const dayMs = dayM.archiveMarker ? Date.parse(dayM.archiveMarker.before) : NaN;
+    chk(Math.abs(dayMs - (Date.now() - DAY)) < 5 * 60 * 1000 && Number(dayM.archivedCount) === ARCHIVED, '"everything older than a day" archives up to 24 hours ago, and the 230 posts from today stay live', JSON.stringify({ before: dayM.archiveMarker && dayM.archiveMarker.before, archived: dayM.archivedCount }));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     if (browser) await browser.close();

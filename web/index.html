@@ -14470,19 +14470,6 @@ window.kosmosMeasureScrollbarWidth();
     <div class="fmsg" id="chg-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
-<!-- kosmos#7365 slice 3b: "Archive older messages" (Mona's design, card comment 6449440652). The wording promises no
-     more than the server does: it keeps the last day live, so the receipt states the time it actually used. -->
-<div class="rm-back" id="pjarch-modal" hidden>
-  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="pjarch-title" aria-describedby="pjarch-small">
-    <h2 class="rm-title" id="pjarch-title">Archive messages older than <select id="pjarch-when" aria-label="Archive messages older than"><option value="week">this week</option><option value="month">this month</option><option value="today">everything before today</option></select>?</h2>
-    <p class="rm-small" id="pjarch-small">They leave this room and what agents read here. You can still search and open them, and undo this from the archive.</p>
-    <div class="rm-acts">
-      <button class="btn" id="pjarch-keep" type="button">Keep them here</button>
-      <button class="btn uprime" id="pjarch-go" type="button">Archive</button>
-    </div>
-    <div class="fmsg" id="pjarch-msg" role="alert" aria-live="assertive"></div>
-  </div>
-</div>
 <!-- #514: the delete confirmation. Every sentence in it is the engine's
      (`question`, `reassurance`, `loses`, `verb`): a screen that composes its
      own description of a destructive act can drift from the act. Keep is
@@ -17460,8 +17447,8 @@ window.kosmosMeasureScrollbarWidth();
     <section class="pjcol pjmid">
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
         <div class="pjconvsearch">
-        <!-- kosmos#7365 slice 3b: the room has no menu, so its one archive action is a quiet button here. -->
-        <button type="button" class="btn-quiet pj-arch-ask" id="pj-arch-ask">Archive older messages</button>
+          <!-- kosmos#7365 slice 3b: the room has no menu, so its one archive action is a quiet button here. -->
+          <button type="button" class="btn-quiet pj-arch-ask" id="pj-arch-ask">Archive older messages</button>
           <button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
         <div class="tsearch">
           <span class="tsearch-i" aria-hidden="true">
@@ -17484,6 +17471,21 @@ window.kosmosMeasureScrollbarWidth();
            this line floats over the top while one loads, and a failed load takes a row of its own with Try again. -->
       <!-- kosmos#7365 slice 3: the room's archive opens in this same panel, under this header (Mona's design). -->
       <div class="pj-arch-head" id="pj-arch-head" hidden><b>Archive</b> <span id="pj-arch-count"></span> <button type="button" class="btn-quiet" id="pj-arch-undo" hidden>Undo</button> <button type="button" class="btn-quiet" id="pj-arch-back">Back to the room</button></div>
+      <!-- Inside the room's section, not the body: it is opened only from here, and the consolidated grid has no spare
+           body row (web.consolidated-980.test.js). It is position:fixed, so it still covers the window. -->
+      <!-- kosmos#7365 slice 3b: "Archive older messages" (Mona's design, card comment 6449440652). The wording promises no
+           more than the server does: it keeps the last day live, so the receipt states the time it actually used. -->
+      <div class="rm-back" id="pjarch-modal" hidden>
+        <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="pjarch-title" aria-describedby="pjarch-small">
+          <h2 class="rm-title" id="pjarch-title">Archive messages older than <select id="pjarch-when" aria-label="Archive messages older than"><option value="week">this week</option><option value="month">this month</option><option value="day">everything older than a day</option></select>?</h2>
+          <p class="rm-small" id="pjarch-small">They leave this room and what agents read here. You can still search and open them, and undo this from the archive.</p>
+          <div class="rm-acts">
+            <button class="btn" id="pjarch-keep" type="button">Keep them here</button>
+            <button class="btn uprime" id="pjarch-go" type="button">Archive</button>
+          </div>
+          <div class="fmsg" id="pjarch-msg" role="alert" aria-live="assertive"></div>
+        </div>
+      </div>
       <div class="dm-earlier-wrap"><p class="dm-earlier" id="pj-room-older" role="status" aria-live="polite" hidden><span id="pj-room-older-text"></span> <button type="button" class="btn-quiet" id="pj-room-older-show" hidden>Try again</button></p></div>
       <div class="thread" id="pj-room"></div>
       <!-- ⚠️ THE ROOM'S HALF OF THE SAME SIGNAL (#176), mounted where the agent
@@ -75613,6 +75615,9 @@ function openProject(id) {
     PJ_SEARCH_WAS_EMPTY = false;
     document.getElementById('pj-room-search').value = '';
     pjWinReset(id);   // kosmos#7365: the earlier pages belong to the room they were read from
+    /* kosmos#7365 slice 3b: and the archive view to the room it was opened in. Not inside pjWinReset: the poll resets the
+       window when a gap read does not join, and that must not close an archive the person is reading (review 1). */
+    if (typeof pjArchReset === 'function') pjArchReset();
     /* The scroll query too: left standing, a quick A-to-B-to-A (B's fetch
        failed or still in flight) re-enters A with the query already equal, reads
        as no view change, and lands the reader on the OLDEST post. Undefined makes
@@ -75846,8 +75851,8 @@ let PJ_ROOM_GEN = 0;
    whole and filtered as before, so search still finds every message. */
 const PJ_WIN_PAGE = 200;
 const PJ_WIN_HOLD_MAX = 1000;   // rows held because new posts ARRIVED, at most (reviews 6, 7); the live count Mona's design keeps
-const PJ_WIN = { pid: null, older: [], byReader: false, paintedAt: 0, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0, archivedCount: 0 };
-function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1, archivedCount: 0 }); if (typeof pjArchReset === 'function' && typeof PJ_ARCH !== 'undefined') pjArchReset(); pjWinOlderLine(); }
+const PJ_WIN = { pid: null, older: [], byReader: false, paintedAt: 0, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0, archivedCount: 0, archiveMarker: null };
+function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1, archivedCount: 0, archiveMarker: null }); pjWinOlderLine(); }
 /* The line over the room's top: "Loading earlier messages..." while a page is read; after a failed read, why, with Try
    again, which stays until the person presses it (a scroll event must not turn one failure into a stream of requests,
    as the Direct conversation's line learned, #6086). Nothing at all otherwise. */
@@ -75857,9 +75862,11 @@ function pjWinOlderLine() {
   const textEl = document.getElementById('pj-room-older-text');
   const retry = document.getElementById('pj-room-older-show');
   if (!line || !textEl || !retry) return;
-  const mine = PJ_WIN.pid === PJ_CURRENT && PJ_ROOM_QUERY.trim() === '';   // a search reads the whole room: no line then
-  const failed = mine && Boolean(PJ_WIN.because) && !PJ_WIN.loading;
-  const text = !mine ? '' : failed ? PJ_WIN.because : PJ_WIN.loading ? 'Loading earlier messages\u2026' : '';
+  // kosmos#7365 slice 3b: while the archive is open, the line speaks for the archive's pages instead.
+  const W = typeof PJ_ARCH !== 'undefined' && pjArchShowing() ? PJ_ARCH : PJ_WIN;
+  const mine = W.pid === PJ_CURRENT && PJ_ROOM_QUERY.trim() === '';   // a search reads the whole room: no line then
+  const failed = mine && Boolean(W.because) && !W.loading;
+  const text = !mine ? '' : failed ? W.because : W.loading ? 'Loading earlier messages\u2026' : '';
   if (textEl.textContent !== text) textEl.textContent = text;
   retry.hidden = !failed;
   if (line.parentNode) line.parentNode.classList.toggle('dm-earlier-failed', failed);
@@ -75918,6 +75925,13 @@ async function pjWinEarlier(byReader) {
   else pjWinNearTop();   // still too short to scroll: the page before that one too
 }
 document.getElementById('pj-room-older-show').addEventListener('click', (e) => {
+  if (typeof PJ_ARCH !== 'undefined' && pjArchShowing()) {   // kosmos#7365 slice 3b: the archive's own Try again
+    if (PJ_ARCH.loading) return;
+    if (document.activeElement === e.currentTarget) { const back = document.getElementById('pj-arch-back'); if (back) back.focus({ preventScroll: true }); }
+    PJ_ARCH.because = null;
+    pjArchEarlier();
+    return;
+  }
   if (PJ_WIN.pid !== PJ_CURRENT || PJ_WIN.loading) return;
   /* The button hides as the read starts, so keyboard focus would fall to the page: it moves to the room's message box,
      still inside the room, as the Direct conversation's Try again does (review 3). */
@@ -75991,7 +76005,6 @@ async function pjWinRead(pid, n, cursor, archive) {
   const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room?' + q);
   const body = await res.json();
   if (!res.ok || !body || !Array.isArray(body.rows)) throw new Error((body && body.error) || 'we could not read the room');
-  if (!archive && typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === pid) { PJ_WIN.archivedCount = Number(body.archivedCount) || 0; PJ_WIN.archiveMarker = body.archiveMarker || null; }
   return body;
 }
 /* kosmos#7365 slice 3: whether the window holds the room's live history back to its start (nothing older is unread). */
@@ -76002,12 +76015,15 @@ function pjWinAtStart() {
    archive=1, newest first, earlier pages on scroll to the top. While it is open the live room is not painted (every
    paint goes through paintRoom, which returns early), and the poll goes on reading the live room underneath, so Back
    to the room paints what is current. A search ends the view: search covers both, with an Archived tag. */
-const PJ_ARCH = { on: false, pid: null, rows: [], cursor: null, olderCount: 0, count: 0, loading: false, because: null, gen: 0 };
+/* `anchor` is the live room's place when the archive opened (threadAnchor), put back by Back to the room; `posts` maps
+   the archive's own posts by id, so a reply in the archive can name an original that is also archived. */
+const PJ_ARCH = { on: false, pid: null, rows: [], posts: new Map(), cursor: null, olderCount: 0, count: 0, loading: false, because: null, anchor: null, gen: 0 };
 function pjArchReset() {
-  Object.assign(PJ_ARCH, { on: false, pid: null, rows: [], cursor: null, olderCount: 0, count: 0, loading: false, because: null, gen: PJ_ARCH.gen + 1 });
+  Object.assign(PJ_ARCH, { on: false, pid: null, rows: [], posts: new Map(), cursor: null, olderCount: 0, count: 0, loading: false, because: null, anchor: null, gen: PJ_ARCH.gen + 1 });
   if (typeof document === 'undefined') return;
   const head = document.getElementById('pj-arch-head'); if (head) head.hidden = true;
   const box = document.getElementById('pj-room'); if (box) box.classList.remove('pj-arch-on');
+  pjWinOlderLine();
 }
 function pjArchShowing() { return PJ_ARCH.on && PJ_ARCH.pid === PJ_CURRENT; }
 function paintArch() {
@@ -76020,14 +76036,17 @@ function paintArch() {
   document.getElementById('pj-arch-head').hidden = false;
   box.classList.add('pj-arch-on');
   const start = PJ_ARCH.olderCount === 0 ? '<div class="pj-arch-edge">This is the start of the room.</div>' : '';
+  PJ_ARCH.posts = new Map(PJ_ARCH.rows.filter((r) => r && r.kind === 'post' && typeof r.id === 'string').map((r) => [r.id, r]));
   const body = PJ_ARCH.rows.map((m) => pjRoomRow(m, p, false)).join('');
   box.innerHTML = start + (body || '<p class="fhint" style="margin:0;">Nothing in this room is archived now.</p>');
 }
 async function pjArchOpen() {
   const pid = PJ_CURRENT;
   if (!pid) return;
+  const box0 = document.getElementById('pj-room');
+  const anchor = box0 ? threadAnchor(box0) : null;
   pjArchReset();
-  Object.assign(PJ_ARCH, { on: true, pid, loading: true });
+  Object.assign(PJ_ARCH, { on: true, pid, loading: true, anchor });
   let page = null;
   try { page = await pjWinRead(pid, PJ_WIN_PAGE, null, true); } catch { page = null; }
   if (!pjArchShowing() || PJ_ARCH.pid !== pid) return;
@@ -76037,51 +76056,73 @@ async function pjArchOpen() {
   paintArch();
   const box = document.getElementById('pj-room');
   box.scrollTop = box.scrollHeight;
+  // The View archive button went with the old rows, so focus moves to the archive's own header (review 1).
+  const back = document.getElementById('pj-arch-back');
+  if (back) back.focus({ preventScroll: true });
+  pjRoomAnnounce('Showing the archive, ' + document.getElementById('pj-arch-count').textContent + '.');
 }
 async function pjArchEarlier() {
   const box = document.getElementById('pj-room');
   if (!pjArchShowing() || PJ_ARCH.loading || PJ_ARCH.because || !PJ_ARCH.cursor || !(PJ_ARCH.olderCount > 0)) return;
   const pid = PJ_ARCH.pid, gen = PJ_ARCH.gen;
   PJ_ARCH.loading = true;
+  pjWinOlderLine();
   let page = null;
   try { page = await pjWinRead(pid, PJ_WIN_PAGE, PJ_ARCH.cursor, true); } catch { page = null; }
   if (gen !== PJ_ARCH.gen || !pjArchShowing()) return;
   PJ_ARCH.loading = false;
-  if (!page) { PJ_ARCH.because = 'We could not read the earlier archived messages.'; msgToast(PJ_ARCH.because); return; }
+  // A failed page says so on the earlier-pages line, with Try again, as the live room's does (#6086).
+  if (!page) { PJ_ARCH.because = 'We could not read the earlier archived messages.'; pjWinOlderLine(); return; }
   Object.assign(PJ_ARCH, { rows: pjWinMerge(page.rows, PJ_ARCH.rows), cursor: page.olderCursor || null, olderCount: Number(page.olderCount) || 0 });
+  pjWinOlderLine();
   const anchor = threadAnchor(box);
   paintArch();
   if (anchor) restoreThreadAnchor(box, anchor);
 }
-function pjArchClose() {
+/* Back to the room, and the end of Undo: the live room is painted from the poll's latest body and the reader is put back
+   on the message they were on when the archive opened. Focus goes to the room's message box (the header that held the
+   pressed button is hidden). `quiet` is for Undo, which says its own sentence. */
+function pjArchClose(quiet) {
   if (!PJ_ARCH.on) return;
+  const anchor = PJ_ARCH.anchor;
+  const hadFocus = document.activeElement && document.activeElement.closest && document.activeElement.closest('#pj-arch-head');
   pjArchReset();
   const box = document.getElementById('pj-room');
   if (box && box.__lastBody) { box.__lastRoom = undefined; paintRoom(box.__lastBody); }
+  if (box && anchor) restoreThreadAnchor(box, anchor);
+  if (hadFocus) { const post = document.getElementById('pj-post'); if (post) post.focus({ preventScroll: true }); }
+  if (!quiet) pjRoomAnnounce('Back in the room.');
 }
 document.getElementById('pj-arch-back').addEventListener('click', () => pjArchClose());
 document.getElementById('pj-arch-undo').addEventListener('click', async (e) => {
   const pid = PJ_ARCH.pid;
   if (!pid) return;
-  e.currentTarget.disabled = true;
+  // Held before the await: once the handler has awaited, the event's currentTarget is null (review 1).
+  const btn = e.currentTarget;
+  btn.disabled = true;
   let ok = false;
   try { const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room/archive/undo', { method: 'POST' }); ok = res.ok; } catch { ok = false; }
-  e.currentTarget.disabled = false;
+  btn.disabled = false;
   if (!ok) { msgToast('We could not undo the archive just now; nothing changed.'); return; }
-  msgToast('Undone. Messages you archived are back in the room; any older than 30 days and past the newest 1,000 stay archived.');
-  pjArchClose();
-  loadRoom();
+  const said = 'Undone. Messages you archived are back in the room; any older than 30 days and past the newest 1,000 stay archived.';
+  msgToast(said);
+  pjArchClose(true);
+  // As after Archive: the window held before Undo stops at the old boundary, so it starts again from the newest page.
+  if (PJ_CURRENT === pid) { pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
+  pjRoomAnnounce(said);
 });
 document.addEventListener('click', (e) => {
   if (e.target && e.target.closest && e.target.closest('#pj-arch-open')) pjArchOpen();
 });
 /* kosmos#7365 slice 3b: the confirm's time, worked out in the person's own zone and sent with Z. "this week" is seven
-   days ago, "this month" thirty, "everything before today" is local midnight. */
+   calendar days ago, "this month" thirty, "everything older than a day" 24 hours. Mona's design said "everything
+   before today" (local midnight), but the server keeps the last day live, so midnight would always be moved back to 24
+   hours and the label would say something the archive never does (review 1). */
 function pjArchBefore(choice, now = new Date()) {
   const t = new Date(now.getTime());
   if (choice === 'week') t.setDate(t.getDate() - 7);
   else if (choice === 'month') t.setDate(t.getDate() - 30);
-  else if (choice === 'today') t.setHours(0, 0, 0, 0);
+  else if (choice === 'day') t.setTime(t.getTime() - 24 * 60 * 60 * 1000);
   else return null;
   return t.toISOString();
 }
@@ -76111,6 +76152,8 @@ function pjArchAsk() {
     const before = pjArchBefore(when.value);
     if (!before) return;
     go.disabled = true; keep.disabled = true; msg.textContent = 'Working…';
+    // Both buttons are disabled, so focus would fall to the page: it waits on the line that says what is happening.
+    msg.setAttribute('tabindex', '-1'); msg.focus({ preventScroll: true });
     let out = null, ok = false;
     try {
       const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room/archive', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ before }) });
@@ -76121,7 +76164,7 @@ function pjArchAsk() {
     close();
     msgToast(pjArchReceipt(out.marker && out.marker.before));
     // Pages already read may hold rows that are now archived, so the window starts again from the newest page.
-    if (PJ_CURRENT === pid) { pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
+    if (PJ_CURRENT === pid) { pjArchReset(); pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
   };
   back.hidden = false;
   when.focus();
@@ -77967,14 +78010,16 @@ function pjRoomRow(m, p, hideHeader) {
   const nameEl = (!isOp && name) ? '<b class="msg-nm" data-open-agent="' + esc(m.from) + '">' + esc(name) + '</b>' : '';
   /* #3745: the post this one answers, as a compact header that jumps to it. */
   let replyEl = '';
+  // kosmos#7365 slice 3b: in the archive view an original is looked for among the archive's posts too.
+  const origOf = (id) => PJ_ROOM_POSTS.get(id) || (typeof PJ_ARCH !== 'undefined' && pjArchShowing() ? PJ_ARCH.posts.get(id) : undefined);
   const origForSr = (hideHeader === true && typeof m.replyTo === 'string' && m.replyTo)
-    ? PJ_ROOM_POSTS.get(m.replyTo) : null;
+    ? origOf(m.replyTo) : null;
   /* The header is left out when the reply sits right under what it answers; that closeness is only
      seen, so a screen reader still hears what it answers. */
   if (origForSr) replyEl = '<span class="vh">' + esc(replyHeardLine(pjReplyWho(p, origForSr), pjReplyGist(origForSr, pjReplyWho(p, origForSr)))) + '</span>';
   // Left out only when the original is there to name; otherwise the header says it is gone (never silence).
   if (typeof m.replyTo === 'string' && m.replyTo && !origForSr) {
-    const orig = PJ_ROOM_POSTS.get(m.replyTo);
+    const orig = origOf(m.replyTo);
     replyEl = !orig && PJ_ROOM_PARTIAL
       ? '<span class="msg-replyto gone">Original message could not be read just now</span>'   // unknown is not gone
       : orig
@@ -77984,6 +78029,11 @@ function pjRoomRow(m, p, hideHeader) {
          FURTHER BACK while earlier rows are still unread (as a Direct conversation says, #5841), never "unavailable". */
       : typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === PJ_CURRENT && PJ_WIN.olderCount > 0 && PJ_ROOM_QUERY.trim() === ''
       ? '<span class="msg-replyto gone">Original message is further back</span>'
+      /* kosmos#7365 slice 3b: the live room's start reached and part of the room archived: the original may be there.
+         "May": a reply names its original by id only, so the page cannot tell archived from removed (review 1). */
+      : typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === PJ_CURRENT && PJ_WIN.archivedCount > 0 && PJ_ROOM_QUERY.trim() === ''
+        && !(typeof PJ_ARCH !== 'undefined' && pjArchShowing())
+      ? '<span class="msg-replyto gone">Original message may be in the archive</span>'
       : '<span class="msg-replyto gone">Original message unavailable</span>';
   }
   // kosmos#7365 slice 3: a row from the archive (a search's whole-room read marks them) says so beside its time.
@@ -78172,7 +78222,6 @@ function paintRoom(body) {
   convPaint();   // #5624 review 1: the toggle follows the room on screen, whatever this paint shows
   const p = pjById(PJ_CURRENT);
   if (!p) return;
-  if (typeof PJ_ARCH !== 'undefined' && pjArchShowing()) return;   // kosmos#7365: the archive is on screen; Back paints the room
   const box = document.getElementById('pj-room');
   /* Attached on first paint rather than at load: the element is certain to
      exist here, and the helper is idempotent so the poll re-calling it costs
@@ -78404,6 +78453,10 @@ function paintRoom(body) {
      floor, via __roomHeldAtBottom). Opening the room or clearing the filter flips
      it true and lands on the newest post. The old key mixed the message ids in,
      so every new post read as a reset and jumped the reader down. */
+  /* kosmos#7365 slice 3b: while the archive is on screen, everything above still runs on every poll (who spoke when, for
+     the working line; the posts a reply names; the hold strip and its announcement; a pending post the room now holds),
+     and only the room's rows are not written: they would replace the archive. Back to the room paints them (review 1). */
+  if (typeof PJ_ARCH !== 'undefined' && pjArchShowing()) return;
   const queryChanged = box.__lastRoomQuery !== PJ_ROOM_QUERY;
   /* #3966: compared by SHAPE, as the agent thread is: a time's words ticking over neither rebuilds
      the room nor marks it seen. */
@@ -78596,6 +78649,10 @@ async function loadRoom() {
       const win = PJ_WIN.gen;
       body = await pjWinRead(PJ_CURRENT, PJ_WIN_PAGE, null);
       if (mine !== PJ_ROOM_GEN || win !== PJ_WIN.gen) return;
+      /* kosmos#7365 slice 3b: the archive's count and marker come from the newest page, kept only after the generation
+         check, so a poll still in flight when Archive or Undo answered cannot write back the old ones (review 1). */
+      PJ_WIN.archivedCount = Number(body.archivedCount) || 0;
+      PJ_WIN.archiveMarker = body.archiveMarker || null;
       /* The read worked: a "could not read" line from an earlier poll goes now, before the returns below that paint
          nothing (no change, or a reader past the cap), or it would stay up on a quiet room (review 8). */
       const failMsg = document.getElementById('pj-room-msg');
@@ -78672,7 +78729,8 @@ async function loadRoom() {
       PJ_WIN.newestCursor = body.olderCursor || null;
       /* A reader on the newest row lets the pages they scrolled back to go BEFORE the merge, so the return never paints
          the whole held body first (review 6). */
-      if (!offFloorNow() && PJ_WIN.byReader && PJ_WIN.older.length) {   // measured again: a gap read may have awaited
+      // Not while the archive is on screen: offFloorNow would measure the archive's rows, not the room's (review 1).
+      if (!(typeof PJ_ARCH !== 'undefined' && pjArchShowing()) && !offFloorNow() && PJ_WIN.byReader && PJ_WIN.older.length) {   // measured again: a gap read may have awaited
         Object.assign(PJ_WIN, { older: [], byReader: false, arrived: 0, boundary: null, cursor: PJ_WIN.newestCursor, olderCount: PJ_WIN.newestOlder, because: null, letGo: PJ_WIN.letGo + 1 });
       }
       /* Nothing changed since the last paint (same newest page, same held rows) and the reader holds pages: no repaint,
@@ -78775,6 +78833,12 @@ async function pjPostSend(attachment) {
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
   };
   PJ_ROOM_PENDING[sentProject] = pend;
+  /* kosmos#7365 slice 3b: a post sent while the archive is open goes to the live room, so the room comes back to show
+     it on its way (review 1: otherwise it left with no sign). Not quiet: the person hears the view change. */
+  if (typeof PJ_ARCH !== 'undefined' && pjArchShowing()) {
+    PJ_ARCH.anchor = null; pjArchClose();
+    if (roomEl) roomEl.scrollTop = roomEl.scrollHeight;   // to the newest post, where this one lands
+  }
   /* Is the reader on the room's floor? Asked BEFORE anything changes height (the box refilling, a taller verdict pill),
      because afterwards the floor has already moved away from them. */
   const onFloor = () => !!(roomEl && roomEl.clientHeight > 0

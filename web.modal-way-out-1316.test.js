@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 24,   // 24: #6722's picture editor; 23: #5393's At a glance sheet; 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
-    `${found.length} modals now, up from 24 (#6722's picture editor). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 25,   // 25: kosmos#7365's Archive older messages confirm; 24: #6722's picture editor; 23: #5393's At a glance sheet; 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
+    `${found.length} modals now, up from 25 (kosmos#7365's archive confirm). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -68,6 +68,8 @@ const ESCAPES_VIA = {
   'doc-modal':      /Escape[\s\S]{0,300}doc-modal/,
   'rst-modal':      /Escape[\s\S]{0,300}rst-modal/,
   'chg-modal':      /const onEsc = \(e\) => \{\n\s*if \(e\.key !== 'Escape'/,
+  /* kosmos#7365 slice 3b: Escape closes the archive confirm while the choice is still the person's (not while Archive runs). */
+  'pjarch-modal':   /getElementById\('pjarch-modal'\)[\s\S]{0,800}const onEsc = \(e\) => \{ if \(e\.key === 'Escape' && !back\.hidden && !go\.disabled\) close\(\); \};/,
   'nt-modal':       /Escape[\s\S]{0,300}nt-modal/,
   'mem-modal':      /mem-modal'\)\.hidden\) return;/,
   'acct-add-modal': /Escape[\s\S]{0,300}acct-add-modal/,
