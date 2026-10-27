@@ -40,3 +40,15 @@ moves up and the fit is slightly smaller than needed, never larger, so the newes
 ## Checks
 - render-room-scroll.js on the branch, all arms; the five checks the surface gate names (msgbox-2806,
   shell-noscroll-4872, unread-edge-3743, msgref-4631, room-reply-3745) green on the branch; both browser-check gates.
+
+## Review 4 (blind, 10-26 evening)
+- Fixed: the fit now takes off whatever is shown between the thread and the composer (the "agent is working" line,
+  the Replying to bar), and re-fits when they, or the sealed line above the thread, show or hide (one ResizeObserver).
+  Arm: Replying to opened through pjReplyPaint, with a control at the pre-review-4 fit.
+- Fixed: a keyboard arm that moves only the visual viewport, as iOS does (the window-resize arm cannot tell whether the
+  visualViewport listener exists), with a control that removes that listener.
+- Fixed: the typing arm's control compares the composer's growth with the measured space under the newest row, not a
+  fixed 20px that equalled the slack.
+- Stated limits, not in this change: a project header that wraps after the room paints re-fits at the next room poll
+  (up to about 5 s), and a phone in landscape (wider than 30rem) gets no fit at all, as on main (Renet's #7272 owns the
+  header; landscape is a separate card if it matters).
