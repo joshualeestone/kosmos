@@ -44,14 +44,27 @@ check(ComposerExtras.dictationOverridden(current: "ship it 👍", lastWritten: "
 check(ComposerExtras.micLabel(listening: true) == "Stop dictating" && ComposerExtras.micLabel(listening: false) == "Dictate a message", "VoiceOver's words")
 
 section("the composers' wiring (review 2: a refactor that drops either line is caught)")
-for name in ["ChatView", "RoomView"] {
+// Comments are dropped first (review 3), so a line that only mentions a call never stands in for it.
+func code(_ name: String) -> String {
     let src = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/\(name).swift"), encoding: .utf8)) ?? ""
-    let body = src.components(separatedBy: "private func send() {").dropFirst().first ?? ""
+    return src.components(separatedBy: "\n").map { $0.components(separatedBy: "//").first ?? "" }.joined(separator: "\n")
+}
+// One function's body, up to the next function (review 3: not the rest of the file).
+func body(of fn: String, in src: String) -> String {
+    let after = src.components(separatedBy: fn).dropFirst().first ?? ""
+    return after.components(separatedBy: "\n    private func ").first ?? after
+}
+for name in ["ChatView", "RoomView"] {
+    let src = code(name)
+    let body = body(of: "private func send() {", in: src)
     let stopAt = body.range(of: "dictation.stop()")?.lowerBound
     let clearAt = body.range(of: name == "ChatView" ? "draftText = \"\"" : "draft = \"\"")?.lowerBound
     check(stopAt != nil && clearAt != nil && stopAt! < clearAt!, "\(name): send() stops dictation before it clears the box")
     check(src.contains("dictation.boxChanged(to:"), "\(name): the box's changes reach dictation")
 }
+// Review 3: the room keeps its draft on every change of the box, so a stop there ended dictation after one word.
+let keep = body(of: "private func keepDraft() {", in: code("RoomView"))
+check(!keep.isEmpty && !keep.contains("dictation.stop") && !keep.contains("dictation.reset"), "RoomView: keeping the draft (on every keystroke) never stops dictation")
 
 section("the reasons iOS shows the first time")
 let pbx = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos.xcodeproj/project.pbxproj"), encoding: .utf8)) ?? ""

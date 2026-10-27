@@ -57,7 +57,7 @@ struct RoomView: View {
     // kosmos#7268: the emoji panel (in the keyboard's place while open), the glyph waiting to go in at the cursor, and
     // dictation into the box.
     @State private var emojiOpen = false
-    @State private var emojiInsert: String?
+    @State private var emojiInsert: ComposerExtras.Pick?
     @StateObject private var dictation = Dictation()
     // kosmos#7096: the room's search, as the chat's (#7089, Mona Lisa's design): the magnifier opens the row, it stays
     // while it holds words, and its x or Cancel empties it and puts it away.
@@ -295,7 +295,6 @@ struct RoomView: View {
     }
 
     private func keepDraft() {
-        dictation.stop()   // kosmos#7268 review 2: before the draft is kept, so no late result is lost from it
         if draft.isEmpty && replying == nil { store.drafts[project.id] = nil }
         else { store.drafts[project.id] = RoomStore.Draft(text: draft, replyTo: replying, mention: replyMention) }
     }
@@ -984,7 +983,7 @@ struct RoomView: View {
                         if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
                     }
                     ComposerMicButton(dictation: dictation) {
-                        dictation.toggle(base: draft) { draft = $0 }
+                        dictation.toggle(base: draft, current: { draft }) { draft = $0 }
                     }
                     .padding(.trailing, 2)
                 }
@@ -1011,7 +1010,7 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 6)
             }
             // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it.
-            if emojiOpen { EmojiPanel { emojiInsert = $0 } }
+            if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) } }
         }
         .background(Palette.ground)
         .onChange(of: typing) { focused in if focused { emojiOpen = false } }

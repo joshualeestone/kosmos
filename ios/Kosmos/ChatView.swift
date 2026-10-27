@@ -85,7 +85,7 @@ struct ChatView: View {
     // kosmos#7268: the emoji panel (in the keyboard's place while open), the glyph waiting to go in at the cursor, and
     // dictation into the box, as the project room's (RoomView).
     @State private var emojiOpen = false
-    @State private var emojiInsert: String?
+    @State private var emojiInsert: ComposerExtras.Pick?
     @StateObject private var dictation = Dictation()
     @State private var reactNote: String?
     @State private var reacting: Set<String> = []
@@ -949,7 +949,7 @@ struct ChatView: View {
             }
             // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it. The tab bar is
             // already hidden in a conversation, so nothing sits under the panel.
-            if emojiOpen { EmojiPanel { emojiInsert = $0 }.padding(.horizontal, -12) }
+            if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) }.padding(.horizontal, -12) }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -1080,7 +1080,7 @@ struct ChatView: View {
                 if emojiOpen { emojiOpen = false; composerFocused = true } else { emojiOpen = true; composerFocused = false }
             }
             ComposerMicButton(dictation: dictation) {
-                dictation.toggle(base: draftText) { draftText = $0 }
+                dictation.toggle(base: draftText, current: { draftText }) { draftText = $0 }
             }
             .padding(.trailing, 2)
         }
