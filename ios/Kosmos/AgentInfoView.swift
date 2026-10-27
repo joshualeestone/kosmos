@@ -281,13 +281,9 @@ struct AgentInfoView: View {
         if AgentInfoView.sample { applySample(); return }
         #endif
         async let status = client.throughMac { Board.statusRequest(mac: $0) }
-        async let instr = client.throughMac { Board.agentRequest(mac: $0, session: session, "instructions") }
-        async let sk = client.throughMac { Board.agentRequest(mac: $0, session: session, "skills") }
-        async let rl = client.throughMac { mac -> URLRequest? in
-            var r = URLRequest(url: URL(string: "/api/roles", relativeTo: mac)!.absoluteURL)
-            r.setValue("application/json", forHTTPHeaderField: "Accept")
-            return r
-        }
+        async let instr = client.throughMac { Board.instructionsRequest(mac: $0, session: session) }
+        async let sk = client.throughMac { Board.skillsRequest(mac: $0, session: session) }
+        async let rl = client.throughMac { Board.rolesRequest(mac: $0) }
         let (s, i, k, roles) = await (status, instr, sk, rl)
         if let t = roles.flatMap({ $0.1.statusCode == 200 ? Board.parseRoleTitles($0.0) : nil }) { roleTitles = t }
         let d = s.flatMap { $0.1.statusCode == 200 ? Board.parseAgentDetails($0.0, session: session) : nil }

@@ -195,11 +195,24 @@ extension Board {
 
     // MARK: Instructions and skills, read only here
 
-    static func agentRequest(mac: URL, session: String, _ tail: String) -> URLRequest? {
+    // Each request with its route written out, so server.ios-routes-6838.test.js can read it and check the board has it.
+    static func instructionsRequest(mac: URL, session: String) -> URLRequest? {
         guard isAgentSession(session) else { return nil }
-        var r = URLRequest(url: URL(string: "/api/agent/\(session)/\(tail)", relativeTo: mac)!.absoluteURL)
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/instructions", relativeTo: mac)!.absoluteURL)
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    static func skillsRequest(mac: URL, session: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/skills", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    static func rolesRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/roles", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
         return r
     }
     // GET .../instructions: "" when the agent has none yet (no file: exists false AND editable, engine/instructions.js
@@ -238,10 +251,21 @@ extension Board {
         }
     }
     static func freshRequest(mac: URL, session: String, _ which: FreshStart) -> URLRequest? {
-        guard var r = agentRequest(mac: mac, session: session, which.rawValue) else { return nil }
-        r.httpMethod = "POST"
-        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        return r
+        guard isAgentSession(session) else { return nil }
+        switch which {
+        case .compact:
+            var r = URLRequest(url: URL(string: "/api/agent/\(session)/compact", relativeTo: mac)!.absoluteURL)
+            r.httpMethod = "POST"
+            r.setValue("application/json", forHTTPHeaderField: "Accept")
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            return r
+        case .clear:
+            var r = URLRequest(url: URL(string: "/api/agent/\(session)/clear", relativeTo: mac)!.absoluteURL)
+            r.httpMethod = "POST"
+            r.setValue("application/json", forHTTPHeaderField: "Accept")
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            return r
+        }
     }
     // The board's sentence after a press, and whether it went (memoryCommand).
     static func freshResult(_ which: FreshStart, status: Int, body: Data?) -> (sentence: String, ok: Bool) {
