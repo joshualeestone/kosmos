@@ -694,7 +694,7 @@ async function stallRoute(page, data) {
         if (a && a.sessionName === data.chatAgent) {
           a.state = 'idle';
           a.deliveryStall = { since: new Date(Date.now() - 2 * 3600e3).toISOString(), count: 9, lastWhy: 'menu',
-            words: 'its screen was waiting on a question or a menu' };
+            words: require('../../engine/deliverystreak').WHY_WORDS.menu };   // the engine's own words, never a copy
         }
       }
       await r.fulfill({ response: res, body: JSON.stringify(body) });
