@@ -60,8 +60,8 @@ struct ChatView: View {
     @State private var topVisible = false
     @State private var settledAtEnd = false
     // kosmos#7265: the first moments after the chat opens, while its rows load and are measured. Only then is the thread
-    // kept at its newest message as it grows (OpensAtBottom, the jumps below); a search or a page of older messages ends
-    // it early, and nothing after it moves the thread for the person.
+    // kept at its newest message as it grows (OpensAtBottom, the jumps below). The person scrolling (iOS 18), a search or a
+    // page of older messages ends it early, and nothing after it moves the thread for the person.
     @State private var opening = true
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
@@ -149,8 +149,8 @@ struct ChatView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     // With the row already open it only puts the cursor back in the field.
-                    let opening = !searchOpen
-                    if opening { openedAtNewest = atBottom }
+                    let firstOpen = !searchOpen
+                    if firstOpen { openedAtNewest = atBottom }
                     searchOpen = true
                     DispatchQueue.main.async {
                         searchFocused = true
@@ -218,6 +218,7 @@ struct ChatView: View {
         .onChange(of: searching) { now in if now { filteredInMode = true } }
         // Putting away a search that filtered is reading at the bottom again: what loaded meanwhile is there to see.
         .onChange(of: searchMode) { now in
+            if now { opening = false }   // kosmos#7265 review 2: a search ends the opening window, not pauses it
             guard !now && filteredInMode else { return }
             filteredInMode = false
             // Not when the search went with the conversation (an account reset empties both).
@@ -242,6 +243,9 @@ struct ChatView: View {
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
             epoch = now
+            // kosmos#7265 review 2: the thread is rebuilt (a chat opened from a room stays open through an account or Mac
+            // switch), so it opens again: its ScrollView's onAppear starts a new window.
+            opening = true
             thread = nil
             replying = nil
             retryNote = nil
@@ -355,7 +359,7 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 // kosmos#7265: the thread opens on its newest message whatever the rows' heights (iOS 18 and later).
-                .modifier(OpensAtBottom(active: opening && !searchMode))
+                .modifier(OpensAtBottom(active: opening && !searchMode, touched: { opening = false }))
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
                 .overlay(alignment: .top) { earlierLoadingLine }
@@ -1669,9 +1673,15 @@ extension Palette {
    bottom-aligned. iOS 18's role-scoped forms; iOS 16 and 17 open as before (a stated limit). */
 private struct OpensAtBottom: ViewModifier {
     let active: Bool
+    // Review 2: the person's own scroll (a drag; .interacting) ends the opening window, so no jump pulls them back.
+    let touched: () -> Void
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *), !ChatView.sampleNoFix {
             content.defaultScrollAnchor(.bottom, for: .initialOffset).defaultScrollAnchor(active ? .bottom : nil, for: .sizeChanges)
+                // Review 2: a chat shorter than the screen starts at the top as before (measured: the bottom anchors put a
+                // short chat's first line 346 px lower than main).
+                .defaultScrollAnchor(.top, for: .alignment)
+                .onScrollPhaseChange { _, phase in if phase == .interacting { touched() } }
         } else {
             content
         }
