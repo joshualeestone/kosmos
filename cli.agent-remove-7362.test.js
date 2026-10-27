@@ -278,18 +278,19 @@ test('#7362 review 2 Mac: a connection dropped after the removal was sent says i
 });
 
 for (const dot of ['.', '..']) {
-  test(`#7362 review 2: "${dot}" is refused as a name before any request, in both CLIs`, () => withStub([200, PLAN], REMOVED, async (port, seen) => {
+  test(`#7362 review 2 Windows: "${dot}" is refused as a name before any request (control: a plain name is sent)`, () => withStub([200, PLAN], REMOVED, async (port, seen) => {
     const w = await winRun(port, ['agent', 'remove', dot, '--yes']);
     assert.equal(w.code, 2, w.err);
     assert.match(w.err, /There is no agent called/);
-    assert.equal(seen.length, 0, 'Windows: nothing was sent');
-    const ok = await winRun(port, ['agent', 'remove', 'Sally Sales', '--yes']);
+    assert.equal(seen.length, 0, 'nothing was sent');
+    await winRun(port, ['agent', 'remove', 'Sally Sales', '--yes']);
     assert.equal(deletes(seen).length, 1, 'CONTROL: a plain name is sent');
-    if (process.platform === 'win32') return;   // the bash CLI cannot run here
-    const before = seen.length;
+  }));
+  test(`#7362 review 2 Mac: "${dot}" is refused as a name before any request (control: a plain name is sent)`, () => withStub([200, PLAN], REMOVED, async (port, seen) => {
     const m = await cli(port, ['agent', 'remove', dot, '--yes']);
     assert.equal(m.code, 2, m.out);
-    assert.equal(seen.length, before, 'Mac: nothing was sent');
-    void ok;
+    assert.equal(seen.length, 0, 'nothing was sent');
+    await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
+    assert.equal(deletes(seen).length, 1, 'CONTROL: a plain name is sent');
   }));
 }
