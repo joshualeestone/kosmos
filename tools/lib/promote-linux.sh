@@ -3,8 +3,10 @@
 # Linux pointers always name one version (LOCKSTEP, tools/lib/release-linux.sh says why), so a Mac promote of V moves
 # latest-linux-staging.json onto latest-linux.json in the same run, or refuses before writing anything.
 #
-#   promote_linux_prepare <site> <version> [named]   before any write: decides PROMOTE_LINUX (yes|no), snapshots the
-#                                                    Linux staging pointer and checks it, or refuses
+#   promote_linux_prepare <site> <version> [commit]  before any write: decides PROMOTE_LINUX (yes|no), snapshots the
+#                                                    Linux staging pointer and checks it, or refuses. With <commit> (a
+#                                                    named promote, --version) the pointer is the one committed there,
+#                                                    as the Mac one is (review 5 W1)
 #   promote_linux_unchanged <site>                   right before the writes: the staging pointer is still the snapshot
 #   promote_linux_stage <site>                       BEFORE latest.json moves: the temp copy, checked (review 1 W1)
 #   promote_linux_commit <site>                      right AFTER latest.json: one rename; a failure sets
@@ -23,28 +25,37 @@ PROMOTE_LINUX_FAILED=0
 PROMOTE_LINUX_KL=""        # the key-list temp folder, removed by the EXIT trap too (review 2)
 PROMOTE_LINUX_REMEDY_SAID=0
 PROMOTE_LINUX_ARTS=""      # "<versioned> <sha256> <manifest>", checked again right before the writes (review 4 W3)
+PROMOTE_LINUX_NAMED=""     # the commit a named promote read the pointer from; empty for the staging pointer
 
 promote_linux_prepare() {
   local site="$1" v="$2" named="${3:-}" stg="$1/dist/latest-linux-staging.json" prod="$1/dist/latest-linux.json" tools field
   tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  PROMOTE_LINUX=no
-  if [ ! -f "$stg" ]; then
-    # No Linux family on staging. A Linux PROD pointer would then stay put while latest.json moves: refuse.
+  PROMOTE_LINUX=no; PROMOTE_LINUX_NAMED="$named"
+  local have=no from="staging"
+  if [ -n "$named" ]; then
+    # Review 5 (W1): a named promote takes the Linux pointer committed with the Mac one it promotes, so it stays
+    # available once staging publishes the Linux family (kosmos#7005). The versioned files it names are never
+    # replaced, so they are checked in the working tree.
+    from="the commit $named"
+    git -C "$site" cat-file -e "$named:dist/latest-linux-staging.json" 2>/dev/null && have=yes
+  else
+    [ -f "$stg" ] && have=yes
+  fi
+  if [ "$have" != yes ]; then
+    # No Linux pointer to promote. A Linux PROD pointer would then stay put while latest.json moves: refuse.
     if [ -f "$prod" ]; then
-      echo "promote-linux: prod publishes the Linux family (dist/latest-linux.json) but staging has no Linux pointer to move it to $v; its pointer must move with latest.json (kosmos#7281 lockstep). Nothing was written." >&2
+      echo "promote-linux: prod publishes the Linux family (dist/latest-linux.json) but $from has no Linux staging pointer to move it to $v; its pointer must move with latest.json (kosmos#7281 lockstep). Nothing was written." >&2
       return 1
     fi
     return 0
   fi
-  # A named promote reads the Mac pointer from a commit; moving the Linux one by name is not built, so it is refused
-  # rather than leaving the two apart (kosmos#7281 follow-up).
-  if [ -n "$named" ]; then
-    echo "promote-linux: a named promote (--version) cannot move the Linux pointer yet, and staging publishes the Linux family; promote from the staging pointer instead (kosmos#7281). Nothing was written." >&2
-    echo "promote-linux: to roll prod back by hand meanwhile: in the site checkout, restore BOTH dist/latest.json and dist/latest-linux.json from one earlier commit (git checkout <commit> -- dist/latest.json dist/latest-linux.json), check both name the same version, commit, and deploy. The versioned files they name are never replaced, so they are still there." >&2
-    return 1
-  fi
   PROMOTE_LINUX_SNAP="$(mktemp "${TMPDIR:-/tmp}/promote-linux-staging.XXXXXX")" || { echo "promote-linux: could not make a temp file" >&2; return 1; }
-  cp "$stg" "$PROMOTE_LINUX_SNAP" || { echo "promote-linux: could not snapshot $stg" >&2; return 1; }
+  if [ -n "$named" ]; then
+    git -C "$site" show "$named:dist/latest-linux-staging.json" > "$PROMOTE_LINUX_SNAP" 2>/dev/null \
+      || { echo "promote-linux: could not read latest-linux-staging.json from $named. Nothing was written." >&2; return 1; }
+  else
+    cp "$stg" "$PROMOTE_LINUX_SNAP" || { echo "promote-linux: could not snapshot $stg" >&2; return 1; }
+  fi
   field() { node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]]||""))}catch{}' "$PROMOTE_LINUX_SNAP" "$1" 2>/dev/null || true; }
   local lv lsha lver lman
   lv="$(field version)"; lsha="$(field sha256)"; lver="$(field versioned)"; lman="$(field manifest)"
@@ -91,7 +102,8 @@ promote_linux_prepare() {
 
 promote_linux_unchanged() {
   [ "$PROMOTE_LINUX" = yes ] || return 0
-  cmp -s "$1/dist/latest-linux-staging.json" "$PROMOTE_LINUX_SNAP" \
+  # A named promote's pointer came from a commit, which cannot change; the staging pointer's file can.
+  [ -n "$PROMOTE_LINUX_NAMED" ] || cmp -s "$1/dist/latest-linux-staging.json" "$PROMOTE_LINUX_SNAP" \
     || { echo "promote-linux: latest-linux-staging.json changed while the promote ran; nothing was written. Re-run the promote." >&2; return 1; }
   # Review 4 (W3): the gates can queue for a long time, so the files the pointer names are checked again too.
   # shellcheck disable=SC2086

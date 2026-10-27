@@ -314,7 +314,7 @@ V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$
 reject_pathy() { case "$2" in *"/"*|*".."*) echo "promote-channel: $PTR_WORDS's $1 ('$2') is not a bare filename - refusing" >&2; exit 1 ;; esac; }
 reject_pathy "$ARTIFACT_FIELD" "$ARTIFACT"
 # kosmos#7281: the Linux family moves with the Mac pointer or the promote refuses, decided before any gate or write.
-if [ "$FAMILY" = mac ]; then promote_linux_prepare "$SITE" "$V" "$NAMED_VERSION" || exit 1; fi
+if [ "$FAMILY" = mac ]; then promote_linux_prepare "$SITE" "$V" "${NAMED_VERSION:+$NAMED_COMMIT}" || exit 1; fi
 # kosmos#6149 point 1 (after the bare-filename check, before any write): prod must never be pointed at a Mac build older than the setup floor; the installer prod serves beside it is checked below.
 if [ "$FAMILY" = mac ]; then
   . "$(dirname "$0")/lib/setup-floor.sh" || { echo "promote-channel: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }

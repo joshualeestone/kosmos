@@ -54,9 +54,22 @@ chk "CONTROL: a staging Linux pointer at V is taken" [ "$(prep "$S" 1.4.0)" = "r
 chk "a staging Linux pointer at another version refuses (lockstep)" [ "$(prep "$S" 1.4.1)" = "rc=1 linux=no" ]
 S2="$(newsite vfield 1.4.0)"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="1.4.9";require("fs").writeFileSync(f,JSON.stringify(p))' "$S2/dist/latest-linux-staging.json"
 chk "a pointer whose version field alone disagrees refuses (the names still say 1.4.0)" [ "$(prep "$S2" 1.4.0)" = "rc=1 linux=no" ]
-chk "a named promote refuses while staging has a Linux pointer" [ "$(prep "$S" 1.4.0 1.4.0)" = "rc=1 linux=no" ]
-out="$( ( promote_linux_prepare "$S" 1.4.0 1.4.0 2>&1 >/dev/null; promote_linux_cleanup ) )"
-case "$out" in *"git checkout <commit> -- dist/latest.json dist/latest-linux.json"*) PASS=$((PASS+1)) ;; *) FAIL=$((FAIL+1)); echo "FAIL: the named refusal does not say how to roll back by hand (review 4 W1): $out" >&2 ;; esac
+# Review 5 (W1): a named promote takes the Linux pointer COMMITTED with the Mac one, not the working tree's.
+S="$(newsite named 1.4.0)"; git -C "$S" init -q -b main; git -C "$S" config user.email t@t; git -C "$S" config user.name t
+git -C "$S" add dist; git -C "$S" commit -q -m "cut 1.4.0"; C140="$(git -C "$S" rev-parse HEAD)"
+S5="$(newsite named5 1.5.0)"; cp "$S5"/dist/kosmos-1.5.0-* "$S/dist/"; cp "$S5/dist/latest-linux-staging.json" "$S/dist/latest-linux-staging.json"
+chk "CONTROL: staging has moved on to 1.5.0, so an unnamed promote of 1.4.0 refuses (lockstep)" [ "$(prep "$S" 1.4.0)" = "rc=1 linux=no" ]
+chk "a named promote of 1.4.0 takes the pointer committed in its cut" [ "$(prep "$S" 1.4.0 "$C140")" = "rc=0 linux=yes" ]
+chk "a named promote whose commit names another Linux version refuses" [ "$(prep "$S" 1.4.1 "$C140")" = "rc=1 linux=no" ]
+git -C "$S" rm -q --cached dist/latest-linux-staging.json; git -C "$S" commit -q -m "no linux"; CNOL="$(git -C "$S" rev-parse HEAD)"
+chk "CONTROL: a named commit with no Linux pointer and no prod one: the Mac promote goes alone" [ "$(prep "$S" 1.4.0 "$CNOL")" = "rc=0 linux=no" ]
+printf '{"manifest":"x"}\n' > "$S/dist/latest-linux.json"
+chk "a named commit with no Linux pointer while prod has one refuses (lockstep)" [ "$(prep "$S" 1.4.0 "$CNOL")" = "rc=1 linux=no" ]
+rm -f "$S/dist/latest-linux.json"
+promote_linux_prepare "$S" 1.4.0 "$C140" >/dev/null 2>&1
+printf ' ' >> "$S/dist/latest-linux-staging.json"
+chk "a named promote is not refused when the staging pointer's FILE moves (it read a commit)" promote_linux_unchanged "$S"
+promote_linux_cleanup
 E="$T/site-empty"; mkdir -p "$E/dist"
 chk "CONTROL: no Linux pointers at all: the Mac promote goes ahead alone" [ "$(prep "$E" 1.4.0)" = "rc=0 linux=no" ]
 printf '{}\n' > "$E/dist/latest-linux.json"
@@ -156,7 +169,7 @@ PC="$HERE/tools/promote-channel.sh"
 wired() { grep -qF -- "$1" "$PC"; }
 chk "the marker release.sh reads is there, exactly" grep -qx 'PROMOTE_MOVES_LINUX=1' "$PC"
 chk "the lib is sourced" wired '/lib/promote-linux.sh" || {'
-chk "prepare runs for a Mac promote and exits on refusal" wired 'promote_linux_prepare "$SITE" "$V" "$NAMED_VERSION" || exit 1'
+chk "prepare runs for a Mac promote, gets a named promote's COMMIT (not its version), and exits on refusal" wired 'promote_linux_prepare "$SITE" "$V" "${NAMED_VERSION:+$NAMED_COMMIT}" || exit 1'
 chk "the unchanged check runs before the writes" wired 'promote_linux_unchanged "$SITE" || exit 1'
 chk "the stage runs before latest.json moves, and exits on failure" wired 'promote_linux_stage "$SITE" || exit 1'
 chk "the commit follows latest.json and does NOT exit (review 1 W1)" grep -qx '\[ "\$FAMILY" != mac \] || promote_linux_commit "\$SITE"' "$PC"
@@ -175,6 +188,47 @@ order() {
     && [ "$p" -lt "$u" ] && [ "$u" -lt "$st" ] && [ "$st" -lt "$m" ] && [ "$m" -lt "$w" ] && [ "$w" -lt "$a" ] && [ "$a" -lt "$r" ]
 }
 chk "prepare, unchanged, stage, latest.json, latest-linux.json, the alias, then the end check" order
+
+# ---- review 5 (W3): a whole Mac promote, DRIVEN, with a Linux pair on the site ----
+# promote-channel.sh and its libs are copied into a temp tools/ beside the signature stub above, so no seam is added to
+# shipped code; the gates are stubbed the way tools/test-promote-named-7005.sh does.
+mkdir -p "$T/e2e/tools"; cp "$HERE/tools/promote-channel.sh" "$T/e2e/tools/"; cp -R "$HERE/tools/lib" "$T/e2e/tools/lib"
+cp "$T/tools/lib/manifest-sign.js" "$T/e2e/tools/lib/manifest-sign.js"
+GSTUB="$T/e2e/gate.sh"; printf '#!/usr/bin/env bash\nexit 0\n' > "$GSTUB"
+e2e() {   # <site> [args...]: a promote; prints rc=<n>
+  ( export KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0 KOSMOS_PLUS_VERIFY_DIR="$T/e2e/plus" \
+      KOSMOS_PROMOTE_GATE_CMD="bash $GSTUB" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $GSTUB" \
+      KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $GSTUB" KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $GSTUB"
+    bash "$T/e2e/tools/promote-channel.sh" "$@" > "$T/e2e/out.log" 2>&1; echo "rc=$?" )
+}
+e2esite() {   # <name> <version> [linux pointer version]: prod 1.0.0 (Mac only), staging cut <version> with the Linux pair
+  local s="$T/e2e/site-$1" v="$2" lv="${3:-$2}" art="kosmos-$2-arm64.tar.gz" sha
+  mkdir -p "$s/dist"; git -C "$s" init -q -b main; git -C "$s" config user.email t@t; git -C "$s" config user.name t
+  echo '{"version":"1.0.0"}' > "$s/dist/latest.json"
+  printf 'PROD-INSTALLER KOSMOS_READONLY_APP\n' > "$s/setup"; ( cd "$s" && shasum -a 256 setup > setup.sha256 )
+  printf 'ARTIFACT-BYTES-%s\n' "$v" > "$s/dist/$art"; ( cd "$s/dist" && shasum -a 256 "$art" > "$art.sha256" )
+  sha="$(awk '{print $1}' "$s/dist/$art.sha256")"
+  printf '{"files":[]}\n' > "$s/dist/kosmos-$v-arm64.manifest.json"
+  printf 'INSTALLER-%s KOSMOS_READONLY_APP\n' "$v" > "$s/setup-staging"; ( cd "$s" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+  KM_LJ_VERSION="$v" KM_LJ_SHA="$sha" KM_LJ_ARTIFACT="$art" KM_LJ_MANIFEST="kosmos-$v-arm64.manifest.json" \
+    KM_LJ_SETUP_SHA="$(shasum -a 256 < "$s/setup-staging" | awk '{print $1}')" node "$HERE/tools/lib/write-latest-pointer.js" "$s/dist/latest-staging.json"
+  local l; l="$(newsite "e2e-$1" "$lv")"; cp "$l"/dist/kosmos-"$lv"-linux-x64.* "$l/dist/latest-linux-staging.json" "$s/dist/"
+  git -C "$s" add -A; git -C "$s" commit -qm "cut $v"
+  printf '%s\n' "$s"
+}
+S="$(e2esite go 9.9.9)"
+chk "e2e CONTROL: a promote with a Linux pair exits 0" [ "$(e2e "$S")" = "rc=0" ]
+chk "e2e: latest.json names 9.9.9" grep -q '"version": *"9.9.9"' "$S/dist/latest.json"
+chk "e2e: latest-linux.json is the staging Linux pointer, byte for byte" cmp -s "$S/dist/latest-linux-staging.json" "$S/dist/latest-linux.json"
+S="$(e2esite skew 9.9.9 9.9.8)"
+chk "e2e: a Linux pointer on another version refuses" [ "$(e2e "$S")" = "rc=1" ]
+chk "e2e: and latest.json was not written" [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ]
+chk "e2e: nor latest-linux.json" [ ! -e "$S/dist/latest-linux.json" ]
+S="$(e2esite owed 9.9.9)"; mkdir -p "$S/dist/latest-linux.json/blocker"   # the rename lands inside a folder: read-back fails
+chk "e2e: a Linux write that does not take refuses at the end" [ "$(e2e "$S")" = "rc=1" ]
+chk "e2e: after latest.json was promoted" grep -q '"version": *"9.9.9"' "$S/dist/latest.json"
+chk "e2e: and /setup too (the steps after the Linux write still ran)" [ "$(cat "$S/setup")" = "INSTALLER-9.9.9 KOSMOS_READONLY_APP" ]
+chk "e2e: saying what is owed" grep -q 'REFUSED AT THE END' "$T/e2e/out.log"
 
 echo "test-promote-linux-7281: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
