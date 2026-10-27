@@ -22183,7 +22183,9 @@ const server = http.createServer(async (req, res) => {
                  reactor whose own pills get marked (`mine`). Only attached when
                  there is at least one live reaction, so a post with none carries
                  no field (byte-identical to before for the common case). */
-              const reactions = messages.reactionsFor(m.id, reactionRowsOf.get(String(m.id)) || NO_REACTIONS, 'you');
+              // kosmos#7365: this post's own reaction rows (NO_REACTIONS is shared: neither callee mutates its rows).
+              const own = reactionRowsOf.get(String(m.id)) || NO_REACTIONS;
+              const reactions = messages.reactionsFor(m.id, own, 'you');
               return { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
                 text: m.text, at: m.at, outcomes: m.outcomes || {},
                 // #460: the only thing a renderer may style as quoted.
@@ -22206,7 +22208,7 @@ const server = http.createServer(async (req, res) => {
                 ...((() => {
                   if (!reactions.some((r) => messages.isClaimEmoji(r.emoji))) return {};
                   if (claimMembers === undefined) claimMembers = messages.claimMembers(roomRecord && roomRecord.agents);
-                  const c = messages.claimOf(m.id, reactionRowsOf.get(String(m.id)) || NO_REACTIONS, claimMembers);
+                  const c = messages.claimOf(m.id, own, claimMembers);
                   if (!c) return {};
                   // #6957: whether the person's live 🙋 was given after this claim began (agrees with THIS holder).
                   if (youClaimAt === undefined) {

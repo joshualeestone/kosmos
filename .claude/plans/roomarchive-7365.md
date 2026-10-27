@@ -44,3 +44,10 @@ page cost worse, which makes the window more urgent, not less.
      room, the worst case. Noted on the card; not worth this slice.
    - NITs: the comment names rowShaped as why String() keys alike and why grouping is not by project; the docblock now
      matches the test; the plan no longer names a hash a rebase merge would orphan.
+2. (slice 1, sonnet, 13:0x CDT) 0 BLOCKERs, 1 WARNING, 2 NITs, all applied.
+   - (W) The claim half was still vacuous: the room had no members, so every claim was null on both sides and an empty
+     claimOf passed. gamma is now a member (projects.addAgent), every fifth post must be held by gamma, and each claimOf
+     call must be given the claim row (mutation-proven: an empty claimOf reds it).
+   - NIT: a reaction written from another room on this room's post id is now in the fixture, so "not grouped by
+     project" is tested (mutation-proven: filtering by project reds it).
+   - NIT: one local `own` for both calls, and the comment says NO_REACTIONS is shared because neither callee mutates.
