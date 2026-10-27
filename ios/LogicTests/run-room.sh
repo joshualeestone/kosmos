@@ -10,7 +10,7 @@ out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 xcrun swiftc -O -o "$out/room-logic-tests" \
   "$src/PushBridgeLogic.swift" "$src/PushRegistrar.swift" "$src/ShellLogic.swift" \
-  "$src/NotificationCategories.swift" "$src/BoardLogic.swift" "$src/TodayLogic.swift" "$src/TasksLogic.swift" "$src/BoardClient.swift" "$src/SessionKeychain.swift" \
+  "$src/NotificationCategories.swift" "$src/BoardLogic.swift" "$src/SignInLogic.swift" "$src/TodayLogic.swift" "$src/TasksLogic.swift" "$src/BoardClient.swift" "$src/SessionKeychain.swift" \
   "$src/BoardRoom.swift" "$here/room/main.swift"
 # The repo root, so the suite can read the board's own words and the computer's kinds.
 KOSMOS_REPO="$here/../.." "$out/room-logic-tests"
