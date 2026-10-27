@@ -6818,8 +6818,10 @@ cmd_agent() {
         say "Kosmos was slow to answer and we stopped waiting. $rm_label may have been removed; look at the board before trying again: $URL/"
         exit 3
       fi
-      if [ "$rc" -ne 0 ]; then say_unreached "remove $rm_label" "$rc" write; exit 1; fi
-      rm_parsed=$(printf '%s' "$body" | "$_node" -e "$_rmparse"'console.log([one(j.outcome),one(j.because||j.error)].join("\t"))})') \
+      # 18, 52 and 56 also mean the request left before the connection broke: it may have happened, as for 28.
+      if [ "$rc" -ne 0 ]; then say_unreached "remove $rm_label" "$rc" write; case "$rc" in 18|52|56) exit 3 ;; *) exit 1 ;; esac; fi
+      # A removal that threw partway answers {error, detail} with no outcome (server.js): read as failed-partway.
+      rm_parsed=$(printf '%s' "$body" | "$_node" -e "$_rmparse"'console.log([one(j.outcome||(j.detail!==undefined?"failed-partway":"")),one(j.because||j.error)].join("\t"))})') \
         || { say "Kosmos gave an answer we could not read when removing $rm_label. Look at the board to see whether it is still there: $URL/"; exit 1; }
       rm_out=$(printf '%s' "$rm_parsed" | cut -f1); rm_because=$(printf '%s' "$rm_parsed" | cut -f2)
       while [[ "$rm_because" == *[.[:space:]] ]]; do rm_because="${rm_because%?}"; done
@@ -6831,6 +6833,7 @@ cmd_agent() {
           [ -z "$rm_back" ] || say "It can be put back from the board, where removed agents are listed."
           ;;
         partial) say "Only partly removed: ${rm_because:-Kosmos did not say how far it got}${rm_end}"; exit 1 ;;
+        failed-partway) say "$rm_label may be partly removed: ${rm_because:-Kosmos did not say how far it got}${rm_end} Look at the board before trying again: $URL/"; exit 3 ;;
         *) if [ -n "$rm_because" ]; then say "Kosmos did not remove $rm_label: ${rm_because}${rm_end}"
            else say "Kosmos gave an answer we could not read when removing $rm_label. Look at the board to see whether it is still there: $URL/"; fi
            exit 1 ;;

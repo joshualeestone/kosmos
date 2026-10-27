@@ -1965,8 +1965,12 @@ async function agentRemove(ctx, args) {
   }
   // A removal stops a session and a startup job, so it gets the long timeout; a timeout after it left is "may".
   const r = await ctx.call('DELETE', route, undefined, { timeoutMs: POST_TIMEOUT_MS });
-  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. ' + label + ' may have been removed; look at the board before trying again.') : ctx.unreachable('remove ' + label);
+  /* Anything but a failure to connect means the request may have reached the board: a timeout, or the connection
+     dropping while the board was removing (a board restarting mid-removal). "May", never "not reached". */
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + label + ' may have been removed; look at the board before trying again.') : ctx.unreachable('remove ' + label);
   const j = r.json || {};
+  // A removal that threw partway answers 500 {error, detail} (server.js): not "did not remove".
+  if (r.status >= 500 && !j.outcome) return maybe(ctx.err, label + ' may be partly removed: ' + (clause(j.error || '') || 'Kosmos did not say how far it got') + '. Look at the board before trying again.');
   const because = clause(j.because || j.error || '');
   const end = /[?!]$/.test(because) ? '' : '.';
   if (j.outcome === 'removed') {

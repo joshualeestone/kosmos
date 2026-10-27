@@ -13,10 +13,13 @@ by hand, so a kosmos command is the sanctioned path.
 - Only this board's agents: removal.plan refuses an agent the board cannot tie to itself; force (the person's override
   for an untied card) is never sent.
 - Confirm prompt "Remove <label>? [y/N]" unless --yes; no terminal and no --yes refuses before any request.
-- The plan read goes with the board token (the board serves it to the person); the DELETE goes as the agent, so the
-  board's token-only rules (#4475: an agent alone may remove only an agent it created) still apply.
+- The plan read goes with the board token (the board serves it to the person); the DELETE goes with the CLI's usual
+  headers. Like every other verb, that includes the board token unless the agent runs token-only
+  (KOSMOS_AGENT_TOKEN_ONLY=1), so the #4475 rule (an agent alone may remove only an agent it created) applies only to a
+  token-only agent. No new exposure: any agent holding the board token could already remove through the same route.
 - Outcomes: removed exit 0 (+ "can be put back" only when the plan says restore can); partial and refused exit 1 with the
-  board's sentence; a timeout after the DELETE left says it MAY have been removed (exit 3, as agent create's "may").
+  board's sentence. "May have happened" is exit 3 (as agent create's): a timeout or a dropped connection after the
+  DELETE left, and a removal that threw partway (500 {error, detail}).
 
 ## Tests
 cli.agent-remove-7362.test.js: Windows CLI (9) and Mac CLI (5, bash: cannot run on the Windows box) against a stub board:

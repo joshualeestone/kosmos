@@ -225,3 +225,30 @@ test('#7362 Windows: agent --help lists remove, and asking for help sends nothin
   assert.equal(code, 0);
   assert.match(out.join('\n'), /kosmos agent remove "<name>" \[--yes\]/);
 });
+
+test('#7362 review 1: a removal that threw partway (500) says it MAY be partly removed, exit 3, never "did not remove"', () => withStub([200, PLAN], [500, { error: 'the removal failed partway and we cannot tell you how far it got', detail: 'boom' }], async (port, seen) => {
+  const r = await winRun(port, ['agent', 'remove', 'Sally Sales', '--yes']);
+  assert.equal(deletes(seen).length, 1, 'CONTROL: the removal was sent');
+  assert.equal(r.code, 3, r.err);
+  assert.match(r.err, /Sally Sales may be partly removed: the removal failed partway/);
+  assert.doesNotMatch(r.err, /did not remove/);
+}));
+
+test('#7362 review 1: a connection dropped after the removal was sent says it MAY have been removed, exit 3', async () => {
+  let deleted = 0;
+  const srv = http.createServer((req, res) => {
+    if (req.method === 'DELETE') { deleted++; req.socket.destroy(); return; }   // the board went away mid-removal
+    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(PLAN));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  const out = []; const err = [];
+  try {
+    const code = await wincli.main(['agent', 'remove', 'Sally Sales', '--yes'], { env: {}, hook: hookStub, url: 'http://127.0.0.1:' + port,
+      out: (x) => out.push(x), err: (x) => err.push(x), canAsk: () => false, ask: () => Promise.resolve('') });
+    assert.equal(deleted, 1, 'CONTROL: the removal reached the board');
+    assert.equal(code, 3, err.join('\n'));
+    assert.match(err.join('\n'), /Sally Sales may have been removed/);
+    assert.doesNotMatch(err.join('\n'), /Is it running/);
+  } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
+});
