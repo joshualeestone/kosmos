@@ -61,6 +61,8 @@ struct ChatView: View {
     // The question that line is about: it goes when a read shows that question gone.
     @State private var pressLineKey: String?
     @State private var composerNote: String?
+    // kosmos#7346 review: the reason a Send could not go, and the box text it was about; any other text clears it.
+    @State private var blocked: (text: String, note: String)?
     // kosmos#7136: the refusal a Try again wrote there, so a later one that works clears only its own line (dmRetrySend).
     @State private var retryNote: String?
     // kosmos#7136: rows sent again whose answer is in but whose next read is not: still drawn "sending…", so the stale
@@ -1104,6 +1106,11 @@ struct ChatView: View {
                 sendOrSayWhy()
                 return
             }
+            // The person changed what Send was refused for: the reason no longer applies to it.
+            if let b = blocked, now != b.text {
+                if composerNote == b.note { composerNote = nil }
+                blocked = nil
+            }
             // kosmos#7348: the sent text came back into the box (the keyboard's dictation or Writing Tools finishing late).
             // Kept for the whole window, so a keyboard that puts it back twice is cleared twice (review).
             if Board.refilledWithSent(now, was: was, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { draftText = ""; return }
@@ -1233,18 +1240,19 @@ struct ChatView: View {
         }
     }
 
-    // Words, or files with no words (their names go as the words). Not with files while another is still on its way
-    // (the message would go without it); words alone go, as on the board.
     // kosmos#7346 review: with no arrow to grey out, a Send that cannot go says why (the note line announces itself
-    // to VoiceOver).
+    // to VoiceOver) until the box changes.
     private func sendOrSayWhy() {
         if canSend { send(); return }
         if let why = Board.dmSendBlocked(said: Board.sendWords(draftText, files: attachedHere), files: attachedHere.count,
                                          uploading: uploadingHere, dictating: dictation.busy, finishing: dictation.finishing) {
             composerNote = why
+            blocked = (draftText, why)
         }
     }
 
+    // Words, or files with no words (their names go as the words). Not with files while another is still on its way
+    // (the message would go without it); words alone go, as on the board.
     private var canSend: Bool {
         // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then send.
         !dictation.busy && Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && (attachedHere.isEmpty || uploadingHere == 0)

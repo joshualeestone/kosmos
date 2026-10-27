@@ -18,6 +18,8 @@ struct RoomView: View {
     @State private var draft = ""
     // kosmos#7348: the box's text at the last post and when, so the box filling back with it is cleared again (as the chat).
     @State private var lastSent: (text: String, at: Date)?
+    // kosmos#7346 review: the reason a Send could not post, and the box text it was about; any other text clears it.
+    @State private var blocked: (text: String, note: String)?
     @State private var replying: Board.RoomRow?
     // The @name the last Reply put at the front of the box, so the next Reply swaps it and Post refuses it alone.
     @State private var replyMention: String?
@@ -1039,6 +1041,11 @@ struct RoomView: View {
                 postOrSayWhy()
                 return
             }
+            // The person changed what Send was refused for: the reason no longer applies to it.
+            if let b = blocked, now != b.text {
+                if client.attachLine[attachKey] == b.note { client.attachLine[attachKey] = nil }
+                blocked = nil
+            }
             // kosmos#7348: the posted text came back into the box (the keyboard's dictation or Writing Tools finishing late).
             if Board.refilledWithSent(now, was: was, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) {
                 draft = ""
@@ -1131,17 +1138,18 @@ struct RoomView: View {
         .accessibilityHint("Puts @" + m.session + " in your post")
     }
 
-    // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through
-    // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
-    // kosmos#7346 review: with no arrow to grey out, a Send that cannot post says why, to VoiceOver and on screen.
+    // kosmos#7346 review: with no arrow to grey out, a Send that cannot post says why, to VoiceOver and on screen, until
+    // the box changes.
     private func postOrSayWhy() {
         if canPost { send(); return }
         let why = Board.roomPostBlocked(words: postWords, mentionOnly: Board.isOnlyMention(postWords, mention: replyMention),
                                         read: store.rows[project.id] != nil, files: attachedHere.count, uploading: uploadingHere,
                                         dictating: dictation.busy, finishing: dictation.finishing)
-        if let why { client.attachLine[attachKey] = why; Self.say(why) }
+        if let why { client.attachLine[attachKey] = why; blocked = (draft, why); Self.say(why) }
     }
 
+    // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through
+    // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
     private func send() {
         guard canPost else { return }
         dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
