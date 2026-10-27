@@ -2957,12 +2957,17 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .astar:hover { color: var(--k-ink); background: rgba(120,120,128,.12); }
 /* #7339 (Josh, 2026-10-27: "the brightest gold that we have", the old one read "dingy"): the starred star is FILLED
    with --gold-bright in both themes. Its EDGE is currentColor: on light, #9c741b (the value .chk.ok .chk-m uses, 3.4
-   to 3.9:1 on every light tile, row and new-look ground, #6719 review 13), because --gold-bright alone is about 1.9:1
-   on white, under the 3:1 a glyph needs, and the edge is what keeps the star's shape legible there. On dark the edge
-   is --gold-bright too, which clears 3:1 on the dark tiles by itself. */
+   to 3.9:1 as a colour on the light tile and row grounds, #6719 review 13), because --gold-bright alone is about 1.9:1
+   on white, and the edge is what keeps the star's shape legible there. Stroke widths are in the SVG's 24-unit grid:
+   1.6 units (about 1.2px on the 18px star) on a 1x screen, where a thinner line blends into the fill and no drawn pixel
+   reaches 3:1 (#7339 review 1, measured); 1 unit on a sharper screen, where the thin line still holds and the bright
+   fill reads as bright. On dark the edge is --gold-bright too, which clears 3:1 on the dark tiles by itself. */
 .astar.on { color: #9c741b; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .astar.on { color: var(--gold-bright); } }
-.astar.on svg path { fill: var(--gold-bright); stroke-width: 1; }   /* a thin edge: at 18px the 1.6px outline took enough of the star to read dingy again */
+.astar.on svg path { fill: var(--gold-bright); }
+@media (min-resolution: 1.5dppx) { .astar.on svg path { stroke-width: 1; } }
+/* High contrast: a literal fill is not overridden by the system, so the starred star takes the system colour, as before. */
+@media (forced-colors: active) { .astar.on svg path { fill: currentColor; } }
 .astar:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .lname { position: relative; }
 /* Review 15: the room for the star only where there is one (another computer's agent has none). */

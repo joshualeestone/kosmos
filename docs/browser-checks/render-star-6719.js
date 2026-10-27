@@ -35,9 +35,9 @@ const chk = (ok, label, extra) => {
   if (!ok) fail.push(label);
 };
 
-async function open(browser, eng, w, h, theme, touchArg) {
+async function open(browser, eng, w, h, theme, touchArg, dsf) {
   const touch = typeof touchArg === 'boolean' ? touchArg : w < 700;
-  const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme, hasTouch: touch, isMobile: touch && eng === 'chromium' });
+  const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme, hasTouch: touch, isMobile: touch && eng === 'chromium', deviceScaleFactor: dsf || 1 });
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
@@ -267,9 +267,11 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     // brand gold measured the same way fails in light, so the instrument can return the dangerous answer.
     // #7339: the star is FILLED with --gold-bright (Josh: "the brightest gold that we have") and its EDGE is the button's
     // colour. The 3:1 is the edge's job, so `edge` below is what is measured; the fill is checked to be --gold-bright.
-    for (const theme of ['light', 'dark']) {
+    // #7339 review 1: 'forced-dark' is the in-app Dark setting (data-theme="dark" on a light system), which has its own rule.
+    for (const theme of ['light', 'dark', 'forced-dark']) {
       const t = `[${eng} ${theme} filled-star contrast]`;
-      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme);
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme === 'forced-dark' ? 'light' : theme);
+      if (theme === 'forced-dark') await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
       const c = await page.evaluate(() => {
         const st = document.querySelector('#grid .astar');
         if (!st) return { star: false };
@@ -284,16 +286,67 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         const surface = resolve(css('--k-surface'));
         const grounds = { plain: surface, working: over(surface, resolve(css('--wash-working'))), attn: over(surface, resolve(css('--wash-attn'))), row: over(surface, [120, 120, 128, 0.07]) };
         const edge = rgb(getComputedStyle(st).color); const brand = resolve(css('--gold-deep'));
-        const fill = rgb(getComputedStyle(st.querySelector('svg path')).fill); const bright = resolve(css('--gold-bright'));
-        const out = { star: true, edge, fill, brightFill: !!fill && !!bright && fill.slice(0, 3).join() === bright.slice(0, 3).join(), min: Infinity, brandMin: Infinity, by: {} };
+        const ps = getComputedStyle(st.querySelector('svg path'));
+        const fill = rgb(ps.fill); const bright = resolve(css('--gold-bright'));
+        // The edge is what is DRAWN: the path's own stroke, which must be the button's colour and actually painted.
+        const stroke = rgb(ps.stroke); const strokeW = parseFloat(ps.strokeWidth);
+        const drawn = !!stroke && stroke.slice(0, 3).join() === edge.slice(0, 3).join() && strokeW > 0;
+        const out = { star: true, edge, stroke, strokeW, drawn, fill, brightFill: !!fill && !!bright && fill.slice(0, 3).join() === bright.slice(0, 3).join(), min: Infinity, brandMin: Infinity, by: {} };
         for (const [k, g] of Object.entries(grounds)) { const r = ratio(edge, g); out.by[k] = +r.toFixed(2); out.min = Math.min(out.min, r); out.brandMin = Math.min(out.brandMin, ratio(brand, g)); }
         out.min = +out.min.toFixed(2); out.brandMin = +out.brandMin.toFixed(2);
         probe.remove(); st.classList.remove('on');
         return out;
       });
       chk(c.star && c.brightFill, `${t} #7339: the filled star is filled with --gold-bright, the brightest gold`, JSON.stringify(c));
+      chk(c.star && c.drawn, `${t} #7339: the edge is drawn, the path's stroke in the button's colour`, JSON.stringify(c));
       chk(c.star && c.min >= 3, `${t} the filled star's edge is at least 3:1 on every tile and row ground`, JSON.stringify(c));
       if (theme === 'light') chk(c.star && c.brandMin < 3, `${t} CONTROL: the brand gold measured the same way is under 3:1 here`, JSON.stringify(c));
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await ctx.close();
+    }
+    // #7339 review 1: the edge as DRAWN, not as declared. A starred star is photographed on a light tile at 1x and 2x and
+    // its outline pixels (star pixels touching the tile) are measured against the tile: at least 80% must have a pixel
+    // of 3:1 or more within one device pixel (the outermost pixel is always part-blended with the tile, so it alone is
+    // never the measure; the eye reads the line just inside it). CONTROL: the same
+    // star with its edge removed must fail, so the instrument can return the dangerous answer.
+    for (const dsf of [1, 2]) {
+      const t = `[${eng} light ${dsf}x drawn edge]`;
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light', false, dsf);
+      const measure = async () => {
+        const png = await page.locator('#grid .astar.on svg').first().screenshot({ padding: 3 }).catch(() => null);
+        if (!png) return null;
+        return page.evaluate(async (b64) => {
+          const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+          const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+          const g = cv.getContext('2d'); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, cv.width, cv.height).data;
+          const W = cv.width, H = cv.height, px = (x, y) => { const i = (y * W + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+          const lum = ([r, gg, b]) => { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(gg) + 0.0722 * f(b); };
+          const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+          const ground = px(0, 0); const isStar = (x, y) => ratio(px(x, y), ground) > 1.15;
+          let outline = 0, strong = 0;
+          for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+            if (!isStar(x, y)) continue;
+            if (isStar(x - 1, y) && isStar(x + 1, y) && isStar(x, y - 1) && isStar(x, y + 1)) continue;
+            outline++;
+            let near = false;
+            for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1 && !near; dx++) near = ratio(px(x + dx, y + dy), ground) >= 3;
+            if (near) strong++;
+          }
+          return { outline, strong, share: outline ? +(strong / outline).toFixed(2) : 0 };
+        }, png.toString('base64'));
+      };
+      await page.evaluate(() => { const st = document.querySelector('#grid .astar'); if (st) st.classList.add('on'); });
+      const real = await measure();
+      chk(!!real && real.outline > 0 && real.share >= 0.8, `${t} at least 80% of the star's outline has a 3:1 pixel within one device pixel`, JSON.stringify(real));
+      if (dsf === 1) {   // CONTROL: review 1's blocker, a 1-unit (0.75px) edge on a 1x screen, fails this measure
+        await page.evaluate(() => { const p = document.querySelector('#grid .astar.on svg path'); if (p) p.style.strokeWidth = '1'; });
+        const thin = await measure();
+        chk(!!thin && thin.outline > 0 && thin.share < 0.8, `${t} CONTROL: a 1-unit edge at 1x fails this measure`, JSON.stringify(thin));
+        await page.evaluate(() => { const p = document.querySelector('#grid .astar.on svg path'); if (p) p.style.strokeWidth = ''; });
+      }
+      await page.evaluate(() => { const p = document.querySelector('#grid .astar.on svg path'); if (p) p.style.stroke = 'none'; });
+      const bare = await measure();
+      chk(!!bare && bare.outline > 0 && bare.share < 0.8, `${t} CONTROL: the same star with no edge fails this measure`, JSON.stringify(bare));
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await ctx.close();
     }
