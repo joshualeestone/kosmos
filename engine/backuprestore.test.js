@@ -260,7 +260,7 @@ test('#5536 an empty chunk is refused, and a deep folder clash is found', async 
 test('#5536 the collision check scales linearly with path depth (a ratio, so machine load does not decide it)', async () => {
   // Every entry is listed twice, so all are refused before any fetch and the time is the path and collision checks.
   // Measured: depth x4 costs x3.8 to x4.5 with the trie (wall time, 10-08), x13 with the quadratic check; in CPU time, as
-  // now timed, a median of x3.58 to x3.98 (#7235, alone, 12 runs, 10-26).
+  // now timed, a median of x3.54 to x3.98 (#7235, 12 runs at load 38 on 12 cores, 10-26).
   // kosmos#7235: each depth's fixture is built ONCE, so no sample pays for a build (and the deep build's garbage) inside
   // its timed region; only run() is timed.
   const fixtureAt = (depth) => {
@@ -269,7 +269,7 @@ test('#5536 the collision check scales linearly with path depth (a ratio, so mac
   };
   const shallowRun = fixtureAt(500);
   const deepRun = fixtureAt(2000);
-  // kosmos#7235 round 2: CPU time (user + system), not wall time. The check is CPU work with nothing to wait on, so a
+  // kosmos#7235: CPU time (user + system), not wall time. The check is CPU work with nothing to wait on, so a
   // stretch where another process held the core no longer counts against whichever sample it fell in. That is all it
   // removes: the same work still costs more CPU time on an efficiency core or with the caches contended, so a pair can
   // still read high under load. The median below is what absorbs that.
@@ -286,20 +286,21 @@ test('#5536 the collision check scales linearly with path depth (a ratio, so mac
      samples are hit more often, which skews a ratio of two minimums. So: one warm-up run of each (JIT), then five
      adjacent pairs, and the MEDIAN of the five pair ratios. Each ratio compares two samples taken moments apart, and the
      median ignores up to two disturbed pairs in either direction, so a slow shallow sample cannot hide a real
-     regression either (as a minimum of ratios could). Round 3: the order inside a pair alternates, because a deep run's
-     garbage is often collected during the sample after it, and GC threads count as this process's CPU; always
-     shallow-after-deep would charge it to the shallow side every time, a steady pull down, the direction that hides a
-     regression. */
-  await timeOnce(shallowRun);
+     regression either (as a minimum of ratios could). The warm-up runs deep first and the order inside a pair
+     alternates, because a deep run's garbage is often collected during the sample after it, and GC threads count as
+     this process's CPU: always shallow-after-deep would charge it to the shallow side every time, pulling every ratio
+     down, the direction that hides a regression. With this order two shallow and two deep samples follow a deep run. */
   await timeOnce(deepRun);
+  await timeOnce(shallowRun);
   const ratios = [];
   for (let k = 0; k < 5; k++) {
     if (k % 2 === 0) { const shallow = await timeOnce(shallowRun); ratios.push((await timeOnce(deepRun)) / shallow); }
     else { const deep = await timeOnce(deepRun); ratios.push(deep / (await timeOnce(shallowRun))); }
   }
+  const inOrder = ratios.map((x) => x.toFixed(1)).join(', ');   // as taken, so a load burst shows where it fell
   ratios.sort((a, b) => a - b);
   const ratio = ratios[2];
-  assert.ok(ratio < 7.5, `depth x4 cost x${ratio.toFixed(1)} (pairs ${ratios.map((x) => x.toFixed(1)).join(', ')}); the trie measured about 4, the quadratic check about 13`);
+  assert.ok(ratio < 7.5, `depth x4 cost x${ratio.toFixed(1)} (pairs in order: ${inOrder}); the trie measured about 4, the quadratic check about 13`);
 });
 
 test('#5536 maxTotalBytes caps what a restore commits, before fetching (control: exactly the budget restores)', async () => {
