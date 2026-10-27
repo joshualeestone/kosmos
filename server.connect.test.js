@@ -1607,6 +1607,15 @@ test('#996: and it is not offered at all when there is nothing to run', () => {
    runs from any box. Mac and Windows copy are unchanged (controls below).
    -------------------------------------------------------------------------- */
 
+test('kosmos#4903 S5 review 1: on a cloud machine the stuck card offers no shell or Terminal hatch (it is reached only through a browser)', () => {
+  const st = { phase: 'stuck', because: 'x', platform: 'linux', canRunClaude: true, progress: { got: 0, total: null } };
+  const cloudNote = connectHarness(st, { cloud: true }).els['fr-sub'].innerHTML;
+  assert.doesNotMatch(cloudNote, /fr-hatch|SSH|Terminal|Have a shell/, 'a cloud machine was offered a way out it cannot take');
+  assert.match(cloudNote, /Nothing is broken by this\. You can try again/, 'the way on is gone too');
+  // CONTROL: the same state on a Linux server that is NOT a cloud machine keeps its #5449 hatch.
+  assert.match(connectHarness(st).els['fr-sub'].innerHTML, /Have a shell on the server\?/);
+});
+
 test('#5449: on Linux the stuck card names a way out a headless-server person can take', () => {
   const { els } = connectHarness({ phase: 'stuck', because: 'x', platform: 'linux',
     canRunClaude: true, progress: { got: 0, total: null } });

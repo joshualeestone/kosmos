@@ -30577,6 +30577,20 @@ function acctFocusAfterFlow(startBtn) {
   const trig = sel && sel.parentElement && sel.parentElement.querySelector('.pcombo-trigger');
   if (trig && trig.getClientRects().length) trig.focus();
 }
+/* kosmos#4903 S5: Settings' Claude sign-in on a cloud machine shows the sign-in page's link (nothing opens a browser
+   there), once Claude has printed it, https only, and only while a sign-in is under way. Its own updater, run on every
+   poll (acctFlowPaint, before its repeat check), so a link that arrives or changes on the same phase still lands. */
+function acctClaudePaintUrl(st) {
+  const openRow = document.getElementById('acct-claude-open-row');
+  const openA = document.getElementById('acct-claude-open');
+  if (!openRow || !openA) return;
+  const phase = st && st.phase;
+  const live = typeof frConnActive === 'function' ? frConnActive(phase) : true;
+  const url = live && typeof onCloudMachine === 'function' && onCloudMachine()
+    && st && typeof st.url === 'string' && /^https:\/\//.test(st.url) ? st.url : '';
+  if (url && openA.href !== url) openA.href = url;
+  openRow.hidden = !url;
+}
 function acctFlowPaint(st) {
   const flow = document.getElementById('acct-flow');
   const say = document.getElementById('acct-flow-say');
@@ -30585,6 +30599,10 @@ function acctFlowPaint(st) {
   const note = document.getElementById('acct-add-note');
   const phase = st && st.phase;
   const key = phase + '|' + ((st && st.because) || '');
+  /* kosmos#4903 S5 (review 1): the link is updated BEFORE the repeat check below, because the engine adds the URL to
+     an unchanged phase a capture-tick after the paste prompt (engine/connect.js); the check would drop it. Updated in
+     place, as first run's frConnPaintUrl does, so the code field is never rebuilt under the person. */
+  if (typeof acctClaudePaintUrl === 'function') acctClaudePaintUrl(st);
   /* #4275: a repeat of an ENDED phase still stops the poll. Without this, a watch started
      after that phase was painted (the code or cancel handler starting one) would poll once
      a second until some later flow ended differently. */
@@ -30599,12 +30617,6 @@ function acctFlowPaint(st) {
     flow.hidden = false;
     btn.disabled = true;
     say.textContent = (typeof signinSay === 'function' ? signinSay(ACCT_FLOW_SAY, phase) : ACCT_FLOW_SAY[phase]) || 'Working…';
-    /* kosmos#4903 S5: on a cloud machine, the sign-in page's link, once Claude has printed it. */
-    const openRow = document.getElementById('acct-claude-open-row');
-    const openA = document.getElementById('acct-claude-open');
-    const cloudUrl = typeof onCloudMachine === 'function' && onCloudMachine() && st && typeof st.url === 'string' && /^https:\/\//.test(st.url) ? st.url : '';
-    if (openA && cloudUrl) openA.href = cloudUrl;
-    if (openRow) openRow.hidden = !cloudUrl;
     const wantCode = phase === 'signin-awaiting-code';
     // Angel's contract: a rejected code does NOT move the polled state (the
     // POST answers alone, handled at the submit button). A because on this
@@ -84854,7 +84866,7 @@ function frMB(n) { return Math.max(0, Math.round(n / 1e6)) + 'MB'; }
    is the way in, opened wherever the person is. Only the phases that assume a local browser change. */
 const CLOUD_SIGNIN_SAY = {
   'signin-launching': 'Getting the Claude sign-in ready.',
-  'signin-browser-open': 'Open the Claude sign-in page and sign in there.',
+  'signin-browser-open': 'Open the Claude sign-in page and sign in there. Its link appears here in a moment.',
   'signin-awaiting-code': 'Open the Claude sign-in page and sign in. Claude then shows a code: paste it here.',
 };
 function signinSay(table, phase) {
@@ -84964,7 +84976,7 @@ function frPaintConnect(st) {
       + '<div class="fr-cdetail">'
       + (phase === 'signin-completing'
         ? 'Checking the connection. This screen will change on its own.'
-        : (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Open the sign-in page below and sign in there. This screen will update when it is done.'
+        : (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Open the sign-in page (its link appears below) and sign in there. This screen will update when it is done.'
           : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
     frConnPaintUrl(st && st.url);
@@ -85107,6 +85119,9 @@ function frPaintConnect(st) {
          app to open; the way in is a shell on the server itself (over SSH), then `claude`.
          Linux is matched before the Mac `!onWindows` arm below, which it would otherwise
          fall into. Mac and Windows copy are unchanged. */
+      /* kosmos#4903 S5 (review 1): a Kosmos cloud machine is reached only through a browser, so neither hatch
+         (a shell on the server, or Terminal) is a way out there: none is offered, and Try again is the way on. */
+      : (typeof onCloudMachine === 'function' && onCloudMachine()) ? ''
       : ((st && st.canRunClaude && onLinux(st && st.platform))
         ? '<details class="fr-hatch"><summary>Have a shell on the server?</summary>'
           + 'You can sign in to Claude on the computer running Kosmos. Open a terminal there '
