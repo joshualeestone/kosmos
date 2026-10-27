@@ -28,3 +28,19 @@ Design (Baron, 2026-10-26 21:5x), written before building so a restarted session
 ## Weakest premise
 That slice C's Linux pointer carries `versioned` (as the Windows pointer does). If slice C writes the Mac-shaped
 pointer instead, readManifest's linux arm reads `{version}` only, and the arch check moves to the manifest.
+
+## Built (2026-10-26 22:2x), and where it departs from the design above
+- update.js: `pointerFamily(platform, arch)` (win32 | linux only for x64 | darwin), `UPDATE_POINTERS.linux`,
+  `pointerFor(platform, channel, arch = updateArch())`, `linuxBuildName`; readManifest's linux arm is the Windows checks
+  with `versioned === kosmos-<v>-linux-x64.tar.gz`. `setPlatform(p, arch)` gained the arch seam (no new export).
+- TRANSITIONAL in refresh(): a Linux x86_64 board whose Linux pointer gives no readable version reads the Mac pair, and
+  the cache records `family`. DEPARTURE: a board that already runs the Linux family (installed runtime/bin/node is a
+  regular file) never falls back, so an unreadable pointer is no offer rather than a Mac version (mirrors setup.sh B).
+  A thrown second read is no offer, not "could not reach" (the first answer proved the host was reached).
+- manifest-verify: `platformRefusal`. DEPARTURE from item 3: Linux does NOT require platform "linux"; it refuses only a
+  manifest that NAMES another platform. Reasons: the shell shards run on Linux runners and verify Mac-shaped (unnamed)
+  manifests, and a Mac bundle on Linux fails setup.sh's run probe of its own node before any swap. The Mac refuses any
+  named platform but darwin, which was the dangerous direction. The installer-only check (skipTarball) is exempt: both
+  families of a cut carry the same setup.sh. Weakest premise: release.sh cuts both families at one version, so the
+  arm64 manifest exists for any version a portable Linux copy is offered (slice C must keep that true).
+- `setupManifestName(version, home, {platform, arch})`: linux-x64 manifest only on a Linux x86_64 copy with its own node.
