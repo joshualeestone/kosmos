@@ -15,3 +15,16 @@ x86-64 and starts, the installed version is the pointer's, the source-channel st
   tools/build-tunnel-release-linux.sh (PigeonPete).
 - Weakest premise: `kosmos-tunnel --help` (or --version) exits 0 on the shipped connector; if neither does, that step
   needs the connector's real no-network verb.
+
+## Review 1 (2026-10-27 00:5x): 0 blockers, 3 warnings, 3 nits, all fixed
+- W1: the `site` input reached the pointer check but not the installer (setup.sh defaults KOSMOS_RELEASE_BASE to
+  installkosmos.com): the install step now exports KOSMOS_RELEASE_BASE=<site>/dist.
+- W2: anything answering on the port passed, including a loose board setup.sh started itself; now
+  systemctl --user is-active kosmos-board.service must be active (as 4920), and `kosmos status` cannot stop the step
+  before the wait.
+- W3: the dead beacon address reaching the systemd board was never checked; now the unit and the running board's own
+  environment are asserted (4920's checks), and the env comment says only CREATED_URL reaches that board.
+- NITs: the channel stamp is read from its one path (no find under pipefail); the pointer version uses setup.sh's
+  a.b.c read; /run/user/<uid> is made; the restore looks wherever the hide could have moved a node.
+- Reviewer confirmed: setup.sh looks for a system node only via command -v node / nodejs (hidden here); the env
+  reaches `sh` through the export; the fallback to the portable bundle fails the regular-file and ELF checks.
