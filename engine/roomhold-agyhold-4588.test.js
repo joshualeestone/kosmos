@@ -484,7 +484,8 @@ test('#4797: the log line says "told of" only when something was told', () => {
 
 test('#4797: both server log lines for a flush go through toldLine (no inline "told of" left)', () => {
   const src = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
-  assert.equal((src.match(/roomhold\.toldLine\(/g) || []).length, 2, 'CONTROL: the two call sites were not found');
+  // #7246 added the third: the hourly digest sweep's line.
+  assert.equal((src.match(/roomhold\.toldLine\(/g) || []).length, 3, 'CONTROL: the three call sites were not found');
   const inline = /room-hold: (\$\{[^}]+\}|' \+ \w+ \+ ')\s*told of/;
   // CONTROL: the check matches the old inline line, in both template and concatenated form.
   assert.ok(inline.test('write(`room-hold: ${who} told of ${d.n} held post(s)`)'), 'the check cannot see a template line');
