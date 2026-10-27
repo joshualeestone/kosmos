@@ -595,7 +595,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         let rep = await replyArm(false);
         for (let i = 0; i < 3 && rep.repainted; i++) rep = await replyArm(false);
         if (rep.repainted) bad('#7196 the reply arm ran without a room repaint inside it (three tries)', JSON.stringify(rep));
-        if (!rep.shown || rep.barH < 10) bad('#7196 the reply arm shows the Replying to bar', JSON.stringify(rep));
+        else if (!rep.shown || rep.barH < 10) bad('#7196 the reply arm shows the Replying to bar', JSON.stringify(rep));
         else if (rep.lastBottom <= rep.composerTop && rep.barBottom <= rep.composerTop) ok('#7196 with Replying to open, the newest row and the bar sit above the composer');
         else bad('#7196 with Replying to open, the newest row and the bar sit above the composer', JSON.stringify(rep));
         const repOld = await replyArm(true);
@@ -605,25 +605,25 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         // Review 5: and retried when a room repaint landed inside it, so only the composer's observer can have re-fit.
         let preType, typed, afterType, typedPaints;
         for (let i = 0; i < 4; i++) {
-        const p0 = await ph.evaluate(() => window.__pjPaints);
-        preType = await floor();
-        // Review 1: typing a long message grows the composer with no repaint or resize; the thread must give way.
-        typed = await ph.evaluate(async () => {
-          const box = document.getElementById('pj-post'), comp = document.querySelector('.pjmid .composer');
-          const h0 = comp.getBoundingClientRect().height;
-          box.value = 'line one\nline two\nline three\nline four\nline five'; box.dispatchEvent(new Event('input', { bubbles: true }));
-          if (typeof pjGrowComposer === 'function') pjGrowComposer(box);
-          await new Promise((r) => setTimeout(r, 400));
-          return { grew: comp.getBoundingClientRect().height - h0 };
-        });
-        afterType = await floor();
-        typedPaints = (await ph.evaluate(() => window.__pjPaints)) - p0;
-        if (typedPaints === 0) break;
-        await ph.evaluate(() => { const box = document.getElementById('pj-post'); box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); if (typeof pjGrowComposer === 'function') pjGrowComposer(box); pjFitRoomPhone(); });
+          const p0 = await ph.evaluate(() => window.__pjPaints);
+          preType = await floor();
+          // Review 1: typing a long message grows the composer with no repaint or resize; the thread must give way.
+          typed = await ph.evaluate(async () => {
+            const box = document.getElementById('pj-post'), comp = document.querySelector('.pjmid .composer');
+            const h0 = comp.getBoundingClientRect().height;
+            box.value = 'line one\nline two\nline three\nline four\nline five'; box.dispatchEvent(new Event('input', { bubbles: true }));
+            if (typeof pjGrowComposer === 'function') pjGrowComposer(box);
+            await new Promise((r) => setTimeout(r, 400));
+            return { grew: comp.getBoundingClientRect().height - h0 };
+          });
+          afterType = await floor();
+          typedPaints = (await ph.evaluate(() => window.__pjPaints)) - p0;
+          if (typedPaints === 0) break;
+          await ph.evaluate(() => { const box = document.getElementById('pj-post'); box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); if (typeof pjGrowComposer === 'function') pjGrowComposer(box); pjFitRoomPhone(); });
         }
-        if (typedPaints !== 0) bad('#7196 the typing arm ran without a room repaint inside it (four tries)', JSON.stringify({ typedPaints }));
         const slack = preType.composerTop - preType.lastBottom;
-        if (typed.grew <= slack + 4) bad('#7196 CONTROL: typing grew the composer by more than the space under the newest row', JSON.stringify({ typed, slack }));
+        if (typedPaints !== 0) bad('#7196 the typing arm ran without a room repaint inside it (four tries)', JSON.stringify({ typedPaints }));
+        else if (typed.grew <= slack + 4) bad('#7196 CONTROL: typing grew the composer by more than the space under the newest row', JSON.stringify({ typed, slack }));
         else if (afterType.lastBottom <= afterType.composerTop) ok('#7196 typing a long message (composer +' + Math.round(typed.grew) + 'px) leaves the newest row above it');
         else bad('#7196 typing a long message leaves the newest row above the composer', JSON.stringify({ typed, afterType }));
         await ph.evaluate(() => { const box = document.getElementById('pj-post'); box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); });
