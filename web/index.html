@@ -77442,6 +77442,10 @@ function pjRoomRow(m, p, hideHeader) {
       : orig
       ? '<button type="button" class="msg-replyto" data-jump="' + esc(m.replyTo) + '" aria-label="' + esc(pjReplyWho(p, orig) + ': ' + pjReplyGist(orig, pjReplyWho(p, orig)) + ', the message this answers. Go to it') + '">'
         + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig, pjReplyWho(p, orig))) + '</button>'
+      /* kosmos#7365: the room draws its newest page and the earlier pages read so far, so an original not among them is
+         FURTHER BACK while earlier rows are still unread (as a Direct conversation says, #5841), never "unavailable". */
+      : PJ_WIN.pid === PJ_CURRENT && PJ_WIN.olderCount > 0 && PJ_ROOM_QUERY.trim() === ''
+      ? '<span class="msg-replyto gone">Original message is further back</span>'
       : '<span class="msg-replyto gone">Original message unavailable</span>';
   }
   const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';
