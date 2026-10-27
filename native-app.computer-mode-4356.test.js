@@ -274,7 +274,7 @@ test('#4356: quitting a connect computer does not say its agents keep running', 
 test('#4356: the bundle build runs the mode selftest and fails on a wrong row or a hollow run', () => {
   assert.match(BUILD, /--kosmos-app-mode-selftest/);
   assert.match(BUILD, /\*"mode-check: all good"\*\) ;;/);
-  assert.match(SRC, /let expected = 205[^\n]*\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
+  assert.match(SRC, /let expected = 210[^\n]*\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
 });
 
 test('kosmos#7205: a second answer is heard only in a launch that asked, and never after Connect', () => {

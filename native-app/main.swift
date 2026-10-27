@@ -466,6 +466,15 @@ let kosmosPlusReservedLabels: Set<String> = [
     "register", "auth", "account", "accounts", "checkout", "pay", "payment", "payments", "secure", "verify",
 ]
 
+/// #5167 (2026-10-27): PURE, for --kosmos-app-mode-selftest. Whether a download refusal is put on screen: not while
+/// another refusal is up, and not the same sentence again within `window` seconds of its last showing (a page that
+/// repeats a refusal cannot pile alerts up or keep one on screen). Every refusal is logged either way.
+func refusalShouldShow(_ detail: String, up: Bool, last: (detail: String, at: Date)?, now: Date, window: TimeInterval) -> Bool {
+    if up { return false }
+    if let last = last, last.detail == detail, now.timeIntervalSince(last.at) < window { return false }
+    return true
+}
+
 /// #5167: PURE, for --kosmos-app-mode-selftest. Whether the page on screen is a board this app may save
 /// downloads from: a Kosmos+ computer (isKosmosPlusURL), or the board this app loaded (`board`, the
 /// host and port it resolved; nil on a connect computer). A foreign site, or another local server, that
@@ -3753,7 +3762,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if navigationAction.targetFrame?.isMainFrame != false {
                 tellDownloadFailed(boardPage
                     ? "That file is not from this board, so it was not saved."
-                    : "This page is not a board Kosmos saves files from, so the file was not saved.", quiet: true)
+                    : "This page is not a board Kosmos saves files from, so the file was not saved.", refusal: true)
             }
             decisionHandler(.cancel)
             return
@@ -3817,7 +3826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 logLine("#5167: refused an attachment that is not from this board")
                 if committedPageURL != nil { tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
                     ? "The file came from somewhere Kosmos does not save from, so it was not saved."
-                    : "This page is not a board Kosmos saves files from, so the file was not saved.", quiet: true) }
+                    : "This page is not a board Kosmos saves files from, so the file was not saved.", refusal: true) }
                 decisionHandler(.cancel)
             }
             return
@@ -3832,7 +3841,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // No page yet (start-up, a crash, a switch to connect): the app's own load, not a file the person asked for.
             if committedPageURL != nil { tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
                 ? "That file came from somewhere Kosmos does not save from, so it was not opened or saved."
-                : "This page is not a board Kosmos saves files from, so the file was not opened or saved.", quiet: true) }
+                : "This page is not a board Kosmos saves files from, so the file was not opened or saved.", refusal: true) }
         }
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
     }
@@ -3887,6 +3896,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if allowedDownloadHosts.contains(host) { then(true); return }
         if refusedDownloadHosts.contains(host) {
             logLine("#5167: downloads from \(host) were not allowed this time (the person said so; View > Reload asks again)")
+            tellDownloadFailed("Downloads from \(host) were not allowed while Kosmos is open. Choose View > Reload to be asked again.", refusal: true)
             then(false); return
         }
         if downloadAsks[host] != nil { downloadAsks[host]!.append(then); return }   // one question at a time
@@ -3938,13 +3948,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// #5167: a download the person started that did not save is said, one plain alert each. A refusal by policy
-    /// (`quiet: true`: not a board, not this board's origin, WebKit stopping it; a computer the person did not allow
-    /// is logged in mayDownload itself, where a voided Allow is said once) is logged only: the person either chose it or is not on a Kosmos page, and a page that
-    /// repeats one cannot pile alerts up. The selftest sets downloadAlertPresenter to read what is said.
-    private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false, always: Bool = false) {
-        if quiet { logLine("#5167: not saved (a refusal, logged only): \(detail)"); return }
-        let title = title ?? "Kosmos could not save that file"
-        if let present = AppDelegate.downloadAlertPresenter { present(title + ": " + detail); return }   // the selftest
+    /// (`refusal: true`: not a board, not this board's origin, WebKit stopping it, a computer the person did not allow)
+    /// is said too (2026-10-27, an outside report: a refusal that was only logged read as "nothing happens", which is
+    /// indistinguishable from broken). So a page that repeats one cannot pile alerts up or keep one on screen, a
+    /// refusal is said only while no other refusal is up, and the same sentence again within refusalRepeatSeconds of
+    /// its last showing is logged only. The selftest sets downloadAlertPresenter to read what is said.
+    private var refusalUp = false
+    private var refusalLastSaid: (detail: String, at: Date)?
+    static let refusalRepeatSeconds: TimeInterval = 10
+    private func tellDownloadFailed(_ detail: String, title: String? = nil, refusal: Bool = false, always: Bool = false) {
+        if refusal {
+            logLine("#5167: not saved (a refusal): \(detail)")
+            guard refusalShouldShow(detail, up: refusalUp, last: refusalLastSaid, now: Date(),
+                                    window: AppDelegate.refusalRepeatSeconds) else { return }
+        }
+        let title = title ?? (refusal ? "Kosmos did not save that file" : "Kosmos could not save that file")
+        if let present = AppDelegate.downloadAlertPresenter {   // the selftest
+            if refusal { refusalLastSaid = (detail, Date()) }
+            present(title + ": " + detail)
+            return
+        }
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = detail
@@ -3952,9 +3975,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.addButton(withTitle: "OK")
         // Modal, never a sheet: a sheet over another sheet can be dropped (#2807), and a failure must be said.
         // Shown on the next turn, so the caller answers WebKit first rather than holding its decision under it.
-        DispatchQueue.main.async {
+        if refusal { refusalUp = true }   // set now, not on the next turn: a second refusal before then is not said
+        DispatchQueue.main.async { [self] in
             if always { NSApp.activate(ignoringOtherApps: true) }   // the one warning about a saved file is seen
             alert.runModal()
+            if refusal { refusalUp = false; refusalLastSaid = (detail, Date()) }   // the repeat window counts from the OK
         }
     }
 
@@ -3972,7 +3997,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         } else {
             logLine("#5167: refused a download's redirect to another origin")
             downloadsTold.add(download)
-            tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.", quiet: true)
+            tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.", refusal: true)
             decisionHandler(.cancel)
         }
     }
@@ -4078,7 +4103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download))
         logLine("#5167: a download failed (\(dest?.lastPathComponent ?? "no destination yet")): \(error.localizedDescription)")
         // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
-        // it did not start (WebKit refusing a download on its own) is said as a quiet refusal; any other
+        // it did not start (WebKit refusing a download on its own) is said as a refusal; any other
         // failure always.
         let alreadySaid = downloadsTold.contains(download)
         downloadsTold.remove(download)
@@ -4086,7 +4111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if dest == nil && (error as NSError).domain == NSURLErrorDomain && (error as NSError).code == NSURLErrorCancelled {
                 // WebKit stopped it before it had anywhere to go (measured for a redirect to another origin, where
                 // the window may then show the file: #5169). Quiet, so one click cannot put up two sheets.
-                tellDownloadFailed("It stopped before it began.", quiet: true)
+                tellDownloadFailed("The download stopped before it began, so nothing was saved.", refusal: true)
             } else {
                 tellDownloadFailed("The file could not be saved to Downloads (\(error.localizedDescription)).")
             }
@@ -6283,6 +6308,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     AppDelegate.downloadsDirOverride = dl
     var told: [String] = []
     AppDelegate.downloadAlertPresenter = { told.append($0) }
+    // A real failure and a policy refusal carry different titles (2026-10-27: a refusal is said too, not only logged).
+    func failures() -> [String] { told.filter { $0.hasPrefix("Kosmos could not save that file: ") } }
+    func refusals() -> [String] { told.filter { $0.hasPrefix("Kosmos did not save that file: ") } }
     var port: UInt16 = 0
     func reply(_ path: String) -> String {
         let body = "kosmos " + path
@@ -6389,7 +6417,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        product on a message that came late. Three come from the arms (the 404, the web page, and the voided
        Allow); a run that says fewer is judged as it stands. */
     func settled(_ go: @escaping () -> Void, tries: Int = 200) {
-        if told.count >= 3 || tries == 0 { go(); return }
+        if failures().count >= 3 || tries == 0 { go(); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled(go, tries: tries - 1) }
     }
     /* The per-computer question through a real click: the probe page is treated as a Kosmos+ computer that
@@ -6531,13 +6559,15 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "last.txt", "modal-yes.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            row(told.count == 3 && voided.count == 1 && told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("a web page, not the file") },
-                "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, a web page answered for a file, the voided Allow), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
-            row(!told.contains { $0.contains("not a board") } && !told.contains { $0.contains("were not allowed") }
-                && !told.contains { $0.contains("stopped before it began") } && !told.contains { $0.contains("not opened or saved") }
-                && !told.contains { $0.contains("somewhere Kosmos does not save from") },
-                "A POLICY REFUSAL IS LOGGED, NEVER AN ALERT (not a board, a computer not allowed, WebKit stopping it, a foreign file): a page repeating one cannot pile alerts up")
-            row(told.allSatisfy { $0.hasPrefix("Kosmos could not save that file: ") }, "and each alert carries the failure title (a 204 says nothing)")
+            let fails = failures()
+            row(fails.count == 3 && voided.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
+                "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, a web page answered for a file, the voided Allow) (failures \(fails.count): \(fails.joined(separator: " | ")))")
+            let refused = refusals()
+            row(refused.contains { $0.contains("not a board") },
+                "A POLICY REFUSAL IS SAID ON SCREEN, NOT ONLY LOGGED: the page that is not a board (refusals \(refused.count): \(refused.joined(separator: " | ")))")
+            row(Set(refused).count == refused.count, "no refusal sentence was said twice in a row (a repeating page cannot keep one on screen)")
+            row(told.allSatisfy { $0.hasPrefix("Kosmos could not save that file: ") || $0.hasPrefix("Kosmos did not save that file: ") },
+                "and each alert carries a failure or a refusal title (a 204 says nothing)")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
             // plain link that loads in the window here. This download selftest's board runs in computerMode
             // .unset (never set on `d`), where the nav-policy guard falls through to .allow -- a path #5169
@@ -6548,7 +6578,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 26
+            let expected = 27   // 2026-10-27: the policy-refusal row became two (said on screen; not twice)
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
@@ -7450,6 +7480,20 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     siteIs("https://login.kosmosplus.com/signin", true, "#5169: the sign-in coordinator IS the Kosmos+ site")
     siteIs("https://josh.kosmosplus.com/", false, "#5169: a computer's board address is NOT the site (so a board page stays blocked)")
     siteIs("https://checkout.stripe.com/", false, "#5169: a foreign host is not the site")
+    // #5167 (2026-10-27): a download refusal is said on screen, but never over another refusal or as a repeat.
+    func shows(_ detail: String, up: Bool, last: (String, TimeInterval)?, _ want: Bool, _ why: String) {
+        ran += 1
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let got = refusalShouldShow(detail, up: up, last: last.map { (detail: $0.0, at: now.addingTimeInterval(-$0.1)) },
+                                    now: now, window: 10)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "shown" : "logged").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    shows("a", up: false, last: nil, true, "A REFUSAL IS SAID ON SCREEN (an outside report: a logged-only refusal reads as nothing happening)")
+    shows("a", up: true, last: nil, false, "not while another refusal is on screen (a repeating page cannot pile them up)")
+    shows("a", up: false, last: ("a", 3), false, "the same sentence again within the window is logged only")
+    shows("a", up: false, last: ("a", 10), true, "CONTROL: the same sentence once the window has passed is said again")
+    shows("b", up: false, last: ("a", 3), true, "CONTROL: a different sentence inside the window is said")
     // #5167: which downloads the app saves, and where.
     func dl(_ target: String, _ page: String?, _ want: Bool, _ why: String) {
         ran += 1
@@ -7753,7 +7797,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 205   // kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 210   // kosmos#5167 (2026-10-27): +5 (refusalShouldShow: shown, two logged, two controls); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

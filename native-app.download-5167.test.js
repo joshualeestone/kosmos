@@ -107,7 +107,7 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 205\b/);   // kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
+  assert.match(st, /let expected = 210\b/);   // kosmos#5167 (2026-10-27): +5 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
 });
 
 const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
@@ -122,7 +122,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 26\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 27[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -163,7 +163,7 @@ test('#5167 review 7: Kosmos+ service sites are not boards; the unmarked-file me
     assert.ok(reserved.includes('"' + n + '"'), n + ' is missing from the copy of the coordinator\'s RESERVED_NAMES');
   }
   assert.equal((reserved.match(/"[a-z0-9-]+"/g) || []).length, 45, 'the copy of RESERVED_NAMES changed size (this checks the count and eight names, not every name); re-copy it from kosmos-relay coordinator/src/signin.rs and re-diff');
-  assert.match(SRC, /private func tellDownloadFailed\(_ detail: String, title: String\? = nil, quiet: Bool = false, always: Bool = false\)/);
+  assert.match(SRC, /private func tellDownloadFailed\(_ detail: String, title: String\? = nil, refusal: Bool = false, always: Bool = false\)/);
   assert.match(body('@objc(downloadDidFinish:)'), /title: "Kosmos saved that file without its download mark"/,
     'a kept file is reported under a title saying it was not saved');
 });
@@ -177,12 +177,12 @@ test('#5167 review 11: a run where nothing saves is judged, not timed out (the w
   assert.match(hatch, /wait\(expect == nil \? 20 : 50\)/);
 });
 
-test('#5167 review 12: a foreign file the window cannot show is refused and logged; an early stop is not blamed on a cause', () => {
+test('#5167 review 12: a foreign file the window cannot show is refused and said; an early stop is not blamed on a cause', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
-  assert.match(b, /if !navigationResponse\.canShowMIMEType \{\n[^\n]*\n[^\n]*\n\s+if committedPageURL != nil \{ tellDownloadFailed\(isBoardPage[^\n]*\n[^\n]*not opened or saved\."\n[^\n]*not opened or saved\.", quiet: true\)/,
-    'a foreign file the window cannot show is cancelled with nothing said');
-  assert.match(body('@objc(download:didFailWithError:resumeData:)'), /tellDownloadFailed\("It stopped before it began\.", quiet: true\)/,
-    'an early stop is said with a cause it may not have, or can stack a second sheet');
+  assert.match(b, /if !navigationResponse\.canShowMIMEType \{\n[^\n]*\n[^\n]*\n\s+if committedPageURL != nil \{ tellDownloadFailed\(isBoardPage[^\n]*\n[^\n]*not opened or saved\."\n[^\n]*not opened or saved\.", refusal: true\)/,
+    'a foreign file the window cannot show is cancelled with nothing said, or said as a failure');
+  assert.match(body('@objc(download:didFailWithError:resumeData:)'), /tellDownloadFailed\("The download stopped before it began, so nothing was saved\.", refusal: true\)/,
+    'an early stop is said with a cause it may not have, or as a failure rather than a refusal');
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.ok(hatch.includes('"A FRAME LOADING AN ATTACHMENT SAVES NOTHING') && hatch.includes('"A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED'));
 });
@@ -249,9 +249,14 @@ test('#5167 core: the board\'s 204/205 refusal is never saved as an empty file (
   assert.doesNotMatch(arm, /tellDownloadFailed/);
 });
 
-test('#5167 core: a policy refusal is logged only, a real failure is one modal alert, and the queueing machinery is gone', () => {
-  const t = body('private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false, always: Bool = false) {');
-  assert.match(t, /if quiet \{ logLine\([^\n]*\); return \}/, 'a policy refusal puts up an alert: a repeating page could pile them up');
+test('#5167 core: a policy refusal is SAID (2026-10-27: logged-only read as nothing happening), never over another or as a repeat; a real failure is one modal alert; the queueing machinery is gone', () => {
+  const t = body('private func tellDownloadFailed(_ detail: String, title: String? = nil, refusal: Bool = false, always: Bool = false) {');
+  assert.match(t, /if refusal \{\n\s+logLine\([^\n]*\)\n\s+guard refusalShouldShow\(detail, up: refusalUp, last: refusalLastSaid, now: Date\(\),\n\s+window: AppDelegate\.refusalRepeatSeconds\) else \{ return \}\n\s+\}/,
+    'a refusal is no longer logged, or is said without the one-at-a-time and repeat guard');
+  assert.match(t, /if refusal \{ refusalUp = true \}/, 'refusalUp is set late, so two refusals before the next turn are both said');
+  assert.match(t, /alert\.runModal\(\)\n\s+if refusal \{ refusalUp = false; refusalLastSaid = \(detail, Date\(\)\) \}/,
+    'the repeat window does not count from the OK');
+  assert.match(t, /refusal \? "Kosmos did not save that file" : "Kosmos could not save that file"/, 'a refusal and a failure carry the same title');
   assert.match(t, /alert\.runModal\(\)/);
   assert.doesNotMatch(t, /beginSheetModal/, 'a sheet over a sheet can be dropped (#2807)');
   for (const gone of ['savesByHost', 'downloadQuietSeconds', 'downloadAlertsUp', 'pendingDownloadFailures', 'quietToldThisPage',
@@ -260,11 +265,11 @@ test('#5167 core: a policy refusal is logged only, a real failure is one modal a
   }
 });
 
-test('#5167 core: a page that is not a board cannot save (round 3), and the refusal is logged, not an alert', () => {
+test('#5167 core: a page that is not a board cannot save (round 3), and the refusal is said as a refusal', () => {
   const nav = SRC.slice(SRC.indexOf('if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,'));
   assert.match(nav.slice(0, 400), /isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\)/);
   const refuse = nav.slice(nav.indexOf('if navigationAction.shouldPerformDownload {'), nav.indexOf('decisionHandler(.cancel)'));
-  assert.match(refuse, /quiet: true/, 'a not-a-board refusal is an alert again');
+  assert.match(refuse, /refusal: true/, 'a not-a-board refusal is said as a failure, or not at all');
 });
 
 test('#5167 core: a dangling symlink at the destination is taken, never written through', () => {
@@ -279,4 +284,12 @@ test('#5167 core: an Allow counts only for the page that asked (a commit during 
   assert.match(b, /if asked, committedPageURL\?\.host\?\.lowercased\(\) != host \|\| pageCommits != commitsBefore \{/,
     'a page change voids Don\'t Allow too (a reloading page could ask again and again), or no longer voids an Allow');
   assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {'), /pageCommits \+= 1/);
+});
+
+test('#5167 (2026-10-27): every policy refusal is said, and a computer the person did not allow says how to be asked again', () => {
+  assert.doesNotMatch(SRC, /quiet: true\)/, 'a refusal is logged only again: to the person that is "nothing happens"');
+  assert.equal((SRC.match(/refusal: true\)/g) || []).length, 6, 'a refusal call site was added or lost; re-read each one');
+  const ask = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
+  assert.match(ask, /if refusedDownloadHosts\.contains\(host\) \{\n[^\n]*logLine[^\n]*\n\s+tellDownloadFailed\("Downloads from \\\(host\) were not allowed while Kosmos is open\. Choose View > Reload to be asked again\.", refusal: true\)\n\s+then\(false\); return/,
+    'a download from a computer the person said Do not Allow to is refused with nothing on screen');
 });
