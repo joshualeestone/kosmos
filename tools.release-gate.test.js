@@ -121,6 +121,9 @@ function sandboxEnv(dir, extra) {
      the sandbox inherited it, so step 1f (#5032, the site's /setup-staging headers) ran against a sandbox site with no
      origin and refused. An arm that wants a channel passes it in `extra`. */
   delete env.KOSMOS_CUT_CHANNEL;
+  /* 0.7.71 cut, 2026-10-27: the same for KOSMOS_CUT_LINUX=1 (kosmos#7281), which sent every arm meant to get past the
+     guards to step 1d-linux's refusal. release.sh unsets it before its suite too; this keeps the file safe run by hand. */
+  delete env.KOSMOS_CUT_LINUX;
   /* #5934: step 1c refuses a cut while KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL is set, and CI
      exports KOSMOS_TEST_PART (and KOSMOS_SHELL_SHARD) for its own part, so every arm meant to get past 1c would stop there. */
   delete env.KOSMOS_TEST_PART;
@@ -670,6 +673,8 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_ENTRY_FILE: undefined,
       /* 0.7.25 cut: a staging cut exports KOSMOS_CUT_CHANNEL=staging, which turned on step 1f here (see sandboxEnv). */
       KOSMOS_CUT_CHANNEL: undefined,
+      /* 0.7.71 cut: the same for KOSMOS_CUT_LINUX=1 (see sandboxEnv); release.sh unsets it before step 3 as well. */
+      KOSMOS_CUT_LINUX: undefined,
       /* #6149: these arms cut 0.6.x, below the setup floor. Under KOSMOS_ALLOW_VERSION_JUMP=1 release.sh checks the cut's
          own version against the floor, so a shell that exported it (an operator's; release.sh itself unsets it before
          step 3, so a cut never passes it here) would stop every arm past step 1 at 1a-floor: measured, 17 red. The

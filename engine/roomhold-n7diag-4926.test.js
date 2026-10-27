@@ -99,5 +99,5 @@ test('#4926 N7: the arrival path logs the held posts it carries (source pin)', (
 test('#4926 N7: both of the board\'s flushes (turn end and the timed retry) pass the diagnostic (source pin)', () => {
   const SRC = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const wired = SRC.split('afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),').length - 1;
-  assert.equal(wired, 2, 'the turn-end flush and flushReleased should each pass afterOf');
+  assert.equal(wired, 3, 'the turn-end flush, flushReleased and (#7246) flushDigests should each pass afterOf');
 });
