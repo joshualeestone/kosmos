@@ -342,7 +342,7 @@ struct AgentRow: View {
     private var size: CGFloat { large ? 48 : 40 }
 
     private var avatar: some View {
-        AgentAvatar(name: agent.name, picture: picture, tone: tone, size: size, memoryPercent: agent.contextPercent,
+        AgentAvatar(name: agent.name, picture: picture, tone: nil, presence: stale ? .unsure : Board.presence(agent), size: size, memoryPercent: agent.contextPercent,
                     memoryQuiet: stale)
     }
 
@@ -378,6 +378,9 @@ struct AgentAvatar: View {
     let name: String
     let picture: UIImage?
     let tone: Board.Tone?
+    // kosmos#7341: when set, the dot is the agent's presence (green, grey, hollow) rather than its tone. The Agents list
+    // sets it; screens that still colour by state pass a tone instead.
+    var presence: Board.Presence? = nil
     let size: CGFloat
     // kosmos#7120: the context ring round the picture, as the board's list row draws it (lrowRing); nil draws none.
     var memoryPercent: Double? = nil
@@ -402,7 +405,16 @@ struct AgentAvatar: View {
             .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay { memoryRing }
-            if let tone {
+            if let presence {
+                // kosmos#7341: hollow is a ring in the quiet grey on the card colour, as the board's pjd-unk.
+                Circle()
+                    .fill(presence == .unsure ? Palette.card : Palette.presence(presence))
+                    .overlay(Circle().inset(by: 1.5).stroke(presence == .unsure ? Palette.presence(.off) : .clear, lineWidth: 1.5))
+                    .frame(width: 12, height: 12)
+                    .overlay(Circle().stroke(Palette.card, lineWidth: 2))
+                    .offset(x: 1, y: 1)
+                    .animation(.easeInOut(duration: 0.2), value: presence)
+            } else if let tone {
                 // The status dot, 12pt with a 2pt ring in the card colour, 1pt outside the picture.
                 Circle()
                     .fill(Palette.dot(tone))
@@ -461,6 +473,14 @@ enum Palette {
     static let dangerWord = pair(0xb3261e, 0xff6b5e)
     // kosmos#7030: the board's built colour (--pj-mention), the dot before a ready-to-check card's "Marked built" line.
     static let built = pair(0x0a58d8, 0x5aa2ff)
+
+    // kosmos#7341: the presence dot, the board's green and grey (unsure is drawn as a ring of the grey).
+    static func presence(_ p: Board.Presence) -> Color {
+        switch p {
+        case .on: return dot(.working)
+        case .off, .unsure: return dot(.quiet)
+        }
+    }
 
     static func dot(_ tone: Board.Tone) -> Color {
         switch tone {

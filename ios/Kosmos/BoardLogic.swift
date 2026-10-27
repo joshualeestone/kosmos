@@ -231,6 +231,8 @@ enum Board {
         var needsTrust = false
         var jobRunningUnseen = false
         var restartTimedOut = false
+        // kosmos#7341: a restart that failed (disruption.failed), which the board draws as stopped.
+        var restartFailed = false
         var hasAvatar = false
         var avatarVer = ""
         // #7004: the card's word and tone as the Mac sends them ready-made (cardWord, cardTone). nil from a Mac that
@@ -278,6 +280,7 @@ enum Board {
                          needsTrust: (row["needsTrust"] as? Bool) == true,
                          jobRunningUnseen: (row["jobRunningUnseen"] as? Bool) == true,
                          restartTimedOut: ((row["disruption"] as? [String: Any])?["timedOut"] as? Bool) == true,
+                         restartFailed: ((row["disruption"] as? [String: Any])?["failed"] as? Bool) == true,
                          hasAvatar: (row["hasAvatar"] as? Bool) == true,
                          avatarVer: (row["avatarVer"] as? NSNumber)?.stringValue ?? (row["avatarVer"] as? String) ?? "",
                          macWord: (row["cardWord"] as? String).flatMap { $0.isEmpty ? nil : $0 },
@@ -332,6 +335,23 @@ enum Board {
 
     // Mona Lisa's slice 1 spec (kosmos#6838): each status word has a tone, which sets the dot and the word's colour.
     enum Tone: Equatable { case needsYou, asked, working, quiet }
+
+    // kosmos#7341 (Josh 10-27): the avatar's dot says one thing, whether the agent is there: green while it runs, grey
+    // when stopped, hollow when Kosmos cannot tell. Its work state is the word beside it. The board's memberDotClass
+    // (web/index.html) with CARD_ST's pres, in its order: a trust prompt is unsure; not running (unless restarting) is
+    // off; then the state's own presence, where a failed restart is off and a state the phone does not know is unsure.
+    enum Presence: Equatable { case on, off, unsure }
+    static let presenceOf: [String: Presence] = [
+        "working": .on, "needs_you": .on, "question": .on, "rate_limited": .on, "auth_failed": .on,
+        "connection_lost": .on, "blocked": .on, "idle": .on, "restarting": .on,
+        "stopped": .off, "unknown": .unsure, "needs_trust": .unsure,
+    ]
+    static func presence(_ a: Agent) -> Presence {
+        if a.needsTrust || a.state == "needs_trust" { return .unsure }
+        if !a.running && a.state != "restarting" { return .off }
+        if a.state == "needs_you" && a.restartFailed { return .off }   // the board's CARD_ST_FAILED_RESTART
+        return presenceOf[a.state] ?? .unsure
+    }
 
     // The Mac's cardTone (engine/cardlabel.js toneOf). A name the phone does not know is nil, and the phone's own rule
     // decides, so a tone the Mac adds later never shows as something it is not.
