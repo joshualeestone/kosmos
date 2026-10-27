@@ -15,7 +15,8 @@
  * NUL), no row counts as earlier, the same as before #7185. Failing closed hid every room's rows and refused every room
  * post, so one damaged file silenced every agent; the Projects page is where that file's fault is shown
  * (projects.readAll throws for it). The cost: while the file is damaged, a deleted-and-re-made project's old rows show
- * again. ok is false then, so a reader that KEEPS what it worked out (engine/receipt.js) still keeps nothing. A project
+ * again. ok is false then, so a reader that KEEPS what it worked out (engine/receipt.js) or ACTS on old rows
+ * (messages.sweepUnanswered, which would nudge about a deleted project's ask) does nothing until the file reads. A project
  * id with no record, or a record with no valid createdAt, keeps every row (no stamp to compare with).
  */
 
@@ -30,6 +31,7 @@ function keyOf(id) {
 let CACHE = null;
 const NO_PROJECTS = { ok: true, born: new Map() };   // one object, so a caller's work against it is kept
 const UNREADABLE = { ok: false };                     // the same, while the projects file cannot be read
+const UNREADABLE_KEEP_MS = 5000;                      // #7367: how long a failed read is kept before it is tried again
 
 function births() {
   const projects = require('./projects');
@@ -40,14 +42,16 @@ function births() {
   } catch (err) {
     return err && err.code === 'ENOENT' ? NO_PROJECTS : UNREADABLE;
   }
-  if (CACHE && CACHE.file === f && CACHE.ino === st.ino && CACHE.size === st.size && CACHE.mtimeMs === st.mtimeMs && CACHE.ctimeMs === st.ctimeMs) return CACHE.value;
+  if (CACHE && CACHE.file === f && CACHE.ino === st.ino && CACHE.size === st.size && CACHE.mtimeMs === st.mtimeMs && CACHE.ctimeMs === st.ctimeMs
+    && !(CACHE.until && Date.now() >= CACHE.until)) return CACHE.value;
   let all;
   try {
     all = projects.readAll();
   } catch {
-    /* #7367: kept against the file's stat like a good read, so a damaged file is not re-read on every room read. A
-       passing read error is kept too, until the file next changes; failing open, that can only show rows, never hide them. */
-    CACHE = { file: f, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, value: UNREADABLE };
+    /* #7367: kept against the file's stat, so a damaged file is not re-read on every room read, but only for
+       UNREADABLE_KEEP_MS: a passing read error on a good file (a scanner holding it) must not stand until the file next
+       changes, showing a re-made project's predecessor rows with nothing saying so. */
+    CACHE = { file: f, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, value: UNREADABLE, until: Date.now() + UNREADABLE_KEEP_MS };
     return UNREADABLE;
   }
   const born = new Map();

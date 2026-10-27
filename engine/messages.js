@@ -3326,6 +3326,10 @@ function sweepUnanswered(roster, now) {
      card's own condition was the sweep pinned unchanged. */
   const rec = record();
   if (!rec.ok) return { ok: false, nudged: [] };
+  /* #7367: with the projects file unreadable every row is kept, a deleted project's never-answered asks included, and
+     this sweep ACTS on what it reads (it types a nudge and writes a row). It waits for the stamps instead; the rooms
+     themselves still read and post. */
+  if (rec.stampsUnknown) return { ok: false, nudged: [] };
   /* #2442: the nudge is a pane write into agents, so it must also respect removal
      -- a removed agent gets NO room traffic, not even a nudge for an ask that
      predates its removal. A killed removed agent is already skipped below (no
