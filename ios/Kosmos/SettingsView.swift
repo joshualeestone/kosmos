@@ -61,6 +61,7 @@ struct SettingsView: View {
                 .tint(Color(UIColor.systemGreen))
                 .background(Palette.ground.ignoresSafeArea())
                 .navigationTitle("Settings")
+                .navigationBarTitleDisplayMode(.inline)   // kosmos#7343: no big title (the tab bar names the screen)
                 .refreshable { await read() }
                 .onAppear {
                     #if DEBUG

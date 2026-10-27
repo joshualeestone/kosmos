@@ -25,7 +25,7 @@ struct TasksTab: View {
                       answer: answer,
                       refresh: { await client.refreshTasks() },
                       newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
-                      notice: notice)
+                      notice: notice, switcher: AnyView(MacSwitcher(client: client)))
                 .background(chatLink)
                 .background(taskLink)
                 .sheet(item: $newTaskFor) { start in
@@ -130,6 +130,8 @@ struct TasksView: View {
     // sheet leaves after a create ("Added task 12 to Launch."). Both optional, so the samples and checks need neither.
     var newTask: ((String?) -> Void)? = nil
     var notice: String? = nil
+    // kosmos#7343: the computer switcher for the shared bar (TasksTab passes it; previews and tests need none).
+    var switcher: AnyView? = nil
 
     @State private var project: String? = nil
     @State private var shown: [Tasks.Section] = []
@@ -141,12 +143,18 @@ struct TasksView: View {
     var body: some View {
         content
             .navigationTitle("Tasks")
+            // kosmos#7343 (Mona Lisa's design): the shared bar, no big title. The switcher takes the place of "All
+            // projects"; choosing a project moves into the filter button, left of +, in one capsule.
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if let read, !read.tasks.isEmpty { ToolbarItem(placement: .navigationBarTrailing) { picker } }
-                // Not gated on the Tasks read: the sheet reads its own projects, so a failed list does not stop a new task.
-                if let newTask {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button { newTask(project) } label: { Image(systemName: "plus") }
+                ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+                ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
+                if let switcher { ToolbarItem(placement: .navigationBarLeading) { switcher } }
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    if let read, !read.tasks.isEmpty { picker }
+                    // Not gated on the Tasks read: the sheet reads its own projects, so a failed list does not stop a new task.
+                    if let newTask {
+                        Button { newTask(project) } label: { Image(systemName: "plus").font(.body.weight(.semibold)) }
                             .accessibilityLabel("New task")
                     }
                 }
@@ -200,8 +208,12 @@ struct TasksView: View {
                 EmptyView()
             } header: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(Tasks.title(read, drawn: shown, project: project))
-                        .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
+                    // kosmos#7343: the "77 Tasks on 4 Projects" line is gone (the count tiles say it); a chosen project
+                    // is named here, so the filter is never hidden.
+                    if project != nil {
+                        Text(Tasks.title(read, drawn: shown, project: project))
+                            .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
+                    }
                     // kosmos#7078: the board's tsk-msg line after a New task, where the board puts it.
                     if let notice {
                         Text(notice).font(.footnote).foregroundColor(Palette.primary).textCase(nil)
@@ -361,11 +373,8 @@ struct TasksView: View {
             Button("All projects") { project = nil }
             ForEach(projects, id: \.id) { p in Button(Tasks.pickerWords(p)) { project = p.id } }
         } label: {
-            HStack(spacing: 4) {
-                Text(name).lineLimit(1)
-                Image(systemName: "chevron.down").font(.footnote.weight(.semibold))
-            }
-            .foregroundColor(Palette.primary)
+            // kosmos#7343: a filter button in the bar's capsule; filled while one project is chosen.
+            Image(systemName: project == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
         }
         .accessibilityLabel("Project: " + name)
     }

@@ -23,13 +23,31 @@ struct AgentsView: View {
     private static var sampleOpened = false
     #endif
 
+    // kosmos#7343: the order the list is in, kept on this phone: as the computer orders them (who needs you first), or by
+    // name.
+    @AppStorage("kosmos.agentSort") private var agentSort = Board.AgentSort.board.rawValue
+    private var agentSortMenu: some View {
+        Menu {
+            Picker("Order", selection: $agentSort) {
+                ForEach(Board.AgentSort.allCases, id: \.rawValue) { s in Text(Board.agentSortLabel(s)).tag(s.rawValue) }
+            }
+        } label: { Image(systemName: "arrow.up.arrow.down") }
+        .accessibilityLabel("Order: \(Board.agentSortLabel(Board.AgentSort(rawValue: agentSort) ?? .board))")
+    }
+
     var body: some View {
         NavigationView {
             content
                 .navigationTitle("Agents")
+                // kosmos#7343 (Josh 10-27, Mona Lisa's design): one bar on Agents, Projects and Tasks, no big title (the
+                // tab bar names the screen): the Kosmos mark, the computer switcher, then order and + in one capsule.
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+                    ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
                     ToolbarItem(placement: .navigationBarLeading) { MacSwitcher(client: client) }
-                    ToolbarItem(placement: .navigationBarTrailing) {
+                    ToolbarItemGroup(placement: .navigationBarTrailing) {
+                        agentSortMenu
                         Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
                             .accessibilityLabel("Add agent")
                     }
@@ -138,7 +156,7 @@ struct AgentsView: View {
                 }
             }
             Section(footer: footer) {
-                ForEach(client.agents) { agent in
+                ForEach(Board.agentOrder(client.agents, byName: agentSort == Board.AgentSort.name.rawValue)) { agent in
                     // kosmos#7008: the agent's chat, native; anything it does not draw opens the board's (openChat).
                     Button {
                         openAgent = agent
@@ -516,6 +534,22 @@ enum Palette {
         case .needsYou: return dangerWord
         case .working, .quiet: return secondary
         }
+    }
+}
+
+// kosmos#7343 (Mona Lisa's design): the Kosmos mark at the bar's left, a 44 pt gold circle (the app icon's gold) with
+// the icon's dotted K. Decoration with the label "Kosmos", not a button.
+struct KosmosMark: View {
+    var body: some View {
+        ZStack {
+            Circle().fill(Color(red: 0xe2 / 255, green: 0xac / 255, blue: 0x1e / 255))
+            Image("KosmosMark").resizable().scaledToFill().frame(width: 38, height: 38).clipShape(Circle())
+        }
+        .frame(width: 44, height: 44)
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .accessibilityElement()
+        .accessibilityLabel("Kosmos")
+        .accessibilityAddTraits(.isImage)
     }
 }
 
