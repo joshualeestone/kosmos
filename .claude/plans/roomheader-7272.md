@@ -89,3 +89,5 @@ person who needs the room's search while composing.
 4. (sonnet, 20:4x CDT) No new findings. Converged. One optional NIT declined: the shot's header read returns 0 if
    .pjmidhead were absent, but newestAbove7196 runs first and fails on a missing room or fewer than 24 posts.
    Next: validation and PR after #7196 merges and this branch is rebased onto main (the diff hash is taken against main).
+
+5. Rebased onto main after #7196 merged (31272c7109), 22:2x CDT. Clean; all five subjects intact. render-room-scroll 50 of 50; the 19 guard files 213 of 213; the observer mutation still reds the search-to-composer arm on the rebased tree.
