@@ -36,15 +36,46 @@ enum Board {
         return r
     }
 
-    // The gate's own page posts {token} as JSON. No Origin header is set: the
+    // kosmos#7337: the device key's proof at the gate (relay crates/tunnel/src/gateproof.rs), as gate.html sends it: a
+    // nonce this computer issued, signed with the key over its host, the nonce, the token's hash and the key's id.
+    struct GateProof: Equatable { let nonce: String; let key: String; let sig: String }
+
+    static func nonceRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/_kosmos/nonce", relativeTo: mac)!.absoluteURL)
+        r.timeoutInterval = 8
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    static func parseNonce(_ data: Data?) -> String? {
+        guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let nonce = obj["nonce"] as? String, !nonce.isEmpty else { return nil }
+        return nonce
+    }
+
+    // gateproof::message: one field per line, the key's id last.
+    static func gateMessage(host: String, nonce: String, token: String, keyID: String) -> Data {
+        let tokenHash = SignIn.base64url(Data(SHA256.hash(data: Data(token.utf8))))
+        return Data(["kosmos-gate-v2", host, nonce, tokenHash, keyID].joined(separator: "\n").utf8)
+    }
+
+    // nil when the key cannot sign (the kept key no longer usable); the session is then sent as before, unproven.
+    static func gateProof(host: String, nonce: String, token: String, key: SignIn.DeviceKey) -> GateProof? {
+        guard let sig = try? key.sign(gateMessage(host: host, nonce: nonce, token: token, keyID: key.id)) else { return nil }
+        return GateProof(nonce: nonce, key: SignIn.base64url(key.spki), sig: SignIn.base64url(sig))
+    }
+
+    // The gate's own page posts {token} as JSON (and, with a key, the proof beside it). No Origin header is set: the
     // gate's cross-site guard refuses only a foreign one.
-    static func sessionRequest(mac: URL, handoffToken: String) -> URLRequest {
+    static func sessionRequest(mac: URL, handoffToken: String, proof: GateProof? = nil) -> URLRequest {
         var r = URLRequest(url: URL(string: "/_kosmos/session", relativeTo: mac)!.absoluteURL)
         // kosmos#7197: three tries before "not answering", so each waits 8 s, not the session's 15 s (about 30 s in all).
         r.timeoutInterval = 8
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = try? JSONSerialization.data(withJSONObject: ["token": handoffToken])
+        var body: [String: Any] = ["token": handoffToken]
+        if let proof { body["nonce"] = proof.nonce; body["key"] = proof.key; body["sig"] = proof.sig }
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return r
     }
 
@@ -168,6 +199,8 @@ enum Board {
         case denied
         // A slow network cut the request short while waiting; ask again.
         case retry
+        // kosmos#7337: 409 retry. The nonce was spent, or a hosted box has just allowed this key: sign again, at once.
+        case resign
         case refused(because: String?)
     }
 
@@ -181,6 +214,7 @@ enum Board {
             return .pending(code: code)
         }
         if waiting && status == 400 { return .retry }
+        if status == 409, obj?["retry"] as? Bool == true { return .resign }
         return .refused(because: obj?["because"] as? String)
     }
 

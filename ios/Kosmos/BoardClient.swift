@@ -48,6 +48,9 @@ final class BoardClient: ObservableObject {
         var upload: (URLRequest, URL) async -> (Data, HTTPURLResponse)? = { _, _ in nil }
         // Where picked files are copied before they are sent (a folder of their own per file, removed once sent).
         var uploads: URL = FileManager.default.temporaryDirectory.appendingPathComponent("chat-uploads", isDirectory: true)
+        // kosmos#7337: this iPhone's device key (#7042's, from the sign-in), proved at each computer's gate. nil: none,
+        // and the session is sent as before.
+        var deviceKey: () -> SignIn.DeviceKey? = { nil }
     }
 
     @Published private(set) var phase: Phase = .starting
@@ -1337,8 +1340,11 @@ final class BoardClient: ObservableObject {
         var waiting = false
         var fresh = 0
         var misses = 0
+        var resigned = 0
         while !Task.isCancelled && gen == generation {
-            let result = await env.send(Board.sessionRequest(mac: url, handoffToken: token))
+            let proof = await gateProof(url: url, token: token)
+            guard gen == generation else { return false }
+            let result = await env.send(Board.sessionRequest(mac: url, handoffToken: token, proof: proof))
             let status = result?.1.statusCode ?? 0
             if status == 0 {
                 // No answer at all: a few are a slow network or a Mac just waking; three in a row (as the gate page counts
@@ -1359,6 +1365,11 @@ final class BoardClient: ObservableObject {
                 await env.sleep(3)
             case .retry:
                 await env.sleep(3)
+            case .resign:
+                // kosmos#7337: a spent nonce, or a hosted box that has just allowed this key: sign again at once, a few
+                // times (as gate.html), then as a slow answer.
+                resigned += 1
+                if resigned > 5 { resigned = 0; await env.sleep(3) }
             case .denied:
                 set(.denied(mac: mac.name), gen); return false
             case .refused:
@@ -1379,6 +1390,16 @@ final class BoardClient: ObservableObject {
             }
         }
         return false
+    }
+
+    // kosmos#7337: the proof for one session request, or nil to send it as before: no key, or a computer whose gate
+    // issues no nonce (an older tunnel answers 404). A nonce that does not come is the next try's to ask for again.
+    private func gateProof(url: URL, token: String) async -> Board.GateProof? {
+        guard let key = env.deviceKey(), let host = url.host else { return nil }
+        guard let (data, answer) = await env.send(Board.nonceRequest(mac: url)), (200...299).contains(answer.statusCode)
+        else { return nil }
+        guard let nonce = Board.parseNonce(data) else { return nil }
+        return Board.gateProof(host: host, nonce: nonce, token: token, key: key)
     }
 
     // #7034: the person's stars on this Mac, or nil when they cannot be read.

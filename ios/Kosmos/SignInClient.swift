@@ -48,11 +48,17 @@ final class SignInClient {
         return made.key
     }
 
+    /// kosmos#7337: the key a native sign-in already kept, for proving it at a computer's gate. Never makes one: a phone
+    /// signed in on the web page has none, and a key unknown to Kosmos+ proves nothing a computer should rely on.
+    nonisolated static func keptDeviceKey(_ store: SessionStore = deviceKeyStore) -> SignIn.DeviceKey? {
+        store.load().flatMap(read)
+    }
+
     /// Forget the key (the coordinator refused its proof, or a review sign-in made a session that is not this key's): the
     /// next code sign-in makes a new one, which the Mac allows once.
     func forgetDeviceKey() { keyStore.delete() }
 
-    private static func read(_ stored: String) -> SignIn.DeviceKey? {
+    nonisolated private static func read(_ stored: String) -> SignIn.DeviceKey? {
         if stored.hasPrefix("se:"), let data = Data(base64Encoded: String(stored.dropFirst(3))),
            let k = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data) {
             return SignIn.DeviceKey(spki: k.publicKey.derRepresentation, sign: { try k.signature(for: $0).rawRepresentation })
