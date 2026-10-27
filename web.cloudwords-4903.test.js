@@ -176,6 +176,7 @@ test('#4903 seam H, engine half: an engine sentence says "your cloud machine" at
     cloudWords("This computer's tmux server belongs to a different version"),
     restartFailureLine({ because: 'we could not find Claude Code on this computer', steps: [{ ok: false, label: 'started it on this computer' }] }),
     cloudWords('a computer named this computerlike'),
+    [cloudWords(undefined), cloudWords(null), cloudWords(7)],
   ];`, machine(cloud, 'linux'));
   assert.deepEqual(said(true), [
     'We cannot see an agent by exactly this name on your cloud machine right now.',
@@ -183,6 +184,7 @@ test('#4903 seam H, engine half: an engine sentence says "your cloud machine" at
     "Your cloud machine's tmux server belongs to a different version",
     'we could not find Claude Code on your cloud machine What failed: started it on your cloud machine.',
     'a computer named this computerlike',
+    [undefined, null, 7],
   ]);
   // CONTROL: the same sentences on a board that is not a cloud machine are the engine's own words.
   assert.deepEqual(said(false), [
@@ -191,18 +193,19 @@ test('#4903 seam H, engine half: an engine sentence says "your cloud machine" at
     "This computer's tmux server belongs to a different version",
     'we could not find Claude Code on this computer What failed: started it on this computer.',
     'a computer named this computerlike',
+    [undefined, null, 7],
   ]);
 });
 
 test('#4903 seam H, engine half: a made-agent warning line is said through cloudWords', () => {
-  assert.ok(PAGE.includes("p.className = 'tc-why'; p.textContent = " + "(typeof cloudWords === 'function' ? cloudWords : String)(" + 'w);'));
+  assert.ok(PAGE.includes("p.className = 'tc-why'; p.textContent = " + "(typeof cloudWords === 'function' ? cloudWords : (x) => x)(" + 'w);'));
 });
 
 test('#4903 seam H, engine half: the create and remove flows say engine sentences through cloudWords', () => {
   // Each sink paints an engine sentence on the finish-line path (a create refusal, a name refusal, a partial create, an
   // import row, a create step, the Remove dialog). The words themselves are proven by the lifted arms above.
   // Guarded as the page guards thisMachine, so a test that lifts one of these functions alone still runs.
-  const CW = "(typeof cloudWords === 'function' ? cloudWords : String)(";
+  const CW = "(typeof cloudWords === 'function' ? cloudWords : (x) => x)(";
   for (const sink of [
     'fail(' + CW + 'out.because || out.error ||',
     'msg.textContent = ' + CW + "result.because || 'that name will not work');",
