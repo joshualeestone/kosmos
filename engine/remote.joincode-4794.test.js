@@ -41,6 +41,10 @@ if (args[0] === 'devices' && args[1] === 'allow') {
   console.log(JSON.stringify({ allowed: true }));
   process.exit(0);
 }
+if (args[0] === 'devices' && args[1] === 'list' && process.env.FAKE_LIST === 'FAIL') {   // #7285: an allow list it cannot read
+  process.stderr.write('Error: the allow list could not be read\\n');
+  process.exit(1);
+}
 if (args[0] === 'devices' && args[1] === 'list' && process.env.FAKE_LIST) {   // #6315: the allowed list
   console.log(process.env.FAKE_LIST);
   process.exit(0);
@@ -329,4 +333,36 @@ test('#6315: the allowed list keeps a computer: id, so it can be removed', async
   const got = await remote.devicesList();
   assert.equal(got.ok, true, got.because);
   assert.deepEqual(got.data.devices.map((d) => d.device_id), [MINTED]);
+});
+
+test('#7285 follow-up: the allowed list carries every key holding each id ([] when none), for the cloud own-device guard', async () => {
+  enrol();
+  const other = 'computer:' + 'b'.repeat(32);
+  process.env.FAKE_LIST = JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', allowed_at: 1792168200, last_seen: 0, keys: ['k1.first', 'k1.second'] },
+    { device_id: other, name: 'computer two', allowed_at: 1792168200, last_seen: 0 },
+  ] });
+  const got = await remote.devicesList();
+  assert.equal(got.ok, true, got.because);
+  assert.deepEqual(got.data.devices.map((d) => [d.device_id, d.keys]), [[MINTED, ['k1.first', 'k1.second']], [other, []]]);
+  // Review 2: junk entries are dropped, so an empty header piece can never match one; a non-array reads as none.
+  process.env.FAKE_LIST = JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', allowed_at: 1792168200, last_seen: 0, keys: ['', 7, null, 'k1.ok'] },
+    { device_id: other, name: 'computer two', allowed_at: 1792168200, last_seen: 0, keys: 'k1.ok' },
+  ] });
+  const junk = await remote.devicesList();
+  assert.deepEqual(junk.data.devices.map((d) => d.keys), [['k1.ok'], []]);
+});
+
+test('#7285 (PigeonPete, sessdevice-7285 d5e19f510): a list the tunnel cannot read is NOT an empty list', async () => {
+  enrol();
+  process.env.FAKE_LIST = 'FAIL';
+  const got = await remote.devicesList();
+  assert.equal(got.ok, false, 'a failed list read as ' + JSON.stringify(got));
+  assert.equal(got.data, undefined, 'a failed list carried devices');
+  // CONTROL: the same fake with a readable empty list answers ok with no devices.
+  process.env.FAKE_LIST = JSON.stringify({ devices: [] });
+  const empty = await remote.devicesList();
+  assert.equal(empty.ok, true, empty.because);
+  assert.deepEqual(empty.data.devices, []);
 });

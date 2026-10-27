@@ -12213,7 +12213,10 @@ const server = http.createServer(async (req, res) => {
            the automatic grant would quietly undo. Matched by every id this board has signed in with (kosmos#5422: the
            key's id and the ones before it, which stay at the coordinator). */
         const selves = remote.ownDeviceIds();
-        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !d || !selves.includes(d.device_id));
+        /* kosmos#7285 review 1: `keys` is for the cloud own-device guard only; the page does not use it, and a remote viewer
+           need not learn which devices share one browser key. */
+        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !d || !selves.includes(d.device_id))
+          .map((d) => { if (!d) return d; const { keys, ...shown } = d; return shown; });
         sendJson(res, 200, { pending: pending.devices, allowed, email: pending.email, on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
@@ -12286,12 +12289,37 @@ const server = http.createServer(async (req, res) => {
            nothing here: a header can only make this refuse, never let a removal through, so a forged or missing one is
            safe; without them (an older tunnel) nothing changes. Another device can still remove this one. A Devices row's
            id is always a device id, byte for byte the session's device (PigeonPete, measured on kosmos-relay
-           devices.rs list, and pinned by a tunnel test), so x-kosmos-session-device is the one that matches; the key
-           header never equals a row id and is compared only as a harmless extra. */
+           devices.rs list, and pinned by a tunnel test), so x-kosmos-session-device is the one that matches a row id; the
+           key header never equals a row id directly, and is compared with each row's keys, below.
+           Follow-up (PigeonPete, sessdevice-7285): a key records at most 16 device ids, so this browser's own id can drop
+           off its key's list while its session lives on by the key, and removing a SIBLING row held by the same key
+           locks it out just the same. One id can be held by several keys, and removing it deletes every key that holds it, so a
+           row is refused when ANY of its keys (the tunnel's list) equals the key header. A row with no keys, or no key
+           header, falls back to the device id alone. Not atomic with the removal: a sign-in by this same browser that adds
+           the id to its key between the read and the remove is not seen (a tunnel spawn long; accepted). A list that cannot be read when a key
+           header is there refuses: here we cannot tell, and refusing only stops a removal. */
         if ((verb === 'remove' || verb === 'deny') && id && isRemoteRequest(req) && cloudMachine.isCloudMachine()) {
           // Every piece of a comma-joined copy counts (review 1): a header can only make this refuse, so more is safer.
-          const own = (h) => { const v = req.headers[h]; return typeof v === 'string' ? v.split(',').map((x) => x.trim()).filter(Boolean) : []; };
-          if (own('x-kosmos-session-key').includes(id) || own('x-kosmos-session-device').includes(id)) {
+          // The whole value counts too (review 3): a comma inside one value must not split it into pieces that match nothing.
+          const own = (h) => { const v = req.headers[h]; return typeof v === 'string' ? [v.trim()].concat(v.split(',').map((x) => x.trim())).filter(Boolean) : []; };
+          const ownKeys = own('x-kosmos-session-key');
+          let sameKey = false;
+          if (ownKeys.length && !ownKeys.includes(id) && !own('x-kosmos-session-device').includes(id)) {
+            // A Forget or a sign-in in flight: the person reads why, not "could not check" (review 2). Still a refusal.
+            const b = remote.busy(); if (b) { sendJson(res, 400, { error: b.because }); return; }
+            const listed = await remote.devicesList().catch(() => ({ ok: false }));
+            if (!listed || !listed.ok) {
+              sendJson(res, 409, { code: 'own_device_cloud_unknown', cloud: true, error: 'We could not check that this is not the browser you are using to reach this Kosmos cloud machine, so it is not removed or turned away from here. Try again in a moment, or use another phone or browser.' });
+              return;
+            }
+            // Every row with that id (review 1): one row per id today, but a second row must never fail open.
+            /* Waiting requests are not checked (review 2, PigeonPete from kosmos-relay devices.rs): Not me on a pending
+               row turns away no key, and the v2 knock's drop-waiting never turns away a key that is already allowed,
+               which a session admitted by its key always is. */
+            sameKey = (listed.data && Array.isArray(listed.data.devices) ? listed.data.devices : [])
+              .some((d) => d && d.device_id === id && Array.isArray(d.keys) && d.keys.some((k) => ownKeys.includes(k)));
+          }
+          if (sameKey || ownKeys.includes(id) || own('x-kosmos-session-device').includes(id)) {
             sendJson(res, 409, { code: 'own_device_cloud', cloud: true, error: 'This is the browser you are using to reach this Kosmos cloud machine, so it is not removed or turned away from here: you would have no way back. Use another phone or browser to remove it.' });
             return;
           }
