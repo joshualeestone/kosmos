@@ -84,6 +84,12 @@ const SHAPES = [
   [['fish', ['-C', 'x', '-c', 'P']], true],   // review 5: fish -C takes a value
   [['fish', ['-C', 'P y', '-c', 'echo']], true],   // ...and runs it
   [['/bin/bash', ['-C', '-c', 'P']], true],   // bash -C takes none
+  [['/bin/bash', ['-c', 'a && \\\nP x']], true],   // review 6: a backslash-newline joins the lines (POSIX only, read once)
+  [['/bin/bash', ['-c', 'set -e; \\\n  P api']], true],
+  [['/bin/bash', ['-c', 'a && \\\r\nP x']], true],
+  [['/bin/bash', ['-c', "echo $'it\\'s'; P"]], true],   // review 6: $'...' honours a backslash
+  [['/bin/bash', ['-c', "echo 'a\\'; P"]], true],   // ...while plain single quotes do not
+  ['env --default-path /usr/bin P', true],   // review 6: env -P / --default-path takes a value (the table fills every capital P, so the long form)
   [['/bin/bash', ['-lc', 'nohup P x']], true],
   [['/bin/sh', ['-c', 'echo P']], false],
   [['/bin/sh', ['-c', 'bash -c "echo \\" x; P"']], true],   // review 4: POSIX only (no second reading), so words() must honour the escape
