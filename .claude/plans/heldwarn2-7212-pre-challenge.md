@@ -32,20 +32,20 @@ it was built inside iteration 1's fix commit.
 **Reviewer model:** default (opus)
 **New findings:** 0 BLOCKERs, 4 WARNINGs, 2 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above (no loop commit existed yet)
-- [WARNING] engine/status.js deliveryStallOf — a streak survives stop/restart and shows when the agent returns --> FIXED (d0e32e0f20; reworked in 55b65dcee0)
-- [WARNING] engine/chat.js messageProblem — a refusal of the message itself counted as a stall --> FIXED (d0e32e0f20, contentRefused)
-- [WARNING] server.js sayStalls — the log and the card used different rules --> FIXED (d0e32e0f20, the log speaks only for cards carrying the stall)
-- [WARNING] docs/browser-checks/fixtures/agent-card.json — re-capture changed two unrelated fields --> DEFERRED: tool output from tools/capture-agent-card.js (never hand-edited), placeholders; stated in the d0e32e0f20 commit message
-- [CONVENTION] engine/status.js — deliveryStallOf sat between #6249's comment and its function --> FIXED (d0e32e0f20)
-- [CONVENTION] .claude/plans — plan promised a button and a board notice --> FIXED (plan says what was built instead)
+- [WARNING] engine/status.js deliveryStallOf - a streak survives stop/restart and shows when the agent returns --> FIXED (d0e32e0f20; reworked in 55b65dcee0)
+- [WARNING] engine/chat.js messageProblem - a refusal of the message itself counted as a stall --> FIXED (d0e32e0f20, contentRefused)
+- [WARNING] server.js sayStalls - the log and the card used different rules --> FIXED (d0e32e0f20, the log speaks only for cards carrying the stall)
+- [WARNING] docs/browser-checks/fixtures/agent-card.json - re-capture changed two unrelated fields --> DEFERRED: tool output from tools/capture-agent-card.js (never hand-edited), placeholders; stated in the d0e32e0f20 commit message
+- [CONVENTION] engine/status.js - deliveryStallOf sat between #6249's comment and its function --> FIXED (d0e32e0f20)
+- [CONVENTION] .claude/plans - plan promised a button and a board notice --> FIXED (plan says what was built instead)
 - [NIT] stallOf has no kinds field; [NIT] sayStalls reads the roster each minute; [NIT] resolveCard repeated per hold line
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-- [WARNING] engine/deliverystreak.js — a streak never expires when nobody sends --> FIXED (2db1bb1ee4, FRESH_MS)
-- [WARNING] engine/deliverystreak.js — UNCONFIRMED counts toward a stall --> DEFERRED: decided 08:30 on #7212 (comment 6443127747), Mona's stated weakest premise; tests added pinning interleaved PLACED
+- [WARNING] engine/deliverystreak.js - a streak never expires when nobody sends --> FIXED (2db1bb1ee4, FRESH_MS)
+- [WARNING] engine/deliverystreak.js - UNCONFIRMED counts toward a stall --> DEFERRED: decided 08:30 on #7212 (comment 6443127747), Mona's stated weakest premise; tests added pinning interleaved PLACED
 - [WARNING] key spellings (sessionName / pane.name / k.name) --> DEFERRED: one field; status.js builds pane cards with sessionName: pane.name, server.js the offline row with sessionName: k.name
 - [NIT] offline-row IIFE side effect (later removed in 55b65dcee0); [NIT] fixture drift note; [NIT] duplicated rule pattern
 
@@ -53,9 +53,9 @@ it was built inside iteration 1's fix commit.
 **Reviewer model:** default (opus)
 **New findings:** 0 BLOCKERs, 4 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 1 of the above (the reset-in-getter lines were round 1's; a code finding, fixed normally)
-- [WARNING] engine/status.js — needs_you / rate_limited to idle shows a stale stall --> FIXED (55b65dcee0, settleFor in the minute sweep)
+- [WARNING] engine/status.js - needs_you / rate_limited to idle shows a stale stall --> FIXED (55b65dcee0, settleFor in the minute sweep)
 - [WARNING] advice "restart it" wrong for sign-in, limit, quota; quota siblings go red --> FIXED (55b65dcee0, NEXT_WORDS, quota exemption)
-- [WARNING] engine/chat.js pressRememberedNow — a confirmed retry did not end the streak --> FIXED (55b65dcee0)
+- [WARNING] engine/chat.js pressRememberedNow - a confirmed retry did not end the streak --> FIXED (55b65dcee0)
 - [WARNING] getters mutate state --> FIXED (55b65dcee0, resets only in the sweep)
 - [NIT] fixture drift; [NIT] list shot waits for the row (done); [NIT] Object.hasOwn (done); [NIT] restart re-arms the 30-min clock (stated in plan)
 
@@ -63,9 +63,9 @@ it was built inside iteration 1's fix commit.
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 acted on as SELF (the cited line is round 3's code; read and judged not an issue)
-- [WARNING] engine/chat.js:1154 — retry may note under a differently-cased name --> DEFERRED: `name` is `card.sessionName` (chat.js:1118), the same key streakKey returns
+- [WARNING] engine/chat.js:1154 - retry may note under a differently-cased name --> DEFERRED: `name` is `card.sessionName` (chat.js:1118), the same key streakKey returns
 - [NIT] deliver's not-ours early return is not noted (deliberate); [NIT] limit rule applied twice in sayStalls (harmless); [NIT] in-memory only (stated)
-**Converged** — no new actionable findings.
+**Converged** - no new actionable findings.
 
 ### Final Ledger
 
