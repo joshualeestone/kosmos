@@ -77,7 +77,7 @@ rm -f "$S/dist/kosmos-1.3.0-linux-x64.manifest.json"; printf 'sig\n' > "$S/dist/
 chk "prod's current Linux manifest unreadable refuses (cannot tell)" [ "$(prep "$S" 1.4.0)" = "rc=1 linux=no" ]
 # Review 2 (W1): the key-list arm needs a real origin carrying the served list, or the fetch refuses first and the
 # check itself is never reached.
-S="$(newsite list 1.4.0)"; O="$T/origin-list.git"; git init -q --bare "$O"
+S="$(newsite list 1.4.0)"; O="$T/origin-list.git"; git init -q --bare -b main "$O"
 git -C "$S" init -q -b main; git -C "$S" config user.email t@t; git -C "$S" config user.name t
 printf '{"keys":[]}\n' > "$S/dist/release-keys.json"; printf 'stale-old-list\n' > "$S/dist/release-keys.json.sig"
 git -C "$S" add dist/release-keys.json dist/release-keys.json.sig; git -C "$S" commit -q -m keys; git -C "$S" remote add origin "$O"; git -C "$S" push -q origin main
@@ -91,7 +91,7 @@ printf 'sig LIST\n' > "$S/dist/kosmos-1.4.0-linux-x64.manifest.json.sig"
 chk "CONTROL: with the key-list check off, a LIST-only signature passes" [ "$(prep "$S" 1.4.0)" = "rc=0 linux=yes" ]
 chk "with it on, a signature the served list does not name refuses" [ "$(STUB_NEEDS_LIST=0 prep "$S" 1.4.0)" = "rc=1 linux=no" ]
 # Review 3: origin reachable but carrying no list: refused (the real tool refuses a missing list).
-S3="$(newsite listmissing 1.4.0)"; O3="$T/origin-listmissing.git"; git init -q --bare "$O3"
+S3="$(newsite listmissing 1.4.0)"; O3="$T/origin-listmissing.git"; git init -q --bare -b main "$O3"
 git -C "$S3" init -q -b main; git -C "$S3" config user.email t@t; git -C "$S3" config user.name t
 printf 'x\n' > "$S3/dist/.keep"; git -C "$S3" add dist/.keep; git -C "$S3" commit -q -m e; git -C "$S3" remote add origin "$O3"; git -C "$S3" push -q origin main
 chk "with it on and no served list on origin, it refuses" [ "$(STUB_NEEDS_LIST=0 prep "$S3" 1.4.0)" = "rc=1 linux=no" ]
