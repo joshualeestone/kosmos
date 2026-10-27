@@ -40,6 +40,8 @@ struct ChatView: View {
     // The words in the box. Kept here while the chat is open (typing redraws only the chat) and given to the client when
     // it goes, so leaving the chat never loses them.
     @State private var draftText = ""
+    // kosmos#7348: the text of the last send and when, so the box filling back with it is cleared again.
+    @State private var lastSent: (text: String, at: Date)?
     // Reads are numbered: only one newer than the last shown is shown, so a slow earlier read never undoes a newer one.
     @State private var readsStarted = 0
     @State private var readShown = 0
@@ -1096,7 +1098,11 @@ struct ChatView: View {
         // Leaving the conversation lets go of the microphone and closes the panel (the board's: the panel belongs to the
         // composer being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
-        .onChange(of: draftText) { dictation.boxChanged(to: $0) }
+        .onChange(of: draftText) { now in
+            // kosmos#7348: the sent text came back into the box (the keyboard's dictation or Writing Tools finishing late).
+            if Board.refilledWithSent(now, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) { lastSent = nil; draftText = ""; return }
+            dictation.boxChanged(to: now)
+        }
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
         // Each picker on a host of its own: two presentations on one view can leave one that never opens (iOS 16).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
@@ -1263,6 +1269,7 @@ struct ChatView: View {
         let files = attachedHere
         let answering = replying
         draftText = ""
+        lastSent = (text, Date())
         replying = nil
         client.drafts[agent.session] = nil
         Task {
@@ -1272,6 +1279,7 @@ struct ChatView: View {
                 // Once the Mac records it, a message that does not match the search drops out of sight (the board's too).
                 if searching { sentWhileSearching = true }
             } else {
+                lastSent = nil   // kosmos#7348: a failed send puts its words back on purpose
                 if draftText.isEmpty { draftText = text; if replying == nil { replying = answering } }
                 if uploadingHere > 0 { composerNote = Board.stillAddingLine }
             }

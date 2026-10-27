@@ -1711,6 +1711,15 @@ enum Board {
         return next
     }
 
+    // kosmos#7348 (Josh 10-27): the box filled back with exactly the text just sent, within a few seconds of the send (the
+    // keyboard's dictation or Writing Tools finishing after the box was cleared): one more tap would post it twice.
+    static let sentRefillWindow: TimeInterval = 5
+    static func refilledWithSent(_ box: String, sent: String?, sentAt: Date?, now: Date) -> Bool {
+        guard let sent, let sentAt, now.timeIntervalSince(sentAt) <= sentRefillWindow else { return false }
+        let b = box.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !b.isEmpty && b == sent.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // kosmos#7265: where the eager newest rows begin, kept by the row's id from the chat's opening, so a new message
     // never moves a row from the eager stack back to the lazy rows above the reader (its height would be estimated
     // again and the conversation jump). `from` nil, or a row no longer shown: the last `eager` rows, as at opening.
