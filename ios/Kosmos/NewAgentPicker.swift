@@ -380,6 +380,38 @@ enum NewAgentPicker {
         return ModelRow(shown: true, enabled: true, choices: choices, chosen: chosen, note: nil)
     }
 
+    // The reads the menus are drawn from (GETs, never cached: the desktop asks with cache: 'no-store').
+    private static func get(_ path: String, mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: path, relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    static func accountsRequest(mac: URL) -> URLRequest { get("/api/accounts", mac: mac) }
+    static func agyRequest(mac: URL) -> URLRequest { get("/api/antigravity", mac: mac) }
+    static func museRequest(mac: URL) -> URLRequest { get("/api/muse", mac: mac) }
+    static func compatRequest(mac: URL) -> URLRequest { get("/api/accounts/compat", mac: mac) }
+
+    // The single agent's create, with the choice made here: NewAgent.body (the desktop's body for everything else), its
+    // model replaced by the model row's (Claude's pick, an OpenAI account's, or none where the vendor picks), and the
+    // provider and account added as create-go adds them. nil when NewAgent.body is (Create is off then).
+    static func createRequest(mac: URL, draft d: NewAgent.Draft, catalogue c: NewAgent.Catalogue,
+                              provider p: Provider, account: String, model: String) -> URLRequest? {
+        guard var b = NewAgent.body(d, c) else { return nil }
+        let swarm = d.kind == .swarm
+        let p = swarm ? .anthropic : p
+        b["model"] = nil
+        if !p.picksOwnModel && !model.isEmpty { b["model"] = model }
+        addChoice(to: &b, provider: p, account: account, swarm: swarm)
+        guard let data = try? JSONSerialization.data(withJSONObject: b) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agents", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return r
+    }
+
     // create-go: the provider only when it is not Claude, the account only when one is chosen; a swarm is Claude.
     static func addChoice(to b: inout [String: Any], provider p: Provider, account: String, swarm: Bool) {
         if swarm { b["provider"] = Provider.anthropic.rawValue } else if p != .anthropic { b["provider"] = p.rawValue }

@@ -68,6 +68,16 @@ struct NewAgentView: View {
     @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
     @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
+    // kosmos#7502: the provider, account and model choice (NewAgentPicker), from the board's reads.
+    @State private var pickAccounts = NewAgentPicker.Accounts()
+    @State private var pickReady = NewAgentPicker.Readiness()
+    @State private var provider: NewAgentPicker.Provider = .anthropic
+    @State private var providerTouched = false        // the desktop's CREATE_PROVIDER_TOUCHED: a pick, not the default
+    @State private var account = ""
+    @State private var openaiModels: NewAgentPicker.OpenaiModels?   // the chosen OpenAI account's, nil while read
+    @State private var openaiModel = ""               // "" is Let OpenAI choose
+    @State private var openaiRead = 0                 // the newest models read: an older one landing late is dropped
+    @State private var pickGoneWhy: String?           // a pick the menu no longer allows, put back and said
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -696,14 +706,7 @@ struct NewAgentView: View {
                     ForEach(client.agents.filter { !$0.isGuide }) { a in Text(a.name).tag(a.session) }   // as the desktop's menu
                 }
             }
-            if let models = catalogue?.models, !models.isEmpty {
-                Section {
-                    Picker(NewAgent.Words.model, selection: $draft.model) {
-                        ForEach(models) { m in Text(m.label).tag(m.key) }
-                    }
-                    .labelsHidden()
-                } header: { Text(NewAgent.Words.model + " " + NewAgent.Words.modelSoft) }
-            }
+            modelChoice
             if draft.kind == .swarm { swarmSection }
             if let message {
                 Section { Text(message).foregroundColor(Palette.dangerWord) }
@@ -723,6 +726,7 @@ struct NewAgentView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(sending)
         .onAppear { if draft.model.isEmpty { draft.model = catalogue?.defaultModel?.key ?? "" } }
+        .task { await loadPicker() }
         .safeAreaInset(edge: .bottom) {
             // Not while a photo is still being fitted (photoLoading): the create would go without it.
             pinned(NewAgent.Words.create, enabled: !sending && !photoLoading && NewProject.trimmed(draft.name) != unsureName
@@ -730,6 +734,99 @@ struct NewAgentView: View {
                 Task { await create() }
             }
         }
+    }
+
+    // kosmos#7502: the desktop's Model group (provider, account at two or more, the model row and its note).
+    private var modelChoice: some View {
+        let swarm = draft.kind == .swarm
+        let options = NewAgentPicker.providers(pickAccounts, pickReady, swarm: swarm)
+        let accts = NewAgentPicker.accounts(for: swarm ? .anthropic : provider, pickAccounts)
+        let row = NewAgentPicker.modelRow(swarm ? .anthropic : provider, account: account, claude: catalogue?.models ?? [],
+                                          lastClaude: draft.model, openai: openaiModels)
+        return Section {
+            Menu {
+                ForEach(options) { o in
+                    Button { pick(o.provider) } label: {
+                        if let off = o.off { Text(o.provider.label + " \u{00b7} " + off) } else { Text(o.provider.label) }
+                    }
+                    .disabled(!o.enabled)
+                }
+            } label: {
+                HStack {
+                    Text(NewAgentPicker.Words.provider).foregroundColor(Palette.primary)
+                    Spacer()
+                    Text((swarm ? .anthropic : provider).label).foregroundColor(Palette.secondary)
+                }
+                .frame(minHeight: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel(NewAgentPicker.Words.provider)
+            .accessibilityValue((swarm ? .anthropic : provider).label)
+            if accts.show {
+                Picker(NewAgentPicker.Words.account, selection: $account) {
+                    ForEach(accts.choices) { a in Text(a.label).tag(a.value) }
+                }
+            }
+            if row.shown && !row.choices.isEmpty {
+                if provider == .openai && !swarm {
+                    Picker(NewAgent.Words.model, selection: $openaiModel) {
+                        ForEach(row.choices) { m in Text(m.label).tag(m.value) }
+                    }
+                    .disabled(!row.enabled)
+                } else {
+                    Picker(NewAgent.Words.model, selection: $draft.model) {
+                        ForEach(row.choices) { m in Text(m.label).tag(m.value) }
+                    }
+                }
+            }
+        } header: { Text(NewAgent.Words.model + " " + NewAgent.Words.modelSoft) } footer: {
+            if let why = pickGoneWhy ?? row.note { Text(why) }
+        }
+        .onChange(of: account) { _ in if provider == .openai { Task { await readOpenaiModels() } } }
+    }
+
+    private func pick(_ p: NewAgentPicker.Provider) {
+        providerTouched = true
+        pickGoneWhy = nil
+        setProvider(p)
+    }
+    private func setProvider(_ p: NewAgentPicker.Provider) {
+        provider = p
+        let accts = NewAgentPicker.accounts(for: p, pickAccounts)
+        account = accts.chosen
+        openaiModel = ""
+        openaiModels = nil
+        if p == .openai { Task { await readOpenaiModels() } }
+    }
+    // The board's reads, side by side; each menu is drawn from what has answered so far, as the desktop's painters are.
+    private func loadPicker() async {
+        let epoch = client.chatEpoch
+        async let acc = client.throughMac { NewAgentPicker.accountsRequest(mac: $0) }
+        async let agy = client.throughMac { NewAgentPicker.agyRequest(mac: $0) }
+        async let muse = client.throughMac { NewAgentPicker.museRequest(mac: $0) }
+        async let compat = client.throughMac { NewAgentPicker.compatRequest(mac: $0) }
+        let (a, g, m, k) = await (acc, agy, muse, compat)
+        guard epoch == client.chatEpoch else { return }
+        let ok = { (x: (Data, HTTPURLResponse)?) -> Data? in x.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil } }
+        if let rows = ok(a).flatMap(NewAgentPicker.parseAccounts) { pickAccounts = .init(rows: rows, known: true, failed: false) }
+        else { pickAccounts.failed = true }
+        pickReady = .init(agy: ok(g).flatMap(NewAgentPicker.parseAgy), muse: ok(m).flatMap(NewAgentPicker.parseMuse),
+                          compat: ok(k).flatMap(NewAgentPicker.parseCompat))
+        let swarm = draft.kind == .swarm
+        if !providerTouched { setProvider(NewAgentPicker.defaultProvider(pickAccounts, swarm: swarm)) }
+        else if let gone = NewAgentPicker.pickGone(provider, pickAccounts, pickReady, swarm: swarm) {
+            setProvider(gone.back); pickGoneWhy = gone.why
+        } else { setProvider(provider) }
+    }
+    private func readOpenaiModels() async {
+        openaiRead += 1
+        let read = openaiRead
+        let dir = account
+        openaiModels = nil
+        guard !dir.isEmpty else { return }
+        let epoch = client.chatEpoch
+        let got = await client.throughMac { NewAgentPicker.openaiModelsRequest(mac: $0, dir: dir) }
+        guard epoch == client.chatEpoch, read == openaiRead, account == dir, provider == .openai else { return }
+        openaiModels = NewAgentPicker.parseOpenaiModels(got.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil })
     }
 
     private var swarmSection: some View {
@@ -758,10 +855,14 @@ struct NewAgentView: View {
         sending = true
         message = nil
         let sent = draft
+        let sentProvider = draft.kind == .swarm ? .anthropic : provider
+        let sentAccount = NewAgentPicker.accounts(for: sentProvider, pickAccounts).choices.contains { $0.value == account } ? account : ""
+        let sentModel = sentProvider == .openai ? openaiModel : sentProvider == .anthropic ? draft.model : ""
         let epoch = client.chatEpoch   // another account or Mac meanwhile: the answer is not this sheet's
         var built = false
         let got = await client.throughMac { mac in
-            let r = NewAgent.createRequest(mac: mac, draft: sent, catalogue: c)
+            let r = NewAgentPicker.createRequest(mac: mac, draft: sent, catalogue: c, provider: sentProvider,
+                                                 account: sentAccount, model: sentModel)
             built = r != nil
             return r
         }
