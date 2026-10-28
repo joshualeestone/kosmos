@@ -15,6 +15,7 @@ const path = require('node:path');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-restartline-7411-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 const rl = require('./restartline');
+const RECORD = path.join(require('./store').ROOT, 'version-start.json');
 
 const AT = Date.parse('2026-10-28T15:00:00.700Z');   // this version's first board start, with milliseconds
 const SEC = 1000;
@@ -63,7 +64,7 @@ test('#7411: no line on a first install, after Not now, or with no record', () =
 });
 
 test('#7411: atStart keeps the first start of a version and the version before it; Not now holds until the next update', () => {
-  fs.rmSync(rl._file(), { force: true });
+  fs.rmSync(RECORD, { force: true });
   assert.deepEqual(rl.atStart('0.7.71', 1000), { version: '0.7.71', previous: null, at: 1000, notNow: false }, 'a first sight has no previous');
   assert.equal(rl.atStart('0.7.71', 5000).at, 1000, 'a restart on the same version moved its first start');
   assert.deepEqual(rl.atStart('0.7.72', 9000), { version: '0.7.72', previous: '0.7.71', at: 9000, notNow: false });

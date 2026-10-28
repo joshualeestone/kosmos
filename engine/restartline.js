@@ -97,4 +97,4 @@ function notNow(version) {
   return write({ version: rec.version, previous: rec.previous, at: rec.at, notNow: rec.version });
 }
 
-module.exports = { atStart, lineFor, notNow, read, _file: file };
+module.exports = { atStart, lineFor, notNow, read };
