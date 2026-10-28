@@ -371,6 +371,24 @@ test('#7410 review 7: a pointer the brief already carries is taken out when ther
   assert.equal(read(twoBrief), before, 'an ambiguous brief was changed');
 });
 
+test('#7410 review 8: a stale pointer that cannot be taken out is logged and said, never swallowed', () => {
+  const name = born('sm7410-unpointfail');
+  const brief = nodePath.join(create.workerDir(name), 'CLAUDE.md');
+  fs.writeFileSync(brief, '# brief for this agent\n<!-- kosmos:carried-notes:start -->\nold pointer\n<!-- kosmos:carried-notes:end -->\n', 'utf8');
+  const ins = require('./instructions');
+  const realWrite = ins.write;
+  ins.write = () => { const e = new Error('EACCES: permission denied'); e.code = 'EACCES'; throw e; };
+  const warned = [];
+  const warn = console.warn;
+  console.warn = (...a) => { warned.push(a.join(' ')); };
+  let r;
+  try { r = create.carryClaudeNotes(name, { runner: 'codex' }, 'claude', brief, 'openai', 'anthropic'); }
+  finally { ins.write = realWrite; console.warn = warn; }
+  assert.equal(r.unpointFailed, true);
+  assert.ok(warned.some((l) => /could not take the old notes pointer out/.test(l) && /EACCES/.test(l)), JSON.stringify(warned));
+  assert.match(create.switchCarryWords('Claude', r, 'OpenAI'), /Its instructions may still mention notes in memory\/claude-notes\/ that are not there/);
+});
+
 test('#7410 review 6: memory/ that became a file between the check and the mkdir is blocked, not failed', () => {
   const name = born('sm7410-memfile');
   claudeProject(name, { 'MEMORY.md': 'a note\n' });

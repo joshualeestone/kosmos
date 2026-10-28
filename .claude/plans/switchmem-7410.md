@@ -92,6 +92,8 @@ both buttons with a sentence, and nothing is switched.
 - Browser checks: no existing check pins the dialog's text; a `Browser-check:` trailer names the node test that does.
 
 ## Not covered
+- Text a person writes between the carried-notes markers is removed with the block when the pointer is taken out
+  (review 7). It is recoverable: instructions.write keeps the file's previous version (.previous).
 - Repo-root keying (named in review 1). If Claude Code keys auto-memory by a git repo's root rather than the launch
   folder, notes from other sessions in the same repo can sit in this folder's memory/. The checks below (every
   transcript this agent's, every note no newer than its newest transcript, no other known folder with the same Claude

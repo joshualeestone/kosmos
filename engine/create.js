@@ -2915,8 +2915,9 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
       }
     }
   }
-  // The pointer, whenever the folder has a carried note in it (a switch back to Claude keeps pointing at what the agent
-  // wrote while away).
+  // The pointer: added (or kept) whenever the folder has a real carried note in it (a switch back to Claude keeps
+  // pointing at what the agent wrote while away), and taken out (review 7) when the brief carries one and there is
+  // nothing real to point at.
   /* Review 6: decided from the disk, not from the outcome. memory/ and memory/claude-notes/ must both be real folders:
      a junction at memory/ reaches somewhere else's notes on a switch back to Claude, a rootChange or any refusal just as
      on a copy, and the brief (and the sentence) must not claim notes in its folder then. */
@@ -2950,7 +2951,15 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
               else { ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_WHY }); out.pointed = true; }
             } else if (at) {
               const next = pj.removeBlock(text, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
-              if (next !== text) ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_GONE_WHY });
+              /* Review 8: a failed removal is said, never swallowed: logged with its reason, and flagged so the result
+                 does not read as though its instructions no longer point at notes. */
+              if (next !== text) {
+                try { ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_GONE_WHY }); }
+                catch (e) {
+                  out.unpointFailed = true;
+                  try { console.warn(`create: the switch could not take the old notes pointer out of ${clean}'s instructions (${(e && (e.code || e.message)) || 'unknown'})`); } catch { /* never mask */ }
+                }
+              }
             }
           }
         }
@@ -2995,7 +3004,7 @@ function switchCarryWords(label, carried, fromLabel) {
       + (carried.failed ? ` (${carried.failed} could not be copied)` : '')   // review 3
       + ', and anything it only remembered from talking is lost. '
       // Review 2: copied but the brief could not be pointed at them (no brief we may write, or two pointer blocks).
-      + (carried.pointed ? '' : 'Its instructions do not mention them yet, so tell it they are in memory/claude-notes/ in its folder. ');
+      + (carried.pointed || carried.unpointFailed ? '' : 'Its instructions do not mention them yet, so tell it they are in memory/claude-notes/ in its folder. ');
   } else if (carried.notes === 'failed') {
     // Review 3: it had notes and none landed. Never "it had no saved notes".
     const parts = [];
@@ -3009,8 +3018,11 @@ function switchCarryWords(label, carried, fromLabel) {
   } else {
     notes = 'It had no saved notes to copy, so anything it only remembered from talking is lost. ';
   }
+  // Review 8: an old pointer that could not be taken out is said, so nothing here reads as "its instructions point at no notes".
+  const stale = carried.unpointFailed
+    ? 'Its instructions may still mention notes in memory/claude-notes/ that are not there; we could not take that line out. ' : '';
   return `${label} it is. It keeps its name, its instructions and its files, but its conversation does not come across: `
-    + `${label} cannot read what it said on ${from}. ${notes}`;
+    + `${label} cannot read what it said on ${from}. ${notes}${stale}`;
 }
 
 function setModel(name, modelKey, opts) {
