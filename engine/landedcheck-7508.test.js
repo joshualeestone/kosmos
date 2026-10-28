@@ -37,7 +37,7 @@ const failingAt = (which, err) => (args) => {
   return new Promise((resolve, reject) => require('node:child_process').execFile('git', args, { encoding: 'utf8' }, (e, out) => (e ? reject(e) : resolve(out))));
 };
 
-test('#7508: a commit a branch contains is kept, and says whether a remote has it; once no ref contains it, it is missing', async () => {
+test('#7508: a commit the repository has is kept, and says whether a remote has it, even once no ref contains it', async () => {
   const r = repoWithFix('kept');
   assert.deepEqual(await landedcheck.checkTask(task(r)), { state: 'kept', onRemote: false }, 'CONTROL: a local branch commit');
   const bare = path.join(SANDBOX, 'kept-remote.git');
@@ -47,10 +47,12 @@ test('#7508: a commit a branch contains is kept, and says whether a remote has i
   git(r.dir, 'fetch', '-q', 'origin');
   landedcheck.resetForTests();
   assert.deepEqual(await landedcheck.checkTask(task(r)), { state: 'kept', onRemote: true }, 'a pushed commit still read as only on this computer');
+  // Review 3: merged by rebase, then its branch deleted here and the remote-tracking ref pruned: the object is still
+  // there, so it was committed. That is kept, never missing (it only no longer says a remote has it).
   git(r.dir, 'branch', '-q', '-D', 'fix');
   git(r.dir, 'branch', '-q', '-r', '-D', 'origin/fix');
   landedcheck.resetForTests();
-  assert.deepEqual(await landedcheck.checkTask(task(r)), { state: 'missing' }, 'a commit no ref contains read as kept');
+  assert.deepEqual(await landedcheck.checkTask(task(r)), { state: 'kept', onRemote: false }, 'a merged fix whose branch was cleaned up read as missing');
 });
 
 test('#7508: an object the repository never had is missing; a repository that is gone is unknown', async () => {
@@ -73,7 +75,8 @@ test('#7508 review 1: a git that times out, is killed or fails another way is un
   assert.deepEqual(await landedcheck.checkTask(task(r), { git: failingAt('cat-file', absent) }), { state: 'missing' },
     'CONTROL: cat-file exiting 1 is a missing object');
   landedcheck.resetForTests();
-  assert.deepEqual(await landedcheck.checkTask(task(r), { git: failingAt('for-each-ref', timedOut) }), { state: 'unknown' });
+  // The object is there, so it was committed; only whether a remote has it is unknown (null, never false).
+  assert.deepEqual(await landedcheck.checkTask(task(r), { git: failingAt('for-each-ref', timedOut) }), { state: 'kept', onRemote: null });
 });
 
 test('#7508: no commit means nothing to check; answers are cached; a request starts at most its budget of new checks', async () => {

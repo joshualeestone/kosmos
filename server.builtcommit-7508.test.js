@@ -243,7 +243,7 @@ test('Windows `kosmos task built --commit`: the same commit, the same words, and
   assert.equal(stored(k).builtAt, undefined, 'a refused --commit still marked the task');
 });
 
-test('slice 2 route: the Tasks view checks a closed task\'s commit now: kept while a branch has it, missing once none does', async () => {
+test('slice 2 route: the Tasks view checks a closed task\'s commit now: kept while the repository has it (even once its branch is gone), missing when it never did', async () => {
   const landedcheck = require('./engine/landedcheck');
   landedcheck.resetForTests();
   const r = makeRepo('route-check');
@@ -260,11 +260,34 @@ test('slice 2 route: the Tasks view checks a closed task\'s commit now: kept whi
   };
   assert.equal((await rowOf()).landedCheck, undefined, 'an open task was checked');
   tasks.close(projectId, n);
-  assert.equal((await rowOf()).landedCheck, 'kept', 'CONTROL: a commit on a branch did not read as kept');
+  assert.equal((await rowOf()).landedCheck, 'kept', 'CONTROL: a commit the repository has did not read as kept');
+  // Review 3: its branch deleted after a merge, the object remains: still kept.
   git(r.dir, 'branch', '-q', '-D', 'fix');
   landedcheck.resetForTests();
-  assert.equal((await rowOf()).landedCheck, 'missing', 'a commit no branch has read as kept on a closed task');
+  assert.equal((await rowOf()).landedCheck, 'kept', 'a fix whose branch was cleaned up after its merge read as lost');
+  // A commit this repository never had is what missing means.
+  const m = newTask('Fix the toolbar again');
+  assert.equal(tasks.setBuilt(projectId, m, { by: 'mona', commit: { sha: 'd'.repeat(40), repo: r.repo, onRemote: false } }).ok, true);
+  tasks.close(projectId, m);
+  const list = await (await fetch(base + '/api/tasks?view=tasks', { headers: { origin: base } })).json();
+  assert.equal(list.tasks.find((x) => x.projectId === projectId && x.number === m).landedCheck, 'missing');
 });
+
+test('review 3: a task closed more than two weeks ago is not checked (git may have cleaned the object away)', async () => {
+  const landedcheck = require('./engine/landedcheck');
+  landedcheck.resetForTests();
+  const r = makeRepo('route-old');
+  const n = newTask('Fix from long ago');
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', commit: { sha: 'c'.repeat(40), repo: r.repo, onRemote: true } }).ok, true);
+  tasks.close(projectId, n);
+  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === n ? { ...t, closedAt: new Date(Date.now() - landedcheck.CHECK_WINDOW_MS - 60000).toISOString() } : t)) }));
+  const list = await (await fetch(base + '/api/tasks?view=tasks', { headers: { origin: base } })).json();
+  const row = list.tasks.find((x) => x.projectId === projectId && x.number === n);
+  assert.equal(row.state, 'closed', 'CONTROL: the task is closed');
+  assert.equal(row.landedCheck, undefined, 'a task closed weeks ago was flagged');
+  assert.equal(row.landedCommit, 'c'.repeat(40), 'CONTROL: it still names its commit');
+});
+
 
 test('review 1: the page is never sent the repository path; an open row says a remote has the commit once one does', async () => {
   const landedcheck = require('./engine/landedcheck');

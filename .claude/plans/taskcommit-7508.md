@@ -9,12 +9,15 @@ Design approved by Mona Lisa on the card (comment 6477647461 and her wording rep
 - Stored in its own task fields (landedCommit, landedRepo, landedOnRemote, landedBy, landedAt), not built ones:
   closing keeps them; `--clear`, a reopen (by the person or by its parts) and new work drop them; a mark without
   `--commit` keeps a recorded one. The screen's mark never records one.
-- The check runs when the Tasks view is read (engine/landedcheck.js), asynchronously (never blocking the board), for
-  every row that names a commit: whether a remote-tracking ref has it replaces the CLI's mark-time answer, and closed
-  rows carry kept / missing / unknown. Missing only when `cat-file -e` exits 1 or no ref contains it; a time limit, a
-  signal or any other failure is unknown. Bounded: 3 s per git call (at most four per check), 5 min cache, 10 new
-  checks per read; past the budget no answer, so no false "could not check". The page is never sent the repository
-  path.
+- The check runs when the Tasks view is read (engine/landedcheck.js), asynchronously, for every row that names a
+  commit: a later push upgrades "only on this computer" (never the reverse: a remote branch pruned after a merge does
+  not turn a pushed fix local again), and closed rows closed in the last 14 days carry kept / missing / unknown.
+  Review 3: kept means the repository HAS the commit object (it was committed), with or without a ref, because this
+  repo merges by rebase and cleanup deletes branches; missing means `cat-file -e` exits 1 (no such object); a time
+  limit, a signal or any other failure is unknown. Git prunes unreachable objects after two weeks by default, so older
+  closed tasks are not checked. Git runs with fsmonitor and hooks off, no optional locks, no lazy fetch and every
+  transport refused. Bounded: 3 s per git call, 5 min cache (30 s for unknown), 10 new checks per read, and the page
+  waits at most 1.5 s for them. The page is never sent the repository path.
 - Words (Mona Lisa): row "Saved as change abc1234" (", only on this computer so far" while no remote has it); missing
   "Kosmos cannot find the change this task was finished with (abc1234). It may not have been saved. Ask the agent that
   did it to check."; unknown "Kosmos could not check whether this task's change was saved."; CLI "Recorded commit
@@ -26,8 +29,9 @@ Design approved by Mona Lisa on the card (comment 6477647461 and her wording rep
   of the default branch (squash and rebase merges rewrite the sha).
 
 ## Weakest premise
-A fix merged by squash or rebase whose branch is then deleted on GitHub and locally leaves its sha on no ref, so it
-reads missing; the words say "may not have been saved". Rare while the fleet keeps branches and remote-tracking refs.
+A commit that was never pushed and whose worktree was removed, but whose object git has not yet pruned, still reads
+kept: the check proves it was committed, not that it is safe. The row then says "only on this computer so far", which
+is the honest part. And a closed task older than 14 days is not checked at all.
 
 ## Proof
 - server.builtcommit-7508.test.js: engine (store, refuse shapes, keep through close, drop on reopen and clear), route

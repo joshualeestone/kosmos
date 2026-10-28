@@ -1663,6 +1663,7 @@ async function taskBuilt(ctx, args) {
     }
     const repo = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
     if (!repo) { ctx.err('Kosmos cannot read which repository that commit is in.'); return 2; }
+    if (/[\u0000-\u001f\u007f]/.test(repo)) { ctx.err('Kosmos cannot record a commit from a repository whose path has control characters in it.'); return 2; }   // review 3: as the Mac
     commit = { sha, repo, onRemote: git(['branch', '-r', '--contains', sha]) !== '' };
   }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}), ...(commit ? { commit } : {}) });

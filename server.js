@@ -21623,13 +21623,25 @@ const server = http.createServer(async (req, res) => {
          read its "false" as "nobody needs you". It says it could not tell. */
       sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope, rosterUnreadable: !Array.isArray(roster) });
     };
+    /* Review 3: the page waits at most LANDED_WAIT_MS for the checks; a row whose check is still running goes as stored
+       (its answer is cached for the next read). A later push only ever upgrades "only on this computer": a remote
+       branch pruned after a merge never turns a pushed fix back into a local one. A closed task is checked only within
+       landedcheck.CHECK_WINDOW_MS of closing. */
+    let sent = false;
+    const sendOnce = () => { if (!sent) { sent = true; sendRows(); } };
+    const LANDED_WAIT_MS = 1500;
+    const timer = setTimeout(sendOnce, LANDED_WAIT_MS);
+    if (timer && typeof timer.unref === 'function') timer.unref();
     Promise.all(rows.map(async (row) => {
       if (!row.landedCommit) return;
+      const closed = row.state === 'closed';
+      const closedAt = closed ? Date.parse(tasks.closedAtOf(row) || '') : NaN;
+      if (closed && !(Number.isFinite(closedAt) && Date.now() - closedAt < landedcheck.CHECK_WINDOW_MS)) return;
       const c = await landedcheck.checkTask(row, { budget: landedBudget });
-      if (!c) return;
-      if (c.state === 'kept') row.landedOnRemote = c.onRemote;
-      if (row.state === 'closed') row.landedCheck = c.state;
-    })).then(sendRows, sendRows);
+      if (!c || sent) return;
+      if (c.state === 'kept' && c.onRemote === true) row.landedOnRemote = true;
+      if (closed) row.landedCheck = c.state;
+    })).then(() => { clearTimeout(timer); sendOnce(); }, () => { clearTimeout(timer); sendOnce(); });
     return;
   }
 

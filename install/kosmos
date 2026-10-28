@@ -6381,6 +6381,7 @@ cmd_task() {
         [ -n "$crepo" ] || { say "Kosmos cannot read which repository that commit is in."; exit 2; }
         # The board refuses a path with control characters, and one would break this hand-built JSON: say so here.
         case "$crepo" in *[[:cntrl:]]*) say "Kosmos cannot record a commit from a repository whose path has control characters in it."; exit 2 ;; esac
+        case "$crepo" in /*) ;; *) say "Kosmos cannot read which repository that commit is in (it needs git 2.31 or later)."; exit 2 ;; esac   # review 3
         [ -n "$(git branch -r --contains "$csha" 2>/dev/null | head -1)" ] && conremote=true
         commit_json=",\"commit\":{\"sha\":\"$csha\",\"repo\":\"$(printf '%s' "$crepo" | sed 's/\\/\\\\/g; s/"/\\"/g')\",\"onRemote\":$conremote}"
       fi
