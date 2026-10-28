@@ -2266,6 +2266,38 @@ function ambiguousNote(ambiguous, mentioned, shown) {
   return out.join(' ');
 }
 
+/* kosmos#7406: one event woke ~35 agents at once and the burst of turns set off the provider's rate limits (about
+   1,000 failed turns in a morning). Past the first roomhold.BIG_ROOM members of one provider, each further member's
+   delivery starts a jittered WAKE_GAP_MS after the one before it, so a 35-member room of one provider spreads over
+   about 7 s rather than one second. Per provider: a limit is per provider account, so members of different
+   providers never wait on each other. The first BIG_ROOM are typed at once, so a small room is exactly as before.
+   ⚠️ The sender's answer still waits for every delivery (#4765: it is built from each member's outcome), so the
+   spread is bounded to keep that wait short; both numbers are one constant each. */
+const WAKE_GAP_MS = [150, 350];
+let spreadSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let spreadRandom = Math.random;
+function setWakeSpreadForTests({ sleep, random } = {}) {
+  spreadSleep = sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  spreadRandom = random || Math.random;
+}
+/** The delay, in ms from the fan-out's start, of each woken member's delivery (#7406). `providerOf(name)` names a
+    member's provider; a member it cannot read counts as its own provider, so it is never delayed. */
+function wakeSpread(names, providerOf, { free = require('./roomhold').BIG_ROOM, gap = WAKE_GAP_MS, random = spreadRandom } = {}) {
+  const seen = new Map();
+  const at = new Map();
+  for (const name of names) {
+    let provider;
+    try { provider = providerOf(name); } catch { provider = null; }
+    if (!provider) { at.set(name, 0); continue; }
+    const s = seen.get(provider) || { count: 0, last: 0 };
+    s.count += 1;
+    if (s.count > free) s.last += Math.round(gap[0] + random() * (gap[1] - gap[0]));
+    seen.set(provider, s);
+    at.set(name, s.count > free ? s.last : 0);
+  }
+  return at;
+}
+
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
@@ -3276,12 +3308,27 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        three members' Enters per turn on 20 members), which is short of one block of all of them. A synchronous throw from
        deliverOne is caught and becomes that member's outcome (#4926: unconfirmed once its typing path was entered,
        could_not before it), so it too waits for the others. */
+    /* #7406: only the members this post wakes are spread: one switched off here, or left quiet by an agent's post
+       (#7246 slice 2), is never typed, so it neither waits nor makes anyone wait. */
+    const woken = recipients.filter((n) => !offHere.has(n) && (operator === true || (asksMember(n) && !loopPaused)));
+    const spread = wakeSpread(woken, (n) => {
+      const card = roster.find((c) => c && c.sessionName === n);
+      return card ? require('./accountproblem').providerOf(card) : null;
+    });
+    const latest = Math.max(0, ...spread.values());
+    if (latest > 0) {
+      const later = [...spread.values()].filter((ms) => ms > 0).length;
+      try { process.stdout.write('room-wake: spread ' + later + ' of ' + woken.length + ' wakes over ' + (latest / 1000).toFixed(1) + ' s in ' + projectId + '\n'); } catch { /* never breaks a post */ }
+    }
     const pending = (async () => {
       const runs = [];
       for (let i = 0; i < recipients.length; i++) {
         if (i > 0) await new Promise((resolve) => setImmediate(resolve));
         const name = recipients[i];
-        const run = new Promise((resolve) => resolve(deliverOne(name)));
+        const wait = spread.get(name) || 0;
+        const run = wait > 0
+          ? spreadSleep(wait).then(() => deliverOne(name))
+          : new Promise((resolve) => resolve(deliverOne(name)));
         run.catch(() => {});   // handled at once, or node reports a rejection that allSettled below collects anyway
         runs.push(run);
       }
@@ -4493,4 +4540,5 @@ module.exports = {
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests, mentionedMembers, addressedMembers, reachedCount, ambiguousNote,
+  wakeSpread, WAKE_GAP_MS, setWakeSpreadForTests,   // kosmos#7406
 };
