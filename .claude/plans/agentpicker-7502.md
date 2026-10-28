@@ -59,6 +59,9 @@
    Claude agent for an OpenAI-only person; it settles whatever the kind now (only a touched pick's undoing waits for
    the agent's screen). MINORs: one OpenAI models read per account at a time; a Qwen endpoint is named as JavaScript's
    URL host (default port dropped, IPv6 in brackets), tested.
+4. sonnet: 0 BLOCKER/MAJOR, 3 MINOR. Fixed: the in-flight flag clears only for its own read; a Qwen endpoint's host
+   and scheme are lowercased, as JavaScript's URL does (tested). Decided: a base URL with no scheme names the endpoint
+   by its label (a saved endpoint is a full URL).
 
 ## Not verified
 

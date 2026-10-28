@@ -892,9 +892,9 @@ struct NewAgentView: View {
         // Review 3: one read per account at a time (every landing read settles the picker, and would start another).
         guard openaiReading != dir else { return }
         openaiReading = dir
-        defer { if openaiReading == dir { openaiReading = nil } }
         openaiRead += 1
         let read = openaiRead
+        defer { if openaiReading == dir && read == openaiRead { openaiReading = nil } }   // review 4: only its own read's
         let before = openaiModelsFor[dir]
         openaiModelsFor[dir] = nil
         let epoch = client.chatEpoch

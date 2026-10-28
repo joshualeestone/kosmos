@@ -1359,7 +1359,7 @@ do {
                                 hasConnection: false, offerable: true))
     }
     check(qwen("http://box:80/v1") == "box" && qwen("https://box:443/v1") == "box" && qwen("http://box:8080/v1") == "box:8080"
-          && qwen("http://[::1]:11434/v1") == "[::1]:11434", "a Qwen endpoint named as JavaScript's URL host names it")
+          && qwen("http://[::1]:11434/v1") == "[::1]:11434" && qwen("HTTPS://Box.Local:443/v1") == "box.local", "a Qwen endpoint named as JavaScript's URL host names it")
     check(P.accounts(for: .antigravity, acc) == ([], "", false), "Gemini by subscription: no account row, nothing sent")
     check(P.accounts(for: .google, acc).choices.map(\.value) == [""], "a signed-out Gemini key is not offered")
 
