@@ -59828,7 +59828,9 @@ async function changeProviderNow(say, how) {
    so it loses the conversation and the notes the same way (create.js switchLosesConversation). */
 /* #7445: and a switch between two runners that are not Claude Code (OpenAI's Codex to Gemini, Gemini to Grok): each
    keeps its own history and none reads another's. Qwen runs on Codex like OpenAI, in the agent's one private Codex home,
-   so OpenAI <-> Qwen keeps it (create.js switchLosesConversation, this function's twin: change the two together). */
+   so OpenAI <-> Qwen keeps it (create.js switchLosesConversation, this function's twin: change the two together).
+   Round 1: that half is true on a Mac only. On Windows the Codex home is the account folder, so lifting create.js
+   REFUSE_QWEN_WIN32 needs a private Codex home on Windows first, or this rule is wrong there. */
 function switchCrossesFamily(fromProv, toProv) {
   const claudeSide = (p) => p === 'anthropic' || p === 'deepseek';
   if (!fromProv || !toProv || fromProv === toProv) return false;
@@ -59846,7 +59848,7 @@ function switchFamilyNote(fromProv, toProv, shown, fromWord, toWord) {
   const notes = (claudeSide(fromProv) && claudeSide(toProv))
     ? 'Its saved notes stay behind with ' + fromWord + ' and do not come across; anything it only remembers from talking is lost.'
     : (claudeSide(toProv) || !claudeSide(fromProv))   // #7445: back to Claude, or between two that are not Claude Code
-    ? 'Notes in its folder stay there for it to read; anything it only remembers from talking is lost.'
+    ? 'Any notes in its folder stay there for it to read; anything it only remembers from talking is lost.'   // round 1: it may have none
     : 'Its saved notes are copied into its folder; anything it only remembers from talking is lost.';
   return shown + ' keeps its name, its face, its instructions and its files, and restarts. '
     + 'Its conversation does not come across: ' + toWord + ' cannot read ' + fromWord + '’s history. ' + notes + ' ';

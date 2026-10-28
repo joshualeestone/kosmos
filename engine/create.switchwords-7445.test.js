@@ -85,9 +85,10 @@ test('#7445: every switch between two different runners that are not Claude Code
 test('#7445: OpenAI <-> Qwen keeps it (one Codex home), and the #7410 rule is unchanged around it (controls)', () => {
   assert.equal(create.switchLosesConversation('codex', 'codex', 'openai', 'alibaba'), false, 'OpenAI -> Qwen');
   assert.equal(create.switchLosesConversation('codex', 'codex', 'alibaba', 'openai'), false, 'Qwen -> OpenAI');
-  // The evidence for that call: the agent's Codex home is keyed on the agent, not on the account it signs in with.
-  assert.equal(codexruntime.forAgent('sw7445-one'), codexruntime.forAgent('sw7445-one'));
-  assert.ok(!/\.codex|kosmos-qwen/.test(nodePath.basename(codexruntime.forAgent('sw7445-one'))), 'the home is not an account folder');
+  /* The evidence for that call is the supervisor, not a function here: bin/agent-supervisor.sh (#4592, ~1016-1132)
+     launches every Codex agent with CODEX_HOME set to codexruntime.forSession(SESSION), whatever its account, and only
+     links the account's sign-in (or reads the Qwen endpoint) into it. That home is not an account folder: */
+  assert.ok(!/\.codex|kosmos-qwen/.test(nodePath.basename(codexruntime.forAgent('sw7445-one'))), 'the home is an account folder');
   assert.equal(create.switchLosesConversation('gemini', 'gemini', 'google', 'google'), false, 'same provider is not a switch');
   assert.equal(create.switchLosesConversation('claude', 'codex', 'anthropic', 'openai'), true);
   assert.equal(create.switchLosesConversation('gemini', 'claude', 'google', 'anthropic'), true);
@@ -152,6 +153,23 @@ test('#7445: a switch that keeps the conversation keeps the old sentence', () =>
   assert.equal(create.carryClaudeNotes(born('sw7445-qwen'), { runner: 'codex' }, 'codex', null, 'openai', 'alibaba'), null);
   assert.match(create.switchCarryWords('Qwen', null), OLD);
   assert.match(create.switchCarryWords('OpenAI', null, 'Qwen'), OLD);
+});
+
+test('#7445 round 1: a carry that throws still says the conversation does not come across, never that everything stays', (t) => {
+  const name = born('sw7445-throws');
+  // The seam that already exists: carryClaudeNotes reads ownedClaudeMemory off the module at call time.
+  const bs = require('./backupsessions');
+  const real = bs.ownedClaudeMemory;
+  bs.ownedClaudeMemory = () => { throw new Error('stubbed for #7445'); };
+  t.after(() => { bs.ownedClaudeMemory = real; });
+  assert.throws(() => create.carryClaudeNotes(name, { runner: 'claude' }, 'codex', null, 'anthropic', 'openai'), /stubbed/, 'CONTROL: the stub reaches the carry');
+  const sw = create.setProvider(name, 'openai', OPTS);
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.ok(sw.carried, 'a switch off Claude whose carry threw came back as one that keeps its conversation');
+  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'none', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false });
+  const w = create.switchCarryWords('OpenAI', sw.carried, 'Claude');
+  assert.match(w, /its conversation does not come across: OpenAI cannot read what it said on Claude\./);
+  assert.doesNotMatch(w, /Everything it knows/);
 });
 
 test('#7445: end to end, Claude -> OpenAI -> Gemini says the conversation does not come across on the second switch too', () => {

@@ -26,9 +26,11 @@ Evidence, measured from the code:
 Rejected: "the CODEX_HOME written into the job differs, so the conversation is lost". That reads the account home as the
 runner's home, which #4592 stopped being true; it would warn on a switch that keeps everything.
 
-Weakest point: on Windows a Codex agent runs through engine/win32codexsup.js and resumes a thread id; I did not trace
-which home it uses there. It does not matter today because a switch to Qwen is refused on Windows
-(create.js REFUSE_QWEN_WIN32 ~2246), but if Qwen comes to Windows the same question has to be asked of that path.
+Weakest point (traced in round 1): the call is true on a Mac only. On Windows win32launch.childEnv sets CODEX_HOME to
+the ACCOUNT folder (engine/win32launch.js ~140, no private home), and win32codexsup keeps the codex thread id in memory
+only (engine/win32codexsup.js:135, :194-206). So on Windows OpenAI <-> Qwen WOULD lose the conversation. It cannot
+happen today: a switch to Qwen is refused on Windows (create.js REFUSE_QWEN_WIN32). The refusal and both twins now
+carry a comment saying that lifting it needs a private Codex home on Windows first, or the rule becomes wrong there.
 
 What would change my mind: the supervisor (or the Windows Codex path) giving each ACCOUNT its own runtime home instead
 of each agent, or codexruntime.forSession taking the account into its key. Then OpenAI <-> Qwen loses it too, and
@@ -69,3 +71,4 @@ checks they agree on every provider pair the menu offers.
 
 ## Log
 - Round 0 (build): rule, carried state, sentence and dialog built; tests above; policy tests run (see commit).
+- Round 1: no blockers. [WARNING] dialog said "Notes in its folder stay" to an agent with none while the result named none --> FIXED ("Any notes", between and to-Claude; #7410 test updated deliberately); [NIT] OpenAI <-> Qwen reasoning is Mac-only (Windows CODEX_HOME is the account folder) --> FIXED (comments at REFUSE_QWEN_WIN32 and both twins, weakest point rewritten); [NIT] forAgent(x) === forAgent(x) proved nothing --> FIXED (dropped, supervisor lines cited); [NIT] web test restated the alibaba fold --> FIXED (reads engine providerRunner); [NIT] missing space in `?'The notes` --> FIXED; [NIT] person-like fixture name in the new web test --> FIXED ('Helper'); [NIT] a carry that throws said everything stays --> FIXED (setProvider falls back to lostConversationCarried, the one base shape carryClaudeNotes also starts from; new test stubs backupsessions.ownedClaudeMemory to throw, red on the round 0 commit). An off-Claude throw reads "It had no saved notes to copy", which may be untrue; the conversation wording is right, the notes clause is the residual.
