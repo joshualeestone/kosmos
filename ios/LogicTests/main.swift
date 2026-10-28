@@ -4114,6 +4114,8 @@ do {
               "review 1: the status row's times, model, picked role and stuck messages are read")
         var picked = ag("e", "Eve", role: "zz parsed"); picked.profileRole = "Aa picked"
         check(Board.agentOrder([crew[0], picked], sort: .role).map(\.session) == ["e", "b"], "review 1: By role reads the role picked on the profile before the parsed line (the desktop's roleLine)")
+        check(Board.keepingOrder([crew[0]], with: [crew[0], crew[3], crew[1]], sort: .name).map(\.session) == ["b", "a", "d"], "review 2: agents new on a live update join the end in the chosen order, the shown rows held still")
+        check(Board.sortModel(["state": "needs_you", "disruption": ["failed": true], "modelName": "Haiku 4.5", "plannedModelName": "Opus 5"]) == "Claude Opus 5", "review 2: a failed restart counts as not running, as on the desktop (its planned model)")
         var stuck = ag("f", "Fay", state: "idle"); stuck.deliveryStall = true
         check(Board.agentOrder([crew[0], stuck], sort: .needs).map(\.session) == ["f", "b"], "review 1: stuck messages rank with needs you (the desktop's agentNeedsAttention)")
     }
