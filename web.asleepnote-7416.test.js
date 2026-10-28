@@ -145,3 +145,67 @@ test('#7416 review 2: the remote note paints again after a recovery and after th
   // Not covered here: the remote view turning local (the local arm needs most of the page); its key is the plain
   // "which end" one the earlier offline-note tests already pin.
 });
+
+/* kosmos#7416 review 4: the page's real tick() decides STATUS_FIRST_MISS_AT, which decides whether the time is true.
+   Driven here with the poll stubbed (each fetch waits until the test fails or refuses it) and a fixed clock. */
+function tickWorld() {
+  const clock = { now: 0 };
+  const env = { offline: false, refuse: false, pending: [] };
+  const D = class extends Date { constructor(...a) { if (a.length) super(...a); else super(clock.now); } static now() { return clock.now; } };
+  const el = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null });
+  const ctx = vm.createContext({
+    Date: D, Math, Number, String, Error, Promise, clearTimeout() {}, setTimeout() {},
+    fetch: () => (env.refuse
+      ? Promise.resolve({ ok: false, status: 500, json: async () => ({ error: 'tmux could not be read' }) })
+      : new Promise((res, rej) => env.pending.push(rej))),
+    relaySignedOut: () => false, document: { getElementById: el }, INSTR_EPOCH: 0, setNavBadge() {},
+    deviceOffline: () => env.offline, paintOfflineNote() {}, paintRestartScreen() {}, paintReconnecting() {},
+  });
+  vm.runInContext('var BOARD_LOOKED = true, BOARD_MISSES = 0, LAST_STATUS_OK_AT = null, STATUS_FIRST_MISS_AT = null, BOARD_LOOK_FAILED, BOARD_NEEDS_SIGNIN, BOARD_SIGNED_OUT, BOARD_DEVICE_OFFLINE, STATUS_POLL_FAILED;\n'
+    + [liftConst(SCRIPT, 'HEARD_GAP_MS'), liftAll(SCRIPT, ['lastHeardTrusted', 'tick'])].join('\n'), ctx);
+  const fail = async () => { const p = ctx.tick(); env.pending.shift()(new TypeError('Load failed')); await p.catch(() => {}); };
+  const refuse = async () => { env.refuse = true; await ctx.tick().catch(() => {}); env.refuse = false; };
+  return { ctx, clock, env, fail, refuse };
+}
+const at2 = (d, h, m, s = 0) => new Date(2026, 9, d, h, m, s).getTime();
+
+test('#7416 review 4: tick() dates the first miss by when that poll went out, and a time is said for a page asking up to it', async () => {
+  const w = tickWorld();
+  w.ctx.LAST_STATUS_OK_AT = at2(27, 20, 12);
+  w.clock.now = at2(27, 20, 12, 5); await w.fail();
+  assert.equal(w.ctx.STATUS_FIRST_MISS_AT, at2(27, 20, 12, 5), 'the first miss is when that poll went out');
+  w.clock.now = at2(27, 20, 12, 10); await w.fail();
+  assert.equal(w.ctx.STATUS_FIRST_MISS_AT, at2(27, 20, 12, 5), 'a second miss does not move the first');
+  assert.equal(w.ctx.lastHeardTrusted(), true, 'CONTROL: a page asking up to the outage says the time');
+});
+
+test('#7416 review 4: polls made while THIS device is offline are not the computer\'s misses', async () => {
+  // Phone offline 8 PM to 8 AM (the computer fine), back online at 8 AM, the computer asleep since 2 AM.
+  const w = tickWorld();
+  w.ctx.LAST_STATUS_OK_AT = at2(27, 20, 0);
+  w.clock.now = at2(27, 20, 0, 5); w.env.offline = true; await w.fail();
+  assert.equal(w.ctx.STATUS_FIRST_MISS_AT, null, 'a miss while this device was offline was counted');
+  w.clock.now = at2(28, 8, 0); w.env.offline = false; await w.fail();
+  assert.equal(w.ctx.lastHeardTrusted(), false, 'said "yesterday at 8:00 PM" for a computer that answered until 2 AM');
+});
+
+test('#7416 review 4: a poll in flight across a sleep or a lock is dated by when it failed, not when it went out', async () => {
+  const w = tickWorld();
+  w.ctx.LAST_STATUS_OK_AT = at2(27, 21, 0);
+  w.clock.now = at2(27, 21, 0, 5); const p = w.ctx.tick();   // out when the iPad locks
+  w.clock.now = at2(28, 8, 0); w.env.pending.shift()(new TypeError('The network connection was lost.')); await p.catch(() => {});
+  assert.equal(w.ctx.STATUS_FIRST_MISS_AT, at2(28, 8, 0), 'dated before the sleep');
+  assert.equal(w.ctx.lastHeardTrusted(), false);
+});
+
+test('#7416 review 4: a refusal is an answer, so it clears a first miss', async () => {
+  const w = tickWorld();
+  w.ctx.LAST_STATUS_OK_AT = at2(27, 19, 59, 55);
+  w.clock.now = at2(27, 20, 0); await w.fail();
+  assert.equal(w.ctx.STATUS_FIRST_MISS_AT, at2(27, 20, 0), 'premise: one dropped poll');
+  w.clock.now = at2(27, 20, 1); await w.refuse();
+  assert.equal(w.ctx.STATUS_FIRST_MISS_AT, null, 'a refusal (the computer answered) left the old miss standing');
+  // Refusals until 11 PM, then the computer goes down: the first miss is at 11 PM, hours after the last good answer.
+  w.clock.now = at2(27, 23, 0, 5); await w.fail();
+  assert.equal(w.ctx.lastHeardTrusted(), false, 'said "at 7:59 PM" for a computer answering until 11 PM');
+});
