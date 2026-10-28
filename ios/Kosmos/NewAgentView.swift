@@ -103,7 +103,7 @@ struct NewAgentView: View {
 
     // MARK: 1. What would you like to create?
 
-    private var kinds: [NewAgent.Kind] { client.swarmsOn ? [.single, .team, .swarm] : [.single, .team] }
+    private var kinds: [NewAgent.Kind] { client.swarmsOn || catalogue?.swarms == true ? [.single, .team, .swarm] : [.single, .team] }
 
     private var kindScreen: some View {
         ScrollView {
@@ -605,8 +605,9 @@ struct NewAgentView: View {
     private func pinned(_ title: String, enabled: Bool, busy: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             ZStack {
-                Text(title).font(.headline).opacity(busy ? 0 : 1)
-                if busy { ProgressView().tint(.white) }
+                // The label in the card colour, as the app's other prominent buttons (build 13 shots: unreadable in dark).
+                Text(title).font(.headline).foregroundColor(Palette.card).opacity(busy ? 0 : 1)
+                if busy { ProgressView().tint(Palette.card) }
             }
             .frame(maxWidth: .infinity, minHeight: 50)
         }
