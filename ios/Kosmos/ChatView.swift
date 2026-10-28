@@ -222,8 +222,12 @@ struct ChatView: View {
                         .foregroundColor(starred ? Palette.starGold : Palette.secondary)
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
-                .disabled(client.starring.contains(agent.session) || !client.canStar)
+                .disabled(client.starring.contains(agent.session))
                 .accessibilityLabel(starred ? "Unstar \(shown.name)" : "Star \(shown.name)")
+                // Review 2: no star until this computer's stars are known (never a greyed control nothing explains);
+                // the chat asks for them once, so it appears as soon as they can be read.
+                .opacity(client.canStar ? 1 : 0).allowsHitTesting(client.canStar).accessibilityHidden(!client.canStar)
+                .task { await client.readStarsIfUnknown() }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -384,7 +388,8 @@ struct ChatView: View {
     // Above a conversation already shown: the Mac's own reason, or that it stopped answering.
     private var bannerText: String? {
         if let refusal { return refusal }
-        guard lost else { return client.starNote }   // kosmos#7034 build 11 review 1: a star that did not save, said here too
+        // kosmos#7034 build 11 reviews 1-2: a star of THIS agent that did not save, said here too.
+        guard lost else { return client.starNoteAgent == agent.session ? client.starNote : nil }
         let time = lastRead.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
         return Shell.notUpdatingLine(client.failingMacName) + time   // kosmos#7197: named
     }
@@ -1982,7 +1987,7 @@ struct BubbleText: View {
                 }
                 .foregroundColor(mine ? Palette.personBubble : Palette.agentBubble)
             )
-            .overlay(PressedRing())   // kosmos#7419 build 11: on the bubble, before its width frame
+            .overlay(PressedBubbleMark())   // kosmos#7419 build 11: the bubble itself, before its width frame
             .frame(maxWidth: UIScreen.main.bounds.width * widthShare, alignment: mine ? .trailing : .leading)
             .fixedSize(horizontal: false, vertical: true)
     }

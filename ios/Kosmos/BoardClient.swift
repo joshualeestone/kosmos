@@ -75,6 +75,8 @@ final class BoardClient: ObservableObject {
     // (the whole saved list) then decides, and a star that did not save goes back, with the board's own words why. One
     // save at a time per agent: a second press while one is out waits for nothing and is ignored.
     @Published private(set) var starNote: String?
+    // build 11 review 2: the agent the note is about, so a chat says it only for that agent.
+    @Published private(set) var starNoteAgent: String?
     @Published private(set) var starring: Set<String> = []
     // Review 1: every star press is numbered. A re-sort's own stars read that began before a press (or lands while one is
     // out) is not taken, or it would put back the list from before the press; and an answer older than the newest
@@ -87,8 +89,19 @@ final class BoardClient: ObservableObject {
     // build 11 review 1: a press is offered only once this computer's stars have been read. Before that the star would
     // show an outline for a starred agent, and a press would build on an empty list (a failed save would leave it so).
     var canStar: Bool { shownMac != nil && shownStars != nil }
+    // build 11 review 2: a chat opened before the stars were read (from a notification, or after a failed read) asks
+    // once, so its star appears instead of waiting for the Agents list's next re-sort. Taken only if no press began or
+    // ended meanwhile, as a re-sort's read is.
+    func readStarsIfUnknown() async {
+        guard shownStars == nil, let mac = shownMac else { return }
+        let epoch = chatEpoch, events = starEvents
+        let answer = await throughMac { Board.starsRequest(mac: $0) }
+        guard epoch == chatEpoch, shownMac?.address == mac.address, shownStars == nil, starsReadStillGood(since: events),
+              let answer, (200...299).contains(answer.1.statusCode), let names = Board.parseStars(answer.0) else { return }
+        showStars(names, mac: mac.address)
+    }
     func toggleStar(_ session: String) async {
-        guard let mac = shownMac, !starring.contains(session) else { return }
+        guard canStar, let mac = shownMac, !starring.contains(session) else { return }   // review 2: the swipe too
         let on = !isStarred(session)
         let epoch = chatEpoch
         starWrites += 1
@@ -98,6 +111,7 @@ final class BoardClient: ObservableObject {
         // Review 3: a press from before a computer or account switch leaves nothing behind (forgetChats cleared it).
         defer { if epoch == chatEpoch { starring.remove(session); starEvents += 1 } }
         starNote = nil
+        starNoteAgent = nil
         showStars(setting: session, on: on, mac: mac.address)
         let answer = await throughMac { Board.starWriteRequest(mac: $0, name: session, on: on) }
         guard epoch == chatEpoch, shownMac?.address == mac.address else { return }   // another computer or account now
@@ -109,6 +123,7 @@ final class BoardClient: ObservableObject {
             // Only this agent goes back; every other star stays as the phone now shows it (review 1).
             showStars(setting: session, on: !on, mac: mac.address)
             starNote = Board.starFailure(on: on, status: answer?.1.statusCode ?? 0, data: answer?.0)
+            starNoteAgent = session
         }
     }
     // Whether a re-sort's stars read may be taken: no press began or ended since it began, and none is out now.
@@ -122,7 +137,7 @@ final class BoardClient: ObservableObject {
         agents = Board.agentOrder(agents, sort: agentSort, projects: sortProjects, stars: names)
         sortEpoch += 1   // review 1: Today re-takes its order too, so a star moves the agent there as well
     }
-    func clearStarNote() { starNote = nil }
+    func clearStarNote() { starNote = nil; starNoteAgent = nil }
 
     // kosmos#7421: the Agents list's order, applied where the list is re-sorted (opening it, a pull), never on a live update,
     // so rows do not move under the person's thumb. `sortProjects` is By project's key (each agent's first project).
