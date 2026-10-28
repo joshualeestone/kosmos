@@ -723,6 +723,7 @@ struct NewAgentView: View {
         .navigationBarBackButtonHidden(sending)
         .onAppear { if draft.model.isEmpty { draft.model = catalogue?.defaultModel?.key ?? "" } }
         .safeAreaInset(edge: .bottom) {
+            // Not while a photo is still being fitted (photoLoading): the create would go without it.
             pinned(NewAgent.Words.create, enabled: !sending && !photoLoading && NewProject.trimmed(draft.name) != unsureName
                    && (catalogue.map { NewAgent.canCreate(draft, $0) } ?? false), busy: sending) {
                 Task { await create() }

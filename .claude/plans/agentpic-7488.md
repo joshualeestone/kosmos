@@ -23,4 +23,6 @@
 ## Not verified
 
 - Not run on a device and not sent against a real board; shown through simulator shots.
+- A photo whose upload got no answer is taken as maybe set, so the mark is not put over it; on a flaky link the agent can end up with no picture and nothing says so. Untested on a real network.
+- Settings on iOS 16 was not shot (the simulators run iOS 26); it keeps the row spacing it had before.
 - The drawing half (the letter's mask, its orientation and centring, the photo fitting) has no unit test: the scatter is tested against the desktop's code, and the letter was checked by eye in the shots ("Finch": an upright, centred F).
