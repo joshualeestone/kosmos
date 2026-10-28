@@ -1485,7 +1485,7 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
       if (said) { changed.lastChangeAt = changed.lastRunAt; changed.lastChangeNote = said; } else { delete changed.lastChangeAt; delete changed.lastChangeNote; }
     }
     /* slice 2: a run is LATE (the row says so) when it is off the schedule: more than the miss grace after the latest
-       slot since the rule was set, and not within the grace BEFORE the next slot (an early run is on time). It depends only
+       slot since the rule was set, and not within the early window BEFORE the next slot (taskrepeat.earlyWindowFor, kosmos#7413: an early run is on time). It depends only
        on the rule and the run's time, never on earlier runs.
        Review 1: the latest slot, never the oldest unanswered one, so after a missed day the next day's 09:05 run is on time.
        Review 2: a job reporting a few minutes early (08:50 for 09:00) is not late; a second runner in the same minute gets
