@@ -1140,7 +1140,7 @@ if let c = naCat {
     check(bodyOf(o)?["label"] as? String == "Researcher" && bodyOf(o)?["instructions"] == nil, "own: the label always travels; the untouched example does not")
     o.ownWords = "You are **your agent**, an assistant.\nRead leases."
     check(bodyOf(o)?["instructions"] as? String == "You are **Ada**, an assistant.\nRead leases.", "own: edited words travel, with the agent's name in place")
-    var s = NewAgent.Draft(kind: .swarm); s.roleKey = "writer"; s.name = "Hive"; s.maxHelpers = 99; s.capMillions = 6
+    var s = NewAgent.Draft(kind: .swarm); s.roleKey = "writer"; s.name = "Hive"; s.label = "Writer"; s.maxHelpers = 99; s.capMillions = 6
     let sb = bodyOf(s)
     check(sb?["kind"] as? String == "swarm" && sb?["maxHelpers"] as? Int == 10 && sb?["dailyTokenLimit"] as? Int == 6_000_000
           && sb?["provider"] as? String == "anthropic", "swarm: kind, helpers (kept in range), the limit in tokens, Claude")
@@ -1166,7 +1166,7 @@ let ntDetailJSON = #"{"team":{"key":"marketing","label":"Marketing","purpose":"P
 let ntDetail = NewTeam.parseDetail(Data(ntDetailJSON.utf8))
 check(ntDetail?.members.map(\.slot) == ["head", "writer"] && ntDetail?.members.map(\.isLead) == [true, false] && ntDetail?.projectGoal == "Grow sign-ups" && ntDetail?.caution == nil,
       "a team's members, lead first (reportsTo null), and its project")
-check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""reportsTo":"lead""#, with: #""reportsTo":null"#).utf8)) == nil, "two leads: refused, as the board refuses it")
+check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""lead":"head""#, with: #""lead":"nobody""#).utf8)) == nil, "a lead that is not a member: refused, never a team with no lead first")
 check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""slot":"writer""#, with: #""slot":"head""#).utf8)) == nil, "two members in one seat: refused, never a crash")
 check(boardPage.contains("'" + NewTeam.Words.nameAsTyped + "'"), "the stale-name sentence is the desktop's")
 if let d = ntDetail {
@@ -1188,6 +1188,38 @@ if case .specs(let list) = ntSpecs {
 check(NewTeam.specsAnswer(status: 400, body: Data(#"{"error":"give the Copywriter a name"}"#.utf8)) == .refused("Give the Copywriter a name."), "a refusal reads as a sentence, as tcSay")
 check(NewTeam.specsAnswer(status: 0, body: nil) == .unknown && NewTeam.specsAnswer(status: 200, body: Data(#"{"specs":[{"slot":"a","session":"../x","spec":{"name":"A"}}]}"#.utf8)) == .unknown,
       "no answer, or a spec with no usable session, is unknown")
+
+// kosmos#7488 review 3: the caution, the project tell, the timed-out words, the project name retry, the lead.
+for w in [NewAgent.Words.labelMissing, NewAgent.Words.notUpWhy, NewAgent.Words.notUpNext] {
+    check(boardPage.contains(w), "the desktop says it too: \(w)")
+}
+check(boardPage.contains("shown + ' has not come up'") && NewAgent.Words.notUp("Ada") == "Ada has not come up"
+      && boardPage.contains("shown + ' is running'") && NewAgent.Words.running("Ada") == "Ada is running", "the made screen's heads are the desktop's")
+let lawyer = NewAgent.Role(key: "legal", label: "Legal", blurb: "", instructions: "", group: nil, caution: "Not a lawyer, and this is not legal advice.")
+let quiet = NewAgent.Role(key: "office", label: "Office", blurb: "", instructions: "", group: nil, caution: "Nothing goes out without the owner.")
+check(NewAgent.caution(quiet, kind: .single) == "Nothing goes out without the owner." && NewAgent.caution(quiet, kind: .swarm) == nil
+      && NewAgent.caution(lawyer, kind: .swarm) == "Not a lawyer, and this is not legal advice." && NewAgent.caution(nil, kind: .single) == nil,
+      "a picked role's caution shows; on a swarm only professional advice, as paintPickLimit")
+check(boardPage.contains("lawyers?|attorneys?|counsel") && NewAgent.advice.pattern.contains("lawyers?|attorneys?|counsel"), "the advice words are the desktop's")
+check(NewAgent.parseCatalogue(Data(#"{"roles":[{"key":"legal","label":"Legal","caution":"Not a lawyer."}]}"#.utf8), swarms: false)?.roles.first?.caution == "Not a lawyer.", "the caution is read from /api/roles")
+check(NewAgent.addedProjects(Data(#"{"outcome":"created","projects":[{"id":"home","added":true},{"id":"x","added":false},{"id":"../y","added":true}]}"#.utf8)) == ["home"],
+      "only the projects the create added are told")
+let tell = NewAgent.tellRequest(mac: npMac, project: "home", session: "ada")
+check(tell?.httpMethod == "POST" && tell?.url?.path == "/api/project/home/agent/ada" && NewAgent.tellRequest(mac: npMac, project: "home", session: "../a") == nil,
+      "the tell is the desktop's POST /api/project/<id>/agent/<name>, never with a name the board would refuse")
+if let c = naCat {
+    var blank = NewAgent.Draft(); blank.roleKey = "pm"; blank.name = "Ada"; blank.label = "  "
+    check(!NewAgent.canCreate(blank, c), "a blank Role is refused for a menu role too, as the desktop")
+}
+if let d = ntDetail {
+    check(NewTeam.projectNames(d, taken: ["Marketing"], count: 3) == ["Marketing 2", "Marketing 3", "Marketing 4"], "the next names to try when a folder is taken")
+}
+check(NewTeam.folderTaken(Data(#"{"error":"taken","code":"folder_taken"}"#.utf8)) && !NewTeam.folderTaken(Data(#"{"error":"x"}"#.utf8)), "folder_taken is read from the code")
+check(boardPage.contains("body.code !== 'folder_taken' || tries >= TC_PROJECT_NAME_TRIES") && boardPage.contains("const TC_PROJECT_NAME_TRIES = \(NewTeam.projectNameTries);"),
+      "the retry count is the desktop's")
+check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #","lead":"head""#, with: "").utf8)) == nil
+      && NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""reportsTo":null"#, with: #""x":1"#).utf8))?.members.first?.isLead == true,
+      "the lead is the team's own lead slot, not a guess from a missing field")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
