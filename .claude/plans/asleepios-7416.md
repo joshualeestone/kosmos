@@ -105,3 +105,13 @@ nothing from it.
   CONTROL inside the allowance; mutation (no clamp) red.
 - [NIT] chooseMac assigned its list without the ordering check. FIXED: shown only when `ticket > macsLanded`; the pick
   uses the run's own answer either way. Not separately tested (reasoned; the ordering tests cover readMacs).
+
+### Round 6 (0 B, 1 W, 1 C, 3 N), W and C applied
+- [WARNING] round 5's chooseMac ordering guard was untested (`if true` stayed green). FIXED: a switch's slow list read
+  landing after a newer refresh; the newer list stays and the switch still opens its computer. Mutation red.
+- [CONCERN] comments still said "Kosmos+'s last_seen" where the value is Board.lastHeard. FIXED in ShellLogic,
+  ShellViews (the parameter is now `lastHeard`), BoardLogic, README.
+- [NIT] the 60 s rule written twice. FIXED: `Shell.clockAllowance`, used by both.
+- [NIT] `Board.lastSeen` is a one-line wrapper. Kept: the tests read it and the name says what it returns.
+- [NIT] the switcher's words have no minute timer. Kept: the reviewer measured that something redraws it every few
+  seconds while a Mac is shown or failing.

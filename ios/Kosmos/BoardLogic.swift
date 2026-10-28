@@ -2351,7 +2351,7 @@ extension Board {
     }
 
     // kosmos#7416 slice 2: Kosmos+'s last_seen for the computer a "not answering" screen names, from the account's
-    // list. By address when the screen knows it (a failed page's host, the shown computer), else by name, and by name
+    // list. By address when the screen knows it (a failed page's host, the Mac being opened), else by name, and by name
     // only when one listed computer has it: two of one name give no time rather than the other one's.
     static func lastSeen(_ macs: [Mac], address: String?, name: String?) -> Double? {
         listedMac(macs, address: address, name: name)?.lastSeen
@@ -2372,7 +2372,7 @@ extension Board {
     // Review 5: last_seen is Kosmos+'s clock; one more than a minute ahead of this phone's (a phone set behind) is not
     // taken, or it would win and then be refused as a future time, losing a good read of the phone's own.
     static func lastHeard(listed: Double?, heard: Date?, now: Date = Date()) -> Double? {
-        let l = (listed ?? 0) <= now.timeIntervalSince1970 + 60 ? (listed ?? 0) : 0
+        let l = (listed ?? 0) <= now.timeIntervalSince1970 + Shell.clockAllowance ? (listed ?? 0) : 0
         let t = max(l, heard?.timeIntervalSince1970 ?? 0)
         return t > 0 ? t : nil
     }
