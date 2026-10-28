@@ -17,6 +17,11 @@
  *   node --test server.projects.test.js
  */
 
+/* kosmos#7442: FIRST, so SANDBOX below lands inside this process's own temp directory, which is removed when the
+   process exits. The after hook's rmSync runs before the board's own timers stop: one that writes its state later
+   (prompter-nudges.json, board-alive.json, setup-guide-state.json were found) re-created the folder, and the #4273
+   leak check then saw aw-projects-*. The exit sweep runs after every timer this file started. */
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
