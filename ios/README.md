@@ -234,7 +234,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 ## The shell on a phone (#718)
 
 - **A page that cannot load** shows a native page (offline; your Mac not answering, when a
-  Mac's own address gave no answer, with "It may be asleep or turned off"; Kosmos+ not
+  Mac's own address gave no answer, with "It may be asleep, off or offline" and when Kosmos+
+  last heard from it (#7416); Kosmos+ not
   answering, for any other address or error; or the system's own reason) with Try again, and
   reloads by itself when an offline phone reconnects (`ShellViews.swift`, `Shell.loadFailure`).
 - **Pull to refresh** reloads the page.
