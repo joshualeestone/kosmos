@@ -221,3 +221,19 @@ One warning and one nit, both taken; the test is red on 2541797735.
    a note keep the block; two blocks are left untouched.
 2. **The `out.notes !== 'blocked'` guard is kept**, commented as a second line of defence: `has` already asks the disk,
    and a blocked result with real folders and a note in them is the only case it still catches.
+
+## Review 8 (no blocker, no warning: converged)
+Three nits, all taken: a failed removal of the old pointer is logged with its reason and flagged (`unpointFailed`), and
+the result says "Its instructions may still mention notes in memory/claude-notes/ that are not there; we could not take
+that line out." (test: instructions.write stubbed to throw EACCES); "Not covered" names that text between the markers
+is removed with the block (recoverable via .previous); the pointer comment mentions the removal.
+
+### Round summary (for the proof)
+- Round 1: [WARNING] another agent's notes could be copied (shared slug, notes newer than transcripts, no transcripts) --> FIXED; [WARNING] brief written with bare fs.writeFileSync --> FIXED; [WARNING] server's CLAUDE_CONFIG_DIR read --> FIXED; [WARNING] Claude <-> DeepSeek said everything stays --> FIXED; [NIT] x5 (own wording for no transcripts, ambiguous pointed, lstat before copy and 1 MB cap, copy into memory/claude-notes/, blocked and link tests) --> FIXED
+- Round 2: [WARNING] same-name check case-sensitive on Windows/macOS --> FIXED; [WARNING] knownFolders returned a partial list on errors --> FIXED; [NIT] unchecked test --> FIXED; [NIT] newer wording --> FIXED; [NIT] copied-but-not-pointed sentence --> FIXED
+- Round 3: [WARNING] failed copies dropped silently (said as no notes) --> FIXED; [NIT] non-file in a note's place counted kept, pointer counted any .md --> FIXED; [NIT] unparseable profile not named in the log --> FIXED
+- Round 4: [WARNING] link/junction swapped in between the check and mkdir --> FIXED (residual per-file swap ACCEPTED, no portable fix in Node); [NIT] occupied place counted apart --> FIXED; [NIT] note time rechecked before its copy --> FIXED
+- Round 5: [WARNING] a folder that could not be made read as blocked (regression from round 4) --> FIXED; [NIT] memory/ a junction, never point at blocked notes --> FIXED
+- Round 6: [WARNING] pointer decided from the outcome, not the disk (junction pointed on other outcomes) --> FIXED; [NIT] memory/ turned file after the check read as failed --> FIXED
+- Round 7: [WARNING] a pointer the brief already carried was never taken out --> FIXED (two blocks left untouched: ACCEPTED); [NIT] redundant blocked guard --> FIXED (kept, commented)
+- Round 8: no blocker, no warning (converged); [NIT] failed pointer removal swallowed --> FIXED; [NIT] marker text removed with the block named in Not covered --> FIXED; [NIT] stale comment --> FIXED
