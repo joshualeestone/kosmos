@@ -70995,6 +70995,14 @@ function tkHoldSayNext(key, next, t) {
   tkHoldChooseShow(ask);
 }
 document.getElementById('tk-hold-choose').addEventListener('click', () => {
+  // Review 6: with nobody on the project the picker has no one to offer; say where people come from, here in the line.
+  const p = pjById(PJ_CURRENT);
+  if (p && !(p.agents || []).length) {
+    const msg = document.getElementById('tk-hold-msg');
+    if (msg) { msg.textContent = 'Add an agent to this project first, then you can put them on it.'; delete msg.dataset.nextSig; }
+    tkHoldChooseShow(false);
+    return;
+  }
   const pick = document.querySelector('#tk-who .tkpart:not(.done) [data-pick-nobody]');
   if (pick) { pick.click(); return; }
   // Review 2: no open part is free any more, so the line is stale: take it down rather than leave a button that does nothing.

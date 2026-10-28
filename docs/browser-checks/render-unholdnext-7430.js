@@ -201,6 +201,19 @@ function chk(ok, label, extra) {
       chk(stored(p.id, 3).onHold === true && await text(page, '#tk-hold-msg') === '',
         `${tag} Put on hold says nothing about who is next`, JSON.stringify(await text(page, '#tk-hold-msg')));
 
+      // Review 6: a project with nobody on it: Choose who says where people come from, in the hold line.
+      const empty = projects.create({ name: 'Empty shelf ' + theme });
+      tasks.create(empty.id, { sentence: 'Count the stock' });
+      tasks.setOnHold(empty.id, 1, true, { viaScreen: true });
+      await openTask(page, empty.id, 1);
+      await page.click('#tk-hold');
+      await settle(page);
+      await page.waitForSelector('#tk-hold-choose-row:not([hidden])', { timeout: 6000 }).catch(() => {});
+      chk(await rowShown(), `${tag} a project with nobody on it still asks for a choice (the premise)`, await text(page, '#tk-hold-msg'));
+      await page.click('#tk-hold-choose');
+      chk(await text(page, '#tk-hold-msg') === 'Add an agent to this project first, then you can put them on it.' && !(await rowShown()),
+        `${tag} Choose who on a project with nobody on it says so in the hold line`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
+
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
       chk(!sideways, `${tag} no sideways scroll`);
       chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
