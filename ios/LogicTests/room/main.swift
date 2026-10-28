@@ -320,6 +320,8 @@ check(sheetSrc.contains("ForEach(ComposerExtras.emoji, id: \\.self) { e in cell(
 check(sheetChat.components(separatedBy: ".messageActionsHost()").count - 1 == 1 && sheetRoom.components(separatedBy: ".messageActionsHost()").count - 1 == 1
       && sheetSrc.contains(".presentationDetents([small(t), .large], selection: $detent)") && sheetSrc.contains("onDismiss: { let run = afterClose"),
       "review 1: one sheet per chat and per room; More resizes through a chosen detent; Reply runs once the sheet has gone")
+check(sheetChat.contains(".accessibilityElement(children: .ignore)\n        // kosmos#7419 review 3") && sheetChat.contains(".messageActionsAccessibility("),
+      "review 3: VoiceOver gets Message actions on the chat bubble's own element, after the one that drops its children's")
 check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an agent's first project is its project names A to Z, without case")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")
@@ -1049,7 +1051,7 @@ if let unvAt, let wordsAt, let filesAt {
 check(bubbleSource.components(separatedBy: "Board.unverifiedLine").count == 2, "the line is drawn in one place only")
 // Review 2: both Copy paths, VoiceOver's action and the long press's (kosmos#7419: the sheet's Copy text, handed row.text),
 // and no other pasteboard write in the bubble.
-check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = row.text }")
+check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = Board.roomWords(row) }")
       && bubbleSource.contains("reply: answerable ? reply : nil, text: Board.roomWords(row))")
       && bubbleSource.components(separatedBy: "UIPasteboard.general.string =").count == 2,
       "both Copy paths (VoiceOver's action and the long-press sheet) take the row's words, never the line")
