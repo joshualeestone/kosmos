@@ -34,3 +34,11 @@ sign in to Windows' is on in Settings, Kosmos then tries to start again in the b
 ## Weakest premise
 
 That the sign-in switch is the watchdog's only off switch. If #7493 splits them, this sentence must change with it.
+Accepted gap: a launch that sets its own PORT or data folder also gets this box, and after OK the watchdog starts the
+person's usual Kosmos, not that one. Such launches are a developer's or a test's; the sentence is still true of Kosmos.
+
+## Also in this branch
+
+A test (tools.win-launcher-native.test.js, #7492) that every string constant in KosmosLauncher.cs is in the committed
+Kosmos.exe, so an exe built from older words fails CI on any machine (verify-launcher.ps1 runs only on Windows).
+Measured: main 67 found, 0 missing; this branch before Homer's rebuild, RunningHereMessage missing.
