@@ -56,6 +56,7 @@ struct SettingsView: View {
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
+                .modifier(TopOnTheBarLine())
                 // A switch that is on reads as on in both modes: the app's ink tint made it black in light and
                 // near-white on a white knob in dark. The system green is what the 19 Oct design drew (p6-settings).
                 .tint(Color(UIColor.systemGreen))
@@ -113,7 +114,9 @@ struct SettingsView: View {
                     .accessibilityAddTraits(.isHeader)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.bottom, 8)
+            // kosmos#7487 build 14: no room above the picture but the list's 8 pt (TopOnTheBarLine).
+            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
         } footer: {
             Text("Your name and picture come from your computer. Change them in your Profile in the board's Settings.")
@@ -343,5 +346,18 @@ private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
+    }
+}
+
+// kosmos#7487 build 14 (Mona Lisa): the picture's top on the line of the other tabs' top bar, the safe area plus 8 pt,
+// rather than below the inset-grouped list's own top margin (with the profile row's own top inset at 0). iOS 16 has no
+// content margins and keeps the list's own.
+private struct TopOnTheBarLine: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.contentMargins(.top, 8, for: .scrollContent)
+        } else {
+            content
+        }
     }
 }

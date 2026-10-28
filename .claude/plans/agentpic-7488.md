@@ -6,6 +6,7 @@
 - **Editable team names look editable**: a pencil beside each name that can be changed.
 - **Model shows once**: the heading says Model; the row shows only the choice.
 - Shots include the team screen scrolled to the bottom (Project and Model), closing Mona's item 1.
+- **#7487, Settings at the top** (Mona Lisa, 16:0x): the picture's top sits on the other tabs' top-bar line, the safe area plus 8 pt (the list's top margin set to 8 on iOS 17 and later, and the profile row's own top inset at 0). Measured in shots: 28 pt on the small phone, the bar's line plus 8 on the large one. iOS 16 keeps the list's own top margin.
 
 ## Decided
 
