@@ -112,6 +112,35 @@ function stateAfterEvent(event) {
 const STEP_MAX = 80;
 /* kosmos#7368: the step clock is written in buckets this wide (see the publisher's keyOf). */
 const STEP_CLOCK_MS = 5 * 60 * 1000;
+/* kosmos#7368 (measured, Claude Code 2.1.312): an MCP tool's name is mcp__<server>__<tool>. Shown as "<tool> from
+   <server>", underscores as spaces. Cases pinned in deliverystreak.turn-7368.test.js. */
+function toolWords(name) {
+  if (Array.from(name).length > STEP_MAX * 3) return name;   // the step is cut there: a reordered tail could show half a token
+  let mask;
+  let MASK;
+  try { ({ mask, MASK } = require('./secretmask')); } catch { return name; }   // as main: cut masks it or shows nothing
+  if (name.includes(MASK)) return MASK;   // already masked in part (the step's own fold): the whole name goes
+  /* One mask call per name, not one per underscore: mask() caches every distinct text it sees. A pattern begins at a
+     word boundary, which an underscore is not, so every suffix after an underscore is tried, space-separated. */
+  const tries = [name];
+  for (let i = name.indexOf('_'); i !== -1; i = name.indexOf('_', i + 1)) tries.push(name.slice(i + 1));
+  const all = tries.join(' ');
+  try { if (mask(all).text !== all) return MASK; } catch { return name; }
+  const m = /^mcp__(.+)__(.+)$/.exec(name);
+  if (!m) return name;
+  const words = (v) => v.replace(/_+/g, ' ').trim();
+  let server = m[1].replace(/^claude_ai_/, '');
+  const plugin = /^plugin_(.+)$/.exec(server);
+  if (plugin) {
+    const half = /^(.+)_\1$/.exec(plugin[1]);
+    server = half ? half[1] : plugin[1];
+  }
+  const tool = words(m[2]);
+  if (!tool) return name;
+  const from = words(server);
+  return from ? tool + ' from ' + from : tool;
+}
+
 /* kosmos#7386: the invisible characters a secret can be split by: every control (Cc: C0, DEL, C1), every format
    character (Cf: the bidi marks, embeddings, overrides and isolates, the invisible operators, tag characters) and every
    default-ignorable code point (variation selectors, Hangul fillers and the rest). By category, not by list (review 1:
@@ -203,7 +232,9 @@ function stepOfUse(use) {
       for (const v of [input.file_path, input.path, input.url, input.pattern, input.query]) { target = shown(v); if (target) break; }
       const name = shown(use.name);
       if (!name) return null;
-      return cut('using ' + name + (target ? ' on ' + target : ''));
+      /* kosmos#7368 follow-up: an MCP name reads as the tool and where it comes from. The folded name is cut to `bound`, so
+         a name longer than that is shown as it is (a reordered tail could put half a token in front of the cut). */
+      return cut('using ' + (Array.from(use.name).length > bound ? name : toolWords(name)) + (target ? ' on ' + target : ''));
     } catch { return null; }
   } catch { return null; }
 }
