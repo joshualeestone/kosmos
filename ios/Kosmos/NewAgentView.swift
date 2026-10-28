@@ -656,11 +656,10 @@ struct NewAgentView: View {
     private var setupScreen: some View {
         Form {
             Section(NewAgent.Words.identity) {
-                HStack(spacing: 16) {
-                    picturePreview.frame(width: 72, height: 72)
-                    PhotosPicker(selection: $photoPick, matching: .images) { Text(NewAgent.Words.changePicture) }
-                        .buttonStyle(.bordered)
-                    if photoLoading { ProgressView() }
+                // Side by side, or stacked when the text is too large for the row.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) { picturePreview.frame(width: 72, height: 72); pictureButton }
+                    VStack(alignment: .leading, spacing: 12) { picturePreview.frame(width: 72, height: 72); pictureButton }
                 }
                 if let photoMessage { Text(photoMessage).font(.footnote).foregroundColor(Palette.dangerWord) }
             }
@@ -807,6 +806,14 @@ struct NewAgentView: View {
             } else if timedOut {
                 pinned(NewAgent.Words.done, enabled: true) { dismiss() }
             }
+        }
+    }
+
+    private var pictureButton: some View {
+        HStack(spacing: 12) {
+            PhotosPicker(selection: $photoPick, matching: .images) { Text(NewAgent.Words.changePicture) }
+                .buttonStyle(.bordered)
+            if photoLoading { ProgressView() }
         }
     }
 

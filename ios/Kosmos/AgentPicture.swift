@@ -56,15 +56,19 @@ enum AgentPicture {
     }
 
     // The board keeps a picture up to 60,000 bytes (the desktop's PICTURE_MAX_BYTES, the community's cap). A photo is
-    // read already shrunk and upright from its file (never the whole photo in memory), cut to the centred square the
+    // decoded already shrunk and upright from its file (never the full-size bitmap), cut to the centred square the
     // desktop's crop editor opens on, and redrawn as a JPEG on white, 512 px down to 128, as the desktop's fitPicture
     // does for a picture with no transparency. nil when it cannot be read or will not fit. Not on the main thread.
     static let maxBytes = 60000
     static let minSide = 16   // the desktop's PICTURE_MIN_SIDE
     static func fit(data: Data) -> Data? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let pw = props[kCGImagePropertyPixelWidth] as? Int, let ph = props[kCGImagePropertyPixelHeight] as? Int,
+              // Never larger than the photo itself, so a small one is not stretched before it is fitted.
               let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 1024] as CFDictionary)
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: min(1024, max(pw, ph))] as CFDictionary)
         else { return nil }
         let w = CGFloat(cg.width), h = CGFloat(cg.height), square = min(w, h)
         guard square >= 1, let cut = cg.cropping(to: CGRect(x: ((w - square) / 2).rounded(.down), y: ((h - square) / 2).rounded(.down),
