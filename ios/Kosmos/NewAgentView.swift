@@ -57,6 +57,7 @@ struct NewAgentView: View {
     @State private var markImage: UIImage?           // the mark for markName, drawn once per name, not per redraw
     @State private var markName = ""
     @State private var photoLoad = 0                 // the newest pick: an older one finishing late is not used
+    @State private var photoImage: UIImage?          // the chosen picture, decoded once
     @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
     @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
@@ -115,7 +116,7 @@ struct NewAgentView: View {
         case "role": draft.roleKey = "pm"; path = [.role]
         case "own": draft.roleKey = "own"; draft.ownWords = NewAgent.ownExample(c); path = [.role]
         case "setup": draft.roleKey = "pm"; draft.name = "Ada"; draft.label = "Project Manager"; lastLabel = draft.label; path = [.role, .setup]
-        case "swarm": draft.kind = .swarm; draft.roleKey = "researcher"; draft.name = "Hive"; draft.label = "Researcher"; lastLabel = draft.label; path = [.role, .setup]
+        case "swarm": draft.kind = .swarm; draft.roleKey = "researcher"; draft.name = "Finch"; draft.label = "Researcher"; lastLabel = draft.label; path = [.role, .setup]
         case "made": draft.name = "Ada"; made = ("ada", "Ada"); seen = true; path = [.role, .setup, .made]
         case "notup": draft.name = "Ada"; made = ("ada", "Ada"); timedOut = true; path = [.role, .setup, .made]
         case "team", "teammade":
@@ -795,9 +796,9 @@ struct NewAgentView: View {
 
     // The chosen picture, else the mark from the name as it is typed, else the desktop's empty ring.
     @ViewBuilder private var picturePreview: some View {
-        if let data = draft.photo, let img = UIImage(data: data) {
+        if draft.photo != nil, let img = photoImage {
             Image(uiImage: img).resizable().scaledToFill().clipShape(Circle())
-                .accessibilityHidden(true)   // the picture itself; Change picture beside it is the control
+                .accessibilityLabel(NewAgent.Words.chosenPicture)
         } else if let mark = markImage, !NewProject.trimmed(draft.name).isEmpty {
             Image(uiImage: mark).resizable().scaledToFit().clipShape(Circle())
                 .accessibilityLabel(NewAgent.Words.markLabel)
@@ -812,15 +813,23 @@ struct NewAgentView: View {
         let mine = photoLoad
         photoPick = nil   // so choosing the same photo again is a new choice
         let data = try? await item.loadTransferable(type: Data.self)
+        // Read, cut and shrunk off the main thread: a large photo would hold the sheet still.
+        let fitted: Data? = await Task.detached(operation: { data.flatMap { AgentPicture.fit(data: $0) } }).value
         guard mine == photoLoad else { return }
-        if let data, let img = UIImage(data: data), let fitted = AgentPicture.fit(img) { draft.photo = fitted; message = nil }
-        else { message = NewAgent.Words.pictureTooBig }
+        if let fitted {
+            draft.photo = fitted
+            photoImage = UIImage(data: fitted)
+            announce(NewAgent.Words.chosenPicture)
+        } else {
+            message = NewAgent.Words.pictureTooBig
+            announce(NewAgent.Words.pictureTooBig)
+        }
     }
 
     // The mark follows the name as it is typed, drawn once per change rather than on every redraw.
     private func redrawMark() {
         let name = NewProject.trimmed(draft.name)
-        guard name != markName else { return }
+        guard name != markName, draft.photo == nil else { return }   // no mark drawn that a chosen photo hides
         markName = name
         markImage = AgentPicture.mark(name)
     }

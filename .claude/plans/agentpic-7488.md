@@ -10,7 +10,8 @@
 ## Decided
 
 - The mark is ported number for number (the desktop's FNV and generator, including JavaScript's double arithmetic, which rounds above 2^53), tested against web/index.html's own dotGlyph run in node for five names. Only the letter's outline comes from the phone's system font (the desktop draws it with the browser's).
-- A chosen photo is redrawn as a JPEG on white, largest side 512 down to 128, until it fits the board's 60,000-byte limit (the desktop's fitPicture for a picture with no transparency). One that will not fit is refused with a sentence; the mark stays.
+- A chosen photo is read already shrunk and upright from its file, cut to the centred square the desktop's crop editor opens on (the phone has no crop editor in this build), and redrawn as a JPEG on white, 512 px down to 128, until it fits the board's 60,000-byte limit (the desktop's fitPicture for a picture with no transparency). All of it off the main thread. One that cannot be read or fitted is refused with a sentence; the mark stays.
+- A catalogue portrait goes through the same fitting: a still PNG that fits is kept as it came, anything else is redrawn, as the desktop does.
 - The picture is set by the app with the project tells (ContentView), when the board sees the agent, so leaving the sheet early loses neither. Two tries two seconds apart, as the desktop; a failed photo falls back to the mark.
 - Weakest premise: a photo with transparency loses it (JPEG on white); the desktop keeps PNG or WebP for those.
 
