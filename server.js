@@ -21823,8 +21823,15 @@ const server = http.createServer(async (req, res) => {
           const t = tasks.close(projectId, number);
           closedHere.add(here);
           for (const one of tasks.whoOf(t)) toTell.add(one);
+          // kosmos#7514: the built subtasks closed with a parent are closed here too, and their agents are told.
+          const closedWith = Array.isArray(t.closedWith) ? t.closedWith : [];
+          for (const sub of closedWith) {
+            closedHere.add(projectId + '#' + sub);
+            const rec = tasks.byNumber(projects.get(projectId) || {}, sub);
+            if (rec) for (const one of tasks.whoOf(rec)) toTell.add(one);
+          }
           const noteRecorded = note ? !!taskchat.record(projectId, found.number, { kind: 'said', text: note }) : null;
-          results.push({ projectId, number, ok: true, ...(note ? { noteRecorded } : {}) });
+          results.push({ projectId, number, ok: true, ...(closedWith.length ? { closedWith } : {}), ...(note ? { noteRecorded } : {}) });
         } catch (err) {
           results.push({ projectId, number, ok: false, error: String((err && err.message) || 'we could not close that task') });
         }
@@ -24175,6 +24182,11 @@ const server = http.createServer(async (req, res) => {
         // stopped following the record and an agent's instructions kept listing
         // a task it had already finished.
         let told = tellEveryoneOn(t);
+        // kosmos#7514: a parent's close takes its built subtasks; their agents' blocks follow too (non-gating).
+        for (const sub of (Array.isArray(t.closedWith) ? t.closedWith : [])) {
+          const rec = tasks.byNumber(projects.get(id) || {}, sub);
+          if (rec) { try { tellEveryoneOn(rec); } catch { /* non-gating, as above */ } }
+        }
         sendJson(res, 200, { task: t, told });
       } catch (err) {
         const msg = String((err && err.message) || '');

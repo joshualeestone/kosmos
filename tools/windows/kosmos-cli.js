@@ -1366,6 +1366,13 @@ async function taskAssign(ctx, args) {
 }
 
 const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--replaced-by <task-number>]   (the numbers are shown by kosmos task list; --replaced-by takes one task)';
+/* kosmos#7514, as install/kosmos: a parent's close takes its built subtasks; the board names them in closedWith (an older
+   board sends none). "13, 14", or '' when there are none. */
+function closedWithOf(task) {
+  const w = task && Array.isArray(task.closedWith) ? task.closedWith.filter((x) => Number.isInteger(x)) : [];
+  return w.join(', ');
+}
+
 async function taskClose(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err(TASK_CLOSE_USAGE); return 2; }
@@ -1386,6 +1393,7 @@ async function taskClose(ctx, args) {
     if (args.length > 2) {
       const ok = [];
       const bad = [];
+      const withs = [];   // kosmos#7514: the built subtasks each parent's close took with it
       const all = [...new Set(args.slice(1).map((x) => x.replace(/^0+(?=[0-9])/, '')))];   // a number given twice (013 is 13) is closed once
       let stop = -1;
       let lost = null;   // the call Kosmos did not answer
@@ -1394,7 +1402,12 @@ async function taskClose(ctx, args) {
         const n = all[i];
         const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close');
         if (!one.reached) { stop = i; lost = one; break; }
-        if (one.json && one.json.task) { ok.push(n); continue; }
+        if (one.json && one.json.task) {
+          ok.push(n);
+          const w = closedWithOf(one.json.task);
+          if (w) withs.push('Task ' + n + '\'s built subtasks closed with it: ' + w + '.');
+          continue;
+        }
         // As install/kosmos: an error the board left empty did not say why; anything else is an answer we could not read.
         const why = ctx.refusedBy(one) || (one.json && typeof one.json.error === 'string' ? 'it did not say why' : '');
         // One line each: a reason can hold a ; or a ,. An answer we cannot read does not say it did not close.
@@ -1405,6 +1418,7 @@ async function taskClose(ctx, args) {
           || (one.status === 400 && /not a name we can read/.test(why))) { stop = i; wide = true; break; }
       }
       if (ok.length) ctx.out((ok.length > 1 ? 'Closed tasks ' : 'Closed task ') + ok.join(', ') + ' on ' + project + '.');
+      for (const line of withs) ctx.out(line);
       for (const line of bad) ctx.err(line);
       /* As a single close's words (ctx.unreachable): only a timeout or a reset after the request went may have closed it;
          a refused connection or a board not proven ours sent nothing, so that task is named as not tried. */
@@ -1433,7 +1447,12 @@ async function taskClose(ctx, args) {
     ctx.err('Closed task ' + num + ' on ' + project + ', but this Kosmos did not record what replaced it (it is older than this command). It now reads as done. To undo that: kosmos task reopen ' + projectSlug(project) + ' ' + num);
     return 1;
   }
-  if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + r.json.task.replacedBy : '') + '.'); return 0; }
+  if (r.json && r.json.task) {
+    ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + r.json.task.replacedBy : '') + '.');
+    const w = closedWithOf(r.json.task);
+    if (w) ctx.out('Its built subtasks closed with it: ' + w + '.');
+    return 0;
+  }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when closing that task.');
   return 1;

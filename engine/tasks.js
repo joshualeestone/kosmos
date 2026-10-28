@@ -177,9 +177,10 @@ function whoProblem(who) {
  * its project (the header), so a parent stored as a bare number cannot name a task anywhere
  * else: a cross-project parent is not refused by a check that could be forgotten, it has no
  * spelling at all.
- * 🔑 NOTHING CASCADES. Closing a parent never closes its children, closing the last child
- * never closes the parent (the person decides; the screen offers it), and tasks are never
- * deleted. The parent's "3 of 5 done" is DERIVED from its children on every read, so it
+ * 🔑 NOTHING UNFINISHED CASCADES. Closing a parent never closes an open or held child, closing
+ * the last child never closes the parent (the person decides; the screen offers it), and tasks
+ * are never deleted. kosmos#7514: a plain close of a parent does take its BUILT children (work
+ * somebody already marked finished), as #6501's "Close them and this task" did in one press. The parent's "3 of 5 done" is DERIVED from its children on every read, so it
  * cannot drift from them.
  *
  * Refused: a parent that is not a whole number, that is not a task on this project, that is
@@ -987,9 +988,29 @@ function replacedByValue(v) {
   if (!Number.isSafeInteger(n) || n < 1) throw new Error('the task that replaced it has to be a task number');
   return n;
 }
-/** Close: a record edit, never an act on an agent (see the header). */
+/** Close: a record edit, never an act on an agent (see the header).
+ * kosmos#7514: a plain close of a parent also closes its BUILT subtasks (open and held ones stay open), and theirs in
+ * turn; `closedWith` lists them, so a coordinator's round ends with one close. A close as replaced takes none: that
+ * round's built work was superseded, not done. */
 function close(projectId, n, { replacedBy = null } = {}) {
-  return setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: replacedByValue(replacedBy) });
+  const by = replacedByValue(replacedBy);
+  const closed = setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: by });
+  if (by !== null) return closed;
+  const closedWith = [];
+  const takeBuiltUnder = (parent, seen) => {
+    const p = projects.get(projectId);
+    for (const child of (p ? childrenOf(p, parent) : [])) {
+      if (seen.has(child.number)) continue;
+      seen.add(child.number);
+      const built = typeof child.builtAt === 'string' && child.builtAt !== '' && !isOnHold(child) && !progressOf(child).closed;
+      if (!built) continue;
+      setClosed(projectId, child.number, new Date().toISOString());
+      closedWith.push(child.number);
+      takeBuiltUnder(child.number, seen);
+    }
+  };
+  takeBuiltUnder(closed.number, new Set([closed.number]));
+  return closedWith.length ? { ...closed, closedWith } : closed;
 }
 
 /** Reopen: the undo of the one human verb. #6157: who put it back (`by`, an agent its token named; `person`, the

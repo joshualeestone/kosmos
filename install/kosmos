@@ -6236,7 +6236,7 @@ cmd_task() {
       # happened to each. A refusal of one task does not stop the others. A refusal for the whole project (who is asking,
       # or which project) stops there, as does a close Kosmos did not answer: the rest are named as not tried.
       if [ -z "$_by" ] && [ -n "${3:-}" ]; then
-        local _n _ok="" _bad="" _b _r _code _why _seen=" " _stop="" _stoprc=0 _left="" _wide=0 _l _redir=""
+        local _n _ok="" _bad="" _b _r _code _why _seen=" " _stop="" _stoprc=0 _left="" _wide=0 _l _redir="" _w="" _withs=""
         for _n in "$num" "${@:3}"; do
           _n=$(printf '%s' "$_n" | sed 's/^0*\([0-9]\)/\1/')   # the board reads 013 as 13: one task, named as 13
           case "$_seen" in *" $_n "*) continue ;; esac   # a number given twice is closed once
@@ -6257,7 +6257,11 @@ cmd_task() {
           # Kosmos: not followed, named not tried, and no more sent (the Windows command stops there too).
           case "$_code" in 3??) _redir="$_n"; _stop="$_n"; _left="$_n"; continue ;; esac
           case "$_b" in
-            '{"task":'*) _ok="${_ok:+$_ok, }$_n"; continue ;;
+            '{"task":'*) _ok="${_ok:+$_ok, }$_n"
+              # kosmos#7514: a parent's close takes its built subtasks; name them (an older board sends none).
+              _w=$(printf '%s' "$_b" | sed -n 's/.*"closedWith":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
+              [ -z "$_w" ] || _withs="${_withs}Task $_n's built subtasks closed with it: $_w."$'\n'
+              continue ;;
             '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _why="${_why%.}"; _why="${_why:-it did not say why}" ;;
             *) _why="" ;;
           esac
@@ -6271,6 +6275,7 @@ cmd_task() {
           esac
         done
         case "$_ok" in '') ;; *,*) say "Closed tasks $_ok on ${project:-the project}." ;; *) say "Closed task $_ok on ${project:-the project}." ;; esac
+        while IFS= read -r _l; do [ -z "$_l" ] || say "$_l"; done <<< "$_withs"
         while IFS= read -r _l; do [ -z "$_l" ] || say "$_l"; done <<< "$_bad"
         if [ "$_stoprc" -ne 0 ]; then
           case "$_stoprc" in
@@ -6302,7 +6307,10 @@ cmd_task() {
             # An older board ignores replacedBy and closes it as done: say so, never claim a link it did not record.
             if [ -z "$_got" ]; then say "Closed task $num on ${project:-the project}, but this Kosmos did not record what replaced it (it is older than this command). It now reads as done. To undo that: kosmos task reopen $project $num"; exit 1; fi
             say "Closed task $num on ${project:-the project} as replaced by task $_got."
-          else say "Closed task $num on ${project:-the project}."; fi ;;
+          else say "Closed task $num on ${project:-the project}."
+            # kosmos#7514: a parent's close takes its built subtasks; name them (an older board sends none).
+            local _w; _w=$(printf '%s' "$body" | sed -n 's/.*"closedWith":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
+            [ -z "$_w" ] || say "Its built subtasks closed with it: $_w."; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not close that task: ${because:-it did not say why}."; exit 1 ;;
