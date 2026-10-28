@@ -213,10 +213,19 @@ function findUnder(dir, name) {
     chk(liveReply === 'Original message may be in the archive', 'a live reply whose original is archived says it may be in the archive, not "unavailable"', String(liveReply));
     // The reader's place: the first message whose bottom is inside the view, and how far from the top it sits.
     const place = () => p.evaluate(() => { const box = document.getElementById('pj-room'); const q = box.getBoundingClientRect(); const m = [...box.querySelectorAll('.msg')].find((x) => x.getBoundingClientRect().bottom > q.top + 1); const b = m && m.querySelector('.msg-bd > p'); return m ? { text: b ? b.textContent.trim() : '', dy: Math.round(m.getBoundingClientRect().top - q.top) } : null; });
+    /* A place that is NOT the room's top, or Back landing at the top would pass (the failure this arm exists for): the
+       reader scrolls down until only the bottom of the View archive row is showing, and presses it there. Pressed with a
+       DOM click, as a person clicks a button they can see part of: Playwright's click would first scroll it fully into
+       view and move the reader (browser runs 2 and 3 measured "before" ahead of that scroll, and the probe showed the
+       page returning the reader exactly to where the click had left them). */
+    await p.evaluate(() => { const box = document.getElementById('pj-room'); const e = document.getElementById('pj-arch-open').closest('.pj-arch-edge');
+      box.scrollTop = Math.max(0, box.scrollTop + (e.getBoundingClientRect().bottom - box.getBoundingClientRect().top) - 12); });
+    await p.waitForTimeout(300);
     const placeBefore = await place();
+    chk(!!placeBefore && await p.evaluate(() => document.getElementById('pj-room').scrollTop > 0), 'CONTROL: the reader is not at the room\'s top when they open the archive', JSON.stringify(placeBefore));
 
     // View archive.
-    await p.click('#pj-arch-open');
+    await p.evaluate(() => document.getElementById('pj-arch-open').click());
     await p.waitForSelector('#pj-arch-head:not([hidden])', { timeout: 5000 });
     chk(await p.evaluate(() => document.activeElement && document.activeElement.id) === 'pj-arch-back', 'opening the archive moves focus to its header (Back to the room)');
     // Mona Lisa: while the archive is open the composer is one line, with the way back.
